@@ -156,6 +156,13 @@ class ChatViewModel @Inject constructor(
          * Classified on the number alone, like 4001/4007/4090 — see docs/HERMES_CONTRACT.md.
          */
         const val PDF_RENDER_DEPENDENCY_MISSING_CODE = 5028
+        /**
+         * The Connector dropped an answer that was too large to relay and said so in its place.
+         * Declared in `data/network/HermesGatewayClient.kt`; minted by
+         * `connector/src/oversized-frame.ts`.
+         */
+        const val RELAY_RESPONSE_TOO_LARGE_CODE =
+            com.hermes.client.data.network.RELAY_RESPONSE_TOO_LARGE_CODE
     }
 
     /**
@@ -1460,6 +1467,11 @@ class ChatViewModel @Inject constructor(
                 // the Mac first — from the phone every tap repeats the same refusal, which is the
                 // offer HG-29 ruled out. So it is terminal here, with copy that names the cause.
                 val pdfDependencyMissing = rpcCode == PDF_RENDER_DEPENDENCY_MISSING_CODE
+                // A fifth: the Mac answered, but its answer did not fit through the relay. What is
+                // oversized is the conversation — Hermes re-inlines every attachment as base64 on
+                // each read — so it is the same bytes on every attempt and grows from here. The tap
+                // is withheld for the same reason as 5028, and the copy names the conversation.
+                val responseTooLarge = rpcCode == RELAY_RESPONSE_TOO_LARGE_CODE
                 val error = com.hermes.client.data.error.AppError(
                     when {
                         gone -> com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
@@ -1467,11 +1479,12 @@ class ChatViewModel @Inject constructor(
                         handshakeStalled -> com.hermes.client.data.error.AppErrorCode.HANDSHAKE_TIMEOUT
                         pdfDependencyMissing ->
                             com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING
+                        responseTooLarge -> com.hermes.client.data.error.AppErrorCode.SESSION_TOO_LARGE
                         else -> com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
                     },
                     // Decided per code, not by one predicate: every new terminal failure that gets
                     // folded in here has to say so itself, or it inherits a tap it cannot honour.
-                    retryable = !gone && !pdfDependencyMissing,
+                    retryable = !gone && !pdfDependencyMissing && !responseTooLarge,
                     // Keep the numeric code in the copyable diagnostic, not only in DebugLog below:
                     // upstream's prose is the part that can change under us, the number is the part
                     // we classify on, and the user pasting a diagnostic should be handing us both.
@@ -1544,13 +1557,23 @@ class ChatViewModel @Inject constructor(
                             image.mergedWithUpstream(attached.path, attached.width, attached.height)
                         }
                     }
-                    AttachmentKind.PDF -> {
-                        chat.attachPdfPath(handle, uploaded.path)
-                        updateSentFile(messageId, attachment.id) {
-                            it.copy(state = com.hermes.client.domain.FileTransferState.READY)
-                        }
-                    }
-                    AttachmentKind.FILE -> {
+                    // A PDF goes to Hermes as a file, not as pictures of its pages.
+                    //
+                    // `pdf.attach` rasterises every page unconditionally, and Hermes stores the
+                    // result as `@image:` references but re-inlines them as base64 on every read.
+                    // Measured on a 37-page report: 7.5 s to rasterise, 9.44 MiB of PNG, 12.59 MiB
+                    // once inlined — one document, already past the relay's 12 MiB frame ceiling,
+                    // and it is re-sent in full on every `session.resume` thereafter. That is what
+                    // made one conversation kill the tunnel 197 times in 24 minutes (HG-65).
+                    //
+                    // `file.attach` hands over a 125-character `@file:` reference instead — about
+                    // 1,092× smaller — and Hermes tells the model the file is on disk and to use
+                    // its tools on it. Measured on the same document, the model called `read_file`,
+                    // hit `NeedsOcrError` on the one page with no text layer, fell back to the
+                    // terminal, and answered correctly. It costs a few extra tool round-trips and
+                    // loses page geometry (stamps, handwriting, complex table layout); it buys a
+                    // conversation that does not become undeliverable.
+                    AttachmentKind.PDF, AttachmentKind.FILE -> {
                         val attached = chat.attachFilePath(handle, uploaded.path, attachment.name)
                         fileRefs += attached.refText
                         updateSentFile(messageId, attachment.id) {

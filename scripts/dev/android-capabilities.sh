@@ -275,12 +275,16 @@ fi
 if [ "$HR_TARGETSDK_GAP" = "1" ]; then
   echo
   if [ "$HR_DEVICE_COUNT" -gt 1 ]; then
-    echo "GAP: no attached device reaches targetSdk $HR_TARGET_SDK (highest is $HR_DEVICE_MAX_SDK) —"
+    echo "NOTE: no attached device reaches targetSdk $HR_TARGET_SDK (highest is $HR_DEVICE_MAX_SDK)."
   else
-    echo "GAP: device SDK $HR_DEVICE_MAX_SDK < targetSdk $HR_TARGET_SDK —"
+    echo "NOTE: device SDK $HR_DEVICE_MAX_SDK < targetSdk $HR_TARGET_SDK."
   fi
-  echo "     targetSdk-gated platform behaviour cannot be verified on hardware here."
-  echo "     Use L3, or declare it unverified."
+  echo "     This limits ONE kind of change: platform behaviour the app opts into by"
+  echo "     raising targetSdk. For that, use L3 or declare it unverified."
+  echo "     Everything else — visual/layout/copy, notifications, background survival,"
+  echo "     battery optimisation, permission prompts — is fully verifiable on the"
+  echo "     attached device(s). Do not report this line as a gap in a change that"
+  echo "     never touches targetSdk-gated behaviour."
   # An unauthorized phone's SDK cannot be read, so it is not counted — and it may be the
   # very device that would close the gap. Say so rather than state the gap as settled.
   [ -n "$HR_DEVICE_PROBLEM" ] && \

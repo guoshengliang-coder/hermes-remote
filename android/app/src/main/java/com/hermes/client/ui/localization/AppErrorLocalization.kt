@@ -136,6 +136,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
                 "Mac 上的 Hermes 找不到 PDF 渲染依赖，无法附加 PDF。",
                 "Hermes on the Mac can't find its PDF rendering dependency, so the PDF can't be attached.",
             )
+        AppErrorCode.SESSION_TOO_LARGE ->
+            localized(
+                language,
+                "这个会话的内容太大，Mac 无法把它传过来，请开新会话继续。",
+                "This conversation is too large for the Mac to send. Start a new one to continue.",
+            )
         AppErrorCode.SESSION_TRANSCRIPT_UNAVAILABLE ->
             localized(language, "无法读取所选会话的内容，请重试。", "Couldn't read the selected conversation. Retry.")
         AppErrorCode.SESSION_ARCHIVE_FAILED ->
