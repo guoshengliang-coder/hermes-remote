@@ -1467,10 +1467,36 @@ class SessionRuntimeStore(
         watched.forEach { key -> appScope.launch { probe(key, includeIdle = true) } }
     }
 
+    /**
+     * Whether this event means "a turn just produced an answer here", which is the only thing that
+     * may create an unread badge.
+     *
+     * `message.complete` always does. `session.info{running:false}` only does when a turn was
+     * actually in flight — and that distinction is the whole of HG-62. Hermes answers every
+     * `session.resume` with a `session.info{running}`, and the client resumes every session on every
+     * reconnect, so an idle conversation receives this event constantly. Folding it as a completion
+     * marked a conversation from 09-14, five messages, untouched for four days, unread again:
+     *
+     *   s=20260914_094040_ce65ba IDLE→COMPLETED_UNREAD gen=false streaming=0 cause=event:session.info
+     *   reconcile 20260914_094040_ce65ba: 5 messages, accepted=true
+     *
+     * The badge then persisted, so every cold start restored it — which is why the report reads as
+     * "restarting the app marks things unread" when restarting is only when it becomes visible.
+     */
+    private fun saysATurnJustFinished(event: ServerEvent, wasRunning: Boolean): Boolean = when (event.type) {
+        "message.complete" -> true
+        "session.info" -> wasRunning && event.bool("running") == false
+        else -> false
+    }
+
     private fun applyEvent(event: ServerEvent) {
         if (event.type == SESSIONS_CHANGED_EVENT) { onSessionsChanged(); return }
         val key = resolve(event) ?: return
         if (event.type == "message.start") lastActiveKey = key
+        // Whether a turn was in flight when this event arrived. Read BEFORE the fold, because the
+        // fold is what retires the phase, and the unread decision below depends on which of the two
+        // things `session.info{running:false}` is saying — see [saysATurnJustFinished].
+        val wasRunning = _runtimes.value[key]?.phase?.isActive == true
         updateRuntime(key, cause = "event:${event.type}") { runtime ->
             val reduced = try {
                 runtime.chat.reduce(event)
@@ -1498,7 +1524,15 @@ class SessionRuntimeStore(
                 "error" -> SessionRunPhase.FAILED
                 "session.info" -> when (event.bool("running")) {
                     true -> if (runtime.phase.isActive) runtime.phase else SessionRunPhase.THINKING
-                    false -> if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD
+                    // Only a turn that WAS running can have just finished. For an idle conversation
+                    // `running:false` restates a fact, and treating it as a completion is what put
+                    // an unread dot on a four-day-old conversation that had not gained a single
+                    // message (HG-62).
+                    false -> when {
+                        !runtime.phase.isActive -> runtime.phase
+                        isWatched(key) -> SessionRunPhase.IDLE
+                        else -> SessionRunPhase.COMPLETED_UNREAD
+                    }
                     null -> runtime.phase
                 }
                 else -> runtime.phase
@@ -1511,8 +1545,9 @@ class SessionRuntimeStore(
                 }
             } else withTerminalOutput
             val now = System.currentTimeMillis()
-            val terminal = event.type == "message.complete" || event.type == "error" ||
-                (event.type == "session.info" && event.bool("running") == false)
+            // `lastTerminalAt` drives the replay-dedup window, so an idle conversation's routine
+            // `session.info{running:false}` must not keep stamping it (HG-62).
+            val terminal = event.type == "error" || saysATurnJustFinished(event, wasRunning)
             val starting = !runtime.phase.isActive && (
                 event.type == "message.start" ||
                     (event.type == "session.info" && event.bool("running") == true)
@@ -1559,7 +1594,7 @@ class SessionRuntimeStore(
         if (event.type in setOf("tool.complete", "message.complete", "agent.terminal.output")) {
             scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
         }
-        if (event.type == "message.complete" || (event.type == "session.info" && event.bool("running") == false)) {
+        if (saysATurnJustFinished(event, wasRunning)) {
             if (isWatched(key)) markRead(key) else markUnread(key)
             if (event.type == "message.complete" && mediaRepository != null) {
                 // The final WebSocket event may already contain @image or Markdown image output.
