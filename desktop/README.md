@@ -9,7 +9,9 @@ the anonymous 1006 the relay refuses to forward, which cost one conversation the
 twenty-four minutes (HG-65, HG-64) — reaches a Mac only through a managed release, and the release URL
 is baked into `Info.plist` at build time. 0.3.5 was published on 2026-09-19, but a Mac running 0.2.14
 will never look at it: that build asks for 0.3.4 and nothing else, which is why publishing the release
-alone changed nothing on the machine that filed those reports.
+alone changed nothing on the machine that filed those reports. The 0.2.15 DMG is published at
+`https://mrlgs.net/desktop/apps/0.2.15/Hermes-Go-Desktop-0.2.15-dev.dmg`; installing it, and the
+migration to 0.3.5 that follows, are still ahead.
 
 Component release **0.4.1** carries the same Connector on the schema-v2 channel and is also published.
 This build still leaves `HermesGoDesktopComponentManifestURL` empty and component preflight off,
