@@ -566,7 +566,7 @@ class ScreenshotTest {
             ) {
                 // The FAILED rows differ only by error code — that is the point of the golden:
                 // the same delivery state, a different sentence, and (since HG-58) a different
-                // answer to whether the row offers a tap at all.
+                // answer to whether the row offers a tap at all. Two of them withhold it now.
                 listOf(
                     userTurn("h-1", "已发送的消息", com.hermes.client.domain.DeliveryState.SENT) to null,
                     userTurn("u-2", "发送中的消息", com.hermes.client.domain.DeliveryState.SENDING) to null,
@@ -579,6 +579,11 @@ class ScreenshotTest {
                     // compact code still fits on one line at 360dp / fontScale 1.3.
                     userTurn("u-6", "带 PDF 附件的消息", com.hermes.client.domain.DeliveryState.FAILED) to
                         com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING,
+                    // HG-65: the second row that withholds the tap, and in Chinese the wider of
+                    // the two sentences — so in `user-bubble-delivery-zh-360-fs13` this row, not
+                    // SESS-016, is now the one deciding whether the compact code keeps its line.
+                    userTurn("u-7", "会话内容过大的消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.SESSION_TOO_LARGE,
                     userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE) to
                         com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
                 ).forEach { (msg, code) ->

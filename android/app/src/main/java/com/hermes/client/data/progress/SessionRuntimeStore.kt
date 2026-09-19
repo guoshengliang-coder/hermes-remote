@@ -1,7 +1,9 @@
 package com.hermes.client.data.progress
 
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.data.network.GatewayRpcException
 import com.hermes.client.data.network.LifecycleEventDto
+import com.hermes.client.data.network.RELAY_RESPONSE_TOO_LARGE_CODE
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.network.bool
 import com.hermes.client.data.network.str
@@ -578,6 +580,9 @@ class SessionRuntimeStore(
     }
 
     fun bindLiveHandle(key: SessionRuntimeKey, handle: String?) {
+        // A resume got through, so whatever made the last one undeliverable is no longer true.
+        // The user opening the conversation is the retry; the reconnect loop is not.
+        if (!handle.isNullOrBlank()) undeliverableResumes.remove(key)
         aliases[key.sessionId] = key
         if (!handle.isNullOrBlank()) aliases[handle] = key
         _runtimes.update { map ->
@@ -1833,11 +1838,37 @@ class SessionRuntimeStore(
         job.start()
     }
 
+    /**
+     * Conversations whose `session.resume` answer was too large for the relay to deliver.
+     *
+     * Resuming one of these is not a request that might succeed next time: the answer is the whole
+     * transcript with every attachment re-inlined, so it is the same bytes again, and it only grows.
+     * Before this the client asked anyway on every reconnect — 234 `session.resume` calls and zero
+     * answers in HG-65 — and each attempt cost the Mac several seconds of re-reading images to
+     * build a reply nobody could receive.
+     *
+     * Cleared by [bindLiveHandle]: a resume that lands proves the condition is gone.
+     */
+    private val undeliverableResumes = java.util.Collections.newSetFromMap(
+        ConcurrentHashMap<SessionRuntimeKey, Boolean>(),
+    )
+
     private suspend fun resumeRunningSessions() {
         val candidates = _runtimes.value.values.filter {
             it.phase == SessionRunPhase.RECONNECTING && isCurrentDeviceRoute(it.key)
         }
         candidates.forEach { runtime ->
+            if (runtime.key in undeliverableResumes) {
+                // History still reaches the phone — the REST path is chunked, so it is not subject
+                // to the frame ceiling that stopped the resume — and it is what decides whether the
+                // run finished. So the conversation recovers; it just recovers the other way.
+                DebugLog.log("session", "resume after reconnect s=${runtime.key.sessionId} skipped: answer is undeliverable")
+                scheduleHistoryReconciliation(
+                    runtime.key,
+                    expectationFor(runtime).copy(lastAssistantText = ""),
+                )
+                return@forEach
+            }
             runCatching { chatRepository.resume(runtime.key.sessionId, runtime.key.profile) }
                 .onSuccess { handle ->
                     bindLiveHandle(runtime.key, handle)
@@ -1847,6 +1878,9 @@ class SessionRuntimeStore(
                     // Resume can race a task completing while the socket was down. Do not invent
                     // an interruption: lifecycle sync and authoritative history decide whether it
                     // finished, is still running, or genuinely stopped.
+                    if ((error as? GatewayRpcException)?.code == RELAY_RESPONSE_TOO_LARGE_CODE) {
+                        undeliverableResumes.add(runtime.key)
+                    }
                     DebugLog.log("session", "resume after reconnect s=${runtime.key.sessionId} failed: ${error.message}")
                     scheduleHistoryReconciliation(
                         runtime.key,

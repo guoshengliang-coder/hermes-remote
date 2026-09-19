@@ -63,6 +63,29 @@ reads the transcript before retiring a stale phase, so those conversations kept 
 the `text` blocks, keeps a block whose path/URL it can render as `@image:`, and skips block types it
 does not know. The block vocabulary is upstream's — do not assume this list is complete.
 
+**An attachment is stored as a reference and returned as bytes.** The database row for a turn with
+images holds `@image:<path>` — 151 bytes for 75 images in the session above. Hermes re-expands each
+reference into a base64 `data:` URI **at read time**: `session_history.py`'s `_coerce_message_text`
+calls `_history_dict_text(part, image_urls=True)`, and the `False` branch — which renders `[image]`
+instead — is not reachable from any API parameter. Both `session.resume` and
+`GET /api/sessions/{id}/messages` therefore return the same expanded bytes; measured on
+`20260918_204034_16def7`, 26.30 MiB and 26.33 MiB for a conversation whose stored rows total a few
+hundred KB.
+
+This is the single fact behind HG-65. The switch is deliberate — inlining costs nothing between two
+local processes, which is where upstream's Desktop consumes it — but a remote client pays for it on
+every read, the cost is the sum of every attachment the conversation has ever carried, and
+`session.resume` is the first call after each reconnect. One 37-page PDF sent through `pdf.attach`
+(7.5 s to rasterise, 9.44 MiB of PNG, **12.59 MiB** once inlined) was on its own past the relay's
+12 MiB frame ceiling. Nothing in this repository can make an already-inlined answer smaller: the
+client's side of the fix is to stop creating the images (`file.attach` for documents, ~1,092× less
+text) and to survive an answer that cannot be delivered rather than reconnect into it forever.
+
+Making `image_urls` reachable from the API — an `inline_images=false` on `session.resume` and
+`GET /messages` — is the only change that would fix this for plain photographs too. That is an
+upstream request, not a change we can make. `file.attach` already demonstrates the shape: it returns
+`@file:` and read-back does **not** expand it.
+
 ### 2. REST paths
 
 ```
@@ -147,6 +170,18 @@ would reason from a transcript missing the first one's work. Unlike 4001/4007 th
 nor terminal: the same send succeeds once the other side lets go, which is why the phone keeps its
 retry and only names the cause (`HR-SESS-013`, HG-30). Note it is *not* 4009 "busy" — that is the
 session running a turn of its own.
+
+**Nothing routes a PDF to `pdf.attach` any more.** The client sends every document — PDFs
+included — through `file.attach`, which returns an `@file:` reference that Hermes expands at submit
+time. `pdf.attach` rasterises every page unconditionally and Hermes then re-inlines those pages as
+base64 on every read of the conversation, so a single 37-page report produced a 12.59 MiB
+`session.resume` answer and the conversation became undeliverable through the relay (HG-65; the
+full measurement is in the block below on `image_urls`). The reference form costs a few extra tool
+round-trips and loses page geometry, and it is the one that does not grow without bound.
+
+The paragraph below therefore describes a path the client no longer takes. It is kept because
+`HR-SESS-016` is a released code and must keep its meaning, and because `pdf.attach` is still part
+of upstream's surface: anything that routes to it again inherits exactly this behaviour.
 
 **`pdf.attach` answers 5028 when it cannot rasterise a PDF**, and its message —
 "pdftoppm not installed (poppler-utils package required)" — must not be repeated to a user. It
@@ -386,9 +421,21 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 8b. Confirm whether Hermes exposes a versioned missing-capability event with a closed capability kind.
     Never substitute parsing `FeatureUnavailable` or tool-error prose for that event.
 8c. Confirm the four numbers the phone classifies on are still those conditions: `prompt.submit`
-    4001 / 4007 / 4090, and `pdf.attach` **5028**. They are in `ChatViewModel`'s companion object
+    4001 / 4007 / 4090, and `pdf.attach` **5028** (kept for its registered meaning although nothing
+    routes to it now — see section 3). They are in `ChatViewModel`'s companion object
     and nowhere else. A renumber does not error — the failure quietly becomes the generic
     `HR-SESS-007`, which offers a retry that cannot work.
+8g. Measure what one read of a conversation with attachments actually returns. Attach a document
+    and two photographs, then compare the stored row against `session.resume`'s answer:
+
+    ```bash
+    sqlite3 ~/.hermes/state.db "select length(content) from messages order by id desc limit 1"
+    ```
+
+    A stored length in the hundreds of bytes against an answer in the megabytes means read-time
+    inlining is still on and unreachable (section 1b). If a new Hermes accepts `inline_images=false`
+    on `session.resume` or `GET /messages`, that is the upstream fix landing: say so, because the
+    client-side mitigations exist only because it had not.
 8d. Confirm `sessions.changed` is still broadcast, still carries no session id, and is still sent
     when the list moves. It is the only event the app treats as "go and ask" rather than as news
     about one conversation; losing it is silent (a list that stops refreshing itself), so the proof

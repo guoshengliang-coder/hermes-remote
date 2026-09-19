@@ -1019,6 +1019,36 @@ class ChatViewModelTest {
         runCurrent()
     }
 
+    // HG-65: a PDF used to go to `pdf.attach`, which rasterises every page and leaves the
+    // conversation carrying megabytes of base64 that Hermes re-inlines on every read — 12.59 MiB
+    // from one 37-page document, past the relay's frame ceiling on its own. It goes as a file now,
+    // like every other document, and the model reads it with its tools.
+    @Test fun pdf_attachment_goes_to_hermes_as_a_file_reference_not_as_page_images() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "report.pdf") } returns
+            com.hermes.client.data.repository.AttachedFile(
+                name = "report.pdf",
+                path = "/tmp/uploaded",
+                refText = "@file:/tmp/uploaded",
+            )
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.stageAttachment("%PDF-1.4".toByteArray(), "application/pdf", "report.pdf")
+        vm.send("这份报告里有哪些检查项目？")
+        runCurrent()
+
+        coVerify(exactly = 0) { chatRepo.attachPdfPath(any(), any()) }
+        coVerify { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "report.pdf") }
+        // The reference has to reach the prompt, or Hermes never expands it and the model is told
+        // about a file it was never given.
+        coVerify { chatRepo.submit("s1-live", "这份报告里有哪些检查项目？\n@file:/tmp/uploaded") }
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        runCurrent()
+    }
+
     @Test fun stale_submit_resumes_and_retries_once_with_new_handle() = runTest {
         coEvery { chatRepo.resume("s1", null) } returnsMany listOf("live-1", "live-2")
         coEvery { chatRepo.submit("live-1", "hello") } throws

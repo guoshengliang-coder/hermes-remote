@@ -1354,7 +1354,9 @@ private fun MessageBubble(
  *  - SESS-015, the restored send's staged attachments did not survive the restart, so replaying it
  *    would deliver less than the user meant;
  *  - SESS-016, the Mac's Hermes cannot reach its PDF rendering dependency (HG-58) — the fix is on
- *    the Mac, and until it happens every attempt repeats the same 5028.
+ *    the Mac, and until it happens every attempt repeats the same 5028;
+ *  - SESS-017, the conversation's own answer is larger than the relay can carry, and it only ever
+ *    grows, so the next attempt is the same bytes again.
  *
  * SESS-013 is deliberately absent: another client owning the conversation clears by itself, so that
  * one keeps its tap and only names the cause.
@@ -1363,6 +1365,7 @@ internal val TERMINAL_SEND_ERROR_CODES = setOf(
     com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
     com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST,
     com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING,
+    com.hermes.client.data.error.AppErrorCode.SESSION_TOO_LARGE,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1432,6 +1435,10 @@ internal fun UserBubble(
             // error mark already said it did not send, and the prefix costs the code its line at
             // 360dp / fontScale 1.3. Names the Mac, because that is where the fix is.
             localized(language, "Mac 缺少 PDF 渲染依赖", "Mac is missing a PDF renderer")
+        com.hermes.client.data.error.AppErrorCode.SESSION_TOO_LARGE ->
+            // Same shape again: no "未发送 ·" prefix. Names the conversation rather than the
+            // message, because the message is not what is too big — the transcript it lands in is.
+            localized(language, "会话内容过大，无法传输", "Conversation too large to send")
         else -> localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
     }
     val failedCode = failedErrorCode.compact

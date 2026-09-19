@@ -32,6 +32,19 @@ import kotlin.math.pow
 open class GatewayRpcException(val code: Int, message: String) : Exception(message)
 
 /**
+ * The Mac answered this call, but the answer was larger than the relay is willing to carry, so the
+ * Connector dropped it and synthesized this error in its place (`connector/src/oversized-frame.ts`).
+ *
+ * Hand-copied, like every other wire constant we do not own the definition of: it is minted by the
+ * Connector, in JSON-RPC's reserved implementation range so it can never collide with an upstream
+ * Hermes code. Registered as `HR-SESS-017`.
+ *
+ * Nothing the phone does makes the next attempt smaller — the answer is the conversation's whole
+ * transcript with every attachment re-inlined — so this is terminal, not retryable.
+ */
+const val RELAY_RESPONSE_TOO_LARGE_CODE = -32001
+
+/**
  * The socket is up but `gateway.ready` never arrived, so the RPC was never sent. Distinct
  * from a generic transport failure because it has its own registered meaning and its own
  * copy: HR-CONN-003 says the Relay connected and the *handshake* timed out, which is a

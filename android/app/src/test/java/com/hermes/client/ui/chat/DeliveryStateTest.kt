@@ -128,6 +128,30 @@ class DeliveryStateTest {
         assertTrue(error.sanitizedDiagnostic().contains("5028"))
     }
 
+    // HG-65: the sixth shape. The Mac answered and the Connector could not relay the answer
+    // (-32001) — what is oversized is the conversation, not the message, because Hermes re-inlines
+    // every attachment as base64 on each read. Terminal for a reason the others do not share: the
+    // next attempt is not merely as likely to fail, it is the same bytes, and there are more of
+    // them every turn.
+    @Test fun session_too_large_code_is_registered_bilingual_and_not_retryable() {
+        val error = AppError(
+            AppErrorCode.SESSION_TOO_LARGE,
+            retryable = false,
+            technicalCause = "-32001 response is 27577909 bytes, over the 12582912-byte relay frame limit",
+        )
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SESS-017") && en.contains("HR-SESS-017"))
+        assertTrue(zh.any { it.code > 0x4E00 } && zh != en)
+        assertFalse("retrying sends the same 26 MiB again", error.retryable)
+        assertEquals("SESS-017", AppErrorCode.SESSION_TOO_LARGE.compact)
+        assertNotEquals(
+            zh,
+            AppError(AppErrorCode.MESSAGE_SEND_FAILED, retryable = true).localizedMessage(AppLanguage.ZH),
+        )
+        assertTrue(error.sanitizedDiagnostic().contains("-32001"))
+    }
+
     // docs/ERROR_HANDLING.md: "retryable = false means the tap is withheld, not merely
     // discouraged". The bubble decides that from the code, so the set it decides from has to hold
     // every terminal send failure — before HG-58 it did not exist at all and SESS-015 printed
@@ -138,6 +162,7 @@ class DeliveryStateTest {
                 AppErrorCode.SESSION_NOT_FOUND,
                 AppErrorCode.UNSENT_ATTACHMENTS_LOST,
                 AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING,
+                AppErrorCode.SESSION_TOO_LARGE,
             ),
             TERMINAL_SEND_ERROR_CODES,
         )

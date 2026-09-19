@@ -83,6 +83,13 @@ enum class AppErrorCode(val value: String) {
     // makes the next attempt land, so the tap is withheld rather than replayed into the same
     // refusal — the HG-29 rule.
     PDF_RENDER_DEPENDENCY_MISSING("HR-SESS-016"),
+    // The Mac answered, but the answer was too large for the relay to carry, so the Connector
+    // dropped it and said so (`connector/src/oversized-frame.ts`, JSON-RPC -32001). What grows is
+    // the conversation itself: Hermes stores an attachment as a reference but re-inlines it as
+    // base64 on every read, so one 37-page PDF turns a `session.resume` answer into 12.59 MiB and
+    // the whole transcript into 26.3 MiB. Retrying repeats it byte for byte, so the tap is
+    // withheld — the HG-29 rule — and the conversation is still readable through history.
+    SESSION_TOO_LARGE("HR-SESS-017"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
