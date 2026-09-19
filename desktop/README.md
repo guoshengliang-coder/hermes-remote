@@ -1,8 +1,20 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.16** (build 19). Same single change 0.2.15 carried —
-the pinned managed-release manifest points at **0.3.5**, which carries Connector **0.1.4** — republished
-because the 0.2.15 DMG did not contain it.
+Current internal test release candidate: **0.2.17** (build 20). It adds the managed in-app upgrade
+transaction for an already active installation. When the pinned signed release is strictly newer,
+Desktop now offers “下载并验证更新 → 升级并重连”, preserves the existing account credential, binding,
+session token and Hermes data, waits for the old loopback listener to stop before starting the new
+Hermes, and commits only after fresh local and Cloud health. Failure or app restart restores the exact
+previous LaunchAgents, bundled pointer, services and `account_active` journal. Same-version and
+downgrade targets remain read-only.
+
+This candidate keeps the schema-v1 manifest pinned to **0.3.5** and keeps component preflight off.
+A Mac still running a managed release below 0.3.5 can therefore use the new product upgrade path; a
+Mac already on 0.3.5 correctly remains in the connected state without an upgrade action.
+
+0.2.16 (build 19) carried the same single change 0.2.15 carried — the pinned managed-release manifest
+points at **0.3.5**, which carries Connector **0.1.4** — and was republished because the 0.2.15 DMG did
+not contain that configuration.
 
 `build-dmg.sh` runs `build-app.sh` itself, so a DMG built in a separate shell invocation from the
 configured `desktop:app` run silently rebuilt the app with the repository defaults: empty release URL,
