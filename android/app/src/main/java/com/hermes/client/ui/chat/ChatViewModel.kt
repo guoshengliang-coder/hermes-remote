@@ -1734,10 +1734,44 @@ class ChatViewModel @Inject constructor(
         send(prompt)
     }
 
+    /**
+     * Stop the run.
+     *
+     * A refusal used to be swallowed whole: `runCatching { … }.onSuccess { … }` with no other
+     * branch, so a stop that upstream rejected left the button, the spinner and the phase exactly
+     * where they were. In HG-64 the person tapped it eighteen times in six seconds; every answer
+     * that arrived was `session.interrupt ← error 4001: session not found`, and the screen kept
+     * saying 正在运行中 with nothing anywhere admitting the taps had been refused.
+     *
+     * 4001 means upstream has no such live run. Whatever is on screen, this conversation is not
+     * running there, so the phase settles locally and the transcript says the stop was not confirmed
+     * (HR-SYNC-002) rather than claiming a clean interruption we did not observe.
+     */
     fun stop() {
         viewModelScope.launch {
             runCatching { chat.interrupt(sessionId) }
                 .onSuccess { runtimeKey?.let(runtimeStore::markInterrupted) }
+                .onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    val upstreamHasNoSuchRun =
+                        (error as? com.hermes.client.data.network.GatewayRpcException)?.code == STALE_SESSION_CODE
+                    if (upstreamHasNoSuchRun) {
+                        runtimeKey?.let(runtimeStore::markInterrupted)
+                        appendSystem(
+                            localizedText(
+                                "这个任务在 Mac 上已经不在运行了，界面状态已同步（HR-SYNC-002）。",
+                                "This task is no longer running on the Mac; the screen has caught up (HR-SYNC-002).",
+                            ).resolve(appLanguage),
+                        )
+                    } else {
+                        appendError(
+                            localizedText(
+                                "停止没有送达，请检查连接后重试（HR-CONN-004）。",
+                                "The stop didn't go through. Check the connection and retry (HR-CONN-004).",
+                            ),
+                        )
+                    }
+                }
         }
     }
 

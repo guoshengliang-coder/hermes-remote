@@ -950,6 +950,15 @@ class SessionRuntimeStore(
     }
 
     /** Do not let a slower REST response overwrite deltas received after that request started. */
+    /**
+     * [incoming] unless it is equal to [current], in which case the instance already on screen.
+     *
+     * Equality alone does not spare a Compose list from being walked again; identity does, and a
+     * transcript that is refetched on every open is the case where that matters.
+     */
+    private fun sameOrAligned(incoming: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> =
+        if (incoming == current) current else incoming
+
     fun acceptHistory(
         key: SessionRuntimeKey,
         messages: List<ChatMessage>,
@@ -975,10 +984,18 @@ class SessionRuntimeStore(
                     messages = if (keepLive) {
                         runtime.chat.messages
                     } else {
-                        com.hermes.client.ui.chat.inheritStreamFields(
-                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                        // Reuse the list already on screen when the answer says the same thing.
+                        // Every `open()` refetches the whole transcript — the same 47 rows were
+                        // pulled twice in two seconds, and the same 5 rows four times in twenty
+                        // (HG-61) — and handing Compose an equal-but-new list for each of those is
+                        // how re-entering a conversation looked like it was replaying the answer.
+                        sameOrAligned(
+                            com.hermes.client.ui.chat.inheritStreamFields(
+                                com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                                runtime.chat.messages,
+                                runActive = runtime.phase.isActive,
+                            ),
                             runtime.chat.messages,
-                            runActive = runtime.phase.isActive,
                         )
                     },
                     historyLoading = false,
