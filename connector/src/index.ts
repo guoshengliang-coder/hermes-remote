@@ -30,6 +30,7 @@ import { ObserverStateStore } from "./session-observer.js";
 import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
 import { tunnelCloseForApp } from "./tunnel-close.js";
+import { decideOversizedFrame } from "./oversized-frame.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
 // reconnect-churn investigation impossible to correlate with server-side events.
@@ -66,12 +67,25 @@ const chatRequestTimeoutMs = positiveIntEnv("CHAT_REQUEST_TIMEOUT_MS", 10 * 60_0
 const localSocketConnectTimeoutMs = positiveIntEnv("LOCAL_WS_CONNECT_TIMEOUT_MS", 15_000);
 const maxWirePayloadBytes = positiveIntEnv("MAX_WIRE_PAYLOAD_BYTES", 20 * 1024 * 1024);
 /**
- * Ceiling on one frame from the local Hermes. Deliberately below [maxWirePayloadBytes]: every frame
- * is base64'd onto the control channel, so 12 MiB here is ~16 MiB on the wire — raising it to 20
- * would not carry a bigger frame, it would move the failure one hop later and take the whole
- * control channel with it instead of one tunnel.
+ * Ceiling on one frame the Connector will **forward** from the local Hermes. Deliberately below
+ * [maxWirePayloadBytes]: every frame is base64'd onto the control channel, so 12 MiB here is
+ * ~16 MiB on the wire — raising it to 20 would not carry a bigger frame, it would move the failure
+ * one hop later and take the whole control channel with it instead of one tunnel.
+ *
+ * Exceeding it is not fatal any more: see [maxLocalSocketReceiveBytes] and `oversized-frame.ts`.
  */
 const maxLocalSocketPayloadBytes = positiveIntEnv("MAX_LOCAL_WS_PAYLOAD_BYTES", 12 * 1024 * 1024);
+/**
+ * How large a frame `ws` will accept from the local Hermes before it treats the frame as a protocol
+ * violation and destroys the socket. Deliberately far above [maxLocalSocketPayloadBytes], which is
+ * the *forwarding* limit: receiving an oversized frame and dropping it costs one buffer, while
+ * refusing to receive it costs the whole tunnel — every other conversation, the stop button, and
+ * new sessions — and costs it again on every reconnect (HG-65).
+ */
+const maxLocalSocketReceiveBytes = positiveIntEnv(
+  "MAX_LOCAL_WS_RECEIVE_BYTES",
+  64 * 1024 * 1024,
+);
 const maxPendingSocketFrames = positiveIntEnv("MAX_PENDING_WS_FRAMES", 256);
 const maxControlBufferedBytes = positiveIntEnv("MAX_CONTROL_BUFFERED_BYTES", 24 * 1024 * 1024);
 const maxLocalBufferedBytes = positiveIntEnv("MAX_LOCAL_WS_BUFFERED_BYTES", 24 * 1024 * 1024);
@@ -608,7 +622,7 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
     const localUrl = await hermesAuth.websocketUrl(request.path);
     const local = new WebSocket(localUrl, {
       handshakeTimeout: localSocketConnectTimeoutMs,
-      maxPayload: maxLocalSocketPayloadBytes,
+      maxPayload: maxLocalSocketReceiveBytes,
     });
     localSockets.set(request.id, local);
     pendingSocketFrames.set(request.id, []);
@@ -625,6 +639,28 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       const buffer = rawDataToBuffer(data);
       const stats = tunnelStats.get(request.id);
       if (stats) stats.framesToApp += 1;
+      const decision = decideOversizedFrame(buffer, maxLocalSocketPayloadBytes);
+      if (!decision.forward) {
+        // The tunnel stays open. Everything else on it — other conversations, the stop button,
+        // creating a new session — keeps working; only this one answer is lost, and the call that
+        // asked for it gets told so instead of hanging until its 60s timeout.
+        log.error("tunnel.frame_too_large", {
+          tunnel: request.id,
+          bytes: buffer.length,
+          limitBytes: maxLocalSocketPayloadBytes,
+          rpcId: decision.rpcId ?? undefined,
+          answered: decision.replacement !== null,
+        });
+        if (decision.replacement === null) return;
+        sendControl(socket, {
+          type: "tunnel.ws.frame",
+          version: PROTOCOL_VERSION,
+          id: request.id,
+          dataBase64: Buffer.from(decision.replacement, "utf8").toString("base64"),
+          binary: false,
+        });
+        return;
+      }
       if (!isBinary && log.enabled("info")) {
         // Describe the frame by its Hermes event type; the payload itself is never logged. A
         // terminal event is the line an incident reader needs: it says the run ended and which
@@ -652,11 +688,15 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       tunnelStats.delete(request.id);
       const localError = localErrors.get(request.id);
       localErrors.delete(request.id);
+      // The receive ceiling, not the forward limit: a frame over the forward limit is dropped
+      // above and the socket stays open, so by the time `ws` destroys a socket over payload size
+      // it is the 64 MiB one that was exceeded, and naming the other number would send whoever
+      // reads this close reason six hours later after the wrong limit.
       const forwarded = tunnelCloseForApp(
         code,
         reason.toString(),
         localError,
-        maxLocalSocketPayloadBytes,
+        maxLocalSocketReceiveBytes,
       );
       const forwardedCode = forwarded.code;
       const forwardedReason = forwarded.reason;
@@ -683,14 +723,17 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       console.error("Local Hermes WebSocket error", error.message);
       // Keep it: `ws` destroys the socket after this, and the close that follows carries 1006 with
       // no reason — which the gateway cannot forward (safeCloseCode rejects 1006) and turns into a
-      // bare 1011. The phone then has an anonymous failure, reconnects, resumes the same session,
-      // and gets the same oversized frame: HG-65's 197 closes in 24 minutes were one conversation
-      // doing this to itself. The close handler below says what happened instead.
+      // bare 1011, an anonymous failure the phone can only reconnect into. The close handler above
+      // says what happened instead.
+      //
+      // An oversized frame no longer reaches here: HG-65's 197 closes in 24 minutes came from one
+      // 26.3 MiB `session.resume` answer against a 12 MiB ceiling, and that frame is now received
+      // and dropped. What is left is a genuinely unreadable socket, or a frame over 64 MiB.
       localErrors.set(request.id, error.message);
       log.error("tunnel.local_error", {
         tunnel: request.id,
         error: error.message,
-        maxPayloadBytes: maxLocalSocketPayloadBytes,
+        maxPayloadBytes: maxLocalSocketReceiveBytes,
       });
     });
   } catch (error) {
