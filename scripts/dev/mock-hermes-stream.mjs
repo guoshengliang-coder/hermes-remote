@@ -244,6 +244,20 @@ const pendingClarifyAnswers = [];
 let clarifyForm = 0; // rotates: 0 single-choice, 1 multi-select, 2 batch
 /** Answer session.resume WITHOUT the session.info push, the way a real upstream sometimes does. */
 const SILENT_RESUME = process.env.HR_MOCK_SILENT_RESUME === "1";
+
+/**
+ * Answer session.resume with a reply too large for the relay to carry, in bytes.
+ *
+ * Reproduces HG-65, which this stack could not produce at all. Real Hermes stores an attachment
+ * as an `@image:` reference and re-inlines it as base64 on every read, so a conversation that has
+ * carried a rasterised PDF answers `session.resume` with megabytes: 26.30 MiB measured on
+ * 20260918_204034_16def7. The Connector's forward limit is 12 MiB, so the answer never arrived,
+ * and before the fix the whole tunnel died with it — 197 times in 24 minutes, taking every other
+ * conversation down each time.
+ *
+ * HR_MOCK_OVERSIZED_RESUME=14000000 puts the same shape in front of the client locally.
+ */
+const OVERSIZED_RESUME_BYTES = Number(process.env.HR_MOCK_OVERSIZED_RESUME ?? 0);
 const LIVE_ID = "live-mock-1";
 const STORED_ID = "stored-mock-1";
 
@@ -571,6 +585,12 @@ wss.on("connection", (socket) => {
         break;
       }
       case "session.resume": {
+        if (OVERSIZED_RESUME_BYTES > 0) {
+          // The padding stands in for the base64 image runs real Hermes inlines. What matters to
+          // the client is only the size, so this does not pretend to reproduce their structure.
+          reply({ session_id: LIVE_ID, inlined_attachments: "A".repeat(OVERSIZED_RESUME_BYTES) });
+          break;
+        }
         reply({ session_id: LIVE_ID });
         // Hermes' session.info is a response-shaped push, not a guarantee. Real upstreams
         // sometimes answer a resume without one, and because this mock always sent it, the
