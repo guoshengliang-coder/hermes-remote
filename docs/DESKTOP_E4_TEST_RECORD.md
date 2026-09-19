@@ -799,3 +799,62 @@ verification.
 Desktop, so the Mac that reported HG-65/HG-64 still runs the 0.4.0 Connector (0.1.3) until someone
 confirms the change there. schema-v1 `0.3.5` was not published; the rollback channel still ends at
 0.3.4.
+
+## 2026-09-19 managed release 0.3.5 and Desktop 0.2.15 publication
+
+Publishing component release 0.4.1 earlier the same day did not put the Connector fix within reach of
+the Mac that reported HG-65/HG-64, and the reason is worth recording because it is not visible from
+the repository. That Mac's installed Desktop 0.2.14 carries
+
+```
+HermesGoDesktopReleaseManifestURL   = .../desktop/releases/0.3.4/Hermes-Desktop-0.3.4-arm64.manifest.json
+HermesGoDesktopComponentManifestURL = (empty)
+HermesGoComponentPreflightEnabled   = false
+```
+
+and its managed store agrees: `current -> releases/0.3.4`, `migration-state.json` reading
+`schemaVersion: 1`, `releaseVersion: 0.3.4`, `state: account_active`. The schema-v2 component channel
+has never been enabled there. The release URL is written into `Info.plist` at build time
+(`desktop/scripts/build-app.sh`), so a Mac cannot be pointed at a newer release by publishing one —
+publishing 0.3.5 alone would have been just as inert as 0.4.1.
+
+**Managed release 0.3.5** was therefore published on the schema-v1 channel. Hermes Server reuses
+0.3.4's exact artifact (285,054,389 bytes, `8ae357d7…`, downloaded and hash-checked before
+packaging); Connector 0.1.4 is new (37,063,386 bytes, `cc55baf0…`). The 1,306-byte manifest has
+SHA-256 `d7deea4672ed7f4d52ae554e9963f6bfbc4682a633b5e6611aa6eae736c99d16`, and the packaging gate
+derived the approved `desktop-internal-2026-a` public key.
+
+**Desktop 0.2.15/build 18** (`c057a5ccf0e98f64dde1f8ecf5c2d554c6c45be6`, CI and SAST successful) is
+0.2.14 with the pinned release manifest moved to 0.3.5 and nothing else: the component manifest URL
+stays empty and preflight stays off, because which channel a Mac uses is not something a bug fix
+should change. Built from a fresh detached worktree whose `HEAD` matched `origin/main`, with a clean
+tree, after `desktop:assets:test` and all 321 Desktop tests passed. The packaged app's `Info.plist`
+was read back and confirmed to carry 0.2.15/18, the 0.3.5 manifest URL, the empty component URL,
+preflight false, managed bootstrap true, the approved key ID and public key, `hermes-serve-v1`, and
+`LSUIElement=false`. Strict `codesign --verify --deep --strict` passed (ad-hoc, `com.hermesgo.desktop`,
+no Team ID).
+
+The 2,690,709-byte DMG has SHA-256
+`42707f0f545bdc60efd4b00336e299c5e6cdc6982c4373900038028431a98f0b` and is published at
+`https://mrlgs.net/desktop/apps/0.2.15/Hermes-Go-Desktop-0.2.15-dev.dmg`.
+
+Both publications followed the same route: owner-only staging on the HK host, re-hashed there,
+installed as root-owned mode-0644 files under new mode-0755 directories, and routed only after the
+route file's previous hash matched the audited value. `nginx -t` passed and reload completed on each,
+Nginx stayed active, and the Relay health endpoint answered 200 throughout. Full public re-downloads
+reproduced every size and hash; the independent Ed25519 verifier accepted the downloaded 0.3.5
+manifest and both archives, and `hdiutil verify` accepted the downloaded DMG. Directory URLs return
+404 rather than listings, POST to an exact route returns 403, and the 0.3.4 release plus the 0.2.12
+DMG still return 200. Staging and route-backup files were removed.
+
+The DMG serves as `application/octet-stream` rather than the configured `default_type`, which is how
+0.2.12 already serves — nginx's `mime.types` maps `.dmg` before `default_type` applies — so it is the
+established behaviour, not a regression.
+
+**Nothing on any Mac has changed.** 0.2.15 is not installed, no Mac has migrated to 0.3.5, and the
+machine that filed HG-65/HG-64 still runs Desktop 0.2.14 with the 0.3.4 Connector 0.1.3. Installing
+0.2.15 replaces a running app that manages the live Hermes and Connector, and the migration to 0.3.5
+restarts Connector, so it should be done when no phone-side run is in flight. The migration itself
+requires the explicit confirmation in Desktop that exists to obtain a person's consent; it was
+deliberately not automated. This remains an internal ad-hoc build: not Developer ID signed, not
+notarized, not stapled.
