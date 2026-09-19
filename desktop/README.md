@@ -1,22 +1,28 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.15** (build 18). It is 0.2.14 with one value changed:
-the pinned managed-release manifest now points at **0.3.5**, which carries Connector **0.1.4**.
+Current internal test release candidate: **0.2.16** (build 19). Same single change 0.2.15 carried —
+the pinned managed-release manifest points at **0.3.5**, which carries Connector **0.1.4** — republished
+because the 0.2.15 DMG did not contain it.
 
-That one value is the whole reason this version exists. The Connector fix from PR #313 — an oversized
-frame from the local Hermes now closes the tunnel with 1009 and a reason naming the limit, instead of
-the anonymous 1006 the relay refuses to forward, which cost one conversation the entire transport for
-twenty-four minutes (HG-65, HG-64) — reaches a Mac only through a managed release, and the release URL
-is baked into `Info.plist` at build time. 0.3.5 was published on 2026-09-19, but a Mac running 0.2.14
-will never look at it: that build asks for 0.3.4 and nothing else, which is why publishing the release
-alone changed nothing on the machine that filed those reports. The 0.2.15 DMG is published at
-`https://mrlgs.net/desktop/apps/0.2.15/Hermes-Go-Desktop-0.2.15-dev.dmg`; installing it, and the
-migration to 0.3.5 that follows, are still ahead.
+`build-dmg.sh` runs `build-app.sh` itself, so a DMG built in a separate shell invocation from the
+configured `desktop:app` run silently rebuilt the app with the repository defaults: empty release URL,
+managed bootstrap off. The published 0.2.15 DMG wrapped that build and would have replaced a working
+0.2.14 with one that could not manage anything. It was withdrawn rather than replaced in place, because
+these artifacts are served with a one-year `immutable` cache behind a CDN and rewriting bytes under a
+version string cannot be relied on to reach anyone. **Build the DMG and the app in one invocation, with
+the configuration in the same environment, and read the packaged `Info.plist` back out of the mounted
+DMG before publishing.**
+
+That one pinned value is the whole reason this version exists. The Connector fix from PR #313 — an
+oversized frame from the local Hermes now closes the tunnel with 1009 and a reason naming the limit,
+instead of the anonymous 1006 the relay refuses to forward, which cost one conversation the entire
+transport for twenty-four minutes (HG-65, HG-64) — reaches a Mac only through a managed release, and the
+release URL is baked into `Info.plist` at build time. A Mac running 0.2.14 asks for 0.3.4 and nothing
+else, which is why publishing 0.3.5 alone changed nothing on the machine that filed those reports.
 
 Component release **0.4.1** carries the same Connector on the schema-v2 channel and is also published.
-This build still leaves `HermesGoDesktopComponentManifestURL` empty and component preflight off,
-exactly as 0.2.14 did, so which channel a Mac uses does not change here. No Mac has been switched to
-either release yet.
+This build still leaves `HermesGoDesktopComponentManifestURL` empty and component preflight off, exactly
+as 0.2.14 did, so which channel a Mac uses does not change here.
 
 0.2.14 (build 17) gave the managed Hermes server a `PATH`. launchd starts an agent with
 `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, so anything the user had installed was invisible to
