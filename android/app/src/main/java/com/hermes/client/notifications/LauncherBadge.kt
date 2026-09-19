@@ -13,24 +13,37 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * The number drawn on the home-screen icon.
+ * The number drawn on the home-screen icon, or null when it cannot be known yet and the current
+ * badge must be left alone.
  *
  * Unread and needs-you are unioned per session rather than added: a session that is both unread
  * and waiting for an approval is still one thing to go look at, and adding them would overcount
  * exactly the sessions that matter most.
  *
- * [unread] is the persisted unread set, so it legitimately includes sessions no longer in the
- * runtime snapshot — those still draw an unread dot in the session list, and the badge agrees
- * with that list on purpose.
+ * [unread] is intersected with [knownSessions] because the persisted unread set is unbounded and
+ * only shrinks when the user opens that exact conversation. A token whose session no longer
+ * reaches the list can therefore never be cleared, and counting it puts a number on the icon that
+ * nothing inside the app explains or can act on — 0.1.131 shipped exactly that, and one phone sat
+ * at 40 with not a single unread dot anywhere in the app. The rule is now simply: the badge shows
+ * what the session list shows.
+ *
+ * [knownSessions] is null before any list has loaded. Counting zero then would blank the badge on
+ * every cold start and bring it back a moment later, so the caller skips the update instead.
+ *
+ * Sessions waiting on the user are counted whether or not the list knows them: each one has a
+ * notification card the user can act on directly, so the badge is never asking about something
+ * unreachable.
  */
 fun badgeCount(
     unread: Set<String>,
     cards: Map<SessionRuntimeKey, NotificationSpec>,
-): Int {
+    knownSessions: Set<String>?,
+): Int? {
+    if (knownSessions == null) return null
     val needsUser = cards.entries
         .filter { (_, spec) -> spec.kind?.needsUser == true }
         .map { (key, _) -> SessionReadStore.token(key.profile, key.sessionId, key.deviceId) }
-    return (unread + needsUser).size
+    return (unread.intersect(knownSessions) + needsUser).size
 }
 
 /**
