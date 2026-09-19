@@ -1,6 +1,13 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.17** (build 20). It adds the managed in-app upgrade
+Current internal test release candidate: **0.2.18** (build 21). It is 0.2.17 with its pinned
+schema-v1 manifest moved from 0.3.5 to **0.3.6**, which carries Connector **0.1.5** — the release that
+stops an oversized Hermes answer from destroying the tunnel (HG-65). Nothing else about the app
+changed. The rebuild is required, not cosmetic: the manifest URL is written into `Info.plist` at build
+time, so a Mac cannot be pointed at 0.3.6 by publishing it. 0.4.1 and 0.3.5 were each published
+without a matching Desktop and reached nobody; this is that lesson applied.
+
+0.2.17 (build 20) added the managed in-app upgrade
 transaction for an already active installation. When the pinned signed release is strictly newer,
 Desktop now offers “下载并验证更新 → 升级并重连”, preserves the existing account credential, binding,
 session token and Hermes data, waits for the old loopback listener to stop before starting the new
@@ -8,9 +15,9 @@ Hermes, and commits only after fresh local and Cloud health. Failure or app rest
 previous LaunchAgents, bundled pointer, services and `account_active` journal. Same-version and
 downgrade targets remain read-only.
 
-This candidate keeps the schema-v1 manifest pinned to **0.3.5** and keeps component preflight off.
-A Mac still running a managed release below 0.3.5 can therefore use the new product upgrade path; a
-Mac already on 0.3.5 correctly remains in the connected state without an upgrade action.
+0.2.17 kept the schema-v1 manifest pinned to **0.3.5** and component preflight off, so a Mac already
+on 0.3.5 correctly stayed connected with no upgrade action — which is exactly why the Connector fix
+needed 0.2.18 as well as 0.3.6.
 
 0.2.16 (build 19) carried the same single change 0.2.15 carried — the pinned managed-release manifest
 points at **0.3.5**, which carries Connector **0.1.4** — and was republished because the 0.2.15 DMG did
