@@ -30,9 +30,14 @@ class HermesNotifier(
 
     fun ensureChannels(language: AppLanguage = languages.current) {
         val sys = context.getSystemService(NotificationManager::class.java)
-        fun channel(id: String, name: String, importance: Int, description: String) {
+        // `showBadge` only takes on a channel that does not exist yet, so this states the intended
+        // default for fresh installs and leaves everyone else's channels alone; rotating the ids to
+        // force it would throw away the notification settings the user has chosen. It is also not
+        // what makes a badge appear on Huawei/HONOR — see [LauncherBadge].
+        fun channel(id: String, name: String, importance: Int, description: String, badge: Boolean = true) {
             sys.createNotificationChannel(NotificationChannel(id, name, importance).apply {
                 this.description = description
+                setShowBadge(badge)
             })
         }
         channel(
@@ -58,12 +63,16 @@ class HermesNotifier(
             localized(language, "运行进度", "Run progress"),
             NotificationManager.IMPORTANCE_LOW,
             localized(language, "运行中的任务进度，静默常驻", "Silent, ongoing progress of running tasks"),
+            // An ongoing card is the user watching work happen, not something unread waiting.
+            badge = false,
         )
         channel(
             Notif.CHANNEL_SERVICE,
             localized(language, "后台连接", "Background connection"),
             NotificationManager.IMPORTANCE_MIN,
             localized(language, "后台保持连接时的常驻通知", "Shown while the background connection is kept alive"),
+            // Keeping a connection is not news; a badge for it would never clear.
+            badge = false,
         )
         channel(
             Notif.CHANNEL_UPDATES,
@@ -116,13 +125,19 @@ class HermesNotifier(
 
     fun cancel(id: Int) = mgr.cancel(id)
 
-    fun postSummary(summary: NotificationSummary) {
+    /**
+     * [badge] is the launcher count. Only the group summary carries it: a launcher that draws
+     * numbers sums `number` across an app's cards, so putting it on each card would multiply it.
+     * This is best-effort — the phones that actually need a badge get it from [LauncherBadge].
+     */
+    fun postSummary(summary: NotificationSummary, badge: Int = 0) {
         if (!mgr.areNotificationsEnabled()) return
         val label = summary.label(languages.current)
         val n = NotificationCompat.Builder(context, Notif.CHANNEL_COMPLETED)
             .setSmallIcon(R.drawable.ic_stat_hermes)
             .setContentTitle("Hermes GO")
             .setContentText(label)
+            .setNumber(badge)
             .setStyle(NotificationCompat.InboxStyle().setSummaryText(label))
             .setGroup(Notif.GROUP_SESSIONS)
             .setGroupSummary(true)

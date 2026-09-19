@@ -39,6 +39,7 @@ class SessionNotificationCoordinator @Inject constructor(
     private val languages: AppLanguageProvider,
     private val profiles: ProfileManager,
     private val sessions: SessionRepository,
+    private val badge: LauncherBadge,
     private val appScope: CoroutineScope,
 ) {
     private val started = AtomicBoolean(false)
@@ -77,6 +78,9 @@ class SessionNotificationCoordinator @Inject constructor(
                 // a key leaving the restored set usually coincides with a runtime change, but
                 // markRead clears it without necessarily moving the phase.
                 runtimes.restoredKeys,
+                // The badge counts unread sessions, and markRead can clear one without moving any
+                // phase — without this the icon would keep a count the session list has dropped.
+                runtimes.unreadTokens,
                 foreground,
                 settings.prefs.onEach { prefs = it; prefsLoaded = true },
                 actionStates,
@@ -133,6 +137,9 @@ class SessionNotificationCoordinator @Inject constructor(
         actionStates.update { states ->
             states.filterKeys { key -> plan.cards[key]?.kind?.needsUser == true }
         }
+        // Counted from the plan rather than the shade: a card suppressed because the user is
+        // looking at that very chat is not something the icon should still be asking about.
+        val badgeNumber = badgeCount(runtimes.unreadTokens.value, plan.cards)
         run {
             val ops = diffPlan(posted, postedSummary, plan)
             ops.forEach { op ->
@@ -140,7 +147,7 @@ class SessionNotificationCoordinator @Inject constructor(
                     when (op) {
                         is NotificationOp.Post -> notifier.post(op.spec)
                         is NotificationOp.Cancel -> notifier.cancel(op.id)
-                        is NotificationOp.Summary -> op.summary?.let { notifier.postSummary(it) } ?: notifier.cancelSummary()
+                        is NotificationOp.Summary -> op.summary?.let { notifier.postSummary(it, badgeNumber) } ?: notifier.cancelSummary()
                     }
                 }.onFailure { DebugLog.log("notif", "apply $op failed: ${it.message}") }
             }
@@ -148,6 +155,9 @@ class SessionNotificationCoordinator @Inject constructor(
             posted.putAll(plan.cards)
             postedSummary = plan.summary
         }
+        // Outside the ops loop: the OEM badge is not a notification and has to be corrected even
+        // when the shade itself did not change — the last unread being read is exactly that case.
+        badge.apply(badgeNumber)
     }
 
     /** The user swiped the session card away; do not repost it until its state changes. */

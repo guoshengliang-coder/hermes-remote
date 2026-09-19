@@ -325,3 +325,25 @@ adb -s <serial> shell rm /sdcard/Pictures/<测试图片>
   不是回归。所以：**重录时用 `--tests` 精确到你要的那个测试类**，重录完一定看 `git status`，
   出现无关 golden 就还原它们、再用校验模式确认还原后仍然通过。把这类噪声提交进去，下一个人就
   再也分不清哪张 golden 是被真正改动过的。
+
+- **荣耀/华为不画 Android 原生的通知圆点，角标必须由 App 自己上报。** 2026-09-19 在 HONOR
+  CLK-AN00（MagicOS / Android 14 / SDK 34）实测：系统角标总开关开着、系统里这个 App 的
+  「显示角标」开着、七个渠道的 `showBadge` 全是 `true`、「任务完成」通知已经发出并且状态栏能
+  看到图标——桌面图标依然**一个角标都没有**，而两个图标之外的微信正显示着 55。EMUI/MagicOS
+  这一系根本不渲染 AOSP 的 notification dot，数字只认 `content://com.hihonor.android.launcher.settings/badge/`
+  （老华为是 `com.huawei.android.launcher.settings`）的 `change_badge` 调用。代码在
+  `notifications/LauncherBadge.kt`，同一台机器上补完之后角标立刻出现，读完会话后归零。
+  **别再去翻系统设置找开关**——开关本来就是开的，缺的是这次调用。
+
+- **判断角标有没有出来只能看截图，不能读控件树。** 系统通知计数会写进无障碍标签
+  （`content-desc="微信  55 条通知"`），但**厂商 provider 设上去的角标不会**——`uiautomator dump`
+  里只有 `content-desc="Hermes GO"`，截图上却明明画着红色的 1（2026-09-19，同上机型）。拿
+  `content-desc` 当判据会得出"角标没生效"的错误结论。
+
+- **荣耀会把 `IMPORTANCE_HIGH` 的渠道压成 DEFAULT。** 同机实测，代码里声明 `IMPORTANCE_HIGH`
+  的 `attention` 渠道，落到系统里是 `mImportance=3`、`mOriginalImp=4`、`mUserLockedFields=4`。
+  也就是说「需要处理」这类通知在荣耀上**不会横幅弹出**。验证通知优先级时别拿荣耀当基准。
+
+- **通知链路在新装的机器上是双重关闭的。** `POST_NOTIFICATIONS` 系统权限默认没授予（`dumpsys
+  notification` 里是 `importance=NONE`），App 内的「启用通知」总开关也默认 `false`。两个都打开
+  之前一条通知都发不出来，自然也不可能有角标。测通知相关的东西，先确认这两处。
