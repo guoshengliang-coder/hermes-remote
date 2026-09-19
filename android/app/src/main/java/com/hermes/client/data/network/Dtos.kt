@@ -1,7 +1,20 @@
 package com.hermes.client.data.network
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.nullable
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 @Serializable data class StatusDto(val ok: Boolean = true)
 
@@ -54,7 +67,12 @@ import kotlinx.serialization.Serializable
     // The gateway returns a numeric message id, and content may be null (e.g. tool-only turns).
     val id: Int? = null,
     val role: String,
-    val content: String? = null,
+    /**
+     * Usually a plain string. A turn that carried attachments comes back as an ARRAY of content
+     * blocks instead, which is why this goes through [MessageContentSerializer] — see its comment
+     * for what one such row used to cost.
+     */
+    @Serializable(with = MessageContentSerializer::class) val content: String? = null,
     /**
      * Hermes' own column name for the message time: `timestamp REAL NOT NULL`, Unix **seconds** as
      * a float (docs/HERMES_CONTRACT.md §1b). Every message has one — the column is NOT NULL.
@@ -83,6 +101,73 @@ import kotlinx.serialization.Serializable
     @SerialName("tool_name") val toolName: String? = null,
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
+
+/**
+ * Reads a message's `content` whether upstream wrote a string or a list of content blocks.
+ *
+ * Hermes stores most turns as a plain string, but a turn carrying attachments comes back as
+ * `[{"type":"text","text":"…"}, {"type":"image_url", …}]`. The client modelled only the string, so
+ * a single such row did not lose that row -- it made the WHOLE `/api/sessions/{id}/messages`
+ * response unparseable, and the chat screen showed 无法加载历史消息 for a conversation whose other
+ * fifty turns were perfectly readable (HG-64). It also silently disabled the finished-run self-heal
+ * (HG-59), which has to read the transcript before it can retire a stale phase, so those
+ * conversations kept spinning too (HG-61).
+ *
+ * Flattening here rather than at every call site keeps `content` a String for
+ * [com.hermes.client.domain] and keeps the tolerance in one place. The shape is upstream's and we
+ * can neither own it nor version-negotiate it (docs/HERMES_CONTRACT.md §1b), so this is deliberately
+ * wide: an unknown block type is skipped, never thrown on.
+ */
+object MessageContentSerializer : KSerializer<String?> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("com.hermes.client.data.network.MessageContent", PrimitiveKind.STRING).nullable
+
+    override fun deserialize(decoder: Decoder): String? {
+        // A non-JSON decoder (a test fixture, a future format) still gets the old behaviour.
+        val json = decoder as? JsonDecoder ?: return decoder.decodeString()
+        return flatten(json.decodeJsonElement())
+    }
+
+    override fun serialize(encoder: Encoder, value: String?) {
+        if (value == null) encoder.encodeNull() else encoder.encodeString(value)
+    }
+
+    private fun flatten(element: JsonElement): String? = when (element) {
+        // JsonNull is a JsonPrimitive, and contentOrNull already answers null for it.
+        is JsonPrimitive -> element.contentOrNull
+        is JsonArray -> element.mapNotNull(::blockText).joinToString("\n").ifBlank { null }
+        is JsonObject -> blockText(element)
+    }
+
+    private fun blockText(element: JsonElement): String? {
+        if (element is JsonPrimitive) return element.contentOrNull?.takeIf { it.isNotBlank() }
+        val block = element as? JsonObject ?: return null
+        (block["text"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }?.let { return it }
+        return attachmentReference(block)
+    }
+
+    /**
+     * A non-text block is only worth keeping when it names something the app can actually show, and
+     * the one grammar the renderer already understands is `@image:` (docs/HERMES_CONTRACT.md §4).
+     * Anything else -- an inline base64 payload, a block type we have never seen -- is dropped
+     * rather than turned into a placeholder the user would have to read.
+     */
+    private fun attachmentReference(block: JsonObject): String? {
+        val direct = ATTACHMENT_REFERENCE_KEYS.firstNotNullOfOrNull {
+            (block[it] as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.isNotBlank() }
+        }
+        val nested = (block["image_url"] as? JsonObject)
+            ?.let { (it["url"] as? JsonPrimitive)?.contentOrNull }
+            ?.takeIf { it.isNotBlank() }
+        val reference = (direct ?: nested)?.trim() ?: return null
+        val renderable = reference.startsWith("/") ||
+            reference.startsWith("http://") ||
+            reference.startsWith("https://")
+        return if (renderable) "@image:" + reference else null
+    }
+
+    private val ATTACHMENT_REFERENCE_KEYS = listOf("url", "path", "file_path", "source")
+}
 
 @Serializable data class ProfileDto(
     val name: String,

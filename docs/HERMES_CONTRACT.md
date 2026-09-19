@@ -52,6 +52,17 @@ Also consumed from the same rows: `id`, `role`, `content`, `reasoning` / `reason
 `tool_calls`, `tool_call_id`, `tool_name`, `display_kind`, `display_metadata`. A column Hermes
 renames disappears silently — deserialization yields null, never an error.
 
+**`content` is not always a string.** A turn that carried attachments comes back as a list of
+content blocks — `[{"type":"text","text":"…"}, {"type":"image_url", …}]` — observed on
+2026-09-18 in session `20260918_204034_16def7` (HG-64). A renamed column fails softly; this one does
+not: kotlinx abandons the whole document rather than the row, so ONE such turn made the entire
+`/api/sessions/{id}/messages` response unreadable and the chat screen showed 无法加载历史消息 for a
+conversation whose other fifty rows were fine. It also disabled the finished-run self-heal, which
+reads the transcript before retiring a stale phase, so those conversations kept showing 正在运行中
+(HG-61). `data/network/Dtos.kt` `MessageContentSerializer` accepts string, null and block list, joins
+the `text` blocks, keeps a block whose path/URL it can render as `@image:`, and skips block types it
+does not know. The block vocabulary is upstream's — do not assume this list is complete.
+
 ### 2. REST paths
 
 ```
@@ -381,6 +392,12 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
     when the list moves. It is the only event the app treats as "go and ask" rather than as news
     about one conversation; losing it is silent (a list that stops refreshing itself), so the proof
     is a diagnostic log showing the line during an upstream-started run.
+8e. Confirm what shapes `content` comes back in (section 1b). The client accepts a string, null and
+    a block list; a new block *type* is skipped safely, but a new container — content as an object,
+    or blocks nested one level deeper — is not covered, and a shape the parser refuses costs the
+    whole transcript rather than the row. Cheapest proof: send one turn with an image from each
+    client, then read the stored rows back with `sqlite3 ~/.hermes/state.db "select content from
+    messages order by id desc limit 5"`.
 9. **Read the source, not the notes.** See below.
 
 ## Known hazards
