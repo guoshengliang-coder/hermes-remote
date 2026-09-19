@@ -1,6 +1,9 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.14** (build 17). It gives the managed Hermes server a
+Current internal test release candidate: **0.2.14** (build 17). Component release **0.4.1** is
+published and carries Connector 0.1.4, whose tunnel now names an oversized local frame (1009 plus the
+limit) instead of dying as an anonymous 1006 that cost one conversation the whole transport for
+twenty-four minutes (HG-65, HG-64); no Mac has been switched to it yet. It gives the managed Hermes server a
 `PATH`. launchd starts an agent with `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, so anything the
 user had installed was invisible to it: a PDF attachment from the phone was refused with
 `pdf.attach 5028 "pdftoppm not installed"` on a Mac where `pdftoppm` had been installed four and a half

@@ -747,3 +747,55 @@ The 0.2.11 rollback URL still returns HTTP 200, while POST to the new exact rout
 This remains an internal ad-hoc build. It is not Developer ID signed, notarized, or stapled. Physical
 MacBook acceptance must still confirm the selected-device Overview and Dock behavior after installing
 0.2.12.
+
+## 2026-09-19 component release 0.4.1 publication
+
+PR #313 changed what the Connector binary does: an oversized frame from the local Hermes now closes
+the tunnel with 1009 and a reason naming the limit, instead of the anonymous 1006 the relay refuses
+to forward. PR #314 then allocated Connector 0.1.4 and merged as
+`aae4b2f72f62b551dbc7279fd64eff821ba195ac`; the release commit's CI, SAST and Gateway OCI workflows
+all completed successfully. The same content could not ship as 0.1.3, which is what component release
+0.4.0 already carries.
+
+Packaged from two fresh detached worktrees — this repository at the release commit, and
+`hermes-agent` at the pinned `f159e581c7afd22a5c94652c569e3859f1b994d2` — with clean trees.
+
+**Only the Connector was rebuilt.** The other three components reuse 0.4.0's exact published
+artifacts, downloaded and hash-checked before packaging. That is not only economy: rebuilding them
+from the inputs available on this machine does **not** reproduce them. `hermes_core` did come back
+byte-identical (`f173c0f6…`), but `python_runtime` rebuilt to `7561866a…` against 0.4.0's
+`0b4f4479…` — 269,440,138 bytes against 48,062,625, because the 0.3.4 managed install's
+`runtime/site-packages` is a full installed set rather than the bootstrap venv 0.4.0 was built from —
+and `node_runtime` rebuilt to `632317…` against `25d90ef6…`. Anyone repeating this must reuse the
+published artifacts rather than trust a rebuild to match. (`/Users/bs/.local/bin/node` is also a
+symlink, which the component gate rejects; the real path has to be given.)
+
+| Component | Version | Size | SHA-256 | Content SHA-256 |
+|---|---|---|---|---|
+| python_runtime | 3.11.15 | 48,062,625 | `7af79386…` | `0b4f4479…` (reused from 0.4.0) |
+| hermes_core | 0.21.0 | 17,762,179 | `09dc9bc7…` | `f173c0f6…` (reused from 0.4.0) |
+| node_runtime | 22.23.2 | 36,999,070 | `3d5fd7a8…` | `25d90ef6…` (reused from 0.4.0) |
+| connector | 0.1.4 | 62,944 | `409febac…` | `e6dae772…` (new) |
+
+The 3,816-byte manifest has SHA-256
+`997ba7da356d0c4dd2ae4208a808367850c8c8ab07d4a40e6353ed31ffd10cd8`. The packaging gate derived the
+public key `vhY90f6lZlNjbin2kY0zRh4OPxb-ROou9uO-dZ-bhxA`, matching the approved
+`desktop-internal-2026-a` identity; the independent verifier accepted the local output.
+
+Uploaded to an owner-only staging directory on the HK host, re-hashed there against the packaging
+output, then installed as root-owned mode-0644 files under a new mode-0755
+`/srv/hermes-desktop-components/0.4.1`. The route file was appended only after its previous hash
+matched the audited `da5c3efe1f932275ff6a9060f670ccd0ee08b8af30da1966988b9a9f4e601387`; `nginx -t`
+passed, reload completed, Nginx stayed active and the Relay health endpoint still answered 200.
+
+A full public re-download of all five files reproduced the exact sizes and hashes, with
+`application/json`/`application/gzip` content types, one-year immutable caching and `nosniff`, and the
+independent Ed25519 verifier accepted the downloaded manifest plus all four downloaded archives. The
+0.4.0 manifest still returns 200, the 0.4.1 directory itself returns 404 rather than a listing, and
+POST to an exact route is rejected with 403. Staging and route-backup files were removed after
+verification.
+
+**This publication did not switch any Mac to 0.4.1.** Activation is a separate confirmation in
+Desktop, so the Mac that reported HG-65/HG-64 still runs the 0.4.0 Connector (0.1.3) until someone
+confirms the change there. schema-v1 `0.3.5` was not published; the rollback channel still ends at
+0.3.4.
