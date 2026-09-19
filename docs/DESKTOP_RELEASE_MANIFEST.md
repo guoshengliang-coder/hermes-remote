@@ -36,6 +36,13 @@ the workspace. If migration and cleanup both fail, the residual workspace is exp
 already committed, cleanup failure retains a cleanup-only retry and reports `HR-MIGRATE-005` instead
 of pretending that the active Connector rolled back or offering another install.
 
+For an active installation, preparation records an upgrade intent only when the signed release is a
+strict semantic-version increase. Commit routes that intent to the coordinator's upgrade transaction;
+it does not call binding creation, binding confirmation, credential writing, or session-token creation.
+The schema-v2 executor applies the same rule to its verifier-issued component manifest. The version
+shown before download for schema-v1 is only a hint parsed from the canonical manifest filename; the
+downloaded signed manifest remains authoritative and is compared again before mutation.
+
 A TLS response alone is never an install authorization. The signature and artifact hashes are the
 authorization. Desktop never executes an unverified download or extracts into a legacy/Hermes path.
 
@@ -231,6 +238,18 @@ prove either the candidate or rollback Connector. A pre-commit failure stops Con
 Hermes, restores the exact legacy LaunchAgent when applicable, restores the previous managed pointer,
 and records the safe terminal state. An ambiguous remote commit stops both managed services and
 enters manual attention without guessing that legacy should become authoritative.
+
+An upgrade first stores the exact two existing LaunchAgent byte streams and the previous bundled
+`current` target beneath the owner-only managed state directory. It then records an upgrade journal
+whose last-known-good mode is `account`, while the snapshot retains both the previous and target
+release layouts and the journal retains the exact binding.
+After launchd unloads the old labels, a direct TCP loopback probe must observe the old listener
+gone; label removal alone is not sufficient because a draining Hermes process can retain port 9119.
+Only then may the new Hermes start. Successful commit requires new Hermes readiness and a strictly
+newer Cloud health timestamp after the same Connector binding restarts. Before commit, any failure or
+restart recovery stops the candidate, restores the snapshot and pointer, restarts the old Hermes then
+Connector, proves the same binding healthy, and restores the old `account_active` journal. The private
+snapshot is removed only after commit or proven rollback.
 
 ## Publication and rollout gates
 

@@ -236,6 +236,15 @@ The current automated suite covers:
   `127.0.0.1:9119` commit gate;
 - the production migration coordinator passes a 75-poll window to candidate readiness, covering the
   measured 35-second physical-Mac cold start while tests can still inject shorter deterministic limits;
+- an active managed release exposes upgrade only for a strictly newer signed target; preparation
+  routes to upgrade for both schema-v1 and schema-v2, while same-version/downgrade inputs fail before
+  service mutation;
+- managed upgrade never invokes binding creation/confirmation, preserves the exact binding ID and
+  generation, stops Connector before Hermes, waits for the old 9119 listener to disappear, then starts
+  Hermes before Connector and requires a strictly newer Cloud health timestamp;
+- candidate failure restores byte-identical LaunchAgents, the previous bundled `current` pointer,
+  both old services and the old `account_active` journal; restart recovery uses the same durable
+  snapshot and leaves manual attention only when that restoration cannot be proved;
 - restart inspection recognizes only an `account_active` journal plus both exact managed LaunchAgents
   as active; intermediate journals recover before a second install and mismatches fail closed;
 - overview Agent reduction prefers that exact active managed installation over a stopped legacy

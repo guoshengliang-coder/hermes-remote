@@ -121,6 +121,14 @@ Connector may start; pre-commit rollback stops both managed services before rest
 Each launchd mutation waits for the exact label to converge, so a successful `bootout` whose removal
 finishes asynchronously cannot be mistaken for a failed migration or a completed rollback.
 
+The signed path also handles an already active managed installation when the verified target is a
+strictly newer semantic version. Upgrade preserves the account credential, binding ID/generation,
+Hermes data, and local session token. Before rewriting either LaunchAgent it stores an owner-only exact
+snapshot; it stops Connector before Hermes, waits until the old loopback listener on port 9119 has
+actually disappeared, then starts Hermes before Connector and requires fresh local plus Cloud health.
+Failure or app restart restores the exact prior LaunchAgents and bundled `current` pointer and proves
+the old service pair healthy before returning the journal to `account_active`.
+
 When the Gateway separately advertises `accountDeletion`, Desktop exposes a danger-zone flow that
 requires typed `DELETE`, an explicit permanence acknowledgement, and a fresh email code. It revokes
 the Cloud account and then clears only the Desktop management session; the Connector machine identity
@@ -170,6 +178,9 @@ pass, and the legacy connection remains available. Local evidence and remaining 
   credentials, LaunchAgents, processes, or bindings. Closing the confirmation removes the private
   workspace. A committed install that cannot clean temporary files exposes only a cleanup retry and
   never offers a second install.
+- An active managed release offers “升级并重连” only for a strictly newer pinned or signed component
+  release. Same-version and downgrade requests remain read-only. Upgrade never calls binding creation
+  or confirmation and never rewrites the account credential or local session token.
 - On a later Desktop launch, an `account_active` journal plus both exact managed LaunchAgents is shown
   as the active installation. An intermediate journal is recovered before any new install is allowed;
   mismatched journal/service state fails closed with a registered migration issue. A completed rollback

@@ -302,9 +302,17 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         if let accountError = error as? AccountClientError {
             return account(accountError)
         }
+        let candidateFailed: Bool = switch error as? DesktopMigrationCoordinatorError {
+        case .hermesStopTimedOut, .hermesHealthTimedOut, .healthTimedOut, .commitNotApplied:
+            true
+        default:
+            false
+        }
         let code: DesktopIssueCode = if error as? DesktopLaunchAgentControllerError == .duplicateConnector {
             .migrationConnectorMismatch
-        } else if terminalState == .legacyActive || terminalState == .cleanUninstalled {
+        } else if candidateFailed
+            || terminalState == .legacyActive
+            || terminalState == .cleanUninstalled {
             .migrationCandidateFailed
         } else {
             .migrationPreflightFailed

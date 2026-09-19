@@ -4,6 +4,7 @@ import SwiftUI
 struct ComponentPreflightCard: View {
     let presentation: DesktopComponentPreflightPresentation
     let canBegin: Bool
+    let isUpgrade: Bool
     let operation: DesktopComponentBootstrapOperation
     let cleanupRetryAvailable: Bool
     let prepare: () -> Void
@@ -115,7 +116,7 @@ struct ComponentPreflightCard: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("下载缺失组件", action: prepare)
+                    Button(isUpgrade ? "下载并验证更新" : "下载缺失组件", action: prepare)
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
                 }

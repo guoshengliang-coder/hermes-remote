@@ -15,6 +15,8 @@ public enum DesktopMigrationCoordinatorError: Error, Equatable, Sendable {
     case confirmationRequired
     case invalidStartingState
     case invalidBindingState
+    case releaseNotNewer
+    case hermesStopTimedOut
     case hermesHealthTimedOut
     case healthTimedOut
     case commitNotApplied
@@ -60,6 +62,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     private let installer: DesktopManagedInstaller
     private let launchAgent: DesktopLaunchAgentController<Runner>
     private let hermesReadiness: any DesktopHermesCandidateReadinessChecking
+    private let hermesShutdown: any DesktopHermesShutdownChecking
     private let maximumHealthPolls: Int
     private let healthPollDelayNanoseconds: UInt64
 
@@ -70,6 +73,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         launchAgent: DesktopLaunchAgentController<Runner>,
         hermesReadiness: any DesktopHermesCandidateReadinessChecking
             = DesktopHermesCandidateReadinessChecker(),
+        hermesShutdown: any DesktopHermesShutdownChecking = DesktopHermesShutdownChecker(),
         maximumHealthPolls: Int = 75,
         healthPollDelayNanoseconds: UInt64 = 1_000_000_000
     ) throws {
@@ -81,6 +85,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         self.installer = installer
         self.launchAgent = launchAgent
         self.hermesReadiness = hermesReadiness
+        self.hermesShutdown = hermesShutdown
         self.maximumHealthPolls = maximumHealthPolls
         self.healthPollDelayNanoseconds = healthPollDelayNanoseconds
     }
@@ -128,6 +133,187 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             runID: runID,
             confirmation: confirmation
         )
+    }
+
+    public func upgrade(
+        manifest: DesktopReleaseManifest,
+        sources: [DesktopManagedReleaseSource],
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        try await upgrade(
+            candidate: .bundled(manifest: manifest, sources: sources),
+            hermesLaunchAgentConfiguration: hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: launchAgentConfiguration,
+            runID: runID,
+            confirmation: confirmation
+        )
+    }
+
+    public func upgradeComponentRelease(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        guard Self.validComponentCandidate(manifest: manifest, activationPlan: activationPlan) else {
+            throw DesktopComponentReleaseActivationError.invalidManifest
+        }
+        return try await upgrade(
+            candidate: .components(manifest: manifest, activationPlan: activationPlan),
+            hermesLaunchAgentConfiguration: hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: launchAgentConfiguration,
+            runID: runID,
+            confirmation: confirmation
+        )
+    }
+
+    private func upgrade(
+        candidate: ReleaseCandidate,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        guard confirmation == Self.confirmationText(releaseVersion: candidate.releaseVersion) else {
+            throw DesktopMigrationCoordinatorError.confirmationRequired
+        }
+        let operationLease = try journal.acquireOperationLease()
+        defer { withExtendedLifetime(operationLease) {} }
+        guard let installed = try journal.load(),
+              installed.state == .accountActive,
+              installed.lastKnownGoodMode == .account,
+              let bindingID = installed.bindingID,
+              let bindingGeneration = installed.bindingGeneration,
+              Self.version(candidate.releaseVersion, isNewerThan: installed.releaseVersion),
+              launchAgentConfiguration.hermesBaseURL
+                == hermesLaunchAgentConfiguration.runtimeContract.baseURL
+        else { throw DesktopMigrationCoordinatorError.releaseNotNewer }
+        let services = try launchAgent.inspect()
+        let currentAccount = try await account.refresh()
+        guard services.accountLoaded, services.hermesLoaded, !services.legacyLoaded,
+              hasExactBoundBinding(
+                currentAccount,
+                bindingID: bindingID,
+                generation: bindingGeneration
+              ),
+              isCommitted(currentAccount, bindingID: bindingID, generation: bindingGeneration)
+        else { throw DesktopMigrationCoordinatorError.invalidStartingState }
+
+        let snapshot = try installer.prepareManagedUpgradeSnapshot(
+            runID: runID,
+            previousReleaseVersion: installed.releaseVersion,
+            targetReleaseVersion: candidate.releaseVersion,
+            previousReleaseLayout: installed.releaseLayout,
+            targetReleaseLayout: candidate.releaseLayout
+        )
+        do {
+            _ = try journal.beginUpgrade(
+                runID: runID,
+                installedReleaseVersion: installed.releaseVersion,
+                targetReleaseVersion: candidate.releaseVersion,
+                installedReleaseLayout: installed.releaseLayout,
+                targetReleaseLayout: candidate.releaseLayout,
+                bindingID: bindingID,
+                bindingGeneration: bindingGeneration
+            )
+        } catch {
+            try? installer.discardManagedUpgradeSnapshot(snapshot)
+            throw error
+        }
+
+        do {
+            let hermesLaunchAgentURL: URL
+            let accountLaunchAgentURL: URL
+            switch candidate {
+            case .bundled(let manifest, let sources):
+                _ = try installer.stageRelease(manifest: manifest, runID: runID, sources: sources)
+                hermesLaunchAgentURL = try installer.writeHermesLaunchAgent(
+                    hermesLaunchAgentConfiguration,
+                    manifest: manifest
+                )
+                accountLaunchAgentURL = try installer.writeLaunchAgent(
+                    launchAgentConfiguration,
+                    manifest: manifest
+                )
+            case .components(_, let activationPlan):
+                hermesLaunchAgentURL = try installer.writeHermesLaunchAgent(
+                    hermesLaunchAgentConfiguration,
+                    activationPlan: activationPlan
+                )
+                accountLaunchAgentURL = try installer.writeLaunchAgent(
+                    launchAgentConfiguration,
+                    activationPlan: activationPlan
+                )
+            }
+            _ = try journal.transition(runID: runID, to: .accountStaged)
+            _ = try journal.transition(runID: runID, to: .candidateStarting)
+            if case .bundled = candidate {
+                _ = try installer.activate(releaseVersion: candidate.releaseVersion, runID: runID)
+            }
+
+            let checkpoint = try hermesReadiness.checkpoint(
+                logURL: hermesLaunchAgentConfiguration.standardOutput
+            )
+            let cloudHealthCheckpoint = try await captureBoundHealthCheckpoint(
+                bindingID: bindingID,
+                generation: bindingGeneration
+            )
+            try launchAgent.stopAccount()
+            try launchAgent.stopHermes()
+            guard try await hermesShutdown.waitUntilStopped(
+                contract: hermesLaunchAgentConfiguration.runtimeContract,
+                maximumAttempts: maximumHealthPolls,
+                delayNanoseconds: healthPollDelayNanoseconds
+            ) else { throw DesktopMigrationCoordinatorError.hermesStopTimedOut }
+            try launchAgent.startHermes(plistURL: hermesLaunchAgentURL)
+            guard try await hermesReadiness.waitUntilReady(
+                checkpoint: checkpoint,
+                contract: hermesLaunchAgentConfiguration.runtimeContract,
+                maximumAttempts: maximumHealthPolls,
+                delayNanoseconds: healthPollDelayNanoseconds
+            ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            try launchAgent.startAccount(plistURL: accountLaunchAgentURL)
+            try await waitForExistingCommittedBinding(
+                bindingID: bindingID,
+                generation: bindingGeneration,
+                healthNewerThan: cloudHealthCheckpoint
+            )
+            _ = try journal.transition(runID: runID, to: .candidateAuthenticated)
+            _ = try journal.transition(runID: runID, to: .candidateHealthy)
+            _ = try journal.transition(runID: runID, to: .commitPending)
+            switch candidate {
+            case .bundled:
+                try installer.commitHermesSessionTokenFileMigration()
+            case .components(_, let activationPlan):
+                try installer.commitHermesSessionTokenFileMigration(activationPlan: activationPlan)
+            }
+            _ = try journal.transition(runID: runID, to: .accountActive)
+            try? installer.discardManagedUpgradeSnapshot(snapshot)
+            return DesktopMigrationOutcome(
+                runID: snapshot.runID,
+                releaseVersion: candidate.releaseVersion,
+                bindingID: bindingID,
+                bindingGeneration: bindingGeneration
+            )
+        } catch {
+            do {
+                try await rollbackUpgrade(
+                    snapshot,
+                    bindingID: bindingID,
+                    generation: bindingGeneration,
+                    contract: hermesLaunchAgentConfiguration.runtimeContract
+                )
+            } catch {
+                try? markRollbackAttention(runID: runID)
+                throw DesktopMigrationCoordinatorError.rollbackFailed
+            }
+            throw error
+        }
     }
 
     private func migrate(
@@ -327,6 +513,34 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         }
         guard recorded.runID == UUID(uuidString: runID)?.uuidString.lowercased() else {
             throw DesktopMigrationJournalError.runMismatch
+        }
+        if recorded.lastKnownGoodMode == .account {
+            switch recorded.state {
+            case .accountActive:
+                if let snapshot = try installer.loadManagedUpgradeSnapshot(runID: runID) {
+                    try installer.discardManagedUpgradeSnapshot(snapshot)
+                }
+                return recorded.state
+            case .rollbackAttentionRequired:
+                return recorded.state
+            default:
+                guard let snapshot = try installer.loadManagedUpgradeSnapshot(runID: runID),
+                      let bindingID = recorded.bindingID,
+                      let generation = recorded.bindingGeneration
+                else { return try stopForManualRecovery(runID: runID) }
+                do {
+                    try await rollbackUpgrade(
+                        snapshot,
+                        bindingID: bindingID,
+                        generation: generation,
+                        contract: .serveV1
+                    )
+                    return .accountActive
+                } catch {
+                    _ = try? markRollbackAttention(runID: runID)
+                    throw DesktopMigrationCoordinatorError.rollbackFailed
+                }
+            }
         }
         switch recorded.state {
         case .cleanUninstalled, .legacyActive, .accountActive, .rollbackAttentionRequired:
@@ -537,6 +751,59 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             }
             throw error
         }
+    }
+
+    private func rollbackUpgrade(
+        _ snapshot: DesktopManagedUpgradeSnapshot,
+        bindingID: String,
+        generation: Int,
+        contract: DesktopHermesRuntimeContract
+    ) async throws {
+        let current = try journal.load()
+        if current?.state != .rollingBack {
+            _ = try journal.transition(runID: snapshot.runID, to: .rollingBack)
+        }
+        var services = try launchAgent.inspect()
+        guard !services.legacyLoaded else {
+            throw DesktopMigrationCoordinatorError.invalidStartingState
+        }
+        if services.accountLoaded { try launchAgent.stopAccount() }
+        services = try launchAgent.inspect()
+        if services.hermesLoaded { try launchAgent.stopHermes() }
+        guard try await hermesShutdown.waitUntilStopped(
+            contract: contract,
+            maximumAttempts: maximumHealthPolls,
+            delayNanoseconds: healthPollDelayNanoseconds
+        ) else { throw DesktopMigrationCoordinatorError.hermesStopTimedOut }
+
+        try installer.restoreManagedUpgradeSnapshot(snapshot)
+        let checkpoint = try hermesReadiness.checkpoint(logURL: installer.managedHermesLogURL)
+        try launchAgent.startHermes(plistURL: installer.managedHermesLaunchAgentURL)
+        guard try await hermesReadiness.waitUntilReady(
+            checkpoint: checkpoint,
+            contract: contract,
+            maximumAttempts: maximumHealthPolls,
+            delayNanoseconds: healthPollDelayNanoseconds
+        ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+        let healthCheckpoint = try await captureBoundHealthCheckpoint(
+            bindingID: bindingID,
+            generation: generation
+        )
+        try launchAgent.startAccount(plistURL: installer.managedConnectorLaunchAgentURL)
+        try await waitForExistingCommittedBinding(
+            bindingID: bindingID,
+            generation: generation,
+            healthNewerThan: healthCheckpoint
+        )
+        _ = try journal.completeUpgradeRollback(
+            runID: snapshot.runID,
+            previousReleaseVersion: snapshot.previousReleaseVersion,
+            previousReleaseLayout: snapshot.previousReleaseLayout,
+            targetReleaseLayout: snapshot.targetReleaseLayout,
+            bindingID: bindingID,
+            bindingGeneration: generation
+        )
+        try installer.discardManagedUpgradeSnapshot(snapshot)
     }
 
     private func waitForCandidate(bindingID: String, generation: Int, runID: String) async throws {
@@ -800,6 +1067,17 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         let parsed = components.compactMap { Int($0) }
         guard parsed.count == 3 else { return false }
         return parsed.lexicographicallyPrecedes(firstSessionTokenFileRelease) == false
+    }
+
+    private static func version(_ candidate: String, isNewerThan installed: String) -> Bool {
+        let candidateParts = candidate.split(separator: ".", omittingEmptySubsequences: false)
+        let installedParts = installed.split(separator: ".", omittingEmptySubsequences: false)
+        guard candidateParts.count == 3, installedParts.count == 3 else { return false }
+        let candidateNumbers = candidateParts.compactMap { Int($0) }
+        let installedNumbers = installedParts.compactMap { Int($0) }
+        guard candidateNumbers.count == 3, installedNumbers.count == 3 else { return false }
+        return candidateNumbers != installedNumbers
+            && candidateNumbers.lexicographicallyPrecedes(installedNumbers) == false
     }
 
     private static func validComponentCandidate(

@@ -36,6 +36,12 @@ explicit “安装并连接” action may enter the machine-changing phase. Comm
 and duplicate installation. A successful install with pending temporary cleanup shows only “重试清理”
 and `HR-MIGRATE-005`; it never suggests reinstalling.
 
+For an active managed installation with a strictly newer signed target, the card changes to “可升级到
+Hermes Go …” and the preparation action reads “下载并验证更新”. The confirmation action reads
+“升级并重连” and states that the current account, device binding and local data are preserved, that
+both services briefly restart, and that failed validation restores the old version. Same-version and
+downgrade targets remain in the connected read-only state.
+
 The componentized v2 preflight uses a separate native card before the machine-changing confirmation.
 Its header names the target release. Three compact pills show direct reuse count, bootstrap download,
 and deferred first-use download; the deferred pill is omitted when its byte total is zero. Every

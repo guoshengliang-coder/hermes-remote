@@ -250,6 +250,83 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
         }
     }
 
+    /// Starts an upgrade from one durably committed managed release. Unlike `begin`, this is the
+    /// only operation allowed to replace an `account_active` journal. The binding and layout must
+    /// remain identical, and the target must be a strict semantic-version upgrade.
+    public func beginUpgrade(
+        runID: String,
+        installedReleaseVersion: String,
+        targetReleaseVersion: String,
+        installedReleaseLayout: DesktopManagedReleaseLayoutKind,
+        targetReleaseLayout: DesktopManagedReleaseLayoutKind,
+        bindingID: String,
+        bindingGeneration: Int
+    ) throws -> DesktopMigrationJournal {
+        try withExclusiveLock {
+            let normalizedInstalled = try semanticVersion(installedReleaseVersion)
+            let normalizedBindingID = try optionalUUID(bindingID)
+            let normalizedGeneration = try validGeneration(bindingGeneration)
+            guard let existing = try loadUnlocked(),
+                  existing.state == .accountActive,
+                  existing.lastKnownGoodMode == .account,
+                  existing.releaseVersion == normalizedInstalled,
+                  existing.releaseLayout == installedReleaseLayout,
+                  existing.bindingID == normalizedBindingID,
+                  existing.bindingGeneration == normalizedGeneration,
+                  semanticVersionIsNewer(targetReleaseVersion, than: installedReleaseVersion)
+            else { throw DesktopMigrationJournalError.invalidState }
+
+            let requested = DesktopMigrationJournal(
+                runID: try requiredUUID(runID),
+                state: .preflight,
+                lastKnownGoodMode: .account,
+                releaseVersion: try semanticVersion(targetReleaseVersion),
+                releaseLayout: targetReleaseLayout,
+                bindingID: existing.bindingID,
+                bindingGeneration: existing.bindingGeneration,
+                updatedAt: canonicalTimestamp(now())
+            )
+            try saveUnlocked(requested)
+            return requested
+        }
+    }
+
+    /// Restores the committed journal after the exact old LaunchAgents and services have been
+    /// restored and re-proved healthy. This does not itself touch files or processes.
+    public func completeUpgradeRollback(
+        runID: String,
+        previousReleaseVersion: String,
+        previousReleaseLayout: DesktopManagedReleaseLayoutKind,
+        targetReleaseLayout: DesktopManagedReleaseLayoutKind,
+        bindingID: String,
+        bindingGeneration: Int
+    ) throws -> DesktopMigrationJournal {
+        try withExclusiveLock {
+            let normalizedBindingID = try optionalUUID(bindingID)
+            let normalizedGeneration = try validGeneration(bindingGeneration)
+            guard let current = try loadUnlocked(),
+                  current.runID == normalizedUUID(runID),
+                  current.lastKnownGoodMode == .account,
+                  current.bindingID == normalizedBindingID,
+                  current.bindingGeneration == normalizedGeneration,
+                  current.releaseLayout == targetReleaseLayout,
+                  current.state != .accountActive
+            else { throw DesktopMigrationJournalError.invalidState }
+            let restored = DesktopMigrationJournal(
+                runID: current.runID,
+                state: .accountActive,
+                lastKnownGoodMode: .account,
+                releaseVersion: try semanticVersion(previousReleaseVersion),
+                releaseLayout: previousReleaseLayout,
+                bindingID: current.bindingID,
+                bindingGeneration: current.bindingGeneration,
+                updatedAt: canonicalTimestamp(now())
+            )
+            try saveUnlocked(restored)
+            return restored
+        }
+    }
+
     public func transition(
         runID: String,
         to next: DesktopMigrationState
@@ -469,6 +546,18 @@ private func semanticVersion(_ value: String) throws -> String {
         options: .regularExpression
     ) != nil else { throw DesktopMigrationJournalError.invalidState }
     return value
+}
+
+private func semanticVersionIsNewer(_ candidate: String, than installed: String) -> Bool {
+    guard (try? semanticVersion(candidate)) != nil,
+          (try? semanticVersion(installed)) != nil
+    else { return false }
+    let candidateParts = candidate.split(separator: ".").compactMap { Int($0) }
+    let installedParts = installed.split(separator: ".").compactMap { Int($0) }
+    return candidateParts.count == 3
+        && installedParts.count == 3
+        && candidateParts != installedParts
+        && candidateParts.lexicographicallyPrecedes(installedParts) == false
 }
 
 private func canonicalTimestamp(_ date: Date) -> String {

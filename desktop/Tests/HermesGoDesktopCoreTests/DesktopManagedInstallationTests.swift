@@ -3,6 +3,54 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedInstallationTests: XCTestCase {
+    func testUpgradeSnapshotRestoresExactLaunchAgentsAndBundledPointer() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let layout = try DesktopManagedInstallLayout(
+            root: root.appendingPathComponent("managed"),
+            launchAgentsRoot: root.appendingPathComponent("agents")
+        )
+        let installer = DesktopManagedInstaller(layout: layout)
+        try FileManager.default.createDirectory(at: layout.launchAgentsRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: try layout.release("0.3.4"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: try layout.release("0.3.5"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            atPath: layout.currentRelease.path,
+            withDestinationPath: "releases/0.3.4"
+        )
+        let oldHermes = Data("old-hermes-private".utf8)
+        let oldConnector = Data("old-connector-private".utf8)
+        try oldHermes.write(to: layout.hermesLaunchAgent)
+        try oldConnector.write(to: layout.connectorLaunchAgent)
+        for url in [layout.hermesLaunchAgent, layout.connectorLaunchAgent] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+
+        let snapshot = try installer.prepareManagedUpgradeSnapshot(
+            runID: runID,
+            previousReleaseVersion: "0.3.4",
+            targetReleaseVersion: "0.3.5",
+            previousReleaseLayout: .bundledRelease,
+            targetReleaseLayout: .bundledRelease
+        )
+        try Data("new-hermes".utf8).write(to: layout.hermesLaunchAgent)
+        try Data("new-connector".utf8).write(to: layout.connectorLaunchAgent)
+        for url in [layout.hermesLaunchAgent, layout.connectorLaunchAgent] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+        _ = try installer.activate(releaseVersion: "0.3.5", runID: runID)
+
+        try installer.restoreManagedUpgradeSnapshot(snapshot)
+        XCTAssertEqual(try Data(contentsOf: layout.hermesLaunchAgent), oldHermes)
+        XCTAssertEqual(try Data(contentsOf: layout.connectorLaunchAgent), oldConnector)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: layout.currentRelease.path),
+            "releases/0.3.4"
+        )
+        try installer.discardManagedUpgradeSnapshot(snapshot)
+        XCTAssertNil(try installer.loadManagedUpgradeSnapshot(runID: runID))
+    }
+
     func testStagesTwoComponentsAndAtomicallyActivatesThenRollsBack() throws {
         let testRoot = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: testRoot) }

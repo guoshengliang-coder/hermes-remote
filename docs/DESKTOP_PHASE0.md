@@ -186,6 +186,15 @@ failure retains a cleanup-only retry and uses
 `HR-MIGRATE-005`. The production/default plist and Gateway flag remain off, so this source connection
 does not authorize a real download, installation, process change, or rollout.
 
+An `account_active` installation is eligible for the same two-stage flow when the configured
+schema-v1 release or verified schema-v2 component release is strictly newer. Preparation remains
+cache-only. The confirmation sheet states that the current account, device binding and local data are
+preserved. Commit uses a dedicated upgrade transaction: snapshot the exact owner-only LaunchAgents
+and old bundled pointer, stop Connector then Hermes, prove port 9119 is free, start Hermes then
+Connector, and require a fresh Cloud health timestamp for the same binding ID/generation. It performs
+no binding creation or confirmation. A failed or interrupted candidate restores and re-proves the old
+release before another upgrade can begin.
+
 Observation and interrupted-run recovery are deliberately independent of the new-install rollout
 configuration. Turning off downloads after a machine is installed therefore does not orphan its
 managed services. Active state must also match the current account's exact binding ID and generation;

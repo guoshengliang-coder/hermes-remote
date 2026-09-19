@@ -330,6 +330,7 @@ struct AccountDevicesView: View {
             ComponentPreflightCard(
                 presentation: presentation,
                 canBegin: model.componentBootstrapCanBegin,
+                isUpgrade: model.bootstrapPlan.readiness == .managedUpgradeAvailable,
                 operation: model.componentBootstrapOperation,
                 cleanupRetryAvailable: model.componentCleanupRetryAvailable,
                 prepare: { Task { await model.prepareComponentBootstrap() } },
@@ -450,7 +451,9 @@ struct AccountDevicesView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("下载并验证安装包") {
+                    Button(plan.readiness == .managedUpgradeAvailable
+                        ? "下载并验证更新"
+                        : "下载并验证安装包") {
                         Task { await model.prepareManagedBootstrap() }
                     }
                     .buttonStyle(.borderedProminent)
@@ -470,7 +473,9 @@ struct AccountDevicesView: View {
                 .foregroundStyle(Color.hermesBlue)
             Text("Hermes Go \(preparation.releaseVersion)")
                 .font(.system(size: 15, weight: .semibold))
-            Text("继续后会安装受管 Hermes Server 与 Connector、写入两个用户级自动启动项、绑定当前账号，并短暂重启这两个服务。模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
+            Text(preparation.intent.isUpgrade
+                ? "继续后会保留当前账号、设备绑定和本机数据，更新两个用户级自动启动项，并短暂重启 Hermes Server 与 Connector。新版本未通过健康检查时会自动恢复旧版本。"
+                : "继续后会安装受管 Hermes Server 与 Connector、写入两个用户级自动启动项、绑定当前账号，并短暂重启这两个服务。模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -494,7 +499,7 @@ struct AccountDevicesView: View {
                     }
                     .keyboardShortcut(.cancelAction)
                     Spacer()
-                    Button("安装并连接") {
+                    Button(preparation.intent.isUpgrade ? "升级并重连" : "安装并连接") {
                         Task { await model.confirmManagedBootstrap() }
                     }
                     .buttonStyle(.borderedProminent)
@@ -516,7 +521,9 @@ struct AccountDevicesView: View {
                 .foregroundStyle(Color.hermesBlue)
             Text("Hermes Go \(preparation.releaseVersion)")
                 .font(.system(size: 15, weight: .semibold))
-            Text("继续后会把已验证的基础组件提交到受管目录，写入两个用户级自动启动项、绑定当前账号，并短暂启动或切换 Hermes Server 与 Connector。不会修改 Homebrew；模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
+            Text(preparation.intent.isUpgrade
+                ? "继续后会保留当前账号、设备绑定和本机数据，提交已验证的基础组件，并短暂重启 Hermes Server 与 Connector。新版本未通过健康检查时会自动恢复旧版本。不会修改 Homebrew。"
+                : "继续后会把已验证的基础组件提交到受管目录，写入两个用户级自动启动项、绑定当前账号，并短暂启动或切换 Hermes Server 与 Connector。不会修改 Homebrew；模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -540,7 +547,7 @@ struct AccountDevicesView: View {
                     }
                     .keyboardShortcut(.cancelAction)
                     Spacer()
-                    Button("安装并连接") {
+                    Button(preparation.intent.isUpgrade ? "升级并重连" : "安装并连接") {
                         Task { await model.confirmComponentBootstrap() }
                     }
                     .buttonStyle(.borderedProminent)
@@ -574,6 +581,7 @@ struct AccountDevicesView: View {
         case .existingServiceNeedsAttention: "exclamationmark.shield"
         case .waitingForSignedRelease: "signature"
         case .readyForManagedInstall: "shippingbox.and.arrow.backward"
+        case .managedUpgradeAvailable: "arrow.triangle.2.circlepath.circle"
         case .managedInstallActive: "checkmark.circle.fill"
         }
     }

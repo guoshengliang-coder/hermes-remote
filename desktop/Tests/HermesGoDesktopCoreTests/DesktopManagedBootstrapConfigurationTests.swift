@@ -143,6 +143,30 @@ final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
         )
     }
 
+    func testCanonicalManifestURLExposesPinnedReleaseOnlyAsPreflightHint() throws {
+        let configuration = try DesktopManagedBootstrapConfiguration(
+            manifestURL: URL(string: "https://updates.example/desktop/releases/0.3.5/Hermes-Desktop-0.3.5-arm64.manifest.json")!,
+            artifactOrigin: URL(string: "https://downloads.example")!,
+            channel: "internal",
+            architecture: "arm64",
+            signingKeyID: "desktop-release-test",
+            signingPublicKey: Data(repeating: 7, count: 32),
+            runtimeContract: .serveV1
+        )
+        XCTAssertEqual(configuration.pinnedReleaseVersion, "0.3.5")
+
+        let generic = try DesktopManagedBootstrapConfiguration(
+            manifestURL: URL(string: "https://updates.example/releases/manifest.json")!,
+            artifactOrigin: URL(string: "https://downloads.example")!,
+            channel: "internal",
+            architecture: "arm64",
+            signingKeyID: "desktop-release-test",
+            signingPublicKey: Data(repeating: 7, count: 32),
+            runtimeContract: .serveV1
+        )
+        XCTAssertNil(generic.pinnedReleaseVersion)
+    }
+
     private func load(_ environment: [String: String]) -> DesktopManagedBootstrapConfigurationState {
         DesktopManagedBootstrapConfigurationState.load(environment: environment)
     }

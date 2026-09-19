@@ -33,6 +33,28 @@ public protocol DesktopComponentBootstrapMigrating: Sendable {
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome
+
+    func upgradeComponentRelease(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome
+}
+
+public extension DesktopComponentBootstrapMigrating {
+    func upgradeComponentRelease(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        throw DesktopComponentBootstrapExecutorError.releaseNotNewer
+    }
 }
 
 public enum DesktopComponentBootstrapExecutorError: Error, Equatable, Sendable {
@@ -42,6 +64,7 @@ public enum DesktopComponentBootstrapExecutorError: Error, Equatable, Sendable {
     case preparationMismatch
     case confirmationRequired
     case cleanupFailed
+    case releaseNotNewer
 }
 
 public struct DesktopComponentBootstrapPreparation: Equatable, Identifiable, Sendable {
@@ -50,19 +73,22 @@ public struct DesktopComponentBootstrapPreparation: Equatable, Identifiable, Sen
     public let releaseVersion: String
     public let confirmationText: String
     public let preflight: DesktopComponentReleasePreflightResult
+    public let intent: DesktopManagedBootstrapIntent
 
     fileprivate init(
         id: String,
         runID: String,
         releaseVersion: String,
         confirmationText: String,
-        preflight: DesktopComponentReleasePreflightResult
+        preflight: DesktopComponentReleasePreflightResult,
+        intent: DesktopManagedBootstrapIntent
     ) {
         self.id = id
         self.runID = runID
         self.releaseVersion = releaseVersion
         self.confirmationText = confirmationText
         self.preflight = preflight
+        self.intent = intent
     }
 }
 
@@ -124,6 +150,7 @@ public actor DesktopComponentBootstrapExecutor {
         trustedPreflight: DesktopTrustedComponentPreflight,
         workspaceRoot: URL,
         runID: String,
+        installation: DesktopManagedBootstrapInstallationStatus = .absent,
         healthProbe: @escaping DesktopComponentReleaseInstaller.HealthProbe
     ) async throws -> DesktopComponentBootstrapPreparation {
         guard case .idle = state else {
@@ -131,6 +158,19 @@ public actor DesktopComponentBootstrapExecutor {
         }
         guard trustedPreflight.result.manifest == trustedPreflight.verifiedManifest.manifest else {
             throw DesktopComponentBootstrapExecutorError.invalidPreflight
+        }
+        let intent: DesktopManagedBootstrapIntent
+        switch installation {
+        case .absent:
+            intent = .install
+        case .active(let installed, _, _):
+            guard Self.version(
+                trustedPreflight.result.manifest.releaseVersion,
+                isNewerThan: installed
+            ) else { throw DesktopComponentBootstrapExecutorError.releaseNotNewer }
+            intent = .upgrade(fromReleaseVersion: installed)
+        case .interrupted, .attentionRequired, .inconsistent:
+            throw DesktopMigrationCoordinatorError.invalidStartingState
         }
         state = .preparing
 
@@ -162,7 +202,8 @@ public actor DesktopComponentBootstrapExecutor {
             catch {
                 let publicValue = makePublicPreparation(
                     preflight: trustedPreflight.result,
-                    runID: normalizedRunID
+                    runID: normalizedRunID,
+                    intent: intent
                 )
                 state = .cleanupPending(PendingCleanup(
                     publicValue: publicValue,
@@ -175,7 +216,8 @@ public actor DesktopComponentBootstrapExecutor {
 
         let publicValue = makePublicPreparation(
             preflight: trustedPreflight.result,
-            runID: normalizedRunID
+            runID: normalizedRunID,
+            intent: intent
         )
         state = .prepared(PendingPreparation(
             publicValue: publicValue,
@@ -240,15 +282,27 @@ public actor DesktopComponentBootstrapExecutor {
 
         let migrationOutcome: DesktopMigrationOutcome
         do {
-            migrationOutcome = try await migration.migrateComponentRelease(
-                manifest: installed.manifest,
-                activationPlan: installed.activationPlan,
-                hermesLaunchAgentConfiguration: launchAgents.hermes,
-                launchAgentConfiguration: launchAgents.connector,
-                legacy: legacy,
-                runID: pending.publicValue.runID,
-                confirmation: confirmation
-            )
+            switch pending.publicValue.intent {
+            case .install:
+                migrationOutcome = try await migration.migrateComponentRelease(
+                    manifest: installed.manifest,
+                    activationPlan: installed.activationPlan,
+                    hermesLaunchAgentConfiguration: launchAgents.hermes,
+                    launchAgentConfiguration: launchAgents.connector,
+                    legacy: legacy,
+                    runID: pending.publicValue.runID,
+                    confirmation: confirmation
+                )
+            case .upgrade:
+                migrationOutcome = try await migration.upgradeComponentRelease(
+                    manifest: installed.manifest,
+                    activationPlan: installed.activationPlan,
+                    hermesLaunchAgentConfiguration: launchAgents.hermes,
+                    launchAgentConfiguration: launchAgents.connector,
+                    runID: pending.publicValue.runID,
+                    confirmation: confirmation
+                )
+            }
         } catch {
             if cleanupInstalled(installed, publicValue: pending.publicValue) == false {
                 throw DesktopComponentBootstrapExecutorError.cleanupFailed
@@ -348,7 +402,8 @@ public actor DesktopComponentBootstrapExecutor {
 
     private func makePublicPreparation(
         preflight: DesktopComponentReleasePreflightResult,
-        runID: String
+        runID: String,
+        intent: DesktopManagedBootstrapIntent
     ) -> DesktopComponentBootstrapPreparation {
         DesktopComponentBootstrapPreparation(
             id: UUID().uuidString.lowercased(),
@@ -356,7 +411,8 @@ public actor DesktopComponentBootstrapExecutor {
             releaseVersion: preflight.manifest.releaseVersion,
             confirmationText: DesktopMigrationCoordinator<SystemCommandRunner>
                 .confirmationText(releaseVersion: preflight.manifest.releaseVersion),
-            preflight: preflight
+            preflight: preflight,
+            intent: intent
         )
     }
 
@@ -407,5 +463,13 @@ public actor DesktopComponentBootstrapExecutor {
         case .installed(let release):
             try installer.discard(release)
         }
+    }
+
+    private static func version(_ candidate: String, isNewerThan installed: String) -> Bool {
+        let candidateParts = candidate.split(separator: ".").compactMap { Int($0) }
+        let installedParts = installed.split(separator: ".").compactMap { Int($0) }
+        return candidateParts.count == 3 && installedParts.count == 3
+            && candidateParts != installedParts
+            && candidateParts.lexicographicallyPrecedes(installedParts) == false
     }
 }
