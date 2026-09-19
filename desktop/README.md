@@ -8,13 +8,21 @@ frame from the local Hermes now closes the tunnel with 1009 and a reason naming 
 the anonymous 1006 the relay refuses to forward, which cost one conversation the entire transport for
 twenty-four minutes (HG-65, HG-64) — reaches a Mac only through a managed release, and the release URL
 is baked into `Info.plist` at build time. 0.3.5 was published on 2026-09-19, but a Mac running 0.2.14
-will never look at it: that build asks for 0.3.4 and nothing else.
+will never look at it: that build asks for 0.3.4 and nothing else, which is why publishing the release
+alone changed nothing on the machine that filed those reports.
 
-Component release **0.4.1** carries the same Connector on the schema-v2 channel. This build still
-leaves `HermesGoDesktopComponentManifestURL` empty and component preflight off, exactly as 0.2.14 did,
-so the channel a Mac uses does not change here.
+Component release **0.4.1** carries the same Connector on the schema-v2 channel and is also published.
+This build still leaves `HermesGoDesktopComponentManifestURL` empty and component preflight off,
+exactly as 0.2.14 did, so which channel a Mac uses does not change here. No Mac has been switched to
+either release yet.
 
-0.2.14 (build 17) gave the managed Hermes server a `PATH` (HG-58).
+0.2.14 (build 17) gave the managed Hermes server a `PATH`. launchd starts an agent with
+`/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, so anything the user had installed was invisible to
+it: a PDF attachment from the phone was refused with `pdf.attach 5028 "pdftoppm not installed"` on a
+Mac where `pdftoppm` had been installed four and a half hours earlier, in `/opt/homebrew/bin` (HG-58).
+The written agent now carries both Homebrew prefixes ahead of launchd's four, an agent written before
+this validates without one and is repaired by the next optional-component activation, and a malformed
+`PATH` on disk is refused.
 
 0.2.13 would have fixed nothing on a Mac that had already migrated, because the only writers are a
 migration and an optional-component activation and installing a newer Desktop is neither. 0.2.14 adds
