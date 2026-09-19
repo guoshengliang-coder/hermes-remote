@@ -946,3 +946,82 @@ This closes the controlled activation only. A phone-side reproduction of the ori
 local WebSocket response must still confirm the Connector 0.1.4 behavior: close code 1009 with the
 declared limit and no rapid anonymous-1006 reconnect loop. A full reboot and a normal Desktop-driven
 active-release upgrade remain separate acceptance gaps.
+
+## 2026-09-19 managed release 0.3.6, Desktop 0.2.18, and a second controlled activation
+
+Connector 0.1.5 carries the half of HG-65 that stops the failure rather than naming it: an oversized
+answer from the local Hermes is received and dropped, and the tunnel stays open. 0.1.4, already
+published in 0.3.5 and 0.4.1, carries only the earlier close-code change, so the content could not
+ship under that number. Released from `255aad9a75f51cc096c867dbb4dd021bdbe7a796` (PR #327), whose CI,
+SAST and Gateway OCI workflows all completed successfully.
+
+Packaged from two fresh detached worktrees with clean trees — this repository at the release commit,
+and `hermes-agent` at the pinned `f159e581c7afd22a5c94652c569e3859f1b994d2`.
+
+**Only the Connector was rebuilt, and the warning from 0.4.1 reproduced exactly.** The rebuilt Hermes
+Server came back 287,628,978 bytes / `d22fe875…` against the published 285,054,389 / `8ae357d7…`.
+The published artifact was downloaded, hash-checked before packaging, and used; the rebuild was
+discarded. Anyone repeating this must reuse the published artifact rather than trust a rebuild.
+
+| Component | Version | Size | SHA-256 |
+|---|---|---|---|
+| hermes_server | 0.21.0 | 285,054,389 | `8ae357d78a7836a0680125f7e241243af1555418d9d2e12e68433b5ff1f0ca44` (reused from 0.3.4) |
+| connector | 0.1.5 | 37,065,281 | `418ec0108ed7abb07e9612d4a00b518cc20847d4028f5be88418ba484c8c92ea` (new) |
+
+The 1,306-byte manifest has SHA-256
+`937dbae1aebcc11cc1b8f434670e8997f444b329527c45180c324ba671997bd2`. The packaging gate derived the
+public key `vhY90f6lZlNjbin2kY0zRh4OPxb-ROou9uO-dZ-bhxA`, matching the approved
+`desktop-internal-2026-a` identity.
+
+Uploaded to an owner-only staging directory, re-hashed there against the packaging output, then
+installed as root-owned mode-0644 files under a new mode-0755 `/srv/hermes-desktop-releases/0.3.6`.
+The route file was appended only after its previous hash matched
+`5905882512b6fb9242756182a281b052a5854674fe487117e92ec228aca7ce13`; `nginx -t` passed before each
+reload, Nginx stayed active and the Relay health endpoint answered 200. A full public re-download of
+all three files reproduced the exact sizes and hashes, and the independent Ed25519 verifier accepted
+the **downloaded** manifest and archives. Staging was removed; two route backups were kept.
+
+**Desktop 0.2.18/build 21** is 0.2.17 with the pinned schema-v1 manifest moved to 0.3.6 and nothing
+else changed. The DMG (2,595,705 bytes, `aabb34dfbfc6bbdfa0a8bef71797b7df92fc5708feb096efa3932d5b0fd2784a`)
+was **mounted and its embedded `Info.plist` read before upload** — 0.2.18, build 21, manifest URL
+0.3.6, empty component URL, preflight off. That check exists because the 0.2.15 DMG shipped repository
+defaults; it is not optional. The published copy re-downloaded to the same bytes.
+
+### The in-app upgrade did not work, and that is now HG-68
+
+0.2.17 added the managed in-app upgrade specifically so an already-active installation would no
+longer need an operator. On this Mac it refused: `HR-MIGRATE-002`, `cause=invalidState`,
+`retryable=false`, no upgrade action offered. Every condition `DesktopManagedBootstrapRuntime.reduce()`
+requires was verified present — both managed agents loaded, the legacy agent not loaded, the account
+binding equal to the journal's, and a journal that passes every `DesktopMigrationJournal` check. The
+error comes from the catch in `DesktopViewModel.recoverManagedBootstrapAfterRestart()`, which maps any
+throw from the three reconcile calls onto `migrationConnectorMismatch`. Worth noting while fixing it:
+`.accountActive` has an empty transition list, and an active installation upgrading must leave exactly
+that state. Filed as **HG-68**.
+
+### Second controlled activation exception
+
+The owner authorized one more operator-controlled activation, 0.3.5 to 0.3.6. Before mutation an
+owner-only snapshot recorded the journal, both LaunchAgents and the previous `current` target. The
+0.3.6 trees were extracted from the **publicly downloaded, independently verified** archives into a
+new owner-only release directory; their `BUILD-IDENTITY.json` files name Connector 0.1.5 at the
+release commit and Hermes Server 0.21.0 at the pinned upstream commit.
+
+**The first attempt rolled back, and the rollback path is now proven rather than assumed.** Its
+drain gate required TCP 9119 to be free of all listeners; this Mac also runs a separate, non-managed
+`hermes-agent` bound to the Tailscale address on that port, so the gate could never pass. It
+restored nothing because nothing had been switched yet, and both services came back. The gate was
+narrowed to loopback (`-iTCP@127.0.0.1:9119`, with `-t` so lsof's header is not counted) — a
+condition that is about the managed Hermes rather than about the port.
+
+The successful run quit Desktop first, booted out both agents, observed the release PIDs gone and
+loopback 9119 free within 2 seconds, replaced the symlink with `mv -h` (`mv -f` put the temporary
+link inside the old release during the 0.3.5 activation) and read the target back, updated only the
+journal's `releaseVersion` and `updatedAt`, started Hermes and waited for loopback health (200 after
+20 seconds), then started the Connector. Final inspection found all three managed PIDs executing from
+`releases/0.3.6`, zero processes left on 0.3.5, Hermes returning 200, the Connector reconnected as
+`account mode (active)` with the binding ID and generation unchanged, and the journal reading 0.3.6.
+The 0.3.5 release tree and the snapshot remain available for rollback.
+
+This closes delivery of the HG-65 Connector fix to this Mac. It does not close HG-68: the next
+managed release will need an operator again until that is fixed.
