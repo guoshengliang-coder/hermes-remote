@@ -19,6 +19,38 @@ and durable restart recovery. `npm run desktop:assets:test`, all 334 `npm run de
 `npm run desktop:app` passed locally. No production deployment, version bump, notarization, or physical
 Mac upgrade was performed by this change.
 
+## Desktop 0.2.17 internal publication — 2026-09-19
+
+PR #323 allocated Desktop 0.2.17/build 20 and merged as
+`f32c81b444420698199c075046279087b1735bfb`. Its PR and post-merge CI/SAST checks completed
+successfully. A fresh detached worktree at that exact `origin/main` commit passed the canonical asset
+comparison, all 334 Desktop tests, the release-mode app build, strict ad-hoc codesign verification,
+and `hdiutil verify`.
+
+The configured DMG was built in one invocation so the packaged app retained managed bootstrap,
+schema-v1 release 0.3.5, disabled component preflight, the approved
+`desktop-internal-2026-a` trust identity, `internal`/`arm64`, `hermes-serve-v1`, the production
+Gateway origin, and `LSUIElement=false`. Reading `Info.plist` back from the final mounted DMG
+confirmed 0.2.17/build 20 and every value above. The exact 2,595,633-byte artifact has SHA-256
+`dda8e691bf4ae879776f04a05e829b1fd65d1793130a7f82ef1c44522c957d49` and is published at
+`https://mrlgs.net/desktop/apps/0.2.17/Hermes-Go-Desktop-0.2.17-dev.dmg`.
+
+Publication used an owner-only staging directory on the HK host and required the uploaded artifact
+to reproduce the local size and hash. The final file was installed root-owned and mode 0644 under a
+new mode-0755 version directory. The exact Nginx route was appended only after the route file matched
+its audited prior hash; `nginx -t`, reload, active-service and Relay health checks then passed. A full
+public re-download reproduced the exact size and hash, passed `hdiutil verify`, exposed the expected
+packaged configuration, and passed strict codesign verification again. The response is HTTP 200 with
+one-year immutable caching and `nosniff`; the version directory returns 404, POST to the exact route
+returns 403, and the 0.2.16 URL still returns 200. Private staging and the one-time route backup were
+removed after verification.
+
+No Mac was changed by this publication. The current MacBook already runs managed release 0.3.5, so
+installing 0.2.17 there can verify ordinary Desktop replacement and service continuity but cannot
+exercise the strictly-newer managed upgrade action. Full product-path acceptance still needs a Mac on
+an older managed release, or the next signed managed release above 0.3.5. This internal build remains
+ad-hoc signed; it is not Developer ID signed, notarized, or stapled.
+
 ## E4-E offline release publisher
 
 The repository now includes a default-inert offline publisher and independent public-key verifier for
