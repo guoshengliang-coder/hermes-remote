@@ -204,6 +204,16 @@ open class HermesGatewayClient(
     /** When `gateway.ready` last arrived, or 0 if it never has in this process. */
     @Volatile private var lastReadyAtMs = 0L
 
+    /**
+     * When the CURRENT socket became ready, or 0 if this one never did. Distinct from
+     * [lastReadyAtMs], which survives the socket and therefore cannot say whether *this* connection
+     * ever worked — the question [wasWorthKeeping] has to answer.
+     */
+    @Volatile private var readyAtMsForCurrentSocket = 0L
+
+    /** Whether the current socket ever carried an answer to an RPC. See [wasWorthKeeping]. */
+    @Volatile private var currentSocketAnsweredAnRpc = false
+
     private companion object {
         const val READY_TIMEOUT_MS = 15_000L
         const val ACCOUNT_AUTHORIZATION_CHANGED_CLOSE_CODE = 4403
@@ -228,7 +238,26 @@ open class HermesGatewayClient(
 
         /** A quiet RPC this slow is worth a line even though it succeeded. */
         const val SLOW_RPC_MS = 1_000L
+
+        /**
+         * How long a ready socket must survive before reaching `Connected` counts as progress.
+         *
+         * Comfortably above the failure this exists for — HG-65's sockets lived 4.2–4.6s, handshake
+         * and all, and answered nothing — and far below anything a working session looks like.
+         */
+        const val STABLE_CONNECTION_MS = 10_000L
     }
+
+    /**
+     * How many connections in a row have died without proving themselves ([wasWorthKeeping]).
+     *
+     * Exposed so a failed operation can say which of two different things happened to it: one
+     * interrupted connection (HR-CONN-004, retry now) or a far end that keeps hanging up
+     * (HR-CONN-007, retrying now lands on the next doomed socket). HG-65's user tapped 新建会话
+     * nine times and got a spinner and a transport code each time, with nothing anywhere saying
+     * the connection had died 197 times behind it.
+     */
+    val consecutiveDroppedConnections: Int get() = attempt.get()
 
     /** State names for the log; [ConnectionState.Error] carries a reason worth printing. */
     private fun describe(state: ConnectionState): String = when (state) {
@@ -359,6 +388,9 @@ open class HermesGatewayClient(
             val next = generation.incrementAndGet()
             // Install a fresh, uncompleted readiness gate for this new socket attempt.
             readyGate = CompletableDeferred()
+            // This socket has proved nothing yet; [wasWorthKeeping] starts from no.
+            readyAtMsForCurrentSocket = 0L
+            currentSocketAnsweredAnRpc = false
             connectingSinceMs = System.currentTimeMillis()
             _state.value = ConnectionState.Connecting
             next
@@ -491,8 +523,13 @@ open class HermesGatewayClient(
             if (gen != generation.get()) return // superseded socket — drop late frames
             text.lineSequence().filter { it.isNotBlank() }.forEach { line ->
                 when (val msg = parseInbound(json, line)) {
-                    is RpcResult -> pending.remove(msg.id)?.deferred?.complete(msg.result)
+                    is RpcResult -> {
+                        currentSocketAnsweredAnRpc = true
+                        pending.remove(msg.id)?.deferred?.complete(msg.result)
+                    }
                     is RpcErrorReply -> {
+                        // An error reply is still an answer: the far end is listening.
+                        currentSocketAnsweredAnRpc = true
                         val call = pending.remove(msg.id)
                         DebugLog.log("ws", "rpc#${msg.id} ${call?.method ?: "?"} ← error " +
                             "${msg.error.code}: ${msg.error.message}")
@@ -503,8 +540,10 @@ open class HermesGatewayClient(
                         // Handle gateway.ready: flip to Connected and open the readiness gate.
                         if (msg.event.type == "gateway.ready") {
                             accountAuthorizationClassificationPending = false
-                            attempt.set(0)
+                            // Deliberately NOT attempt.set(0). Reaching Connected is not evidence
+                            // that this connection works — see [wasWorthKeeping].
                             lastReadyAtMs = System.currentTimeMillis()
+                            readyAtMsForCurrentSocket = lastReadyAtMs
                             handshakeWatchdog?.cancel()
                             _state.value = ConnectionState.Connected
                             readyGate.complete(Unit)
@@ -556,11 +595,34 @@ open class HermesGatewayClient(
             if (gen == generation.get() && accountTransport && code == ACCOUNT_AUTHORIZATION_CHANGED_CLOSE_CODE) {
                 accountAuthorizationClassificationPending = true
             }
-            onSocketClosed(gen, reason.ifBlank { "closed" })
+            // The code, not just the reason. A far end that closes without one leaves `reason`
+            // blank, and the log then said only `closed` — which cannot tell a normal 1000 from a
+            // 1006, a 1013 the gateway sends when the Mac is offline, or a 4403 revocation. HG-65's
+            // 197 identical `closed` lines are what that looks like when you need to know who hung
+            // up and the log cannot say.
+            onSocketClosed(gen, reason.ifBlank { "closed" }, closeCode = code)
         }
     }
 
-    protected open fun onSocketClosed(gen: Int, reason: String, retry: Boolean = true) {
+    /**
+     * Whether the socket that just died had earned a fresh start for the backoff.
+     *
+     * Reaching `Connected` used to be the whole test, and it is not evidence of anything: the
+     * handshake is the far end accepting a socket, not the far end working. In HG-65 every single
+     * round completed the handshake and then closed 4.2–4.6 seconds later without answering one
+     * RPC — 197 times, every one of them resetting `attempt` to 0, so the wait stayed at 500ms, the
+     * exponential backoff never engaged, and the phone reconnected twelve times a minute for
+     * twenty-four minutes while getting nothing done.
+     *
+     * So: an answered RPC, or a ready socket that lived long enough to be worth calling a session.
+     */
+    private fun wasWorthKeeping(): Boolean {
+        if (currentSocketAnsweredAnRpc) return true
+        val readyAt = readyAtMsForCurrentSocket
+        return readyAt > 0L && System.currentTimeMillis() - readyAt >= STABLE_CONNECTION_MS
+    }
+
+    protected open fun onSocketClosed(gen: Int, reason: String, retry: Boolean = true, closeCode: Int? = null) {
         // A newer socket has superseded this one (e.g. reconnectNow()) — ignore its death.
         if (gen != generation.get()) return
         // One death per socket. The handshake watchdog both cancels the socket and reports it
@@ -570,7 +632,18 @@ open class HermesGatewayClient(
         if (gen == closedGen) return
         closedGen = gen
         handshakeWatchdog?.cancel()
-        DebugLog.log("ws", "socket closed (gen=$gen): $reason")
+        val worthKeeping = wasWorthKeeping()
+        val readyAt = readyAtMsForCurrentSocket
+        val livedMs = if (readyAt > 0L) System.currentTimeMillis() - readyAt else -1L
+        DebugLog.log("ws") {
+            buildString {
+                append("socket closed (gen=$gen")
+                closeCode?.let { append(", code=$it") }
+                append("): $reason")
+                if (livedMs >= 0) append(" · ready for ${livedMs}ms")
+                if (!worthKeeping) append(" · answered nothing")
+            }
+        }
         // Fail any call() that is currently awaiting readiness so it throws immediately.
         readyGate.completeExceptionally(GatewayRpcException(0, reason))
         failAllPending(reason)
@@ -580,6 +653,9 @@ open class HermesGatewayClient(
             return
         }
         _state.value = ConnectionState.Reconnecting
+        // Only a connection that did something resets the wait. Without this, a far end that keeps
+        // accepting and dropping sockets holds the client at the shortest possible backoff forever.
+        if (worthKeeping) attempt.set(0)
         val attemptNo = attempt.getAndIncrement()
         val delayMs = backoff.delayFor(attemptNo)
         DebugLog.log("ws", "reconnect scheduled in ${delayMs}ms (gen=$gen, attempt=$attemptNo)")

@@ -68,6 +68,9 @@ class ChatRepository(private val client: HermesGatewayClient) {
     val events: SharedFlow<ServerEvent> get() = client.events
     val connectionState: StateFlow<ConnectionState> get() = client.connectionState
 
+    /** See [com.hermes.client.data.network.HermesGatewayClient.consecutiveDroppedConnections]. */
+    val consecutiveDroppedConnections: Int get() = client.consecutiveDroppedConnections
+
     fun connect() = client.connect()
     fun disconnect() = client.close("chat repository disconnect")
 

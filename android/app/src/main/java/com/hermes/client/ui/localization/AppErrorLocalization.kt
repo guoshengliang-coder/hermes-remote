@@ -14,6 +14,12 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "连接已中断，请重试。", "The connection was interrupted. Retry.")
         AppErrorCode.CONNECTOR_OFFLINE ->
             localized(language, "Mac 端当前离线，请启动 Hermes Go Desktop。", "The Mac is offline. Start Hermes Go Desktop.")
+        AppErrorCode.CONNECTION_UNSTABLE ->
+            localized(
+                language,
+                "连接反复中断，这次操作没能完成，请稍后重试或检查 Mac 端。",
+                "The connection keeps dropping, so this didn't go through. Try again later or check the Mac.",
+            )
         AppErrorCode.RPC_FAILED ->
             localized(language, "Relay 请求失败，请重试。", "The Relay request failed. Retry.")
         AppErrorCode.RPC_TIMEOUT ->

@@ -44,6 +44,7 @@ import com.hermes.client.ui.localization.AppLanguageProvider
 import com.hermes.client.ui.localization.LanguagePreference
 import com.hermes.client.ui.localization.resolve
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedMessage
 import com.hermes.client.ui.startup.StartupScreen
 import com.hermes.client.ui.startup.StartupReason
 import com.hermes.client.ui.startup.StartupUiState
@@ -350,11 +351,7 @@ class MainActivity : ComponentActivity() {
                 }
                     .onFailure { e ->
                         if (e is kotlinx.coroutines.CancellationException) throw e
-                        android.widget.Toast.makeText(
-                            this@MainActivity,
-                            localized(languages.current, "无法新建会话（HR-RPC-001）", "Couldn't start a chat (HR-RPC-001)"),
-                            android.widget.Toast.LENGTH_SHORT,
-                        ).show()
+                        reportNewChatFailure(e)
                     }
             } finally {
                 newChatInFlight.set(false)
@@ -450,13 +447,32 @@ class MainActivity : ComponentActivity() {
                 }
                 .onFailure { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    android.widget.Toast.makeText(
-                        this@MainActivity,
-                        localized(languages.current, "无法新建会话（HR-RPC-001）", "Couldn't start a chat (HR-RPC-001)"),
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                    reportNewChatFailure(e)
                 }
         }
+    }
+
+    /**
+     * Say why a new conversation could not be started, in terms the user can act on.
+     *
+     * Both call sites used to print `HR-RPC-001` for every throwable. That code says the request
+     * failed and nothing about why, and in HG-65 it was actively misleading: nothing was wrong with
+     * the request — the connection was being accepted and dropped every five seconds, and every
+     * retry landed on the next doomed socket. See [com.hermes.client.data.error.newChatFailure].
+     */
+    private fun reportNewChatFailure(error: Throwable) {
+        val appError = com.hermes.client.data.error.newChatFailure(
+            error,
+            droppedConnections = chat.consecutiveDroppedConnections,
+        )
+        com.hermes.client.data.diagnostics.DebugLog.log("error") {
+            "new chat failed: " + appError.sanitizedDiagnostic().replace("\n", " ")
+        }
+        android.widget.Toast.makeText(
+            this@MainActivity,
+            appError.localizedMessage(languages.current) + "（" + appError.code.value + "）",
+            android.widget.Toast.LENGTH_LONG,
+        ).show()
     }
 
     private companion object {
