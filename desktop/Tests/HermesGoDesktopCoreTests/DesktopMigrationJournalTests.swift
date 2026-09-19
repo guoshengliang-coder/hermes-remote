@@ -143,6 +143,94 @@ final class DesktopMigrationJournalTests: XCTestCase {
         XCTAssertEqual(try store.load(), journal)
     }
 
+    func testCommittedAccountCanBeginCrossLayoutUpgradeAndRollbackToPreviousRelease() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try DesktopMigrationJournalStore(root: root)
+        let oldRun = "30000000-0000-4000-8000-000000000003"
+        let newRun = "30000000-0000-4000-8000-000000000004"
+        let bindingID = "40000000-0000-4000-8000-000000000004"
+        _ = try store.begin(
+            runID: oldRun,
+            lastKnownGoodMode: .none,
+            releaseVersion: "0.3.4",
+            releaseLayout: .bundledRelease,
+            bindingID: bindingID,
+            bindingGeneration: 2
+        )
+        for state: DesktopMigrationState in [
+            .accountStaged, .candidateStarting, .candidateAuthenticated,
+            .candidateHealthy, .commitPending, .accountActive,
+        ] { _ = try store.transition(runID: oldRun, to: state) }
+
+        let upgrade = try store.beginUpgrade(
+            runID: newRun,
+            installedReleaseVersion: "0.3.4",
+            targetReleaseVersion: "0.3.5",
+            installedReleaseLayout: .bundledRelease,
+            targetReleaseLayout: .componentStore,
+            bindingID: bindingID,
+            bindingGeneration: 2
+        )
+        XCTAssertEqual(upgrade.state, .preflight)
+        XCTAssertEqual(upgrade.lastKnownGoodMode, .account)
+        XCTAssertEqual(upgrade.releaseVersion, "0.3.5")
+
+        _ = try store.transition(runID: newRun, to: .rollingBack)
+        let restored = try store.completeUpgradeRollback(
+            runID: newRun,
+            previousReleaseVersion: "0.3.4",
+            previousReleaseLayout: .bundledRelease,
+            targetReleaseLayout: .componentStore,
+            bindingID: bindingID,
+            bindingGeneration: 2
+        )
+        XCTAssertEqual(restored.state, .accountActive)
+        XCTAssertEqual(restored.releaseVersion, "0.3.4")
+        XCTAssertEqual(restored.releaseLayout, .bundledRelease)
+        XCTAssertEqual(restored.lastKnownGoodMode, .account)
+    }
+
+    func testUpgradeRejectsSameVersionDowngradeAndBindingMismatch() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try DesktopMigrationJournalStore(root: root)
+        let oldRun = "30000000-0000-4000-8000-000000000003"
+        let bindingID = "40000000-0000-4000-8000-000000000004"
+        _ = try store.begin(
+            runID: oldRun,
+            lastKnownGoodMode: .none,
+            releaseVersion: "0.3.5",
+            bindingID: bindingID,
+            bindingGeneration: 2
+        )
+        for state: DesktopMigrationState in [
+            .accountStaged, .candidateStarting, .candidateAuthenticated,
+            .candidateHealthy, .commitPending, .accountActive,
+        ] { _ = try store.transition(runID: oldRun, to: state) }
+
+        for target in ["0.3.5", "0.3.4"] {
+            XCTAssertThrowsError(try store.beginUpgrade(
+                runID: UUID().uuidString,
+                installedReleaseVersion: "0.3.5",
+                targetReleaseVersion: target,
+                installedReleaseLayout: .bundledRelease,
+                targetReleaseLayout: .bundledRelease,
+                bindingID: bindingID,
+                bindingGeneration: 2
+            ))
+        }
+        XCTAssertThrowsError(try store.beginUpgrade(
+            runID: UUID().uuidString,
+            installedReleaseVersion: "0.3.5",
+            targetReleaseVersion: "0.3.6",
+            installedReleaseLayout: .bundledRelease,
+            targetReleaseLayout: .bundledRelease,
+            bindingID: UUID().uuidString,
+            bindingGeneration: 2
+        ))
+    }
+
     func testLegacySchemaOneLoadsAsBundledAndUpgradesOnTransition() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

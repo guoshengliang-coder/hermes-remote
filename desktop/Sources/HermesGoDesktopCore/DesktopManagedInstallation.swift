@@ -18,6 +18,7 @@ public struct DesktopManagedInstallLayout: Equatable, Sendable {
     public var stagingRoot: URL { root.appendingPathComponent("staging", isDirectory: true) }
     public var secretsRoot: URL { root.appendingPathComponent("secrets", isDirectory: true) }
     public var logsRoot: URL { root.appendingPathComponent("logs", isDirectory: true) }
+    public var stateRoot: URL { root.appendingPathComponent("state", isDirectory: true) }
     public var currentRelease: URL { root.appendingPathComponent("current") }
     public var connectorCredential: URL { secretsRoot.appendingPathComponent("connector-account.json") }
     public var hermesSessionToken: URL { secretsRoot.appendingPathComponent("hermes-session-token") }
@@ -70,6 +71,15 @@ public struct DesktopReleaseActivation: Equatable, Sendable {
         self.releaseVersion = releaseVersion
         self.previousRelativeTarget = previousRelativeTarget
     }
+}
+
+public struct DesktopManagedUpgradeSnapshot: Equatable, Sendable {
+    public let runID: String
+    public let previousReleaseVersion: String
+    public let targetReleaseVersion: String
+    public let previousReleaseLayout: DesktopManagedReleaseLayoutKind
+    public let targetReleaseLayout: DesktopManagedReleaseLayoutKind
+    public let previousRelativeTarget: String?
 }
 
 public enum DesktopManagedInstallError: Error, Equatable, Sendable {
@@ -131,6 +141,144 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         self.layout = layout
         self.fileManager = fileManager
     }
+
+    /// Durably snapshots the exact two active LaunchAgents before an upgrade can rewrite either
+    /// one. The owner-only snapshot may contain the local paths and credentials already present in
+    /// the Connector plist, so callers must never print its contents.
+    public func prepareManagedUpgradeSnapshot(
+        runID: String,
+        previousReleaseVersion: String,
+        targetReleaseVersion: String,
+        previousReleaseLayout: DesktopManagedReleaseLayoutKind,
+        targetReleaseLayout: DesktopManagedReleaseLayoutKind
+    ) throws -> DesktopManagedUpgradeSnapshot {
+        guard let normalizedRunID = UUID(uuidString: runID)?.uuidString.lowercased(),
+              DesktopManagedInstallLayout.validVersion(previousReleaseVersion),
+              DesktopManagedInstallLayout.validVersion(targetReleaseVersion)
+        else { throw DesktopManagedInstallError.invalidInput }
+        let snapshot = DesktopManagedUpgradeSnapshot(
+            runID: normalizedRunID,
+            previousReleaseVersion: previousReleaseVersion,
+            targetReleaseVersion: targetReleaseVersion,
+            previousReleaseLayout: previousReleaseLayout,
+            targetReleaseLayout: targetReleaseLayout,
+            previousRelativeTarget: try existingCurrentTarget()
+        )
+        let root = managedUpgradeSnapshotRoot(normalizedRunID)
+        guard !fileManager.fileExists(atPath: root.path) else {
+            throw DesktopManagedInstallError.unsafeFilesystemObject
+        }
+        let hermes = try readOwnedPrivateFile(layout.hermesLaunchAgent)
+        let connector = try readOwnedPrivateFile(layout.connectorLaunchAgent)
+        try ensurePrivateDirectory(layout.stateRoot)
+        try ensurePrivateDirectory(managedUpgradeSnapshotsRoot)
+        try ensurePrivateDirectory(root)
+        do {
+            try atomicWrite(hermes, to: root.appendingPathComponent("hermes.plist"), permissions: 0o600)
+            try atomicWrite(connector, to: root.appendingPathComponent("connector.plist"), permissions: 0o600)
+            let metadata = ManagedUpgradeSnapshotMetadata(snapshot: snapshot)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            try atomicWrite(
+                encoder.encode(metadata),
+                to: root.appendingPathComponent("snapshot.json"),
+                permissions: 0o600
+            )
+            return snapshot
+        } catch {
+            try? fileManager.removeItem(at: root)
+            if let typed = error as? DesktopManagedInstallError { throw typed }
+            throw DesktopManagedInstallError.persistenceFailed
+        }
+    }
+
+    public func loadManagedUpgradeSnapshot(runID: String) throws -> DesktopManagedUpgradeSnapshot? {
+        guard let normalizedRunID = UUID(uuidString: runID)?.uuidString.lowercased() else {
+            throw DesktopManagedInstallError.invalidInput
+        }
+        let root = managedUpgradeSnapshotRoot(normalizedRunID)
+        guard fileManager.fileExists(atPath: root.path) else { return nil }
+        try requireOwnedDirectory(root)
+        let data = try readOwnedPrivateFile(root.appendingPathComponent("snapshot.json"))
+        let requiredKeys = Set([
+            "schemaVersion", "runID", "previousReleaseVersion", "targetReleaseVersion",
+            "previousReleaseLayout", "targetReleaseLayout",
+        ])
+        let allowedKeys = requiredKeys.union(["previousRelativeTarget"])
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys).isSubset(of: allowedKeys),
+              requiredKeys.isSubset(of: Set(object.keys)),
+              let metadata = try? JSONDecoder().decode(ManagedUpgradeSnapshotMetadata.self, from: data),
+              metadata.schemaVersion == 1,
+              metadata.runID == normalizedRunID,
+              DesktopManagedInstallLayout.validVersion(metadata.previousReleaseVersion),
+              DesktopManagedInstallLayout.validVersion(metadata.targetReleaseVersion),
+              metadata.previousRelativeTarget.map(validRelativeReleaseTarget) ?? true
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        _ = try readOwnedPrivateFile(root.appendingPathComponent("hermes.plist"))
+        _ = try readOwnedPrivateFile(root.appendingPathComponent("connector.plist"))
+        return metadata.snapshot
+    }
+
+    /// Restores the exact pre-upgrade service definitions and, for bundled releases, the previous
+    /// `current` pointer. Services must be stopped by the coordinator before this method is called.
+    public func restoreManagedUpgradeSnapshot(_ snapshot: DesktopManagedUpgradeSnapshot) throws {
+        guard try loadManagedUpgradeSnapshot(runID: snapshot.runID) == snapshot else {
+            throw DesktopManagedInstallError.unsafeFilesystemObject
+        }
+        let root = managedUpgradeSnapshotRoot(snapshot.runID)
+        _ = try readOwnedPrivateFile(layout.hermesLaunchAgent)
+        _ = try readOwnedPrivateFile(layout.connectorLaunchAgent)
+        if snapshot.targetReleaseLayout == .bundledRelease {
+            let current = try existingCurrentTarget()
+            let target = "releases/\(snapshot.targetReleaseVersion)"
+            if current == target {
+                try rollback(
+                    DesktopReleaseActivation(
+                        releaseVersion: snapshot.targetReleaseVersion,
+                        previousRelativeTarget: snapshot.previousRelativeTarget
+                    ),
+                    runID: snapshot.runID
+                )
+            } else if current != snapshot.previousRelativeTarget {
+                throw DesktopManagedInstallError.activationFailed
+            }
+        }
+        try atomicWrite(
+            try readOwnedPrivateFile(root.appendingPathComponent("hermes.plist")),
+            to: layout.hermesLaunchAgent,
+            permissions: 0o600
+        )
+        try atomicWrite(
+            try readOwnedPrivateFile(root.appendingPathComponent("connector.plist")),
+            to: layout.connectorLaunchAgent,
+            permissions: 0o600
+        )
+    }
+
+    public func discardManagedUpgradeSnapshot(_ snapshot: DesktopManagedUpgradeSnapshot) throws {
+        guard try loadManagedUpgradeSnapshot(runID: snapshot.runID) == snapshot else {
+            throw DesktopManagedInstallError.unsafeFilesystemObject
+        }
+        do { try fileManager.removeItem(at: managedUpgradeSnapshotRoot(snapshot.runID)) }
+        catch { throw DesktopManagedInstallError.persistenceFailed }
+    }
+
+    private func managedUpgradeSnapshotRoot(_ runID: String) -> URL {
+        managedUpgradeSnapshotsRoot
+            .appendingPathComponent(runID, isDirectory: true)
+    }
+
+    private var managedUpgradeSnapshotsRoot: URL {
+        layout.stateRoot.appendingPathComponent("upgrade-snapshots", isDirectory: true)
+    }
+
+    public var managedHermesLogURL: URL {
+        layout.logsRoot.appendingPathComponent("hermes-server.log")
+    }
+
+    public var managedHermesLaunchAgentURL: URL { layout.hermesLaunchAgent }
+    public var managedConnectorLaunchAgentURL: URL { layout.connectorLaunchAgent }
 
     /// Installs already checksum-verified, safely extracted component trees. It never reads or
     /// modifies a legacy Connector directory.
@@ -1134,6 +1282,37 @@ private struct ManagedReleaseMarker: Codable {
     let schemaVersion: Int
     let runID: String
     let releaseVersion: String
+}
+
+private struct ManagedUpgradeSnapshotMetadata: Codable {
+    let schemaVersion: Int
+    let runID: String
+    let previousReleaseVersion: String
+    let targetReleaseVersion: String
+    let previousReleaseLayout: DesktopManagedReleaseLayoutKind
+    let targetReleaseLayout: DesktopManagedReleaseLayoutKind
+    let previousRelativeTarget: String?
+
+    init(snapshot: DesktopManagedUpgradeSnapshot) {
+        schemaVersion = 1
+        runID = snapshot.runID
+        previousReleaseVersion = snapshot.previousReleaseVersion
+        targetReleaseVersion = snapshot.targetReleaseVersion
+        previousReleaseLayout = snapshot.previousReleaseLayout
+        targetReleaseLayout = snapshot.targetReleaseLayout
+        previousRelativeTarget = snapshot.previousRelativeTarget
+    }
+
+    var snapshot: DesktopManagedUpgradeSnapshot {
+        DesktopManagedUpgradeSnapshot(
+            runID: runID,
+            previousReleaseVersion: previousReleaseVersion,
+            targetReleaseVersion: targetReleaseVersion,
+            previousReleaseLayout: previousReleaseLayout,
+            targetReleaseLayout: targetReleaseLayout,
+            previousRelativeTarget: previousRelativeTarget
+        )
+    }
 }
 
 public enum DesktopLaunchAgentError: Error, Equatable, Sendable {

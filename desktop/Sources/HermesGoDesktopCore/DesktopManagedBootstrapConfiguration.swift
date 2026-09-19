@@ -88,6 +88,19 @@ public struct DesktopManagedBootstrapConfiguration: Equatable, Sendable {
     public let signingPublicKey: Data
     public let runtimeContract: DesktopHermesRuntimeContract
 
+    /// A display/preflight hint extracted from the canonical release URL. The signed manifest is
+    /// still authoritative and is compared again after download, before any machine mutation.
+    public var pinnedReleaseVersion: String? {
+        let filename = manifestURL.deletingPathExtension().lastPathComponent
+        let prefix = "Hermes-Desktop-"
+        let suffix = "-\(architecture).manifest"
+        guard filename.hasPrefix(prefix), filename.hasSuffix(suffix) else { return nil }
+        let start = filename.index(filename.startIndex, offsetBy: prefix.count)
+        let end = filename.index(filename.endIndex, offsetBy: -suffix.count)
+        let value = String(filename[start..<end])
+        return DesktopManagedInstallLayout.validVersion(value) ? value : nil
+    }
+
     public init(
         manifestURL: URL,
         artifactOrigin: URL,

@@ -501,6 +501,37 @@ extension DesktopComponentReleaseInstallerTests {
         )
     }
 
+    func testBootstrapExecutorRoutesActiveInstallationToComponentUpgrade() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let migration = RecordingComponentBootstrapMigration()
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: FixtureComponentDownloader()),
+            migration: migration
+        )
+        let preparation = try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(),
+            workspaceRoot: fixture.workspace,
+            runID: "a0000000-0000-4000-8000-000000000009",
+            installation: .active(
+                releaseVersion: "0.4.0",
+                bindingID: "70000000-0000-4000-8000-000000000007",
+                bindingGeneration: 1
+            ),
+            healthProbe: executableProbe
+        )
+        XCTAssertEqual(preparation.intent, .upgrade(fromReleaseVersion: "0.4.0"))
+
+        _ = try await executor.commit(
+            preparation,
+            configuration: try fixture.commitConfiguration(),
+            legacy: fixture.legacySnapshot,
+            confirmation: preparation.confirmationText
+        )
+        let upgradeCount = await migration.recordedUpgradeCount()
+        XCTAssertEqual(upgradeCount, 1)
+    }
+
     func testBootstrapExecutorRejectsPreparationIssuedByAnotherSession() async throws {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }
@@ -1066,6 +1097,7 @@ private struct RecordedComponentBootstrapMigration: Sendable {
 private actor RecordingComponentBootstrapMigration: DesktopComponentBootstrapMigrating {
     private let failure: ComponentBootstrapMigrationFixtureError?
     private var calls: [RecordedComponentBootstrapMigration] = []
+    private var upgrades = 0
 
     init(failure: ComponentBootstrapMigrationFixtureError? = nil) {
         self.failure = failure
@@ -1099,6 +1131,26 @@ private actor RecordingComponentBootstrapMigration: DesktopComponentBootstrapMig
     }
 
     func recordedCalls() -> [RecordedComponentBootstrapMigration] { calls }
+
+    func upgradeComponentRelease(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        upgrades += 1
+        if let failure { throw failure }
+        return DesktopMigrationOutcome(
+            runID: runID,
+            releaseVersion: manifest.releaseVersion,
+            bindingID: "binding-1",
+            bindingGeneration: 1
+        )
+    }
+
+    func recordedUpgradeCount() -> Int { upgrades }
 }
 
 private final class FailOnceInstalledDiscardComponentInstaller:

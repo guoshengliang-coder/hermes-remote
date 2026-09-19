@@ -8,6 +8,17 @@ published and Desktop 0.2.4 is installed on the migrated Mac. Its packaged reboo
 single-Connector invariant, and post-reboot Android account REST/WebSocket traffic passed. Developer
 ID signing/notarization and clean-Mac acceptance remain pending.
 
+## Managed in-app upgrade transaction — 2026-09-19
+
+Desktop now offers the signed two-stage action to an `account_active` installation when the target
+is a strict version increase. Automated coverage proves schema-v1 and schema-v2 executor routing,
+same-version/downgrade rejection, no binding create/confirm call, Connector-before-Hermes shutdown,
+old-listener convergence before replacement startup, Hermes-before-Connector startup, exact binding
+and fresh Cloud health, byte-identical LaunchAgent/pointer rollback, bundled-to-component transition,
+and durable restart recovery. `npm run desktop:assets:test`, all 334 `npm run desktop:test` cases, and
+`npm run desktop:app` passed locally. No production deployment, version bump, notarization, or physical
+Mac upgrade was performed by this change.
+
 ## E4-E offline release publisher
 
 The repository now includes a default-inert offline publisher and independent public-key verifier for

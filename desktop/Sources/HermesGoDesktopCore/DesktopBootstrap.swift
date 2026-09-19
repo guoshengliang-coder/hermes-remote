@@ -6,6 +6,7 @@ public enum DesktopBootstrapReadiness: String, Equatable, Sendable {
     case existingServiceNeedsAttention
     case waitingForSignedRelease
     case readyForManagedInstall
+    case managedUpgradeAvailable
     case managedInstallActive
 }
 
@@ -62,10 +63,30 @@ public enum DesktopBootstrapPlanner {
         legacy: LegacyConnectorSnapshot,
         hermesReachable: Bool,
         managedInstallAvailability: DesktopManagedBootstrapAvailability,
-        managedInstallation: DesktopManagedBootstrapInstallationStatus = .absent
+        managedInstallation: DesktopManagedBootstrapInstallationStatus = .absent,
+        targetReleaseVersion: String? = nil
     ) -> DesktopBootstrapPlan {
         switch managedInstallation {
         case .active(let releaseVersion, _, _):
+            if managedInstallAvailability == .ready,
+               let targetReleaseVersion,
+               isNewer(targetReleaseVersion, than: releaseVersion) {
+                return plan(
+                    readiness: .managedUpgradeAvailable,
+                    title: "可升级到 Hermes Go \(targetReleaseVersion)",
+                    detail: "Desktop 会保留当前账号、设备绑定和本机数据，短暂重启 Hermes Server 与 Connector；验证失败时自动恢复 \(releaseVersion)。",
+                    steps: [
+                        .inspectExisting,
+                        .preserveExisting,
+                        .verifySignedRelease,
+                        .installHermes,
+                        .installConnector,
+                        .enableAutomaticStartup,
+                        .verifyEndToEnd,
+                    ],
+                    canBegin: true
+                )
+            }
             return plan(
                 readiness: .managedInstallActive,
                 title: "受管连接正在运行",
@@ -258,5 +279,22 @@ public enum DesktopBootstrapPlanner {
             false
         }
         return DesktopBootstrapStep(kind: kind, titleChinese: title, changesMachine: changesMachine)
+    }
+
+    private static func isNewer(_ candidate: String, than installed: String) -> Bool {
+        guard let candidate = semanticVersion(candidate),
+              let installed = semanticVersion(installed)
+        else { return false }
+        return candidate.lexicographicallyPrecedes(installed) == false && candidate != installed
+    }
+
+    private static func semanticVersion(_ value: String) -> [Int]? {
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        let parsed = parts.compactMap { Int($0) }
+        guard parsed.count == 3,
+              zip(parts, parsed).allSatisfy({ String($0.1) == $0.0 })
+        else { return nil }
+        return parsed
     }
 }

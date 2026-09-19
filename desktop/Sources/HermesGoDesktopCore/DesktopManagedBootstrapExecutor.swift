@@ -22,6 +22,28 @@ public protocol DesktopReleaseMigrating: Sendable {
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome
+
+    func upgrade(
+        manifest: DesktopReleaseManifest,
+        sources: [DesktopManagedReleaseSource],
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome
+}
+
+public extension DesktopReleaseMigrating {
+    func upgrade(
+        manifest: DesktopReleaseManifest,
+        sources: [DesktopManagedReleaseSource],
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        throw DesktopManagedBootstrapExecutorError.releaseNotNewer
+    }
 }
 
 extension DesktopMigrationCoordinator: DesktopReleaseMigrating {}
@@ -32,6 +54,17 @@ public enum DesktopManagedBootstrapExecutorError: Error, Equatable, Sendable {
     case preparationMismatch
     case confirmationRequired
     case cleanupFailed
+    case releaseNotNewer
+}
+
+public enum DesktopManagedBootstrapIntent: Equatable, Sendable {
+    case install
+    case upgrade(fromReleaseVersion: String)
+
+    public var isUpgrade: Bool {
+        if case .upgrade = self { return true }
+        return false
+    }
 }
 
 public struct DesktopManagedBootstrapPreparation: Equatable, Identifiable, Sendable {
@@ -39,17 +72,20 @@ public struct DesktopManagedBootstrapPreparation: Equatable, Identifiable, Senda
     public let runID: String
     public let releaseVersion: String
     public let confirmationText: String
+    public let intent: DesktopManagedBootstrapIntent
 
     fileprivate init(
         id: String,
         runID: String,
         releaseVersion: String,
-        confirmationText: String
+        confirmationText: String,
+        intent: DesktopManagedBootstrapIntent
     ) {
         self.id = id
         self.runID = runID
         self.releaseVersion = releaseVersion
         self.confirmationText = confirmationText
+        self.intent = intent
     }
 }
 
@@ -222,7 +258,8 @@ public actor DesktopManagedBootstrapExecutor {
     public func prepare(
         manifestURL: URL,
         workspaceRoot: URL,
-        runID: String
+        runID: String,
+        installation: DesktopManagedBootstrapInstallationStatus = .absent
     ) async throws -> DesktopManagedBootstrapPreparation {
         guard case .idle = state else {
             throw DesktopManagedBootstrapExecutorError.operationInProgress
@@ -250,13 +287,32 @@ public actor DesktopManagedBootstrapExecutor {
             throw error
         }
 
+        let intent: DesktopManagedBootstrapIntent
+        switch installation {
+        case .absent:
+            intent = .install
+        case .active(let installed, _, _):
+            guard Self.version(acquired.manifest.releaseVersion, isNewerThan: installed) else {
+                state = .idle
+                do { try acquisition.discard(acquired) }
+                catch { throw DesktopManagedBootstrapExecutorError.cleanupFailed }
+                throw DesktopManagedBootstrapExecutorError.releaseNotNewer
+            }
+            intent = .upgrade(fromReleaseVersion: installed)
+        case .interrupted, .attentionRequired, .inconsistent:
+            state = .idle
+            do { try acquisition.discard(acquired) }
+            catch { throw DesktopManagedBootstrapExecutorError.cleanupFailed }
+            throw DesktopMigrationCoordinatorError.invalidStartingState
+        }
         let normalizedRunID = UUID(uuidString: runID)?.uuidString.lowercased() ?? runID
         let publicValue = DesktopManagedBootstrapPreparation(
             id: UUID().uuidString.lowercased(),
             runID: normalizedRunID,
             releaseVersion: acquired.manifest.releaseVersion,
             confirmationText: DesktopMigrationCoordinator<SystemCommandRunner>
-                .confirmationText(releaseVersion: acquired.manifest.releaseVersion)
+                .confirmationText(releaseVersion: acquired.manifest.releaseVersion),
+            intent: intent
         )
         state = .prepared(PendingPreparation(publicValue: publicValue, acquired: acquired))
         return publicValue
@@ -290,15 +346,27 @@ public actor DesktopManagedBootstrapExecutor {
         let migrationOutcome: DesktopMigrationOutcome
         do {
             try Task.checkCancellation()
-            migrationOutcome = try await migration.migrate(
-                manifest: pending.acquired.manifest,
-                sources: pending.acquired.sources,
-                hermesLaunchAgentConfiguration: launchAgents.hermes,
-                launchAgentConfiguration: launchAgents.connector,
-                legacy: legacy,
-                runID: pending.publicValue.runID,
-                confirmation: confirmation
-            )
+            switch pending.publicValue.intent {
+            case .install:
+                migrationOutcome = try await migration.migrate(
+                    manifest: pending.acquired.manifest,
+                    sources: pending.acquired.sources,
+                    hermesLaunchAgentConfiguration: launchAgents.hermes,
+                    launchAgentConfiguration: launchAgents.connector,
+                    legacy: legacy,
+                    runID: pending.publicValue.runID,
+                    confirmation: confirmation
+                )
+            case .upgrade:
+                migrationOutcome = try await migration.upgrade(
+                    manifest: pending.acquired.manifest,
+                    sources: pending.acquired.sources,
+                    hermesLaunchAgentConfiguration: launchAgents.hermes,
+                    launchAgentConfiguration: launchAgents.connector,
+                    runID: pending.publicValue.runID,
+                    confirmation: confirmation
+                )
+            }
         } catch {
             do {
                 try acquisition.discard(pending.acquired)
@@ -372,12 +440,14 @@ public actor DesktopManagedBootstrapExecutor {
         configuration: DesktopManagedBootstrapCommitConfiguration,
         legacy: LegacyConnectorSnapshot,
         runID: String,
-        confirmation: String
+        confirmation: String,
+        installation: DesktopManagedBootstrapInstallationStatus = .absent
     ) async throws -> DesktopManagedBootstrapOutcome {
         let preparation = try await prepare(
             manifestURL: manifestURL,
             workspaceRoot: workspaceRoot,
-            runID: runID
+            runID: runID,
+            installation: installation
         )
         do {
             return try await commit(
@@ -393,5 +463,13 @@ public actor DesktopManagedBootstrapExecutor {
             }
             throw error
         }
+    }
+
+    private static func version(_ candidate: String, isNewerThan installed: String) -> Bool {
+        let candidateParts = candidate.split(separator: ".").compactMap { Int($0) }
+        let installedParts = installed.split(separator: ".").compactMap { Int($0) }
+        return candidateParts.count == 3 && installedParts.count == 3
+            && candidateParts != installedParts
+            && candidateParts.lexicographicallyPrecedes(installedParts) == false
     }
 }

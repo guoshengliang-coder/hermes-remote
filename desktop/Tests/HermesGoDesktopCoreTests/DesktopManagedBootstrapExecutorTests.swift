@@ -62,6 +62,47 @@ final class DesktopManagedBootstrapExecutorTests: XCTestCase {
         XCTAssertEqual(fixture.acquisition.events, ["acquire", "discard"])
     }
 
+    func testActiveInstallationRoutesToUpgradeWithoutLegacyMigration() async throws {
+        let fixture = BootstrapExecutorFixture()
+        let preparation = try await fixture.executor.prepare(
+            manifestURL: fixture.manifestURL,
+            workspaceRoot: fixture.workspaceRoot,
+            runID: fixture.runID,
+            installation: .active(
+                releaseVersion: "1.2.2",
+                bindingID: "70000000-0000-4000-8000-000000000007",
+                bindingGeneration: 1
+            )
+        )
+        XCTAssertEqual(preparation.intent, .upgrade(fromReleaseVersion: "1.2.2"))
+
+        _ = try await fixture.executor.commit(
+            preparation,
+            configuration: fixture.commitConfiguration,
+            legacy: fixture.legacy,
+            confirmation: preparation.confirmationText
+        )
+        XCTAssertEqual(fixture.migration.events, ["upgrade"])
+    }
+
+    func testActiveInstallationRejectsSameVersionBeforeMigration() async throws {
+        let fixture = BootstrapExecutorFixture()
+        await XCTAssertThrowsErrorAsync(try await fixture.executor.prepare(
+            manifestURL: fixture.manifestURL,
+            workspaceRoot: fixture.workspaceRoot,
+            runID: fixture.runID,
+            installation: .active(
+                releaseVersion: "1.2.3",
+                bindingID: "70000000-0000-4000-8000-000000000007",
+                bindingGeneration: 1
+            )
+        )) { error in
+            XCTAssertEqual(error as? DesktopManagedBootstrapExecutorError, .releaseNotNewer)
+        }
+        XCTAssertEqual(fixture.migration.events, [])
+        XCTAssertEqual(fixture.acquisition.events, ["acquire", "discard"])
+    }
+
     func testIncorrectConfirmationCannotStartMigrationAndPreparationCanBeRetried() async throws {
         let fixture = BootstrapExecutorFixture()
         let preparation = try await fixture.prepare()
@@ -399,6 +440,24 @@ private final class BootstrapMigrationFake: DesktopReleaseMigrating, @unchecked 
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {
         events.append("migrate")
+        receivedRunID = runID
+        receivedConfirmation = confirmation
+        receivedManifest = manifest
+        receivedSources = sources
+        receivedHermesExecutable = hermesLaunchAgentConfiguration.hermesExecutable
+        if let failure { throw failure }
+        return outcome
+    }
+
+    func upgrade(
+        manifest: DesktopReleaseManifest,
+        sources: [DesktopManagedReleaseSource],
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        events.append("upgrade")
         receivedRunID = runID
         receivedConfirmation = confirmation
         receivedManifest = manifest

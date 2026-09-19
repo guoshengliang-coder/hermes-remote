@@ -161,6 +161,45 @@ final class DesktopBootstrapTests: XCTestCase {
         XCTAssertTrue(plan.detailChinese.contains("1.2.3"))
     }
 
+    func testManagedActiveReleaseOffersUpgradeWithoutRebinding() {
+        let plan = DesktopBootstrapPlanner.plan(
+            legacy: snapshot(installed: false, running: false),
+            hermesReachable: true,
+            managedInstallAvailability: .ready,
+            managedInstallation: .active(
+                releaseVersion: "0.3.4",
+                bindingID: "70000000-0000-4000-8000-000000000007",
+                bindingGeneration: 2
+            ),
+            targetReleaseVersion: "0.3.5"
+        )
+
+        XCTAssertEqual(plan.readiness, .managedUpgradeAvailable)
+        XCTAssertTrue(plan.canBegin)
+        XCTAssertTrue(plan.requiresConfirmation)
+        XCTAssertFalse(plan.steps.contains { $0.kind == .bindAccount })
+        XCTAssertTrue(plan.detailChinese.contains("保留当前账号、设备绑定"))
+        XCTAssertTrue(plan.detailChinese.contains("恢复 0.3.4"))
+    }
+
+    func testManagedActiveReleaseDoesNotOfferSameVersionOrDowngrade() {
+        for target in ["0.3.5", "0.3.4", "invalid"] {
+            let plan = DesktopBootstrapPlanner.plan(
+                legacy: snapshot(installed: false, running: false),
+                hermesReachable: true,
+                managedInstallAvailability: .ready,
+                managedInstallation: .active(
+                    releaseVersion: "0.3.5",
+                    bindingID: "70000000-0000-4000-8000-000000000007",
+                    bindingGeneration: 2
+                ),
+                targetReleaseVersion: target
+            )
+            XCTAssertEqual(plan.readiness, .managedInstallActive)
+            XCTAssertFalse(plan.canBegin)
+        }
+    }
+
     func testInterruptedManagedReleaseBlocksASecondInstall() {
         let plan = DesktopBootstrapPlanner.plan(
             legacy: snapshot(installed: false, running: false),

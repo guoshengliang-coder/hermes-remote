@@ -681,7 +681,8 @@ final class DesktopViewModel: ObservableObject {
                 configuration: effectiveManagedBootstrapConfiguration,
                 serverRuntimeContract: serverRuntimeContract
             ),
-            managedInstallation: scopedManagedInstallation
+            managedInstallation: scopedManagedInstallation,
+            targetReleaseVersion: selectedTargetReleaseVersion
         )
         applyManagedBootstrapInstallation(scopedManagedInstallation)
     }
@@ -701,10 +702,12 @@ final class DesktopViewModel: ObservableObject {
             return
         }
         do {
+            let installation = await inspectScopedManagedBootstrapInstallation()
             managedBootstrapPreparation = try await runtime.executor.prepare(
                 manifestURL: runtime.manifestURL,
                 workspaceRoot: runtime.workspaceRoot,
-                runID: UUID().uuidString.lowercased()
+                runID: UUID().uuidString.lowercased(),
+                installation: installation
             )
             managedBootstrapOperation = .awaitingConfirmation
         } catch {
@@ -815,7 +818,8 @@ final class DesktopViewModel: ObservableObject {
                 let preparation = try await runtime.executor.prepare(
                     trustedPreflight: trustedPreflight,
                     workspaceRoot: runtime.workspaceRoot,
-                    runID: runID
+                    runID: runID,
+                    installation: machine.installation
                 ) { kind, root, entrypoint in
                     try probe(kind, root: root, entrypoint: entrypoint)
                 }
@@ -863,7 +867,11 @@ final class DesktopViewModel: ObservableObject {
               let runtime = componentBootstrapRuntime
         else { return }
 
-        let machine: (legacy: LegacyConnectorSnapshot, plan: DesktopBootstrapPlan)
+        let machine: (
+            legacy: LegacyConnectorSnapshot,
+            plan: DesktopBootstrapPlan,
+            installation: DesktopManagedBootstrapInstallationStatus
+        )
         do {
             applyAccountState(try await accountController.refresh())
             guard componentBootstrapAvailability == .ready else {
@@ -1002,6 +1010,20 @@ final class DesktopViewModel: ObservableObject {
         return managedBootstrapConfiguration
     }
 
+    private var managedTargetReleaseVersion: String? {
+        guard case .configured(let configuration) = effectiveManagedBootstrapConfiguration else {
+            return nil
+        }
+        return configuration.pinnedReleaseVersion
+    }
+
+    private var selectedTargetReleaseVersion: String? {
+        if isComponentBootstrapPathSelected {
+            return trustedComponentPreflight?.result.manifest.releaseVersion
+        }
+        return managedTargetReleaseVersion
+    }
+
     private func refreshManagedBootstrapPreflight() async -> (
         legacy: LegacyConnectorSnapshot,
         plan: DesktopBootstrapPlan
@@ -1020,7 +1042,8 @@ final class DesktopViewModel: ObservableObject {
                 configuration: effectiveManagedBootstrapConfiguration,
                 serverRuntimeContract: currentDesktopBootstrapRuntimeContract
             ),
-            managedInstallation: managedInstallation
+            managedInstallation: managedInstallation,
+            targetReleaseVersion: managedTargetReleaseVersion
         )
         legacy = observation
         bootstrapPlan = plan
@@ -1056,7 +1079,8 @@ final class DesktopViewModel: ObservableObject {
 
     private func componentMachinePreflight() async -> (
         legacy: LegacyConnectorSnapshot,
-        plan: DesktopBootstrapPlan
+        plan: DesktopBootstrapPlan,
+        installation: DesktopManagedBootstrapInstallationStatus
     ) {
         let inspector = self.inspector
         let observation = await Task.detached(priority: .userInitiated) {
@@ -1069,9 +1093,10 @@ final class DesktopViewModel: ObservableObject {
             legacy: observation,
             hermesReachable: hermes.level == .healthy || hermes.level == .degraded,
             managedInstallAvailability: .ready,
-            managedInstallation: installation
+            managedInstallation: installation,
+            targetReleaseVersion: trustedComponentPreflight?.result.manifest.releaseVersion
         )
-        return (observation, plan)
+        return (observation, plan, installation)
     }
 
     private func clearComponentPreflight() {
@@ -1136,10 +1161,16 @@ final class DesktopViewModel: ObservableObject {
         guard managedBootstrapPreparation == nil else { return }
         switch installation {
         case .active(let releaseVersion, _, _):
-            managedBootstrapOperation = .completed(
-                releaseVersion: releaseVersion,
-                cleanupPending: false
-            )
+            if bootstrapPlan.canBegin {
+                if case .completed = managedBootstrapOperation {
+                    managedBootstrapOperation = .idle
+                }
+            } else {
+                managedBootstrapOperation = .completed(
+                    releaseVersion: releaseVersion,
+                    cleanupPending: false
+                )
+            }
             managedBootstrapIssue = nil
         case .attentionRequired, .inconsistent:
             if managedBootstrapOperation != .recovering {

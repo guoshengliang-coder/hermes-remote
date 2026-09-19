@@ -189,6 +189,13 @@ final class DesktopIssueTests: XCTestCase {
         XCTAssertTrue(restored.displayChinese.contains("HR-MIGRATE-003"))
         XCTAssertTrue(restored.displayEnglish.contains("HR-MIGRATE-003"))
 
+        let upgradeRestored = DesktopIssue.migration(
+            DesktopMigrationCoordinatorError.hermesHealthTimedOut,
+            terminalState: .accountActive
+        )
+        XCTAssertEqual(upgradeRestored.code, .migrationCandidateFailed)
+        XCTAssertTrue(upgradeRestored.detailChinese.contains("已恢复原来的连接"))
+
         let revoked = DesktopIssue.migration(
             AccountClientError.remote(AccountRemoteError(
                 code: "HR-BIND-006",

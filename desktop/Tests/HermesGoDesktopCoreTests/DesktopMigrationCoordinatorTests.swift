@@ -867,6 +867,170 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesSessionToken.path))
         XCTAssertTrue(fixture.serviceMutations().isEmpty)
     }
+
+    func testManagedUpgradePreservesBindingAndRestartsInSafeOrder() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            healthCheckedAtSequence: [
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:01.000Z",
+            ]
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil, releaseVersion: "1.2.2")
+
+        let outcome = try await fixture.coordinator.upgrade(
+            manifest: fixture.manifest,
+            sources: fixture.sources,
+            hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: fixture.launchAgentConfiguration,
+            runID: "10000000-0000-4000-8000-000000000009",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .confirmationText(releaseVersion: fixture.manifest.releaseVersion)
+        )
+
+        XCTAssertEqual(outcome.releaseVersion, "1.2.3")
+        let beginCount = await fixture.account.beginCount()
+        let confirmCount = await fixture.account.confirmCount()
+        XCTAssertEqual(beginCount, 0)
+        XCTAssertEqual(confirmCount, 0)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseVersion, "1.2.3")
+        XCTAssertEqual(fixture.serviceMutations(), [
+            "bootout:com.hermesgo.connector",
+            "bootout:com.hermesgo.hermes-server",
+            "bootstrap:com.hermesgo.hermes-server",
+            "bootstrap:com.hermesgo.connector",
+        ])
+        XCTAssertEqual(fixture.shutdown.waitCount(), 1)
+    }
+
+    func testFailedManagedUpgradeRestoresExactFilesOldReleaseAndServices() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            hermesReadinessResponses: [false, true],
+            healthCheckedAtSequence: [
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:01.000Z",
+            ]
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil, releaseVersion: "1.2.2")
+        let oldHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let oldConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.upgrade(
+            manifest: fixture.manifest,
+            sources: fixture.sources,
+            hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: fixture.launchAgentConfiguration,
+            runID: "10000000-0000-4000-8000-000000000009",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .confirmationText(releaseVersion: fixture.manifest.releaseVersion)
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .hermesHealthTimedOut)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), oldHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), oldConnector)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseVersion, "1.2.2")
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        let beginCount = await fixture.account.beginCount()
+        let confirmCount = await fixture.account.confirmCount()
+        XCTAssertEqual(beginCount, 0)
+        XCTAssertEqual(confirmCount, 0)
+        XCTAssertEqual(fixture.shutdown.waitCount(), 2)
+    }
+
+    func testManagedUpgradeCanMoveFromBundledReleaseToComponentStore() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            healthCheckedAtSequence: [
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:01.000Z",
+            ]
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let component = try fixture.componentRelease(releaseVersion: "2.0.0")
+
+        let outcome = try await fixture.coordinator.upgradeComponentRelease(
+            manifest: component.manifest,
+            activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            runID: "10000000-0000-4000-8000-000000000010",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .confirmationText(releaseVersion: "2.0.0")
+        )
+
+        XCTAssertEqual(outcome.releaseVersion, "2.0.0")
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .componentStore)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        let beginCount = await fixture.account.beginCount()
+        let confirmCount = await fixture.account.confirmCount()
+        XCTAssertEqual(beginCount, 0)
+        XCTAssertEqual(confirmCount, 0)
+    }
+
+    func testRestartRecoveryUsesDurableUpgradeSnapshot() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            healthCheckedAtSequence: [
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:01.000Z",
+            ]
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil, releaseVersion: "1.2.2")
+        let oldHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let oldConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+        let recoveryRun = "10000000-0000-4000-8000-000000000011"
+        _ = try fixture.installer.prepareManagedUpgradeSnapshot(
+            runID: recoveryRun,
+            previousReleaseVersion: "1.2.2",
+            targetReleaseVersion: "1.2.3",
+            previousReleaseLayout: .bundledRelease,
+            targetReleaseLayout: .bundledRelease
+        )
+        _ = try fixture.journal.beginUpgrade(
+            runID: recoveryRun,
+            installedReleaseVersion: "1.2.2",
+            targetReleaseVersion: "1.2.3",
+            installedReleaseLayout: .bundledRelease,
+            targetReleaseLayout: .bundledRelease,
+            bindingID: fixture.bindingID,
+            bindingGeneration: 1
+        )
+        try Data("partial-new-hermes".utf8).write(to: fixture.layout.hermesLaunchAgent)
+        try Data("partial-new-connector".utf8).write(to: fixture.layout.connectorLaunchAgent)
+        for url in [fixture.layout.hermesLaunchAgent, fixture.layout.connectorLaunchAgent] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+
+        let recovered = try await fixture.coordinator.recoverInterrupted(
+            legacy: fixture.legacy,
+            runID: recoveryRun
+        )
+
+        XCTAssertEqual(recovered, .accountActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseVersion, "1.2.2")
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), oldHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), oldConnector)
+        XCTAssertNil(try fixture.installer.loadManagedUpgradeSnapshot(runID: recoveryRun))
+    }
 }
 
 private final class Fixture {
@@ -877,6 +1041,7 @@ private final class Fixture {
     let runner: InMemoryLaunchctlRunner
     let account: MigrationAccountFake
     let readiness: MigrationHermesReadiness
+    let shutdown: MigrationHermesShutdown
     let coordinator: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
     let manifest: DesktopReleaseManifest
     let sources: [DesktopManagedReleaseSource]
@@ -920,12 +1085,14 @@ private final class Fixture {
         readiness = MigrationHermesReadiness(
             responses: hermesReadinessResponses ?? [hermesHealthy]
         )
+        shutdown = MigrationHermesShutdown()
         coordinator = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,
             installer: installer,
             launchAgent: controller,
             hermesReadiness: readiness,
+            hermesShutdown: shutdown,
             maximumHealthPolls: 2,
             healthPollDelayNanoseconds: 0
         )
@@ -970,7 +1137,8 @@ private final class Fixture {
 
     func installCommittedManagedServices(
         inlineToken: String?,
-        bindingGeneration: Int = 1
+        bindingGeneration: Int = 1,
+        releaseVersion: String? = nil
     ) throws {
         if inlineToken == nil { _ = try installer.ensureHermesSessionToken() }
         _ = try installer.writeHermesLaunchAgent(hermesLaunchAgentConfiguration, manifest: manifest)
@@ -991,7 +1159,7 @@ private final class Fixture {
         _ = try journal.begin(
             runID: runID,
             lastKnownGoodMode: .legacy,
-            releaseVersion: manifest.releaseVersion,
+            releaseVersion: releaseVersion ?? manifest.releaseVersion,
             bindingID: bindingID,
             bindingGeneration: bindingGeneration
         )
@@ -1462,6 +1630,22 @@ private final class MigrationHermesReadiness: DesktopHermesCandidateReadinessChe
     }
 
     func maximumAttempts() -> Int? { lock.withLock { observedMaximumAttempts } }
+    func waitCount() -> Int { lock.withLock { waits } }
+}
+
+private final class MigrationHermesShutdown: DesktopHermesShutdownChecking, @unchecked Sendable {
+    private let lock = NSLock()
+    private var waits = 0
+
+    func waitUntilStopped(
+        contract: DesktopHermesRuntimeContract,
+        maximumAttempts: Int,
+        delayNanoseconds: UInt64
+    ) async throws -> Bool {
+        lock.withLock { waits += 1 }
+        return true
+    }
+
     func waitCount() -> Int { lock.withLock { waits } }
 }
 
