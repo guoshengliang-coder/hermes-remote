@@ -213,6 +213,7 @@ does not affect another, so the laptop's `desktop` sessions are untouched.
 |---|---|---|
 | `MEDIA:/absolute/path.ext` | Hermes → client | The canonical outbound attachment grammar. Extension must be in the delivery whitelist below. |
 | `@file:` / `@image:` | client → Hermes | Attachment references staged by the client and passed on `prompt.submit`. The Android parser also renders them in assistant messages, but that is tolerance, not the contract. |
+| `[screenshot]` and friends, alone on a line | Hermes → client | A bare placeholder left where an attachment was consumed: one line per file, no caption, no path. Unlike §4b's notes it says nothing at all, so it is stripped (`ui/chat/TimelineNote.kt` `ATTACHMENT_BARE_PLACEHOLDER`) rather than shown. HG-60: three of these appeared under images the person could already see, the moment the phone accepted upstream's copy of their own turn. The exact trigger is not established — the label never appears in the client log — so the pattern covers the labels seen in production and is anchored to a whole line, because `[screenshot]` quoted mid-sentence is a real thing to write. |
 
 ### 4b. Server-injected `role=user` scaffolding
 
@@ -398,6 +399,9 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
     whole transcript rather than the row. Cheapest proof: send one turn with an image from each
     client, then read the stored rows back with `sqlite3 ~/.hermes/state.db "select content from
     messages order by id desc limit 5"`.
+8f. Confirm the bare attachment placeholders (section 4) still use the labels the client strips.
+    A new label is not an error; it reaches the person as a stray `[something]` line under their own
+    message, which is what HG-60 was.
 9. **Read the source, not the notes.** See below.
 
 ## Known hazards

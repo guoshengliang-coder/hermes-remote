@@ -179,4 +179,37 @@ class TimelineNoteTest {
         val plain = "普通的一句话，没有附件。"
         assertEquals(plain, withoutAttachmentScaffolding(plain))
     }
+
+    /**
+     * HG-60: the person attached three files with the caption 检查报告，请归档 and, once the phone
+     * accepted upstream's copy of their own turn, three lines reading `[screenshot]` appeared under
+     * the images they could already see. These placeholders say nothing — not a path, not a
+     * description — so they are scaffolding, not content.
+     */
+    @Test fun `bare attachment placeholders are stripped from the turn`() {
+        val rewritten = "检查报告，请归档\n[screenshot]\n[screenshot]\n[screenshot]"
+        assertEquals("检查报告，请归档", withoutAttachmentScaffolding(rewritten))
+    }
+
+    @Test fun `a turn that was nothing but placeholders collapses to empty`() {
+        assertEquals("", withoutAttachmentScaffolding("[screenshot]\n[screenshot]"))
+        assertEquals("", withoutAttachmentScaffolding("  [Screenshot]  "))
+    }
+
+    /**
+     * The placeholder pattern is anchored to a whole line precisely so that a person writing about
+     * the app keeps their words. This is the case that makes a substring match unacceptable.
+     */
+    @Test fun `the word in a sentence survives`() {
+        val sentence = "我在 [screenshot] 那个位置看到了问题"
+        assertEquals(sentence, withoutAttachmentScaffolding(sentence))
+
+        val quoted = "它把 [screenshot] 当成了正文"
+        assertEquals(quoted, withoutAttachmentScaffolding(quoted))
+    }
+
+    @Test fun `placeholders mixed with a real note leave only what the person typed`() {
+        val mixed = "看看这个\n[screenshot]\n[User sent an image: https://example.com/a.png]"
+        assertEquals("看看这个", withoutAttachmentScaffolding(mixed))
+    }
 }
