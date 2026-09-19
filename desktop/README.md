@@ -1,12 +1,20 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.14** (build 17). It gives the managed Hermes server a
-`PATH`. launchd starts an agent with `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, so anything the
-user had installed was invisible to it: a PDF attachment from the phone was refused with
-`pdf.attach 5028 "pdftoppm not installed"` on a Mac where `pdftoppm` had been installed four and a half
-hours earlier, in `/opt/homebrew/bin` (HG-58). The written agent now carries both Homebrew prefixes
-ahead of launchd's four, an agent written before this validates without one and is repaired by the next
-optional-component activation, and a malformed `PATH` on disk is refused.
+Current internal test release candidate: **0.2.15** (build 18). It is 0.2.14 with one value changed:
+the pinned managed-release manifest now points at **0.3.5**, which carries Connector **0.1.4**.
+
+That one value is the whole reason this version exists. The Connector fix from PR #313 — an oversized
+frame from the local Hermes now closes the tunnel with 1009 and a reason naming the limit, instead of
+the anonymous 1006 the relay refuses to forward, which cost one conversation the entire transport for
+twenty-four minutes (HG-65, HG-64) — reaches a Mac only through a managed release, and the release URL
+is baked into `Info.plist` at build time. 0.3.5 was published on 2026-09-19, but a Mac running 0.2.14
+will never look at it: that build asks for 0.3.4 and nothing else.
+
+Component release **0.4.1** carries the same Connector on the schema-v2 channel. This build still
+leaves `HermesGoDesktopComponentManifestURL` empty and component preflight off, exactly as 0.2.14 did,
+so the channel a Mac uses does not change here.
+
+0.2.14 (build 17) gave the managed Hermes server a `PATH` (HG-58).
 
 0.2.13 would have fixed nothing on a Mac that had already migrated, because the only writers are a
 migration and an optional-component activation and installing a newer Desktop is neither. 0.2.14 adds
