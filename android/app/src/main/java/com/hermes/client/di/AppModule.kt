@@ -480,6 +480,15 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideLauncherBadge(
+        @ApplicationContext context: Context,
+        appScope: CoroutineScope,
+    ): com.hermes.client.notifications.LauncherBadge =
+        // The launcher provider is a binder call; keep it off whichever thread refresh() ran on.
+        com.hermes.client.notifications.LauncherBadge(context, appScope, Dispatchers.IO)
+
+    @Provides
+    @Singleton
     fun provideAnalyticsRepository(rest: HermesRestApi): com.hermes.client.data.repository.AnalyticsRepository =
         com.hermes.client.data.repository.AnalyticsRepository(rest)
 

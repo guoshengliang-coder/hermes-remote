@@ -20,6 +20,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Launcher icon badge on Huawei/HONOR; both skins ignore the AOSP notification dot and
+         expect the count through their own launcher provider (see LauncherBadge). Unknown to
+         every other ROM, where an undeclared-but-unused permission is simply ignored. -->
+    <uses-permission android:name="com.hihonor.android.launcher.permission.CHANGE_BADGE" />
+    <uses-permission android:name="com.huawei.android.launcher.permission.CHANGE_BADGE" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
