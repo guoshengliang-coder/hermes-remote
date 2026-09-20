@@ -90,9 +90,17 @@ phone is a remote view of the conversations on the Mac, so the managed copy is p
 **pinned** copy and a **rolling** copy writing one database, and an upstream schema addition can
 disable the pinned one silently — it happened on 2026-09-19, and the symptom appeared on the phone as
 a generic error while the Mac looked fine. Before changing anything in this area read
-`docs/MANAGED_HERMES_STRATEGY.md`; in particular, do not give the managed copy its own database, and
-if the managed Hermes ever carries a patch, that patch may change what is **read or rendered, never
-what is written or the schema**.
+`docs/MANAGED_HERMES_STRATEGY.md`, which carries the 2026-09-20 decision and its operating rules.
+Two of them bind any change in this area:
+
+- **Do not give the managed copy its own database.** It would stop the phone seeing the owner's
+  conversations, which is the product.
+- **The managed Hermes carries a patch set, and a patch may change what is read or rendered — never
+  what is written, the schema, or migration behaviour.** The owner's own Hermes reads the same
+  database and has to keep understanding every row in it. Patches live in
+  `desktop/hermes-patches/`, are applied at build time against the pinned upstream commit, and are
+  submitted upstream when written and deleted when accepted. Adopting a new upstream commit is a
+  gate that stops on the first patch conflict, never a pull.
 
 Changes to the shared protocol must update its tests and every affected consumer. Preserve the core
 security boundary: the Mac opens the outbound connection, the Mac Hermes credential stays on the Mac,
