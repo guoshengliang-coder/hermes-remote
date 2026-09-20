@@ -450,8 +450,6 @@ class SessionRuntimeStoreTest {
         assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(key).phase)
         assertTrue("personal/s1" in store.unreadTokens.value)
         store.setVisible(key, true)
-        assertEquals(SessionRunPhase.COMPLETED_UNREAD, store.runtimes.value.getValue(key).phase)
-        store.markRead(key)
         assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
         assertFalse("personal/s1" in store.unreadTokens.value)
     }
@@ -711,8 +709,6 @@ class SessionRuntimeStoreTest {
         assertEquals(SessionRunPhase.INTERRUPTED, store.runtimes.value.getValue(key).phase)
 
         store.setVisible(key, true)
-        assertEquals(SessionRunPhase.INTERRUPTED, store.runtimes.value.getValue(key).phase)
-        store.markRead(key)
         assertEquals(SessionRunPhase.IDLE, store.runtimes.value.getValue(key).phase)
     }
 

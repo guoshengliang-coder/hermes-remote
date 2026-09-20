@@ -10,7 +10,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.Settings
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -163,6 +162,10 @@ fun ChatScreen(
             language,
             requestedDeviceId = sessionDeviceId,
         )
+        vm.setScreenVisible(sessionId, true)
+    }
+    androidx.compose.runtime.DisposableEffect(vm, sessionId) {
+        onDispose { vm.setScreenVisible(sessionId, false) }
     }
     LaunchedEffect(language) { vm.setAppLanguage(language) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -473,6 +476,9 @@ fun ChatScreen(
     // Menu entry to the prompt list; the list itself lives in ChatMessageList, which owns the turns.
     var promptListTick by remember { mutableStateOf(0L) }
     var showAttachSheet by remember { mutableStateOf(false) }
+    var showPhotoGallery by rememberSaveable { mutableStateOf(false) }
+    var galleryPermissionDenied by rememberSaveable { mutableStateOf(false) }
+    var galleryAccessRevision by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
     var showSessionPicker by remember { mutableStateOf(false) }
     var savingImageId by remember { mutableStateOf<String?>(null) }
     var pendingSaveAsImage by remember { mutableStateOf<com.hermes.client.domain.ChatImage?>(null) }
@@ -608,6 +614,30 @@ fun ChatScreen(
         }
     }
 
+    fun stagePhotoUrisInOrder(uris: List<Uri>) {
+        attachScope.launch {
+            var failures = 0
+            for (uri in uris) {
+                runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        prepareAttachment(context, uri, "photo.jpg")
+                    }
+                }.onSuccess { attachment ->
+                    vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
+                }.onFailure { failures++ }
+            }
+            if (failures > 0) {
+                showAttachmentError(
+                    localized(
+                        language,
+                        "$failures 张照片无法读取（HR-FILE-001）",
+                        "$failures photo(s) couldn't be read (HR-FILE-001)",
+                    ),
+                )
+            }
+        }
+    }
+
     fun handleFile(file: com.hermes.client.domain.ChatFile, share: Boolean) {
         android.widget.Toast.makeText(
             context,
@@ -657,18 +687,51 @@ fun ChatScreen(
         }
     }
 
-    // Photo library: multi-select via the system photo picker (no permission).
-    // Read bytes off the main thread (large images would otherwise jank/ANR the UI).
-    val pickPhotos = androidx.activity.compose.rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(ATTACH_CAP),
-    ) { uris ->
-        uris.take(ATTACH_CAP).forEach { stageUri(it, "photo.jpg") }
-    }
-
     val pickFiles = androidx.activity.compose.rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         uris.take(ATTACH_CAP).forEach { stageUri(it) }
+    }
+
+    fun galleryHasAnyAccess(): Boolean = when {
+        Build.VERSION.SDK_INT >= 34 ->
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+        Build.VERSION.SDK_INT >= 33 -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        else -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+    }
+    fun galleryHasFullAccess(): Boolean = when {
+        Build.VERSION.SDK_INT >= 33 -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        else -> ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+    }
+    val requestGalleryPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        galleryPermissionDenied = !galleryHasAnyAccess()
+        galleryAccessRevision++
+        showPhotoGallery = true
+    }
+    fun requestGalleryAccess() {
+        val permissions = when {
+            Build.VERSION.SDK_INT >= 34 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+            Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+            else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        requestGalleryPermission.launch(permissions)
+    }
+    fun launchGallery() {
+        if (galleryHasAnyAccess()) {
+            galleryPermissionDenied = false
+            showPhotoGallery = true
+        } else {
+            requestGalleryAccess()
+        }
+    }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        if (showPhotoGallery) {
+            galleryPermissionDenied = !galleryHasAnyAccess()
+            galleryAccessRevision++
+        }
     }
 
     // Camera: zxing contributes CAMERA to the merged manifest, so Android requires the runtime grant
@@ -876,7 +939,7 @@ fun ChatScreen(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        com.hermes.client.ui.components.HermesMark(size = 16.dp)
+                        com.hermes.client.ui.components.LoadingDots(size = 16.dp)
                         Text(
                             localized(language, "正在生成 $attachingSessions 份对话记录…", "Preparing $attachingSessions transcripts…"),
                             style = MaterialTheme.typography.bodySmall,
@@ -1327,7 +1390,7 @@ fun ChatScreen(
                     modifier = Modifier.weight(1f),
                     onClick = {
                         showAttachSheet = false
-                        pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        launchGallery()
                     },
                 )
                 AttachmentActionCard(
@@ -1389,6 +1452,30 @@ fun ChatScreen(
             onPicked = { picked ->
                 showSessionPicker = false
                 vm.attachSessions(picked)
+            },
+        )
+    }
+
+    if (showPhotoGallery) {
+        PhotoGalleryDialog(
+            selectionCap = remainingAttachmentSlots(state.pendingAttachments.size),
+            accessRevision = galleryAccessRevision,
+            permissionDenied = galleryPermissionDenied,
+            limitedAccess = galleryHasAnyAccess() && !galleryHasFullAccess(),
+            onCancel = { showPhotoGallery = false },
+            onConfirm = { uris ->
+                showPhotoGallery = false
+                stagePhotoUrisInOrder(uris)
+            },
+            onRequestAccess = { requestGalleryAccess() },
+            onOpenSettings = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+                )
+            },
+            onChooseFiles = {
+                showPhotoGallery = false
+                pickFiles.launch(arrayOf("image/*"))
             },
         )
     }
@@ -2198,7 +2285,7 @@ private fun ConnectionBanner(state: ConnectionState, onRetry: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (model.progress) {
-            com.hermes.client.ui.components.HermesMark(
+            com.hermes.client.ui.components.LoadingDots(
                 size = 16.dp,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
@@ -2258,7 +2345,7 @@ private fun ConnectionRecoveryBanner(message: String) {
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        com.hermes.client.ui.components.HermesMark(
+        com.hermes.client.ui.components.LoadingDots(
             size = 16.dp,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
         )

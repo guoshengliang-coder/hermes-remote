@@ -65,12 +65,16 @@ private fun organizeAssistantContent(
     raw: String,
     existingTools: List<ToolCall> = emptyList(),
 ): OrganizedAssistantContent {
+    val verifier = extractFileMutationVerifier(raw)
     // Hermes injects <untrusted_tool_result> blocks for the model's safety boundary. Those tags,
     // warnings, and raw payloads are protocol details. Consumer chat apps render only a compact
     // tool/source card, never the security wrapper as assistant prose.
-    val untrusted = extractUntrustedToolResults(raw)
+    val untrusted = extractUntrustedToolResults(verifier.text)
     val displayRaw = untrusted.text
     val initialTools = existingTools.toMutableList().apply {
+        verifier.tool?.let { extracted ->
+            if (none { it.id == extracted.id || (it.name == extracted.name && it.output == extracted.output) }) add(extracted)
+        }
         untrusted.tools.forEach { extracted ->
             if (none { it.output.trim() == extracted.output.trim() && it.name == extracted.name }) add(extracted)
         }
@@ -131,6 +135,42 @@ private fun organizeAssistantContent(
     prose.append(displayRaw.substring(cursor))
     val cleanText = extraBlankLines.replace(prose.toString(), "\n\n").trim()
     return OrganizedAssistantContent(cleanText, tools)
+}
+
+private data class FileMutationVerifierExtraction(
+    val text: String,
+    val tool: ToolCall?,
+)
+
+private val fileMutationVerifierHeader = Regex(
+    "(?im)^[ \\t]*File-mutation verifier[ \\t]*:[ \\t]*",
+)
+private val unixAbsolutePath = Regex("(?<![A-Za-z0-9_])/(?:[^\\s,;:()]+/)*[^\\s,;:()]+")
+private val windowsAbsolutePath = Regex("(?i)\\b[A-Z]:\\\\(?:[^\\s,;:()]+\\\\)*[^\\s,;:()]+")
+
+/**
+ * Hermes can append its file-mutation verification report to otherwise normal prose. It is a
+ * machine footer, not Markdown authored for the reader. Keep the operation/reason behind a tool
+ * card, but strip local absolute paths before they can reach the UI or copy/export surfaces.
+ */
+private fun extractFileMutationVerifier(raw: String): FileMutationVerifierExtraction {
+    val header = fileMutationVerifierHeader.find(raw) ?: return FileMutationVerifierExtraction(raw, null)
+    val details = raw.substring(header.range.last + 1).trim()
+    if (details.isBlank()) return FileMutationVerifierExtraction(raw.substring(0, header.range.first).trimEnd(), null)
+    val redacted = windowsAbsolutePath.replace(
+        unixAbsolutePath.replace(details, "<path>"),
+        "<path>",
+    )
+    return FileMutationVerifierExtraction(
+        text = raw.substring(0, header.range.first).trimEnd(),
+        tool = ToolCall(
+            id = "file-mutation-verifier-${raw.hashCode()}",
+            name = "部分文件操作未完成",
+            status = ToolStatus.DONE,
+            output = redacted,
+            exitCode = 1,
+        ),
+    )
 }
 
 private data class UntrustedExtraction(

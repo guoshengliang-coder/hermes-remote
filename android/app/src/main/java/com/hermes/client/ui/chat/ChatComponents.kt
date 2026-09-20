@@ -1658,7 +1658,7 @@ private fun ChatFileList(
                         }
                     }
                     when (file.state) {
-                        FileTransferState.UPLOADING -> com.hermes.client.ui.components.HermesMark(size = 22.dp)
+                        FileTransferState.UPLOADING -> com.hermes.client.ui.components.LoadingDots(size = 22.dp)
                         FileTransferState.FAILED -> Icon(Icons.Rounded.BrokenImage, contentDescription = localized(LocalAppLanguage.current, "文件不可用", "File unavailable"))
                         // Only 分享 keeps a button: 打开 is the whole card now, and one action
                         // does not get two entry points.
@@ -1689,7 +1689,7 @@ private fun BackgroundProcessesCard(processes: List<com.hermes.client.data.repos
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (running > 0) {
-                    com.hermes.client.ui.components.HermesMark(size = 17.dp)
+                    com.hermes.client.ui.components.LoadingDots(size = 17.dp)
                     Spacer(Modifier.width(10.dp))
                 }
                 Text(
@@ -1794,6 +1794,7 @@ internal fun AssistantTurn(
                         group.tools,
                         completed = !msg.isStreaming,
                         stateKey = "${msg.id}:${group.tools.first().id}",
+                        searchQuery = LocalChatSearch.current?.query,
                     )
                 }
             }
@@ -2830,8 +2831,8 @@ internal fun showsSessionRunIndicator(isGenerating: Boolean, messages: List<Chat
     isGenerating && messages.none { it.role == Role.ASSISTANT && it.isStreaming }
 
 /**
- * A content-less streaming record for [RunningStatusLine]: there is no output yet, so there is no
- * label — but [runStartedAt] still gives the line something true to count from.
+ * A content-less streaming record for [RunningStatusLine]. [runStartedAt] gives the line something
+ * true to count from while its initial label explains what the dots mean.
  *
  * It used to carry no timestamp either, which is what made a long silent wait indistinguishable
  * from a message that never left: HG-56 sat here for four and a half minutes before the first
@@ -2849,8 +2850,7 @@ internal fun sessionRunPlaceholder(sessionId: String, runStartedAt: Long? = null
 /**
  * The one thing on screen that says "your Mac is working". It stays put from the moment the turn
  * starts to the first token to the tool that follows: only the text beside it changes, so nothing
- * jumps (docs/DESIGN.md §5.6). The three bouncing dots it replaced were an instant-messaging idiom
- * for "someone is typing", which is not what happens here.
+ * jumps (docs/DESIGN.md §5.6).
  */
 @Composable
 internal fun RunningStatusLine(msg: ChatMessage) {
@@ -2873,13 +2873,11 @@ internal fun RunningStatusLine(msg: ChatMessage) {
         Modifier.padding(top = 8.dp).fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        com.hermes.client.ui.components.HermesMark(
+        com.hermes.client.ui.components.LoadingDots(
             size = 14.dp,
             modifier = Modifier.padding(end = 8.dp),
             contentDescription = localized(language, "正在生成", "Generating"),
         )
-        // Before the first token there is nothing true to say yet; the mark alone says it.
-        // "Preparing…" would only be read once and then replaced a beat later by the real status.
         val style = MaterialTheme.typography.bodySmall
         val color = MaterialTheme.colorScheme.onSurfaceVariant
         // ...but only for a few seconds. A wait long enough to be doubted has to be measured, or a
@@ -2890,8 +2888,14 @@ internal fun RunningStatusLine(msg: ChatMessage) {
             nowTick,
             zh = language == com.hermes.client.ui.localization.AppLanguage.ZH,
         )
-        if (waitLabel != null) {
-            Text(waitLabel, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (!hasOutput) {
+            Text(
+                waitLabel ?: localized(language, "正在准备…", "Preparing…"),
+                style = style,
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         if (hasOutput) when (status) {
             is RunningStatus.Tool -> Text(

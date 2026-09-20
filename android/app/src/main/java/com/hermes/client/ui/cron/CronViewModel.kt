@@ -57,7 +57,15 @@ class CronViewModel @Inject constructor(
 
     fun load() = viewModelScope.launch {
         val p = profileManager.active.value
-        _state.value = _state.value.copy(loading = true, error = null, profile = p)
+        val current = _state.value
+        _state.value = current.copy(
+            // A same-profile refresh keeps its stable rows. A profile switch must never flash the
+            // previous identity's schedules while the new list loads.
+            jobs = if (current.profile == p) current.jobs else emptyList(),
+            loading = true,
+            error = null,
+            profile = p,
+        )
         runCatching { tools.cronJobs(p) }
             .onSuccess { _state.value = _state.value.copy(jobs = it, loading = false) }
             .onFailure {

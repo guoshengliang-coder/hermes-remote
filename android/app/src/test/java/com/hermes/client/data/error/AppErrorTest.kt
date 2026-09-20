@@ -8,6 +8,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun gallery_failures_have_bilingual_codes_and_retryability() {
+        val cases = listOf(
+            AppError(AppErrorCode.GALLERY_READ_FAILED, retryable = true),
+            AppError(AppErrorCode.GALLERY_PERMISSION_REQUIRED, retryable = true),
+        )
+        cases.forEach { error ->
+            val zh = error.localizedMessage(AppLanguage.ZH)
+            val en = error.localizedMessage(AppLanguage.EN)
+            assertTrue(zh.contains(error.code.value))
+            assertTrue(en.contains(error.code.value))
+            assertTrue(zh != en)
+            assertTrue(error.retryable)
+            assertFalse(error.sanitizedDiagnostic().contains("/Users/"))
+        }
+    }
     @Test fun identityCodesHaveBilingualCopyAndKeepTheirCode() {
         val photo = AppError(AppErrorCode.AVATAR_PHOTO_FAILED, retryable = true)
         val save = AppError(AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED, retryable = true)

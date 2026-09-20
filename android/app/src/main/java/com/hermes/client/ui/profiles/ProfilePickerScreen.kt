@@ -165,7 +165,7 @@ fun ProfilePickerScreen(
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             when {
-                                switching == p.name -> com.hermes.client.ui.components.HermesMark(size = 20.dp)
+                                switching == p.name -> com.hermes.client.ui.components.LoadingDots(size = 20.dp)
                                 isActive -> Icon(
                                     Icons.Rounded.CheckCircle,
                                     contentDescription = localized(language, "当前身份", "Active"),

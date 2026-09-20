@@ -1,6 +1,7 @@
 package com.hermes.client.ui.chat
 
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolStatus
 import kotlinx.serialization.json.add
@@ -350,5 +351,27 @@ class ChatReducerTest {
         val result = s.markInterrupted()
         assertFalse(result.isGenerating)
         assertEquals(s.messages, result.messages) // nothing else changed
+    }
+
+    @Test fun file_mutation_verifier_footer_becomes_a_redacted_tool_card() {
+        val message = ChatMessage(
+            id = "a1",
+            role = Role.ASSISTANT,
+            text = "归档已完成。\n\nFile-mutation verifier:\n- write /Users/alice/Secret/report.md: permission denied",
+        ).organizedForDisplay()
+
+        assertEquals("归档已完成。", message.text)
+        assertEquals(1, message.tools.size)
+        assertEquals("部分文件操作未完成", message.tools.single().name)
+        assertTrue(message.tools.single().output.contains("write <path>"))
+        assertFalse(message.tools.single().output.contains("/Users/alice"))
+    }
+
+    @Test fun ordinary_sentence_mentioning_file_mutation_verifier_is_not_rewritten() {
+        val text = "The File-mutation verifier: field is documented inline."
+        val message = ChatMessage(id = "a1", role = Role.ASSISTANT, text = text).organizedForDisplay()
+
+        assertEquals(text, message.text)
+        assertTrue(message.tools.isEmpty())
     }
 }

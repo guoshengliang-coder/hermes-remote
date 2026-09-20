@@ -51,6 +51,7 @@ enum class AppErrorCode(val value: String) {
     TRANSCRIPT_IMAGE_FAILED("HR-MEDIA-003"),
     IMAGE_DECODE_FAILED("HR-MEDIA-004"),
     IMAGE_EDIT_SAVE_FAILED("HR-MEDIA-005"),
+    GALLERY_READ_FAILED("HR-MEDIA-006"),
     PROFILE_IDENTITY_SAVE_FAILED("HR-STORE-001"),
     SESSION_NOT_FOUND("HR-SESS-001"),
     PROJECT_FOLDER_MISSING("HR-SESS-003"),
@@ -91,6 +92,7 @@ enum class AppErrorCode(val value: String) {
     // withheld — the HG-29 rule — and the conversation is still readable through history.
     SESSION_TOO_LARGE("HR-SESS-017"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
+    GALLERY_PERMISSION_REQUIRED("HR-PERM-004"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
     // The Mac's Hermes answered the transcript request with a 5xx. The conversation and the

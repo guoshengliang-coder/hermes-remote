@@ -65,6 +65,7 @@ import com.hermes.client.ui.components.SectionHeader
 import com.hermes.client.ui.components.SectionTone
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.l10n
+import com.hermes.client.ui.localization.localizedMessage
 import com.hermes.client.ui.theme.CronTopBarSubtitle
 import com.hermes.client.ui.theme.CronTopBarTitle
 import com.hermes.client.ui.theme.SessionRowSubline
@@ -100,6 +101,12 @@ fun CronScreen(
         stateMessage?.let {
             Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
             vm.clearMessage()
+        }
+    }
+    LaunchedEffect(state.error, state.jobs.isNotEmpty()) {
+        val refreshError = state.error
+        if (refreshError != null && state.jobs.isNotEmpty()) {
+            Toast.makeText(context, refreshError.localizedMessage(language), Toast.LENGTH_SHORT).show()
         }
     }
     val nowMs = remember(state.jobs) { System.currentTimeMillis() }
@@ -190,8 +197,8 @@ internal fun CronScreenContent(
             when {
                 // Loading / empty / error are 保留项: the mocks draw none of the three, and an
                 // implementation must not delete them to match a mock (docs/DESIGN.md §5.2).
-                state.loading -> LoadingState()
-                state.error != null -> ErrorState(error = state.error, onRetry = onRetry)
+                state.loading && state.jobs.isEmpty() -> LoadingState()
+                state.error != null && state.jobs.isEmpty() -> ErrorState(error = state.error, onRetry = onRetry)
                 state.jobs.isEmpty() -> CronEmpty(onNew = onNew)
                 else -> {
                     var menuFor by remember { mutableStateOf<String?>(null) }
@@ -254,6 +261,9 @@ internal fun CronScreenContent(
                         }
                     }
                 }
+            }
+            if (state.loading && state.jobs.isNotEmpty()) {
+                com.hermes.client.ui.components.TopProgressLine(Modifier.align(Alignment.TopCenter))
             }
         }
     }

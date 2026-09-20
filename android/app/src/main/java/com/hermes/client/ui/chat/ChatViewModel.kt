@@ -703,7 +703,6 @@ class ChatViewModel @Inject constructor(
         }
         val existingKey = runtimeKey
         if (storedSessionId == id && existingKey == SessionRuntimeKey(profile, id, resolvedDevice) && collectJob?.isActive == true) {
-            runtimeStore.setVisible(existingKey, true)
             if (!initialTitle.isNullOrBlank()) {
                 val fallback = if (isNewSession) localized(language, "新会话", "New session")
                 else localized(language, "会话", "Chat")
@@ -726,7 +725,6 @@ class ChatViewModel @Inject constructor(
         _sessionAccessState.value = SessionAccessState.UNKNOWN
         val key = runtimeStore.register(id, profile, resolvedDevice)
         runtimeKey = key
-        runtimeStore.setVisible(key, true)
         // A conversation restored from disk as "waiting for approval" has no card to show: the
         // request carries no id and approval.respond returns nothing, so rebuilding one locally
         // could approve a command the user never saw. Say that instead of showing nothing
@@ -845,7 +843,6 @@ class ChatViewModel @Inject constructor(
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${organizedHistory.size} messages")
                 if (organizedHistory.isNotEmpty()) sessionKnownEmpty = false
                 runtimeStore.acceptHistory(key, organizedHistory, requestStartedAt)
-                runtimeStore.markRead(key)
                 if (approvalLostNoticePending) {
                     approvalLostNoticePending = false
                     appendSystem(approvalLostNotice(appLanguage))
@@ -1989,6 +1986,12 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
+    }
+
+    /** Called by the composable lifecycle; opening/refreshing history is not itself a read receipt. */
+    fun setScreenVisible(openedSessionId: String, visible: Boolean) {
+        if (storedSessionId != openedSessionId) return
+        runtimeKey?.let { runtimeStore.setVisible(it, visible) }
     }
 
     fun toggleFavorite(provider: String, model: String) =

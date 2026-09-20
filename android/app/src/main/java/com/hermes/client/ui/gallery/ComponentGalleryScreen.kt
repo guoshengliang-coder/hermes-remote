@@ -139,21 +139,21 @@ private val gallerySections: List<Pair<LocalizedText, @Composable () -> Unit>> =
     galleryTitle("运行状态行 · 尚无内容", "Running status · nothing yet") to {
         RunningStatusLine(streamingMsg())
     },
-    galleryTitle("品牌加载标记 32 / 20 / 14dp", "Brand loading mark 32 / 20 / 14dp") to {
+    galleryTitle("轻量三点加载 32 / 20 / 14dp", "Loading dots 32 / 20 / 14dp") to {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            com.hermes.client.ui.components.HermesMark(size = 32.dp)
+            com.hermes.client.ui.components.LoadingDots(size = 32.dp)
             Spacer(Modifier.width(20.dp))
-            com.hermes.client.ui.components.HermesMark(size = 20.dp)
+            com.hermes.client.ui.components.LoadingDots(size = 20.dp)
             Spacer(Modifier.width(20.dp))
-            com.hermes.client.ui.components.HermesMark(size = 14.dp)
+            com.hermes.client.ui.components.LoadingDots(size = 14.dp)
         }
     },
-    galleryTitle("品牌加载标记 · 关闭动画", "Brand loading mark · animations off") to {
+    galleryTitle("轻量三点 · 关闭动画", "Loading dots · animations off") to {
         CompositionLocalProvider(com.hermes.client.ui.components.LocalReduceMotion provides true) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                com.hermes.client.ui.components.HermesMark(size = 32.dp)
+                com.hermes.client.ui.components.LoadingDots(size = 32.dp)
                 Spacer(Modifier.width(20.dp))
-                com.hermes.client.ui.components.HermesMark(size = 14.dp)
+                com.hermes.client.ui.components.LoadingDots(size = 14.dp)
             }
         }
     },

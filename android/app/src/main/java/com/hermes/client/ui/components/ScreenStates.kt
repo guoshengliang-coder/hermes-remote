@@ -50,7 +50,7 @@ fun LoadingState(modifier: Modifier = Modifier, label: String? = null) {
     ) {
         DelayedReveal {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                HermesMark(size = 32.dp, contentDescription = l10n("正在加载", "Loading"))
+                LoadingDots(size = 32.dp, contentDescription = l10n("正在加载", "Loading"))
                 if (label != null) {
                     // "Loading…" is noise on a fast page; the label is for waits that overstay.
                     var explain by remember(label) { mutableStateOf(false) }

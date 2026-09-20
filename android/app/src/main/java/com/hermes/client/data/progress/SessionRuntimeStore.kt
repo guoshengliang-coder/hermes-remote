@@ -609,6 +609,10 @@ class SessionRuntimeStore(
     fun setVisible(key: SessionRuntimeKey, value: Boolean) {
         if (value) {
             visible += key
+            // Visibility is the read receipt. It must not depend on REST history succeeding: the
+            // transcript may fail to refresh while the user is nevertheless looking at this
+            // conversation (HG-80). Future completions become unread after setVisible(false).
+            markRead(key)
         } else {
             visible -= key
         }
@@ -949,11 +953,7 @@ class SessionRuntimeStore(
         return true
     }
 
-    /**
-     * Clear unread only after the chat has successfully loaded, not merely when its row is tapped.
-     * Opening the chat also retires every terminal verdict — completed, interrupted, failed — since
-     * the transcript now shows the outcome (docs/DESIGN.md §5.2, decision 2026-09-02).
-     */
+    /** Clear unread once the chat is actually foreground-visible. */
     fun markRead(key: SessionRuntimeKey) {
         // Bypasses updateRuntime, so it carries its own pre-seed guard: a verdict the user has
         // already cleared must not be restored from a snapshot written before they cleared it.

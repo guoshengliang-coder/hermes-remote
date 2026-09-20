@@ -16,8 +16,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * One indicator for the whole run (docs/DESIGN.md §5.6). The three bouncing dots that used to
- * stand in before the first token are gone: the mark is already there, and only the text changes.
+ * One indicator for the whole run (docs/DESIGN.md §5.6). The lightweight dots stay in place while
+ * the explanatory text changes.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
@@ -33,22 +33,21 @@ class RunningRowTest {
         compose.setContent { InChinese { HermesTheme(darkTheme = false) { RunningStatusLine(msg) } } }
     }
 
-    @Test fun before_the_first_token_the_mark_stands_alone() {
+    @Test fun before_the_first_token_the_dots_have_an_explanatory_label() {
         show(streaming())
-        compose.onNodeWithTag("hermes-mark").assertExists()
-        // No "Generating…" yet: it would be read once and replaced a beat later by the real status.
-        compose.onNodeWithText("生成中…", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag("loading-dots").assertExists()
+        compose.onNodeWithText("正在准备…", substring = true).assertExists()
     }
 
     @Test fun the_same_mark_gains_a_label_once_output_arrives() {
         show(streaming(text = "已经有一段输出"))
-        compose.onNodeWithTag("hermes-mark").assertExists()
+        compose.onNodeWithTag("loading-dots").assertExists()
         compose.onNodeWithText("生成中…", substring = true).assertExists()
     }
 
     @Test fun a_running_tool_keeps_one_indicator_and_swaps_only_the_text() {
         show(streaming(text = "x", tools = listOf(ToolCall("t", "Bash", ToolStatus.RUNNING, command = "npm test"))))
-        compose.onNodeWithTag("hermes-mark").assertExists()
+        compose.onNodeWithTag("loading-dots").assertExists()
         compose.onNodeWithText("npm test", substring = true).assertExists()
         compose.onNodeWithText("生成中…", substring = true).assertDoesNotExist()
     }
