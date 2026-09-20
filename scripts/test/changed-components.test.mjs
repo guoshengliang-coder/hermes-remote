@@ -55,3 +55,12 @@ test('root Node metadata and test scripts select Node checks', () => {
   }
   assert.equal(classifyChangedPaths(['package.json']).desktop, true);
 });
+
+test('a managed Hermes patch runs the node job that validates it', () => {
+  // The patch set's own rules — read-side only, required headers, still applies — are checked by
+  // scripts/test/hermes-patches.test.mjs. Routing a patch-only change to the swift job alone left
+  // those unrun exactly when they matter.
+  const result = classifyChangedPaths(['desktop/hermes-patches/020-remote-reads-drop-inline-image-data.patch']);
+  assert.equal(result.node, true);
+  assert.equal(result.desktop, true);
+});

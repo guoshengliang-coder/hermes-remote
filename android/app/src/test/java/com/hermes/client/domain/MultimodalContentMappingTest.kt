@@ -110,9 +110,9 @@ class MultimodalContentMappingTest {
     }
 
     /**
-     * The other half of managed patch `020-remote-reads-drop-inline-image-data`: on the REST
-     * transcript it replaces an inline `data:` URL with the literal `[image]` rather than dropping
-     * the block, so the shape upstream produces is preserved.
+     * The other half of managed patch `020-bounded-inline-images`: on the REST transcript it
+     * replaces an inline `data:` URL with the literal `[image]` rather than dropping the block, so
+     * the shape upstream produces is preserved.
      *
      * This client must treat that placeholder exactly as it already treats the base64 it replaces —
      * as a reference to nothing, dropped. It does, because neither starts with `/` or `http`. The

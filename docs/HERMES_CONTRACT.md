@@ -77,10 +77,12 @@ return that, ~26 MiB on the wire.
 > downstream of that number was wrong for a day, including an upstream issue.
 
 What the read path does control is whether those stored bytes are *sent*.
-`session_history.py`'s `_coerce_message_text` calls `_history_dict_text(part, image_urls=True)` at
+`session_history.py`'s `_coerce_message_text` called `_history_dict_text(part, image_urls=True)` at
 both of its call sites, and the `False` branch — which renders `[image]` in place of the payload —
-is not reachable from any API parameter. So a remote client cannot ask for the small form, and pays
-the full transfer on every read, including the `session.resume` that follows each reconnect. One
+was not reachable from any API parameter. So a remote client could not ask for the small form, and
+paid the full transfer on every read, including the `session.resume` that follows each reconnect.
+Patch `020-bounded-inline-images` makes it reachable (see below); until a release carrying that
+patch is activated, this is still what this Mac serves. One
 37-page PDF sent through `pdf.attach` (7.5 s to rasterise, 9.44 MiB of PNG, **12.59 MiB** once
 inlined) was on its own past the relay's 12 MiB frame ceiling.
 
@@ -304,7 +306,7 @@ does not affect another, so the laptop's `desktop` sessions are untouched.
 | `MEDIA:/absolute/path.ext` | Hermes → client | The canonical outbound attachment grammar. Extension must be in the delivery whitelist below. |
 | `@file:` / `@image:` | client → Hermes | Attachment references staged by the client and passed on `prompt.submit`. The Android parser also renders them in assistant messages, but that is tolerance, not the contract. |
 | `[screenshot]` and friends, alone on a line | Hermes → client | A bare placeholder left where an attachment was consumed: one line per file, no caption, no path. Unlike §4b's notes it says nothing at all, so it is stripped (`ui/chat/TimelineNote.kt` `ATTACHMENT_BARE_PLACEHOLDER`) rather than shown. HG-60: three of these appeared under images the person could already see, the moment the phone accepted upstream's copy of their own turn. The exact trigger is not established — the label never appears in the client log — so the pattern covers the labels seen in production and is anchored to a whole line, because `[screenshot]` quoted mid-sentence is a real thing to write. |
-| `[image]`, alone on a line, and `"url": "[image]"` in a content block | managed Hermes → client | **Ours, not upstream's.** Managed patch `020-remote-reads-drop-inline-image-data` replaces an inline `data:` image URL with this placeholder on the two remote read paths (`session.resume` and the REST transcript), because upstream re-inlines the whole image in base64 on every read: one session measured 105.07 MiB, of which this client decodes none — it fetches the bytes by path instead. The line form is already stripped by the same `ATTACHMENT_BARE_PLACEHOLDER` pattern as `[screenshot]`; the block form is already dropped by `MessageContentSerializer.attachmentReference`, which keeps only `/` and `http(s)` references. Both behaviours are pinned by tests, because the patch lives in another program and nothing else ties the two sides together. Delete the patch and this row together if upstream accepts [#116511](https://github.com/NousResearch/hermes-agent/issues/116511). |
+| `[image]`, alone on a line, and `"url": "[image]"` in a content block | managed Hermes → client | **Ours, not upstream's.** Managed patch `020-bounded-inline-images` puts this in place of an inline `data:` image URL on the bounded read paths, because upstream re-inlines the whole image in base64 on every read: one message measured 27,479,595 characters, the session behind HG-65 105.07 MiB, of which this client decodes none — it fetches the bytes by path instead. The line form is stripped by the same `ATTACHMENT_BARE_PLACEHOLDER` pattern as `[screenshot]`; the block form is dropped by `MessageContentSerializer.attachmentReference`, which keeps only `/` and `http(s)` references. Both behaviours predate the patch and are now pinned by tests, because the patch lives in another program and nothing else ties the two sides together. Delete the patch and this row together if upstream accepts [#116511](https://github.com/NousResearch/hermes-agent/issues/116511) / [PR #116677](https://github.com/NousResearch/hermes-agent/pull/116677). |
 
 ### 4b. Server-injected `role=user` scaffolding
 
