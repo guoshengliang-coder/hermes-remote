@@ -19,7 +19,12 @@ export function classifyChangedPaths(paths) {
       file.startsWith('release-server/') ||
       file.startsWith('ops/') ||
       file.startsWith('deploy/') ||
-      file.startsWith('scripts/')
+      file.startsWith('scripts/') ||
+      // The managed Hermes patch set is validated by node tests (scripts/test/hermes-patches.test.mjs:
+      // the loader's read-side rules, and that each patch still applies). Those tests live under
+      // scripts/, so a PR that adds or edits only a patch file used to run the swift job and skip the
+      // one job that actually checks the patch. PR #339 added patch 020 with `node  skipping`.
+      file.startsWith('desktop/hermes-patches/')
     ) result.node = true;
 
     if (file.startsWith('android/')) result.android = true;
