@@ -1,11 +1,19 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.18** (build 21). It is 0.2.17 with its pinned
-schema-v1 manifest moved from 0.3.5 to **0.3.6**, which carries Connector **0.1.5** — the release that
-stops an oversized Hermes answer from destroying the tunnel (HG-65). Nothing else about the app
-changed. The rebuild is required, not cosmetic: the manifest URL is written into `Info.plist` at build
-time, so a Mac cannot be pointed at 0.3.6 by publishing it. 0.4.1 and 0.3.5 were each published
-without a matching Desktop and reached nobody; this is that lesson applied.
+Current internal test release candidate: **0.2.19** (build 22). Two changes.
+
+It notices when this Mac's `state.db` has grown columns the managed Hermes was not built to read, and
+says so as `HR-MIGRATE-006` instead of letting a read fail later with a traceback that names only the
+web framework (HG-71). The comparison is by column, not by `schema_version`: upstream added
+`display_identity` and `display_order` while leaving that number at 30 on both sides, so a version
+gate would have missed the very incident it exists for.
+
+Its pinned schema-v1 manifest moves from 0.3.6 to **0.3.7**, which carries the first managed-Hermes
+patch. The rebuild is required, not cosmetic: the manifest URL is written into `Info.plist` at build
+time, so a Mac cannot be pointed at a new release by publishing one.
+
+0.2.18 (build 21) was 0.2.17 with its manifest moved to **0.3.6**, which carries Connector **0.1.5** —
+the release that stops an oversized Hermes answer from destroying the tunnel (HG-65).
 
 0.2.17 (build 20) added the managed in-app upgrade
 transaction for an already active installation. When the pinned signed release is strictly newer,
