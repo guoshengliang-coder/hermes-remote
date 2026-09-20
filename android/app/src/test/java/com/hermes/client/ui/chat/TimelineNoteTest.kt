@@ -191,6 +191,21 @@ class TimelineNoteTest {
         assertEquals("检查报告，请归档", withoutAttachmentScaffolding(rewritten))
     }
 
+    /**
+     * The managed Hermes patch `020-remote-reads-drop-inline-image-data` renders an inline image as
+     * `[image]` on a resume read instead of shipping its base64 again — 27,479,595 characters
+     * became 6,374 on the session that killed the tunnel (HG-65). It is only safe to do that
+     * because these lines are already scaffolding to this renderer; the image itself still arrives,
+     * from the Mac path that sits in the text part beside them.
+     *
+     * If someone narrows the placeholder pattern, the patch starts writing `[image]` into people's
+     * messages. That is what this test is here to stop.
+     */
+    @Test fun `the managed patch's image placeholders are stripped like any other scaffolding`() {
+        val resumed = "体检报告，归档\n[image]\n[image]\n[image]"
+        assertEquals("体检报告，归档", withoutAttachmentScaffolding(resumed))
+    }
+
     @Test fun `a turn that was nothing but placeholders collapses to empty`() {
         assertEquals("", withoutAttachmentScaffolding("[screenshot]\n[screenshot]"))
         assertEquals("", withoutAttachmentScaffolding("  [Screenshot]  "))
