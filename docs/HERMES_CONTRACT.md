@@ -420,6 +420,29 @@ lives in the **gateway** process. **A channel conversation cannot be pulled back
 than hand-listed a second time: a platform source added upstream then joins the 机器人 segment
 instead of belonging to neither surface.
 
+### 7c. Manual cron fire is synchronous, and `fire_claim` is the only run signal (verified 2026-09-20)
+
+`POST /api/cron/jobs/{id}/trigger` does not schedule a run and answer — it **runs the job inside the
+request** and answers when the run has finished (`hermes_cli/web_routers/cron.py`
+`_trigger_cron_job_sync` → `cron/scheduler_provider.py` `fire_due` → `cron/scheduler.py`
+`run_one_job`). Measured on this Mac: a job fired at 20:59:33 answered at 21:05:38 — **six
+minutes**. The app's REST timeout is 20 seconds (`HermesRestApi.REST_TIMEOUT_SECONDS`), so every
+job slower than that times out on the wire **while running to completion on the Mac**.
+
+| What we read | What upstream gives | If upstream changes it |
+|---|---|---|
+| job `fire_claim` | `{at, by}` while a scheduler holds the durable claim, `null` otherwise (`cron/jobs.py` `claim_job_for_fire`) | Renamed or dropped → a timed-out 「立即运行」 falls back to comparing `last_run_at`, which only moves when the run **ends**; a long run then reports HR-CRON-003 again |
+| claim lifetime | TTL 300 s, refreshed by `heartbeat_fire_claim` while the run lasts | A shorter TTL makes a long run look finished; a longer one keeps the button disabled after a crash |
+| a fire that loses the claim | the action fails, `error = "Fire claim was not acquired"` | This is what a second tap during a run gets, and why the UI disables the button instead of retrying |
+
+`state` stays `scheduled` for the whole run and `last_run_at` is stamped only at the end, so
+**`fire_claim` is the only field that says "running right now."** `GET /api/cron/jobs/{id}` does
+return it (verified against the live 0.21.0 managed server).
+
+If upstream ever makes the trigger asynchronous (claim, answer `202`, run off-thread), the timeout
+path disappears and `CronDetailViewModel.trigger`'s second question becomes dead code — delete it
+then, do not keep both.
+
 ### 7b. Outbound boundary: which process can reach a platform (verified 2026-09-09)
 
 Four facts, written down because we got this wrong once by generalising from DingTalk — the one
@@ -483,6 +506,17 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
     routes to it now — see section 3). They are in `ChatViewModel`'s companion object
     and nowhere else. A renumber does not error — the failure quietly becomes the generic
     `HR-SESS-007`, which offers a retry that cannot work.
+8f. Confirm `POST /api/cron/jobs/{id}/trigger` still runs the job **inside the request** and that
+    `GET /api/cron/jobs/{id}` still returns `fire_claim` (section 7c):
+
+    ```bash
+    curl -s -H "Authorization: Bearer $(cat "<token file>")" \
+      http://127.0.0.1:9119/api/cron/jobs/<id> | python3 -c "import json,sys;print('fire_claim' in json.load(sys.stdin))"
+    ```
+
+    If the trigger became asynchronous, delete the timeout branch in `CronDetailViewModel.trigger`
+    rather than leaving two answers to the same question. If `fire_claim` disappeared, a long run's
+    「立即运行」 starts reporting HR-CRON-003 again.
 8g. Measure what one read of a conversation with attachments actually returns. Attach a document
     and two photographs, then measure both the stored row and the answer.
 

@@ -78,6 +78,7 @@ class CronViewModel @Inject constructor(
 
     fun runAction(jobId: String, name: String, action: CronAction) = viewModelScope.launch {
         val p = _state.value.profile
+        val lastRunBefore = _state.value.jobs.firstOrNull { it.id == jobId }?.lastRunAt
         val outcome = runCatching {
             when (action) {
                 CronAction.PAUSE -> tools.pauseCron(jobId, p)
@@ -86,6 +87,13 @@ class CronViewModel @Inject constructor(
                 CronAction.DELETE -> tools.deleteCron(jobId, p)
             }
         }
+        // A timed-out 「立即运行」 is not a failed one until the job record says so.
+        val startedInBackground = action == CronAction.RUN &&
+            triggerStartedDespiteTimeout(jobId, p, lastRunBefore, outcome.exceptionOrNull())
+        val started = localizedText(
+            "已触发 $name，正在后台运行",
+            "Triggered $name — running in the background",
+        )
         val message = outcome.fold(
             onSuccess = {
                 when (action) {
@@ -107,10 +115,30 @@ class CronViewModel @Inject constructor(
                 }
             },
         )
-        _state.value = _state.value.copy(message = message)
-        if (outcome.isSuccess) {
+        _state.value = _state.value.copy(message = if (startedInBackground) started else message)
+        if (outcome.isSuccess || startedInBackground) {
             runCatching { tools.cronJobs(p) }.onSuccess { jobs -> _state.value = _state.value.copy(jobs = jobs) }
         }
+    }
+
+    /**
+     * Whether a timed-out 「立即运行」 nevertheless started the job.
+     *
+     * `POST .../trigger` runs the job synchronously upstream, so any run longer than the REST
+     * timeout answers with a timeout while executing to completion on the Mac. `fire_claim` is the
+     * live proof of that ([CronJobDto.isRunning]); a moved `last_run_at` catches the run that
+     * finished between the timeout and this question. A job that cannot be re-read answers no, so
+     * a genuinely unreachable gateway still reports the failure it is.
+     */
+    private suspend fun triggerStartedDespiteTimeout(
+        jobId: String,
+        profile: String?,
+        lastRunBefore: String?,
+        error: Throwable?,
+    ): Boolean {
+        if (error?.isTimeout() != true) return false
+        val job = runCatching { tools.cronJob(jobId, profile) }.getOrNull() ?: return false
+        return job.isRunning || (job.lastRunAt != null && job.lastRunAt != lastRunBefore)
     }
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }

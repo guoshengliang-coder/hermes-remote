@@ -243,6 +243,18 @@ data class ModelOptionDto(
     val expr: String? = null,
     val display: String? = null,
 )
+
+/**
+ * Hermes' own durable claim on a job that is being fired right now (`cron/jobs.py`'s
+ * `claim_job_for_fire`). Its presence is the only live "this job is running" signal the job record
+ * carries: `state` stays `scheduled` and `last_run_at` is only stamped when the run ENDS. Consumed
+ * because `POST .../trigger` runs the job synchronously and a long job outlives the REST timeout —
+ * see docs/HERMES_CONTRACT.md.
+ */
+@Serializable data class CronFireClaimDto(
+    val at: String? = null,
+    val by: String? = null,
+)
 @Serializable data class CronJobDto(
     val id: String,
     val name: String? = null,
@@ -264,9 +276,12 @@ data class ModelOptionDto(
     val profile: String? = null,
     val model: String? = null,
     val prompt: String? = null,
+    @SerialName("fire_claim") val fireClaim: CronFireClaimDto? = null,
 ) {
     val scheduleText: String get() = scheduleDisplay ?: schedule?.display ?: schedule?.expr ?: "—"
     val isPaused: Boolean get() = pausedAt != null || state == "paused"
+    /** A fire claim is held, i.e. some scheduler is executing this job at this moment. */
+    val isRunning: Boolean get() = fireClaim != null
 }
 
 @Serializable data class CronRunDto(

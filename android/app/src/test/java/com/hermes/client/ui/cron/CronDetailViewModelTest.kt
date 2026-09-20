@@ -112,8 +112,14 @@ class CronDetailViewModelTest {
             assertFalse(shown, shown.contains("HR-RPC-001"))
         }
 
-    /** A transport failure is not an HTTP status; it must not be reported as one either. */
-    @Test fun a_run_that_never_reached_the_server_is_still_reported_with_a_cause() =
+    /**
+     * A transport failure is not an HTTP status; it must not be reported as one either.
+     *
+     * The mocked job here has no fire claim and no `last_run_at`, i.e. the server shows no run
+     * behind the timeout — the one case where a timed-out trigger really is a failed action.
+     * When a run IS behind it, the verdict is the opposite; see [CronTriggerTimeoutTest].
+     */
+    @Test fun a_timeout_with_no_run_behind_it_is_still_reported_with_a_cause() =
         runTest(dispatcher) {
             val vm = viewModel(tools { throw java.net.SocketTimeoutException("timeout") })
             vm.load("job-1")
