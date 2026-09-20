@@ -53,6 +53,7 @@ import javax.inject.Inject
 import com.hermes.client.ui.localization.LocalizedText
 import com.hermes.client.ui.localization.localizedText
 import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.localizedMessage
 import com.hermes.client.ui.localization.LanguagePreference
 import com.hermes.client.ui.localization.resolve
 import com.hermes.client.ui.localization.localized
@@ -853,11 +854,10 @@ class ChatViewModel @Inject constructor(
                             "That Mac is no longer available to this account. Choose another device. (HR-BIND-011)",
                         )
                     } else {
-                        localized(
-                            appLanguage,
-                            "无法加载历史消息（HR-RPC-001）",
-                            "Couldn't load message history (HR-RPC-001)",
-                        )
+                        // Classified rather than lumped: a 5xx from the Mac, a dropped connection
+                        // and an unreadable response ask for three different things from the person
+                        // reading it (HG-72).
+                        com.hermes.client.data.error.historyFailure(e).localizedMessage(appLanguage)
                     }
                     runtimeStore.historyFailed(
                         key,
@@ -866,10 +866,12 @@ class ChatViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 // Keep a cached/live transcript visible if history refresh fails.
-                com.hermes.client.data.diagnostics.DebugLog.log("error", "history($id) failed: ${e.message}")
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "error", "history($id) failed: ${e::class.simpleName}: ${e.message}",
+                )
                 runtimeStore.historyFailed(
                     key,
-                    localized(appLanguage, "无法加载历史消息（HR-RPC-001）", "Couldn't load message history (HR-RPC-001)"),
+                    com.hermes.client.data.error.historyFailure(e).localizedMessage(appLanguage),
                 )
             }
             // A share may have handed off an image; stage it so it shows as a chip and is

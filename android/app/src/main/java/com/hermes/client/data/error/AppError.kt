@@ -93,6 +93,14 @@ enum class AppErrorCode(val value: String) {
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
+    // The Mac's Hermes answered the transcript request with a 5xx. The conversation and the
+    // connection are both fine — the failure is inside Hermes, and the relay forwarded it
+    // faithfully. Retrying repeats it, so the tap is withheld and the copy points at the Mac.
+    HISTORY_UPSTREAM_FAILED("HR-SYNC-003"),
+    // The transcript arrived and could not be parsed: a shape this build does not understand.
+    // Distinct from a 5xx (the Mac is fine) and from a dropped connection (the bytes arrived).
+    // The same bytes parse the same way next time, so the app has to be updated instead.
+    HISTORY_UNREADABLE("HR-SYNC-004"),
     NOTIFICATION_ACTION_FAILED("HR-NOTIF-001"),
     SEARCH_FAILED("HR-SEARCH-001"),
     FEEDBACK_UNAVAILABLE("HR-FEEDBACK-001"),
