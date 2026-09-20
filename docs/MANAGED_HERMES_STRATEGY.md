@@ -188,6 +188,34 @@ switch).
 
 ## 4. Adopting a new upstream commit is a gate, not a pull
 
+**Being behind is the normal state, and is not by itself a reason to adopt.** "Version parity" is
+not a state that can be held: the owner's own Hermes rolls forward whenever they update it, while
+the managed copy moves only when someone packages it. Parity is a moment, not a condition, so the
+question is never "are we behind" but "has being behind started to cost something".
+
+Measured on 2026-09-20, two weeks behind (pinned `f159e581` of 09-04 against the owner's `17b5df02`
+of 09-19) cost nothing the phone can see: every REST path in `docs/HERMES_CONTRACT.md` §2 was
+present in the running managed copy's own `openapi.json`, and all 35 top-level keys of the shared
+`config.yaml` were understood by it. What the pinned copy lacked — `/api/audio/voice-live/*`,
+`/api/dashboard/plugins/catalog`, `/api/gateway/migrate*`, and the newer `hermes_state_*` modules —
+the app does not call.
+
+Adopt when one of these is true, and not otherwise:
+
+1. **An incompatibility the patch set cannot absorb.** Not "a new column" — those are dropped by the
+   allowlist — but a column whose meaning changed, a renamed RPC, an altered text grammar. This is
+   the forced case, and `HR-MIGRATE-006` exists to make it arrive as a sentence rather than a 500.
+2. **Upstream merged one of our patches**, so adopting *deletes* a patch. This is the case worth
+   seeking out: the patch set is borrowed time, and the smallest one is the healthiest one.
+3. **A specific upstream capability is wanted**, named by the owner.
+
+Two things follow. Adopting because the version numbers look untidy spends a real risk budget —
+the gate below, a managed release, and a manual controlled activation (HG-68 is unfixed, and the
+0.3.5 activation rolled back twice before it took) — on nothing. And **the durable fix is not
+adoption at all**: an upstream that stops putting unknown columns into responses
+([#116510](https://github.com/NousResearch/hermes-agent/issues/116510)) makes every future column
+harmless at once, where each adoption only settles the one in front of it.
+
 In order, and it stops at the first failure:
 
 1. record the new upstream commit; keep the old one until the gate passes;
@@ -227,6 +255,11 @@ merging and releasing both looked clean. Two things follow for anything added in
 - the check runs on Desktop's ordinary refresh and is **not** gated on the managed installation
   reading `active`. Any Mac that also runs its own hermes-agent reports `inconsistent` forever, and
   that is exactly the Mac that has drift;
+- a column that has been examined and found harmless is subtracted from the report, but only on
+  the terms recorded with it in `DesktopManagedSchemaAcknowledgement.known` — the patch that
+  neutralises it must actually be in that release's `BUILD-IDENTITY.json`, and the column's type
+  must still be what was examined. A permanently lit notice is one nobody reads, and this check has
+  exactly one job: to be read the one time it is new. An unexamined column always reports;
 - `ManagedSchemaWiringTests` asserts the call site exists. It reads the app target's source, because
   `HermesGoDesktop` is an `executableTarget` that SwiftPM cannot import into a test target — a
   weaker check than calling the code, and still the only one that catches "nobody wrote the call".
