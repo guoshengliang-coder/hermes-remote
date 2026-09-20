@@ -34,7 +34,7 @@ class SessionRepositoryTest {
     private fun dto(id: String, source: String?, msgs: Int, archived: Boolean = false) =
         SessionDto(sessionId = id, source = source, messageCount = msgs, archived = archived, profile = "personal")
 
-    // Parity with desktop SIDEBAR_EXCLUDED_SOURCES: the list hides cron, subagent, tool, and every
+    // Parity with upstream's human pickers: the list hides scheduled/internal automation and every
     // messaging-platform source, plus empty (0-message) sessions. Local sources (tui/cli/…), the
     // app's own hermes-dispatch sessions, and unknown/null sources are kept.
     @Test fun listAllProfiles_hides_excluded_sources_and_empty_sessions() = runTest {
@@ -45,6 +45,8 @@ class SessionRepositoryTest {
                 dto("hide-cron", "cron", 12),           // cron → hidden
                 dto("hide-subagent", "subagent", 8),    // subagent → hidden
                 dto("hide-tool", "tool", 4),            // tool → hidden
+                dto("hide-kanban", "kanban", 5),        // worker → hidden
+                dto("hide-oneshot", "oneshot", 7),      // finite automation → hidden (HG-84)
                 dto("hide-telegram", "telegram", 6),    // messaging → hidden
                 dto("hide-empty", "tui", 0),            // 0 messages → hidden
                 dto("keep-dispatch", "hermes-dispatch", 2),
@@ -119,11 +121,13 @@ class SessionRepositoryTest {
         assertEquals(null, repo.sessionMeta("nobody"))
     }
 
-    @Test fun archivedAllProfiles_also_hides_cron_and_empty() = runTest {
+    @Test fun archivedAllProfiles_also_hides_internal_sources_and_empty() = runTest {
         coEvery { rest.profileSessions(any(), true) } returns ProfileSessionsDto(
             sessions = listOf(
                 dto("a-keep", "cli", 3, archived = true),
                 dto("a-cron", "cron", 9, archived = true),
+                dto("a-kanban", "kanban", 9, archived = true),
+                dto("a-oneshot", "oneshot", 9, archived = true),
                 dto("a-empty", "tui", 0, archived = true),
             ),
         )

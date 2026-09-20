@@ -5,13 +5,14 @@ import com.hermes.client.domain.Session
 
 /**
  * The `source` values that mean "a person talked to Hermes on some other app". These are the
- * messaging half of [SessionRepository.EXCLUDED_SOURCES] — cron, subagent and tool stay out
+ * messaging half of [SessionRepository.EXCLUDED_SOURCES] — internal session sources stay out
  * because they are machinery, not conversations.
  *
  * Kept as a derivation rather than a second hand-written list: a platform added to the excluded
  * set upstream then shows up here too, instead of silently belonging to neither surface.
  */
-val BOT_SOURCES: Set<String> = SessionRepository.EXCLUDED_SOURCES - setOf("cron", "subagent", "tool")
+val BOT_SOURCES: Set<String> =
+    SessionRepository.EXCLUDED_SOURCES - SessionRepository.INTERNAL_SESSION_SOURCES
 
 /** One channel's conversations, newest first. */
 data class BotSection(val source: String, val sessions: List<Session>)
@@ -26,9 +27,8 @@ data class BotOrigin(val source: String, val displayName: String?, val chatType:
 /**
  * Whether this `source` means "a person talked to Hermes on some other app".
  *
- * `cron` is deliberately NOT a bot session even though it is in [SessionRepository.EXCLUDED_SOURCES]:
- * a scheduled run is machinery, it is openable in chat today from the activity feed, and treating
- * it as a conversation would sign its turns with a peer name that does not exist.
+ * Internal sources are deliberately NOT bot sessions even though they are in
+ * [SessionRepository.EXCLUDED_SOURCES]: they are machinery, not conversations with a peer.
  */
 fun isBotSession(source: String?): Boolean = (source ?: "") in BOT_SOURCES
 
