@@ -38,7 +38,7 @@ upstream code that we do not own:
 
 | Incident | Upstream line | What we did instead |
 |---|---|---|
-| HG-65: a conversation's history reached 26.30 MiB and killed the tunnel on every reconnect | `session_history.py`, two `image_urls=True` call sites | three client-side mitigations across Connector and Android, one day of work |
+| HG-65: a conversation's history reached 26.30 MiB and killed the tunnel on every reconnect | `session_history.py`, two `image_urls=True` call sites — but only the **transfer** half; the bytes are inlined when the row is written, which is write-side and out of bounds (see below) | three client-side mitigations across Connector and Android, one day of work |
 | A conversation returned 500 after the owner updated their own Hermes | `hermes_state_messages.py`, five `SELECT *` sites | nothing yet; sessions created after the schema change cannot be opened from the phone |
 
 ## Option A — keep the verbatim pinned copy (today)
@@ -106,6 +106,25 @@ These do not depend on the decision and should not wait for it:
 3. **Distinguish history failures on the phone.** An upstream 5xx, a dropped connection and a parse
    failure are all `HR-RPC-001` today, so the person holding the phone cannot tell retrying from
    reporting.
+
+## A worked example of the read-side rule, found while applying it
+
+The first attempt at the second founding patch was to flip `image_urls` to `False`, on the belief
+that Hermes expanded `@image:` references into base64 *at read time*. It does not: the payloads are
+already in `messages.content` when the row is written — 27,483,342 bytes in one row, 110,160,145
+across the session that reported HG-65. The 151-byte figure that started that belief came from
+`sqlite3`'s `length()`, which stops at the first NUL, and these rows begin with `\x00json:`.
+
+Two things follow, and both are worth keeping in front of whoever adds the next patch.
+
+**The patch is smaller than it looked.** Flipping the switch changes what is *sent*, not what is
+*stored*. That is still worth having — transfer is the half that broke the tunnel — but it does not
+make the conversation smaller, and a conversation that keeps growing will keep costing.
+
+**The other half is out of bounds by our own rule.** Deciding not to inline at write time is a
+write-side change, and a write-side patch is exactly what rule 2 forbids: the owner's own Hermes
+reads the same rows. So that half is upstream's or nobody's, and the honest thing is to say so
+rather than reach for it.
 
 ## Deciding (kept for the record)
 

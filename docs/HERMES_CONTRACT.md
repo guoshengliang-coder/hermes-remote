@@ -63,23 +63,33 @@ reads the transcript before retiring a stale phase, so those conversations kept 
 the `text` blocks, keeps a block whose path/URL it can render as `@image:`, and skips block types it
 does not know. The block vocabulary is upstream's — do not assume this list is complete.
 
-**An attachment is stored as a reference and returned as bytes.** The database row for a turn with
-images holds `@image:<path>` — 151 bytes for 75 images in the session above. Hermes re-expands each
-reference into a base64 `data:` URI **at read time**: `session_history.py`'s `_coerce_message_text`
-calls `_history_dict_text(part, image_urls=True)`, and the `False` branch — which renders `[image]`
-instead — is not reachable from any API parameter. Both `session.resume` and
-`GET /api/sessions/{id}/messages` therefore return the same expanded bytes; measured on
-`20260918_204034_16def7`, 26.30 MiB and 26.33 MiB for a conversation whose stored rows total a few
-hundred KB.
+**An attachment's bytes are stored inline, and every read transmits them.** A turn that carried
+images is persisted with the images already base64'd into `messages.content`: measured on
+`20260918_204034_16def7`, one row is 27,483,342 bytes holding 75 `data:image` payloads, and the
+session's rows total 110,160,145 bytes. `session.resume` and `GET /api/sessions/{id}/messages` both
+return that, ~26 MiB on the wire.
 
-This is the single fact behind HG-65. The switch is deliberate — inlining costs nothing between two
-local processes, which is where upstream's Desktop consumes it — but a remote client pays for it on
-every read, the cost is the sum of every attachment the conversation has ever carried, and
-`session.resume` is the first call after each reconnect. One 37-page PDF sent through `pdf.attach`
-(7.5 s to rasterise, 9.44 MiB of PNG, **12.59 MiB** once inlined) was on its own past the relay's
-12 MiB frame ceiling. Nothing in this repository can make an already-inlined answer smaller: the
-client's side of the fix is to stop creating the images (`file.attach` for documents, ~1,092× less
-text) and to survive an answer that cannot be delivered rather than reconnect into it forever.
+> **Corrected 2026-09-20.** This paragraph previously said the row held 151 bytes of `@image:`
+> references that Hermes re-expanded *at read time*. It does not: the expansion has already
+> happened when the row is written. The 151-byte figure came from `sqlite3`'s `length()`, which
+> counts characters up to the first NUL — and these rows begin with `\x00json:`. **Do not size these
+> columns with `sqlite3 length()`**; read them in a language that returns the whole value. Everything
+> downstream of that number was wrong for a day, including an upstream issue.
+
+What the read path does control is whether those stored bytes are *sent*.
+`session_history.py`'s `_coerce_message_text` calls `_history_dict_text(part, image_urls=True)` at
+both of its call sites, and the `False` branch — which renders `[image]` in place of the payload —
+is not reachable from any API parameter. So a remote client cannot ask for the small form, and pays
+the full transfer on every read, including the `session.resume` that follows each reconnect. One
+37-page PDF sent through `pdf.attach` (7.5 s to rasterise, 9.44 MiB of PNG, **12.59 MiB** once
+inlined) was on its own past the relay's 12 MiB frame ceiling.
+
+That is the fact behind HG-65, and it splits into two problems with different owners. **Transfer**
+is reachable from the read path and therefore patchable by us. **Storage** is decided when the row
+is written, which is write-side — outside what a managed-Hermes patch may touch
+(`docs/MANAGED_HERMES_STRATEGY.md`), and not investigated here. The client-side mitigations stand on
+their own: send documents as `file.attach` references rather than page images, and survive an answer
+that cannot be delivered instead of reconnecting into it forever.
 
 Making `image_urls` reachable from the API — an `inline_images=false` on `session.resume` and
 `GET /messages` — is the only change that would fix this for plain photographs too. That is an
@@ -92,7 +102,7 @@ rather than reported as upstream bugs:
 
 | Behaviour | Where (at the pinned commit) | Why it costs us |
 |---|---|---|
-| History reads inline every attachment as base64 | `tui_gateway/session_history.py` — `_coerce_message_text` passes `image_urls=True` at two call sites; the `False` branch that renders `[image]` already exists and is unreachable from the API | 26.30 MiB for one conversation (HG-65). Free between local processes, not free over a relay |
+| History reads transmit every stored attachment payload | `tui_gateway/session_history.py` — `_coerce_message_text` passes `image_urls=True` at two call sites; the `False` branch that renders `[image]` already exists and is unreachable from the API | 26.30 MiB for one conversation (HG-65). The bytes are already in the row (section 1b); this decides whether they go on the wire. Free between local processes, not free over a relay |
 | Message rows are read with `SELECT *` and passed to the response encoder | `hermes_state_messages.py`, 5 sites | Any column upstream adds travels into the JSON response. On 2026-09-19 a new `display_identity BLOB` made `GET /messages` return 500 for every affected session (see docs/DESKTOP_E4_TEST_RECORD.md) |
 
 Both were reported upstream on 2026-09-20, against `8a92051f`:
@@ -195,10 +205,10 @@ session running a turn of its own.
 
 **Nothing routes a PDF to `pdf.attach` any more.** The client sends every document — PDFs
 included — through `file.attach`, which returns an `@file:` reference that Hermes expands at submit
-time. `pdf.attach` rasterises every page unconditionally and Hermes then re-inlines those pages as
-base64 on every read of the conversation, so a single 37-page report produced a 12.59 MiB
+time. `pdf.attach` rasterises every page unconditionally and those pages are persisted as base64, so
+every read of the conversation carries them: a single 37-page report produced a 12.59 MiB
 `session.resume` answer and the conversation became undeliverable through the relay (HG-65; the
-full measurement is in the block below on `image_urls`). The reference form costs a few extra tool
+full measurement is in section 1b). The reference form costs a few extra tool
 round-trips and loses page geometry, and it is the one that does not grow without bound.
 
 The paragraph below therefore describes a path the client no longer takes. It is kept because
@@ -448,16 +458,21 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
     and nowhere else. A renumber does not error — the failure quietly becomes the generic
     `HR-SESS-007`, which offers a retry that cannot work.
 8g. Measure what one read of a conversation with attachments actually returns. Attach a document
-    and two photographs, then compare the stored row against `session.resume`'s answer:
+    and two photographs, then measure both the stored row and the answer.
+
+    **Not with `sqlite3 length()`** — it counts characters up to the first NUL, and these rows begin
+    with `\x00json:`, so it reports 0 for a 27 MB row. That mistake cost a day on 2026-09-20. Use
+    something that returns the whole value:
 
     ```bash
-    sqlite3 ~/.hermes/state.db "select length(content) from messages order by id desc limit 1"
+    python3 -c "import sqlite3;d=sqlite3.connect('file:$HOME/.hermes/state.db?mode=ro',uri=True);\
+    print(max(len(c or '') for (c,) in d.execute('select content from messages')))"
     ```
 
-    A stored length in the hundreds of bytes against an answer in the megabytes means read-time
-    inlining is still on and unreachable (section 1b). If a new Hermes accepts `inline_images=false`
-    on `session.resume` or `GET /messages`, that is the upstream fix landing: say so, because the
-    client-side mitigations exist only because it had not.
+    A stored row in the megabytes means the images are inlined at write time and every read carries
+    them (section 1b). If a new Hermes accepts `inline_images=false` on `session.resume` or
+    `GET /messages`, the transfer half is fixed upstream: say so, because the client-side
+    mitigations exist only because it had not.
 8d. Confirm `sessions.changed` is still broadcast, still carries no session id, and is still sent
     when the list moves. It is the only event the app treats as "go and ask" rather than as news
     about one conversation; losing it is silent (a list that stops refreshing itself), so the proof
