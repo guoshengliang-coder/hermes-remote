@@ -212,6 +212,25 @@ produced deliberately:
   normalises mtimes this is not possible — which is why that work is a precondition for this rule,
   not an optimisation.
 
+## 7. The drift check has to be reachable, not merely present
+
+Drift is detected by comparing the live `state.db` columns against the `schemaBaseline` the packager
+records in `BUILD-IDENTITY.json`, and shown as `HR-MIGRATE-006`. Not against `schema_version`:
+upstream added `display_identity` and `display_order` while leaving `SCHEMA_VERSION = 30` on both
+sides, so the obvious gate would have missed the incident it exists for.
+
+The rule is about the *last* link. HG-71 landed the comparison, the inspector, the error code and
+eight passing tests, and this Mac still said nothing — because nothing ever called the inspector.
+Every test exercised the mechanism in isolation, and a check that never runs can never fail, so
+merging and releasing both looked clean. Two things follow for anything added in this area:
+
+- the check runs on Desktop's ordinary refresh and is **not** gated on the managed installation
+  reading `active`. Any Mac that also runs its own hermes-agent reports `inconsistent` forever, and
+  that is exactly the Mac that has drift;
+- `ManagedSchemaWiringTests` asserts the call site exists. It reads the app target's source, because
+  `HermesGoDesktop` is an `executableTarget` that SwiftPM cannot import into a test target — a
+  weaker check than calling the code, and still the only one that catches "nobody wrote the call".
+
 ## 6. A patch is not a licence to skip the upstream contract
 
 `docs/HERMES_CONTRACT.md` still governs. Patching what we read does not make the wire format,

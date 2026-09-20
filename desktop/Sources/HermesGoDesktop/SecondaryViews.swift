@@ -347,6 +347,9 @@ struct AccountDevicesView: View {
         if let issue = model.managedBootstrapIssue {
             accountIssueCard(issue)
         }
+        if let issue = model.managedSchemaIssue {
+            accountIssueCard(issue)
+        }
         if !dashboard.devices.isEmpty {
             devicesCard(dashboard)
         }

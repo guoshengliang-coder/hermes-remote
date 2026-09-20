@@ -465,6 +465,16 @@ schema 2, a trust or scan failure cannot expose the schema-v1 download action as
 Production capability/configuration stays
 off, so this slice performs no deployment, installation, running-service change, or release.
 
+Beside those migration failures, Desktop carries one advisory that is not about installing anything:
+`HR-MIGRATE-006`, shown when the live `state.db` has grown columns the running managed release was
+not built to read. It is drawn in its own card, independent of the managed-installation state,
+because the bootstrap state machine clears its own issue on nearly every transition and because a
+Mac that also runs its own hermes-agent reports `inconsistent` permanently — gating the advisory on
+`active` would hide it on exactly the machines that have drift. It is not retryable: nothing on the
+Mac makes a pinned copy understand a newer database, so the copy says to update the managed Hermes.
+See `docs/MANAGED_HERMES_STRATEGY.md` rule 7 for why the check is compared against the recorded
+`schemaBaseline` rather than `schema_version`, and why its call site is asserted by a test.
+
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
 
