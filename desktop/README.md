@@ -1,6 +1,19 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.19** (build 22). Two changes.
+Current internal test release candidate: **0.2.20** (build 23). Two changes.
+
+Startup recovery now keeps a healthy managed upgrade actionable when only the token-storage or
+LaunchAgent search-path repair fails. Those advisory failures are reported as retryable
+`HR-MIGRATE-007`; only a real Connector ownership mismatch retains the blocking `HR-MIGRATE-002`
+(HG-68).
+
+Its pinned schema-v1 manifest moves from 0.3.7 to **0.3.8**. That managed release carries the
+read-only `session.access` projection and bounded inline-image history required by Android's
+cross-client ownership, authoritative run-state recovery, and oversized-history fixes (HG-66,
+HG-67, HG-69). The patches do not change Hermes writes, the database schema, migrations, or session
+ownership, and are applied to the actual packaged source allowlist before the archive is signed.
+
+0.2.19 (build 22) had two changes.
 
 It notices when this Mac's `state.db` has grown columns the managed Hermes was not built to read, and
 says so as `HR-MIGRATE-006` instead of letting a read fail later with a traceback that names only the
