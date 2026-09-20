@@ -91,12 +91,12 @@ class ScreenshotTest {
         )
     }
 
-    /** Before the first token: the mark alone, no dots and no "Generating…" to read twice. */
+    /** Before the first token: quiet dots plus a short label, never an unexplained orphan mark. */
     @Test fun runningStatusPreparing() = snap("status-preparing", manualClock = true) {
         com.hermes.client.ui.chat.RunningStatusLine(msg())
     }
 
-    // Brand loading motion (docs/DESIGN.md §5.6). The clock is frozen so the sweep is deterministic.
+    // Loading motion (docs/DESIGN.md §5.6). The clock is frozen for deterministic dot brightness.
     @Test fun listSkeleton() = snap("loading-skeleton", manualClock = true) {
         com.hermes.client.ui.components.SkeletonRows()
     }
@@ -105,13 +105,22 @@ class ScreenshotTest {
         com.hermes.client.ui.components.SkeletonRows()
     }
 
-    @Test fun pageLoadingMark() = snap("loading-mark", manualClock = true) {
+    @Test fun pageLoadingDots() = snap("loading-dots", manualClock = true) {
         androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxWidth().height(120.dp)) {
-            com.hermes.client.ui.components.HermesMark(
+            com.hermes.client.ui.components.LoadingDots(
                 size = 32.dp,
                 modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center),
             )
         }
+    }
+
+    @Test fun galleryPermissionRecovery() = snap("gallery-permission-recovery") {
+        com.hermes.client.ui.chat.GalleryPermissionState(
+            onCancel = {},
+            onRequestAccess = {},
+            onOpenSettings = {},
+            onChooseFiles = {},
+        )
     }
 
     // Turn navigation (docs/DESIGN.md §5.4): the pill and the prompt list rows.

@@ -60,7 +60,7 @@ import com.hermes.client.data.error.AppError
 import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.data.repository.favKey
-import com.hermes.client.ui.components.HermesMark
+import com.hermes.client.ui.components.LoadingDots
 import com.hermes.client.ui.components.RunSpinner
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.l10n
@@ -362,7 +362,7 @@ fun ModelSelectorContent(
             ) {
                 when {
                     listLoading -> {
-                        HermesMark(size = 32.dp)
+                        LoadingDots(size = 32.dp)
                         Text(
                             localized(language, "正在加载模型列表…", "Loading models…"),
                             style = MaterialTheme.typography.bodyMedium,

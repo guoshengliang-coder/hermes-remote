@@ -32,7 +32,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hermes.client.domain.ChatImage
 import com.hermes.client.domain.ImageTransferState
-import com.hermes.client.ui.components.HermesMark
+import com.hermes.client.ui.components.LoadingDots
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import kotlinx.coroutines.Dispatchers
@@ -148,7 +148,7 @@ private fun ChatImageThumbnail(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = contentScale,
                 )
-                transferring -> HermesMark(size = 24.dp)
+                transferring -> LoadingDots(size = 24.dp)
                 else -> Icon(
                     Icons.Rounded.BrokenImage,
                     contentDescription = localized(language, "图片加载失败", "Image unavailable"),

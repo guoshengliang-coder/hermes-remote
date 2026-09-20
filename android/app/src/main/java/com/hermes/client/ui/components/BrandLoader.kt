@@ -34,7 +34,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
@@ -47,27 +46,16 @@ import com.hermes.client.ui.theme.SpinnerTrackAlpha
 import com.hermes.client.ui.theme.spinnerColor
 import kotlinx.coroutines.delay
 
-// Brand loading motion, derived from the launcher icon (design: docs/design/loading-motion.html,
-// contract: docs/DESIGN.md §5.6). Four shapes cover every indeterminate wait in the app:
-//   HermesMark    — the icon's H with a light sweeping around the crossbar centre. 14/20/32dp.
+// Loading motion contract: docs/DESIGN.md §5.6. Four shapes cover every indeterminate wait:
+//   LoadingDots   — three quiet 4dp dots for page and inline waits.
 //   SkeletonRows  — first load of a list whose row shape is known and stable.
 //   TopProgressLine — refresh that must not cover content the user is already reading.
 //   RunSpinner    — a small ring beside a thing that is working. See its own doc for when.
-// The first three run on one 1200ms period and one 250ms reveal gate, and all four are
-// single-colour: the multicolour icon belongs to the startup gate only (§2.1 keeps status
-// colours out of chrome).
+// Loops share one 1200ms period; page placeholders use the 250ms reveal gate. The dots use one
+// muted cobalt plus warm neutrals; the multicolour icon belongs to the startup gate only.
 
-/** The H on the icon's 24-unit grid: bar = 28.6% of the width, crossbar = 36.7%–63.3% of it. */
-private const val BAR = 0.286f
-private const val CROSS_TOP = 0.367f
-private const val CROSS_BOTTOM = 0.633f
-
-/** The icon's own 14:15 proportion, so the mark is never a stretched H. */
-const val MARK_ASPECT = 14f / 15f
-
-private const val DIM_ALPHA = 0.30f
-
-/** Reduce-motion parks the sweep at a flat, readable fraction of the lit face. */
+private val LoadingDotDiameter = 4.dp
+private val LoadingDotGap = 4.dp
 private const val STILL_ALPHA = 0.6f
 
 /** Test seam for the system "remove animations" setting; null = read the real setting. */
@@ -80,80 +68,51 @@ fun reduceMotion(): Boolean {
     return override ?: system
 }
 
-fun hermesMarkPath(size: Size): Path {
-    val w = size.width
-    val h = size.height
-    val bar = w * BAR
-    val top = h * CROSS_TOP
-    val bottom = h * CROSS_BOTTOM
-    return Path().apply {
-        moveTo(0f, 0f)
-        lineTo(bar, 0f)
-        lineTo(bar, top)
-        lineTo(w - bar, top)
-        lineTo(w - bar, 0f)
-        lineTo(w, 0f)
-        lineTo(w, h)
-        lineTo(w - bar, h)
-        lineTo(w - bar, bottom)
-        lineTo(bar, bottom)
-        lineTo(bar, h)
-        lineTo(0f, h)
-        close()
-    }
-}
-
 /**
- * The brand loading mark: the H stands still while one light lobe rotates around the crossbar
- * centre — the icon's own logic (one light source over folded faces), not a spinning shape.
+ * The page/inline loading mark: one muted cobalt dot and two warm-grey dots, with brightness
+ * moving left to right. The dots never move, so the label beside them remains the visual anchor.
  */
 @Composable
-fun HermesMark(
+fun LoadingDots(
     size: Dp = 32.dp,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
     contentDescription: String? = null,
 ) {
     val still = reduceMotion()
-    var sweep = 0f
+    var phase = 0f
     if (!still) {
-        sweep = rememberInfiniteTransition(label = "hermes-mark").animateFloat(
+        phase = rememberInfiniteTransition(label = "loading-dots").animateFloat(
             initialValue = 0f,
-            targetValue = 360f,
+            targetValue = 3f,
             animationSpec = infiniteRepeatable(
                 animation = tween(Motion.LoopPeriod, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart,
             ),
-            label = "hermes-mark-sweep",
+            label = "loading-dots-phase",
         ).value
     }
+    val warmGrey = MaterialTheme.colorScheme.onSurfaceVariant
+    val mutedCobalt = androidx.compose.ui.graphics.lerp(warmGrey, color, 0.58f)
     Canvas(
         modifier
-            .size(width = size * MARK_ASPECT, height = size)
-            .testTag("hermes-mark")
+            .size(width = LoadingDotDiameter * 3 + LoadingDotGap * 2, height = size)
+            .testTag("loading-dots")
             .semantics {
                 if (contentDescription != null) this.contentDescription = contentDescription
                 progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
             },
     ) {
-        val path = hermesMarkPath(this.size)
-        if (still) {
-            drawPath(path, color.copy(alpha = STILL_ALPHA))
-            return@Canvas
-        }
-        val brush = Brush.sweepGradient(
-            0f to color,
-            0.28f to color.copy(alpha = DIM_ALPHA),
-            0.72f to color.copy(alpha = DIM_ALPHA),
-            1f to color,
-            center = center,
-        )
-        clipPath(path) {
-            rotate(sweep, pivot = center) {
-                // Inflated square: a rotating rect must never expose a corner inside the clip.
-                val reach = this.size.maxDimension
-                drawRect(brush, topLeft = Offset(center.x - reach, center.y - reach), size = Size(reach * 2, reach * 2))
-            }
+        val radius = LoadingDotDiameter.toPx() / 2f
+        val gap = LoadingDotGap.toPx()
+        repeat(3) { index ->
+            val distance = kotlin.math.abs(phase - index.toFloat()).coerceAtMost(1f)
+            val pulse = if (still) (if (index == 0) 0.68f else 0.44f) else 0.30f + 0.42f * (1f - distance)
+            drawCircle(
+                color = (if (index == 0) mutedCobalt else warmGrey).copy(alpha = pulse),
+                radius = radius,
+                center = Offset(radius + index * (radius * 2f + gap), this.size.height / 2f),
+            )
         }
     }
 }
@@ -163,10 +122,9 @@ fun HermesMark(
  *
  * The design source draws this — Material Symbols' `progress_activity` spinning — everywhere a
  * SPECIFIC OBJECT is busy: the session row that is running, the model row being switched to, the
- * refresh button while it fetches. [HermesMark] answers a different question — "the app is
+ * refresh button while it fetches. [LoadingDots] answers a different question — "the app is
  * fetching the thing you are waiting for, and there is nothing else on screen yet" — which is why
- * it is the page-load mark and this is not. Putting the brand mark on a row-level wait said
- * "loading" where the design says "this one is working", and read as a stray logo besides.
+ * it is the page-load mark and this is not.
  *
  * Lifted out of SessionsScreen, which drew these four literals inline (docs/DESIGN.md §5.2):
  * blue rather than the cyan the status TEXT uses, a track at [SpinnerTrackAlpha] under the arc
@@ -239,7 +197,7 @@ fun DelayedReveal(
 
 // ── Skeleton rows ────────────────────────────────────────────────────────────────────────────
 // Only for lists whose row shape is known and stable (sessions / projects / archived / search all
-// share one shape). Pages with unpredictable rows use HermesMark instead: a skeleton that guesses
+// share one shape). Pages with unpredictable rows use LoadingDots instead: a skeleton that guesses
 // wrong is worse than a mark, because the content reflows the moment it arrives.
 
 const val SKELETON_MAX_ROWS = 5

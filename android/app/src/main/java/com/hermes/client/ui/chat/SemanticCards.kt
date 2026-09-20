@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -752,15 +753,23 @@ private fun ContainerOrPlain(plain: Boolean, content: @Composable () -> Unit) {
 @Composable
 internal fun ToolTimelineCard(
     tools: List<ToolCall>,
-    // docs/DESIGN.md §5.4: a completed turn's timeline folds behind a one-line summary. The
-    // fold is decided once, when the card first enters the composition: a card watched to
-    // completion stays open (folding it at that instant would jump the bottom-pinned viewport);
-    // a card first seen already complete starts folded.
+    // docs/DESIGN.md §5.4 + HG-75: running cards default to the newest three rows. A manual expand
+    // remains expanded through completion; otherwise completion leaves the one-line summary.
     completed: Boolean = false,
     stateKey: String = tools.firstOrNull()?.id.orEmpty(),
+    searchQuery: String? = null,
 ) {
     val language = LocalAppLanguage.current
-    var cardExpanded by rememberSaveable("timeline-card-$stateKey") { mutableStateOf(!completed) }
+    var cardExpanded by rememberSaveable("timeline-card-$stateKey") { mutableStateOf(false) }
+    val searchHitsTool = remember(tools, searchQuery) {
+        val query = searchQuery?.trim().orEmpty()
+        query.isNotEmpty() && tools.any { tool ->
+            listOf(tool.name, tool.command.orEmpty(), tool.output).any { it.contains(query, ignoreCase = true) }
+        }
+    }
+    LaunchedEffect(searchHitsTool) {
+        if (searchHitsTool) cardExpanded = true
+    }
     val failed = tools.count { (it.exitCode ?: 0) != 0 }
     // A completed timeline that is folded shut carries NO container: it is one quiet line, not a
     // card (docs/DESIGN.md §5.4, HG-15). Folding alone was not enough — the bordered surface kept
@@ -774,7 +783,7 @@ internal fun ToolTimelineCard(
                 vertical = if (folded) 0.dp else 7.dp,
             ),
         ) {
-            if (completed) {
+            if (completed || tools.size > RUNNING_TOOL_PREVIEW_ROWS) {
                 val totalMs = tools.mapNotNull { it.durationMs }.takeIf { it.isNotEmpty() }?.sum()
                 val summary = buildString {
                     append(localized(language, "${tools.size} 次工具调用", "${tools.size} tool calls"))
@@ -785,14 +794,19 @@ internal fun ToolTimelineCard(
                     label = summary,
                     expanded = cardExpanded,
                     contentDescription = if (cardExpanded) localized(language, "收起工具时间线", "Collapse tool timeline")
-                    else localized(language, "展开工具时间线", "Expand tool timeline"),
+                    else localized(language, "展开全部工具调用", "Expand all tool calls"),
                     onClick = { cardExpanded = !cardExpanded },
                     // A failure is the one thing worth a colour here; everything else stays quiet.
                     color = if (failed > 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("tool-timeline-summary"),
                 )
             }
-            if (!completed || cardExpanded) tools.forEach { tool ->
+            val visibleTools = when {
+                completed && !cardExpanded -> emptyList()
+                !completed && !cardExpanded -> tools.takeLast(RUNNING_TOOL_PREVIEW_ROWS)
+                else -> tools
+            }
+            visibleTools.forEach { tool ->
                 var expanded by rememberSaveable("timeline-${tool.id}") { mutableStateOf(false) }
                 val running = tool.status == ToolStatus.RUNNING
                 val failed = !running && (tool.exitCode ?: 0) != 0
@@ -893,6 +907,8 @@ internal fun ToolTimelineCard(
         }
     }
 }
+
+internal const val RUNNING_TOOL_PREVIEW_ROWS = 3
 
 // Rows toggle without a ripple so the card reads as one quiet timeline.
 internal fun Modifier.clickableNoIndication(onClick: () -> Unit): Modifier = this.then(

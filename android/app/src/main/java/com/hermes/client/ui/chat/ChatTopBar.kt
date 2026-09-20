@@ -39,7 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.hermes.client.ui.components.HermesMark
+import com.hermes.client.ui.components.LoadingDots
 import com.hermes.client.ui.components.PromptListIcon
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
@@ -126,7 +126,7 @@ internal fun ChatTopBar(
                 // the next thing is the common case, and it used to cost a trip back to the list.
                 IconButton(onClick = { if (!creatingNewChat) onNewChat() }, enabled = !creatingNewChat) {
                     if (creatingNewChat) {
-                        HermesMark(size = 20.dp)
+                        LoadingDots(size = 20.dp)
                     } else {
                         Icon(
                             Icons.Rounded.Add,
@@ -172,7 +172,7 @@ internal fun ChatTopBar(
                             leadingIcon = {
                                 if (refreshingConversation) {
                                     Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-                                        HermesMark(size = 20.dp)
+                                        LoadingDots(size = 20.dp)
                                     }
                                 } else {
                                     Icon(Icons.Rounded.Refresh, contentDescription = null, Modifier.size(20.dp))

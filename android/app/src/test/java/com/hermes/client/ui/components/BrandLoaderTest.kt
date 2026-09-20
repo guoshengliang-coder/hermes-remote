@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Brand loading motion (docs/DESIGN.md §5.6): the reveal gate, the row cap, animations-off. */
+/** Loading motion (docs/DESIGN.md §5.6): the reveal gate, three dots, row cap, animations-off. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class BrandLoaderTest {
@@ -26,9 +26,9 @@ class BrandLoaderTest {
         compose.mainClock.autoAdvance = false
         compose.setContent { HermesTheme(darkTheme = false) { LoadingState() } }
         compose.mainClock.advanceTimeBy(Motion.RevealDelay - 50L)
-        compose.onNodeWithTag("hermes-mark").assertDoesNotExist()
+        compose.onNodeWithTag("loading-dots").assertDoesNotExist()
         compose.mainClock.advanceTimeBy(Motion.RevealDelay + Motion.RevealFade.toLong())
-        compose.onNodeWithTag("hermes-mark").assertExists()
+        compose.onNodeWithTag("loading-dots").assertExists()
     }
 
     @Test fun the_list_skeleton_also_waits_for_the_gate() {
@@ -48,19 +48,19 @@ class BrandLoaderTest {
         compose.onNodeWithTag("skeleton-rows").assertHeightIsEqualTo(skeletonHeight(SKELETON_MAX_ROWS))
     }
 
-    /** With animations off the mark must still be drawn — a blank box is not an acceptable fallback. */
-    @Test fun the_mark_and_the_top_line_survive_animations_off() {
+    /** With animations off the dots must still be drawn — a blank box is not acceptable. */
+    @Test fun the_dots_and_the_top_line_survive_animations_off() {
         compose.setContent {
             HermesTheme(darkTheme = false) {
                 CompositionLocalProvider(LocalReduceMotion provides true) {
                     androidx.compose.foundation.layout.Column {
-                        HermesMark()
+                        LoadingDots()
                         TopProgressLine()
                     }
                 }
             }
         }
-        compose.onNodeWithTag("hermes-mark").assertIsDisplayed()
+        compose.onNodeWithTag("loading-dots").assertIsDisplayed()
         compose.onNodeWithTag("top-progress-line").assertIsDisplayed()
     }
 }

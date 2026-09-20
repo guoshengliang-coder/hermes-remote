@@ -157,7 +157,7 @@ fun AppUpdateContent(
                 actions = {
                     if (state.checking) {
                         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                            com.hermes.client.ui.components.HermesMark(
+                            com.hermes.client.ui.components.LoadingDots(
                                 size = 20.dp,
                                 contentDescription = localized(language, "正在检查更新", "Checking for updates"),
                             )

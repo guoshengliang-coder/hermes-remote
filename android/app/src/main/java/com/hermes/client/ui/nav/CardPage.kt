@@ -475,7 +475,7 @@ private fun RemoteNodeCard(state: CardPageUiState, health: GatewayHealth, onClic
                     modifier = Modifier.size(20.dp),
                 )
             }
-            Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(
                     localized(language, "远程节点", "Remote nodes"),
                     style = CardNodeTitle,
@@ -484,30 +484,38 @@ private fun RemoteNodeCard(state: CardPageUiState, health: GatewayHealth, onClic
                 )
                 // Two lines before an ellipsis: on a 360dp phone the drawer is 302dp, and a long
                 // Mac name beside the latency has nowhere to go on one (vivo V2166BA, 2026-09-11).
-                Text(
-                    if (offline) localized(language, "连接器离线", "Connector offline")
-                    else localized(language, "${state.deviceId} (当前)", "${state.deviceId} (current)"),
-                    style = CardIdentitySub,
-                    color = if (offline) statusColor(StatusTone.BAD) else MaterialTheme.colorScheme.outline,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                ) {
+                    Text(
+                        if (offline) localized(language, "连接器离线", "Connector offline")
+                        else localized(language, "${state.deviceId} (当前)", "${state.deviceId} (current)"),
+                        style = CardIdentitySub,
+                        color = if (offline) statusColor(StatusTone.BAD) else MaterialTheme.colorScheme.outline,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                            .alignBy(androidx.compose.ui.layout.LastBaseline),
+                    )
+                    Text(
+                        when {
+                            offline -> localized(language, "离线", "Offline")
+                            latency != null -> formatLatency(latency)
+                            else -> localized(language, "已连接", "Connected")
+                        },
+                        style = CardRowValue,
+                        color = if (offline) statusColor(StatusTone.BAD) else cardInkMutedColor(),
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.alignBy(androidx.compose.ui.layout.LastBaseline),
+                    )
+                    Icon(
+                        ThinChevron, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.align(Alignment.Bottom).padding(start = 6.dp).size(16.dp),
+                    )
+                }
             }
-            Text(
-                when {
-                    offline -> localized(language, "离线", "Offline")
-                    latency != null -> formatLatency(latency)
-                    else -> localized(language, "已连接", "Connected")
-                },
-                style = CardRowValue,
-                color = if (offline) statusColor(StatusTone.BAD) else cardInkMutedColor(),
-                maxLines = 1, softWrap = false,
-            )
-            Icon(
-                ThinChevron, contentDescription = null,
-                tint = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.padding(start = 6.dp).size(16.dp),
-            )
         }
     }
 }

@@ -52,9 +52,31 @@ class ToolTimelineCollapseTest {
         compose.onNodeWithText("mcp__bi_query__query_data").assertIsDisplayed()
     }
 
-    @Test fun a_running_timeline_has_no_summary_and_stays_open() {
+    @Test fun a_running_timeline_shows_total_and_only_the_latest_three_rows() {
         show(completed = false)
-        compose.onNodeWithTag("tool-timeline-summary").assertDoesNotExist()
+        compose.onNodeWithTag("tool-timeline-summary").assertIsDisplayed()
+        compose.onNodeWithText("4 次工具调用", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("skill_view").assertDoesNotExist()
         compose.onNodeWithText("terminal").assertIsDisplayed()
+    }
+
+    @Test fun a_running_timeline_can_expand_and_collapse_back_to_latest_three() {
+        show(completed = false)
+        compose.onNodeWithTag("tool-timeline-summary").performClick()
+        compose.onNodeWithText("skill_view").assertIsDisplayed()
+        compose.onNodeWithTag("tool-timeline-summary").performClick()
+        compose.onNodeWithText("skill_view").assertDoesNotExist()
+        compose.onNodeWithText("write_file").assertIsDisplayed()
+    }
+
+    @Test fun search_match_auto_expands_a_running_timeline() {
+        compose.setContent {
+            InChinese {
+                HermesTheme(darkTheme = false) {
+                    ToolTimelineCard(tools, completed = false, stateKey = "search", searchQuery = "skill_view")
+                }
+            }
+        }
+        compose.onNodeWithText("skill_view").assertIsDisplayed()
     }
 }

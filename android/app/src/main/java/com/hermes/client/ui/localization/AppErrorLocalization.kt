@@ -112,6 +112,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
                 "编辑结果保存失败，请重试；你的修改仍在屏幕上。",
                 "Couldn't save the edited image. Retry — your edits are still on screen.",
             )
+        AppErrorCode.GALLERY_READ_FAILED ->
+            localized(language, "无法读取手机图库，请重试。", "Couldn't read the photo gallery. Retry.")
         AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
             localized(language, "无法保存身份设置，请重试。", "Couldn't save the profile settings. Retry.")
         AppErrorCode.SESSION_NOT_FOUND ->
@@ -156,6 +158,8 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法读取该文件夹，请换一个位置。", "Couldn't read that folder. Try another location.")
         AppErrorCode.INSTALL_PERMISSION_REQUIRED ->
             localized(language, "需要允许安装未知应用，授权后请重试。", "Permission to install unknown apps is required. Grant it and retry.")
+        AppErrorCode.GALLERY_PERMISSION_REQUIRED ->
+            localized(language, "需要照片访问权限，请允许全部或部分照片。", "Photo access is required. Allow all or selected photos.")
         AppErrorCode.HISTORY_INCOMPLETE ->
             localized(language, "无法同步完整会话内容，请重试。", "Couldn't synchronize the complete conversation. Retry.")
         AppErrorCode.RUN_UNCONFIRMED ->
