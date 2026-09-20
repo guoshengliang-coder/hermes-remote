@@ -20,6 +20,7 @@ import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.ProfileRepository
 import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
+import com.hermes.client.data.repository.SessionAccessState
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.di.DefaultDispatcher
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -293,6 +295,9 @@ class ChatViewModel @Inject constructor(
     }
 
     val connectionState: StateFlow<ConnectionState> = chat.connectionState
+
+    private val _sessionAccessState = MutableStateFlow(SessionAccessState.UNKNOWN)
+    val sessionAccessState: StateFlow<SessionAccessState> = _sessionAccessState.asStateFlow()
 
     /**
      * What the chat banner should say, or null for "say nothing". An outage shorter than the grace
@@ -589,6 +594,23 @@ class ChatViewModel @Inject constructor(
             catalogStore.state.map { it.providers }.distinctUntilChanged()
                 .collect { if (it.isNotEmpty()) backfillProvidersFromCatalog() }
         }
+        // Re-check when the socket comes back. A lease can have moved to or from another client
+        // while this phone was disconnected, and the composer must reflect that before the next
+        // prompt rather than learning through a refused send.
+        viewModelScope.launch {
+            chat.connectionState
+                // open() performs the initial inspection. Only later emissions represent a
+                // reconnect, and skipping the eager StateFlow value also keeps construction from
+                // observing conversation fields before their property initializers have run.
+                .drop(1)
+                .filter { it is ConnectionState.Connected }
+                .collect {
+                    val id = storedSessionId.takeIf { it.isNotBlank() } ?: return@collect
+                    refreshSessionAccess(id, currentProfile, runtimeKey?.let { key ->
+                        runtimeStore.runtimes.value[key]?.liveHandle
+                    })
+                }
+        }
         // A manual refresh requested mid-stream waits for the authoritative reply to finish. This
         // collector owns that one deferred request so repeated taps cannot start competing REST
         // swaps or overwrite deltas that have not reached history yet.
@@ -650,7 +672,9 @@ class ChatViewModel @Inject constructor(
     suspend fun recoverForForeground(): Boolean {
         val id = storedSessionId.takeIf { it.isNotBlank() } ?: return false
         val key = runtimeKey ?: SessionRuntimeKey(currentProfile, id, currentDeviceId)
-        return runtimeStore.recoverVisibleSession(key)
+        val recovered = runtimeStore.recoverVisibleSession(key)
+        refreshSessionAccess(id, currentProfile, runtimeStore.runtimes.value[key]?.liveHandle)
+        return recovered
     }
 
     fun open(
@@ -699,6 +723,7 @@ class ChatViewModel @Inject constructor(
         storedSessionId = id
         currentProfile = profile
         currentDeviceId = resolvedDevice
+        _sessionAccessState.value = SessionAccessState.UNKNOWN
         val key = runtimeStore.register(id, profile, resolvedDevice)
         runtimeKey = key
         runtimeStore.setVisible(key, true)
@@ -941,6 +966,7 @@ class ChatViewModel @Inject constructor(
         if (!resumeDeferred) {
             resumeJob = viewModelScope.launch {
                 try {
+                    refreshSessionAccess(id, profile, null)
                     val handle = recoverLiveHandle(id, profile, key)
                     if (storedSessionId == id && liveHandleGate === gateForOpen) {
                         gateForOpen.complete(handle)
@@ -1349,6 +1375,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun send(text: String) {
+        if (_sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE) return
         val atts = _state.value.pendingAttachments
         if (text.isBlank() && atts.isEmpty()) return
         // Clear the staging strip immediately. The cached thumbnails are attached to the sent turn
@@ -1460,6 +1487,7 @@ class ChatViewModel @Inject constructor(
                 val rpcCode = (e as? GatewayRpcException)?.code
                 val gone = e is SessionGoneException
                 val ownedElsewhere = rpcCode == SESSION_OWNED_ELSEWHERE_CODE
+                if (ownedElsewhere) _sessionAccessState.value = SessionAccessState.OWNED_ELSEWHERE
                 // A third failure that is not a failed send: the prompt never left the phone
                 // because the socket never finished its handshake. Calling that 「消息发送失败」
                 // points the user at their message; the thing to fix is the connection (HG-42).
@@ -1706,10 +1734,34 @@ class ChatViewModel @Inject constructor(
             ?: throw GatewayRpcException(STALE_SESSION_CODE, "session resume returned no live handle")
         sessionId = handle
         runtimeStore.bindLiveHandle(key, handle)
+        refreshSessionAccess(storedId, profile, handle)
         com.hermes.client.data.diagnostics.DebugLog.log(
             "session", "resume($storedId) → handle=$handle",
         )
         handle
+    }
+
+    private suspend fun refreshSessionAccess(
+        storedId: String,
+        profile: String?,
+        liveHandle: String?,
+    ) {
+        try {
+            val access = chat.sessionAccess(storedId, profile, liveHandle)
+            if (this.storedSessionId != storedId) return
+            _sessionAccessState.value = access.state
+            runtimeKey?.takeIf { it.sessionId == storedId }?.let { key ->
+                runtimeStore.applyAuthoritativeAccess(key, access, cause = "chat:session.access")
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // Older managed Hermes versions do not expose this method. UNKNOWN deliberately
+            // leaves the composer writable; prompt.submit 4090 remains the safety boundary.
+            com.hermes.client.data.diagnostics.DebugLog.log(
+                "session", "access($storedId) unavailable: ${error.message}",
+            )
+        }
     }
 
     private fun updateSentImage(

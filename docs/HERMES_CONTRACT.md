@@ -92,9 +92,10 @@ their own: send documents as `file.attach` references rather than page images, a
 that cannot be delivered instead of reconnecting into it forever.
 
 Making `image_urls` reachable from the API — an `inline_images=false` on `session.resume` and
-`GET /messages` — is the only change that would fix this for plain photographs too. That is an
-upstream request, not a change we can make. `file.attach` already demonstrates the shape: it returns
-`@file:` and read-back does **not** expand it.
+`GET /messages` — fixes the transfer for plain photographs too. Patch
+`020-bounded-inline-images.patch` does exactly that on the staged managed copy, with the existing
+default unchanged; it is read/render-side only and is tracked upstream in #116511 / PR #116677. `file.attach`
+already demonstrates the durable shape: it returns `@file:` and read-back does **not** expand it.
 
 **Two upstream behaviours we depend on, and the exact lines they live on.** Both are correct for a
 Hermes serving a local desktop and wrong for one behind a relay, which is why they are recorded here
@@ -108,7 +109,9 @@ rather than reported as upstream bugs:
 Both were reported upstream on 2026-09-20, against `8a92051f`:
 [NousResearch/hermes-agent#116510](https://github.com/NousResearch/hermes-agent/issues/116510) for
 the `SELECT *` reads and
-[#116511](https://github.com/NousResearch/hermes-agent/issues/116511) for the `image_urls` switch.
+[#116511](https://github.com/NousResearch/hermes-agent/issues/116511) for the `image_urls` switch;
+both read-side changes are proposed in
+[#116677](https://github.com/NousResearch/hermes-agent/pull/116677).
 Check their state before assuming either still needs a local workaround — and before writing a new
 one, because a merged upstream fix removes the reason for it.
 
@@ -167,12 +170,15 @@ and lets only the local Connector read the same token. The value never crosses G
 placed in the signed release.
 
 ```
-session.create   session.resume   session.interrupt   session.workspace.move
+session.create   session.resume   session.access*    session.interrupt   session.workspace.move
 prompt.submit    slash.exec       complete.path       commands.catalog
 approval.respond clarify.respond  config.get          config.set
 file.attach      image.attach     image.attach_bytes  pdf.attach
 process.list     projects.tree    projects.project_sessions
 ```
+
+`session.access*` is supplied by managed read-side patch 030 until upstream #116651 / PR #116677 lands; clients
+must tolerate method-not-found and retain the submit-time 4090 fallback.
 
 Server events consumed: `message.start` / `message.delta` / `message.complete`,
 `tool.start` / `tool.complete`, `session.info` / `session.lifecycle`,
@@ -211,6 +217,14 @@ would reason from a transcript missing the first one's work. Unlike 4001/4007 th
 nor terminal: the same send succeeds once the other side lets go, which is why the phone keeps its
 retry and only names the cause (`HR-SESS-013`, HG-30). Note it is *not* 4009 "busy" — that is the
 session running a turn of its own.
+
+The staged managed copy additionally exposes read-only `session.access` (patch 030, upstream
+#116651 / PR #116677). It reads the cross-process lease registry without creating, pruning or rewriting it and
+combines that with this gateway process's live `running` bit. The result is
+`available|owned_by_requester|owned_elsewhere|unknown`, nullable `running`, nullable `writable`, and
+an optional owner surface; no pid crosses the wire. Registry uncertainty is `unknown`, not a grant.
+The method neither resumes nor activates a session and never acquires ownership; `prompt.submit`
+remains the enforcement boundary.
 
 **Nothing routes a PDF to `pdf.attach` any more.** The client sends every document — PDFs
 included — through `file.attach`, which returns an `@file:` reference that Hermes expands at submit
@@ -480,8 +494,9 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 
     A stored row in the megabytes means the images are inlined at write time and every read carries
     them (section 1b). If a new Hermes accepts `inline_images=false` on `session.resume` or
-    `GET /messages`, the transfer half is fixed upstream: say so, because the client-side
-    mitigations exist only because it had not.
+    `GET /messages`, the transfer half is fixed upstream and patch 020 should be removed after the
+    pinned commit adopts it. Until then, verify both calls still honour `false` and keep the default
+    byte-for-byte compatible.
 8d. Confirm `sessions.changed` is still broadcast, still carries no session id, and is still sent
     when the list moves. It is the only event the app treats as "go and ask" rather than as news
     about one conversation; losing it is silent (a list that stops refreshing itself), so the proof

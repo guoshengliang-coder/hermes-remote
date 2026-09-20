@@ -361,7 +361,9 @@ class HermesRestApi(
         profile: String? = null,
         deviceId: String? = null,
     ): String = getRaw(
-        "/api/sessions/$sessionId/messages${profileParam(profile, first = true)}",
+        // Stored rows remain unchanged. This read projection replaces only inline data-image
+        // payloads, keeping old image-heavy conversations below the relay response ceiling.
+        "/api/sessions/$sessionId/messages?inline_images=false${profileParam(profile)}",
         deviceId,
     )
 

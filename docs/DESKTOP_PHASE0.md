@@ -741,6 +741,12 @@ reconciliation `DesktopViewModel.recoverManagedBootstrapAfterRestart()` runs, de
 recovery runtime rather than the bootstrap one: `HermesGoManagedBootstrapEnabled` gates new installs,
 and the affected machines are precisely the ones already installed.
 
+These three reconciliation steps do not share one failure meaning (HG-68). Failure to reconcile a
+transferred account Connector still blocks with `HR-MIGRATE-002`, because continuing could create a
+duplicate Connector. Token-storage and search-path repairs are advisory: they report retryable
+`HR-MIGRATE-007`, keep the current services in place, and do not replace a separately safe managed
+upgrade action with a generic failed state.
+
 What it will and will not touch:
 
 - It repairs only an agent it recognises — `loadManagedLaunchAgent` has already checked the label,

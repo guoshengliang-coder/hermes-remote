@@ -168,6 +168,11 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
 - An optional observer failure may degrade the product but cannot mark a working main path offline.
 - “Cannot reach from this Mac” must not be rewritten as “Hermes is down.”
 - New user-visible errors must be registered in `ERROR_HANDLING.md` before implementation.
+- Startup repair cards preserve the severity of the failed boundary. Only a failure to prove a
+  single Connector topology may replace the managed upgrade action with a blocking
+  `HR-MIGRATE-002`. Token-storage and search-path repair failures use retryable `HR-MIGRATE-007`
+  beside the still-actionable upgrade; an advisory repair must never masquerade as a Connector
+  conflict.
 - Technical details and logs are secondary, selectable, and redacted before presentation.
 - Current reachability and historical log warnings are separate. Old warning lines may be counted and
   shown as history, but cannot by themselves mark a currently healthy connection offline.

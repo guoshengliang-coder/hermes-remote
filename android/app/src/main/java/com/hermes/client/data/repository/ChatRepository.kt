@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.booleanOrNull
 
 data class AttachedImage(
     val path: String,
@@ -44,6 +45,20 @@ data class WorkspaceInfo(val cwd: String?, val branch: String?, val gitRepoRoot:
 
 /** A "@" completion item: [text] is inserted, [display] shown, [meta] is a hint. */
 data class PathItem(val text: String, val display: String, val meta: String)
+
+enum class SessionAccessState {
+    AVAILABLE,
+    OWNED_BY_REQUESTER,
+    OWNED_ELSEWHERE,
+    UNKNOWN,
+}
+
+data class SessionAccess(
+    val state: SessionAccessState,
+    val running: Boolean?,
+    val writable: Boolean?,
+    val ownerSurface: String?,
+)
 
 class ChatRepository(private val client: HermesGatewayClient) {
     /**
@@ -143,9 +158,42 @@ class ChatRepository(private val client: HermesGatewayClient) {
         val result = client.call("session.resume", buildJsonObject {
             put("session_id", sessionId)
             put("source", clientSource)
+            // The app reads history through the chunked REST endpoint. Repeating every historical
+            // base64 image in this control-plane answer can exceed the relay frame before the
+            // returned live handle reaches us (HG-69).
+            put("inline_images", false)
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
         return result.jsonObject["session_id"]?.jsonPrimitive?.content
+    }
+
+    /**
+     * Read-only cross-process ownership and run-state inspection. This does not resume, activate,
+     * or acquire the session. Callers must fail open when an older Hermes does not implement it;
+     * `prompt.submit`'s 4090 remains the compatibility backstop.
+     */
+    suspend fun sessionAccess(
+        sessionId: String,
+        profile: String? = null,
+        liveSessionId: String? = null,
+    ): SessionAccess {
+        val result = client.call("session.access", buildJsonObject {
+            put("session_id", sessionId)
+            if (!profile.isNullOrBlank()) put("profile", profile)
+            if (!liveSessionId.isNullOrBlank()) put("live_session_id", liveSessionId)
+        }).jsonObject
+        val state = when (result["state"]?.jsonPrimitive?.contentOrNull) {
+            "available" -> SessionAccessState.AVAILABLE
+            "owned_by_requester" -> SessionAccessState.OWNED_BY_REQUESTER
+            "owned_elsewhere" -> SessionAccessState.OWNED_ELSEWHERE
+            else -> SessionAccessState.UNKNOWN
+        }
+        return SessionAccess(
+            state = state,
+            running = result["running"]?.jsonPrimitive?.booleanOrNull,
+            writable = result["writable"]?.jsonPrimitive?.booleanOrNull,
+            ownerSurface = result["owner_surface"]?.jsonPrimitive?.contentOrNull,
+        )
     }
 
     suspend fun submit(sessionId: String, text: String) {

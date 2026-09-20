@@ -167,6 +167,7 @@ fun ChatScreen(
     LaunchedEffect(language) { vm.setAppLanguage(language) }
     val state by vm.state.collectAsStateWithLifecycle()
     val connState by vm.connectionState.collectAsStateWithLifecycle()
+    val sessionAccessState by vm.sessionAccessState.collectAsStateWithLifecycle()
     // Null while the connection is fine, and also during a short outage the user should never
     // learn about (see connectionBanner). connState itself stays raw for send-enablement.
     val bannerState by vm.connectionBanner.collectAsStateWithLifecycle()
@@ -417,7 +418,14 @@ fun ChatScreen(
         draft = base + text + (if (text.endsWith(":")) "" else " ")
     }
     val connected = connState is ConnectionState.Connected
-    val canSend = canSend(connected, draft.isNotBlank(), state.pendingAttachments.isNotEmpty(), state.isGenerating)
+    val sessionWritable = sessionAccessState != com.hermes.client.data.repository.SessionAccessState.OWNED_ELSEWHERE
+    val canSend = canSend(
+        connected,
+        draft.isNotBlank(),
+        state.pendingAttachments.isNotEmpty(),
+        state.isGenerating,
+        writable = sessionWritable,
+    )
     val haptic = LocalHapticFeedback.current
 
     // Shown once per channel, before the first message a person sends into one of its
@@ -960,6 +968,9 @@ fun ChatScreen(
                         }
                     }
                 }
+                if (!sessionWritable) {
+                    SessionOwnershipNotice(language)
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(if (composerFocused) 28.dp else 30.dp),
@@ -972,6 +983,7 @@ fun ChatScreen(
                             OutlinedTextField(
                                 value = draft,
                                 onValueChange = { draft = it },
+                                readOnly = !sessionWritable,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .focusRequester(focusRequester)
@@ -998,7 +1010,7 @@ fun ChatScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 if (speechAvailable) {
-                                    IconButton(onClick = { startDictation() }) {
+                                    IconButton(onClick = { startDictation() }, enabled = sessionWritable) {
                                         Icon(Icons.Rounded.Mic, contentDescription = localized(language, "语音输入", "Voice input"), modifier = Modifier.size(24.dp))
                                     }
                                 }
@@ -1012,6 +1024,7 @@ fun ChatScreen(
                                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                                     Surface(
                                         onClick = { modelSheetOpen = true },
+                                        enabled = sessionWritable,
                                         color = androidx.compose.ui.graphics.Color.Transparent,
                                         shape = RoundedCornerShape(18.dp),
                                     ) {
@@ -1045,7 +1058,7 @@ fun ChatScreen(
                                         }
                                     }
                                 }
-                                IconButton(onClick = { showAttachSheet = true }) {
+                                IconButton(onClick = { showAttachSheet = true }, enabled = sessionWritable) {
                                     Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }
                                 // Send and stop are ONE circular button whose glyph swaps (➤ ⇄ ■), so the
@@ -1063,7 +1076,7 @@ fun ChatScreen(
                                     modifier = Modifier.size(48.dp),
                                 ) {
                                     when {
-                                        state.isGenerating -> IconButton(onClick = { vm.stop() }) {
+                                        state.isGenerating && sessionWritable -> IconButton(onClick = { vm.stop() }) {
                                             Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = MaterialTheme.colorScheme.onPrimary)
                                         }
                                         else -> IconButton(onClick = { submit() }, enabled = canSend) {
@@ -1084,13 +1097,14 @@ fun ChatScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             if (speechAvailable) {
-                                IconButton(onClick = { startDictation() }) {
+                                IconButton(onClick = { startDictation() }, enabled = sessionWritable) {
                                     Icon(Icons.Rounded.Mic, contentDescription = localized(language, "语音输入", "Voice input"), modifier = Modifier.size(24.dp))
                                 }
                             }
                             OutlinedTextField(
                                 value = draft,
                                 onValueChange = { draft = it },
+                                readOnly = !sessionWritable,
                                 modifier = Modifier
                                     .weight(1f)
                                     .focusRequester(focusRequester)
@@ -1112,7 +1126,7 @@ fun ChatScreen(
                                 ),
                             )
                             when {
-                                state.isGenerating -> Surface(
+                                state.isGenerating && sessionWritable -> Surface(
                                     shape = androidx.compose.foundation.shape.CircleShape,
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(48.dp),
@@ -1130,7 +1144,7 @@ fun ChatScreen(
                                         Icon(Icons.AutoMirrored.Rounded.Send, localized(language, "发送", "Send"), tint = MaterialTheme.colorScheme.onPrimary)
                                     }
                                 }
-                                else -> IconButton(onClick = { showAttachSheet = true }) {
+                                else -> IconButton(onClick = { showAttachSheet = true }, enabled = sessionWritable) {
                                     Icon(Icons.Rounded.Add, contentDescription = localized(language, "添加内容", "Add content"), modifier = Modifier.size(28.dp))
                                 }
                             }
@@ -1976,6 +1990,20 @@ fun ChatScreen(
     }
 }
 
+@Composable
+internal fun SessionOwnershipNotice(language: com.hermes.client.ui.localization.AppLanguage) {
+    Text(
+        localized(
+            language,
+            "该会话正在另一个客户端运行，当前为只读。（HR-SESS-013）",
+            "This conversation is running in another client and is read-only. (HR-SESS-013)",
+        ),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+    )
+}
+
 /**
  * Body of the composer's 常用提示 sheet.
  *
@@ -2242,4 +2270,3 @@ private fun ConnectionRecoveryBanner(message: String) {
         )
     }
 }
-

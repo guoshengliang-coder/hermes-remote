@@ -6,6 +6,8 @@ import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionReadStore
+import com.hermes.client.data.repository.SessionAccess
+import com.hermes.client.data.repository.SessionAccessState
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import io.mockk.every
@@ -188,6 +190,41 @@ class SessionRuntimeStoreTest {
         assertEquals(SessionRunPhase.RECONNECTING, runtime.phase)
         assertTrue(runtime.chat.isGenerating)
         assertEquals("半截内容", runtime.chat.messages.last().text)
+    }
+
+    @Test fun authoritativeAccessRetiresAVisibleRunWhoseTerminalPushWasLost() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.setVisible(key, true)
+        fixture.store.setAppInForeground(true)
+        fixture.store.beginPrompt(key, "继续")
+        fixture.connection.value = ConnectionState.Disconnected
+        runCurrent()
+        assertEquals(SessionRunPhase.RECONNECTING, fixture.store.runtimes.value.getValue(key).phase)
+
+        fixture.store.applyAuthoritativeAccess(
+            key,
+            SessionAccess(SessionAccessState.AVAILABLE, running = false, writable = true, ownerSurface = null),
+        )
+
+        val settled = fixture.store.runtimes.value.getValue(key)
+        assertEquals(SessionRunPhase.IDLE, settled.phase)
+        assertFalse(settled.chat.isGenerating)
+        assertEquals(null, settled.runStartedAt)
+    }
+
+    @Test fun authoritativeAccessCanRestoreAQuietRun() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+
+        fixture.store.applyAuthoritativeAccess(
+            key,
+            SessionAccess(SessionAccessState.OWNED_ELSEWHERE, running = true, writable = false, ownerSurface = "cli"),
+        )
+
+        val running = fixture.store.runtimes.value.getValue(key)
+        assertEquals(SessionRunPhase.THINKING, running.phase)
+        assertTrue(running.chat.isGenerating)
     }
 
     @Test fun offscreen_stream_is_retained_and_marked_running() = runTest {

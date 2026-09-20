@@ -6,12 +6,21 @@ point (`docs/MANAGED_HERMES_STRATEGY.md`, 用户决策 · 2026-09-20).
 
 An empty directory is a valid state and means the managed Hermes is verbatim upstream.
 
+Current read-side patches:
+
+- `010`: drops unknown database columns from message response dictionaries.
+- `020`: lets remote reads opt out of transmitting stored inline image bytes while preserving the
+  old default for every existing caller.
+- `030`: exposes cross-process ownership and run state as a small, non-mutating `session.access`
+  projection. It does not acquire or release a lease.
+
 ## Adding one
 
 File name `NNN-short-name.patch`; `NNN` fixes apply order. Header, all four fields required:
 
 ```
 Upstream-Issue: https://github.com/NousResearch/hermes-agent/issues/116510
+Upstream-PR: https://github.com/NousResearch/hermes-agent/pull/116677  # optional until one exists
 Why-upstream-will-not: <one sentence>
 Read-side-only: yes
 Added: 2026-09-20

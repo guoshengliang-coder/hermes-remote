@@ -11,6 +11,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ChatRepositoryTest {
@@ -214,7 +215,34 @@ class ChatRepositoryTest {
         repo.resume("stored-1", profile = "acme")
 
         coVerify {
-            client.call("session.resume", match { it["source"]?.jsonPrimitive?.content == "hermes_remote" })
+            client.call("session.resume", match {
+                it["source"]?.jsonPrimitive?.content == "hermes_remote" &&
+                    it["inline_images"]?.jsonPrimitive?.content == "false"
+            })
+        }
+    }
+
+    @Test fun sessionAccess_is_read_only_and_parses_cross_process_ownership() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call("session.access", any()) } returns buildJsonObject {
+            put("state", "owned_elsewhere")
+            put("running", true)
+            put("writable", false)
+            put("owner_surface", "cli")
+        }
+
+        val access = ChatRepository(client).sessionAccess("stored-1", "acme", "live-1")
+
+        assertEquals(SessionAccessState.OWNED_ELSEWHERE, access.state)
+        assertEquals(true, access.running)
+        assertFalse(access.writable ?: true)
+        assertEquals("cli", access.ownerSurface)
+        coVerify {
+            client.call("session.access", match {
+                it["session_id"]?.jsonPrimitive?.content == "stored-1" &&
+                    it["profile"]?.jsonPrimitive?.content == "acme" &&
+                    it["live_session_id"]?.jsonPrimitive?.content == "live-1"
+            })
         }
     }
 }

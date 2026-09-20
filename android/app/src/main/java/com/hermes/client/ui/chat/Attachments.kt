@@ -78,6 +78,11 @@ fun uniqueAttachmentNames(names: List<String>): List<String> {
 fun List<PendingAttachment>.plusCapped(a: PendingAttachment, cap: Int = ATTACH_CAP): List<PendingAttachment> =
     if (size >= cap) this else this + a
 
-/** True when a message may be sent: connected, has text or an attachment, and not mid-generation. */
-fun canSend(connected: Boolean, hasText: Boolean, hasAttachments: Boolean, isGenerating: Boolean): Boolean =
-    connected && (hasText || hasAttachments) && !isGenerating
+/** True when a message may be sent: connected, writable, non-empty, and not mid-generation. */
+fun canSend(
+    connected: Boolean,
+    hasText: Boolean,
+    hasAttachments: Boolean,
+    isGenerating: Boolean,
+    writable: Boolean = true,
+): Boolean = connected && writable && (hasText || hasAttachments) && !isGenerating
