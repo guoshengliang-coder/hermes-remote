@@ -23,12 +23,25 @@ import path from "node:path";
  */
 const WATCHED_TABLES = ["messages", "sessions"];
 
-/** `CREATE TABLE IF NOT EXISTS <name> ( ... );` in `hermes_state_common.py`'s `SCHEMA_SQL`. */
+/**
+ * `CREATE TABLE IF NOT EXISTS <name> ( ... );` in `hermes_state_common.py`'s `SCHEMA_SQL`.
+ *
+ * Found by string search rather than a regex built around the table name. The names come from this
+ * module's own constant so nothing here is attacker-controlled, but interpolating a value into a
+ * pattern is the habit that eventually meets one that is — and for a fixed prefix the search is
+ * both simpler and faster.
+ */
 function extractColumns(sql, table) {
-  const start = new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\s*\\(`, "i").exec(sql);
-  if (!start) return null;
+  const header = `CREATE TABLE IF NOT EXISTS ${table}`;
+  const headerAt = sql.indexOf(header);
+  if (headerAt < 0) return null;
+  const open = sql.indexOf("(", headerAt + header.length);
+  if (open < 0) return null;
+  // Only whitespace may sit between the name and its column list, or this is a different table
+  // whose name merely starts the same way.
+  if (sql.slice(headerAt + header.length, open).trim() !== "") return null;
   let depth = 1;
-  let index = start.index + start[0].length;
+  let index = open + 1;
   const body = [];
   while (index < sql.length && depth > 0) {
     const ch = sql[index];
