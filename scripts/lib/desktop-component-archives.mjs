@@ -116,7 +116,7 @@ export async function packageDesktopComponentArchives({
       await requireAbsent(partial);
       created.push(partial);
       await normalizeTreeTimestamps(artifact.stage);
-      packDeterministicArchive(partial, artifact.stage, 15 * 60_000);
+      await packDeterministicArchive(partial, artifact.stage, 15 * 60_000);
       await chmod(partial, 0o644);
       await rename(partial, destination);
       created.pop();
@@ -299,7 +299,7 @@ export async function packageDesktopComponentArchivesV2({
       await requireAbsent(partial);
       created.push(partial);
       await normalizeTreeTimestamps(stage);
-      packDeterministicArchive(partial, stage, 15 * 60_000);
+      await packDeterministicArchive(partial, stage, 15 * 60_000);
       await chmod(partial, 0o644);
       await rename(partial, destination);
       created.pop();
@@ -972,17 +972,26 @@ async function normalizeTreeTimestamps(root) {
  * stream. Those members carry volume-specific metadata, so they are both noise and a reason the
  * hash moves between machines.
  *
- * `--format ustar` pins the format rather than letting bsdtar choose per entry, and
- * `--options '!timestamp'` keeps the build time out of the gzip header. Checked before pinning:
- * the longest path in that stage is 122 characters and every path splits inside ustar's
- * 155 + 100 limit, so nothing in these trees needs pax.
+ * `--format ustar` pins the format rather than letting the tar implementation choose per entry.
+ * Checked before pinning: the longest path in that stage is 122 characters and every path splits
+ * inside ustar's 155 + 100 limit, so nothing in these trees needs pax.
+ *
+ * Compression is a separate step because the deterministic spelling is not portable. macOS tar is
+ * bsdtar and takes `--options '!timestamp'`; Linux tar is GNU tar and rejects it, which is how this
+ * first reached CI. `gzip -n` omits the name and timestamp on both, so the archive is built
+ * uncompressed and compressed afterwards.
  */
-function packDeterministicArchive(destination, stage, timeout) {
+async function packDeterministicArchive(destination, stage, timeout) {
+  // `destination` is the caller's `.partial` path, so it does not end in `.gz`; gzip derives its
+  // own output name and would otherwise land somewhere the caller never looks.
+  const uncompressed = `${destination}.tar`;
   run(
     "/usr/bin/tar",
-    ["--format", "ustar", "--options", "!timestamp", "-czf", destination, "-C", stage, "."],
+    ["--format", "ustar", "-cf", uncompressed, "-C", stage, "."],
     { timeout, env: { COPYFILE_DISABLE: "1" } },
   );
+  run("/usr/bin/gzip", ["-n", uncompressed], { timeout });
+  await rename(`${uncompressed}.gz`, destination);
 }
 
 function fail(cause) {

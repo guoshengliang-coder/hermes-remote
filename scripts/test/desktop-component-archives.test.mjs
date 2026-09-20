@@ -156,7 +156,9 @@ test("archives are packed with the flags determinism depends on", async (t) => {
 
   assert.match(source, /COPYFILE_DISABLE: "1"/, "AppleDouble members must stay suppressed");
   assert.match(source, /"--format", "ustar"/, "the tar format must be pinned, not chosen per entry");
-  assert.match(source, /"--options", "!timestamp"/, "the build time must stay out of the gzip header");
+  // `gzip -n` rather than tar's own -z: the deterministic spelling of "omit the timestamp" differs
+  // between bsdtar and GNU tar, and picking bsdtar's is how this first broke on CI.
+  assert.match(source, /"\/usr\/bin\/gzip", \["-n"/, "the build time must stay out of the gzip header");
   assert.doesNotMatch(
     source,
     /run\(\s*"\/usr\/bin\/tar",\s*\["-czf"/,
