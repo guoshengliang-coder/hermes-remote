@@ -95,6 +95,13 @@ rather than reported as upstream bugs:
 | History reads inline every attachment as base64 | `tui_gateway/session_history.py` — `_coerce_message_text` passes `image_urls=True` at two call sites; the `False` branch that renders `[image]` already exists and is unreachable from the API | 26.30 MiB for one conversation (HG-65). Free between local processes, not free over a relay |
 | Message rows are read with `SELECT *` and passed to the response encoder | `hermes_state_messages.py`, 5 sites | Any column upstream adds travels into the JSON response. On 2026-09-19 a new `display_identity BLOB` made `GET /messages` return 500 for every affected session (see docs/DESKTOP_E4_TEST_RECORD.md) |
 
+Both were reported upstream on 2026-09-20, against `8a92051f`:
+[NousResearch/hermes-agent#116510](https://github.com/NousResearch/hermes-agent/issues/116510) for
+the `SELECT *` reads and
+[#116511](https://github.com/NousResearch/hermes-agent/issues/116511) for the `image_urls` switch.
+Check their state before assuming either still needs a local workaround — and before writing a new
+one, because a merged upstream fix removes the reason for it.
+
 Both are small — two lines and five call sites. That matters for the open question of whether the
 managed Hermes should stay a verbatim pinned copy of upstream or carry a thin read-side patch set;
 see the design note referenced from `docs/INTEGRATION.md`. Either way the rule is the same: **a patch
