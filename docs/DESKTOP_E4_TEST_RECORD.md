@@ -958,10 +958,11 @@ SAST and Gateway OCI workflows all completed successfully.
 Packaged from two fresh detached worktrees with clean trees — this repository at the release commit,
 and `hermes-agent` at the pinned `f159e581c7afd22a5c94652c569e3859f1b994d2`.
 
-**Only the Connector was rebuilt, and the warning from 0.4.1 reproduced exactly.** The rebuilt Hermes
-Server came back 287,628,978 bytes / `d22fe875…` against the published 285,054,389 / `8ae357d7…`.
-The published artifact was downloaded, hash-checked before packaging, and used; the rebuild was
-discarded. Anyone repeating this must reuse the published artifact rather than trust a rebuild.
+**Only the Connector was rebuilt.** The rebuilt Hermes Server came back 287,628,978 bytes /
+`d22fe875…` against the published 285,054,389 / `8ae357d7…`, so the published artifact was
+downloaded, hash-checked before packaging, and used; the rebuild was discarded. Reusing the
+published artifact remains the rule. **But the reason is not the one this document gave at first,
+and the difference matters** — see the correction below.
 
 | Component | Version | Size | SHA-256 |
 |---|---|---|---|
@@ -1025,3 +1026,79 @@ The 0.3.5 release tree and the snapshot remain available for rollback.
 
 This closes delivery of the HG-65 Connector fix to this Mac. It does not close HG-68: the next
 managed release will need an operator again until that is fixed.
+
+## 2026-09-20 correction: the Hermes Server rebuild IS reproducible; the packaging is not
+
+The 0.4.1 entry recorded that rebuilding `python_runtime` produced 269,440,138 bytes against the
+published 48,062,625, and traced it to the wrong input — a full installed `site-packages` instead of
+the bootstrap venv it was built from. That finding stands for `python_runtime`.
+
+**It was then applied to `hermes_server` without being checked, and that was wrong.** The two
+archives were compared entry by entry:
+
+| | 已发布 | 重建 |
+|---|---|---|
+| tar entries | 23,111 | 46,222 |
+| files present | identical set | identical set |
+| **file contents** | — | **0 differ** |
+| tar format | all `ustar/gnu` | `pax` + `ustar/gnu` mixed |
+| distinct mtimes (first 400) | 8, integers | 208, some fractional |
+
+Every one of the 23,111 files is byte-identical. The rebuilt archive simply carries one pax
+extended-header pseudo-entry per file, because some files reached the packer with sub-second mtimes
+and tar cannot express those in `ustar`. That is ~2 KiB per file: 47 MiB uncompressed, 2.5 MiB
+compressed, and a different SHA-256.
+
+So this is **packaging non-determinism, not input contamination**, and it is fixable: normalise
+mtimes (or force `ustar`) in `scripts/lib/desktop-component-archives.mjs` and the archive becomes
+byte-reproducible from a source commit. Two things follow once it is:
+
+- a published artifact can be verified against the commit it claims to come from, instead of being
+  trusted because it is the one that was published;
+- keeping the managed Hermes in step with upstream stops meaning "produce a fresh artifact whose
+  provenance rests on the build host's state".
+
+Until that lands, reuse the published artifact — the instruction is unchanged, only its reason is.
+
+## The managed Hermes and the user's own Hermes share one database
+
+This is not a deployment accident; it is what makes the product work, and it is also the sharpest
+constraint on it. Both are documented here because the 2026-09-19 incident below was the first time
+they collided.
+
+The managed launch agent sets `HERMES_HOME=/Users/bs/.hermes` — the **user's own** Hermes home. The
+phone is therefore a remote view of the conversations on the Mac, which is the entire point of
+Hermes GO. On a Mac where the owner also runs their own Hermes, the result is **two copies of the
+code writing one `state.db`**:
+
+| | version policy | why |
+|---|---|---|
+| managed copy (`Managed/releases/<ver>/hermes_server`) | **pinned** to one upstream commit | a signed release has to be reproducible and auditable |
+| the owner's own checkout (`~/.hermes/hermes-agent`) | **rolling** — updated whenever the owner pulls | it is their working Hermes |
+
+Those two policies are opposites, so drift is guaranteed; the only question is which upstream change
+detonates it.
+
+**2026-09-19 incident.** The owner updated their checkout to a build carrying
+`display_identity BLOB` (`hermes_state_common.py`) and restarted it around 21:00 CST. It migrated
+the shared database and began writing 32-byte digests — 1,954 rows across 12 sessions. The pinned
+managed copy does not contain the string `display_identity` anywhere, and reads rows with
+`SELECT * FROM messages` (`hermes_state_messages.py`, 5 sites), so the unknown column travelled
+straight into the API response, where FastAPI's encoder called `bytes.decode()` on it:
+
+```
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0
+  ... fastapi/routing.py serialize_response → encoders.py:69 <lambda>
+```
+
+Every `GET /api/sessions/{id}/messages` for an affected session returned 500. The relay forwarded it
+faithfully, and the phone showed the generic `HR-RPC-001`. Sessions created before 21:02 still open.
+
+**What this means for anyone changing this system.** An upstream schema addition can disable the
+pinned copy at any time, silently, and the symptom appears on the phone rather than on the Mac.
+Nothing in this repository can prevent that: the fix is upstream selecting known columns, or the
+managed copy never lagging the owner's. What this repository *can* do is refuse to fail silently —
+compare the database's schema expectation against the pinned Hermes at startup and say so plainly.
+
+**Do not "fix" this by giving the managed copy its own database.** It would stop the phone seeing
+the owner's conversations, which is the product.
