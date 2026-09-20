@@ -123,8 +123,10 @@ These exist because a patch set decays without them. Every rule below has a fail
 ## 1. Patches live here, not in a fork
 
 A patch is a file in `desktop/hermes-patches/NNN-short-name.patch`, applied by the component packager
-against the pinned upstream commit. There is **no long-lived checkout of upstream carrying our
-changes** — that is the thing that silently diverges.
+to the **staged** Hermes tree — the copy it has just made from the pinned upstream commit, never the
+checkout itself. There is **no long-lived checkout of upstream carrying our changes**; that is the
+thing that silently diverges. `scripts/lib/hermes-patches.mjs` loads, validates and applies the set,
+and `desktop/hermes-patches/README.md` is the contract for adding one.
 
 Each patch file carries a header:
 
@@ -149,8 +151,11 @@ The reason is specific, not stylistic. The managed copy and the owner's own Herm
 A write-side patch would leave the owner's Hermes reading rows only ours understands — the same
 class of failure as 2026-09-19, and harder to diagnose because no version number would explain it.
 
-Both founding patches satisfy this by luck, not by design. A patch that cannot satisfy it is not a
-patch; it is a reason to reconsider Option C.
+Both founding patches satisfy this by luck, not by design, so the loader checks it rather than
+trusting a reviewer: a patch is refused if it touches a schema-owning file, or if its own added or
+removed lines contain a write statement. Strict on purpose — a false positive costs an argument, a
+false negative costs the database. A patch that cannot satisfy the rule is not a patch; it is a
+reason to reconsider Option C.
 
 ## 3. Bidirectional by default
 
