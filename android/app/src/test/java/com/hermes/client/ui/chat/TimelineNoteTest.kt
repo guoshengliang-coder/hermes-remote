@@ -192,11 +192,11 @@ class TimelineNoteTest {
     }
 
     /**
-     * The managed Hermes patch `020-remote-reads-drop-inline-image-data` renders an inline image as
-     * `[image]` on a resume read instead of shipping its base64 again — 27,479,595 characters
-     * became 6,374 on the session that killed the tunnel (HG-65). It is only safe to do that
-     * because these lines are already scaffolding to this renderer; the image itself still arrives,
-     * from the Mac path that sits in the text part beside them.
+     * The managed Hermes patch `020-bounded-inline-images` renders an inline image as `[image]` on
+     * a bounded read instead of shipping its base64 again — 27,479,595 characters became 6,374 on
+     * the message that killed the tunnel (HG-65), 105.07 MiB to 0.265 MiB across that session. It
+     * is only safe to do that because these lines are already scaffolding to this renderer; the
+     * image itself still arrives, from the Mac path that sits in the text part beside them.
      *
      * If someone narrows the placeholder pattern, the patch starts writing `[image]` into people's
      * messages. That is what this test is here to stop.
