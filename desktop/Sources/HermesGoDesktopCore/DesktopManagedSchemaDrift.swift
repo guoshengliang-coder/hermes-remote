@@ -57,8 +57,8 @@ public struct DesktopManagedSchemaDrift: Sendable {
 
 /// Reads the two halves the comparison needs. Both are read-only and both tolerate absence.
 public struct DesktopManagedSchemaInspector: Sendable {
-    private let identityURL: URL
-    private let databaseURL: URL
+    public let identityURL: URL
+    public let databaseURL: URL
     private let runner: @Sendable (String, [String]) -> String?
 
     public init(
@@ -69,6 +69,29 @@ public struct DesktopManagedSchemaInspector: Sendable {
         self.identityURL = identityURL
         self.databaseURL = databaseURL
         self.runner = runner ?? DesktopManagedSchemaInspector.runSQLite
+    }
+
+    /// The pair the managed services actually run with: the baseline of the release `current`
+    /// points at, against the database that release was pointed at.
+    ///
+    /// `current` is the symlink activation flips, so this reads whichever release is live now
+    /// rather than whichever one was live when the app launched. `state.db` under `HERMES_HOME` is
+    /// the owner's own database — the sharing is the product, see `docs/MANAGED_HERMES_STRATEGY.md`.
+    public init(
+        managedPaths paths: DesktopManagedBootstrapPaths,
+        runner: (@Sendable (String, [String]) -> String?)? = nil
+    ) {
+        self.init(
+            identityURL: paths.managedRoot
+                .appendingPathComponent("current", isDirectory: true)
+                .appendingPathComponent(
+                    DesktopReleaseComponentKind.hermesServer.rawValue,
+                    isDirectory: true
+                )
+                .appendingPathComponent("BUILD-IDENTITY.json"),
+            databaseURL: paths.hermesHome.appendingPathComponent("state.db"),
+            runner: runner
+        )
     }
 
     /// nil when either half is unavailable — a missing baseline means a release built before this
@@ -132,5 +155,18 @@ public struct DesktopManagedSchemaInspector: Sendable {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+public extension DesktopIssue {
+    /// The one place drift becomes something a person sees.
+    ///
+    /// It answers nil for "no drift" and for "could not tell", which are the same thing to the
+    /// person reading the menu bar: nothing to do. HG-71 shipped every part of this check except a
+    /// caller, so the mechanism worked in tests and the Mac stayed silent — the guard against that
+    /// is `ManagedSchemaWiringTests`, not this function.
+    static func managedSchemaDrift(_ drift: DesktopManagedSchemaDrift?) -> DesktopIssue? {
+        guard let drift, drift.hasDrift else { return nil }
+        return DesktopIssue(code: .managedHermesBehindDatabase, technicalCause: drift.summary)
     }
 }

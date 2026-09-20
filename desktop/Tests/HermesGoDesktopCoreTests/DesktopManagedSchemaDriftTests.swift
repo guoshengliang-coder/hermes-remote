@@ -110,6 +110,41 @@ final class DesktopManagedSchemaDriftTests: XCTestCase {
         XCTAssertNil(inspector.inspect())
     }
 
+    /// The paths the app actually hands the inspector. `current` rather than a pinned release
+    /// directory, because activation flips that symlink underneath a running Desktop.
+    func testDerivesTheInstalledPathsFromTheManagedPaths() throws {
+        let home = URL(fileURLWithPath: "/private/tmp/hermes-schema-home")
+        let paths = try DesktopManagedBootstrapPaths(homeDirectory: home)
+        let inspector = DesktopManagedSchemaInspector(managedPaths: paths)
+
+        XCTAssertTrue(
+            inspector.identityURL.path.hasSuffix(
+                "Library/Application Support/Hermes Go/Managed/current/hermes_server/BUILD-IDENTITY.json"
+            ),
+            inspector.identityURL.path
+        )
+        XCTAssertTrue(inspector.databaseURL.path.hasSuffix(".hermes/state.db"), inspector.databaseURL.path)
+    }
+
+    func testDriftBecomesTheRegisteredIssueWithTheColumnsAsTheCause() {
+        let issue = DesktopIssue.managedSchemaDrift(
+            DesktopManagedSchemaDrift(unknownColumns: ["messages": ["display_order", "display_identity"]])
+        )
+
+        XCTAssertEqual(issue?.code, .managedHermesBehindDatabase)
+        XCTAssertEqual(issue?.technicalCause, "messages: display_identity, display_order")
+        XCTAssertEqual(issue?.retryable, false)
+    }
+
+    /// "No drift" and "could not tell" are the same answer to the person reading the menu bar.
+    func testNoDriftAndNoAnswerBothProduceNoIssue() {
+        XCTAssertNil(DesktopIssue.managedSchemaDrift(nil))
+        XCTAssertNil(DesktopIssue.managedSchemaDrift(DesktopManagedSchemaDrift(unknownColumns: [:])))
+        XCTAssertNil(
+            DesktopIssue.managedSchemaDrift(DesktopManagedSchemaDrift(unknownColumns: ["messages": []]))
+        )
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("schema-drift-\(UUID().uuidString)")

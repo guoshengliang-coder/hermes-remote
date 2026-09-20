@@ -42,6 +42,12 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var managedBootstrapOperation: DesktopManagedBootstrapOperation = .idle
     @Published private(set) var managedBootstrapPreparation: DesktopManagedBootstrapPreparation?
     @Published private(set) var managedBootstrapIssue: DesktopIssue?
+    /// Kept apart from `managedBootstrapIssue` on purpose: drift is orthogonal to the bootstrap
+    /// state machine, and that machine clears its issue on almost every transition. On a Mac whose
+    /// managed installation reads `inconsistent` — which is the permanent state of any Mac that
+    /// also runs its own hermes-agent — sharing one slot would mean the drift is never the thing
+    /// shown.
+    @Published private(set) var managedSchemaIssue: DesktopIssue?
     @Published private(set) var componentPreflightPresentation:
         DesktopComponentPreflightPresentation?
     @Published private(set) var isComponentPreflightRefreshing = false
@@ -51,6 +57,7 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var componentBootstrapIssue: DesktopIssue?
 
     private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
+    private let managedSchemaInspector: DesktopManagedSchemaInspector?
     private let prober = HTTPHealthProber()
     private let profileStore: any ConnectionProfileStoring
     private let accountController: DesktopAccountController
@@ -86,6 +93,9 @@ final class DesktopViewModel: ObservableObject {
         )
         accountController = controller
         let managedPaths = try? DesktopManagedBootstrapPaths.currentUser()
+        managedSchemaInspector = managedPaths.map {
+            DesktopManagedSchemaInspector(managedPaths: $0)
+        }
         if let managedPaths {
             managedRecoveryRuntime = try? DesktopManagedRecoveryRuntime(
                 account: controller,
@@ -685,6 +695,23 @@ final class DesktopViewModel: ObservableObject {
             targetReleaseVersion: selectedTargetReleaseVersion
         )
         applyManagedBootstrapInstallation(scopedManagedInstallation)
+        await refreshManagedSchemaIssue()
+    }
+
+    /// Runs on every refresh and is not gated on the installation status.
+    ///
+    /// The inspector is silent when there is no managed release or no readable database, so the
+    /// gate is the installation's own existence. Gating on `.active` instead would have hidden the
+    /// finding on exactly the Mac that has it. Measured cost: ~12 ms per pass, off the main actor.
+    private func refreshManagedSchemaIssue() async {
+        guard let managedSchemaInspector else {
+            managedSchemaIssue = nil
+            return
+        }
+        let drift = await Task.detached(priority: .utility) {
+            managedSchemaInspector.inspect()
+        }.value
+        managedSchemaIssue = DesktopIssue.managedSchemaDrift(drift)
     }
 
     func prepareManagedBootstrap() async {
