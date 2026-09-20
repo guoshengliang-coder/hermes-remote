@@ -18,6 +18,7 @@ import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
+import { applyHermesPatches, loadHermesPatches } from "./hermes-patches.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -80,6 +81,7 @@ export async function packageDesktopComponentArchives({
       version: config.hermes.version,
       sourceCommit: config.hermes.sourceCommit,
       architecture: config.architecture,
+      patchDirectory: hermesPatchDirectory(repo),
     });
     await stageConnector({
       destination: connectorStage,
@@ -232,6 +234,7 @@ export async function packageDesktopComponentArchivesV2({
       version: config.hermesCore.version,
       sourceCommit: config.hermesCore.sourceCommit,
       architecture: config.architecture,
+      patchDirectory: hermesPatchDirectory(repo),
     });
     await stageNodeRuntimeV2({
       destination: stages.node_runtime,
@@ -508,7 +511,12 @@ sys.stdout.write(token)
 `;
 }
 
-async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, version, sourceCommit, architecture }) {
+/** Where the patch set lives, relative to this repository — not to any Hermes checkout. */
+function hermesPatchDirectory(repositoryRoot) {
+  return path.join(repositoryRoot, "desktop/hermes-patches");
+}
+
+async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, version, sourceCommit, architecture, patchDirectory }) {
   await mkdir(path.join(destination, "bin"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(destination, "runtime/python/bin"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(destination, "runtime/python/lib"), { recursive: true, mode: 0o700 });
@@ -556,7 +564,11 @@ fi
 exec "$ROOT/runtime/python/bin/python3.11" -s -m hermes_cli.main "$@"
 `;
   await writeFile(path.join(destination, "bin/hermes-server"), launcher, { mode: 0o700 });
-  await writeIdentity(destination, { component: "hermes_server", version, sourceCommit, architecture });
+  // Patches are applied to the staged copy, never to a checkout — see scripts/lib/hermes-patches.mjs.
+  // They are recorded in BUILD-IDENTITY so provenance reads "upstream at X plus patches Y" and can
+  // be checked rather than believed.
+  const patches = applyHermesPatches(await loadHermesPatches(patchDirectory), path.join(destination, "app"));
+  await writeIdentity(destination, { component: "hermes_server", version, sourceCommit, architecture, patches });
 }
 
 async function stageConnector({ destination, repo, nodeBinary, version, sourceCommit, architecture }) {
@@ -619,7 +631,7 @@ export function managedComponentSitePathLine() {
     '[sys.path.insert(0, _v) for _v in _p if os.path.isdir(_v) and _v not in sys.path]\n';
 }
 
-async function stageHermesCoreV2({ destination, hermesRoot, version, sourceCommit, architecture }) {
+async function stageHermesCoreV2({ destination, hermesRoot, version, sourceCommit, architecture, patchDirectory }) {
   await mkdir(path.join(destination, "bin"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(destination, "app"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(destination, "runtime"), { recursive: true, mode: 0o700 });
@@ -660,8 +672,9 @@ fi
 exec "$HERMES_PYTHON_RUNTIME_ROOT/bin/python3" -s -m hermes_cli.main "$@"
 `;
   await writeFile(path.join(destination, "bin/hermes"), launcher, { mode: 0o700 });
+  const patches = applyHermesPatches(await loadHermesPatches(patchDirectory), path.join(destination, "app"));
   await writeIdentityV2(destination, {
-    component: "hermes_core", version, sourceCommit, architecture,
+    component: "hermes_core", version, sourceCommit, architecture, patches,
   });
 }
 
