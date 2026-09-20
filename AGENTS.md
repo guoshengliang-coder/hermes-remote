@@ -75,13 +75,24 @@ branch; and the separation of the merge, version and publish gates. Read it befo
 - `docs/`: architecture, environment shape, deployment record, smoke-test instructions, the
   cross-subproject integration rules (`docs/INTEGRATION.md`), the Android UI design contract
   (`docs/DESIGN.md`), the upstream Hermes contract inventory (`docs/HERMES_CONTRACT.md`), the
-  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`), and the hands-on
-  guide for operating a physical Android device (`docs/DEVICE_TESTING.md`).
+  read-only incident runbook for session-state problems (`docs/DIAGNOSTICS.md`), the hands-on
+  guide for operating a physical Android device (`docs/DEVICE_TESTING.md`), and the open design
+  question of what the managed Hermes should be (`docs/MANAGED_HERMES_STRATEGY.md`).
 
 `docs/HERMES_CONTRACT.md` inventories what this repository consumes from **upstream Hermes** — wire
 field names, RPC methods, text grammars, and one hand-copied constant — none of which we own or can
 version-negotiate. Read it and run its upgrade checklist before adopting a new Hermes, and verify
 claims against the Hermes source rather than against project notes.
+
+**The managed Hermes shares the owner's `state.db`, and that is the product, not a mistake.** The
+phone is a remote view of the conversations on the Mac, so the managed copy is pointed at
+`HERMES_HOME=/Users/bs/.hermes`. On a Mac whose owner also runs their own Hermes this means a
+**pinned** copy and a **rolling** copy writing one database, and an upstream schema addition can
+disable the pinned one silently — it happened on 2026-09-19, and the symptom appeared on the phone as
+a generic error while the Mac looked fine. Before changing anything in this area read
+`docs/MANAGED_HERMES_STRATEGY.md`; in particular, do not give the managed copy its own database, and
+if the managed Hermes ever carries a patch, that patch may change what is **read or rendered, never
+what is written or the schema**.
 
 Changes to the shared protocol must update its tests and every affected consumer. Preserve the core
 security boundary: the Mac opens the outbound connection, the Mac Hermes credential stays on the Mac,
