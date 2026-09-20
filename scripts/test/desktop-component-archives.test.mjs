@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -9,6 +10,7 @@ import {
   realpath,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -111,6 +113,67 @@ test("component builder preserves an existing target and removes its earlier arc
   assert.equal(await readFile(existing, "utf8"), "owner data");
   assert.deepEqual(await readdir(fixture.output), ["Hermes-Connector-0.1.2-arm64.tar.gz"]);
 });
+
+test("archives are byte-reproducible: the same inputs build to the same hash", async (t) => {
+  // This test is the whole mechanism. Determinism cannot be asserted by reading the packer — it is
+  // a property of tar, gzip and the filesystem together, and it regressed silently for every
+  // release before 2026-09-20. Two builds of one fixture, compared by hash.
+  const fixture = await makeFixture(t);
+  await build(fixture);
+  const first = await hashArchives(fixture.output);
+
+  await rm(fixture.output, { recursive: true, force: true });
+  await mkdir(fixture.output);
+  // The staged copy runs again, so files are re-created with whatever mtime the clock gives them.
+  // That is exactly the input that used to move the hash.
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  await build(fixture);
+  const second = await hashArchives(fixture.output);
+
+  assert.deepEqual(second, first);
+});
+
+test("archives are packed with the flags determinism depends on", async (t) => {
+  // Two macOS behaviours moved the hash, and they need different guards.
+  //
+  // Fractional mtimes are the one a fixture can reproduce: they force bsdtar to describe an entry
+  // in pax rather than ustar, and the hash then follows the clock. The test above catches that,
+  // and it fails without `normalizeTreeTimestamps`.
+  //
+  // AppleDouble `._name` members are the one it cannot. The 0.3.6 rebuild carried 23,111 of them —
+  // one per file, 46,222 entries in total — but tarring a tree extracted from the published
+  // archive produces none, and neither a custom extended attribute nor `com.apple.provenance`
+  // triggers them here. Whatever attribute the real staging carried, it is not reproducible from
+  // this fixture, so asserting on the output would assert nothing.
+  //
+  // So this guard is on the invocation instead: COPYFILE_DISABLE suppresses those members by
+  // definition, and the format and gzip flags are what keep two builds byte-identical. If someone
+  // removes them, the hash test above may still pass on a clean tree — this one will not.
+  const source = await readFile(
+    new URL("../lib/desktop-component-archives.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /COPYFILE_DISABLE: "1"/, "AppleDouble members must stay suppressed");
+  assert.match(source, /"--format", "ustar"/, "the tar format must be pinned, not chosen per entry");
+  // `gzip -n` rather than tar's own -z: the deterministic spelling of "omit the timestamp" differs
+  // between bsdtar and GNU tar, and picking bsdtar's is how this first broke on CI.
+  assert.match(source, /"\/usr\/bin\/gzip", \["-n"/, "the build time must stay out of the gzip header");
+  assert.doesNotMatch(
+    source,
+    /run\(\s*"\/usr\/bin\/tar",\s*\["-czf"/,
+    "every archive must go through packDeterministicArchive",
+  );
+});
+
+async function hashArchives(directory) {
+  const names = (await readdir(directory)).sort();
+  const out = {};
+  for (const name of names) {
+    out[name] = createHash("sha256").update(await readFile(path.join(directory, name))).digest("hex");
+  }
+  return out;
+}
 
 async function build(fixture) {
   return packageDesktopComponentArchives({
