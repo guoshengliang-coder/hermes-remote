@@ -26,6 +26,16 @@ class HermesRestApiTest {
         GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
     }
 
+    @Test fun messages_requests_the_bounded_read_projection() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"messages":[]}""").build())
+
+        api(serverRule.server).messagesRaw("session-1", "personal")
+
+        val recorded = serverRule.server.takeRequest()
+        assertTrue(recorded.target.contains("inline_images=false"))
+        assertTrue(recorded.target.contains("profile=personal"))
+    }
+
     @Test fun sessions_parses_list_and_sends_token() = runTest {
         serverRule.server.enqueue(MockResponse.Builder().code(200).body(
             """{"sessions":[{"id":"s1","title":"First","model":"opus","provider":"anthropic","message_count":3}]}"""
@@ -100,11 +110,9 @@ class HermesRestApiTest {
         server.enqueue(MockResponse.Builder().code(200).body("""{"messages":[]}""").build())
         accountApi.messages("session-1", "personal", deviceId = "home/mac 2")
         val historical = server.takeRequest()
-        assertTrue(
-            historical.target.startsWith(
-                "/v2/devices/home%2Fmac%202/api/sessions/session-1/messages?profile=personal",
-            ),
-        )
+        assertTrue(historical.target.startsWith("/v2/devices/home%2Fmac%202/api/sessions/session-1/messages?"))
+        assertTrue(historical.target.contains("inline_images=false"))
+        assertTrue(historical.target.contains("profile=personal"))
         assertEquals("Bearer hga_secret", historical.headers["Authorization"])
         assertEquals("office/mac 1", manager.session.value?.selectedDeviceId)
     }

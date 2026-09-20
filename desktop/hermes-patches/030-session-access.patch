@@ -1,0 +1,201 @@
+Upstream-Issue: https://github.com/NousResearch/hermes-agent/issues/116651
+Upstream-PR: https://github.com/NousResearch/hermes-agent/pull/116677
+Why-upstream-will-not: expected to land upstream; carried meanwhile because only Hermes can inspect its cross-process lease registry safely
+Read-side-only: yes
+Added: 2026-09-20
+
+diff --git a/tests/test_tui_gateway_server.py b/tests/test_tui_gateway_server.py
+index 5383e0851c..86ece96b05 100644
+--- a/tests/test_tui_gateway_server.py
++++ b/tests/test_tui_gateway_server.py
+@@ -1,3 +1,4 @@
++import contextlib
+ import json
+ import logging
+ import os
+@@ -16571,6 +16572,45 @@ def test_prompt_submit_preserves_empty_response_without_error(monkeypatch):
+ # ── active live TUI sessions ─────────────────────────────────────────
+ 
+ 
++def test_session_access_reports_registry_owner_and_current_process_run(monkeypatch):
++    from hermes_cli import active_sessions
++
++    class _DB:
++        def resolve_resume_session_id(self, key):
++            return "stored" if key == "stored" else None
++
++        def get_session(self, key):
++            return {"id": key} if key == "stored" else None
++
++    @contextlib.contextmanager
++    def profile_db(_params=None, *, writer=False):
++        assert writer is False
++        yield _DB()
++
++    monkeypatch.setattr(server, "_profile_db", profile_db)
++    monkeypatch.setattr(active_sessions, "inspect_active_session", lambda *args, **kwargs: {
++        "state": "owned_by_requester", "writable": True, "owner_surface": "tui",
++    })
++    previous_sessions = dict(server._sessions)
++    server._sessions.clear()
++    server._sessions["live-1"] = _session(
++        history=[], running=True, session_key="stored", profile_home=None,
++    )
++    try:
++        response = server.handle_request({
++            "id": "access-1", "method": "session.access",
++            "params": {"session_id": "stored", "live_session_id": "live-1"},
++        })
++    finally:
++        server._sessions.clear()
++        server._sessions.update(previous_sessions)
++
++    assert response["result"] == {
++        "state": "owned_by_requester", "writable": True, "owner_surface": "tui",
++        "session_key": "stored", "running": True,
++    }
++
++
+ def test_session_active_list_reports_live_sessions(monkeypatch):
+     class _DB:
+         def get_session_title(self, key):
+diff --git a/hermes_cli/active_sessions.py b/hermes_cli/active_sessions.py
+index a7ba1b7074..1559216645 100644
+--- a/hermes_cli/active_sessions.py
++++ b/hermes_cli/active_sessions.py
+@@ -393,6 +393,46 @@ def _holds_session(entries: list[dict[str, Any]], session_id: str) -> bool:
+     return bool(target) and any(str(e.get("session_id") or "") == target for e in entries)
+ 
+ 
++def inspect_active_session(
++    session_id: str, *, requester_live_session_id: str | None = None,
++    registry_home: str | Path | None = None,
++) -> dict[str, Any]:
++    """Read one session's live owner without creating, pruning, or rewriting registry files.
++
++    The answer is advisory; acquisition remains the enforcement boundary. Missing state means no
++    recorded owner, while a state file without its coordination lock is deliberately ``unknown``.
++    """
++    target = str(session_id or "")
++    if not target:
++        return {"state": "unknown", "writable": None, "owner_surface": None}
++    state_path, lock_path = _lease_paths(registry_home=registry_home)
++    if not state_path.exists():
++        return {"state": "available", "writable": True, "owner_surface": None}
++    if not lock_path.exists():
++        return {"state": "unknown", "writable": None, "owner_surface": None}
++    try:
++        # Open an existing lock read-only: inspection must not create coordination artifacts.
++        with open(lock_path, "rb") as lock_file:
++            _flock(lock_file, lock=True)
++            try:
++                entries = _prune_dead(_read_entries(state_path, strict=True), strict=True)
++            finally:
++                _flock(lock_file, lock=False)
++    except (OSError, RuntimeError, ActiveSessionRegistryError):
++        logger.warning("Active-session registry is unavailable for read-only inspection")
++        return {"state": "unknown", "writable": None, "owner_surface": None}
++    owner = next((entry for entry in entries if str(entry.get("session_id") or "") == target), None)
++    if owner is None:
++        return {"state": "available", "writable": True, "owner_surface": None}
++    requester = {"live_session_id": str(requester_live_session_id or "")}
++    owned_by_requester = _is_same_writer(owner, requester)
++    return {
++        "state": "owned_by_requester" if owned_by_requester else "owned_elsewhere",
++        "writable": owned_by_requester,
++        "owner_surface": str(owner.get("surface") or "unknown"),
++    }
++
++
+ def _read_live_entries(
+     state_path: Path, *, track_liveness: bool, warn: str,
+ ) -> Optional[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+diff --git a/tests/hermes_cli/test_active_sessions.py b/tests/hermes_cli/test_active_sessions.py
+index 0fe223101f..f0c55bbc48 100644
+--- a/tests/hermes_cli/test_active_sessions.py
++++ b/tests/hermes_cli/test_active_sessions.py
+@@ -50,6 +50,26 @@ def test_resolve_max_concurrent_sessions_values(caplog):
+     )
+ 
+ 
++def test_inspect_active_session_is_read_only_and_distinguishes_the_requester(tmp_path):
++    home = tmp_path / ".hermes"
++    assert active_sessions.inspect_active_session("stored", registry_home=home) == {
++        "state": "available", "writable": True, "owner_surface": None,
++    }
++    assert not active_sessions._state_path(home).exists()
++    assert not active_sessions._lock_path(home).exists()
++
++    lease, error = active_sessions.try_acquire_active_session(
++        session_id="stored", surface="cli", config={},
++        metadata={"live_session_id": "live-1"}, registry_home=home,
++    )
++    assert error is None
++    assert active_sessions.inspect_active_session("stored", registry_home=home)["state"] == "owned_elsewhere"
++    assert active_sessions.inspect_active_session(
++        "stored", requester_live_session_id="live-1", registry_home=home,
++    )["state"] == "owned_by_requester"
++    lease.release()
++
++
+ 
+ 
+ 
+diff --git a/tui_gateway/methods_session.py b/tui_gateway/methods_session.py
+index 51ad8be30a..17d735cc7d 100644
+--- a/tui_gateway/methods_session.py
++++ b/tui_gateway/methods_session.py
+@@ -820,6 +820,40 @@ def _(rid, params: dict) -> dict:
+                 ctx.db.close()
+ 
+ 
++@method("session.access")
++def _(rid, params: dict) -> dict:
++    """Read cross-process ownership and current-process run state without activating the session."""
++    if not (target := _str_param(params, "session_id")):
++        return _err(rid, 4006, "session_id required")
++    profile = (params.get("profile") or "").strip() or None
++    profile_home = _profile_home(profile)
++    with _profile_db(params) as db:
++        if db is None:
++            return _db_unavailable_error(rid, code=5000)
++        try:
++            resolved = db.resolve_resume_session_id(target)
++            if not resolved or not db.get_session(resolved):
++                return _err(rid, 4007, "session not found")
++        except Exception as exc:
++            return _err(rid, 5000, f"session access failed: {exc}")
++    with _sessions_lock:
++        local = next((
++            (sid, session) for sid, session in list(_sessions.items())
++            if str(session.get("session_key") or "") == resolved
++            and (session.get("profile_home") or None) == (str(profile_home) if profile_home is not None else None)
++        ), None)
++    from hermes_cli.active_sessions import inspect_active_session
++    access = inspect_active_session(
++        resolved, requester_live_session_id=_str_param(params, "live_session_id") or None,
++        registry_home=profile_home,
++    )
++    access.update(
++        session_key=resolved,
++        running=bool(local[1].get("running")) if local is not None else None,
++    )
++    return _ok(rid, access)
++
++
+ # ── cwd / workspace / live-session bookkeeping ───────────────────────
+ @_session_method("session.cwd.set")
+ def _(rid, params: dict, session: dict) -> dict:
+diff --git a/tui_gateway/server.py b/tui_gateway/server.py
+index 042cc81d25..3e190694e8 100644
+--- a/tui_gateway/server.py
++++ b/tui_gateway/server.py
+@@ -168,7 +168,7 @@ _LONG_HANDLERS = frozenset({
+     "bot_relay.deliver", "bot_relay.reply", "image.generate", "projects.discover_repos",
+     "projects.record_repos", "projects.for_cwd", "projects.tree", "projects.project_sessions",
+     "setup.runtime_check", "setup.status", "voice.toggle", "voice.record", "voice.tts", "wake.start",
+-    "wake.status", "session.active_list", "session.branch", "session.compress", "session.list",
++    "wake.status", "session.access", "session.active_list", "session.branch", "session.compress", "session.list",
+     "session.resume", "session.workspace.move", "shell.exec", "skills.manage", "slash.exec",
+ })
+ 

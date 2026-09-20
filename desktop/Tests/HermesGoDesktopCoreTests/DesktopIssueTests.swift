@@ -226,4 +226,25 @@ final class DesktopIssueTests: XCTestCase {
         XCTAssertTrue(cleanup.retryable)
         XCTAssertEqual(cleanup.recoveryAction, .retry)
     }
+
+    func testManagedStartupRepairSeparatesConnectorSafetyFromAdvisoryRepairs() {
+        let sample = DesktopMigrationJournalError.invalidState
+        let connector = DesktopManagedStartupRepairStage.transferredAccountConnector
+        let token = DesktopManagedStartupRepairStage.sessionTokenStorage
+        let path = DesktopManagedStartupRepairStage.searchPath
+
+        XCTAssertTrue(connector.blocksManagedUpgrade)
+        XCTAssertEqual(connector.issue(sample).code, .migrationConnectorMismatch)
+
+        for stage in [token, path] {
+            let issue = stage.issue(sample)
+            XCTAssertFalse(stage.blocksManagedUpgrade)
+            XCTAssertEqual(issue.code.rawValue, "HR-MIGRATE-007")
+            XCTAssertTrue(issue.retryable)
+            XCTAssertEqual(issue.recoveryAction, DesktopRecoveryAction.retry)
+            XCTAssertTrue(issue.summaryChinese.contains("补救"))
+            XCTAssertTrue(issue.summaryEnglish.contains("repair"))
+            XCTAssertTrue(issue.sanitizedDiagnostic.contains("stage=\(stage.rawValue)"))
+        }
+    }
 }

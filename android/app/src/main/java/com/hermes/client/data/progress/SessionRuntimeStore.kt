@@ -18,6 +18,8 @@ import com.hermes.client.data.repository.SessionPhaseRecord
 import com.hermes.client.data.repository.SessionPhaseSnapshot
 import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
+import com.hermes.client.data.repository.SessionAccess
+import com.hermes.client.data.repository.SessionAccessState
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
@@ -633,6 +635,63 @@ class SessionRuntimeStore(
     enum class ProbeResult { PROBED, RATE_LIMITED, OFFLINE, FAILED, GAVE_UP, IDLE }
 
     /**
+     * Fold the explicit read-only `session.access` answer. Unlike the historical response-shaped
+     * `session.info` push, this value is returned directly to the caller and cannot be lost between
+     * reconnecting the socket and installing the event collector (HG-67).
+     */
+    fun applyAuthoritativeAccess(
+        key: SessionRuntimeKey,
+        access: SessionAccess,
+        cause: String = "session.access",
+    ) {
+        val running = access.running ?: return
+        updateRuntime(key, cause = cause) { runtime ->
+            val wasActive = runtime.phase.isActive
+            val nextPhase = if (running) {
+                when {
+                    runtime.phase == SessionRunPhase.RECONNECTING -> runtime.restoredPhaseAfterReconnect()
+                    runtime.phase.isActive -> runtime.phase
+                    else -> SessionRunPhase.THINKING
+                }
+            } else {
+                when {
+                    !runtime.phase.isActive -> runtime.phase
+                    isWatched(key) -> SessionRunPhase.IDLE
+                    else -> SessionRunPhase.COMPLETED_UNREAD
+                }
+            }
+            val now = clock()
+            runtime.copy(
+                phase = nextPhase,
+                toolName = if (running) runtime.toolName else null,
+                startedLocally = if (running) runtime.startedLocally else false,
+                runStartedAt = when {
+                    running && runtime.runStartedAt == null -> now
+                    running -> runtime.runStartedAt
+                    else -> null
+                },
+                lastEventAt = now,
+                lastTerminalAt = if (!running && wasActive) now else runtime.lastTerminalAt,
+                occurredAt = if (running != wasActive) now else runtime.occurredAt,
+            )
+        }
+    }
+
+    private suspend fun inspectAccess(key: SessionRuntimeKey, liveHandle: String?): SessionAccess? =
+        try {
+            chatRepository.sessionAccess(key.sessionId, key.profile, liveHandle)
+                .takeUnless { it.state == SessionAccessState.UNKNOWN }
+                ?.also { applyAuthoritativeAccess(key, it) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // Compatibility path for an older managed Hermes: keep the pushed session.info and
+            // transcript reconciliation behaviour until the read-only method is available.
+            DebugLog.log("session", "access s=${key.sessionId} unavailable: ${error.message}")
+            null
+        }
+
+    /**
      * Ask Hermes whether a run the store still believes is active really is. A successful
      * `session.resume` makes Hermes emit `session.info{running}`, which the normal event fold
      * settles: `running:false` retires the phase and (via normalization) closes the bubble. The
@@ -663,6 +722,7 @@ class SessionRuntimeStore(
                 onSuccess = { handle ->
                     probeFailures.remove(key)
                     bindLiveHandle(key, handle)
+                    if (!handle.isNullOrBlank()) inspectAccess(key, handle)
                     if (believedActive && now - runtime.lastEventAt > STALE_RUN_MS) {
                         settleSilentRunFromHistory(key, runtime)
                     }
@@ -874,6 +934,7 @@ class SessionRuntimeStore(
             null
         }
         if (handle != null) bindLiveHandle(key, handle)
+        inspectAccess(key, handle)
         markRead(key)
         val media = mediaRepository
         if (media != null) {
@@ -1872,7 +1933,10 @@ class SessionRuntimeStore(
             runCatching { chatRepository.resume(runtime.key.sessionId, runtime.key.profile) }
                 .onSuccess { handle ->
                     bindLiveHandle(runtime.key, handle)
-                    updateRuntime(runtime.key, cause = "reconnect") { it.copy(phase = it.restoredPhaseAfterReconnect()) }
+                    val access = if (handle.isNullOrBlank()) null else inspectAccess(runtime.key, handle)
+                    if (access?.running == null) {
+                        updateRuntime(runtime.key, cause = "reconnect") { it.copy(phase = it.restoredPhaseAfterReconnect()) }
+                    }
                 }
                 .onFailure { error ->
                     // Resume can race a task completing while the socket was down. Do not invent

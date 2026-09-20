@@ -1223,22 +1223,36 @@ final class DesktopViewModel: ObservableObject {
     private func recoverManagedBootstrapAfterRestart() async {
         guard let runtime = managedRecoveryRuntime else { return }
         var reconciliationIssue: DesktopIssue?
+        var reconciliationBlocksUpgrade = false
         do {
             _ = try await Task.detached(priority: .utility) {
                 try runtime.reconcileTransferredAccountActive()
-                _ = try await runtime.reconcileCommittedHermesSessionTokenStorage()
-                // HG-58: an installation migrated before the managed agent carried a PATH keeps
-                // running Hermes with launchd's bare four directories, where nothing the user
-                // installed is visible. Neither a migration nor an optional-component activation is
-                // guaranteed to happen again on such a Mac, so the repair belongs on the one path
-                // every launch takes. It answers false and touches nothing once the key is there.
-                return try await runtime.reconcileCommittedHermesSearchPath()
             }.value
         } catch {
-            reconciliationIssue = DesktopIssue(
-                code: .migrationConnectorMismatch,
-                technicalCause: String(describing: error)
-            )
+            let stage = DesktopManagedStartupRepairStage.transferredAccountConnector
+            reconciliationIssue = stage.issue(error)
+            reconciliationBlocksUpgrade = stage.blocksManagedUpgrade
+        }
+        if !reconciliationBlocksUpgrade {
+            do {
+                _ = try await Task.detached(priority: .utility) {
+                    try await runtime.reconcileCommittedHermesSessionTokenStorage()
+                }.value
+            } catch {
+                reconciliationIssue = DesktopManagedStartupRepairStage.sessionTokenStorage.issue(error)
+            }
+            do {
+                // HG-58: an installation migrated before the managed agent carried a PATH keeps
+                // running Hermes with launchd's bare four directories, where nothing the user
+                // installed is visible. Failure is advisory: it must not hide a safe upgrade.
+                _ = try await Task.detached(priority: .utility) {
+                    try await runtime.reconcileCommittedHermesSearchPath()
+                }.value
+            } catch {
+                if reconciliationIssue == nil {
+                    reconciliationIssue = DesktopManagedStartupRepairStage.searchPath.issue(error)
+                }
+            }
         }
         let inspector = self.inspector
         let observation = await Task.detached(priority: .utility) {
@@ -1248,7 +1262,9 @@ final class DesktopViewModel: ObservableObject {
         guard case .interrupted(let runID, _) = installation else {
             applyManagedBootstrapInstallation(installation)
             if let reconciliationIssue {
-                managedBootstrapOperation = .failed
+                if reconciliationBlocksUpgrade {
+                    managedBootstrapOperation = .failed
+                }
                 managedBootstrapIssue = reconciliationIssue
             }
             return

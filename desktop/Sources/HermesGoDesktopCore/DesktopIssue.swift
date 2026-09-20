@@ -75,6 +75,24 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     /// detected — which is the point of saying it here rather than letting a read fail later with a
     /// traceback that names only the web framework.
     case managedHermesBehindDatabase = "HR-MIGRATE-006"
+    /// A post-install token/PATH repair failed, but the active installation remains usable and
+    /// an available managed upgrade must not be hidden behind a false Connector-conflict state.
+    case managedInstallationRepairFailed = "HR-MIGRATE-007"
+}
+
+public enum DesktopManagedStartupRepairStage: String, Sendable {
+    case transferredAccountConnector
+    case sessionTokenStorage
+    case searchPath
+
+    public var blocksManagedUpgrade: Bool { self == .transferredAccountConnector }
+
+    public func issue(_ error: Error) -> DesktopIssue {
+        DesktopIssue(
+            code: blocksManagedUpgrade ? .migrationConnectorMismatch : .managedInstallationRepairFailed,
+            technicalCause: "stage=\(rawValue) \(String(describing: error))"
+        )
+    }
 }
 
 public struct DesktopIssue: Error, Equatable, Sendable {
@@ -232,6 +250,8 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             // The action is to update the managed Hermes, so the copy says that rather than offering
             // a button that would change nothing.
             ("托管 Hermes 版本落后", "The managed Hermes is behind", "这台 Mac 的数据库比托管 Hermes 新，请升级托管副本。", "This Mac's database is newer than the managed Hermes. Update the managed copy.", false, .details)
+        case .managedInstallationRepairFailed:
+            ("托管安装补救未完成", "Managed installation repair didn't finish", "当前服务仍可使用，后台补救未完成；请查看详情后重试。", "The current services remain available, but a background repair did not finish. Review the details and retry.", true, .retry)
         }
     }
 

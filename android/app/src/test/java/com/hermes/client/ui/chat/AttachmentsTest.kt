@@ -14,6 +14,7 @@ class AttachmentsTest {
         assertTrue(canSend(connected = true, hasText = false, hasAttachments = true, isGenerating = false))
         assertFalse(canSend(connected = false, hasText = true, hasAttachments = true, isGenerating = false))
         assertFalse(canSend(connected = true, hasText = true, hasAttachments = true, isGenerating = true))
+        assertFalse(canSend(connected = true, hasText = true, hasAttachments = false, isGenerating = false, writable = false))
     }
 
     @Test fun plusCapped_adds_under_cap_and_noops_at_cap() {
