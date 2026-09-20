@@ -114,6 +114,24 @@ test("component builder preserves an existing target and removes its earlier arc
   assert.deepEqual(await readdir(fixture.output), ["Hermes-Connector-0.1.2-arm64.tar.gz"]);
 });
 
+test("the build identity records the schema baseline Desktop compares against", async (t) => {
+  // The chain is: packer reads the staged tree's SCHEMA_SQL, writes the columns into
+  // BUILD-IDENTITY.json, and Desktop compares the live state.db against them (HR-MIGRATE-006).
+  // Without this assertion the chain can break silently at its first link, which is the exact
+  // failure mode the check exists to end.
+  const fixture = await makeFixture(t);
+  await build(fixture);
+
+  const extracted = path.join(fixture.root, "unpacked");
+  await mkdir(extracted, { recursive: true });
+  const archive = path.join(fixture.output, "Hermes-Server-0.21.0-arm64.tar.gz");
+  assert.equal(spawnSync("/usr/bin/tar", ["-xzf", archive, "-C", extracted]).status, 0);
+
+  const identity = JSON.parse(await readFile(path.join(extracted, "BUILD-IDENTITY.json"), "utf8"));
+  assert.deepEqual(identity.schemaBaseline.messages, ["id", "session_id", "role", "content"]);
+  assert.deepEqual(identity.schemaBaseline.sessions, ["id", "source"]);
+});
+
 test("archives are byte-reproducible: the same inputs build to the same hash", async (t) => {
   // This test is the whole mechanism. Determinism cannot be asserted by reading the packer — it is
   // a property of tar, gzip and the filesystem together, and it regressed silently for every
@@ -268,6 +286,26 @@ async function writeFixtureHermes(hermes) {
   await writeFile(path.join(hermes, "pyproject.toml"), '[project]\nversion = "0.21.0"\n');
   await writeFile(path.join(hermes, "LICENSE"), "MIT\n");
   await writeFile(path.join(hermes, "compat_manifest.json"), "{}\n");
+  // A Hermes tree carries its schema; the packer reads it to record the column baseline Desktop
+  // later compares the live database against (HR-MIGRATE-006). Omitting it here would leave the
+  // drift check untested and the build failing on a file every real tree has.
+  await writeFile(path.join(hermes, "hermes_state_common.py"), [
+    "SCHEMA_VERSION = 30",
+    'SCHEMA_SQL = """',
+    "CREATE TABLE IF NOT EXISTS sessions (",
+    "    id TEXT PRIMARY KEY,",
+    "    source TEXT NOT NULL",
+    ");",
+    "",
+    "CREATE TABLE IF NOT EXISTS messages (",
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,",
+    "    session_id TEXT NOT NULL REFERENCES sessions(id),",
+    "    role TEXT NOT NULL,",
+    "    content TEXT",
+    ");",
+    '"""',
+    "",
+  ].join("\n"));
   await writeFile(path.join(hermes, "run_agent.py"), "# root module\n");
   await writeFile(path.join(hermes, ".env"), "SECRET=not-committed\n");
   await writeFile(path.join(hermes, "tools/.env"), "SECRET=also-not-shipped\n");

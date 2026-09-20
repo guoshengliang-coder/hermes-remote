@@ -68,6 +68,13 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     case migrationCandidateFailed = "HR-MIGRATE-003"
     case migrationRollbackFailed = "HR-MIGRATE-004"
     case migrationCleanupPending = "HR-MIGRATE-005"
+    /// The live `state.db` carries columns the managed Hermes was not built to read.
+    ///
+    /// Drift, not corruption: the managed copy is pinned and the owner's own Hermes rolls forward,
+    /// and they share one database by design. Nothing is necessarily broken at the moment it is
+    /// detected — which is the point of saying it here rather than letting a read fail later with a
+    /// traceback that names only the web framework.
+    case managedHermesBehindDatabase = "HR-MIGRATE-006"
 }
 
 public struct DesktopIssue: Error, Equatable, Sendable {
@@ -220,6 +227,11 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("自动恢复未完成", "Automatic recovery didn't finish", "自动恢复未完成，系统已停止继续变更。请按诊断步骤检查 Hermes 与 Connector。", "Automatic recovery did not finish, so further changes were stopped. Follow the diagnostic steps to inspect Hermes and Connector.", false, .details)
         case .migrationCleanupPending:
             ("升级完成，临时文件待清理", "Upgrade finished; cleanup is pending", "新连接已生效，但下载临时文件尚未清理。请重试清理；不要重复安装。", "The new connection is active, but temporary download files still need cleanup. Retry cleanup; do not install again.", true, .retry)
+        case .managedHermesBehindDatabase:
+            // Not retryable: nothing on this Mac makes the pinned copy understand a newer database.
+            // The action is to update the managed Hermes, so the copy says that rather than offering
+            // a button that would change nothing.
+            ("托管 Hermes 版本落后", "The managed Hermes is behind", "这台 Mac 的数据库比托管 Hermes 新，请升级托管副本。", "This Mac's database is newer than the managed Hermes. Update the managed copy.", false, .details)
         }
     }
 

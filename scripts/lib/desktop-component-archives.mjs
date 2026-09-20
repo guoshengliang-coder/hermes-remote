@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { applyHermesPatches, loadHermesPatches } from "./hermes-patches.mjs";
+import { readHermesSchemaBaseline } from "./hermes-schema-baseline.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -568,7 +569,13 @@ exec "$ROOT/runtime/python/bin/python3.11" -s -m hermes_cli.main "$@"
   // They are recorded in BUILD-IDENTITY so provenance reads "upstream at X plus patches Y" and can
   // be checked rather than believed.
   const patches = applyHermesPatches(await loadHermesPatches(patchDirectory), path.join(destination, "app"));
-  await writeIdentity(destination, { component: "hermes_server", version, sourceCommit, architecture, patches });
+  // Read from the staged app, so the baseline describes the tree that actually ships — patches
+  // included, in case one ever changes a table definition (it may not, but recording the source
+  // rather than the input is the version that cannot drift from what is installed).
+  const schemaBaseline = await readHermesSchemaBaseline(path.join(destination, "app"));
+  await writeIdentity(destination, {
+    component: "hermes_server", version, sourceCommit, architecture, patches, schemaBaseline,
+  });
 }
 
 async function stageConnector({ destination, repo, nodeBinary, version, sourceCommit, architecture }) {
@@ -673,8 +680,9 @@ exec "$HERMES_PYTHON_RUNTIME_ROOT/bin/python3" -s -m hermes_cli.main "$@"
 `;
   await writeFile(path.join(destination, "bin/hermes"), launcher, { mode: 0o700 });
   const patches = applyHermesPatches(await loadHermesPatches(patchDirectory), path.join(destination, "app"));
+  const schemaBaseline = await readHermesSchemaBaseline(path.join(destination, "app"));
   await writeIdentityV2(destination, {
-    component: "hermes_core", version, sourceCommit, architecture, patches,
+    component: "hermes_core", version, sourceCommit, architecture, patches, schemaBaseline,
   });
 }
 
