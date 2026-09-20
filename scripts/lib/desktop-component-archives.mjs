@@ -11,6 +11,7 @@ import {
   rename,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -114,7 +115,8 @@ export async function packageDesktopComponentArchives({
       await requireAbsent(destination);
       await requireAbsent(partial);
       created.push(partial);
-      run("/usr/bin/tar", ["-czf", partial, "-C", artifact.stage, "."], { timeout: 15 * 60_000 });
+      await normalizeTreeTimestamps(artifact.stage);
+      packDeterministicArchive(partial, artifact.stage, 15 * 60_000);
       await chmod(partial, 0o644);
       await rename(partial, destination);
       created.pop();
@@ -296,7 +298,8 @@ export async function packageDesktopComponentArchivesV2({
       await requireAbsent(destination);
       await requireAbsent(partial);
       created.push(partial);
-      run("/usr/bin/tar", ["-czf", partial, "-C", stage, "."], { timeout: 15 * 60_000 });
+      await normalizeTreeTimestamps(stage);
+      packDeterministicArchive(partial, stage, 15 * 60_000);
       await chmod(partial, 0o644);
       await rename(partial, destination);
       created.pop();
@@ -929,9 +932,57 @@ function run(command, args, options = {}) {
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 4 * 1024 * 1024,
     timeout: options.timeout ?? 30_000,
+    env: options.env ? { ...process.env, ...options.env } : undefined,
   });
   if (result.error || result.status !== 0) fail("component_command_failed");
   return result.stdout;
+}
+
+/**
+ * Every mtime in a staged tree, set to one fixed instant.
+ *
+ * A component archive has to be byte-reproducible or its provenance is a claim rather than a check
+ * (docs/MANAGED_HERMES_STRATEGY.md). Two things stopped it, and this is the second of them: a file
+ * that reaches the packer with a sub-second mtime cannot be described in `ustar`, so bsdtar
+ * silently switches that entry to `pax` and writes an extended header carrying the fractional
+ * value. The archive then changes whenever the copy that produced the stage ran.
+ *
+ * The constant is arbitrary and deliberately not "now": the point is that two builds of the same
+ * inputs agree, not that the timestamps mean anything. Symlinks are skipped — `utimes` would
+ * follow them and touch the target instead.
+ */
+const ARCHIVE_MTIME_SECONDS = 1_700_000_000;
+
+async function normalizeTreeTimestamps(root) {
+  const when = new Date(ARCHIVE_MTIME_SECONDS * 1000);
+  const entries = await readdir(root, { withFileTypes: true, recursive: true });
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    await utimes(path.join(entry.parentPath ?? entry.path, entry.name), when, when);
+  }
+  await utimes(root, when, when);
+}
+
+/**
+ * Pack a staged tree so that the same inputs always produce the same bytes.
+ *
+ * `COPYFILE_DISABLE=1` is the first of the two fixes, and the larger one. Without it macOS tar
+ * archives each file's extended attributes as a separate AppleDouble `._name` member: measured on
+ * the 0.3.6 hermes_server stage, 23,111 files became 46,222 entries and 47 MiB of the uncompressed
+ * stream. Those members carry volume-specific metadata, so they are both noise and a reason the
+ * hash moves between machines.
+ *
+ * `--format ustar` pins the format rather than letting bsdtar choose per entry, and
+ * `--options '!timestamp'` keeps the build time out of the gzip header. Checked before pinning:
+ * the longest path in that stage is 122 characters and every path splits inside ustar's
+ * 155 + 100 limit, so nothing in these trees needs pax.
+ */
+function packDeterministicArchive(destination, stage, timeout) {
+  run(
+    "/usr/bin/tar",
+    ["--format", "ustar", "--options", "!timestamp", "-czf", destination, "-C", stage, "."],
+    { timeout, env: { COPYFILE_DISABLE: "1" } },
+  );
 }
 
 function fail(cause) {
