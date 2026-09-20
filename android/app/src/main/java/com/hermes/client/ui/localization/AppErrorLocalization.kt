@@ -160,6 +160,10 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "无法同步完整会话内容，请重试。", "Couldn't synchronize the complete conversation. Retry.")
         AppErrorCode.RUN_UNCONFIRMED ->
             localized(language, "任务停止了，但没有确认完成，请打开会话检查。", "The task stopped without a confirmed completion. Open the conversation to check.")
+        AppErrorCode.HISTORY_UPSTREAM_FAILED ->
+            localized(language, "Mac 上的 Hermes 返回了错误，请检查 Mac 端。", "Hermes on the Mac returned an error. Check the Mac.")
+        AppErrorCode.HISTORY_UNREADABLE ->
+            localized(language, "无法解析会话内容，请更新 App。", "This conversation could not be read. Update the app.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->
             localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
         AppErrorCode.FEEDBACK_UNAVAILABLE ->

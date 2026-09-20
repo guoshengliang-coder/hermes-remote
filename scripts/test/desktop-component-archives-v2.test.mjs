@@ -330,6 +330,26 @@ async function writeFixtureHermes(hermes) {
   await writeFile(path.join(hermes, "pyproject.toml"), '[project]\nversion = "0.21.0"\n');
   await writeFile(path.join(hermes, "LICENSE"), "MIT\n");
   await writeFile(path.join(hermes, "compat_manifest.json"), "{}\n");
+  // A Hermes tree carries its schema; the packer reads it to record the column baseline Desktop
+  // later compares the live database against (HR-MIGRATE-006). Omitting it here would leave the
+  // drift check untested and the build failing on a file every real tree has.
+  await writeFile(path.join(hermes, "hermes_state_common.py"), [
+    "SCHEMA_VERSION = 30",
+    'SCHEMA_SQL = """',
+    "CREATE TABLE IF NOT EXISTS sessions (",
+    "    id TEXT PRIMARY KEY,",
+    "    source TEXT NOT NULL",
+    ");",
+    "",
+    "CREATE TABLE IF NOT EXISTS messages (",
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,",
+    "    session_id TEXT NOT NULL REFERENCES sessions(id),",
+    "    role TEXT NOT NULL,",
+    "    content TEXT",
+    ");",
+    '"""',
+    "",
+  ].join("\n"));
   await writeFile(path.join(hermes, "run_agent.py"), "# root module\n");
   await writeFile(path.join(hermes, ".env"), "SECRET=not-committed\n");
   await writeFile(path.join(hermes, "tools/private.pem"), "not-shipped\n");
