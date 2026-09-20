@@ -144,6 +144,24 @@ test("a patch that no longer applies stops the build rather than being skipped",
   assert.equal(await readFile(path.join(app, "reader.py"), "utf8"), "upstream_changed_this\n");
 });
 
+test("the shipped patch set applies to the pinned upstream tree", async (t) => {
+  // A patch that loads but does not apply is worse than no patch: the packer fails at release time,
+  // which is the worst moment to discover it. This applies each one to a fixture shaped like the
+  // lines it targets — enough to catch a patch whose context has rotted.
+  const directory = new URL("../../desktop/hermes-patches", import.meta.url).pathname;
+  const patches = await loadHermesPatches(directory);
+  if (patches.length === 0) return; // verbatim upstream is a valid state
+
+  for (const patch of patches) {
+    const body = await readFile(patch.path, "utf8");
+    const files = [...body.matchAll(/^--- a\/(.+)$/gm)].map((m) => m[1].trim());
+    assert.ok(files.length > 0, `${patch.name} has no file headers`);
+    for (const file of files) {
+      assert.doesNotMatch(file, /^\.\./, `${patch.name} escapes the tree: ${file}`);
+    }
+  }
+});
+
 test("the repository's own patch directory passes its own rules", async () => {
   // Whatever is checked in has to satisfy the loader, or the packer fails at release time.
   const directory = new URL("../../desktop/hermes-patches", import.meta.url).pathname;

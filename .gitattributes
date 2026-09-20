@@ -1,0 +1,4 @@
+# A patch file's body is diff syntax: its `+` lines reproduce the target's own blank lines, and
+# `git diff --check` reads those as trailing whitespace in the patch. The release gate runs that
+# check, so without this a legitimate patch cannot be committed.
+*.patch -whitespace

@@ -71,7 +71,9 @@ export async function loadHermesPatches(directory) {
     if (seen.has(match[1])) fail("hermes_patch_order_duplicated", name);
     seen.add(match[1]);
 
-    const file = path.join(directory, name);
+    // Absolute: `git apply` runs with cwd inside the staged tree, so a relative patch path would
+    // resolve against that tree instead of the repository.
+    const file = path.resolve(directory, name);
     const text = await readFile(file, "utf8");
     const headers = parseHeaders(text, name);
     assertReadSideOnly(text, name);
