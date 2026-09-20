@@ -129,7 +129,6 @@ Hermes reads the same database and must keep understanding it.
 /api/cron/jobs         /api/cron/jobs/{id}    /api/cron/jobs/{id}/runs
 /api/cron/jobs/{id}/pause    /api/cron/jobs/{id}/resume    /api/cron/jobs/{id}/trigger
 /api/cron/delivery-targets
-/api/mobile/events     /api/mobile/events/ack /api/mobile/events/read
 /api/model/options     /api/model/set         /api/tools/toolsets
 /api/skills            /api/skills/toggle     /api/analytics/usage
 /api/audio/transcribe  /api/messaging/platforms
@@ -137,6 +136,16 @@ Hermes reads the same database and must keep understanding it.
 
 Authentication is the `X-Hermes-Session-Token` header. The Mac's Hermes credential never leaves the
 Mac; the phone holds only its own app token (see `docs/ARCHITECTURE.md`).
+
+**`/api/mobile/events`, `/ack` and `/read` were listed here until 2026-09-20 and did not belong.**
+They are not upstream Hermes paths at all — no Hermes on this Mac has ever served them, pinned or
+rolling. The app sends them to the *account service* with `Authorization: Bearer`, against
+`account.baseUrl`, which is our own surface and versioned by us
+(`android/.../HermesRestApi.kt` routes them explicitly before the Hermes branch). Listing them here
+inverted the one thing this document is for: it told a reader that something we control is something
+we must negotiate with upstream, and an upgrade check would have gone looking for a path upstream
+never had. Verified against the running managed copy's `openapi.json` and the owner's own checkout —
+absent from both.
 
 **The three cron action paths and `/api/cron/delivery-targets` were added to this list on
 2026-09-14 (HG-51). They were not new** — the app has been calling

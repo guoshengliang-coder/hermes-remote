@@ -472,6 +472,9 @@ because the bootstrap state machine clears its own issue on nearly every transit
 Mac that also runs its own hermes-agent reports `inconsistent` permanently — gating the advisory on
 `active` would hide it on exactly the machines that have drift. It is not retryable: nothing on the
 Mac makes a pinned copy understand a newer database, so the copy says to update the managed Hermes.
+It reports only columns nobody has examined yet: the three already looked at on 2026-09-20 are
+subtracted on recorded terms — the patch that neutralises them must be present in the release and
+their types unchanged — so the card is not permanently lit.
 See `docs/MANAGED_HERMES_STRATEGY.md` rule 7 for why the check is compared against the recorded
 `schemaBaseline` rather than `schema_version`, and why its call site is asserted by a test.
 
