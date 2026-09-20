@@ -30,6 +30,11 @@ Produce the diff against the pinned upstream commit, paths relative to the Herme
 (`git diff` from a clean checkout gives this; the packer applies with `-p1` inside the staged
 `app/`).
 
+The patch artifact contains only hunks for files copied into that staged `app/`. In particular,
+upstream `tests/` hunks stay in the upstream pull request and are not copied into this repository's
+patch file. The loader and packager share one source allowlist and reject any path that will be
+absent from the managed archive.
+
 **`Why-upstream-will-not` is the field that decides whether the patch should exist.** "Inlining is
 free between local processes and not free over a relay" is a reason to carry one indefinitely.
 "They have not got round to it" is not — that is a patch waiting on an issue, and it is deleted the

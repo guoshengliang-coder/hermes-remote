@@ -147,6 +147,11 @@ checkout itself. There is **no long-lived checkout of upstream carrying our chan
 thing that silently diverges. `scripts/lib/hermes-patches.mjs` loads, validates and applies the set,
 and `desktop/hermes-patches/README.md` is the contract for adding one.
 
+The staged tree is deliberately smaller than the upstream checkout. A carried patch therefore
+contains only runtime-source hunks for paths the component packager copies; upstream `tests/` hunks
+remain in the upstream PR. Patch validation and staging consume the same allowlist, and the archive
+tests apply a real patch after that copy step so a full-checkout-only patch cannot reach release.
+
 Each patch file carries a header:
 
 ```
