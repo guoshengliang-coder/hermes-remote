@@ -72,6 +72,26 @@ test("a patch that touches a schema-owning file is refused", async (t) => {
   );
 });
 
+test("a patch that targets files absent from the managed archive is refused", async (t) => {
+  // Upstream tests stay upstream. The managed archive contains only runtime sources, so carrying a
+  // tests/ hunk makes `git apply` fail only after staging unless the loader rejects it first.
+  for (const [name, file] of [
+    ["tests", "tests/test_runtime.py"],
+    ["escape", "../outside.py"],
+    ["backslash", "tests\\test_runtime.py"],
+  ]) {
+    const directory = await makePatchDirectory(t, {
+      [`010-${name}.patch`]: HEADER + patchFor(file, "old", "new"),
+    });
+    await assert.rejects(
+      () => loadHermesPatches(directory),
+      (error) => error.technicalCause === "hermes_patch_path_not_packaged"
+        && error.detail.endsWith(file),
+      file,
+    );
+  }
+});
+
 test("a patch whose own lines carry a write statement is refused", async (t) => {
   for (const statement of [
     "    cursor.execute(\"INSERT INTO messages (id) VALUES (?)\", (1,))",
@@ -144,21 +164,16 @@ test("a patch that no longer applies stops the build rather than being skipped",
   assert.equal(await readFile(path.join(app, "reader.py"), "utf8"), "upstream_changed_this\n");
 });
 
-test("the shipped patch set applies to the pinned upstream tree", async (t) => {
-  // A patch that loads but does not apply is worse than no patch: the packer fails at release time,
-  // which is the worst moment to discover it. This applies each one to a fixture shaped like the
-  // lines it targets — enough to catch a patch whose context has rotted.
+test("the shipped patch set targets only files copied into the managed archive", async () => {
+  // The loader and packager share one source allowlist. This catches an upstream-only test hunk in
+  // CI instead of waiting for a release build to apply the patch to the already-trimmed tree.
   const directory = new URL("../../desktop/hermes-patches", import.meta.url).pathname;
   const patches = await loadHermesPatches(directory);
   if (patches.length === 0) return; // verbatim upstream is a valid state
 
   for (const patch of patches) {
-    const body = await readFile(patch.path, "utf8");
-    const files = [...body.matchAll(/^--- a\/(.+)$/gm)].map((m) => m[1].trim());
-    assert.ok(files.length > 0, `${patch.name} has no file headers`);
-    for (const file of files) {
-      assert.doesNotMatch(file, /^\.\./, `${patch.name} escapes the tree: ${file}`);
-    }
+    assert.ok(patch.files.length > 0, `${patch.name} has no file headers`);
+    assert.equal(patch.files.some((file) => file.startsWith("tests/")), false, patch.name);
   }
 });
 

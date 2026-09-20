@@ -19,6 +19,10 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { applyHermesPatches, loadHermesPatches } from "./hermes-patches.mjs";
+import {
+  HERMES_METADATA_FILES,
+  HERMES_SOURCE_DIRECTORIES,
+} from "./managed-hermes-source.mjs";
 import { readHermesSchemaBaseline } from "./hermes-schema-baseline.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,11 +32,6 @@ import {
 } from "./desktop-managed-release.mjs";
 
 const defaultRepositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const HERMES_SOURCE_DIRECTORIES = Object.freeze([
-  "agent", "cron", "gateway", "hermes_cli", "locales", "native", "optional-skills",
-  "plugins", "skills", "tools", "tui_gateway",
-]);
-const HERMES_METADATA_FILES = Object.freeze(["LICENSE", "compat_manifest.json", "pyproject.toml"]);
 const MAX_COMPONENT_ENTRIES = 65_536;
 const MAX_COMPONENT_BYTES = 2 * 1024 * 1024 * 1024;
 

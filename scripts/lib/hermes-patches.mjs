@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { isManagedHermesSourcePath } from "./managed-hermes-source.mjs";
 
 /** `NNN-short-name.patch`; the number fixes apply order, which a patch set needs. */
 const PATCH_NAME = /^(\d{3})-[a-z0-9][a-z0-9-]*\.patch$/;
@@ -76,7 +77,9 @@ export async function loadHermesPatches(directory) {
     const file = path.resolve(directory, name);
     const text = await readFile(file, "utf8");
     const headers = parseHeaders(text, name);
-    assertReadSideOnly(text, name);
+    const files = patchFiles(text, name);
+    assertPackagedPaths(files, name);
+    assertReadSideOnly(text, name, files);
 
     patches.push({
       name,
@@ -86,6 +89,7 @@ export async function loadHermesPatches(directory) {
       upstreamIssue: headers["Upstream-Issue"],
       whyUpstreamWillNot: headers["Why-upstream-will-not"],
       added: headers.Added,
+      files,
     });
   }
   return patches;
@@ -122,15 +126,36 @@ function parseHeaders(text, name) {
  * statement merely *near* the change is fine, and a patch that touches one is not. Strict is the
  * right direction here — a false positive costs an argument, a false negative costs the database.
  */
-function assertReadSideOnly(text, name) {
+function patchFiles(text, name) {
+  const files = new Set();
   for (const line of text.split("\n")) {
-    if (/^(\+\+\+|---)\s/.test(line)) {
-      const file = line.slice(4).replace(/^[ab]\//, "").split("\t")[0].trim();
-      if (file !== "/dev/null" && SCHEMA_OWNING_FILES.some((owned) => file.endsWith(owned))) {
-        fail("hermes_patch_touches_schema", `${name}: ${file}`);
-      }
-      continue;
+    const match = /^(---|\+\+\+)\s+(.+)$/.exec(line);
+    if (!match) continue;
+    const value = match[2].split("\t")[0].trim();
+    if (value === "/dev/null") continue;
+    if (!/^[ab]\//.test(value)) fail("hermes_patch_file_header_invalid", `${name}: ${value}`);
+    files.add(value.slice(2));
+  }
+  if (files.size === 0) fail("hermes_patch_file_header_missing", name);
+  return [...files];
+}
+
+function assertPackagedPaths(files, name) {
+  for (const file of files) {
+    if (!isManagedHermesSourcePath(file)) {
+      fail("hermes_patch_path_not_packaged", `${name}: ${file}`);
     }
+  }
+}
+
+function assertReadSideOnly(text, name, files) {
+  for (const file of files) {
+    if (SCHEMA_OWNING_FILES.some((owned) => file.endsWith(owned))) {
+      fail("hermes_patch_touches_schema", `${name}: ${file}`);
+    }
+  }
+  for (const line of text.split("\n")) {
+    if (/^(\+\+\+|---)\s/.test(line)) continue;
     if (!/^[+-]/.test(line)) continue;
     if (WRITE_STATEMENT.test(line)) fail("hermes_patch_touches_writes", `${name}: ${line.trim()}`);
   }

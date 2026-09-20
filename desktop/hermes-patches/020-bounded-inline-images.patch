@@ -47,44 +47,6 @@ index eb4450c0cc..f8a7b6f325 100644
      return {
          "session_id": sid,
          "messages": projected_messages,
-diff --git a/tests/hermes_cli/test_session_read_projection.py b/tests/hermes_cli/test_session_read_projection.py
-new file mode 100644
-index 0000000000..5917b6ccbd
---- /dev/null
-+++ b/tests/hermes_cli/test_session_read_projection.py
-@@ -0,0 +1,16 @@
-+from hermes_cli.web_routers.sessions import _without_inline_images
-+
-+
-+def test_without_inline_images_preserves_remote_refs_and_does_not_mutate_input():
-+    original = [
-+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,large"}},
-+        {"type": "image_url", "image_url": "https://example.test/image.png"},
-+        {"type": "text", "text": "caption"},
-+    ]
-+
-+    projected = _without_inline_images(original)
-+
-+    assert projected[0]["image_url"]["url"] == "[image]"
-+    assert projected[1]["image_url"] == "https://example.test/image.png"
-+    assert projected[2]["text"] == "caption"
-+    assert original[0]["image_url"]["url"].startswith("data:image/")
-diff --git a/tests/test_tui_gateway_server.py b/tests/test_tui_gateway_server.py
-index ec28bc1191..5383e0851c 100644
---- a/tests/test_tui_gateway_server.py
-+++ b/tests/test_tui_gateway_server.py
-@@ -2954,6 +2954,11 @@ def test_history_to_messages_renders_multimodal_content():
-         {"role": "assistant", "text": "saw it"},
-     ]
- 
-+    assert server._history_to_messages(history, inline_images=False) == [
-+        {"role": "user", "text": "look here\n[image]"},
-+        {"role": "assistant", "text": "saw it"},
-+    ]
-+
- 
- def test_history_to_messages_hides_gateway_system_markers():
-     # Model-switch / personality notices are persisted as role=user [System: …]
 diff --git a/tui_gateway/methods_session.py b/tui_gateway/methods_session.py
 index 1c2e13efdf..51ad8be30a 100644
 --- a/tui_gateway/methods_session.py
