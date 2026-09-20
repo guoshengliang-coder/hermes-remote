@@ -1,0 +1,113 @@
+Upstream-Issue: https://github.com/NousResearch/hermes-agent/issues/116511
+Why-upstream-will-not: inlining an image as base64 on every read is free between a local server and a local desktop and is the right default there, so upstream gains nothing by changing it; over a relay the same choice put 105 MiB of base64 on the wire for one session and killed the tunnel, and no remote client decodes it because the image bytes are fetched separately by path
+Read-side-only: yes
+Added: 2026-09-20
+
+diff --git a/hermes_cli/web_routers/sessions.py b/hermes_cli/web_routers/sessions.py
+index eb4450c..a58b1cc 100644
+--- a/hermes_cli/web_routers/sessions.py
++++ b/hermes_cli/web_routers/sessions.py
+@@ -500,6 +500,39 @@ async def get_session_latest_descendant(session_id: str, profile: Optional[str]
+         "changed": bool(path and latest != path[0])}
+ 
+ 
++_DISPLAY_IMAGE_KINDS = frozenset({"image_url", "input_image", "image"})
++
++
++def _without_inline_image_data(message: dict) -> dict:
++    """``message`` with inline ``data:`` image payloads replaced by a placeholder.
++
++    The stored row keeps them; this projection is display-only and is what a remote client reads.
++    One session measured 27,479,595 characters in a single message, 75 base64 images, against 6,374
++    once they are dropped — and no client of this endpoint decodes them, because the image bytes are
++    fetched separately by path. An ``https://`` URL is left alone: it is small and still fetchable.
++    """
++    content = message.get("content")
++    if not isinstance(content, list):
++        return message
++    parts, changed = [], False
++    for part in content:
++        url = part.get("image_url") if isinstance(part, dict) else None
++        actual = url.get("url") if isinstance(url, dict) else url
++        if (isinstance(part, dict) and part.get("type") in _DISPLAY_IMAGE_KINDS
++                and isinstance(actual, str) and actual.startswith("data:")):
++            replaced = dict(part)
++            replaced["image_url"] = {**url, "url": "[image]"} if isinstance(url, dict) else "[image]"
++            parts.append(replaced)
++            changed = True
++            continue
++        parts.append(part)
++    if not changed:
++        return message
++    projected = message.copy()
++    projected["content"] = parts
++    return projected
++
++
+ def _project_for_display(messages: list) -> list:
+     """Replace compaction summaries with their display-only projection."""
+     from agent.compaction_display import project_compaction_message_for_display
+@@ -507,6 +540,7 @@ def _project_for_display(messages: list) -> list:
+ 
+     projected_messages = []
+     for message in messages:
++        message = _without_inline_image_data(message)
+         if not is_compaction_summary_message(message):
+             projected_messages.append(message)
+             continue
+diff --git a/tui_gateway/session_history.py b/tui_gateway/session_history.py
+index 998c79e..a115e16 100644
+--- a/tui_gateway/session_history.py
++++ b/tui_gateway/session_history.py
+@@ -93,21 +93,38 @@ def _content_display_text(content: Any) -> str:
+     return "" if content is None else str(content)
+ 
+ 
+-def _coerce_message_text(content: Any) -> str:
++def _strip_inline_image_data(rendered: str) -> str:
++    """An inline ``data:`` image URL, replaced by a placeholder; anything else unchanged.
++
++    Only the inline form is dropped. An ``https://`` URL is a few dozen bytes and a remote client can
++    still fetch it, so it stays; a ``data:`` URL is the whole image again in base64 on every read.
++    """
++    return "[image]" if rendered.startswith("data:") else rendered
++
++
++def _coerce_message_text(content: Any, *, inline_image_data: bool = True) -> str:
+     """Render ``message['content']`` (str, parts list, or one structured dict) as a plain string. Image parts
+     keep their URL inline so the desktop's ``extractEmbeddedImages`` and the resume payload agree with the
+-    cached message (else the inline image flashed, then vanished); other shapes become a placeholder."""
++    cached message (else the inline image flashed, then vanished); other shapes become a placeholder.
++
++    ``inline_image_data=False`` keeps that agreement for every local caller and drops only the base64
++    payload, for readers reached over a network where it is neither free nor used.
++    """
++    def _image(part: dict) -> str:
++        rendered = _history_dict_text(part, image_urls=True)
++        return rendered if inline_image_data else _strip_inline_image_data(rendered)
++
+     if isinstance(content, list):
+         chunks: list[str] = []
+         for part in content:
+             if isinstance(part, str) or (isinstance(part, dict) and isinstance(part.get("text"), str)):
+                 chunks.append(part if isinstance(part, str) else part["text"])
+             elif isinstance(part, dict) and part.get("type"):
+-                rendered = _history_dict_text(part, image_urls=True)
++                rendered = _image(part)
+                 chunks.append(rendered if part["type"] in _HISTORY_TEXT_KINDS else f"\n{rendered}")
+         return "".join(chunks)
+     if isinstance(content, dict):
+-        return _history_dict_text(content, image_urls=True)
++        return _image(content)
+     return "" if content is None else str(content)
+ 
+ 
+@@ -184,7 +201,7 @@ def _history_to_messages(history: list[dict]) -> list[dict]:
+         # display_kind="hidden": model-facing scaffolding the "[System:" sniff does not catch.
+         if role not in _HISTORY_ROLES or m.get("display_kind") == "hidden":
+             continue
+-        content_text = _coerce_message_text(m.get("content"))
++        content_text = _coerce_message_text(m.get("content"), inline_image_data=False)
+         if _is_display_hidden_marker(role, content_text):
+             continue
+         if role == "assistant" and m.get("tool_calls"):

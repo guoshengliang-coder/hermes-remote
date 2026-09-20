@@ -108,4 +108,30 @@ class MultimodalContentMappingTest {
         assertEquals(4, domain.size)
         assertTrue(domain[2].text.contains("体检报告，归档"))
     }
+
+    /**
+     * The other half of managed patch `020-remote-reads-drop-inline-image-data`: on the REST
+     * transcript it replaces an inline `data:` URL with the literal `[image]` rather than dropping
+     * the block, so the shape upstream produces is preserved.
+     *
+     * This client must treat that placeholder exactly as it already treats the base64 it replaces —
+     * as a reference to nothing, dropped. It does, because neither starts with `/` or `http`. The
+     * assertion exists because the patch lives in another program: nothing else ties the two sides
+     * together, and a change here would put a literal "[image]" into the bubble with no test
+     * failing in the repository that made it happen.
+     */
+    @Test fun theManagedPatchPlaceholderIsDroppedLikeTheBase64ItReplaces() {
+        val patched = """
+            {"messages":[{"id":1,"role":"user","content":[
+              {"type":"text","text":"体检报告，归档"},
+              {"type":"image_url","image_url":{"url":"[image]"}},
+              {"type":"image_url","image_url":{"url":"/Users/bs/Documents/report.png"}}
+            ]}]}
+        """.trimIndent()
+
+        val content = json.decodeFromString(MessagesDto.serializer(), patched).messages.single().content
+
+        assertEquals("体检报告，归档\n@image:/Users/bs/Documents/report.png", content)
+        assertTrue("the placeholder must not reach the bubble", content?.contains("[image]") == false)
+    }
 }
