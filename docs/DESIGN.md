@@ -2603,6 +2603,46 @@ Relay 正常时，健康条还承载 **Connector 对 Mac 上 Hermes 的契约检
 由 `HealthStripTest`（样式、文案、Relay 故障优先）、`GatewayHealthMonitorTest`（按 Mac 失效、
 重新检查、5xx 保留）和 Roborazzi 截图 `health-strip-contract-*`（红 / 中性、深浅、中英、1.3 倍字号）钉死。
 
+### 5.21 Web 版（`web/`，iPhone PWA，决策 2026-09-21）
+
+Web 版是覆盖 iOS 与电脑浏览器的**轻量入口**，只做主链路（登录、选 Mac、会话列表与搜索、聊天、
+审批与提问、附件）；Android 仍是主力，配置类页面不跟（`docs/ACCOUNT_PLATFORM_EXPANSION.md`
+§5.1）。它**沿用本文的视觉语言，不复刻 Android 的每一个像素**：下面只写 Web 的映射与刻意偏离，
+没写到的按本文 Android 各节理解，冲突时以本节为准。
+
+- **Token 来源**：颜色取 §2 / `docs/design/stitch/design-system.md` 的浅暗双档角色表，原样落成
+  CSS 变量（`--surface`、`--on-surface`、`--primary`、`--status-warn`、`--pillar-today` …，名字与
+  角色表一致）。**暖纸面**的规则不变：列表行直接坐在 `--surface` 上，不铺白卡；纯白只给浮起层。
+- **深浅判定**：Web 第一版没有应用内主题开关，所以「生效主题」就是 `prefers-color-scheme`，
+  这与 §2.2 不冲突。**以后加开关时**，改为在 `<html data-theme>` 上落生效主题，样式只读这个
+  属性 —— 不得再有第二处按系统设置分支，理由同 §2.2 的 0.1.56 花屏。
+- **字体**：散文用系统字体栈（`-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+  "Microsoft YaHei", sans-serif`）；§3.1 标了 mono 的数据位（组头标签、计数、「项目 · 模型」、
+  工具名状态行）用 `ui-monospace, "SF Mono", Menlo, monospace`。**第一版不打包 JetBrains Mono**：
+  CSP 只允许同源字体、打包要多一份 woff2 与许可证，而 iOS 的 SF Mono 已经给了等宽数字；需要照稿
+  一致时再单独决策。字号按 §3.1 的阶梯取 px（正文 16/24、会话行 15、副行 12），**跟随浏览器
+  文字缩放**（全部用 `rem`，根字号不写死）。
+- **移动优先的版式**：
+  - 单列，内容最大宽 720px 居中；电脑上两侧留暖纸面，不做分栏。
+  - 顶栏内容行 48px，`padding-top: env(safe-area-inset-top)`；底部输入区加
+    `env(safe-area-inset-bottom)`，刘海与 home 条不遮内容。`viewport-fit=cover`。
+  - 触控目标不小于 44×44px（iOS HIG；Android 的 48dp 对应物）。图标按钮可视字形 20px。
+  - 主屏（standalone）与 Safari 里版式一致，不靠 `display-mode` 分叉布局。
+- **会话列表**：分组顺序、组名、立柱色照 §5.2（需要你处理 → 已置顶 → 今天 → 昨天 → 前 7 天 →
+  更早；「需要你处理」立柱/圆点用 `--status-warn-graphic`、组名用 `--status-warn`）。Web 没有机器人
+  分段，所以没有分段胶囊。搜索在顶栏，CJK 词自动加引号（`web/src/hermes/search-query.ts`，与
+  Android `SearchQuery.kt` 同规则）。新建会话是中性近黑的 FAB（§2.7），不是品牌蓝。
+- **聊天页**：用户气泡 `--surface-variant` 78%、圆角 22/22/7/22、最大宽约 82%；助手回复无气泡
+  纯排版；工具调用默认折叠成一行（工具名用 mono），点开看结果。消息内顺序照 §5.4（助手：图片 →
+  正文 → 文件 → 操作行）。审批卡与提问卡从底部浮起（§5.8 的自下而上规则），按钮是完整文字而不是
+  图标。图片完整显示不裁切，高度夹在 44px 与 `min(320px, 42vh)` 之间。
+- **Markdown 安全是视觉规则的一部分**：不渲染原始 HTML，链接只放行 `https:`，Markdown 图片
+  不内联显示（显示成链接），Mac 上的图片只通过 `MEDIA:` / 附件显示。
+- **错误**：每条用户可见错误都显示 `HR-*` 码与中英文案，技术细节藏在「详情」里（§6 与
+  `docs/ERROR_HANDLING.md`）；「网页版不支持」统一用 `HR-WEB-001` 文案。
+- **不做**：动效只保留加载转圈与卡片浮起的过渡，不复刻 §5.6 的品牌加载动画；没有长按菜单
+  （Web 用可见的「更多」按钮代替）。
+
 ## 6. 文案
 
 - 产品名统一 **Hermes GO**（字标、磁贴、关于页、崩溃报告、诊断/对话分享主题、表格导出
