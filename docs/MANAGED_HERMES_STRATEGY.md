@@ -1,11 +1,95 @@
 # The managed Hermes: pinned copy, patched fork, or no copy at all
 
-> Status: **decided 2026-09-20 — Option B, with patches flowing upstream in parallel.** Written the
-> same day, after two incidents made the trade-off concrete. Read `docs/HERMES_CONTRACT.md` and the
-> 2026-09-19/20 entries in `docs/DESKTOP_E4_TEST_RECORD.md` first. The options are still weighed
-> below because the reasoning is what makes the rules that follow enforceable.
+> Status: **re-decided 2026-09-21 — one Hermes per Mac.** Hermes GO uses the Hermes already on the
+> Mac and installs one only when there is none; it no longer ships a second copy of its own. This
+> supersedes the 2026-09-20 decision (Option B), which is kept below together with the reasoning
+> that led to it, because the incidents and measurements behind it are what made the new decision
+> possible. Until each Mac has been switched, the bundled copy still exists as a fallback and the
+> *Operating rules* at the end still govern it.
 
-## 用户决策 · 2026-09-20
+## 用户决策 · 2026-09-21 — one Hermes per Mac
+
+> 「如果本机有 hermes 就不应该再装一个；没有的话也只是帮忙启动安装了一个而已。」
+
+**Hermes GO owns the process, not the code.** On a Mac that already has Hermes, Desktop's launchd
+job starts *that* Hermes (`~/.hermes/hermes-agent/venv/bin/hermes serve --host 127.0.0.1 --port
+9119`) instead of the bundled `hermes-server`. On a Mac without Hermes, Hermes GO runs upstream's
+own installer into upstream's standard location, after which the Mac is simply "a Mac with Hermes"
+and takes the same path. There is never a second copy for anyone to discover later, and a person
+who installs Hermes themselves afterwards finds the one that is already there.
+
+### Why the 2026-09-20 decision did not hold
+
+Option B made drift *scheduled work* instead of a surprise; it did not remove it. Two facts found
+on 2026-09-21 made removing it both possible and cheap:
+
+- **The second copy only ever served the phone.** The owner does not use a Hermes client on the Mac
+  mini; their MacBook's Hermes.app reaches it remotely, and that remote backend, the messaging
+  gateway, the cron owner and the dashboard all run the owner's own `~/.hermes/hermes-agent`. The
+  managed `serve` was the one process on the machine running different code.
+- **The two copies were the same code until the day it broke.** The managed copy appeared on
+  2026-09-09 (release 0.3.0), pinned to `f159e581`; the owner's checkout sat on that same commit
+  from 2026-09-05 until `hermes update` moved it to `17b5df02` at 20:37 on 2026-09-19. The
+  `display_identity` 500 followed that evening. Before that the "two copies" had never actually
+  differed, which is why the design looked fine for ten days.
+
+### How Option C's objections are answered
+
+Option C below was rejected for three reasons. Each belonged to *attaching to a process someone
+else started*, and none survives once Desktop starts the process from the local code:
+
+| Objection | Answer |
+|---|---|
+| `/api/ws` needs the process's exact session token | Desktop still starts the process, so it still generates and holds the token |
+| No stable endpoint (`--port 0`, Tailscale-bound dashboard) | Desktop still chooses `127.0.0.1:9119` |
+| No lifecycle control | launchd still supervises it; quitting the owner's Hermes.app does not affect it |
+
+What remains of C's cost is real and is accepted deliberately: **Hermes GO no longer decides which
+Hermes version runs.** The owner's `hermes update` does. There is no pinned artifact to reproduce,
+health-gate or roll back. Compatibility therefore moves out of packaging and into the clients:
+
+1. **Clients speak old and new protocols side by side**, deciding from what the server sends, not
+   from a version guess.
+2. **The Connector checks the upstream contract at startup** (`docs/HERMES_CONTRACT.md` §2 paths in
+   the server's `openapi.json`) and reports a registered `HR-` code instead of failing later.
+3. **Desktop restarts the `serve` it owns when the local code changes.** `hermes update` restarts
+   the services it knows — gateway, dashboard — and not ours; without a restart the phone keeps
+   talking to the old code still in memory.
+
+### Compatibility of the owner's Hermes, verified 2026-09-21
+
+Checked against `17b5df02` (the owner's checkout) versus `f159e581` (the managed copy the contract
+was verified on), and again after `main` reached `83031d0`:
+
+| Area | Finding | Consequence |
+|---|---|---|
+| Approval and clarify | Upstream replaced the `approval.request` / `clarify.request` events and the `clarify.respond` method with **server→client JSON-RPC requests** (`tui_gateway/server_requests.py`). A client that never sends `client.capabilities {server_requests: true}` is treated as outdated: approvals are withdrawn and clarify returns nothing | **Blocker.** The phone would silently stop seeing approval and clarify cards. Android must speak both protocols before any Mac is switched |
+| Inline images on read (patch 020) | `session_history.py` still reads with `image_urls=True` | Degraded: existing sessions with large inlined images are costly again on the phone. Resolved upstream by PR #116677 |
+| `session.access` (patch 030) | Not present | Degraded, fail-open: the phone cannot show "occupied elsewhere" in advance (HG-82/88); `prompt.submit` 4090 still guards. Resolved upstream by PR #116677 |
+| Unknown columns (patch 010) | The owner's code drops `display_identity` / `display_order` itself | Not needed: one code writes and reads |
+| REST paths, events, mirrored constants, error numbers, `/api/ws` auth, cron `fire_claim` and synchronous trigger | Unchanged | Compatible. `session.lifecycle`, listed in the contract, exists in neither commit |
+
+### Order of work
+
+1. Android: approval and clarify over both protocols. Precondition for any switch, and it has to
+   reach the phones in a released APK first.
+2. `docs/HERMES_CONTRACT.md` records the new protocol.
+3. Desktop: local-Hermes mode — detection, launching the local `hermes serve`, restart on code
+   change, and not running a second cron ticker (`HERMES_DESKTOP=1` currently starts one in our
+   `serve`, competing with the owner's gateway for `cron/.tick.lock`).
+4. Install-when-missing through upstream's installer. **Open question:** GitHub is often
+   unreachable from the owner's network (`hermes update` failed to fetch repeatedly on 2026-09-19
+   before it got through), so a first install may need to be served through the Hong Kong release server.
+5. Switch the Mac mini — a production change the owner authorises separately, with the bundled
+   release kept in place as the rollback.
+6. Retire the bundled copy — component archive, `desktop/hermes-patches/`, schema baseline and
+   `HR-MIGRATE-006` — once install-when-missing replaces it as the fallback. Not before: it is the
+   only path for a Mac without Hermes until step 4 exists.
+
+Waiting for upstream PR #116677 before step 5 avoids both degradations; switching earlier is
+possible and costs exactly the two rows marked *Degraded* above.
+
+## 用户决策 · 2026-09-20 (superseded 2026-09-21)
 
 The managed Hermes becomes **ours to patch**, and every patch is **also submitted upstream** — the
 two directions run in parallel rather than one waiting on the other. Upstream acceptance removes a
@@ -136,6 +220,11 @@ use. B was chosen.
 ---
 
 # Operating rules
+
+> **Scope since 2026-09-21:** these rules govern the **bundled** copy only, for as long as it
+> exists as the fallback (see *Order of work* above). A Mac running in local-Hermes mode carries no
+> patches and no schema baseline, and nothing here applies to it. Do not add new patches: a problem
+> that would have needed one is now an upstream issue plus, where it matters, client-side tolerance.
 
 These exist because a patch set decays without them. Every rule below has a failure it prevents.
 

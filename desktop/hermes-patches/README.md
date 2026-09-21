@@ -6,6 +6,11 @@ point (`docs/MANAGED_HERMES_STRATEGY.md`, 用户决策 · 2026-09-20).
 
 An empty directory is a valid state and means the managed Hermes is verbatim upstream.
 
+**Being retired (用户决策 · 2026-09-21, one Hermes per Mac).** These patches apply only to the
+bundled fallback copy; a Mac in local-Hermes mode runs the owner's Hermes unpatched. Add no new
+patches. The directory goes away together with the bundled copy — see *Order of work* in
+`docs/MANAGED_HERMES_STRATEGY.md`.
+
 Current read-side patches:
 
 - `010`: drops unknown database columns from message response dictionaries.
