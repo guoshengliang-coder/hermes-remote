@@ -106,18 +106,25 @@ function getPurifier(): DOMPurify {
   return instance;
 }
 
+const SANITIZE_CONFIG = {
+  ALLOWED_TAGS,
+  ALLOWED_ATTR,
+  ALLOWED_URI_REGEXP: /^https:/i,
+  // A non-URI attribute must be declared URI-safe, or the https-only regexp rejects its value.
+  ADD_URI_SAFE_ATTR: ["start"],
+  ALLOW_DATA_ATTR: false,
+  ALLOW_ARIA_ATTR: false,
+  KEEP_CONTENT: true,
+  RETURN_TRUSTED_TYPE: false,
+};
+
 export function sanitizeHtml(html: string): string {
-  return getPurifier().sanitize(html, {
-    ALLOWED_TAGS,
-    ALLOWED_ATTR,
-    ALLOWED_URI_REGEXP: /^https:/i,
-    // A non-URI attribute must be declared URI-safe, or the https-only regexp rejects its value.
-    ADD_URI_SAFE_ATTR: ["start"],
-    ALLOW_DATA_ATTR: false,
-    ALLOW_ARIA_ATTR: false,
-    KEEP_CONTENT: true,
-    RETURN_TRUSTED_TYPE: false,
-  }) as string;
+  return getPurifier().sanitize(html, SANITIZE_CONFIG) as string;
+}
+
+/** Same sanitizer, returned as a DOM fragment: attach with `replaceChildren`, never innerHTML. */
+export function sanitizeToFragment(html: string): DocumentFragment {
+  return getPurifier().sanitize(html, { ...SANITIZE_CONFIG, RETURN_DOM_FRAGMENT: true });
 }
 
 let markdown: MarkdownIt | null = null;
@@ -127,4 +134,11 @@ export function renderMarkdown(source: string): string {
   markdown ??= createMarkdown();
   const env: RenderEnv = { hiddenLinks: [] };
   return sanitizeHtml(markdown.render(source, env));
+}
+
+/** Render untrusted Markdown to a sanitized DocumentFragment (the UI's only path into the DOM). */
+export function renderMarkdownFragment(source: string): DocumentFragment {
+  markdown ??= createMarkdown();
+  const env: RenderEnv = { hiddenLinks: [] };
+  return sanitizeToFragment(markdown.render(source, env));
 }

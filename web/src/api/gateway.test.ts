@@ -254,3 +254,35 @@ describe("proactive refresh (keep-alive)", () => {
     expect(signedOut).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("raw uploads and expiry tracking", () => {
+  it("sends upload bytes unchanged with the caller's content-type, CSRF and the name in the query", async () => {
+    const { client, calls } = fake(() => json(200, { path: "/Users/me/.hermes/uploads/a.png", name: "a b.png", size: 3 }));
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" });
+    const result = await client.uploadFile("dev", "a b.png", blob, "image/png");
+    expect(result.path).toBe("/Users/me/.hermes/uploads/a.png");
+    expect(calls[0]!.url).toBe("/v2/devices/dev/api/files/upload?name=a%20b.png");
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.body).toBe(blob);
+    expect(calls[0]!.headers["content-type"]).toBe("image/png");
+    expect(calls[0]!.headers["X-Hermes-CSRF"]).toBe(CSRF);
+  });
+
+  it("falls back to application/octet-stream when the file has no type", async () => {
+    const { client, calls } = fake(() => json(200, { path: "/x" }));
+    await client.uploadFile("dev", "notes", new Blob(["x"]), "");
+    expect(calls[0]!.headers["content-type"]).toBe("application/octet-stream");
+  });
+
+  it("remembers the access expiry from keepAlive and forgets an unknown one", () => {
+    const { client } = fake(() => json(200, {}));
+    expect(client.accessExpiresAt).toBeNull();
+    const at = future(600_000);
+    client.keepAlive(at);
+    expect(client.accessExpiresAt).toBe(Date.parse(at));
+    client.stopKeepAlive();
+    client.keepAlive(null);
+    expect(client.accessExpiresAt).toBeNull();
+    client.stopKeepAlive();
+  });
+});

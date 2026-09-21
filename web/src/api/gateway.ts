@@ -127,6 +127,13 @@ export interface LifecycleAckResponse {
   changed: number;
 }
 
+/** POST /api/files/upload answer (connector/src/index.ts handleUploadRequest). */
+export interface UploadedFile {
+  path: string;
+  name?: string;
+  size?: number;
+}
+
 // ---- Paths ----------------------------------------------------------------------------------
 
 /**
@@ -226,6 +233,14 @@ export interface GatewayClientOptions {
   uuid?: () => string;
 }
 
+function isRawBody(value: unknown): value is Blob | ArrayBuffer | Uint8Array {
+  return (
+    (typeof Blob !== "undefined" && value instanceof Blob) ||
+    value instanceof ArrayBuffer ||
+    value instanceof Uint8Array
+  );
+}
+
 function readCookieValue(cookies: string, name: string): string | null {
   for (const part of cookies.split(";")) {
     const eq = part.indexOf("=");
@@ -251,6 +266,7 @@ export class GatewayClient {
   private readonly refreshLeadMs: number;
   private readonly refreshRetryMs: number;
   private keepAliveTimer: ReturnType<typeof setTimeout> | null = null;
+  private accessExpiresAtMs: number | null = null;
 
   constructor(options: GatewayClientOptions = {}) {
     this.refreshLeadMs = options.refreshLeadMs ?? 120_000;
@@ -321,6 +337,9 @@ export class GatewayClient {
     if (options.body !== undefined) {
       if (typeof FormData !== "undefined" && options.body instanceof FormData) {
         body = options.body;
+      } else if (isRawBody(options.body)) {
+        // Raw upload bytes (POST /api/files/upload): sent as-is; the caller sets content-type.
+        body = options.body as BodyInit;
       } else {
         headers["content-type"] = "application/json";
         body = JSON.stringify(options.body);
@@ -366,7 +385,13 @@ export class GatewayClient {
    */
   keepAlive(accessExpiresAt?: string | null): void {
     const expires = accessExpiresAt ? Date.parse(accessExpiresAt) : Number.NaN;
+    this.accessExpiresAtMs = Number.isNaN(expires) ? null : expires;
     this.scheduleKeepAlive(Number.isNaN(expires) ? 0 : Math.max(0, expires - this.refreshLeadMs - Date.now()));
+  }
+
+  /** Last known access-cookie expiry (epoch ms) from a sign-in or refresh answer; null if unknown. */
+  get accessExpiresAt(): number | null {
+    return this.accessExpiresAtMs;
   }
 
   stopKeepAlive(): void {
@@ -452,6 +477,14 @@ export class GatewayClient {
 
   messages(deviceId: string, sessionId: string): Promise<MessagesResponse> {
     return this.deviceApi(deviceId, "GET", hermesPaths.messages(sessionId));
+  }
+
+  /** Raw-body upload into the Mac's files root (Connector-served). Answers `{path, name, size}`. */
+  uploadFile(deviceId: string, name: string, body: Blob, contentType: string): Promise<UploadedFile> {
+    return this.deviceApi(deviceId, "POST", `files/upload?name=${encodeURIComponent(name)}`, {
+      body,
+      headers: { "content-type": contentType || "application/octet-stream" },
+    });
   }
 
   // ---- Lifecycle inbox ----

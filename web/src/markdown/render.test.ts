@@ -131,3 +131,17 @@ describe("isAllowedHref", () => {
     }
   });
 });
+
+describe("renderMarkdownFragment", () => {
+  it("returns a sanitized DocumentFragment with the same rules as renderMarkdown", async () => {
+    const { renderMarkdownFragment } = await import("./render");
+    const fragment = renderMarkdownFragment("**hi** <script>alert(1)</script> [x](javascript:alert(1)) [y](https://example.com)");
+    const div = document.createElement("div");
+    div.appendChild(fragment);
+    expect(div.querySelector("script")).toBeNull();
+    expect(div.querySelector("strong")?.textContent).toBe("hi");
+    const links = [...div.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com"]);
+    expect(links[0]!.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+});

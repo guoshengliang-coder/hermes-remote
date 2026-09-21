@@ -59,6 +59,7 @@ export const CATALOG = {
   "HR-APPROVAL-003": { zh: "这次审批没有送达：这条审批已不再等待回答（可能已超时、运行已停止，或已在其他设备上处理）。如仍需要，请在输入框重新说明。", en: "This approval didn't reach the agent: the request was no longer waiting (it may have timed out, the run stopped, or it was answered on another device). If you still want it, say so in the composer.", retryable: false, action: "composer" },
   "HR-SYNC-003": { zh: "Mac 上的 Hermes 返回了错误，请检查 Mac 端。", en: "Hermes on the Mac returned an error. Check the Mac.", retryable: false, action: "open-mac" },
   "HR-SYNC-004": { zh: "无法解析会话内容，请更新 App。", en: "This conversation could not be read. Update the app.", retryable: false, action: "reload" },
+  "HR-FILE-001": { zh: "无法读取所选文件，请重新选择。", en: "Couldn't read the selected file. Choose it again.", retryable: true, action: "retry" },
   "HR-FILE-003": { zh: "这个文件不在 Mac 允许访问的目录内，无法下载。请让 Hermes 把它放到允许的目录。", en: "The file sits outside the folder the Mac allows, so it can't be downloaded. Ask Hermes to place it inside that folder.", retryable: false, action: "none" },
   "HR-FILE-004": { zh: "文件超过传输上限，无法下载。请让 Hermes 压缩或拆分后再发。", en: "The file exceeds the transfer limit. Ask Hermes to compress or split it.", retryable: false, action: "none" },
   "HR-FILE-005": { zh: "这个文件在 Mac 上已不存在，请让 Hermes 重新生成。", en: "The file is no longer on the Mac. Ask Hermes to produce it again.", retryable: false, action: "none" },
