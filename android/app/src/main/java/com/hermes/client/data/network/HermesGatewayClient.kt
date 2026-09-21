@@ -17,7 +17,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -123,6 +128,14 @@ open class HermesGatewayClient(
 
     private val pending = ConcurrentHashMap<Long, PendingCall>()
 
+    /**
+     * Server requests received while a `session.resume` is in flight, per resume call id. Upstream
+     * snapshots `open_requests` before its worker writes the answer, and registering a request does
+     * not take the resume lock — so a question can reach us *before* the answer that omits it. It is
+     * open all the same, and the snapshot must not prune it. See [onResumeAnswered].
+     */
+    private val resumeWindows = ConcurrentHashMap<Long, MutableSet<String>>()
+
     @Volatile private var ws: WebSocket? = null
     @Volatile protected var manuallyClosed = false
 
@@ -195,7 +208,8 @@ open class HermesGatewayClient(
             "watchdog=${handshakeWatchdog?.let { if (it.isActive) "active" else "finished" } ?: "none"} " +
             "socket=${if (ws == null) "none" else "present"} " +
             "connectingFor=${if (connectingSince == 0L) "-" else "${now - connectingSince}ms"} " +
-            "sinceReady=${if (readyAt == 0L) "never" else "${now - readyAt}ms"}"
+            "sinceReady=${if (readyAt == 0L) "never" else "${now - readyAt}ms"} " +
+            "serverRequests=$serverRequestsState"
     }
 
     // Readiness gate: awaited by call() before sending RPCs.
@@ -226,6 +240,13 @@ open class HermesGatewayClient(
 
     /** Whether the current socket ever carried an answer to an RPC. See [wasWorthKeeping]. */
     @Volatile private var currentSocketAnsweredAnRpc = false
+
+    /**
+     * What the current socket's Hermes said to `client.capabilities`: `pending`, `advertised`, or
+     * `unsupported` (a Hermes that still asks through events). Diagnostics only — which protocol a
+     * card uses is decided by what arrives, never by this.
+     */
+    @Volatile private var serverRequestsState = "pending"
 
     private companion object {
         const val READY_TIMEOUT_MS = 15_000L
@@ -404,6 +425,7 @@ open class HermesGatewayClient(
             // This socket has proved nothing yet; [wasWorthKeeping] starts from no.
             readyAtMsForCurrentSocket = 0L
             currentSocketAnsweredAnRpc = false
+            serverRequestsState = "pending"
             connectingSinceMs = System.currentTimeMillis()
             _state.value = ConnectionState.Connecting
             next
@@ -537,13 +559,23 @@ open class HermesGatewayClient(
             text.lineSequence().filter { it.isNotBlank() }.forEach { line ->
                 when (val msg = parseInbound(json, line)) {
                     is RpcResult -> {
-                        currentSocketAnsweredAnRpc = true
-                        pending.remove(msg.id)?.deferred?.complete(msg.result)
+                        val call = pending.remove(msg.id)
+                        // The capability handshake is answered by every Hermes the moment a socket
+                        // opens, so it proves nothing about the socket staying useful. Counting it
+                        // would reset the backoff on exactly the sockets HG-65 was about.
+                        if (call?.method != ServerRequests.CAPABILITIES_METHOD) currentSocketAnsweredAnRpc = true
+                        // Settled here, on the reader, not in the coroutine awaiting it: the next
+                        // frame may already be a resume answer that needs to know.
+                        if (call?.method == ServerRequests.CAPABILITIES_METHOD) serverRequestsState = "advertised"
+                        if (call?.method == ServerRequests.RESUME_METHOD) {
+                            onResumeAnswered(webSocket, msg.result, resumeWindows.remove(msg.id).orEmpty())
+                        }
+                        call?.deferred?.complete(msg.result)
                     }
                     is RpcErrorReply -> {
-                        // An error reply is still an answer: the far end is listening.
-                        currentSocketAnsweredAnRpc = true
                         val call = pending.remove(msg.id)
+                        // An error reply is still an answer: the far end is listening.
+                        if (call?.method != ServerRequests.CAPABILITIES_METHOD) currentSocketAnsweredAnRpc = true
                         DebugLog.log("ws", "rpc#${msg.id} ${call?.method ?: "?"} ← error " +
                             "${msg.error.code}: ${msg.error.message}")
                         call?.deferred
@@ -558,6 +590,10 @@ open class HermesGatewayClient(
                             lastReadyAtMs = System.currentTimeMillis()
                             readyAtMsForCurrentSocket = lastReadyAtMs
                             handshakeWatchdog?.cancel()
+                            // Before the readiness gate opens, so it is the first frame Hermes
+                            // reads on this socket: it handles frames in order, and a session this
+                            // socket resumes before advertising would have its questions withdrawn.
+                            advertiseServerRequests(webSocket, gen)
                             _state.value = ConnectionState.Connected
                             readyGate.complete(Unit)
                         }
@@ -572,6 +608,8 @@ open class HermesGatewayClient(
                             webSocket.close(1013, "event queue overflow")
                         }
                     }
+                    is RpcServerRequest -> onServerRequest(webSocket, msg)
+                    is RpcUnreadable -> DebugLog.log("ws", "dropped unreadable frame: ${msg.reason}")
                 }
             }
         }
@@ -688,6 +726,110 @@ open class HermesGatewayClient(
         }
     }
 
+    /**
+     * Tell this socket's Hermes that this client answers server→client requests. Without it a
+     * newer Hermes never sends approval or clarify here — it withdraws the approval and returns an
+     * empty clarify answer, and the phone sees nothing at all. An older Hermes answers -32601,
+     * which is expected and only logged: that one still asks through events.
+     */
+    private fun advertiseServerRequests(webSocket: WebSocket, gen: Int) {
+        val id = nextId.getAndIncrement()
+        val deferred = CompletableDeferred<JsonElement>()
+        val call = PendingCall(ServerRequests.CAPABILITIES_METHOD, deferred)
+        pending[id] = call
+        val params = ServerRequests.capabilityParams()
+        if (!webSocket.send(RpcRequest(id, ServerRequests.CAPABILITIES_METHOD, params).encode(json))) {
+            pending.remove(id, call)
+            DebugLog.log("ws", "client.capabilities not sent (gen=$gen): socket closing")
+            return
+        }
+        scope.launch {
+            try {
+                val result = withTimeout(rpcTimeoutMs) { deferred.await() }
+                val methods = ((result as? JsonObject)?.get("server_requests") as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                    .orEmpty()
+                DebugLog.log("ws", "server requests advertised (gen=$gen); Hermes may ask: ${methods.joinToString(",")}")
+            } catch (e: GatewayRpcException) {
+                if (gen == generation.get()) serverRequestsState = "unsupported"
+                DebugLog.log("ws", "client.capabilities unsupported (gen=$gen, code=${e.code}); questions arrive as events")
+            } catch (e: TimeoutCancellationException) {
+                DebugLog.log("ws", "client.capabilities unanswered (gen=$gen)")
+            } finally {
+                pending.remove(id, call)
+            }
+        }
+    }
+
+    /**
+     * Hermes asked this client something. Approval and clarify become the same events the older
+     * protocol sent, so every card, notification and persisted phase keeps one shape; anything else
+     * is refused at once with -32601 — upstream reads that as "no handler" and moves on, instead of
+     * waiting out the request's deadline (300s for a prompt) with nobody to answer.
+     */
+    private fun onServerRequest(webSocket: WebSocket, request: RpcServerRequest) {
+        val event = ServerRequests.toEvent(request.id, request.method, request.params)
+        if (event == null) {
+            DebugLog.log("ws", "server request ${request.method} id=${request.id.content}: no handler, answered -32601")
+            webSocket.send(
+                encodeServerError(
+                    json, request.id, ServerRequests.METHOD_NOT_FOUND,
+                    "Hermes Remote has no handler for ${request.method}",
+                ),
+            )
+            return
+        }
+        DebugLog.log("ws", "server request ${request.method} id=${request.id.content} session=${event.sessionId ?: "-"}")
+        request.id.contentOrNull?.let { id -> resumeWindows.values.forEach { it += id } }
+        if (eventQueue.trySend(event).isFailure) {
+            DebugLog.log("ws", "event queue overflow; reconnecting for history resync")
+            webSocket.close(1013, "event queue overflow")
+        }
+    }
+
+    /**
+     * A `session.resume` answer, handled on the reader thread so its place in the frame order is kept.
+     *
+     * Newer Hermes does not replay a question asked while no socket of ours was attached; it lists it
+     * in `open_requests` and expects the client to re-deliver it as if it had just arrived. The same
+     * list is also the only way to learn that a card went stale *without* a `request.cancel`: upstream
+     * sends none when another surface answers first, and a card restored from disk may name a request
+     * that timed out while no socket was attached. So on a connection that advertised server requests,
+     * the answer is followed by an [ServerRequests.OPEN_SNAPSHOT_EVENT] naming every id still open, and
+     * server-request cards not in it are dropped. Upstream omits the field when nothing is open
+     * (`_live_session_payload` only sets non-empty values; a cold resume mints a fresh handle that owns
+     * no requests), so absent means empty. Queued behind every frame that arrived before this answer
+     * and ahead of every frame after it, which is why it is not done in the coroutine awaiting the call.
+     */
+    private fun onResumeAnswered(webSocket: WebSocket, result: JsonElement, arrivedDuringResume: Set<String>) {
+        if (serverRequestsState != "advertised") return
+        val obj = result as? JsonObject ?: return
+        val events = ServerRequests.openRequestEvents(obj) +
+            listOfNotNull(ServerRequests.openSnapshotEvent(obj, alsoOpen = arrivedDuringResume))
+        events.forEach { event ->
+            if (event.type != ServerRequests.OPEN_SNAPSHOT_EVENT) {
+                DebugLog.log("ws", "re-delivering open ${event.type} session=${event.sessionId ?: "-"}")
+            }
+            if (eventQueue.trySend(event).isFailure) {
+                DebugLog.log("ws", "event queue overflow; reconnecting for history resync")
+                webSocket.close(1013, "event queue overflow")
+                return
+            }
+        }
+    }
+
+    private suspend fun awaitReadiness(what: String) {
+        // Bounded wait: if the server never sends gateway.ready, throw after READY_TIMEOUT_MS.
+        try {
+            withTimeout(READY_TIMEOUT_MS) { readyGate.await() }
+        } catch (e: TimeoutCancellationException) {
+            // Every feature reporting its own readiness timeout, 15s apart, with nothing naming
+            // the socket, is exactly what HG-27 looked like from the outside.
+            DebugLog.log("error", "rpc $what blocked: no gateway.ready in ${READY_TIMEOUT_MS}ms")
+            throw GatewayReadinessTimeoutException("gateway readiness timeout")
+        }
+    }
+
     private fun failAllPending(reason: String) {
         pending.keys.toList().forEach { id ->
             pending.remove(id)?.deferred?.completeExceptionally(GatewayRpcException(0, reason))
@@ -696,20 +838,14 @@ open class HermesGatewayClient(
 
     suspend fun call(method: String, params: JsonObject): JsonElement {
         // Wait until gateway.ready has been received before sending any RPC.
-        // Bounded wait: if the server never sends gateway.ready, throw after READY_TIMEOUT_MS.
         // The await() happens BEFORE registering in `pending`, so a timeout here never leaks
         // a pending entry.
-        try {
-            withTimeout(READY_TIMEOUT_MS) { readyGate.await() }
-        } catch (e: TimeoutCancellationException) {
-            // Every feature reporting its own readiness timeout, 15s apart, with nothing naming
-            // the socket, is exactly what HG-27 looked like from the outside.
-            DebugLog.log("error", "rpc $method blocked: no gateway.ready in ${READY_TIMEOUT_MS}ms")
-            throw GatewayReadinessTimeoutException("gateway readiness timeout")
-        }
+        awaitReadiness(method)
         val id = nextId.getAndIncrement()
         val deferred = CompletableDeferred<JsonElement>()
         val call = PendingCall(method, deferred)
+        // Opened before the request leaves, so no server request can slip in unrecorded.
+        if (method == ServerRequests.RESUME_METHOD) resumeWindows[id] = ConcurrentHashMap.newKeySet()
         pending[id] = call
         // A polling method stays quiet while it is quick and successful — the rule the inbox poll
         // already follows (DESIGN.md §5.15). process.list runs every 5s per active run and was 55
@@ -720,6 +856,7 @@ open class HermesGatewayClient(
         val sent = ws?.send(RpcRequest(id, method, params).encode(json)) ?: false
         if (!sent) {
             pending.remove(id)
+            resumeWindows.remove(id)
             DebugLog.log("ws", "rpc#$id $method failed: not connected")
             throw GatewayRpcException(0, "not connected")
         }
@@ -741,6 +878,7 @@ open class HermesGatewayClient(
             throw GatewayRpcException(0, "gateway response timeout")
         } finally {
             pending.remove(id, call)
+            resumeWindows.remove(id)
         }
     }
 

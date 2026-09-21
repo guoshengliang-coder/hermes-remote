@@ -3,6 +3,7 @@ package com.hermes.client.data.repository
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.data.network.ServerRequests
 import com.hermes.client.ui.chat.ApprovalChoice
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -158,13 +159,20 @@ class ChatRepository(private val client: HermesGatewayClient) {
         val result = client.call("session.resume", buildJsonObject {
             put("session_id", sessionId)
             put("source", clientSource)
-            // The app reads history through the chunked REST endpoint. Repeating every historical
-            // base64 image in this control-plane answer can exceed the relay frame before the
-            // returned live handle reaches us (HG-69).
-            put("inline_images", false)
+            // The app reads history through the chunked REST endpoint and takes nothing but the live
+            // handle (and `open_requests`) from this answer, so it asks for no transcript at all.
+            // A transcript here repeats every historical base64 image and can exceed the relay
+            // frame before the handle reaches us (HG-65/HG-69). `omit_messages` is upstream's own
+            // flag for exactly this (Desktop sends it) and means the same in f159e581 and 17b5df02;
+            // the earlier `inline_images=false` came from managed patch 020 and 17b5df02 rejects it
+            // with 4000. It also makes upstream's runaway-transcript guard count the tip segment
+            // only, as for Desktop. See docs/HERMES_CONTRACT.md section 3.
+            put("omit_messages", true)
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
-        return result.jsonObject["session_id"]?.jsonPrimitive?.content
+        // `open_requests` in this answer is handled by the socket itself, in frame order
+        // (HermesGatewayClient.onResumeAnswered).
+        return (result as? JsonObject)?.get("session_id")?.jsonPrimitive?.content
     }
 
     /**
@@ -283,7 +291,10 @@ class ChatRepository(private val client: HermesGatewayClient) {
             put("session_id", sessionId)
             // Current Hermes uses content_base64; `data` was a legacy alias.
             put("content_base64", dataBase64)
-            put("mime_type", mimeType)
+            // `ext` WINS over upstream's own magic-byte sniff (`_sniff_image_ext` checks the hint
+            // first, in both versions), so it is only sent when it names what the bytes actually
+            // are. It replaced `mime_type`, which no version declares and 17b5df02 answers with 4000.
+            imageExtensionOf(dataBase64)?.let { put("ext", it) }
         })
         val obj = result.jsonObject
         return AttachedImage(
@@ -378,25 +389,63 @@ class ChatRepository(private val client: HermesGatewayClient) {
         }
     }
 
-    suspend fun respondApproval(sessionId: String, choice: ApprovalChoice) {
+    /**
+     * Answer an approval. [serverRequestId] is set when the card came from a server→client request
+     * (newer Hermes): the answer then goes to exactly that request through `request.answer`, which
+     * cannot land on a different approval and says `expired` when the request is gone — timed out,
+     * the run stopped, or answered on another surface. Otherwise it is the older `approval.respond`
+     * RPC, which answers nothing checkable, and this returns "".
+     */
+    suspend fun respondApproval(sessionId: String, choice: ApprovalChoice, serverRequestId: String? = null): String {
+        if (!serverRequestId.isNullOrBlank()) {
+            return answerServerRequest(serverRequestId, buildJsonObject { put("choice", choice.wire) })
+        }
         client.call("approval.respond", buildJsonObject {
             put("session_id", sessionId)
+            // Only `choice`: upstream never read an `approved` flag (f159e581 included), and newer
+            // Hermes rejects any key its contract does not declare with 4000.
             put("choice", choice.wire)
-            put("approved", choice != ApprovalChoice.DENY)
         })
+        return ""
+    }
+
+    /** `request.answer {id, result}` → `"ok"` or `"expired"`. */
+    private suspend fun answerServerRequest(id: String, result: JsonObject): String {
+        val answered = client.call(ServerRequests.ANSWER_METHOD, buildJsonObject {
+            put("id", id)
+            put("result", result)
+        })
+        return (answered as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
     }
 
     /**
      * Returns the server's status string: "ok" when the pending request was released with this
      * answer, "expired" when the request was already gone server-side (timeout, interrupt, or a
      * concurrent release) — the agent never sees an answer delivered onto an expired request.
+     *
+     * [serverRequest] marks a card raised by a server→client `clarify` request (newer Hermes), for
+     * which `clarify.respond` no longer exists: one batch answer is locked with `clarify.lock`
+     * (which says `ok`/`expired`, and whose last lock resolves the request), while a single answer,
+     * a skip or a cancel-all is `request.answer {id, result:{answer}}`, which says the same.
      */
     suspend fun respondClarify(
         sessionId: String,
         requestId: String,
         answer: String,
         questionId: String? = null,
+        serverRequest: Boolean = false,
     ): String {
+        if (serverRequest) {
+            if (!questionId.isNullOrEmpty()) {
+                val locked = client.call(ServerRequests.CLARIFY_LOCK_METHOD, buildJsonObject {
+                    put("request_id", requestId)
+                    put("question_id", questionId)
+                    put("answer", answer)
+                })
+                return (locked as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
+            }
+            return answerServerRequest(requestId, buildJsonObject { put("answer", answer) })
+        }
         val result = client.call("clarify.respond", buildJsonObject {
             put("session_id", sessionId)
             put("request_id", requestId)
@@ -405,5 +454,30 @@ class ChatRepository(private val client: HermesGatewayClient) {
             if (!questionId.isNullOrEmpty()) put("question_id", questionId)
         })
         return (result as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
+    }
+}
+
+/**
+ * The `image.attach_bytes` `ext` for what these base64 bytes actually are, or null to leave it to
+ * upstream. Only types upstream accepts (`cli._IMAGE_EXTENSIONS`, identical in f159e581 and 17b5df02)
+ * and that upstream's own sniff would not get wrong: a HEIC is not in that set at all, so naming it
+ * would only turn a fallback into a 4016.
+ */
+internal fun imageExtensionOf(dataBase64: String): String? {
+    val head = runCatching {
+        java.util.Base64.getMimeDecoder().decode(dataBase64.take(32).let { it.take(it.length / 4 * 4) })
+    }.getOrNull() ?: return null
+    fun startsWith(vararg bytes: Int) =
+        head.size >= bytes.size && bytes.indices.all { head[it] == bytes[it].toByte() }
+    return when {
+        startsWith(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) -> "png"
+        startsWith(0xFF, 0xD8, 0xFF) -> "jpg"
+        startsWith(0x47, 0x49, 0x46, 0x38) -> "gif"
+        head.size >= 12 && startsWith(0x52, 0x49, 0x46, 0x46) &&
+            head[8] == 'W'.code.toByte() && head[9] == 'E'.code.toByte() &&
+            head[10] == 'B'.code.toByte() && head[11] == 'P'.code.toByte() -> "webp"
+        startsWith(0x42, 0x4D) -> "bmp"
+        startsWith(0x49, 0x49, 0x2A, 0x00) || startsWith(0x4D, 0x4D, 0x00, 0x2A) -> "tiff"
+        else -> null
     }
 }

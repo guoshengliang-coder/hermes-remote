@@ -122,16 +122,21 @@ fun projectSessionNotification(
                 else localized(language, "要运行命令", "Wants to run a command")
             }
             val command = approval.command.trim().takeIf { it.isNotBlank() && it != lead }
+            // A server-request approval is answered by its own id, so the shade can never approve
+            // a different command than the one this card shows.
+            fun approvalAction(label: String, name: String) = action(label, name) {
+                approval.serverRequestId?.let { copy(requestId = it, serverRequest = true) } ?: this
+            }
             base.copy(
                 body = listOfNotNull(lead, command).joinToString("\n"),
                 stateLabel = localized(language, "需要审批", "Approval needed"),
                 actions = if (elevated) listOf(
-                    action(localized(language, "拒绝", "Deny"), Notif.ACTION_DENY),
+                    approvalAction(localized(language, "拒绝", "Deny"), Notif.ACTION_DENY),
                     action(localized(language, "打开查看", "Open"), Notif.ACTION_OPEN),
                 ) else listOf(
-                    action(localized(language, "允许一次", "Allow once"), Notif.ACTION_ALLOW_ONCE),
-                    action(localized(language, "本会话允许", "This session"), Notif.ACTION_ALLOW_SESSION),
-                    action(localized(language, "拒绝", "Deny"), Notif.ACTION_DENY),
+                    approvalAction(localized(language, "允许一次", "Allow once"), Notif.ACTION_ALLOW_ONCE),
+                    approvalAction(localized(language, "本会话允许", "This session"), Notif.ACTION_ALLOW_SESSION),
+                    approvalAction(localized(language, "拒绝", "Deny"), Notif.ACTION_DENY),
                 ),
                 autoCancel = false,
                 category = NotificationCompat.CATEGORY_MESSAGE,
@@ -148,7 +153,12 @@ fun projectSessionNotification(
             }
             val replyLabel = localized(language, "回复…", "Reply…")
             val reply = action(replyLabel, Notif.ACTION_REPLY) {
-                copy(reply = true, requestId = request.requestId, questionId = question.qid.ifBlank { null })
+                copy(
+                    reply = true,
+                    requestId = request.requestId,
+                    questionId = question.qid.ifBlank { null },
+                    serverRequest = request.serverRequest,
+                )
             }
             base.copy(
                 body = body,
@@ -156,7 +166,12 @@ fun projectSessionNotification(
                 actions = if (buttons) {
                     question.choices.map { choice ->
                         action(choiceLabel(choice), Notif.ACTION_CHOICE) {
-                            copy(requestId = request.requestId, questionId = question.qid.ifBlank { null }, answer = choice)
+                            copy(
+                                requestId = request.requestId,
+                                questionId = question.qid.ifBlank { null },
+                                answer = choice,
+                                serverRequest = request.serverRequest,
+                            )
                         }
                     } + reply
                 } else listOf(reply, action(localized(language, "打开", "Open"), Notif.ACTION_OPEN)),

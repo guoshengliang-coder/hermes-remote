@@ -174,17 +174,203 @@ placed in the signed release.
 ```
 session.create   session.resume   session.access*    session.interrupt   session.workspace.move
 prompt.submit    slash.exec       complete.path       commands.catalog
-approval.respond clarify.respond  config.get          config.set
+approval.respond clarify.respond† clarify.lock‡      client.capabilities‡  request.answer‡
+config.get       config.set
 file.attach      image.attach     image.attach_bytes  pdf.attach
 process.list     projects.tree    projects.project_sessions
 ```
 
+† old question protocol only (f159e581); gone in 17b5df02. ‡ new question protocol; an older Hermes
+answers `client.capabilities` with -32601, which is expected and only logged. See
+"How Hermes asks the phone a question" below.
+
 `session.access*` is supplied by managed read-side patch 030 until upstream #116651 / PR #116677 lands; clients
 must tolerate method-not-found and retain the submit-time 4090 fallback.
 
+#### WebSocket RPC params: what 17b5df02 accepts (audited 2026-09-21)
+
+17b5df02 validates every call's params against a pydantic model whose base `Params` is
+`extra="forbid"` (`tui_gateway/contracts/base.py`; `registry.py::validate_params`, applied in
+`rpc_dispatch._handle_admitted_request`). **One undeclared key fails the whole call with 4000**;
+missing or mistyped keys are left to the handler. f159e581 validates nothing — an unused key was
+silently ignored there, which is how three undeclared keys accumulated unnoticed.
+
+This table is every WebSocket RPC this repository sends — every `client.call(…)` in the Android app
+plus the Connector observer's one call — against the 17b5df02 model, inherited
+`SessionParams`/`ProfileParams` fields included. "Accepted keys" is generated from
+`tui_gateway/contracts/` into `docs/hermes-rpc-params.json`, which `RpcParamContractTest` enforces
+at build time (and checks this table against) and which the dev mock enforces in strict mode.
+`?` marks a key sent only when set.
+
+| Method | Params model (17b5df02) | Accepted keys | Keys the app sends | f159e581 |
+|---|---|---|---|---|
+| `session.create` | `SessionCreateParams` | `close_on_disconnect`, `cols`, `cwd`, `fast`, `follow_profile_config`, `hidden`, `messages`, `model`, `parent_session_id`, `profile`, `provider`, `reasoning_effort`, `room_plumbing`, `source`, `title` | `source`, `profile`?, `cwd`? | present, unvalidated |
+| `session.workspace.move` | `SessionWorkspaceMoveParams` | `cwd`, `profile`, `session_key` | `session_key`, `cwd`, `profile`? | present, unvalidated |
+| `session.resume` | `SessionResumeParams` | `close_on_disconnect`, `cols`, `defer_history`, `eager_build`, `lazy`, `omit_messages`, `profile`, `session_id`, `source` | `session_id`, `source`, `omit_messages`, `profile`? | present, unvalidated |
+| `prompt.submit` | `PromptSubmitParams` | `confirm_empty_truncate`, `confirm_truncate`, `display_kind`, `hosted_task`, `hosted_terminal_callback`, `interrupted`, `profile`, `queued`, `rebind_survivor_row_ids`, `session_id`, `surface`, `text`, `title_preview`, `truncate_before_message_id`, `truncate_before_row_id`, `truncate_before_user_ordinal`, `turn_author`, `voice_context` | `session_id`, `text` | present, unvalidated |
+| `slash.exec` | `SlashExecParams` | `command`, `profile`, `session_id` | `session_id`, `command` | present, unvalidated |
+| `complete.path` | `CompletePathParams` | `cwd`, `profile`, `session_id`, `word` | `session_id`, `word` | present, unvalidated |
+| `config.get` | `ConfigGetParams` | `cwd`, `key`, `profile`, `session_id` | `key`, `session_id` | present, unvalidated |
+| `config.set` | `ConfigSetParams` | `confirm_expensive_model`, `key`, `profile`, `scope`, `session_id`, `value` | `key`, `session_id`, `value` | present, unvalidated |
+| `commands.catalog` | `CommandsCatalogParams` | `profile`, `session_id` | — | present, unvalidated |
+| `session.interrupt` | `SessionInterruptParams` | `expected_hosted_task_id`, `profile`, `session_id` | `session_id` | present, unvalidated |
+| `image.attach_bytes` | `ImageAttachBytesParams` | `content_base64`, `data`, `ext`, `filename`, `profile`, `session_id` | `session_id`, `content_base64`, `ext`? | present, unvalidated |
+| `image.attach` | `ImageAttachParams` | `path`, `profile`, `session_id` | `session_id`, `path` | present, unvalidated |
+| `pdf.attach` | `PdfAttachParams` | `content_base64`, `data`, `filename`, `first_page`, `last_page`, `path`, `profile`, `session_id` | `session_id` + `content_base64`, `filename` \| `path` | present, unvalidated |
+| `file.attach` | `FileAttachParams` | `data_url`, `name`, `path`, `profile`, `session_id` | `session_id`, `name` + `data_url` \| `path` | present, unvalidated |
+| `process.list` | `ProcessListParams` | `profile`, `session_id` | `session_id` | present, unvalidated |
+| `approval.respond` | `ApprovalRespondParams` | `all`, `choice`, `profile`, `request_id`, `session_id` | `session_id`, `choice` | present, unvalidated |
+| `clarify.lock` | `ClarifyLockParams` | `answer`, `profile`, `question_id`, `request_id` | `request_id`, `question_id`, `answer` | absent (-32601; only sent for a server-request card, which f159e581 never raises) |
+| `request.answer` | `RequestAnswerParams` | `id`, `profile`, `result` | `id`, `result` | absent (only sent for a server-request card, which f159e581 never raises) |
+| `client.capabilities` | `ClientCapabilitiesParams` | `server_requests` | `server_requests` | absent (-32601, tolerated) |
+| `projects.tree` | `ProjectsTreeParams` | `preview_limit`, `profile`, `session_limit` | `preview_limit` | present, unvalidated |
+| `projects.project_sessions` | `ProjectsProjectSessionsParams` | `profile`, `project_id`, `session_limit` | `project_id` | present, unvalidated |
+| `projects.create` | `ProjectsCreateParams` | `board_slug`, `color`, `description`, `folders`, `icon`, `name`, `primary_path`, `profile`, `slug`, `use` | `name`, `folders`?, `icon`?, `color`? | present, unvalidated |
+| `projects.update` | `ProjectsUpdateParams` | `board_slug`, `color`, `description`, `icon`, `id`, `name`, `profile` | `id`, `name`?, `icon`?, `color`? | present, unvalidated |
+| `projects.add_folder` | `ProjectsAddFolderParams` | `id`, `is_primary`, `label`, `path`, `profile` | `id`, `path` | present, unvalidated |
+| `projects.remove_folder` | `ProjectFolderParams` | `id`, `path`, `profile` | `id`, `path` | present, unvalidated |
+| `projects.set_primary` | `ProjectFolderParams` | `id`, `path`, `profile` | `id`, `path` | present, unvalidated |
+| `projects.delete` | `ProjectIdParams` | `id`, `profile` | `id` | present, unvalidated |
+| `session.active_list` | `SessionActiveListParams` | `current_session_id`, `profile` | — (Connector observer, `session-observer-runner.ts`) | present, unvalidated |
+| `session.access` | — (-32601 on 17b5df02) | `live_session_id`, `profile`, `session_id` | `session_id`, `profile`?, `live_session_id`? | absent upstream; managed patch 030 adds it |
+| `clarify.respond` | — (-32601 on 17b5df02) | `answer`, `question_id`, `request_id`, `session_id` | `session_id`, `request_id`, `answer`, `question_id`? | present (old question protocol) |
+
+What the audit found and how each was fixed — every fix is one params form **both** servers accept,
+so nothing here depends on guessing the version:
+
+| Call | Was | 17b5df02 | Now |
+|---|---|---|---|
+| `session.resume` | `inline_images: false` (managed patch 020) | 4000 — every conversation open failed | `omit_messages: true`, identical in f159e581 and 17b5df02 (below) |
+| `image.attach_bytes` | `mime_type` | 4000 — every photo upload failed | `ext` only when the phone's own magic-byte check says what the bytes are (png/jpg/gif/webp/bmp/tiff), else omitted. In both versions `_sniff_image_ext` lets the hint **win** over its magic-byte sniff, so a hint must never be a guess; HEIC/HEIF are not in `cli._IMAGE_EXTENSIONS` in either version, and naming them would turn upstream's fallback into a 4016 |
+| `approval.respond` | `approved` | 4000 | dropped; no version ever read it |
+| `session.access` | — | method absent, -32601 | unchanged: the caller already fails open (patch 030 supplies it on the managed copy) |
+| `clarify.respond` | — | method absent, -32601 | unchanged: only sent for an old-protocol card, which only f159e581 raises |
+
+Because no call needs a key only one side accepts, **there is no retry-without-key tolerance** — a
+4000 is always a client bug to fix here, never something to paper over at runtime.
+
+**Why `omit_messages` and not `defer_history` or `lazy`.** The app takes exactly two things from a
+`session.resume` answer: the live `session_id` and (new protocol) `open_requests`. The transcript
+comes from the paged REST endpoint. So the answer should carry no transcript at all — which is what
+HG-65/HG-69 needed, since the transcript is where every historical base64 image was re-inlined.
+- `omit_messages: true` does exactly that on both versions (`_Resume.messages` / `read_history` /
+  `display_prefix` all short-circuit; `message_count` is still reported). It is the flag upstream's
+  own Desktop sends for the same reason ("Desktop hydrates over REST"). Two side effects, both
+  benign here: the model-fed history is loaded as the tip segment's own conversation
+  (`child_history`, the same path Desktop takes), and the runaway-transcript guard
+  (`_resume_guard`, 4130) counts the tip segment only instead of the whole lineage.
+- `defer_history` answers `status: "resuming"` / `hydrating: true` and loads the history on a
+  background worker; a `prompt.submit` sent meanwhile blocks on that load (`_await_resume_history`,
+  up to 300 s). It exists to keep a *transcript* off the response path — `omit_messages` already
+  removes the transcript, so it would only add a hydration phase and a wait the app gains nothing from.
+- `lazy` is upstream's watch mode for Desktop subagent windows: it registers the session without
+  enabling gateway prompts (`mint(prompts=False)`) and without an agent until `prompt.submit`
+  upgrades it, and on its own it still returns the child transcript. Not meant for a conversation
+  the user drives.
+
+**Not covered by this table — REST.** `GET /api/sessions/{id}/messages` still sends
+`inline_images=false`. FastAPI ignores an unknown query parameter, so 17b5df02 does not reject it —
+it just ignores it and returns images inlined (patch 020's REST half is what honoured it). 17b5df02
+does page that endpoint (at most 500 rows per call), but how large an image-heavy page gets there
+has not been measured; checklist item 8g still applies before adoption.
+
 Server events consumed: `message.start` / `message.delta` / `message.complete`,
-`tool.start` / `tool.complete`, `session.info` / `session.lifecycle`,
-`approval.request`, `clarify.request`, `session.reclaimed`, `sessions.changed`.
+`tool.start` / `tool.complete`, `session.info`, `approval.request` / `clarify.request` (old question
+protocol), `request.cancel` (new question protocol), `session.reclaimed`, `sessions.changed`.
+
+`session.lifecycle` used to be listed here and is **not a Hermes event**: neither f159e581 nor
+17b5df02 emits or declares it (`git grep -F '"session.lifecycle"'` finds nothing; the loose pattern
+only hits the `session_lifecycle` module, and `contracts/events.py` has no such event). It is this
+repository's own Relay wire type — the Connector's observer derives it from `session.active_list`
+polls (`connector/src/session-observer.ts`) and the app reads it from the Relay inbox
+(`LifecycleEventRepository`), never from `/api/ws`.
+
+**How Hermes asks the phone a question — two protocols, both supported (verified 2026-09-21).**
+Between f159e581 and 17b5df02 upstream replaced the paired notification/respond protocol with
+server→client JSON-RPC requests (`tui_gateway/server_requests.py`). The app speaks both and decides
+per card from what actually arrives, never from a version guess (`ServerRequests.kt`):
+
+| | Old (f159e581) | New (17b5df02) |
+|---|---|---|
+| Ask | event `approval.request` / `clarify.request` | request frame `{jsonrpc, id:"srq-<12 hex>", method:"approval"\|"clarify", params:{session_id, …}}` |
+| Approval answer | `approval.respond {session_id, choice}` — resolves the *oldest* approval | `request.answer {id, result:{choice}}` → `{status:"ok"\|"expired"}` — exactly that request |
+| Single clarify answer | `clarify.respond {session_id, request_id, answer}` | `request.answer {id, result:{answer}}` (`""` = skip) → `ok`/`expired` |
+| Batch clarify answer | `clarify.respond` + `question_id`, one lock at a time | `clarify.lock {request_id, question_id, answer}` → `{status:"ok"\|"expired", remaining}`; the last lock resolves the request |
+| Cancel-all | `clarify.respond` without `question_id`, `answer:""` | `request.answer {id, result:{answer:""}}` (no `answers` key = cancel-all) |
+| Withdrawn | `clarify.expire {request_id}` (not consumed) | event `request.cancel {id, method, reason}` — the card with that id is torn down |
+| After a reconnect | not replayed to this app | `session.resume` returns `open_requests: [{id, method, params}]` (omitted when empty); a batch's params carry the locked `answers`; server-request cards not listed are dropped |
+| Several approvals open at once | one card; the newest replaces the older | queued by id, shown oldest first |
+
+Load-bearing facts, all from the 17b5df02 source:
+
+- **Nothing is asked unless the connection says it can answer.** A WebSocket client must send
+  `client.capabilities {server_requests: true}` once per connection. Until it does, an approval is
+  *withdrawn* ("the attached client cannot answer approval requests") and a clarify returns nothing —
+  silently; the phone just never sees a card. The app sends it as the first frame after
+  `gateway.ready`, before the readiness gate lets any other RPC out, because Hermes reads a socket's
+  frames in order and a session resumed before the advertisement would lose its questions. The
+  advertisement is per transport (`server_requests._answering_clients`), and a request is sent when
+  *any* live WebSocket client attached to the session advertised (`_session_client_answers_requests`);
+  with no client attached it waits in `open_requests`.
+- **Answers are resolved by id, globally.** `rpc_dispatch.dispatch` sends every frame with an `id`,
+  a `result`/`error` and no `method` to `server_requests.resolve_response`, which looks the id up in
+  one process-wide table. An answer therefore works from a different connection than the one the
+  question was sent on — which is what a notification-shade answer after a reconnect is — and an
+  answer to a request that has already ended is dropped without a reply (hence `request.cancel`).
+- **Answers go through `request.answer`, not a bare response frame.** A response frame for an id
+  no longer open is dropped by `resolve_response` without a reply, and a request answered on
+  *another* surface is settled there without any `request.cancel` (upstream emits cancel only on
+  timeout, interrupt, session close and shutdown). With a bare frame the phone therefore showed
+  success, moved the run to 思考中 and nothing happened. `request.answer {id, result}`
+  (`methods_prompt.py`) resolves the same way and answers `{status:"ok"|"expired"}`, so an expired
+  clarify surfaces `HR-CLARIFY-001` again (as `clarify.respond` did on f159e581) and an expired
+  approval surfaces `HR-APPROVAL-003`. Approval uses it too: the extra round trip costs nothing
+  and replaces HR-APPROVAL-001's after-the-fact inference with Hermes' own answer.
+  **`request.answer` is therefore required** of any Hermes that sends server→client requests — the
+  app treats 17b5df02 as the minimum for the new protocol, and there is deliberately no fallback to
+  a bare response frame (that is exactly the silent path this replaced). A Hermes that sends
+  requests but answers `request.answer` with -32601 fails the answer like any RPC error: the in-app
+  approval sheet shows `HR-RPC-001`, a clarify card is put back for a retry, a notification action
+  shows `HR-NOTIF-001`.
+- **Stale cards are pruned on resume.** Because "answered elsewhere" sends no cancel, and a card
+  restored from `SessionPhaseStore` may name a request that timed out while no socket was attached,
+  every `session.resume` answer on a connection that advertised the capability is followed by a
+  client-internal `hr.open_requests` snapshot, and server-request cards whose id it does not list
+  are dropped. Absent `open_requests` means none: `_live_session_payload` only sets non-empty values,
+  and a cold resume mints a fresh live handle that owns no requests. The snapshot is queued on the
+  socket's reader thread, so it is ordered after every frame that arrived before the answer and
+  before every frame after it — a request raised just after the resume is never pruned. A request
+  raised *during* the resume is not pruned either: `_resume_reuse_live` snapshots `_open_requests`
+  before the pool worker writes the answer, and `server_requests._register` does not take
+  `_session_resume_lock`, so its frame can arrive before an answer that does not list it. Every
+  server-request id received on the socket between sending `session.resume` and reading its answer
+  is kept open in the snapshot.
+- **Notification-shade answers settle their own card.** The shade answers by the id it was built
+  with and then removes that id (`SessionRuntimeStore.settleShadeAnswer`), never "whatever is on
+  screen now": between the notification and the tap, its request may have been answered elsewhere
+  and the next queued approval taken its place. An `expired` answer from the shade leaves
+  `HR-APPROVAL-003` / `HR-CLARIFY-001` in the conversation, like the in-app sheets.
+- **An error answer means "no handler".** For methods the phone has no card for (`sudo`, `secret`,
+  `vault.*`, `terminal.read`, `preview.*`, `window.read`, `tour`) it answers
+  `{jsonrpc, id, error:{code:-32601, …}}` at once. Upstream reads any error response as `None` —
+  `_ask` returns `""`, an approval is withdrawn — instead of waiting the request's full deadline
+  (300 s for a prompt). `contracts/liveness.py` names -32601 as exactly this signal.
+  **Trade-off:** a session can have several clients attached (`FanoutTransport`); the request frame
+  goes to all of them and the first response wins. If Desktop is attached too and *could* answer a
+  `sudo` / `secret` / `vault.*` / `tour` prompt (17b5df02 has no `mcp.setup` server request), the phone's immediate -32601 can win that race and
+  the prompt resolves as "no answer" before the person at the Mac sees it. This is upstream's
+  documented expectation for a client without a handler, and waiting silently instead would stall
+  the agent for the full deadline whenever the phone is the only client — so the phone keeps
+  answering -32601, and those prompts need the Mac.
+- **Newer Hermes rejects unknown params keys with 4000** — see "WebSocket RPC params" above for the
+  full audit and fixes.
+
+The Gateway and Connector need no change for any of this: `tunnel.ws.frame` relays each WebSocket
+frame as opaque base64 in both directions, whatever its shape, and each phone socket gets its own
+Hermes socket (`openTunnelSocket` per `tunnel.ws.open`), so the capability advertisement is per phone
+as upstream intends. The Connector's own observer socket only polls `session.active_list` and never
+attaches to a session, so it cannot make a session look "unanswerable". The dev mock emulates the new
+protocol with `HR_MOCK_SERVER_REQUESTS=1` (`scripts/dev/mock-hermes-stream.mjs`).
 
 **`sessions.changed` is the only one of these that names no session.** It is a list-level broadcast
 — "something in the session list moved" — so its payload carries no `session_id` or
@@ -519,6 +705,18 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 7. Confirm the `messages` table still exposes `timestamp` (section 1b): `sqlite3 ~/.hermes/state.db
    ".schema messages"`. A rename silently empties every history timestamp again.
 8. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
+8h. **Regenerate the params allowlist** (section 3, "WebSocket RPC params") from the new Hermes'
+    `tui_gateway/contracts/` into `docs/hermes-rpc-params.json` — read the source with `ast`, never
+    import it — then run `./gradlew :app:testDebugUnitTest --tests "*RpcParamContractTest*"`. A key
+    the app sends that the new contract dropped fails there, before a user's call answers 4000. Update
+    the table in section 3 in the same change (the test compares them), and re-check that every
+    params form still works on the Hermes being replaced.
+8a. Run "Approval and clarify against a real Hermes" in `docs/SMOKE_TEST.md`. The question protocol
+    (section 3) has no version negotiation beyond `client.capabilities`, and every way it breaks is
+    silent — the phone simply never shows the card. Also re-grep
+    `tui_gateway/contracts/server_requests.py` for new request methods: one the app should answer
+    must get a card, anything else keeps its -32601. And diff every params key the app sends against
+    `tui_gateway/contracts/` — an extra key is a 4000 there, not a warning.
 8b. Confirm whether Hermes exposes a versioned missing-capability event with a closed capability kind.
     Never substitute parsing `FeatureUnavailable` or tool-error prose for that event.
 8c. Confirm the four numbers the phone classifies on are still those conditions: `prompt.submit`
@@ -550,7 +748,8 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
     ```
 
     A stored row in the megabytes means the images are inlined at write time and every read carries
-    them (section 1b). If a new Hermes accepts `inline_images=false` on `session.resume` or
+    them (section 1b). (`session.resume` no longer depends on this: it sends `omit_messages` and
+    carries no transcript — section 3.) If a new Hermes accepts `inline_images=false` on `session.resume` or
     `GET /messages`, the transfer half is fixed upstream and patch 020 should be removed after the
     pinned commit adopts it. Until then, verify both calls still honour `false` and keep the default
     byte-for-byte compatible.

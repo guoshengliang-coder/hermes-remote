@@ -28,6 +28,8 @@ data class PersistedClarify(
     val requestId: String = "",
     val questions: List<PersistedQuestion> = emptyList(),
     val lockedAnswers: Map<String, String> = emptyMap(),
+    /** Raised by a server→client request; decides how the answer is sent. Absent in older records. */
+    val serverRequest: Boolean = false,
 )
 
 /** One conversation's run state as last committed by the store. */

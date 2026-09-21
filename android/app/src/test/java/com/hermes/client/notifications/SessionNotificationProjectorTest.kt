@@ -259,6 +259,31 @@ class SessionNotificationProjectorTest {
         assertTrue(spec.actions.all { it.questionId == null })
     }
 
+    @Test fun server_request_approval_actions_carry_the_request_id_so_the_shade_answers_that_request() {
+        val request = approval().copy(serverRequestId = "srq-0123456789ab")
+        val spec = projectSessionNotification(input(SessionRunPhase.WAITING_APPROVAL, approval = request), on)!!
+        assertTrue(spec.actions.all { it.serverRequest && it.requestId == "srq-0123456789ab" })
+        val elevated = projectSessionNotification(
+            input(SessionRunPhase.WAITING_APPROVAL, approval = request.copy(allowPermanent = false)), on,
+        )!!
+        val deny = elevated.actions.single { it.action == Notif.ACTION_DENY }
+        assertTrue(deny.serverRequest && deny.requestId == "srq-0123456789ab")
+    }
+
+    @Test fun event_approval_actions_stay_on_the_old_respond_path() {
+        val spec = projectSessionNotification(input(SessionRunPhase.WAITING_APPROVAL, approval = approval()), on)!!
+        assertTrue(spec.actions.none { it.serverRequest })
+        assertTrue(spec.actions.all { it.requestId == null })
+    }
+
+    @Test fun server_request_clarify_actions_are_marked() {
+        val request = clarify("staging", "production").copy(requestId = "srq-aa", serverRequest = true)
+        val spec = projectSessionNotification(input(SessionRunPhase.WAITING_CLARIFICATION, clarify = request), on)!!
+        val answering = spec.actions.filter { it.action == Notif.ACTION_CHOICE || it.action == Notif.ACTION_REPLY }
+        assertEquals(3, answering.size)
+        assertTrue(answering.all { it.serverRequest && it.requestId == "srq-aa" })
+    }
+
     @Test fun approvals_pref_off_hides_every_needs_you_kind() {
         val prefs = on.copy(approvals = false)
         assertNull(projectSessionNotification(input(SessionRunPhase.WAITING_APPROVAL, approval = approval()), prefs))

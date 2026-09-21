@@ -5,6 +5,7 @@ import com.hermes.client.data.network.GatewayRpcException
 import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.network.RELAY_RESPONSE_TOO_LARGE_CODE
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.data.network.ServerRequests
 import com.hermes.client.data.network.bool
 import com.hermes.client.data.network.str
 import com.hermes.client.data.network.todoCounts
@@ -29,6 +30,11 @@ import com.hermes.client.ui.chat.ClarifyRequest
 import com.hermes.client.ui.chat.markInterrupted
 import com.hermes.client.ui.chat.organizedForDisplay
 import com.hermes.client.ui.chat.reduce
+import com.hermes.client.ui.chat.approvalNoLongerOpenNotice
+import com.hermes.client.ui.chat.clarifyExpiredNotice
+import com.hermes.client.ui.chat.withApprovalAnswered
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.chat.withServerRequestCancelled
 import com.hermes.client.ui.chat.withUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -163,6 +169,7 @@ internal fun SessionRuntime.normalized(): SessionRuntime {
             runStartedAt = if (active) runStartedAt else null,
             messages = messages,
             pendingApproval = if (active) chat.pendingApproval else null,
+            queuedApprovals = if (active) chat.queuedApprovals else emptyList(),
             pendingClarify = if (active) chat.pendingClarify else null,
         ),
         phaseBeforeReconnect = if (phase == SessionRunPhase.RECONNECTING) phaseBeforeReconnect else null,
@@ -386,6 +393,7 @@ class SessionRuntimeStore(
                         PersistedQuestion(it.qid, it.question, it.choices, it.multiSelect)
                     },
                     lockedAnswers = request.lockedAnswers,
+                    serverRequest = request.serverRequest,
                 )
             },
             // The approval card is deliberately absent; see SessionPhaseStore's KDoc.
@@ -448,6 +456,7 @@ class SessionRuntimeStore(
                     ClarifyQuestion(it.qid, it.question, it.choices, it.multiSelect)
                 },
                 lockedAnswers = card.lockedAnswers,
+                serverRequest = card.serverRequest,
             )
         }
         return copy(
@@ -870,24 +879,54 @@ class SessionRuntimeStore(
         updateRuntime(key) { it.copy(title = clean) }
     }
 
-    /** An approval was answered from the notification shade: clear the pending card locally. */
-    fun clearPendingApproval(key: SessionRuntimeKey) {
-        updateRuntime(key) { it.copy(chat = it.chat.copy(pendingApproval = null)) }
-    }
-
     /**
-     * A clarify answer was sent from the notification shade. Mirrors ChatViewModel.clarify: a
-     * batch request locks one answer (by qid) and advances; a single question clears the request.
+     * A notification-shade answer came back from Hermes; settle the card it was for.
+     *
+     * By the card's own id, never "whatever is on screen now": the notification can be older than
+     * the state — X answered elsewhere, Y queued behind it and now showing — and settling the head
+     * would have removed Y unanswered. An old-protocol approval has no id and settles the head, as
+     * `approval.respond` does upstream; a clarify is only touched if it is still the request the
+     * action named.
+     *
+     * [expired]: Hermes said the request was no longer open. That is a lost action, and a lost
+     * action is never silent: the conversation gets the same notice the in-app sheet shows
+     * (HR-APPROVAL-003 / HR-CLARIFY-001) instead of the run being moved on as if it had landed.
      */
-    fun lockClarifyAnswer(key: SessionRuntimeKey, questionId: String?, answer: String) {
-        updateRuntime(key) { runtime ->
-            val request = runtime.chat.pendingClarify ?: return@updateRuntime runtime
-            val next = if (!questionId.isNullOrBlank()) {
-                request.copy(lockedAnswers = request.lockedAnswers + (questionId to answer))
-                    .takeIf { it.currentQuestion != null }
-            } else null
-            runtime.copy(chat = runtime.chat.copy(pendingClarify = next))
+    fun settleShadeAnswer(key: SessionRuntimeKey, answer: ShadeAnswer, expired: Boolean, language: AppLanguage) {
+        var answeredLastCard = false
+        updateRuntime(key, cause = if (expired) "shade-answer-expired" else "shade-answer") { runtime ->
+            val chat = runtime.chat
+            val settled = if (answer.approval) {
+                if (answer.serverRequest && !answer.requestId.isNullOrBlank()) {
+                    chat.withServerRequestCancelled(answer.requestId)
+                } else chat.withApprovalAnswered()
+            } else {
+                val request = chat.pendingClarify
+                val same = request != null &&
+                    (answer.requestId.isNullOrBlank() || request.requestId == answer.requestId)
+                val next = when {
+                    !same -> request
+                    expired -> null
+                    !answer.questionId.isNullOrBlank() ->
+                        request!!.copy(lockedAnswers = request.lockedAnswers + (answer.questionId to answer.answer))
+                            .takeIf { it.currentQuestion != null }
+                    else -> null
+                }
+                chat.copy(pendingClarify = next)
+            }
+            answeredLastCard = !expired && settled.pendingApproval == null && settled.pendingClarify == null
+            val withNotice = if (!expired) settled else settled.copy(
+                messages = settled.messages + ChatMessage(
+                    id = "s-${settled.messages.size}",
+                    role = Role.SYSTEM,
+                    text = if (answer.approval) approvalNoLongerOpenNotice(language) else clarifyExpiredNotice(language),
+                ),
+            )
+            runtime.copy(chat = withNotice)
         }
+        // Still waiting on another card (the next queued approval, the rest of a batch) stays
+        // waiting; continueAfterInput reads the cards itself.
+        if (!expired && (answer.approval || answeredLastCard)) continueAfterInput(key)
     }
 
     /**
@@ -1300,7 +1339,13 @@ class SessionRuntimeStore(
                 return@updateRuntime runtime
             }
             runtime.copy(
-                phase = SessionRunPhase.THINKING,
+                // Answering one card does not end the wait while another is still showing (the
+                // next queued approval, or the rest of a batch).
+                phase = when {
+                    runtime.chat.pendingApproval != null -> SessionRunPhase.WAITING_APPROVAL
+                    runtime.chat.pendingClarify != null -> SessionRunPhase.WAITING_CLARIFICATION
+                    else -> SessionRunPhase.THINKING
+                },
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = true,
                 occurredAt = System.currentTimeMillis(),
@@ -1580,6 +1625,9 @@ class SessionRuntimeStore(
         // fold is what retires the phase, and the unread decision below depends on which of the two
         // things `session.info{running:false}` is saying — see [saysATurnJustFinished].
         val wasRunning = _runtimes.value[key]?.phase?.isActive == true
+        val withdrewACard = event.type == ServerRequests.CANCEL_EVENT && _runtimes.value[key]?.chat?.let {
+            it.withServerRequestCancelled(event.str("id")) != it
+        } == true
         updateRuntime(key, cause = "event:${event.type}") { runtime ->
             val reduced = try {
                 runtime.chat.reduce(event)
@@ -1603,6 +1651,8 @@ class SessionRuntimeStore(
                 "tool.complete" -> if (withTerminalOutput.isGenerating) SessionRunPhase.THINKING else runtime.phase
                 "approval.request" -> SessionRunPhase.WAITING_APPROVAL
                 "clarify.request" -> SessionRunPhase.WAITING_CLARIFICATION
+                ServerRequests.CANCEL_EVENT, ServerRequests.OPEN_SNAPSHOT_EVENT ->
+                    phaseAfterWithdrawal(runtime.phase, withTerminalOutput)
                 "message.complete" -> if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD
                 "error" -> SessionRunPhase.FAILED
                 "session.info" -> when (event.bool("running")) {
@@ -1676,6 +1726,11 @@ class SessionRuntimeStore(
         }
         if (event.type in setOf("tool.complete", "message.complete", "agent.terminal.output")) {
             scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
+        }
+        if (event.type == ServerRequests.CANCEL_EVENT && withdrewACard) {
+            // A withdrawal says the question is gone, not what the run did next: a timed-out
+            // approval continues, an interrupt ends the run. Ask rather than guess.
+            appScope.launch { probe(key, force = true) }
         }
         if (saysATurnJustFinished(event, wasRunning)) {
             if (isWatched(key)) markRead(key) else markUnread(key)
@@ -2003,3 +2058,25 @@ class SessionRuntimeStore(
         const val APPROVAL_CONFIRM_SETTLE_MS = 2_500L
     }
 }
+
+/**
+ * The phase after `request.cancel` withdrew a card. A run still holding another card keeps waiting
+ * on it; a run whose last card went away is no longer waiting on the user, and is assumed to carry
+ * on (a timed-out approval or clarify does) until the probe the store sends says otherwise.
+ */
+internal fun phaseAfterWithdrawal(current: SessionRunPhase, chat: ChatUiState): SessionRunPhase = when {
+    chat.pendingApproval != null -> SessionRunPhase.WAITING_APPROVAL
+    chat.pendingClarify != null -> SessionRunPhase.WAITING_CLARIFICATION
+    current == SessionRunPhase.WAITING_APPROVAL || current == SessionRunPhase.WAITING_CLARIFICATION ->
+        SessionRunPhase.THINKING
+    else -> current
+}
+
+/** What a notification-shade action answered; see [SessionRuntimeStore.settleShadeAnswer]. */
+data class ShadeAnswer(
+    val approval: Boolean,
+    val requestId: String?,
+    val serverRequest: Boolean,
+    val questionId: String? = null,
+    val answer: String = "",
+)

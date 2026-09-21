@@ -1,7 +1,8 @@
 // Enhanced mock Hermes for jitter reproduction: implements just enough of the
 // session RPC surface and streams an agent-run-shaped answer (prose, fences,
 // raw JSON payloads, terminal output) at realistic delta cadence.
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 
@@ -260,9 +261,131 @@ const SILENT_RESUME = process.env.HR_MOCK_SILENT_RESUME === "1";
 const OVERSIZED_RESUME_BYTES = Number(process.env.HR_MOCK_OVERSIZED_RESUME ?? 0);
 /** Keep session.access occupied so the Android replacement composer can be exercised on a device. */
 const SESSION_OWNED_ELSEWHERE = process.env.HR_MOCK_SESSION_OWNED_ELSEWHERE === "1";
+/**
+ * Emulate the newer Hermes question protocol (tui_gateway/server_requests.py) instead of the
+ * f159e581 events: approval / clarify arrive as server→client JSON-RPC requests
+ * `{jsonrpc, id:"srq-…", method, params:{session_id, …}}` and are answered by a response frame with
+ * the same id; a batch clarify locks answers through `clarify.lock`; an unanswered request is
+ * withdrawn with a `request.cancel` event and reported in `session.resume`'s `open_requests`.
+ * Like upstream, nothing is asked on a socket that never sent
+ * `client.capabilities {server_requests: true}` — the approval is withdrawn and the clarify gets an
+ * empty answer — and every run first asks one `sudo` request, which the client must refuse with
+ * -32601. Off (the default), the mock behaves as f159e581, which answers `client.capabilities`
+ * with -32601.
+ *
+ * HR_MOCK_SERVER_REQUESTS=1 turns it on; HR_MOCK_REQUEST_TIMEOUT_MS bounds each wait (60s).
+ */
+const SERVER_REQUESTS = process.env.HR_MOCK_SERVER_REQUESTS === "1";
+const REQUEST_TIMEOUT_MS = Number(process.env.HR_MOCK_REQUEST_TIMEOUT_MS ?? 60_000);
+/** Sockets that advertised `server_requests: true` (per connection, as upstream keeps it). */
+const answeringSockets = new WeakSet();
+/** Open server requests by id; answerable from any socket, as upstream resolves them globally. */
+const openRequests = new Map();
+
+function serverRequest(socket, method, params, { qids } = {}) {
+  if (!answeringSockets.has(socket)) {
+    console.log(`[mock] ${method} not sent: this socket never advertised server_requests`);
+    return Promise.resolve(null);
+  }
+  const id = `srq-${randomBytes(6).toString("hex")}`;
+  return new Promise((resolve) => {
+    const request = { id, method, params: { session_id: LIVE_ID, ...params }, qids, locked: {}, createdAt: Date.now(), resolve };
+    request.timer = setTimeout(() => {
+      if (openRequests.delete(id)) {
+        broadcastEvent("request.cancel", { id, method, reason: "timeout" });
+        resolve(qids ? { answers: request.locked, timed_out: true } : null);
+      }
+    }, REQUEST_TIMEOUT_MS);
+    openRequests.set(id, request);
+    socket.send(JSON.stringify({ jsonrpc: "2.0", id, method, params: request.params }));
+  });
+}
+
+function settleRequest(id, result) {
+  const request = openRequests.get(id);
+  if (!request) {
+    console.log(`[mock] response for ${id} dropped: request no longer open`);
+    return false;
+  }
+  openRequests.delete(id);
+  clearTimeout(request.timer);
+  if (result && request.qids && result.answers) result = { ...result, answers: { ...request.locked, ...result.answers } };
+  request.resolve(result);
+  return true;
+}
+
+function openRequestSnapshots(sessionId) {
+  return [...openRequests.values()]
+    .filter((request) => request.params.session_id === sessionId)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((request) => ({
+      id: request.id,
+      method: request.method,
+      params: Object.keys(request.locked).length ? { ...request.params, answers: { ...request.locked } } : request.params,
+    }));
+}
+
+/**
+ * Reject params keys the way Hermes 17b5df02 does: every method's params model is
+ * `extra="forbid"`, so one undeclared key answers 4000 (tui_gateway/contracts/registry.py). The key
+ * lists are docs/hermes-rpc-params.json — the same file the Android build test enforces — and the two
+ * methods 17b5df02 no longer has answer -32601. On with HR_MOCK_SERVER_REQUESTS=1 (the mock then
+ * emulates 17b5df02 as a whole) or alone with HR_MOCK_STRICT_PARAMS=1.
+ */
+const STRICT_PARAMS = SERVER_REQUESTS || process.env.HR_MOCK_STRICT_PARAMS === "1";
+const RPC_PARAMS = JSON.parse(readFileSync(new URL("../../docs/hermes-rpc-params.json", import.meta.url), "utf8"));
+
+function paramsViolation(method, params) {
+  if (method in RPC_PARAMS.absent_upstream) return { code: -32601, message: `unknown method: ${method}` };
+  const declared = RPC_PARAMS.methods[method]?.keys;
+  if (!declared) return null;
+  const extra = Object.keys(params ?? {}).filter((key) => !declared.includes(key));
+  if (extra.length === 0) return null;
+  return {
+    code: 4000,
+    message: `invalid params for ${method}: ${extra[0]}: Extra inputs are not permitted — the client and the Hermes backend are out of sync`,
+  };
+}
+
+const liveSockets = new Set();
+function broadcastEvent(type, payload) {
+  const frame = JSON.stringify({ jsonrpc: "2.0", method: "event", params: { type, session_id: LIVE_ID, stored_session_id: STORED_ID, payload } });
+  for (const socket of liveSockets) if (socket.readyState === 1) socket.send(frame);
+}
+
 let mockRunActive = false;
 const LIVE_ID = "live-mock-1";
 const STORED_ID = "stored-mock-1";
+
+/** The same approval + rotating clarify exercise as the event path, through server requests. */
+async function askThroughServerRequests(socket) {
+  // A request this client has no card for: it must answer -32601 at once, not leave us waiting.
+  const sudo = await serverRequest(socket, "sudo", { command: "apt-get install -y jq" });
+  console.log(`[mock] sudo answered: ${JSON.stringify(sudo)}`);
+  const approval = await serverRequest(socket, "approval", {
+    request_id: `appr-${randomBytes(4).toString("hex")}`,
+    command: "systemctl restart hermes-gateway",
+    description: "重启网关服务以应用配置",
+    choices: ["once", "session", "always", "deny"],
+    allow_permanent: true,
+  });
+  console.log(`[mock] approval answered: ${JSON.stringify(approval)}`);
+  const form = clarifyForm++ % 3;
+  const params = form === 0
+    ? { question: "要用哪种发布方式？", choices: ["滚动发布 (Recommended)", "蓝绿切换", "全量停机重发"] }
+    : form === 1
+      ? { question: "备份哪些内容？", choices: ["数据库全量 (Recommended)", "上传的用户文件", "环境配置与密钥清单"], multi_select: true }
+      : {
+          questions: [
+            { qid: "q0", question: "数据库选型？", choices: ["PostgreSQL (Recommended)", "MySQL"], multi_select: false },
+            { qid: "q1", question: "对象存储用哪个？", choices: ["本地 MinIO (Recommended)", "阿里云 OSS"], multi_select: false },
+            { qid: "q2", question: "部署区域备注（自由填写）", choices: null, multi_select: false },
+          ],
+        };
+  const clarify = await serverRequest(socket, "clarify", params, form === 2 ? { qids: ["q0", "q1", "q2"] } : {});
+  console.log(`[mock] clarify answered: ${JSON.stringify(clarify)}`);
+  if (clarify) pendingClarifyAnswers.push(clarify);
+}
 
 async function streamRun(socket) {
   const send = (type, payload) => {
@@ -306,7 +429,9 @@ async function streamRun(socket) {
     }
     if (!send("message.delta", { text: parts[i] })) return;
     await sleep(110);
-    if (i === Math.floor(parts.length / 2)) {
+    if (i === Math.floor(parts.length / 2) && SERVER_REQUESTS) {
+      await askThroughServerRequests(socket);
+    } else if (i === Math.floor(parts.length / 2)) {
       // Approval window: phase -> WAITING_APPROVAL for ~6s so Home's "needs you" row is observable.
       send("approval.request", { command: "systemctl restart hermes-gateway", description: "重启网关服务以应用配置", allow_permanent: true });
       await sleep(2000);
@@ -493,11 +618,27 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 wss.on("connection", (socket) => {
+  liveSockets.add(socket);
+  socket.on("close", () => { liveSockets.delete(socket); answeringSockets.delete(socket); });
   socket.send(JSON.stringify({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready", payload: {} } }));
   socket.on("message", (raw) => {
     const request = JSON.parse(raw.toString());
+    if (request.method === undefined && request.id !== undefined && ("result" in request || "error" in request)) {
+      // The client answering one of OUR requests; an error (e.g. -32601) means "no answer".
+      if ("error" in request) console.log(`[mock] ${request.id} answered with error ${JSON.stringify(request.error)}`);
+      settleRequest(request.id, "error" in request ? null : (request.result ?? {}));
+      return;
+    }
     const reply = (result) => socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
     const replyError = (code, message) => socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code, message } }));
+    if (STRICT_PARAMS) {
+      const violation = paramsViolation(request.method, request.params);
+      if (violation) {
+        console.log(`[mock] ${request.method} refused ${violation.code}: ${violation.message}`);
+        replyError(violation.code, violation.message);
+        return;
+      }
+    }
     const emit = (type, sessionId, payload) =>
       socket.send(JSON.stringify({ jsonrpc: "2.0", method: "event", params: { type, session_id: sessionId, payload } }));
     switch (request.method) {
@@ -594,7 +735,9 @@ wss.on("connection", (socket) => {
           reply({ session_id: LIVE_ID, inlined_attachments: "A".repeat(OVERSIZED_RESUME_BYTES) });
           break;
         }
-        reply({ session_id: LIVE_ID });
+        // Like upstream's _live_session_payload, the field is only present when something is open.
+        const open = SERVER_REQUESTS ? openRequestSnapshots(LIVE_ID) : [];
+        reply(open.length ? { session_id: LIVE_ID, open_requests: open } : { session_id: LIVE_ID });
         // Hermes' session.info is a response-shaped push, not a guarantee. Real upstreams
         // sometimes answer a resume without one, and because this mock always sent it, the
         // client's only self-heal path was always available here -- which is why HG-59 (a
@@ -622,7 +765,46 @@ wss.on("connection", (socket) => {
         emit("session.info", target, { running: false, cwd: moved.cwd, branch: moved.branch });
         break;
       }
+      case "client.capabilities": {
+        if (!SERVER_REQUESTS) { replyError(-32601, "unknown method: client.capabilities"); break; }
+        if (request.params?.server_requests) answeringSockets.add(socket); else answeringSockets.delete(socket);
+        reply({ server_requests: ["approval", "clarify", "sudo"] });
+        break;
+      }
+      case "session.interrupt": {
+        if (!SERVER_REQUESTS) { reply({ ok: true, method: request.method }); break; }
+        // Upstream withdraws the session's open questions on interrupt, one request.cancel each.
+        for (const open of [...openRequests.values()]) {
+          openRequests.delete(open.id);
+          clearTimeout(open.timer);
+          broadcastEvent("request.cancel", { id: open.id, method: open.method, reason: "interrupted" });
+          open.resolve(null);
+        }
+        reply({ status: "interrupted", interrupted: true });
+        break;
+      }
+      case "request.answer": {
+        if (!SERVER_REQUESTS) { replyError(-32601, "unknown method: request.answer"); break; }
+        const id = String(request.params?.id ?? "");
+        const result = request.params?.result;
+        if (!id || typeof result !== "object" || result === null) { replyError(4002, "id and an object result required"); break; }
+        reply({ status: settleRequest(id, result) ? "ok" : "expired" });
+        break;
+      }
+      case "clarify.lock": {
+        if (!SERVER_REQUESTS) { replyError(-32601, "unknown method: clarify.lock"); break; }
+        const open = openRequests.get(String(request.params?.request_id ?? ""));
+        if (!open || !open.qids) { reply({ status: "expired" }); break; }
+        const qid = String(request.params?.question_id ?? "");
+        if (!open.qids.includes(qid)) { replyError(4002, `unknown question_id '${qid}'`); break; }
+        open.locked[qid] = String(request.params?.answer ?? "");
+        const remaining = open.qids.filter((q) => !(q in open.locked));
+        if (remaining.length === 0) settleRequest(open.id, { answers: { ...open.locked } });
+        reply({ status: "ok", remaining });
+        break;
+      }
       case "clarify.respond": {
+        if (SERVER_REQUESTS) { replyError(-32601, "unknown method: clarify.respond"); break; }
         const qid = request.params?.question_id;
         pendingClarifyAnswers.push({ qid: qid ?? null, answer: request.params?.answer ?? "" });
         reply({ ok: true, remaining: [] });

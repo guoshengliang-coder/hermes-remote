@@ -110,4 +110,18 @@ class HermesContractTest {
             com.hermes.client.domain.CompactionCarrier.SUMMARY_END_MARKER,
         )
     }
+
+    /**
+     * The question protocol of Hermes 17b5df02 (`tui_gateway/server_requests.py`,
+     * `contracts/server_requests.py`, `contracts/liveness.py`, `methods_prompt.py`). Renaming any of
+     * these upstream does not error: the phone silently stops showing approval and clarify cards.
+     */
+    @Test fun server_request_wire_names_match_upstream() {
+        val r = com.hermes.client.data.network.ServerRequests
+        assertEquals("client.capabilities", r.CAPABILITIES_METHOD)
+        assertEquals("clarify.lock", r.CLARIFY_LOCK_METHOD)
+        assertEquals("request.cancel", r.CANCEL_EVENT)
+        assertEquals(setOf("approval", "clarify"), r.HANDLED)
+        assertEquals(-32601, r.METHOD_NOT_FOUND)
+    }
 }

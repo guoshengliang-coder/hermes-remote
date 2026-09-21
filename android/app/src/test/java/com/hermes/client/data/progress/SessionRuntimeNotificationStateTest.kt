@@ -267,7 +267,7 @@ class SessionRuntimeNotificationStateTest {
         f.store.beginPrompt(key, "ls")
         f.store.updateChat(key) { it.copy(pendingApproval = ApprovalRequest("ls", "", emptyList(), true)) }
         assertNotNull(f.store.runtimes.value.getValue(key).chat.pendingApproval)
-        f.store.clearPendingApproval(key)
+        f.store.settleShadeAnswer(key, ShadeAnswer(approval = true, requestId = null, serverRequest = false), expired = false, language = com.hermes.client.ui.localization.AppLanguage.EN)
         assertNull(f.store.runtimes.value.getValue(key).chat.pendingApproval)
     }
 
@@ -279,15 +279,15 @@ class SessionRuntimeNotificationStateTest {
         f.store.beginPrompt(key, "deploy")
         f.store.updateChat(key) { it.copy(pendingClarify = batch) }
 
-        f.store.lockClarifyAnswer(key, "q1", "yes")
+        f.store.settleShadeAnswer(key, ShadeAnswer(false, "req", false, "q1", "yes"), false, com.hermes.client.ui.localization.AppLanguage.EN)
         val advanced = f.store.runtimes.value.getValue(key).chat.pendingClarify!!
         assertEquals("q2", advanced.currentQuestion!!.qid)
 
-        f.store.lockClarifyAnswer(key, "q2", "no")
+        f.store.settleShadeAnswer(key, ShadeAnswer(false, "req", false, "q2", "no"), false, com.hermes.client.ui.localization.AppLanguage.EN)
         assertNull(f.store.runtimes.value.getValue(key).chat.pendingClarify)
 
         f.store.updateChat(key) { it.copy(pendingClarify = ClarifyRequest("req2", listOf(ClarifyQuestion("", "C?")))) }
-        f.store.lockClarifyAnswer(key, null, "sure")
+        f.store.settleShadeAnswer(key, ShadeAnswer(false, "req2", false, null, "sure"), false, com.hermes.client.ui.localization.AppLanguage.EN)
         assertNull(f.store.runtimes.value.getValue(key).chat.pendingClarify)
     }
 }

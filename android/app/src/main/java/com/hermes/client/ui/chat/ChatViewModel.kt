@@ -843,9 +843,13 @@ class ChatViewModel @Inject constructor(
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${organizedHistory.size} messages")
                 if (organizedHistory.isNotEmpty()) sessionKnownEmpty = false
                 runtimeStore.acceptHistory(key, organizedHistory, requestStartedAt)
+                // A newer Hermes hands the open approval back on resume (`open_requests`), and then
+                // the card is on screen and nothing was lost.
                 if (approvalLostNoticePending) {
                     approvalLostNoticePending = false
-                    appendSystem(approvalLostNotice(appLanguage))
+                    if (runtimeStore.runtimes.value[key]?.chat?.pendingApproval == null) {
+                        appendSystem(approvalLostNotice(appLanguage))
+                    }
                 }
                 // Do not hold the transcript behind image downloads. Show text and placeholders
                 // immediately, then merge the thumbnails in as they land.
@@ -1886,12 +1890,20 @@ class ChatViewModel @Inject constructor(
     fun clearPathItems() { _pathItems.value = emptyList() }
 
     fun respondApproval(choice: ApprovalChoice) {
-        mutateState { it.copy(pendingApproval = null) }
+        val request = _state.value.pendingApproval
+        mutateState { it.withApprovalAnswered() }
         viewModelScope.launch {
             val respondedAt = System.currentTimeMillis()
-            runCatching { chat.respondApproval(sessionId, choice) }
-                .onSuccess {
+            runCatching { chat.respondApproval(sessionId, choice, request?.serverRequestId) }
+                .onSuccess { status ->
                     val key = runtimeKey ?: return@onSuccess
+                    // A server-request approval is answered through request.answer, which says for
+                    // itself whether anything was still waiting (HR-APPROVAL-003).
+                    if (status == "expired") {
+                        appendSystem(approvalNoLongerOpenNotice(appLanguage))
+                        runtimeStore.probe(key, force = true)
+                        return@onSuccess
+                    }
                     // approval.respond answers nothing, so "did it land" has to be inferred from
                     // whether the run was still waiting afterwards (HR-APPROVAL-001). An approval
                     // whose command then finished the turn ends with a terminal AFTER the answer,
@@ -1932,7 +1944,9 @@ class ChatViewModel @Inject constructor(
             val finished = advanced.currentQuestion == null
             mutateState { it.copy(pendingClarify = if (finished) null else advanced) }
             viewModelScope.launch {
-                runCatching { chat.respondClarify(sessionId, request.requestId, answer, current.qid) }
+                runCatching {
+                    chat.respondClarify(sessionId, request.requestId, answer, current.qid, request.serverRequest)
+                }
                     .onSuccess { status ->
                         com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond status=$status")
                         if (status == "expired") {
@@ -1951,7 +1965,7 @@ class ChatViewModel @Inject constructor(
         } else {
             mutateState { it.copy(pendingClarify = null) }
             viewModelScope.launch {
-                runCatching { chat.respondClarify(sessionId, request.requestId, answer) }
+                runCatching { chat.respondClarify(sessionId, request.requestId, answer, serverRequest = request.serverRequest) }
                     .onSuccess { status ->
                         com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond status=$status")
                         if (status == "expired") onClarifyExpired()
@@ -1973,6 +1987,9 @@ class ChatViewModel @Inject constructor(
     private fun onClarifyExpired() {
         mutateState { it.copy(pendingClarify = null) }
         appendSystem(clarifyExpiredNotice(appLanguage))
+        // The run is no longer waiting on this question; ask what it is doing instead of leaving
+        // the phase on "waiting for your answer" with no card.
+        runtimeKey?.let { key -> viewModelScope.launch { runtimeStore.probe(key, force = true) } }
     }
 
     /** Explicit skip of the WHOLE request (empty answer = upstream Skip semantics). */
@@ -1980,8 +1997,11 @@ class ChatViewModel @Inject constructor(
         val request = _state.value.pendingClarify ?: return
         mutateState { it.copy(pendingClarify = null) }
         viewModelScope.launch {
-            runCatching { chat.respondClarify(sessionId, request.requestId, "") }
-                .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
+            runCatching { chat.respondClarify(sessionId, request.requestId, "", serverRequest = request.serverRequest) }
+                .onSuccess { status ->
+                    if (status == "expired") onClarifyExpired()
+                    else runtimeKey?.let(runtimeStore::continueAfterInput)
+                }
         }
     }
 

@@ -310,6 +310,7 @@ class HermesNotifier(
         intent.putExtra(Notif.EXTRA_NOTIF_ID, notifId)
         intent.putExtra(Notif.EXTRA_REQUEST_ID, a.requestId.orEmpty())
         intent.putExtra(Notif.EXTRA_QUESTION_ID, a.questionId.orEmpty())
+        intent.putExtra(Notif.EXTRA_SERVER_REQUEST, a.serverRequest)
         intent.putExtra(Notif.EXTRA_ANSWER, a.answer.orEmpty())
         return intent
     }
