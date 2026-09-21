@@ -98,9 +98,20 @@ class GatewayHealthMonitor(
     private val connectivity: ConnectivityChecker,
     private val connectionState: StateFlow<ConnectionState>,
     private val scope: CoroutineScope,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val _health = MutableStateFlow<GatewayHealth>(GatewayHealth.Unknown)
     val health: StateFlow<GatewayHealth> = _health.asStateFlow()
+
+    private val _contract = MutableStateFlow<HermesContractNotice?>(null)
+
+    /**
+     * The Mac's Hermes against the app's REST contract, as the Connector reported it; null when
+     * compatible, unknown, or not reported at all (an older Connector). See [refreshContract].
+     */
+    val contract: StateFlow<HermesContractNotice?> = _contract.asStateFlow()
+    private var contractVersion: String? = null
+    private var contractFetchedAt: Long? = null
 
     private val probeGuard = Mutex()
     private var periodicJob: Job? = null
@@ -141,9 +152,51 @@ class GatewayHealthMonitor(
                 DebugLog.log("health", "${describe(_health.value)} → ${describe(next)}")
             }
             _health.value = next
+            if (next is GatewayHealth.Healthy) refreshContract(next.version)
         } finally {
             probeGuard.unlock()
         }
+    }
+
+    /**
+     * Ask the Connector for its contract report — only after a healthy probe, and only when the
+     * Hermes version moved or [CONTRACT_REFRESH_MS] passed. The Connector caches the check itself,
+     * so this is one small tunnelled GET, not a schema download.
+     *
+     * An HTTP answer that is not a report (an older Connector forwards the path to Hermes: 401/404)
+     * or a body this build cannot read means "no report" and clears the notice; a transport failure
+     * keeps whatever was last known and asks again on the next probe.
+     */
+    private suspend fun refreshContract(version: String?) {
+        val fetchedAt = contractFetchedAt
+        val now = clock()
+        if (fetchedAt != null && version == contractVersion && now - fetchedAt < CONTRACT_REFRESH_MS) return
+        val next = try {
+            withTimeout(PROBE_TIMEOUT_MS) { api.hermesContract() }.toNotice()
+        } catch (e: HermesApiException) {
+            null
+        } catch (e: kotlinx.serialization.SerializationException) {
+            null
+        } catch (e: IllegalArgumentException) {
+            null
+        } catch (e: TimeoutCancellationException) {
+            return
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return
+        }
+        contractVersion = version
+        contractFetchedAt = now
+        val previous = _contract.value
+        if (previous?.error?.code != next?.error?.code || previous?.features != next?.features) {
+            DebugLog.log(
+                "health",
+                "hermes contract ${previous?.error?.code?.value ?: "ok"} → ${next?.error?.code?.value ?: "ok"}" +
+                    (next?.features?.takeIf { it.isNotEmpty() }?.joinToString(",", prefix = " features=") ?: ""),
+            )
+        }
+        _contract.value = next
     }
 
     /**
@@ -236,5 +289,8 @@ class GatewayHealthMonitor(
     companion object {
         const val PROBE_TIMEOUT_MS = 5_000L
         const val PROBE_INTERVAL_MS = 30_000L
+
+        /** How long a contract report is trusted while the Hermes version stays the same. */
+        const val CONTRACT_REFRESH_MS = 5 * 60_000L
     }
 }

@@ -39,12 +39,12 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
-import com.hermes.client.data.network.isUnhealthy
 import com.hermes.client.ui.chat.ChatScreen
 import com.hermes.client.ui.chat.ChatLaunch
 import com.hermes.client.ui.chat.ChatViewModel
 import com.hermes.client.ui.components.HealthSheet
 import com.hermes.client.ui.components.HealthStrip
+import com.hermes.client.ui.components.healthStripVisible
 import com.hermes.client.ui.cron.CronDetailScreen
 import com.hermes.client.ui.cron.CronEditScreen
 import com.hermes.client.ui.cron.CronScreen
@@ -292,6 +292,8 @@ fun HermesNav(
 
     val shellVm: ShellViewModel = hiltViewModel()
     val health by shellVm.health.collectAsStateWithLifecycle()
+    val hermesContract by shellVm.hermesContract.collectAsStateWithLifecycle()
+    val showsHealthStrip = hasConfig && healthStripVisible(health, hermesContract)
     var showHealthSheet by rememberSaveable { mutableStateOf(false) }
 
     // Probe only while the app is foregrounded (in-app-only v1). ProcessLifecycleOwner replays its
@@ -382,11 +384,11 @@ fun HermesNav(
         Column(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
             // Renders nothing when healthy. When shown it owns the status-bar inset, so the content
             // below consumes that inset to avoid a second top gap under the strip.
-            if (hasConfig && health.isUnhealthy()) {
-                HealthStrip(health = health, onClick = { showHealthSheet = true })
+            if (showsHealthStrip) {
+                HealthStrip(health = health, onClick = { showHealthSheet = true }, contract = hermesContract)
             }
             val contentModifier =
-                if (hasConfig && health.isUnhealthy()) Modifier.weight(1f).consumeWindowInsets(WindowInsets.statusBars)
+                if (showsHealthStrip) Modifier.weight(1f).consumeWindowInsets(WindowInsets.statusBars)
                 else Modifier.weight(1f)
             if (showNotificationOnboarding) {
                 com.hermes.client.ui.settings.NotificationOnboardingSheet(
@@ -699,6 +701,7 @@ fun HermesNav(
     if (showHealthSheet) {
         HealthSheet(
             health = health,
+            contract = hermesContract,
             onRecheck = { shellVm.recheckHealth() },
             onDismiss = { showHealthSheet = false },
         )

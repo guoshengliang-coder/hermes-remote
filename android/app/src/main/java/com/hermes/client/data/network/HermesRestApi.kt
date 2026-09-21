@@ -271,6 +271,13 @@ class HermesRestApi(
     /** Public /api/status — gateway version + running state. */
     suspend fun gatewayStatus(): GatewayStatusDto = get("/api/status")
 
+    /**
+     * The Connector's upstream-contract report (docs/HERMES_CONTRACT.md §2). Served by the
+     * Connector itself, never by Hermes; an older Connector forwards it and Hermes answers 401/404,
+     * which the caller reads as "no report".
+     */
+    suspend fun hermesContract(): HermesContractReportDto = get(HERMES_CONTRACT_REPORT_PATH)
+
     /** Relay health — which Mac connectors are currently attached (deviceId + online).
      *  The production edge maps the gateway's /health to /relay-health (bare /health belongs to
      *  the release server there); a direct gateway connection only has /health. Try the edge

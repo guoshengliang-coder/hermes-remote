@@ -125,19 +125,109 @@ Hermes reads the same database and must keep understanding it.
 
 ### 2. REST paths
 
-```
-/api/status            /api/config            /api/env  /api/env/reveal
-/api/sessions          /api/sessions/{id}     /api/sessions/{id}/messages
-/api/sessions/search   /api/sessions/stats    /api/profiles/sessions
-/api/profiles          /api/profiles/active
-/api/files             /api/files/upload
-/api/cron/jobs         /api/cron/jobs/{id}    /api/cron/jobs/{id}/runs
-/api/cron/jobs/{id}/pause    /api/cron/jobs/{id}/resume    /api/cron/jobs/{id}/trigger
-/api/cron/delivery-targets
-/api/model/options     /api/model/set         /api/tools/toolsets
-/api/skills            /api/skills/toggle     /api/analytics/usage
-/api/audio/transcribe  /api/messaging/platforms
-```
+Every upstream REST call the app makes. **The source of truth is `HERMES_REST_CONTRACT` in
+`connector/src/hermes-contract.ts`**; this table is its rendering, and `hermes-contract.test.ts`
+fails the Connector build when the two differ, so change both in the same commit. Parameter names are
+not part of the contract (`{id}` matches upstream's `{session_id}`, `{job_id}`, `{name}`).
+
+**Tier** decides what a missing entry means on the phone. `required` is the app's reason to exist —
+seeing the Mac, listing conversations, reading one — and its absence is **breaking**
+(`HR-COMPAT-001`). Every other entry is one feature, and its absence **degrades** only that feature
+(`HR-COMPAT-002`). A missing cron route must never be reported as if chat were down.
+
+| Method | Path | Tier | Feature |
+|---|---|---|---|
+| `GET` | `/api/status` | required | status |
+| `GET` | `/api/sessions` | required | sessions |
+| `GET` | `/api/profiles/sessions` | required | sessions |
+| `GET` | `/api/sessions/{id}/messages` | required | history |
+| `PATCH` | `/api/sessions/{id}` | optional | sessions |
+| `DELETE` | `/api/sessions/{id}` | optional | sessions |
+| `GET` | `/api/sessions/stats` | optional | sessions |
+| `GET` | `/api/sessions/search` | optional | search |
+| `GET` | `/api/profiles` | optional | profiles |
+| `GET` | `/api/profiles/active` | optional | profiles |
+| `POST` | `/api/profiles/active` | optional | profiles |
+| `GET` | `/api/fs/list` | optional | projects |
+| `GET` | `/api/fs/git-root` | optional | projects |
+| `GET` | `/api/fs/default-cwd` | optional | projects |
+| `GET` | `/api/config` | optional | config |
+| `PUT` | `/api/config` | optional | config |
+| `GET` | `/api/env` | optional | config |
+| `PUT` | `/api/env` | optional | config |
+| `POST` | `/api/env/reveal` | optional | config |
+| `GET` | `/api/cron/jobs` | optional | cron |
+| `POST` | `/api/cron/jobs` | optional | cron |
+| `GET` | `/api/cron/jobs/{id}` | optional | cron |
+| `PUT` | `/api/cron/jobs/{id}` | optional | cron |
+| `DELETE` | `/api/cron/jobs/{id}` | optional | cron |
+| `GET` | `/api/cron/jobs/{id}/runs` | optional | cron |
+| `POST` | `/api/cron/jobs/{id}/pause` | optional | cron |
+| `POST` | `/api/cron/jobs/{id}/resume` | optional | cron |
+| `POST` | `/api/cron/jobs/{id}/trigger` | optional | cron |
+| `GET` | `/api/cron/delivery-targets` | optional | cron |
+| `GET` | `/api/model/options` | optional | models |
+| `POST` | `/api/model/set` | optional | models |
+| `PUT` | `/api/profiles/{id}/model` | optional | models |
+| `GET` | `/api/tools/toolsets` | optional | tools |
+| `GET` | `/api/skills` | optional | skills |
+| `PUT` | `/api/skills/toggle` | optional | skills |
+| `GET` | `/api/analytics/usage` | optional | analytics |
+| `POST` | `/api/audio/transcribe` | optional | voice |
+| `GET` | `/api/messaging/platforms` | optional | messaging |
+| `PUT` | `/api/messaging/platforms/{id}` | optional | messaging |
+| `POST` | `/api/messaging/platforms/{id}/test` | optional | messaging |
+| `POST` | `/api/gateway/restart` | optional | messaging |
+
+Deliberately **not** in the table, because upstream's `openapi.json` cannot vouch for them:
+
+- `/api/files`, `/api/files/upload` — upstream has routes with these names, but **this Connector
+  answers them itself** (`handleFileRequest`, bounded by `FILES_ROOT`) and never forwards them to
+  Hermes. They are our surface, not upstream's.
+- `/api/ws` — a WebSocket route; OpenAPI does not describe WebSocket routes, so it is absent from
+  every Hermes schema. The Connector's session observer opens exactly this socket on every
+  (re)connect, and its RPC surface is §3.
+- `/api/mobile/events*` — the account service's (below).
+- `/api/hermes-remote/contract` — the Connector's own contract report (below).
+
+#### Connector contract check (added 2026-09-21)
+
+Hermes GO no longer decides which Hermes runs (`docs/MANAGED_HERMES_STRATEGY.md`, principle 2), so
+the Connector checks this table against the running Hermes instead of trusting a pin:
+
+1. **What it fetches.** `GET /openapi.json` — FastAPI's default schema URL, outside `/api/`, sent
+   with the same credentials as every other Connector→Hermes call (session token and/or Basic Auth
+   cookie; `HermesAuth.openApiDocument`) — and the `version` from the public `GET /api/status`.
+   0.21.3 publishes ~250 KB; the Connector refuses a body over 8 MiB.
+2. **When.** At Connector startup, every time the session observer's socket to Hermes opens (a
+   Hermes restart — `hermes update` kickstarts the serve job — looks exactly like that from the
+   Connector), and whenever `/api/status` reports a different `version` than the cached result was
+   taken against (read cheaply on each phone request, on each Relay reconnect and in the account
+   preflight). Otherwise the result is cached: `openapi.json` is not fetched per request. A cached
+   `unknown` is retried after 60 s. `HermesContractMonitor` (`connector/src/hermes-contract-monitor.ts`).
+3. **What it concludes.** `compatible`; `degraded` (optional entries missing → `HR-COMPAT-002`, or
+   Hermes older than `MINIMUM_HERMES_VERSION` → `HR-COMPAT-003`); `breaking` (a required entry
+   missing → `HR-COMPAT-001`); or `unknown` when it could not look — Hermes unreachable, a non-2xx,
+   a body that is not an OpenAPI document, or one that describes none of Hermes' routes. **`unknown`
+   is never `breaking`** and shows nothing on the phone: a check that could not look must not claim
+   it saw a missing route. A path present with a different method counts as missing for that method.
+4. **What it does about it.** Nothing but report. It never refuses to relay: a phone whose optional
+   route vanished keeps every other feature. The Connector logs one `hermes.contract` line per
+   *change* of result (level `error` for degraded/breaking), naming each missing `METHOD path`.
+5. **How it reaches the phone.** The Connector serves the cached report itself at
+   `GET /api/hermes-remote/contract` (Connector-owned like `/api/files`; never forwarded to Hermes),
+   so it rides the existing HTTP tunnel in both legacy and account mode with no Gateway, protocol
+   or database change. The app reads it after a healthy `/api/status` probe
+   (`GatewayHealthMonitor`), when the Hermes version changes or at most every five minutes, and a
+   `degraded`/`breaking` report lights the existing health strip with the code; its sheet names the
+   affected features. An older Connector forwards the path to Hermes, which answers 401/404 — the
+   app treats any non-2xx or unreadable answer as "no report" and shows nothing.
+
+The payload (`schema: 1`): `status`, `code` (only when there is something to show), `retryable:
+false`, `hermesVersion`, `minimumHermesVersion`, `versionBelowMinimum`, `missing[]` of `{method,
+path, tier, feature}` (required first), `checkedPaths`, `reason` and `httpStatus` for `unknown`,
+`checkedAt`. It carries no upstream text: the version is dropped unless it is short and printable,
+and `reason` is a fixed vocabulary.
 
 Authentication is the `X-Hermes-Session-Token` header. The Mac's Hermes credential never leaves the
 Mac; the phone holds only its own app token (see `docs/ARCHITECTURE.md`).
@@ -157,8 +247,17 @@ absent from both.
 `POST /api/cron/jobs/{id}/{pause|resume|trigger}` all along, and §7 already discussed
 `delivery-targets` in prose. They were simply never written into the inventory, which is the exact
 failure mode this document exists to prevent: an upstream rename of `trigger` would have surfaced
-as 「操作失败」 and nothing else. Nothing here is pinned by `HermesContractTest` (it covers names in
-text grammars, not routes), so this list is the only record.
+as 「操作失败」 and nothing else. At the time nothing pinned this list (`HermesContractTest` covers
+names in text grammars, not routes); since 2026-09-21 the Connector contract check above does.
+
+**The same thing had happened again by 2026-09-21**, found while turning this list into code:
+`PATCH`/`DELETE /api/sessions/{id}` (rename, archive, delete), cron create/update/delete,
+`/api/fs/list`, `/api/fs/git-root`, `/api/fs/default-cwd`, `PUT /api/profiles/{name}/model`,
+`PUT`/`POST .../messaging/platforms/{id}[/test]` and `POST /api/gateway/restart` were all called by
+`HermesRestApi.kt` and absent from this list (the last three were mentioned only in §7's prose). All
+were present in 0.21.3's `openapi.json`. The table now lists methods as well as paths, because an
+upstream that keeps a path but drops the method the app sends (say, `PUT /api/skills/toggle`
+becoming `POST`) breaks the app just the same.
 
 ### 3. WebSocket RPC methods
 
@@ -684,6 +783,15 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 
 1. `cd android && ./gradlew :app:testDebugUnitTest --tests "*HermesContractTest*"` — the mechanical
    pins. A failure here names the exact surface that moved.
+1b. **Run the Connector contract check against the new Hermes before adopting it**: save its schema
+   (`curl -s http://127.0.0.1:9119/openapi.json`, read-only) over
+   `connector/fixtures/hermes-openapi/hermes-<version>-complete.json` (keep paths and methods only,
+   drop `/api/plugins/*`) and run `npm test -w @hermes-remote/connector`. A route the app calls that
+   the new Hermes no longer serves fails there, with its tier. If the app started calling a new
+   route, or stopped calling one, change `HERMES_REST_CONTRACT` **and** the §2 table in the same
+   commit (the test compares them); if the adapted version below moves, raise `MINIMUM_HERMES_VERSION`
+   with it. On a running Mac the same result is in `connector.log` (`hermes.contract`) and on the
+   phone's health strip.
 2. Diff upstream `gateway/platforms/base.py` `MEDIA_DELIVERY_EXTS` against
    `MEDIA_DELIVERY_EXTENSIONS`.
 3. Confirm the RPC method names in section 3 still exist, especially `prompt.submit`,
@@ -793,4 +901,6 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
   two media regexes as a "drift" they are not. Both claims survived because nobody re-read upstream.
   Verify against `~/.hermes/hermes-agent` source; treat second-hand notes as leads only.
 - **No version negotiation exists.** Nothing on the wire tells us which Hermes we are talking to, so
-  an upgrade is detected only by something breaking — or by this checklist.
+  an upgrade is detected only by something breaking — or by this checklist. Since 2026-09-21 the
+  Connector contract check (§2) catches the REST half at runtime; the WebSocket RPC surface (§3),
+  text grammars (§4) and mirrored constants (§5) still have no runtime check.

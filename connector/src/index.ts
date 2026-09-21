@@ -31,6 +31,13 @@ import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
 import { tunnelCloseForApp } from "./tunnel-close.js";
 import { decideOversizedFrame } from "./oversized-frame.js";
+import {
+  CONTRACT_REPORT_PATH,
+  HERMES_OPENAPI_PATH,
+  displayVersion,
+  type OpenApiFetchResult,
+} from "./hermes-contract.js";
+import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
 // reconnect-churn investigation impossible to correlate with server-side events.
@@ -204,6 +211,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
         deviceId = message.deviceId;
         controlAuthenticated = message.routingEnabled;
         console.log(`Connected to gateway as ${deviceId} in account mode (${message.bindingStatus})`);
+        void contractMonitor.ensureFresh("relay_connected");
         if (message.routingEnabled) startLifecycleObserver();
         else setTimeout(() => socket.close(1012, "pending binding activation"), 250);
         return;
@@ -220,6 +228,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
       log.info("relay.connected", { device: message.deviceId, tunnels: localSockets.size });
       controlAuthenticated = true;
       lifecycleObserver?.relayConnected();
+      void contractMonitor.ensureFresh("relay_connected");
       return;
     case "session.lifecycle.ack":
       log.info("lifecycle.acked", { eventId: message.eventId });
@@ -250,6 +259,10 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
 
 async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
   if (request.targetDeviceId !== deviceId) return;
+  if (request.path === CONTRACT_REPORT_PATH || request.path.startsWith(`${CONTRACT_REPORT_PATH}?`)) {
+    await handleContractRequest(socket, request);
+    return;
+  }
   if (request.path.startsWith("/api/files")) {
     await handleFileRequest(socket, request);
     return;
@@ -349,6 +362,20 @@ function rejectResponseChunkWaiters(error: Error): void {
     waiter.reject(error);
   }
   responseChunkWaiters.clear();
+}
+
+/**
+ * Connector-owned, like `/api/files`: never forwarded to Hermes. Serves the cached upstream
+ * contract report so the phone can name an incompatible Hermes with a registered HR-COMPAT code
+ * instead of failing later and vaguely (docs/HERMES_CONTRACT.md, "Connector contract check").
+ */
+async function handleContractRequest(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
+  if (request.method.toUpperCase() !== "GET") {
+    sendJsonResponse(socket, request.id, 405, { error: "method_not_allowed" }, { allow: "GET" });
+    return;
+  }
+  const report = await contractMonitor.ensureFresh("app_request");
+  sendJsonResponse(socket, request.id, 200, { ...report }, { "cache-control": "no-store" });
 }
 
 async function handleFileRequest(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
@@ -886,6 +913,18 @@ class HermesAuth {
 
   async request(path: string, init: RequestInit): Promise<Response> {
     this.assertApiPath(path);
+    return this.send(path, init);
+  }
+
+  /**
+   * Hermes' own OpenAPI document. Outside `/api/`, so [request] refuses it; this is the one
+   * non-API path the Connector reads, and only for the contract check — never on the phone's behalf.
+   */
+  async openApiDocument(): Promise<Response> {
+    return this.send(HERMES_OPENAPI_PATH, { method: "GET" });
+  }
+
+  private async send(path: string, init: RequestInit): Promise<Response> {
     if (this.username && this.cookies.size === 0) await this.login();
     let response = await fetch(new URL(path, this.baseUrl), this.withAuth(init));
     this.captureCookies(response.headers);
@@ -981,8 +1020,21 @@ const hermesAuth = new HermesAuth({
   password: process.env.HERMES_BASIC_AUTH_PASSWORD,
 });
 
+const contractMonitor = new HermesContractMonitor(
+  {
+    fetchOpenApi: fetchHermesOpenApi,
+    fetchStatusVersion: async () => {
+      const status = await readHermesStatus();
+      if (!status.reachable) throw new Error("hermes_unreachable");
+      return status.version;
+    },
+  },
+  { log: (level, kind, fields) => log[level](kind, fields) },
+);
+
 connect();
 if (connectorMode === "legacy") startLifecycleObserver();
+void contractMonitor.refresh("startup");
 
 function startLifecycleObserver(): void {
   if (!sessionObserverEnabled || lifecycleObserver) return;
@@ -1012,6 +1064,9 @@ function startLifecycleObserver(): void {
     idlePollMs: sessionObserverIdlePollMs,
     rpcTimeoutMs: sessionObserverRpcTimeoutMs,
     log: (message) => console.log(message),
+    // A fresh socket to Hermes is the only sign of a Hermes restart this process gets —
+    // `hermes update` kickstarts the serve job onto new code without changing anything else here.
+    onHermesConnected: () => { void contractMonitor.refresh("hermes_connected"); },
   });
   void lifecycleObserver.start().catch((error) => {
     console.error("Unable to start Hermes lifecycle observer", safeError(error));
@@ -1019,6 +1074,12 @@ function startLifecycleObserver(): void {
 }
 
 async function accountConnectorPreflight(): Promise<{ reachable: boolean; version?: string }> {
+  const status = await readHermesStatus();
+  if (status.reachable) contractMonitor.observeVersion(status.version, "preflight");
+  return status;
+}
+
+async function readHermesStatus(): Promise<{ reachable: boolean; version?: string }> {
   try {
     const response = await hermesAuth.request("/api/status", { method: "GET" });
     if (!response.ok) return { reachable: false };
@@ -1026,11 +1087,8 @@ async function accountConnectorPreflight(): Promise<{ reachable: boolean; versio
     if (!body) return { reachable: true };
     const value = JSON.parse(body) as unknown;
     if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      const version = (value as Record<string, unknown>).version;
-      if (typeof version === "string" && version.length <= 64
-          && !/[\u0000-\u001f\u007f]/.test(version)) {
-        return { reachable: true, version };
-      }
+      const version = displayVersion((value as Record<string, unknown>).version);
+      if (version !== undefined) return { reachable: true, version };
     }
     return { reachable: true };
   } catch {
@@ -1038,9 +1096,32 @@ async function accountConnectorPreflight(): Promise<{ reachable: boolean; versio
   }
 }
 
+/** 0.21.3 publishes ~250 KB; the ceiling only stops a runaway body, it is not a size contract. */
+const MAX_OPENAPI_BYTES = 8 * 1024 * 1024;
+
+async function fetchHermesOpenApi(): Promise<OpenApiFetchResult> {
+  let response: Response;
+  try {
+    response = await hermesAuth.openApiDocument();
+  } catch {
+    return { kind: "unreachable" };
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return { kind: "http_status", status: response.status };
+  }
+  try {
+    return { kind: "ok", body: await boundedResponseBody(response, MAX_OPENAPI_BYTES) };
+  } catch (error) {
+    return safeError(error) === RESPONSE_TOO_LARGE ? { kind: "too_large" } : { kind: "unreachable" };
+  }
+}
+
+const RESPONSE_TOO_LARGE = "Hermes response too large";
+
 async function boundedResponseBody(response: Response, maximumBytes: number): Promise<string> {
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error("Hermes status response too large");
+  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error(RESPONSE_TOO_LARGE);
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -1051,7 +1132,7 @@ async function boundedResponseBody(response: Response, maximumBytes: number): Pr
     size += value.byteLength;
     if (size > maximumBytes) {
       await reader.cancel();
-      throw new Error("Hermes status response too large");
+      throw new Error(RESPONSE_TOO_LARGE);
     }
     chunks.push(value);
   }

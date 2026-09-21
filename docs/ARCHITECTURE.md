@@ -133,6 +133,19 @@ attention”, but cannot be approved from Android without a future official Herm
 If an older Hermes version does not expose `session.active_list`, only this observer enters a long
 retry cycle; chat, files, and the main Connector tunnel continue normally.
 
+## Upstream contract check
+
+Hermes GO no longer pins the Hermes version, so the Connector checks the running Hermes against the
+REST routes the app depends on (`docs/HERMES_CONTRACT.md` §2; list in
+`connector/src/hermes-contract.ts`). At startup, on every reconnect of the observer socket above,
+and whenever `/api/status` reports a new version, it reads Hermes' own `/openapi.json` with its
+local credential and caches one result: `compatible`, `degraded` (`HR-COMPAT-002`/`003`),
+`breaking` (`HR-COMPAT-001`) or `unknown` (could not look — never shown as a fault). It only
+reports; relaying is never refused. The Connector serves the cached report itself at
+`GET /api/hermes-remote/contract`, which rides the ordinary REST tunnel, so the Gateway, the wire
+protocol and the account database are unchanged. Android reads it after a healthy status probe and
+shows the code on the existing health strip.
+
 ## Android notification monitoring
 
 Android consumes the Relay lifecycle inbox independently of the foreground chat WebSocket. One

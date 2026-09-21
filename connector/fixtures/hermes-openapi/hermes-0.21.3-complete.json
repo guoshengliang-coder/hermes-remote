@@ -1,0 +1,785 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Hermes Agent",
+  "version": "0.21.3"
+ },
+ "paths": {
+  "/api/actions/{name}/status": {
+   "get": {}
+  },
+  "/api/analytics/models": {
+   "get": {}
+  },
+  "/api/analytics/usage": {
+   "get": {}
+  },
+  "/api/audio/elevenlabs/voices": {
+   "get": {}
+  },
+  "/api/audio/speak": {
+   "post": {}
+  },
+  "/api/audio/transcribe": {
+   "post": {}
+  },
+  "/api/audio/tts-lease": {
+   "post": {}
+  },
+  "/api/audio/voice-config": {
+   "get": {}
+  },
+  "/api/audio/voice-live/session": {
+   "post": {}
+  },
+  "/api/audio/voice-live/status": {
+   "get": {}
+  },
+  "/api/auth/me": {
+   "get": {}
+  },
+  "/api/auth/providers": {
+   "get": {}
+  },
+  "/api/auth/ws-ticket": {
+   "post": {}
+  },
+  "/api/chat/image-upload": {
+   "post": {}
+  },
+  "/api/config": {
+   "get": {},
+   "put": {}
+  },
+  "/api/config/defaults": {
+   "get": {}
+  },
+  "/api/config/raw": {
+   "get": {},
+   "put": {}
+  },
+  "/api/config/schema": {
+   "get": {}
+  },
+  "/api/credentials/pool": {
+   "get": {},
+   "post": {}
+  },
+  "/api/credentials/pool/{provider}/{index}": {
+   "delete": {}
+  },
+  "/api/cron/blueprints": {
+   "get": {}
+  },
+  "/api/cron/blueprints/instantiate": {
+   "post": {}
+  },
+  "/api/cron/delivery-targets": {
+   "get": {}
+  },
+  "/api/cron/fire": {
+   "post": {}
+  },
+  "/api/cron/jobs": {
+   "get": {},
+   "post": {}
+  },
+  "/api/cron/jobs/{job_id}": {
+   "get": {},
+   "put": {},
+   "delete": {}
+  },
+  "/api/cron/jobs/{job_id}/pause": {
+   "post": {}
+  },
+  "/api/cron/jobs/{job_id}/resume": {
+   "post": {}
+  },
+  "/api/cron/jobs/{job_id}/runs": {
+   "get": {}
+  },
+  "/api/cron/jobs/{job_id}/trigger": {
+   "post": {}
+  },
+  "/api/curator": {
+   "get": {}
+  },
+  "/api/curator/paused": {
+   "put": {}
+  },
+  "/api/curator/run": {
+   "post": {}
+  },
+  "/api/dashboard/agent-plugins/install": {
+   "post": {}
+  },
+  "/api/dashboard/agent-plugins/{name}": {
+   "delete": {}
+  },
+  "/api/dashboard/agent-plugins/{name}/disable": {
+   "post": {}
+  },
+  "/api/dashboard/agent-plugins/{name}/enable": {
+   "post": {}
+  },
+  "/api/dashboard/agent-plugins/{name}/update": {
+   "post": {}
+  },
+  "/api/dashboard/font": {
+   "get": {},
+   "put": {}
+  },
+  "/api/dashboard/plugin-providers": {
+   "put": {}
+  },
+  "/api/dashboard/plugins": {
+   "get": {}
+  },
+  "/api/dashboard/plugins/catalog": {
+   "get": {}
+  },
+  "/api/dashboard/plugins/hub": {
+   "get": {}
+  },
+  "/api/dashboard/plugins/rescan": {
+   "get": {}
+  },
+  "/api/dashboard/plugins/{name}/visibility": {
+   "post": {}
+  },
+  "/api/dashboard/theme": {
+   "put": {}
+  },
+  "/api/dashboard/themes": {
+   "get": {}
+  },
+  "/api/egress/status": {
+   "get": {}
+  },
+  "/api/env": {
+   "get": {},
+   "put": {},
+   "delete": {}
+  },
+  "/api/env/reveal": {
+   "post": {}
+  },
+  "/api/files": {
+   "get": {},
+   "delete": {}
+  },
+  "/api/files/download": {
+   "get": {}
+  },
+  "/api/files/mkdir": {
+   "post": {}
+  },
+  "/api/files/read": {
+   "get": {}
+  },
+  "/api/files/stream": {
+   "head": {},
+   "get": {}
+  },
+  "/api/files/upload": {
+   "post": {}
+  },
+  "/api/files/upload-stream": {
+   "post": {}
+  },
+  "/api/fs/default-cwd": {
+   "get": {}
+  },
+  "/api/fs/download": {
+   "get": {}
+  },
+  "/api/fs/git-root": {
+   "get": {}
+  },
+  "/api/fs/list": {
+   "get": {}
+  },
+  "/api/fs/read-data-url": {
+   "get": {}
+  },
+  "/api/fs/read-text": {
+   "get": {}
+  },
+  "/api/fs/write-text": {
+   "post": {}
+  },
+  "/api/gateway/drain": {
+   "post": {}
+  },
+  "/api/gateway/migrate": {
+   "post": {}
+  },
+  "/api/gateway/migrate/plan": {
+   "get": {}
+  },
+  "/api/gateway/restart": {
+   "post": {}
+  },
+  "/api/gateway/start": {
+   "post": {}
+  },
+  "/api/gateway/stop": {
+   "post": {}
+  },
+  "/api/git/base-branches": {
+   "get": {}
+  },
+  "/api/git/branch/switch": {
+   "post": {}
+  },
+  "/api/git/branches": {
+   "get": {}
+  },
+  "/api/git/file-diff": {
+   "get": {}
+  },
+  "/api/git/gh-auth": {
+   "get": {}
+  },
+  "/api/git/review/commit": {
+   "post": {}
+  },
+  "/api/git/review/commit-context": {
+   "get": {}
+  },
+  "/api/git/review/create-pr": {
+   "post": {}
+  },
+  "/api/git/review/diff": {
+   "get": {}
+  },
+  "/api/git/review/list": {
+   "get": {}
+  },
+  "/api/git/review/pr-list": {
+   "post": {}
+  },
+  "/api/git/review/push": {
+   "post": {}
+  },
+  "/api/git/review/rev-parse": {
+   "get": {}
+  },
+  "/api/git/review/revert": {
+   "post": {}
+  },
+  "/api/git/review/ship-info": {
+   "get": {}
+  },
+  "/api/git/review/stage": {
+   "post": {}
+  },
+  "/api/git/review/unstage": {
+   "post": {}
+  },
+  "/api/git/status": {
+   "get": {}
+  },
+  "/api/git/worktree/add": {
+   "post": {}
+  },
+  "/api/git/worktree/remove": {
+   "post": {}
+  },
+  "/api/git/worktrees": {
+   "get": {}
+  },
+  "/api/health": {
+   "get": {}
+  },
+  "/api/health/idle": {
+   "get": {}
+  },
+  "/api/health/retirement": {
+   "post": {}
+  },
+  "/api/hermes/update": {
+   "post": {}
+  },
+  "/api/hermes/update/check": {
+   "get": {}
+  },
+  "/api/hermes/update/receipt": {
+   "get": {}
+  },
+  "/api/learning/graph": {
+   "get": {}
+  },
+  "/api/learning/node": {
+   "get": {},
+   "delete": {},
+   "put": {}
+  },
+  "/api/local-models/activate": {
+   "post": {}
+  },
+  "/api/local-models/catalog": {
+   "get": {}
+  },
+  "/api/local-models/download": {
+   "post": {}
+  },
+  "/api/local-models/download-browsed": {
+   "post": {}
+  },
+  "/api/local-models/eject": {
+   "post": {}
+  },
+  "/api/local-models/hardware": {
+   "get": {}
+  },
+  "/api/local-models/jobs": {
+   "get": {}
+  },
+  "/api/local-models/jobs/{job_id}": {
+   "get": {}
+  },
+  "/api/local-models/models/{model_id}": {
+   "delete": {}
+  },
+  "/api/local-models/quickstart": {
+   "post": {}
+  },
+  "/api/local-models/runtime/install": {
+   "post": {}
+  },
+  "/api/local-models/search": {
+   "get": {}
+  },
+  "/api/local-models/search/files": {
+   "get": {}
+  },
+  "/api/local-models/server": {
+   "post": {}
+  },
+  "/api/local-models/sideload": {
+   "post": {}
+  },
+  "/api/local-models/status": {
+   "get": {}
+  },
+  "/api/logs": {
+   "get": {}
+  },
+  "/api/mcp/catalog": {
+   "get": {}
+  },
+  "/api/mcp/catalog/install": {
+   "post": {}
+  },
+  "/api/mcp/oauth/callback/{server_name}": {
+   "get": {}
+  },
+  "/api/mcp/oauth/flows/{flow_id}": {
+   "get": {},
+   "delete": {}
+  },
+  "/api/mcp/servers": {
+   "get": {},
+   "post": {},
+   "put": {}
+  },
+  "/api/mcp/servers/{name}": {
+   "delete": {}
+  },
+  "/api/mcp/servers/{name}/auth": {
+   "post": {}
+  },
+  "/api/mcp/servers/{name}/enabled": {
+   "put": {}
+  },
+  "/api/mcp/servers/{name}/test": {
+   "post": {}
+  },
+  "/api/media": {
+   "get": {}
+  },
+  "/api/memory": {
+   "get": {}
+  },
+  "/api/memory/provider": {
+   "put": {}
+  },
+  "/api/memory/providers/{name}/config": {
+   "get": {},
+   "put": {}
+  },
+  "/api/memory/providers/{name}/setup": {
+   "post": {}
+  },
+  "/api/memory/providers/{provider}/oauth/start": {
+   "post": {}
+  },
+  "/api/memory/providers/{provider}/oauth/status": {
+   "get": {}
+  },
+  "/api/memory/reset": {
+   "post": {}
+  },
+  "/api/messaging/platforms": {
+   "get": {}
+  },
+  "/api/messaging/platforms/{platform_id}": {
+   "put": {}
+  },
+  "/api/messaging/platforms/{platform_id}/test": {
+   "post": {}
+  },
+  "/api/messaging/telegram/onboarding/start": {
+   "post": {}
+  },
+  "/api/messaging/telegram/onboarding/{pairing_id}": {
+   "get": {},
+   "delete": {}
+  },
+  "/api/messaging/telegram/onboarding/{pairing_id}/apply": {
+   "post": {}
+  },
+  "/api/messaging/whatsapp/onboarding/start": {
+   "post": {}
+  },
+  "/api/messaging/whatsapp/onboarding/{pairing_id}": {
+   "get": {},
+   "delete": {}
+  },
+  "/api/messaging/whatsapp/onboarding/{pairing_id}/apply": {
+   "post": {}
+  },
+  "/api/model/auxiliary": {
+   "get": {}
+  },
+  "/api/model/info": {
+   "get": {}
+  },
+  "/api/model/moa": {
+   "get": {},
+   "put": {}
+  },
+  "/api/model/options": {
+   "get": {}
+  },
+  "/api/model/recommended-default": {
+   "get": {}
+  },
+  "/api/model/set": {
+   "post": {}
+  },
+  "/api/ops/backup": {
+   "post": {}
+  },
+  "/api/ops/backup/download": {
+   "get": {}
+  },
+  "/api/ops/checkpoints": {
+   "get": {}
+  },
+  "/api/ops/checkpoints/prune": {
+   "post": {}
+  },
+  "/api/ops/config-migrate": {
+   "post": {}
+  },
+  "/api/ops/debug-share": {
+   "post": {}
+  },
+  "/api/ops/doctor": {
+   "post": {}
+  },
+  "/api/ops/dump": {
+   "post": {}
+  },
+  "/api/ops/hooks": {
+   "get": {},
+   "post": {},
+   "delete": {}
+  },
+  "/api/ops/import": {
+   "post": {}
+  },
+  "/api/ops/import-upload": {
+   "post": {}
+  },
+  "/api/ops/prompt-size": {
+   "post": {}
+  },
+  "/api/ops/security-audit": {
+   "post": {}
+  },
+  "/api/pairing": {
+   "get": {}
+  },
+  "/api/pairing/approve": {
+   "post": {}
+  },
+  "/api/pairing/clear-pending": {
+   "post": {}
+  },
+  "/api/pairing/revoke": {
+   "post": {}
+  },
+  "/api/portal": {
+   "get": {}
+  },
+  "/api/profiles": {
+   "get": {},
+   "post": {}
+  },
+  "/api/profiles/active": {
+   "get": {},
+   "post": {}
+  },
+  "/api/profiles/import": {
+   "post": {}
+  },
+  "/api/profiles/projects/tree": {
+   "get": {}
+  },
+  "/api/profiles/sessions": {
+   "get": {}
+  },
+  "/api/profiles/sessions/pull-requests": {
+   "post": {}
+  },
+  "/api/profiles/sessions/sidebar": {
+   "get": {}
+  },
+  "/api/profiles/{name}": {
+   "patch": {},
+   "delete": {}
+  },
+  "/api/profiles/{name}/describe-auto": {
+   "post": {}
+  },
+  "/api/profiles/{name}/description": {
+   "put": {}
+  },
+  "/api/profiles/{name}/desktop-overlay": {
+   "get": {}
+  },
+  "/api/profiles/{name}/export": {
+   "post": {}
+  },
+  "/api/profiles/{name}/model": {
+   "put": {}
+  },
+  "/api/profiles/{name}/open-terminal": {
+   "post": {}
+  },
+  "/api/profiles/{name}/setup-command": {
+   "get": {}
+  },
+  "/api/profiles/{name}/soul": {
+   "get": {},
+   "put": {}
+  },
+  "/api/providers/custom-endpoints": {
+   "get": {},
+   "post": {}
+  },
+  "/api/providers/custom-endpoints/validate": {
+   "post": {}
+  },
+  "/api/providers/custom-endpoints/{endpoint_id}": {
+   "delete": {}
+  },
+  "/api/providers/custom-endpoints/{endpoint_id}/activate": {
+   "post": {}
+  },
+  "/api/providers/oauth": {
+   "get": {}
+  },
+  "/api/providers/oauth/sessions/{session_id}": {
+   "delete": {}
+  },
+  "/api/providers/oauth/{provider_id}": {
+   "delete": {}
+  },
+  "/api/providers/oauth/{provider_id}/poll/{session_id}": {
+   "get": {}
+  },
+  "/api/providers/oauth/{provider_id}/start": {
+   "post": {}
+  },
+  "/api/providers/oauth/{provider_id}/submit": {
+   "post": {}
+  },
+  "/api/providers/validate": {
+   "post": {}
+  },
+  "/api/sessions": {
+   "get": {}
+  },
+  "/api/sessions/bulk-delete": {
+   "post": {}
+  },
+  "/api/sessions/empty": {
+   "delete": {}
+  },
+  "/api/sessions/empty/count": {
+   "get": {}
+  },
+  "/api/sessions/import": {
+   "post": {}
+  },
+  "/api/sessions/owner-backfill": {
+   "post": {}
+  },
+  "/api/sessions/prune": {
+   "post": {}
+  },
+  "/api/sessions/search": {
+   "get": {}
+  },
+  "/api/sessions/stats": {
+   "get": {}
+  },
+  "/api/sessions/{session_id}": {
+   "get": {},
+   "delete": {},
+   "patch": {}
+  },
+  "/api/sessions/{session_id}/export": {
+   "get": {}
+  },
+  "/api/sessions/{session_id}/latest-descendant": {
+   "get": {}
+  },
+  "/api/sessions/{session_id}/messages": {
+   "get": {}
+  },
+  "/api/sessions/{session_id}/messages/around": {
+   "get": {}
+  },
+  "/api/sessions/{session_id}/timeline": {
+   "get": {}
+  },
+  "/api/skills": {
+   "get": {},
+   "post": {}
+  },
+  "/api/skills/content": {
+   "get": {},
+   "put": {}
+  },
+  "/api/skills/hub/install": {
+   "post": {}
+  },
+  "/api/skills/hub/official": {
+   "get": {}
+  },
+  "/api/skills/hub/preview": {
+   "get": {}
+  },
+  "/api/skills/hub/scan": {
+   "get": {}
+  },
+  "/api/skills/hub/search": {
+   "get": {}
+  },
+  "/api/skills/hub/sources": {
+   "get": {}
+  },
+  "/api/skills/hub/uninstall": {
+   "post": {}
+  },
+  "/api/skills/hub/update": {
+   "post": {}
+  },
+  "/api/skills/toggle": {
+   "put": {}
+  },
+  "/api/ssh/ownership": {
+   "get": {}
+  },
+  "/api/status": {
+   "get": {}
+  },
+  "/api/system/stats": {
+   "get": {}
+  },
+  "/api/tools/computer-use/permissions/grant": {
+   "post": {}
+  },
+  "/api/tools/computer-use/status": {
+   "get": {}
+  },
+  "/api/tools/terminal/backend": {
+   "put": {}
+  },
+  "/api/tools/terminal/backends": {
+   "get": {}
+  },
+  "/api/tools/toolsets": {
+   "get": {}
+  },
+  "/api/tools/toolsets/{name}": {
+   "put": {}
+  },
+  "/api/tools/toolsets/{name}/config": {
+   "get": {}
+  },
+  "/api/tools/toolsets/{name}/env": {
+   "put": {}
+  },
+  "/api/tools/toolsets/{name}/model": {
+   "put": {}
+  },
+  "/api/tools/toolsets/{name}/models": {
+   "get": {}
+  },
+  "/api/tools/toolsets/{name}/post-setup": {
+   "post": {}
+  },
+  "/api/tools/toolsets/{name}/provider": {
+   "put": {}
+  },
+  "/api/webhooks": {
+   "get": {},
+   "post": {}
+  },
+  "/api/webhooks/enable": {
+   "post": {}
+  },
+  "/api/webhooks/{name}": {
+   "delete": {}
+  },
+  "/api/webhooks/{name}/enabled": {
+   "put": {}
+  },
+  "/auth/callback": {
+   "get": {}
+  },
+  "/auth/login": {
+   "get": {}
+  },
+  "/auth/logout": {
+   "post": {}
+  },
+  "/auth/native/authorize": {
+   "get": {}
+  },
+  "/auth/native/refresh": {
+   "post": {}
+  },
+  "/auth/native/token": {
+   "post": {}
+  },
+  "/auth/password-login": {
+   "post": {}
+  },
+  "/dashboard-plugins/{plugin_name}/{file_path}": {
+   "get": {}
+  },
+  "/login": {
+   "get": {}
+  },
+  "/{full_path}": {
+   "get": {}
+  }
+ }
+}

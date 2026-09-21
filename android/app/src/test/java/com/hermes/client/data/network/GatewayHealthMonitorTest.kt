@@ -49,6 +49,94 @@ class GatewayHealthMonitorTest {
         }
     }
 
+    private fun breakingReport(version: String = "1.2.3") = HermesContractReportDto(
+        schema = 1,
+        status = "breaking",
+        code = "HR-COMPAT-001",
+        hermesVersion = version,
+        missing = listOf(HermesContractMissingDto("GET", "/api/sessions/{id}/messages", "required", "history")),
+    )
+
+    @Test fun a_healthy_probe_reads_the_connectors_contract_report() = runTest {
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.hermesContract() } returns breakingReport()
+        val m = GatewayHealthMonitor(api, FakeConnectivity(true), MutableStateFlow(ConnectionState.Connected), backgroundScope)
+
+        m.probe()
+
+        val notice = m.contract.value
+        assertEquals(com.hermes.client.data.error.AppErrorCode.HERMES_INCOMPATIBLE, notice?.error?.code)
+        assertEquals(listOf("history"), notice?.features)
+    }
+
+    @Test fun the_report_is_re_read_when_the_version_moves_or_it_goes_stale_not_on_every_probe() = runTest {
+        var now = 0L
+        var version = "1.2.3"
+        coEvery { api.gatewayStatus() } answers { GatewayStatusDto(version = version, gatewayRunning = true) }
+        coEvery { api.hermesContract() } returns HermesContractReportDto(schema = 1, status = "compatible")
+        val m = GatewayHealthMonitor(
+            api, FakeConnectivity(true), MutableStateFlow(ConnectionState.Connected), backgroundScope, clock = { now },
+        )
+
+        m.probe(); m.probe(); m.probe()
+        io.mockk.coVerify(exactly = 1) { api.hermesContract() }
+
+        version = "1.3.0"
+        m.probe()
+        io.mockk.coVerify(exactly = 2) { api.hermesContract() }
+
+        now += GatewayHealthMonitor.CONTRACT_REFRESH_MS
+        m.probe()
+        io.mockk.coVerify(exactly = 3) { api.hermesContract() }
+        assertEquals(null, m.contract.value)
+    }
+
+    /** An older Connector forwards the path to Hermes, which answers 404: no report, no notice. */
+    @Test fun an_older_connector_without_the_route_clears_the_notice() = runTest {
+        var now = 0L
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.hermesContract() } returns breakingReport()
+        val m = GatewayHealthMonitor(
+            api, FakeConnectivity(true), MutableStateFlow(ConnectionState.Connected), backgroundScope, clock = { now },
+        )
+        m.probe()
+        assertTrue(m.contract.value != null)
+
+        coEvery { api.hermesContract() } throws HermesApiException(404, "not found")
+        now += GatewayHealthMonitor.CONTRACT_REFRESH_MS
+        m.probe()
+
+        assertEquals(null, m.contract.value)
+    }
+
+    @Test fun a_transport_failure_keeps_the_last_report_and_asks_again_next_probe() = runTest {
+        var now = 0L
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.hermesContract() } returns breakingReport()
+        val m = GatewayHealthMonitor(
+            api, FakeConnectivity(true), MutableStateFlow(ConnectionState.Connected), backgroundScope, clock = { now },
+        )
+        m.probe()
+        now += GatewayHealthMonitor.CONTRACT_REFRESH_MS
+
+        coEvery { api.hermesContract() } throws java.io.IOException("reset")
+        m.probe()
+        assertTrue(m.contract.value != null)
+
+        coEvery { api.hermesContract() } returns HermesContractReportDto(schema = 1, status = "compatible")
+        m.probe()
+        assertEquals(null, m.contract.value)
+    }
+
+    @Test fun an_unhealthy_relay_is_not_asked_for_a_report() = runTest {
+        coEvery { api.gatewayStatus() } throws java.io.IOException("connection refused")
+        val m = GatewayHealthMonitor(api, FakeConnectivity(true), MutableStateFlow(ConnectionState.Connected), backgroundScope)
+
+        m.probe()
+
+        io.mockk.coVerify(exactly = 0) { api.hermesContract() }
+    }
+
     @Test fun probe_reports_healthy_on_2xx() = runTest {
         coEvery { api.gatewayStatus() } returns ok()
         val m = GatewayHealthMonitor(api, FakeConnectivity(true), MutableStateFlow(ConnectionState.Connected), backgroundScope)
