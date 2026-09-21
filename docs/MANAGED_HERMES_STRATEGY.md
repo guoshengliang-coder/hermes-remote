@@ -316,8 +316,9 @@ Adopt when one of these is true, and not otherwise:
 3. **A specific upstream capability is wanted**, named by the owner.
 
 Two things follow. Adopting because the version numbers look untidy spends a real risk budget —
-the gate below, a managed release, and a manual controlled activation (HG-68 is unfixed, and the
-0.3.5 activation rolled back twice before it took) — on nothing. And **the durable fix is not
+the gate below, a managed release, and a manual controlled activation (HG-68 is not yet closed on
+a physical Mac — until 2026-09-21 every in-app upgrade's stop proof timed out, see
+`DESKTOP_E4_TEST_RECORD.md` — and the 0.3.5 activation rolled back twice before it took) — on nothing. And **the durable fix is not
 adoption at all**: an upstream that stops putting unknown columns into responses
 ([#116510](https://github.com/NousResearch/hermes-agent/issues/116510)) makes every future column
 harmless at once, where each adoption only settles the one in front of it.

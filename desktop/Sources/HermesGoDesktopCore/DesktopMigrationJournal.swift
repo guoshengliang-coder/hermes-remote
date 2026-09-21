@@ -566,11 +566,19 @@ private func canonicalTimestamp(_ date: Date) -> String {
     return formatter.string(from: date)
 }
 
-private func parseCanonicalTimestamp(_ value: String) -> Date? {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    guard let date = formatter.date(from: value), formatter.string(from: date) == value else {
-        return nil
-    }
-    return date
+/// Reads `updatedAt`. Writing stays canonical (`canonicalTimestamp`: UTC, milliseconds), but reading
+/// also accepts the whole-second RFC 3339 form (`2026-09-20T11:48:09Z`).
+///
+/// The timestamp is informational — no decision reads it — yet a strict reader turned one hand-edited
+/// journal into `invalidState`, which Desktop showed as "受管服务状态不一致" (`HR-MIGRATE-002`) and
+/// which blocked every managed operation on that Mac (2026-09-21; very likely also HG-68 on
+/// 2026-09-19). Rejecting a well-formed timestamp protects nothing. Anything that is not RFC 3339
+/// date-time is still rejected.
+func parseCanonicalTimestamp(_ value: String) -> Date? {
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = fractional.date(from: value) { return date }
+    let wholeSeconds = ISO8601DateFormatter()
+    wholeSeconds.formatOptions = [.withInternetDateTime]
+    return wholeSeconds.date(from: value)
 }

@@ -1102,3 +1102,95 @@ compare the database's schema expectation against the pinned Hermes at startup a
 
 **Do not "fix" this by giving the managed copy its own database.** It would stop the phone seeing
 the owner's conversations, which is the product.
+
+## 2026-09-21 restart-probe incident: the managed Hermes was left unloaded for ~3 minutes
+
+Desktop 0.2.21 (local runtime mode, #351) on the owner's Mac mini tried to switch the managed
+`com.hermesgo.hermes-server` job from the bundled copy to the owner's own Hermes. The phone lost its
+Hermes until an operator loaded the job by hand. Evidence below is from launchd's own log
+(`/var/log/com.apple.xpc.launchd/launchd.log`) and file modification times, read only; nothing was
+changed on the Mac by the investigation.
+
+| Time (CST) | What happened |
+|---|---|
+| 19:56:52.17 | Desktop (PID 48509) starts. |
+| 19:56:53.53 | `bootout initiated by: launchctl[48567]<-HermesGoDesktop[48509]`. The old Hermes (PID 28260, running since the manual 0.3.8 activation the evening before) exits on SIGTERM at 19:56:53.74 and the label is removed. |
+| — | **No bootstrap by Desktop follows.** |
+| 19:58:51 | The bundled agent is restored: `~/Library/LaunchAgents/com.hermesgo.hermes-server.plist` and `Managed/bin` both carry this time. This is the switch's catch path — its stop wait had just ended in `hermesStopTimedOut`, ~118 s after the bootout, which is 75 attempts × the 500 ms probe timeout plus 74 × 1 s. |
+| 19:59:24 | launchd logs one "job not found, returning ENOSERVICE" lookup (it does not name the caller). |
+| 20:00:05.46 | `Bootstrap by launchctl[50354] … succeeded` — the operator's manual recovery. Hermes spawns. |
+| ~20:00:43 (inferred) | Desktop's restore attempt ends the same way: its stop wait times out too, `ensureHermesLoaded` finds the job loaded (by the operator) and does nothing, and Desktop shows `HR-MIGRATE-009` with `cause=stage=runtime rollbackFailed` and nothing else. |
+
+The phone had no Hermes from 19:56:53 to 20:00:05, **about 3 minutes 12 seconds**.
+
+**Root cause.** `DesktopHermesShutdownChecker` proves the old listener is gone by connecting to
+`127.0.0.1:9119`. It accepted only `.failed`/`.cancelled` as "gone" and read a 500 ms timeout as "still
+listening". On macOS a TCP connection to a free loopback port never reaches `.failed`:
+Network.framework reports `.waiting(POSIXErrorCode 61: Connection refused)` within milliseconds and
+stays there (reproduced with a standalone script: `preparing` → `waiting(ECONNREFUSED)` at 1–2 ms →
+nothing until cancelled). So once the old Hermes had exited, every probe timed out, every wait failed
+after ~112 s, and **every** caller of the wait failed: each runtime switch, restart, restore, reload,
+the managed upgrade, and the upgrade's rollback. The coordinator tests never noticed because they
+inject a fake checker that answers "stopped".
+
+**Why `ensureHermesLoaded` produced no bootstrap.** It was not a refusal by launchd, nor the
+`validPlist`/`isLoaded` guard: Desktop simply never got there first. The job was unloaded at 19:56:53;
+the switch's wait took until ~19:58:51; the restore then restarted with a second full wait, which the
+operator's bootstrap at 20:00:05 overtook; when `ensureHermesLoaded` finally ran it saw the job loaded
+and returned. Had the operator not intervened it would have bootstrapped at ~20:00:43 — after nearly
+four minutes — and with `try?` any refusal would have been silent. Worse, every later refresh would
+then have left the job down: the runtime planner treated a **bundled** job that is not loaded as
+`.keep` ("in some other operation's hands"), so nothing would ever have loaded it again.
+
+**The journal half of the incident.** The manual 0.3.8 activation on 2026-09-20 had written the
+migration journal's `updatedAt` as `2026-09-20T11:48:09Z`. The reader required fractional seconds,
+so the whole journal read as `DesktopMigrationJournalError.invalidState`, and Desktop showed
+"受管服务状态不一致" with `HR-MIGRATE-002`. It was repaired by hand to `2026-09-20T11:48:09.000Z`.
+
+**HG-68.** Two separate things, and this incident explains both:
+
+- *The refusal HG-68 was filed for* — `HR-MIGRATE-002`, `cause=invalidState`, no upgrade offered on
+  2026-09-19 — happens before any service is touched, so the probe cannot be its cause. But
+  `invalidState` is a case of exactly one type in the code base, `DesktopMigrationJournalError`, so
+  the journal failed validation; the 0.3.5 controlled activation that morning had "updated only the
+  journal's release version and timestamp" by hand; and today the same hand-written-timestamp
+  mistake produced the identical code and cause. The 2026-09-19 post-activation journal was not
+  preserved (the `recovery/` snapshots hold only the pre-activation copies, whose timestamps are
+  canonical), so this is the most probable explanation rather than a proven one.
+- *The need for a manual operator activation* would have survived that fix: with a readable journal,
+  an in-app upgrade would stop Hermes, time out on the stop proof, roll back, time out again, and
+  end in `rollbackAttentionRequired` with both services down. The controlled activations succeeded
+  because they used their own `lsof` drain gate instead of this probe.
+
+**Fix** (branch `claude/desktop-restart-probe`):
+
+- The probe decision is a pure function, `DesktopLoopbackProbeDecision.decide`: `.ready` is
+  listening; `.waiting` or `.failed` with `ECONNREFUSED` is stopped; everything else (other errors,
+  `.setup`, `.preparing`, `.cancelled`, a timeout) stays undecided and is treated as listening.
+  A real loopback test proves a free ephemeral port stopped in one probe and a listening socket not.
+- `ensureHermesLoaded` bootstraps the agent at the managed path — the file the rollback just
+  restored — up to three times (2 s, 4 s back-off). If the job is still not loaded the failure is a new
+  registered, retryable `HR-MIGRATE-013` instead of silence.
+- A bundled job that is not loaded now plans `.loadAgent` and is loaded again, with the setting on
+  or off, bounded by those retries and the five-minute runtime back-off. Desktop stopped nothing in
+  that case, so it probes 9119 once first: if another process already listens there it loads
+  nothing (a bootstrap would crash-loop on `EADDRINUSE` against the shared `state.db`) and surfaces
+  retryable `HR-MIGRATE-014`.
+- **Runbook change for controlled activations: quit Desktop first** (or hold
+  `Managed/state/migration-operation.lock` throughout). Desktop now loads an unloaded bundled job on
+  its next refresh, so a Desktop left running would reload the old agent mid-activation. The
+  2026-09-19 activations already quit Desktop; it is now a hard precondition.
+- `DesktopServiceRecoveryFailure` carries the operation, the original error and the recovery error
+  into `HR-MIGRATE-009`/`-013`/`-004` diagnostics, redacted.
+- `Managed/logs/desktop-runtime.log` (0600, rotated at 256 KiB) records every launchctl mutation with
+  its status and launchd's stderr, a summary of each convergence wait, refused starts, and every
+  shutdown/readiness/reload outcome.
+- The journal reader accepts RFC 3339 `updatedAt` without fractional seconds (writing stays
+  canonical). **The journal must never be edited by hand**; `DESKTOP_PHASE0.md` ("Proving the old
+  listener is gone…") says how to change it safely if an operator activation ever has to, and how to
+  repair one that is already broken.
+
+Verified: `swift test --package-path desktop` and `npm run desktop:assets:test`. The new loopback test
+was run against the old decision mapping and failed (the wait took the full 15 s and answered "not
+stopped"). **Physically unverified:** no packaged build ran, no service was touched on any Mac, and
+the in-app upgrade and a runtime switch still need a physical run to close HG-68.

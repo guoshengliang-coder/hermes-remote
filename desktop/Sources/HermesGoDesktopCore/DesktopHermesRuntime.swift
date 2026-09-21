@@ -383,6 +383,9 @@ public enum DesktopHermesRuntimePlan: Equatable, Sendable {
     /// launchd is running arguments that differ from the agent file (Desktop stopped between writing
     /// the file and restarting). The file is the intent; restart it. `recording` is set in local mode.
     case reloadAgent(recording: DesktopLocalHermesInstallation?)
+    /// A bundled agent whose job launchd does not have loaded at all: nothing runs Hermes and
+    /// nothing else will load it. Load the agent file as it is.
+    case loadAgent
     /// Local mode is intact but the launcher differs from this build's, or is not private.
     case repairLauncher(executable: URL)
     /// A process Desktop did not start is provably on the current commit; remember that.
@@ -394,7 +397,7 @@ public enum DesktopHermesRuntimePlan: Equatable, Sendable {
     /// Whether executing the plan touches services or LaunchAgent files (and so needs the lease).
     public var mutates: Bool {
         switch self {
-        case .switchToLocal, .restartLocal, .restoreBundled, .reloadAgent, .repairLauncher: true
+        case .switchToLocal, .restartLocal, .restoreBundled, .reloadAgent, .loadAgent, .repairLauncher: true
         case .keep, .wait, .surface, .adopt: false
         }
     }
@@ -440,6 +443,13 @@ public enum DesktopHermesRuntimePlanner {
         case .bundled, .localHermes:
             break
         }
+        // A committed installation whose bundled job is not loaded has no Hermes at all, and no
+        // other path loads it again (2026-09-21: a failed switch left it unloaded until an operator
+        // bootstrapped it). Load it first — whatever else is planned can follow once it runs. This
+        // does not read the checkout, so an update in progress does not delay it. The coordinator
+        // re-checks under the migration lease, so an upgrade that has the job stopped on purpose
+        // is not interfered with.
+        if observation.mode == .bundled, observation.service == .notLoaded { return .loadAgent }
         // First, before anything reads the checkout: an update briefly removes the entrypoint and
         // rewrites HEAD, and nothing seen during it is a fact about the Mac.
         if observation.updateInProgress { return .wait(.updateInProgress) }
@@ -489,8 +499,6 @@ public enum DesktopHermesRuntimePlanner {
         guard case .localHermes(let executable) = observation.mode,
               executable.standardizedFileURL.path == installation.executable.standardizedFileURL.path
         else {
-            // A bundled Mac whose Hermes service is not loaded is in some other operation's hands.
-            if observation.mode == .bundled, observation.service == .notLoaded { return .keep }
             guard settled else { return .wait(.settling) }
             if let blocked = dependencyBlock(installation, observation) { return blocked }
             let failures = observation.failures
@@ -738,8 +746,17 @@ public extension DesktopIssue {
         }
     }
 
+    /// A failed runtime reconciliation. `HR-MIGRATE-013` when the Hermes job was left unloaded,
+    /// `HR-MIGRATE-014` when it was not loaded and another process holds 9119, `HR-MIGRATE-009`
+    /// otherwise; either way the cause names the operation, the original error and
+    /// the recovery error (`DesktopServiceRecoveryFailure`).
     static func hermesRuntimeFailure(_ error: Error) -> DesktopIssue {
-        DesktopIssue(code: .localHermesRuntimeFailed, technicalCause: "stage=runtime \(String(describing: error))")
+        let code: DesktopIssueCode = switch DesktopServiceRecoveryFailure.classification(of: error) {
+        case .hermesReloadFailed: .managedHermesNotLoaded
+        case .hermesPortInUse: .managedHermesPortInUse
+        default: .localHermesRuntimeFailed
+        }
+        return DesktopIssue(code: code, technicalCause: "stage=runtime \(String(describing: error))")
     }
 
     /// Whether a fresh managed install must stop because this Mac already has Hermes.

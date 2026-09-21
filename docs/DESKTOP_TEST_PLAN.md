@@ -284,7 +284,8 @@ The current automated suite covers:
   the job loaded, and an unloaded local job is started again; an upgrade in local mode refreshes the
   kept bundled agent and a failed one restores the old one; a kept agent whose program is gone is no
   fallback (`HR-MIGRATE-010`); a loosened or older launcher is repaired while local mode stays
-  recognised; the setting off does no detection or `launchctl` work on a bundled Mac; three restarts
+  recognised; the setting off does no detection on a bundled Mac (one `launchctl print` per refresh
+  since 2026-09-21, to load an unloaded job); three restarts
   in 30 minutes pause and surface; launchd's loaded arguments that differ from the file reload the
   agent; adopting an update-started process; restarting only on a commit change, not a timestamp;
   waiting for reinstalled dependencies; a fresh install starting only the local Hermes; nothing
@@ -296,6 +297,29 @@ The current automated suite covers:
   persistent version mismatch and a missing or duplicated dist-info are shown; dist-info is read
   deterministically; setting off with an intact local Hermes and no kept agent is `HR-MIGRATE-012`;
   the once-per-launch running-agent check is wired.
+- 2026-09-21 restart-probe incident (`DESKTOP_E4_TEST_RECORD.md`), each checked to fail when
+  reverted where the boundary allows: the loopback shutdown decision is a pure function —
+  `.waiting`/`.failed` with `ECONNREFUSED` is "stopped", `.ready` is "listening", every other error,
+  `.setup`, `.preparing` and `.cancelled` stay undecided; a real loopback test on an ephemeral port
+  proves a free port stopped in one probe (the old mapping took the full 15 s of five attempts and
+  failed) and a bound, listening socket not stopped; a switch whose stop and restore waits both time
+  out ends with the job loaded, the bundled agent restored, exactly one reload bootstrap, and a
+  `DesktopServiceRecoveryFailure` naming `switch-to-local`, both `hermesStopTimedOut` causes, and an
+  `HR-MIGRATE-009` diagnostic carrying them; a reload refused twice by launchd succeeds on the third
+  attempt and the log keeps launchd's stderr; a reload refused every time is `hermesReloadFailed` →
+  retryable `HR-MIGRATE-013`, also after a failed local restart; an upgrade whose rollback also fails
+  carries both causes into `HR-MIGRATE-004`; a bundled job that is not loaded plans `.loadAgent` with
+  the setting on or off and even mid-update, and is loaded with a readiness proof, while a stopped or
+  unreadable bundled job is left to launchd; the setting-off path loads on every refresh and reloads
+  only once per launch; the operation log is 0600, single-line per event, redacted, rotated once,
+  never created without the managed logs directory, never follows a symlink, logs mutations with
+  status and stderr and summarises `print` polls; `SystemCommandRunner` keeps a bounded stderr only
+  when asked; the migration journal reads a whole-second or offset RFC 3339 `updatedAt`, rewrites it
+  canonically on the next transition, and still rejects anything that is not RFC 3339.
+  Review follow-up (both fail against the first version): loading an unloaded job while another
+  process accepts on 9119 makes exactly one single-attempt probe, bootstraps nothing, never reloads,
+  and surfaces retryable `HR-MIGRATE-014`, with the setting on or off; a port taken between that probe
+  and the start gives the same answer with no bootstrap. `HR-MIGRATE-013` copy claims no restart.
 
 Remaining email-first release acceptance requires live-provider tests for resend/cooldown, expiry,
 account-existence-neutral delivery behavior, packaged-UI inspection proving that an `email_otp`-only
@@ -335,6 +359,10 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Local Hermes rollback | Turning the setting off restores the exact bundled agent from `Managed/state/hermes-server.bundled.plist` and restarts only Hermes | Automated. **Physically unverified** |
 | Local Hermes unsupported | A Mac with profiles, a custom `HERMES_HOME`, or a second install shows `HR-MIGRATE-008` and changes nothing; a fresh install on it is refused | Automated. Packaged UI pending |
 | Managed patch 020 — bounded inline images (HG-74) | A bounded read carries `[image]` in place of an inline `data:` image; the image still appears on the phone, from the Mac path in the text part; an `https://` image URL is untouched; the placeholder never reaches a bubble | Both client-side behaviours the patch depends on are pinned by Android tests (`TimelineNoteTest`, `MultimodalContentMappingTest`) — neither is new, both were unpinned, and the patch lives in another program. Measured against the real database: one message 27,479,595→6,374 characters, the whole HG-65 session 105.07 MiB→0.265 MiB. **Not yet live**: needs a managed release and a controlled activation, so no phone has read a bounded response |
+| Managed Hermes restart proof (2026-09-21) | On the packaged app, a runtime switch or managed upgrade that boots out `com.hermesgo.hermes-server` bootstraps the replacement within a few seconds of the old process exiting (`launchd.log` shows the bootstrap; `Managed/logs/desktop-runtime.log` shows `wait-stopped result=stopped attempts=1` or close to it), not after ~112 s | Automated (probe, loopback, coordinator). **Physically unverified** |
+| Managed Hermes left unloaded | With Desktop running on a committed installation, `launchctl bootout gui/$UID/com.hermesgo.hermes-server` by hand is undone within one refresh (setting on or off): the job is bootstrapped again and passes readiness; if launchd refuses three bootstraps the window shows retryable `HR-MIGRATE-013` and tries again after five minutes. If another process listens on `127.0.0.1:9119` at that moment, nothing is bootstrapped, the lease is released after one probe, and the window shows retryable `HR-MIGRATE-014` | Planner and coordinator automated. **Physically unverified** |
+| Service operation log | `Managed/logs/desktop-runtime.log` exists at 0600 after the first service operation, carries launchctl mutations with status and stderr and each wait's outcome, contains no token and no home-directory name, and stays under ~512 KiB across rotations | Automated. Packaged check pending |
+| Hand-edited journal | A journal whose `updatedAt` is `2026-09-20T11:48:09Z` loads (no `HR-MIGRATE-002`), and the next Desktop transition rewrites it as `…09.000Z`; a non-RFC 3339 value still fails closed | Automated |
 | Keychain profile | App Token persists across restart and is never shown in visible UI | Verified locally and on target with disposable test Token 2026-09-02 |
 | Invalid App Token | End-to-end check reports `HR-AUTH-001` with recovery guidance | Automated + local/target UI verified 2026-09-02 |
 | v1 QR payload | JSON contains only compatible `v`, `url`, and `token` fields | Automated 2026-09-02 |

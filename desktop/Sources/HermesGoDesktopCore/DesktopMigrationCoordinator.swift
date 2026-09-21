@@ -22,6 +22,53 @@ public enum DesktopMigrationCoordinatorError: Error, Equatable, Sendable {
     case commitNotApplied
     case commitAmbiguous
     case rollbackFailed
+    /// Desktop stopped the managed Hermes job and could not load it again: launchd refused every
+    /// bootstrap attempt, so the phone has no Hermes until someone loads it.
+    case hermesReloadFailed
+    /// The managed Hermes job is not loaded, yet something else already accepts connections on
+    /// `127.0.0.1:9119` (or the port could not be proved free). Loading the job would only crash-loop
+    /// on EADDRINUSE, opening the shared `state.db` on every start, so nothing is started.
+    case hermesPortInUse
+}
+
+/// A failed service operation whose recovery failed too.
+///
+/// `stage=runtime rollbackFailed` used to be the only clue after the 2026-09-21 incident; the
+/// original failure (why the operation was abandoned) and the recovery failure (why the previous
+/// configuration could not be brought back) are now both carried into the diagnostic. The text is
+/// redacted when it becomes a `DesktopIssue`.
+public struct DesktopServiceRecoveryFailure: Error, Equatable, Sendable, CustomStringConvertible {
+    /// `.rollbackFailed`, or `.hermesReloadFailed` when the Hermes job was left unloaded.
+    public let classification: DesktopMigrationCoordinatorError
+    public let operation: String
+    public let cause: String
+    public let recoveryCause: String
+
+    public init(
+        classification: DesktopMigrationCoordinatorError,
+        operation: String,
+        cause: Error,
+        recoveryCause: String
+    ) {
+        self.classification = classification
+        self.operation = operation
+        self.cause = Self.describe(cause)
+        self.recoveryCause = recoveryCause
+    }
+
+    public var description: String {
+        "\(classification) operation=\(operation) cause=\(cause) recovery=\(recoveryCause)"
+    }
+
+    /// The classification of a coordinator failure, whether plain or wrapped.
+    public static func classification(of error: Error) -> DesktopMigrationCoordinatorError? {
+        (error as? DesktopServiceRecoveryFailure)?.classification ?? error as? DesktopMigrationCoordinatorError
+    }
+
+    static func describe(_ error: Error) -> String {
+        let type = String(describing: Swift.type(of: error))
+        return "\(type).\(String(describing: error))"
+    }
 }
 
 public struct DesktopMigrationOutcome: Equatable, Sendable {
@@ -40,6 +87,8 @@ public enum DesktopHermesRuntimeReconciliation: Equatable, Sendable {
     case restartedLocal(DesktopLocalHermesInstallation, DesktopHermesRuntimeRestartReason)
     case restoredBundled
     case reloadedAgent
+    /// The Hermes job was not loaded at all and has been loaded again.
+    case loadedAgent
     case repairedLauncher
 }
 
@@ -77,6 +126,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     private let hermesShutdown: any DesktopHermesShutdownChecking
     private let maximumHealthPolls: Int
     private let healthPollDelayNanoseconds: UInt64
+    private let serviceReloadAttempts: Int
+    private let serviceReloadDelayNanoseconds: UInt64
+    private let operationLog: DesktopServiceOperationLog?
     private let localHermesForFreshInstall: @Sendable () -> DesktopLocalHermesInstallation?
 
     /// `localHermesForFreshInstall` names the Mac's own Hermes when a fresh install should run it
@@ -91,9 +143,12 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         hermesShutdown: any DesktopHermesShutdownChecking = DesktopHermesShutdownChecker(),
         maximumHealthPolls: Int = 75,
         healthPollDelayNanoseconds: UInt64 = 1_000_000_000,
+        serviceReloadAttempts: Int = 3,
+        serviceReloadDelayNanoseconds: UInt64 = 2_000_000_000,
+        operationLog: DesktopServiceOperationLog? = nil,
         localHermesForFreshInstall: @escaping @Sendable () -> DesktopLocalHermesInstallation? = { nil }
     ) throws {
-        guard (1...300).contains(maximumHealthPolls) else {
+        guard (1...300).contains(maximumHealthPolls), (1...10).contains(serviceReloadAttempts) else {
             throw DesktopMigrationCoordinatorError.invalidStartingState
         }
         self.account = account
@@ -104,6 +159,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         self.hermesShutdown = hermesShutdown
         self.maximumHealthPolls = maximumHealthPolls
         self.healthPollDelayNanoseconds = healthPollDelayNanoseconds
+        self.serviceReloadAttempts = serviceReloadAttempts
+        self.serviceReloadDelayNanoseconds = serviceReloadDelayNanoseconds
+        self.operationLog = operationLog
         self.localHermesForFreshInstall = localHermesForFreshInstall
     }
 
@@ -328,6 +386,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 bindingGeneration: bindingGeneration
             )
         } catch {
+            operationLog?.record("managed-upgrade failed cause=\(DesktopServiceRecoveryFailure.describe(error)); rolling back")
             do {
                 try await rollbackUpgrade(
                     snapshot,
@@ -335,9 +394,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     generation: bindingGeneration,
                     contract: hermesLaunchAgentConfiguration.runtimeContract
                 )
-            } catch {
+            } catch let rollbackError {
                 try? markRollbackAttention(runID: runID)
-                throw DesktopMigrationCoordinatorError.rollbackFailed
+                throw recoveryFailure(.rollbackFailed, "managed-upgrade", error, rollbackError)
             }
             throw error
         }
@@ -528,9 +587,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     runID: runID,
                     lastKnownGood: lastKnownGood
                 )
-            } catch {
+            } catch let rollbackError {
                 try? markRollbackAttention(runID: runID)
-                throw DesktopMigrationCoordinatorError.rollbackFailed
+                throw recoveryFailure(.rollbackFailed, "migration", error, rollbackError)
             }
             throw error
         }
@@ -572,7 +631,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     return .accountActive
                 } catch {
                     _ = try? markRollbackAttention(runID: runID)
-                    throw DesktopMigrationCoordinatorError.rollbackFailed
+                    throw recoveryFailure(
+                        .rollbackFailed, "recover-interrupted-upgrade",
+                        DesktopMigrationCoordinatorError.invalidStartingState, error
+                    )
                 }
             }
         }
@@ -611,7 +673,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 return try journal.transition(runID: runID, to: .cleanUninstalled).state
             } catch {
                 _ = try? markRollbackAttention(runID: runID)
-                throw DesktopMigrationCoordinatorError.rollbackFailed
+                throw recoveryFailure(
+                    .rollbackFailed, "recover-interrupted-migration",
+                    DesktopMigrationCoordinatorError.invalidStartingState, error
+                )
             }
         }
     }
@@ -710,8 +775,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     bindingID: previewBindingID,
                     generation: previewGeneration
                 )
-            } catch {
-                throw DesktopMigrationCoordinatorError.rollbackFailed
+            } catch let rollbackError {
+                throw await recoveryFailureEnsuringHermes(
+                    "session-token-storage", error, rollbackError
+                )
             }
             throw error
         }
@@ -779,9 +846,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     contract: .serveV1,
                     maximumAttempts: maximumHealthPolls,
                     delayNanoseconds: healthPollDelayNanoseconds
-                ) else { throw DesktopMigrationCoordinatorError.rollbackFailed }
-            } catch {
-                throw DesktopMigrationCoordinatorError.rollbackFailed
+                ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            } catch let rollbackError {
+                throw await recoveryFailureEnsuringHermes("search-path", error, rollbackError)
             }
             throw error
         }
@@ -849,7 +916,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 try? installer.writeHermesRuntimeFailures(
                     installer.readHermesRuntimeFailures().recordingSwitchFailure(commit: installation.commit)
                 )
-                try await restoreAndRestart(runtimeSwitch, observe: observe)
+                try await restoreAndRestart(runtimeSwitch, operation: "switch-to-local", cause: error, observe: observe)
                 throw error
             }
             try? installer.writeHermesRuntimeFailures(installer.readHermesRuntimeFailures().clearingSwitch)
@@ -860,7 +927,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: installation, observe: observe)
             } catch {
                 try? installer.rollbackHermesRuntimeSwitch(runtimeSwitch)
-                ensureHermesLoaded()
+                try await ensureHermesLoadedAfterFailure("restart-local", error)
                 throw error
             }
             return .restartedLocal(installation, reason)
@@ -876,10 +943,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     try? installer.writeHermesRuntimeFailures(
                         installer.readHermesRuntimeFailures().recordingRestoreFailure(backupDigest: backupDigest)
                     )
-                    try await restoreAndRestart(runtimeSwitch, observe: observe)
+                    try await restoreAndRestart(runtimeSwitch, operation: "restore-bundled", cause: error, observe: observe)
                 } else {
                     // The owner's Hermes is gone: the bundled agent is the only thing that can run.
-                    ensureHermesLoaded()
+                    try await ensureHermesLoadedAfterFailure("restore-bundled", error)
                 }
                 throw error
             }
@@ -892,10 +959,40 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     observe: observe
                 )
             } catch {
-                ensureHermesLoaded()
+                try await ensureHermesLoadedAfterFailure("reload-agent", error)
                 throw error
             }
             return .reloadedAgent
+        case .loadAgent:
+            // The job is not loaded at all and Desktop stopped nothing, so there is no old listener
+            // to wait for: anything accepting on 9119 now is some other process (the owner's own
+            // Hermes or dashboard, say). One probe decides. A port that is not provably free is
+            // left alone — no 75-attempt wait holding the lease, and no bootstrap that would
+            // crash-loop on EADDRINUSE against the shared database.
+            guard try await hermesShutdown.waitUntilStopped(
+                contract: .serveV1,
+                maximumAttempts: 1,
+                delayNanoseconds: 0
+            ) else {
+                operationLog?.record("load-agent refused reason=port-9119-in-use; not loading")
+                throw DesktopMigrationCoordinatorError.hermesPortInUse
+            }
+            do {
+                try await restartManagedHermes(
+                    logURL: installer.managedHermesLogURL,
+                    recording: nil,
+                    observe: observe
+                )
+            } catch DesktopMigrationCoordinatorError.hermesStopTimedOut {
+                // Something took the port between the probe and the start: same answer, and never
+                // a bootstrap on top of it.
+                operationLog?.record("load-agent refused reason=port-9119-in-use; not loading")
+                throw DesktopMigrationCoordinatorError.hermesPortInUse
+            } catch {
+                try await ensureHermesLoadedAfterFailure("load-agent", error)
+                throw error
+            }
+            return .loadedAgent
         case .repairLauncher(let executable):
             try installer.writeLocalHermesLauncher(executable: executable)
             return .repairedLauncher
@@ -920,7 +1017,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             contract: .serveV1,
             maximumAttempts: maximumHealthPolls,
             delayNanoseconds: healthPollDelayNanoseconds
-        ) else { throw DesktopMigrationCoordinatorError.hermesStopTimedOut }
+        ) else {
+            operationLog?.record("restart hermes result=stop-timed-out")
+            throw DesktopMigrationCoordinatorError.hermesStopTimedOut
+        }
         let launchedAt = Date()
         if let installation {
             // Counted before the proof: a Hermes that dies during start-up is exactly the loop the
@@ -943,7 +1043,11 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             contract: .serveV1,
             maximumAttempts: maximumHealthPolls,
             delayNanoseconds: healthPollDelayNanoseconds
-        ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+        ) else {
+            operationLog?.record("restart hermes result=readiness-timed-out")
+            throw DesktopMigrationCoordinatorError.hermesHealthTimedOut
+        }
+        operationLog?.record("restart hermes result=ready")
         if let installation {
             // Which commit this process loaded, with its exact start time when launchd can say, so
             // later decisions are made by commit rather than by file timestamps.
@@ -960,16 +1064,20 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     }
 
     /// Put the previous agent back and prove it healthy; whatever happens, leave the job loaded.
+    /// A failure carries both the operation's cause and the restore's, and says whether the job
+    /// could be loaded at all.
     private func restoreAndRestart(
         _ runtimeSwitch: DesktopHermesRuntimeSwitch,
+        operation: String,
+        cause: Error,
         observe: () throws -> DesktopHermesRuntimeObservation
     ) async throws {
+        operationLog?.record("\(operation) failed cause=\(DesktopServiceRecoveryFailure.describe(cause)); restoring the previous agent")
         do {
             try installer.rollbackHermesRuntimeSwitch(runtimeSwitch)
             try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: nil, observe: observe)
-        } catch {
-            ensureHermesLoaded()
-            throw DesktopMigrationCoordinatorError.rollbackFailed
+        } catch let rollbackError {
+            throw await recoveryFailureEnsuringHermes(operation, cause, rollbackError)
         }
     }
 
@@ -983,9 +1091,82 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     }
 
     /// A job left unloaded by a failed start is invisible to every later check; load it again.
-    private func ensureHermesLoaded() {
-        guard !launchAgent.inspectAllowingDuplicateConnector().hermesLoaded else { return }
-        try? launchAgent.startHermes(plistURL: installer.managedHermesLaunchAgentURL)
+    ///
+    /// Loads whatever agent file is at the managed path — after a rollback, the one just restored.
+    /// launchd can refuse a bootstrap transiently right after a bootout, so this retries
+    /// `serviceReloadAttempts` times with a growing delay. Answers nil once the job is loaded (by
+    /// this call or anyone else), or a description of the last refusal.
+    private func ensureHermesLoaded(_ operation: String) async -> String? {
+        var lastFailure = "not attempted"
+        for attempt in 1...serviceReloadAttempts {
+            if launchAgent.inspectAllowingDuplicateConnector().hermesLoaded {
+                operationLog?.record("reload hermes after=\(operation) attempt=\(attempt) result=already-loaded")
+                return nil
+            }
+            do {
+                try launchAgent.startHermes(plistURL: installer.managedHermesLaunchAgentURL)
+                operationLog?.record("reload hermes after=\(operation) attempt=\(attempt) result=loaded")
+                return nil
+            } catch {
+                lastFailure = DesktopServiceRecoveryFailure.describe(error)
+                operationLog?.record("reload hermes after=\(operation) attempt=\(attempt) result=failed cause=\(lastFailure)")
+            }
+            if attempt < serviceReloadAttempts, serviceReloadDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: serviceReloadDelayNanoseconds * UInt64(attempt))
+            }
+        }
+        if launchAgent.inspectAllowingDuplicateConnector().hermesLoaded { return nil }
+        operationLog?.record("reload hermes after=\(operation) result=unloaded attempts=\(serviceReloadAttempts)")
+        return "job still unloaded after \(serviceReloadAttempts) bootstrap attempts; last: \(lastFailure)"
+    }
+
+    /// After an operation failed with nothing to restore: the job must end loaded, and if it cannot
+    /// be, the failure says so instead of the operation's own error.
+    private func ensureHermesLoadedAfterFailure(_ operation: String, _ cause: Error) async throws {
+        operationLog?.record("\(operation) failed cause=\(DesktopServiceRecoveryFailure.describe(cause))")
+        if let reloadFailure = await ensureHermesLoaded(operation) {
+            throw DesktopServiceRecoveryFailure(
+                classification: .hermesReloadFailed,
+                operation: operation,
+                cause: cause,
+                recoveryCause: reloadFailure
+            )
+        }
+    }
+
+    /// A restore failed: load the job if at all possible, and describe both failures.
+    private func recoveryFailureEnsuringHermes(
+        _ operation: String,
+        _ cause: Error,
+        _ rollbackError: Error
+    ) async -> DesktopServiceRecoveryFailure {
+        var recovery = DesktopServiceRecoveryFailure.describe(rollbackError)
+        let reloadFailure = await ensureHermesLoaded(operation)
+        if let reloadFailure { recovery += "; reload: \(reloadFailure)" }
+        let failure = DesktopServiceRecoveryFailure(
+            classification: reloadFailure == nil ? .rollbackFailed : .hermesReloadFailed,
+            operation: operation,
+            cause: cause,
+            recoveryCause: recovery
+        )
+        operationLog?.record(failure.description)
+        return failure
+    }
+
+    private func recoveryFailure(
+        _ classification: DesktopMigrationCoordinatorError,
+        _ operation: String,
+        _ cause: Error,
+        _ rollbackError: Error
+    ) -> DesktopServiceRecoveryFailure {
+        let failure = DesktopServiceRecoveryFailure(
+            classification: classification,
+            operation: operation,
+            cause: cause,
+            recoveryCause: DesktopServiceRecoveryFailure.describe(rollbackError)
+        )
+        operationLog?.record(failure.description)
+        return failure
     }
 
     private func rollbackUpgrade(
@@ -1009,7 +1190,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             contract: contract,
             maximumAttempts: maximumHealthPolls,
             delayNanoseconds: healthPollDelayNanoseconds
-        ) else { throw DesktopMigrationCoordinatorError.hermesStopTimedOut }
+        ) else {
+            operationLog?.record("managed-upgrade rollback result=stop-timed-out")
+            throw DesktopMigrationCoordinatorError.hermesStopTimedOut
+        }
 
         try installer.restoreManagedUpgradeSnapshot(snapshot)
         let checkpoint = try hermesReadiness.checkpoint(logURL: installer.managedHermesLogURL)

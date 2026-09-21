@@ -262,6 +262,66 @@ final class DesktopMigrationJournalTests: XCTestCase {
         XCTAssertEqual(object["releaseLayout"] as? String, "bundled_release")
     }
 
+    /// 2026-09-21: a hand-written whole-second `updatedAt` made the whole journal `invalidState`,
+    /// which Desktop showed as HR-MIGRATE-002 and which blocked every managed operation. Reading
+    /// accepts RFC 3339 with or without fractional seconds; the next write is canonical again.
+    func testAWholeSecondTimestampIsReadAndTheNextWriteIsCanonical() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runID = "50000000-0000-4000-8000-000000000015"
+        try writeRawJournal([
+            "schemaVersion": 2,
+            "runID": runID,
+            "state": "preflight",
+            "lastKnownGoodMode": "account",
+            "releaseVersion": "0.3.8",
+            "releaseLayout": "bundled_release",
+            "bindingID": "60000000-0000-4000-8000-000000000016",
+            "bindingGeneration": 3,
+            "updatedAt": "2026-09-20T11:48:09Z",
+        ], at: root)
+        let store = try DesktopMigrationJournalStore(root: root)
+
+        XCTAssertEqual(try store.loadReadOnly()?.releaseVersion, "0.3.8")
+        XCTAssertEqual(try store.load()?.updatedAt, "2026-09-20T11:48:09Z")
+
+        let rewritten = try store.transition(runID: runID, to: .accountStaged)
+        XCTAssertNotNil(
+            rewritten.updatedAt.range(
+                of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"#,
+                options: .regularExpression
+            ),
+            "writing stays canonical: \(rewritten.updatedAt)"
+        )
+    }
+
+    func testTimestampsThatAreNotRFC3339AreStillRejected() throws {
+        XCTAssertNotNil(parseCanonicalTimestamp("2026-09-20T11:48:09.000Z"))
+        XCTAssertNotNil(parseCanonicalTimestamp("2026-09-20T11:48:09Z"))
+        XCTAssertNotNil(parseCanonicalTimestamp("2026-09-20T19:48:09+08:00"))
+        XCTAssertEqual(
+            parseCanonicalTimestamp("2026-09-20T19:48:09+08:00"),
+            parseCanonicalTimestamp("2026-09-20T11:48:09Z")
+        )
+        for invalid in ["", "2026-09-20", "2026-09-20 11:48:09", "2026-09-20T11:48:09", "yesterday"] {
+            XCTAssertNil(parseCanonicalTimestamp(invalid), invalid)
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            try writeRawJournal([
+                "schemaVersion": 2,
+                "runID": "50000000-0000-4000-8000-000000000017",
+                "state": "preflight",
+                "lastKnownGoodMode": "none",
+                "releaseVersion": "1.2.3",
+                "releaseLayout": "bundled_release",
+                "updatedAt": invalid,
+            ], at: root)
+            XCTAssertThrowsError(try DesktopMigrationJournalStore(root: root).load(), invalid) { error in
+                XCTAssertEqual(error as? DesktopMigrationJournalError, .invalidState)
+            }
+        }
+    }
+
     func testSchemaAndReleaseLayoutCombinationsFailClosed() throws {
         let cases: [[String: Any]] = [
             [

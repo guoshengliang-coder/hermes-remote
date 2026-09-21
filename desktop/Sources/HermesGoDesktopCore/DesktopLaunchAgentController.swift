@@ -38,6 +38,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
     private let runner: Runner
     private let convergenceAttempts: Int
     private let convergenceDelay: TimeInterval
+    private let log: DesktopServiceOperationLog?
     private let launchctl = URL(fileURLWithPath: "/bin/launchctl")
 
     public init(
@@ -45,7 +46,8 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
         launchAgentsRoot: URL,
         runner: Runner,
         convergenceAttempts: Int = 50,
-        convergenceDelay: TimeInterval = 0.1
+        convergenceDelay: TimeInterval = 0.1,
+        log: DesktopServiceOperationLog? = nil
     ) throws {
         let root = launchAgentsRoot.standardizedFileURL.resolvingSymlinksInPath()
         guard root.isFileURL,
@@ -61,6 +63,7 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
         self.runner = runner
         self.convergenceAttempts = convergenceAttempts
         self.convergenceDelay = convergenceDelay
+        self.log = log
     }
 
     public func inspect() throws -> DesktopLaunchAgentServiceState {
@@ -141,9 +144,14 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
     }
 
     public func startHermes(plistURL: URL) throws {
-        guard validPlist(plistURL, label: Self.hermesLabel),
-              !isLoaded(Self.hermesLabel)
-        else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
+        guard validPlist(plistURL, label: Self.hermesLabel) else {
+            log?.record("start \(Self.hermesLabel) refused reason=invalid-plist path=\(plistURL.path)")
+            throw DesktopLaunchAgentControllerError.invalidConfiguration
+        }
+        guard !isLoaded(Self.hermesLabel) else {
+            log?.record("start \(Self.hermesLabel) refused reason=already-loaded")
+            throw DesktopLaunchAgentControllerError.invalidConfiguration
+        }
         guard run(["bootstrap", domainTarget, plistURL.path]).status == 0,
               waitUntilLoaded(Self.hermesLabel, expected: true)
         else { throw DesktopLaunchAgentControllerError.hermesStartFailed }
@@ -176,18 +184,37 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
     private func isLoaded(_ label: String) -> Bool {
         run(["print", serviceTarget(label)]).status == 0
     }
+    /// Polls `launchctl print` after a mutation. Logged once, as a summary: the individual polls
+    /// are the same question asked again.
     private func waitUntilLoaded(_ label: String, expected: Bool) -> Bool {
+        var lastStatus: Int32 = 0
         for attempt in 0..<convergenceAttempts {
-            if isLoaded(label) == expected { return true }
+            lastStatus = runner.run(executable: launchctl, arguments: ["print", serviceTarget(label)]).status
+            if (lastStatus == 0) == expected {
+                log?.record("wait-\(expected ? "loaded" : "unloaded") \(label) result=ok polls=\(attempt + 1) print-status=\(lastStatus)")
+                return true
+            }
             if attempt + 1 < convergenceAttempts, convergenceDelay > 0 {
                 Thread.sleep(forTimeInterval: convergenceDelay)
             }
         }
+        log?.record("wait-\(expected ? "loaded" : "unloaded") \(label) result=timed-out polls=\(convergenceAttempts) print-status=\(lastStatus)")
         return false
     }
+    /// Every launchctl call goes through here. Mutations are logged with their exit status and
+    /// standard error; `print` is a read and is logged only as part of a convergence wait.
     private func run(_ arguments: [String]) -> CommandResult {
-        runner.run(executable: launchctl, arguments: arguments)
+        let result = runner.run(executable: launchctl, arguments: arguments)
+        if let log, let verb = arguments.first, Self.loggedVerbs.contains(verb) {
+            var line = "launchctl \(arguments.joined(separator: " ")) status=\(result.status)"
+            if let standardError = result.standardError, !standardError.isEmpty {
+                line += " stderr=\(standardError)"
+            }
+            log.record(line)
+        }
+        return result
     }
+    private static var loggedVerbs: Set<String> { ["bootstrap", "bootout", "enable", "disable"] }
 
     private func validPlist(_ value: URL, label: String) -> Bool {
         let standardized = value.standardizedFileURL
