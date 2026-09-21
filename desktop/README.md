@@ -1,6 +1,18 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.20** (build 23). Two changes.
+Current internal test release candidate: **0.2.21** (build 24). One change.
+
+It can run this Mac's own Hermes instead of a second, pinned copy (`docs/MANAGED_HERMES_STRATEGY.md`,
+one Hermes per Mac). When the owner's standard install (`~/.hermes/hermes-agent`, 0.21.3 or newer,
+default profile only) is present and the setting is on, the `com.hermesgo.hermes-server` LaunchAgent
+starts that Hermes through a private launcher that hands over the session token, restarts it when
+the checkout's commit changes, and keeps the bundled agent as the rollback. The setting is off by
+default and turned on per Mac with
+`defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool true`; turning it off
+restores the bundled agent byte for byte. Repeated failures pause with `HR-MIGRATE-011` instead of
+looping. The pinned manifest stays at **0.3.8**.
+
+0.2.20 (build 23) had two changes.
 
 Startup recovery now keeps a healthy managed upgrade actionable when only the token-storage or
 LaunchAgent search-path repair fails. Those advisory failures are reported as retryable
