@@ -36,7 +36,14 @@ DEFAULT_DEVICE_ID=mac-mini
 LIFECYCLE_EVENT_STORE_FILE=/var/lib/hermes-remote/lifecycle-events.json
 # Optional; structured JSON log verbosity: off | error | info (default) | debug.
 GATEWAY_LOG_LEVEL=info
+# Gateway-to-Connector liveness. Timeout must be greater than interval.
+CONTROL_HEARTBEAT_INTERVAL_MS=5000
+CONTROL_HEARTBEAT_TIMEOUT_MS=15000
 ```
+
+This is the Gateway's independent server-to-Connector check; it complements the Connector's own
+outbound heartbeat. A socket that remains TCP-open but stops servicing its event loop is terminated
+after the timeout so the existing Connector reconnect loop can replace it.
 
 The Connector accepts the same optional knob as `CONNECTOR_LOG_LEVEL` (default `info`).
 

@@ -45,6 +45,8 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     maxPendingRequests,
     maxWebSocketTunnels,
     maxControlConnections,
+    controlHeartbeatIntervalMs,
+    controlHeartbeatTimeoutMs,
     maxUnauthenticatedAccountConnectors,
     maxUnauthenticatedAccountConnectorsPerIp,
     maxWirePayloadBytes,
@@ -212,6 +214,8 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     tlsKeyFile,
     requestTimeoutMs,
     maxControlConnections,
+    controlHeartbeatIntervalMs,
+    controlHeartbeatTimeoutMs,
     maxWirePayloadBytes,
     maxAppPayloadBytes,
     accountConnectorEnabled: Boolean(accountConnectorSessions),
@@ -253,6 +257,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
       await accountRuntime.close();
     },
     reportFailure,
+    log,
   });
 
   function send(socket: WebSocket, message: WireMessage): void {

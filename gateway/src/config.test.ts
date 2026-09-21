@@ -21,6 +21,8 @@ test("Gateway config retains the legacy defaults", () => {
   assert.equal(config.logLevel, "info");
   assert.equal(config.maxWebSocketTunnels, 32);
   assert.equal(config.maxControlConnections, 32);
+  assert.equal(config.controlHeartbeatIntervalMs, 5_000);
+  assert.equal(config.controlHeartbeatTimeoutMs, 15_000);
   assert.equal(config.maxUnauthenticatedAccountConnectors, 16);
   assert.equal(config.maxUnauthenticatedAccountConnectorsPerIp, 4);
   assert.equal(config.maxLifecycleEvents, 10_000);
@@ -61,6 +63,14 @@ test("Gateway config rejects invalid numeric, secret, and TLS settings", () => {
   assert.throws(
     () => loadGatewayConfig({ ...required, INTERNAL_STATUS_TOKEN: "too-short" }),
     /INTERNAL_STATUS_TOKEN must contain at least 16 characters/,
+  );
+  assert.throws(
+    () => loadGatewayConfig({
+      ...required,
+      CONTROL_HEARTBEAT_INTERVAL_MS: "10000",
+      CONTROL_HEARTBEAT_TIMEOUT_MS: "10000",
+    }),
+    /CONTROL_HEARTBEAT_TIMEOUT_MS must be greater/,
   );
 });
 

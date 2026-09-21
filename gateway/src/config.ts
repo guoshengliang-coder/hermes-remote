@@ -16,6 +16,8 @@ export interface GatewayConfig {
   maxPendingRequests: number;
   maxWebSocketTunnels: number;
   maxControlConnections: number;
+  controlHeartbeatIntervalMs: number;
+  controlHeartbeatTimeoutMs: number;
   maxUnauthenticatedAccountConnectors: number;
   maxUnauthenticatedAccountConnectorsPerIp: number;
   maxWirePayloadBytes: number;
@@ -38,6 +40,11 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
 
   const internalStatusToken = optionalSecret(env, "INTERNAL_STATUS_TOKEN", 16);
   const webAppDir = webAppDirectory(env);
+  const controlHeartbeatIntervalMs = positiveIntEnv(env, "CONTROL_HEARTBEAT_INTERVAL_MS", 5_000, 300_000);
+  const controlHeartbeatTimeoutMs = positiveIntEnv(env, "CONTROL_HEARTBEAT_TIMEOUT_MS", 15_000, 300_000);
+  if (controlHeartbeatTimeoutMs <= controlHeartbeatIntervalMs) {
+    throw new Error("CONTROL_HEARTBEAT_TIMEOUT_MS must be greater than CONTROL_HEARTBEAT_INTERVAL_MS");
+  }
   return {
     port: positiveIntEnv(env, "PORT", 8787, 65_535),
     host: env.HOST ?? "0.0.0.0",
@@ -52,6 +59,8 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
     maxPendingRequests: positiveIntEnv(env, "MAX_PENDING_REQUESTS", 128),
     maxWebSocketTunnels: positiveIntEnv(env, "MAX_WS_TUNNELS", 32),
     maxControlConnections: positiveIntEnv(env, "MAX_CONTROL_CONNECTIONS", 32),
+    controlHeartbeatIntervalMs,
+    controlHeartbeatTimeoutMs,
     maxUnauthenticatedAccountConnectors: positiveIntEnv(
       env,
       "ACCOUNT_MAX_UNAUTHENTICATED_CONNECTORS",

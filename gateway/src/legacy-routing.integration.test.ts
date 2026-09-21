@@ -207,6 +207,35 @@ test("disconnecting a legacy Connector fails its pending HTTP request", networkT
   }
 });
 
+test("aborting a legacy HTTP client cancels the Connector request", networkTestOptions, async () => {
+  const gateway = await startGateway();
+  const sockets: WebSocket[] = [];
+  try {
+    const connector = await openLegacyPeer(gateway, "connector");
+    sockets.push(connector);
+    const requestMessage = nextMessage(connector, "tunnel.http.request");
+    const controller = new AbortController();
+    const responsePromise = fetch(`${gateway.origin}/api/slow`, {
+      headers: { "x-hermes-session-token": gateway.appToken },
+      signal: controller.signal,
+    });
+    const request = await requestMessage;
+    const cancellation = nextMessage(connector, "tunnel.http.cancel");
+
+    controller.abort();
+    await assert.rejects(responsePromise, { name: "AbortError" });
+    assert.deepEqual(await cancellation, {
+      type: "tunnel.http.cancel",
+      version: PROTOCOL_VERSION,
+      requestId: request.id,
+      reason: "client_aborted",
+    });
+  } finally {
+    sockets.forEach((socket) => socket.close());
+    await stopGateway(gateway);
+  }
+});
+
 test("legacy HTTP routing enforces pending capacity and request timeout", networkTestOptions, async () => {
   const gateway = await startGateway({
     MAX_PENDING_REQUESTS: "1",

@@ -21,6 +21,7 @@ import com.hermes.client.data.network.GatewayWebSocketEndpoint
 import com.hermes.client.data.network.GatewayEndpointException
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.RelayDns
+import com.hermes.client.data.network.RoutedRestRecoverySignal
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ModelRepository
 import com.hermes.client.data.repository.ProfileRepository
@@ -248,13 +249,19 @@ object AppModule {
         json: Json,
         store: CredentialStore,
         accountSessions: AccountSessionManager,
+        routedRestRecoverySignal: RoutedRestRecoverySignal,
     ): HermesRestApi = HermesRestApi(
         okHttp = okHttp,
         accountOkHttp = accountOkHttp,
         json = json,
         accountSessionManager = accountSessions,
+        routedRestRecoverySignal = routedRestRecoverySignal,
         configProvider = { store.load() },
     )
+
+    @Provides
+    @Singleton
+    fun provideRoutedRestRecoverySignal(): RoutedRestRecoverySignal = RoutedRestRecoverySignal()
 
     private fun encodePathSegment(value: String): String =
         java.net.URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
@@ -273,8 +280,15 @@ object AppModule {
         connectivity: com.hermes.client.data.network.ConnectivityChecker,
         client: HermesGatewayClient,
         scope: CoroutineScope,
+        routedRestRecoverySignal: RoutedRestRecoverySignal,
     ): com.hermes.client.data.network.GatewayHealthMonitor =
-        com.hermes.client.data.network.GatewayHealthMonitor(api, connectivity, client.connectionState, scope)
+        com.hermes.client.data.network.GatewayHealthMonitor(
+            api = api,
+            connectivity = connectivity,
+            connectionState = client.connectionState,
+            scope = scope,
+            routedRestRecoverySignal = routedRestRecoverySignal,
+        )
 
     @Provides
     @Singleton

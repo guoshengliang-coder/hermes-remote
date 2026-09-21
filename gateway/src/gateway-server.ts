@@ -3,6 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createServer as createHttpsServer } from "node:https";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AccountConnectorAdmission } from "./account-connector-admission.js";
+import { ControlHeartbeat } from "./control-heartbeat.js";
+import type { GatewayLogger } from "./gateway-log.js";
 import { sendHttpError } from "./http-utils.js";
 import { rejectUpgrade } from "./websocket-utils.js";
 
@@ -13,6 +15,8 @@ interface GatewayServerOptions<TConnector> {
   tlsKeyFile?: string;
   requestTimeoutMs: number;
   maxControlConnections: number;
+  controlHeartbeatIntervalMs: number;
+  controlHeartbeatTimeoutMs: number;
   maxWirePayloadBytes: number;
   maxAppPayloadBytes: number;
   accountConnectorEnabled: boolean;
@@ -30,6 +34,7 @@ interface GatewayServerOptions<TConnector> {
   ): void;
   closeDependencies(): Promise<void>;
   reportFailure(message: string, error: unknown): void;
+  log: GatewayLogger;
 }
 
 export class GatewayServer<TConnector> {
@@ -37,6 +42,7 @@ export class GatewayServer<TConnector> {
   private readonly accountControlWss: WebSocketServer;
   private readonly appWss: WebSocketServer;
   private readonly server: ReturnType<typeof createServer>;
+  private readonly controlHeartbeat: ControlHeartbeat;
 
   constructor(private readonly options: GatewayServerOptions<TConnector>) {
     const requestHandler = (request: IncomingMessage, response: ServerResponse): void => {
@@ -72,6 +78,12 @@ export class GatewayServer<TConnector> {
       noServer: true,
       maxPayload: options.maxAppPayloadBytes,
     });
+    this.controlHeartbeat = new ControlHeartbeat(
+      options.controlHeartbeatIntervalMs,
+      options.controlHeartbeatTimeoutMs,
+      options.log,
+    );
+    this.controlHeartbeat.start();
     this.attachHandlers();
   }
 
@@ -86,6 +98,7 @@ export class GatewayServer<TConnector> {
 
   shutdown(signal: string): void {
     console.log(`Received ${signal}; closing Gateway`);
+    this.controlHeartbeat.stop();
     for (const client of this.controlWss.clients) client.close(1012, "gateway restarting");
     for (const client of this.accountControlWss.clients) client.close(1012, "gateway restarting");
     for (const client of this.appWss.clients) client.close(1012, "gateway restarting");
@@ -147,6 +160,7 @@ export class GatewayServer<TConnector> {
     });
 
     this.controlWss.on("connection", (socket) => {
+      this.controlHeartbeat.track(socket, "legacy");
       this.options.attachLegacyControl(socket);
     });
     this.accountControlWss.on("connection", (
@@ -158,6 +172,7 @@ export class GatewayServer<TConnector> {
         socket.close(1013, "account Connector disabled");
         return;
       }
+      this.controlHeartbeat.track(socket, "account");
       this.options.attachAccountConnector(socket, sourceIp);
     });
     this.appWss.on("connection", (

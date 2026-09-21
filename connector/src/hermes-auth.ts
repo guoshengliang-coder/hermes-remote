@@ -110,7 +110,9 @@ export class HermesAuth {
     return {
       ...init,
       headers,
-      signal: init.signal ?? AbortSignal.timeout(this.requestTimeoutMs),
+      signal: init.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(this.requestTimeoutMs)])
+        : AbortSignal.timeout(this.requestTimeoutMs),
     };
   }
 

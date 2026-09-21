@@ -18,6 +18,7 @@ interface HttpConnector {
 
 interface PendingHttp {
   response: ServerResponse;
+  connectorSocket: WebSocket;
   routingKey: string;
   timer: NodeJS.Timeout;
   started: boolean;
@@ -66,6 +67,7 @@ export class HttpTunnelBroker {
     const timer = setTimeout(() => this.expire(id), this.requestTimeoutMs);
     this.pending.set(id, {
       response,
+      connectorSocket: connector.socket,
       routingKey: connector.routingKey,
       timer,
       started: false,
@@ -76,8 +78,8 @@ export class HttpTunnelBroker {
       device: connector.deviceId,
       responseHeaders,
     });
-    request.on("aborted", () => this.clear(id));
-    response.on("close", () => this.clear(id));
+    request.on("aborted", () => this.cancel(id, "client_aborted"));
+    response.on("close", () => this.cancel(id, "client_aborted"));
 
     this.send(connector.socket, {
       type: "tunnel.http.request",
@@ -126,7 +128,7 @@ export class HttpTunnelBroker {
       const pending = this.pending.get(message.requestId);
       if (!pending || pending.routingKey !== connector.routingKey || !pending.started) return true;
       if (message.sequence !== pending.nextSequence) {
-        this.clear(message.requestId);
+        this.cancel(message.requestId, "gateway_rejected");
         pending.response.destroy(new Error("invalid_response_chunk_sequence"));
         return true;
       }
@@ -193,6 +195,21 @@ export class HttpTunnelBroker {
     this.pending.delete(id);
   }
 
+  private cancel(
+    id: string,
+    reason: "client_aborted" | "gateway_timeout" | "gateway_rejected",
+  ): void {
+    const pending = this.pending.get(id);
+    if (!pending) return;
+    this.clear(id);
+    this.send(pending.connectorSocket, {
+      type: "tunnel.http.cancel",
+      version: PROTOCOL_VERSION,
+      requestId: id,
+      reason,
+    });
+  }
+
   private refreshTimeout(id: string, pending: PendingHttp): void {
     clearTimeout(pending.timer);
     pending.timer = setTimeout(() => this.expire(id), this.requestTimeoutMs);
@@ -201,8 +218,7 @@ export class HttpTunnelBroker {
   private expire(id: string): void {
     const pending = this.pending.get(id);
     if (!pending) return;
-    this.pending.delete(id);
-    clearTimeout(pending.timer);
+    this.cancel(id, "gateway_timeout");
     this.logOutcome(pending, "connector_timeout", pending.response.headersSent ? undefined : 504);
     if (pending.response.headersSent) pending.response.destroy(new Error("connector_timeout"));
     else sendHttpError(pending.response, 504, "connector_timeout");

@@ -11,7 +11,9 @@ hostname was migrated to `mrlgs.net` on 2026-08-30.
 - Edge router: Nginx on 443; Gateway upstream `127.0.0.1:8444`, release upstream `127.0.0.1:9443`
 - Mac Connector: `~/Library/Application Support/Hermes Remote`
 - Connector service: `~/Library/LaunchAgents/com.hermesremote.connector.plist`
-- Connector control-channel heartbeat: 15 seconds; a missed pong forces an automatic reconnect after sleep or network changes.
+- Connector control-channel heartbeat: bidirectional. The Connector's 15-second ping detects a
+  broken network path; the Gateway's 5-second ping with a 15-second timeout also evicts a connected
+  Connector whose event loop has stalled, allowing its normal reconnect loop to recover the route.
 - Hermes credentials remain only in the existing `~/.hermes/.env`
 
 The deployment did not alter Xray, DERP, Hermes configuration, UFW, or the host firewall.
