@@ -790,6 +790,11 @@ defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool true
 defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool false   # roll back
 ```
 
+Do not turn it on for a Mac before the preconditions in `docs/MANAGED_HERMES_STRATEGY.md`
+("Order of work") are met — in particular a released Android build that answers upstream's
+server→client approval/clarify requests; until then the phone silently loses those cards against
+0.21.3.
+
 (`HERMES_GO_LOCAL_HERMES_RUNTIME_ENABLED=1|0` in the environment and a `HermesGoLocalHermesRuntimeEnabled`
 key in the app's `Info.plist` are also read, in that order after the environment; the shipped
 `Info.plist` does not carry the key.) With the setting off, nothing below runs except the restore of
