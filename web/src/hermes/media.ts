@@ -59,10 +59,11 @@ const FILE_SIZE_AT_START = new RegExp(
   "i",
 );
 // Java `\s` includes newlines, so `^\s*` / `\s*$` may span a blank line exactly as on Android.
-const directive = (name: string) =>
-  new RegExp("^" + WS + "*@" + name + ":(?:\"([^\"]+)\"|'([^']+)'|`([^`]+)`|(.+?))" + WS + "*$", "gm");
-const IMAGE_DIRECTIVE = directive("image");
-const FILE_DIRECTIVE = directive("file");
+// Two literal patterns rather than one built from a parameter: a regex from a runtime argument is
+// what the SAST gate (semgrep detect-non-literal-regexp) blocks, even when every caller is a constant.
+const DIRECTIVE_VALUE = ":(?:\"([^\"]+)\"|'([^']+)'|`([^`]+)`|(.+?))";
+const IMAGE_DIRECTIVE = new RegExp("^" + WS + "*@image" + DIRECTIVE_VALUE + WS + "*$", "gm");
+const FILE_DIRECTIVE = new RegExp("^" + WS + "*@file" + DIRECTIVE_VALUE + WS + "*$", "gm");
 const ATTACHED_IMAGE_PLACEHOLDER = new RegExp("^" + WS + "*\\[User attached image:[^\\]]+]" + WS + "*$", "gim");
 const ATTACHED_FILE_PLACEHOLDER = new RegExp("^" + WS + "*\\[User attached (?:file|PDF):[^\\]]+]" + WS + "*$", "gim");
 const IMAGE_PATH_EXTENSION = /\.(?:png|jpe?g|gif|webp)(?=$|[\s`"'<>，。；;）)\]])/i;

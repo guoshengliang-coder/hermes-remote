@@ -39,3 +39,9 @@ fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generi
 b00a560e94676b67f59f3176de0262ed00022fcc:desktop/Tests/HermesGoDesktopCoreTests/DesktopComponentReleaseManifestV2Tests.swift:generic-api-key:100
 b00a560e94676b67f59f3176de0262ed00022fcc:desktop/Tests/HermesGoDesktopCoreTests/DesktopComponentReleaseManifestV2Tests.swift:generic-api-key:187
 b00a560e94676b67f59f3176de0262ed00022fcc:desktop/Tests/HermesGoDesktopCoreTests/DesktopComponentReleaseManifestV2Tests.swift:generic-api-key:194
+
+# scripts/dev/web-stack.sh as first committed in 39be64f: a made-up local Resend webhook secret for a
+# throwaway loopback stack and the mock Hermes' fixed demo password. Neither is a credential; the
+# script now generates its keys per run and no longer carries either line.
+39be64fa3e5ff0eef763eeacba0a94b82cdf5d9c:scripts/dev/web-stack.sh:generic-api-key:155
+39be64fa3e5ff0eef763eeacba0a94b82cdf5d9c:scripts/dev/web-stack.sh:curl-auth-user:194

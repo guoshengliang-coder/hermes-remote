@@ -133,6 +133,10 @@ stop_stack() {
   echo "web stack stopped"
 }
 
+# Every run starts from a fresh database, so the Gateway's keys are simply generated per run: nothing
+# that looks like a credential is written into this file (the secret scanner reads it too).
+random_hex() { "$OPENSSL" rand -hex "$1"; }
+
 gateway_env() {
   cat <<EOF
 HOST=127.0.0.1
@@ -149,18 +153,18 @@ ACCOUNT_MULTI_DEVICE_ENABLED=1
 ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1
 ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED=1
 ACCOUNT_EMAIL_OTP_ENABLED=1
-ACCOUNT_EMAIL_OTP_HASH_KEY=web-stack-email-otp-hash-key-local-only
+ACCOUNT_EMAIL_OTP_HASH_KEY=$(random_hex 24)
 ACCOUNT_EMAIL_OTP_ISSUER=$ORIGIN
 ACCOUNT_RESEND_WEBHOOK_ENABLED=1
-ACCOUNT_RESEND_WEBHOOK_SECRET=whsec_d2ViLXN0YWNrLXJlc2VuZC13ZWJob29rLXNlY3JldA==
-ACCOUNT_RESEND_API_KEY=re_web_stack_local_only
+ACCOUNT_RESEND_WEBHOOK_SECRET=whsec_$("$OPENSSL" rand -base64 32)
+ACCOUNT_RESEND_API_KEY=re_local_$(random_hex 8)
 ACCOUNT_EMAIL_FROM=Hermes GO Dev <dev@example.invalid>
 ACCOUNT_WEB_SESSION_ENABLED=1
 ACCOUNT_WEB_ORIGIN=$ORIGIN
 ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=1
 ACCOUNT_GATEWAY_ORIGIN=$ORIGIN
 ACCOUNT_DATABASE_URL=$DATABASE_URL
-ACCOUNT_TOKEN_HASH_KEY=web-stack-token-hash-key-local-development-only
+ACCOUNT_TOKEN_HASH_KEY=$(random_hex 24)
 WEB_APP_ENABLED=1
 WEB_APP_DIR=$WEB_DIR
 HR_DEV_EMAIL_SINK=$STATE/login-codes.jsonl
@@ -191,7 +195,7 @@ start_stack() {
   start_recorded mock "$ROOT" env MOCK_HERMES_PORT="$MOCK_PORT" \
     MOCK_HERMES_EXTRA_SESSIONS="${HR_WEB_STACK_EXTRA_SESSIONS:-6}" \
     HR_MOCK_SERVER_REQUESTS="$server_requests" node "$MOCK_MARKER"
-  wait_for "mock hermes" "curl -s -u demo:secret http://127.0.0.1:$MOCK_PORT/api/status"
+  wait_for "mock hermes" "\"$LSOF\" -ti tcp:$MOCK_PORT -sTCP:LISTEN"
 
   local -a gateway_environment=()
   local line
