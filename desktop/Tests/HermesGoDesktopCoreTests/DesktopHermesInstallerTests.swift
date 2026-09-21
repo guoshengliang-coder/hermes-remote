@@ -242,7 +242,7 @@ final class DesktopHermesInstallerTests: XCTestCase {
             paths: sandbox.paths,
             localRuntimeEnabled: true,
             freshInstall: true,
-            earlierAttemptRecorded: false,
+            unfinishedCheckout: nil,
             proxy: .none
         )
 
@@ -253,7 +253,7 @@ final class DesktopHermesInstallerTests: XCTestCase {
     // MARK: Environment
 
     func testTheChildEnvironmentIsAnAllowlistWithTheSudoGuardFirst() async throws {
-        let script = FakeInstaller(stages: ["prerequisites"])
+        let script = FakeInstaller(stages: ["prerequisites", "complete"])
         let installer = sandbox.installer(
             script: script,
             detections: [.absent(hermesDataPresent: false), .usable(sandbox.installation)],
@@ -282,7 +282,7 @@ final class DesktopHermesInstallerTests: XCTestCase {
     }
 
     func testTheSystemProxyReachesTheInstallerAndLoopbackBypassesIt() async throws {
-        let script = FakeInstaller(stages: ["prerequisites"])
+        let script = FakeInstaller(stages: ["prerequisites", "complete"])
         let installer = sandbox.installer(script: script, detections: [.absent(hermesDataPresent: false), .usable(sandbox.installation)])
         let proxy = DesktopSystemProxy(
             http: .init(host: "127.0.0.1", port: 7890),
@@ -296,6 +296,172 @@ final class DesktopHermesInstallerTests: XCTestCase {
         XCTAssertTrue(calls.contains("https_proxy=http://127.0.0.1:7890"))
         XCTAssertTrue(calls.contains("HTTPS_PROXY=http://127.0.0.1:7890"))
         XCTAssertTrue(calls.contains("no_proxy=localhost,127.0.0.1,::1,.internal"))
+    }
+
+    // MARK: Review fixes
+
+    /// Finding 1: a failure after `python-deps` leaves a Hermes detection reads as usable. The
+    /// install must stay unfinished — offered for resume, not used for setup — until upstream's
+    /// completion marker exists, and Retry must run the stages again.
+    func testAFailureAfterPythonDepsKeepsTheInstallUnfinishedAndRetryRunsTheStagesAgain() async throws {
+        let failing = FakeInstaller(stages: ["repository", "python-deps", "node-deps", "complete"], failing: "node-deps", failure: .plain)
+        let first = sandbox.installer(script: failing, detections: [.absent(hermesDataPresent: false)])
+
+        let failure = await installFailure(first)
+
+        XCTAssertEqual(failure?.stage, "node-deps")
+        XCTAssertEqual(DesktopIssue.hermesInstall(try XCTUnwrap(failure))?.code, .hermesInstallStageFailed)
+        let checkout = try XCTUnwrap(DesktopCheckoutIdentity.read(sandbox.paths.checkoutRoot))
+        XCTAssertEqual(sandbox.attempts.load()?.checkout, checkout, "the checkout Desktop's stages created must be recorded")
+        XCTAssertTrue(DesktopHermesInstallResume.pending(sandbox.attempts, paths: sandbox.paths), "setup must stay blocked")
+        let resume = try XCTUnwrap(
+            sandbox.resumeOffer(detection: .usable(sandbox.installation)),
+            "a half-installed Hermes that detection reads as usable must keep the failed card and its retry"
+        )
+        XCTAssertEqual(resume.resumeCheckout, checkout)
+
+        let succeeding = FakeInstaller(stages: ["repository", "python-deps", "node-deps", "complete"])
+        let retry = sandbox.installer(script: succeeding, detections: [.usable(sandbox.installation), .usable(sandbox.installation)])
+        let installed = try await retry.install(resume.confirm()) { _ in }
+
+        XCTAssertEqual(installed, sandbox.installation)
+        XCTAssertEqual(try sandbox.invocations().filter { $0.hasPrefix("ARGS --stage repository") }.count, 2, "Retry must re-run the stages")
+        XCTAssertNil(sandbox.attempts.load(), "a finished install clears the record")
+        XCTAssertFalse(DesktopHermesInstallResume.pending(sandbox.attempts, paths: sandbox.paths))
+    }
+
+    func testFinishingWithoutUpstreamsCompletionMarkerIsNotUsable() async throws {
+        let script = FakeInstaller(stages: ["repository", "python-deps"])
+        let installer = sandbox.installer(script: script, detections: [.absent(hermesDataPresent: false), .usable(sandbox.installation)])
+
+        let failure = await installFailure(installer)
+
+        XCTAssertEqual(failure?.stage, "verify")
+        XCTAssertEqual(DesktopIssue.hermesInstall(try XCTUnwrap(failure))?.code, .hermesInstallNotUsable)
+        XCTAssertTrue(DesktopHermesInstallResume.pending(sandbox.attempts, paths: sandbox.paths))
+    }
+
+    /// Finding 2: a resume must never run upstream's repository stage (stash, checkout, reset) over
+    /// a checkout the owner created meanwhile.
+    func testAResumeRefusesACheckoutThatIsNoLongerDesktops() async throws {
+        let manager = FileManager.default
+        try manager.createDirectory(at: sandbox.paths.checkoutRoot, withIntermediateDirectories: true)
+        let recorded = try XCTUnwrap(DesktopCheckoutIdentity.read(sandbox.paths.checkoutRoot))
+        sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: sandbox.paths.checkoutRoot.path, checkout: recorded, startedAt: Date()))
+        let resume = try XCTUnwrap(sandbox.resumeOffer(detection: .unsupported(.incompleteInstallation, detail: "")))
+        // The owner replaces it (a manual clone, a terminal install.sh).
+        try manager.createDirectory(at: sandbox.home.appendingPathComponent("owners-clone"), withIntermediateDirectories: true)
+        try manager.removeItem(at: sandbox.paths.checkoutRoot)
+        try manager.moveItem(at: sandbox.home.appendingPathComponent("owners-clone"), to: sandbox.paths.checkoutRoot)
+        XCTAssertNotEqual(DesktopCheckoutIdentity.read(sandbox.paths.checkoutRoot), recorded)
+        let fetcher = StubFetcher(result: .success(Data(FakeInstaller(stages: ["repository"]).source.utf8)))
+        let installer = sandbox.installer(fetcher: fetcher, detections: [.unsupported(.incompleteInstallation, detail: "")])
+
+        let failure: DesktopHermesInstallFailure?
+        do {
+            _ = try await installer.install(resume.confirm()) { _ in }
+            failure = nil
+        } catch {
+            failure = error as? DesktopHermesInstallFailure
+        }
+
+        XCTAssertEqual(failure?.stage, "precondition")
+        XCTAssertEqual(fetcher.calls, 0, "nothing may run over somebody else's checkout")
+        XCTAssertNil(sandbox.attempts.load(), "a record for a replaced checkout is stale")
+    }
+
+    func testAFirstInstallDoesNotRunOverACheckoutThatAppearedMeanwhile() async throws {
+        let fetcher = StubFetcher(result: .success(Data(FakeInstaller(stages: ["repository"]).source.utf8)))
+        let installer = sandbox.installer(fetcher: fetcher, detections: [.unsupported(.incompleteInstallation, detail: "")])
+
+        let failure = await installFailure(installer)
+
+        XCTAssertEqual(failure?.stage, "precondition")
+        XCTAssertEqual(fetcher.calls, 0)
+    }
+
+    func testStaleAttemptRecordsAreDropped() throws {
+        let path = sandbox.paths.checkoutRoot.path
+        // No stage had created a checkout, and now one exists: someone else's.
+        try FileManager.default.createDirectory(at: sandbox.paths.checkoutRoot, withIntermediateDirectories: true)
+        sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: nil, startedAt: Date()))
+        XCTAssertNil(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths))
+        XCTAssertNil(sandbox.attempts.load())
+
+        // Desktop's checkout, finished by other means: the completion marker exists.
+        let ours = try XCTUnwrap(DesktopCheckoutIdentity.read(sandbox.paths.checkoutRoot))
+        sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: ours, startedAt: Date()))
+        XCTAssertEqual(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths), ours)
+        try Data().write(to: sandbox.paths.checkoutRoot.appendingPathComponent(DesktopHermesInstallResume.completionMarkerName))
+        XCTAssertNil(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths))
+        XCTAssertNil(sandbox.attempts.load())
+
+        // No checkout yet and nothing created: still Desktop's, kept.
+        try FileManager.default.removeItem(at: sandbox.paths.checkoutRoot)
+        sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: nil, startedAt: Date()))
+        XCTAssertNil(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths))
+        XCTAssertNotNil(sandbox.attempts.load())
+    }
+
+    /// Finding 5: the SSH clone upstream tries first must not reach the owner's SSH agent.
+    func testTheSSHAgentIsNotPassedToTheInstaller() async throws {
+        let installer = sandbox.installer(
+            script: FakeInstaller(stages: ["complete"]),
+            detections: [.absent(hermesDataPresent: false), .usable(sandbox.installation)],
+            inherited: ["SSH_AUTH_SOCK": "/private/tmp/agent.sock", "USER": "tester"]
+        )
+        XCTAssertNil(installer.childEnvironment(offer: sandbox.offer(), runDirectory: URL(fileURLWithPath: "/run/x"))["SSH_AUTH_SOCK"])
+        _ = try await installer.install(sandbox.offer().confirm()) { _ in }
+        XCTAssertTrue(try sandbox.invocations().contains("SSH_AUTH_SOCK="))
+    }
+
+    /// Finding 6: the prerequisites probe's warning and generic "failed to download" wording must
+    /// not turn an ordinary failure into the network code.
+    func testAConnectivityWarningDoesNotMakeAnOrdinaryFailureANetworkFailure() async throws {
+        let script = FakeInstaller(
+            stages: ["prerequisites", "complete"],
+            failing: "prerequisites",
+            failure: .plain,
+            failurePreamble: ["⚠ Could not reach https://duckduckgo.com/", "Failed to download optional ripgrep"]
+        )
+        let installer = sandbox.installer(script: script, detections: [.absent(hermesDataPresent: false)])
+
+        let failure = await installFailure(installer)
+
+        guard case .stageFailed(let stage, _) = failure else { return XCTFail("\(String(describing: failure))") }
+        XCTAssertEqual(stage, "prerequisites")
+    }
+
+    /// Finding 7: a manifest line longer than 4096 bytes must reach the parser whole.
+    func testALongManifestLineIsNotCut() async throws {
+        let script = FakeInstaller(stages: ["prerequisites", "repository", "venv", "complete"], titleLength: 1500)
+        let installer = sandbox.installer(script: script, detections: [.absent(hermesDataPresent: false), .usable(sandbox.installation)])
+        let events = EventRecorder()
+
+        _ = try await installer.install(sandbox.offer().confirm()) { events.append($0) }
+
+        XCTAssertTrue(events.values.contains { if case .manifest(let stages) = $0 { return stages.count == 4 } else { return false } })
+    }
+
+    /// Finding 9: quitting Desktop ends the running installer's process group.
+    func testTerminatingAllProcessGroupsEndsARunningStage() async throws {
+        let script = FakeInstaller(stages: ["prerequisites", "python-deps", "complete"], hanging: "python-deps")
+        let installer = sandbox.installer(script: script, detections: [.absent(hermesDataPresent: false)])
+        let offer = sandbox.offer()
+        let task = Task { try await installer.install(offer.confirm()) { _ in } }
+        let childPID = try await sandbox.waitForChildPID()
+        XCTAssertFalse(DesktopPosixProcessRunner.liveProcessGroups.isEmpty)
+
+        DesktopPosixProcessRunner.terminateAllProcessGroups()
+
+        var gone = false
+        for _ in 0..<50 where !gone {
+            gone = kill(childPID, 0) != 0
+            if !gone { try await Task.sleep(nanoseconds: 100_000_000) }
+        }
+        XCTAssertTrue(gone, "the stage's child outlived Desktop's termination")
+        _ = await task.result
+        XCTAssertTrue(DesktopPosixProcessRunner.liveProcessGroups.isEmpty)
     }
 
     // MARK: Helpers
@@ -319,17 +485,19 @@ final class DesktopHermesInstallOfferTests: XCTestCase {
         _ detection: DesktopLocalHermesDetection,
         enabled: Bool = true,
         fresh: Bool = true,
-        attempted: Bool = false
+        unfinished: DesktopCheckoutIdentity? = nil
     ) -> DesktopHermesInstallOffer? {
         DesktopHermesInstallOffer.evaluate(
             detection: detection,
             paths: paths,
             localRuntimeEnabled: enabled,
             freshInstall: fresh,
-            earlierAttemptRecorded: attempted,
+            unfinishedCheckout: unfinished,
             proxy: .none
         )
     }
+
+    private let ours = DesktopCheckoutIdentity(device: 1, inode: 42, birthSeconds: 1_790_000_000, birthNanoseconds: 5)
 
     func testOnlyAMacWithNoHermesAtAllIsOffered() throws {
         let offered = try XCTUnwrap(offer(.absent(hermesDataPresent: false)))
@@ -351,12 +519,26 @@ final class DesktopHermesInstallOfferTests: XCTestCase {
         XCTAssertNil(offer(.absent(hermesDataPresent: false), fresh: false))
     }
 
-    func testOnlyDesktopsOwnUnfinishedAttemptMayBeResumed() throws {
+    func testOnlyDesktopsOwnUnfinishedCheckoutMayBeResumed() throws {
         XCTAssertNil(offer(.unsupported(.incompleteInstallation, detail: "venv/bin/hermes is missing")))
-        let resumed = try XCTUnwrap(offer(.unsupported(.incompleteInstallation, detail: ""), attempted: true))
+        let resumed = try XCTUnwrap(offer(.unsupported(.incompleteInstallation, detail: ""), unfinished: ours))
+        XCTAssertEqual(resumed.resumeCheckout, ours)
         XCTAssertTrue(resumed.resumesEarlierAttempt)
-        XCTAssertNotNil(offer(.unsupported(.unreadableIdentity, detail: ""), attempted: true))
-        XCTAssertNil(offer(.unsupported(.multipleProfiles, detail: ""), attempted: true))
+        XCTAssertNotNil(offer(.unsupported(.unreadableIdentity, detail: ""), unfinished: ours))
+        XCTAssertNil(offer(.unsupported(.multipleProfiles, detail: ""), unfinished: ours))
+        XCTAssertNil(offer(.absent(hermesDataPresent: false), unfinished: ours)?.resumeCheckout)
+    }
+
+    /// Review finding 1: after `python-deps`, `venv/bin/hermes` exists and detection reads
+    /// `.usable` although the install is unfinished. The old code returned no offer, which hid the
+    /// failed card and unblocked setup onto a half-installed Hermes.
+    func testAHalfInstalledHermesFromDesktopsOwnAttemptIsStillOffered() throws {
+        let installation = DesktopLocalHermesInstallation(
+            executable: paths.executable, checkoutRoot: paths.checkoutRoot, hermesHome: paths.hermesHome,
+            commit: "17b5df02f2a729d8f46fbbf78cfc1f5a8cf0f121", version: "0.21.3", identityChangedAt: Date()
+        )
+        XCTAssertNil(offer(.usable(installation)), "somebody else's usable Hermes is used, not offered")
+        XCTAssertEqual(offer(.usable(installation), unfinished: ours)?.resumeCheckout, ours)
     }
 
     func testOnlyUpstreamsOwnOriginsCountAsOfficial() {
@@ -365,6 +547,9 @@ final class DesktopHermesInstallOfferTests: XCTestCase {
             "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh",
         ]
         let foreign = [
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/evil-branch/scripts/install.sh",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/other.sh",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/README.md",
             "http://hermes-agent.nousresearch.com/install.sh",
             "https://raw.githubusercontent.com/someone-else/hermes-agent/main/scripts/install.sh",
             "https://hermes-agent.nousresearch.com.evil.example/install.sh",
@@ -374,6 +559,77 @@ final class DesktopHermesInstallOfferTests: XCTestCase {
         for url in official { XCTAssertTrue(DesktopHermesInstallerSource.isOfficial(URL(string: url)!), url) }
         for url in foreign { XCTAssertFalse(DesktopHermesInstallerSource.isOfficial(URL(string: url)!), url) }
         XCTAssertTrue(DesktopHermesInstallerSource.isOfficial(DesktopHermesInstallerSource.scriptURL))
+    }
+
+    /// Finding 4: every redirect hop is checked, not only the final URL.
+    func testARedirectOffTheOriginIsRefusedAtTheHop() throws {
+        let guardDelegate = DesktopHermesInstallerURLSessionFetcher.RedirectGuard()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.dataTask(with: DesktopHermesInstallerSource.scriptURL)
+        let response = try XCTUnwrap(HTTPURLResponse(url: DesktopHermesInstallerSource.scriptURL, statusCode: 302, httpVersion: nil, headerFields: nil))
+        var followed: URLRequest?? = .none
+
+        guardDelegate.urlSession(session, task: task, willPerformHTTPRedirection: response,
+                                 newRequest: URLRequest(url: URL(string: "https://mirror.example/install.sh")!)) { followed = .some($0) }
+        XCTAssertEqual(followed, .some(nil))
+        XCTAssertEqual(guardDelegate.refusedRedirect?.host, "mirror.example")
+
+        let official = URL(string: "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh")!
+        let other = DesktopHermesInstallerURLSessionFetcher.RedirectGuard()
+        other.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: URLRequest(url: official)) { followed = .some($0) }
+        XCTAssertEqual(followed??.url, official)
+        XCTAssertNil(other.refusedRedirect)
+    }
+
+    func testTheDownloadStopsReadingPastTheLimit() async throws {
+        var produced = 0
+        let stream = AsyncStream<UInt8> { continuation in
+            for _ in 0..<5000 { continuation.yield(0x41) }
+            continuation.finish()
+        }
+        do {
+            _ = try await DesktopHermesInstallerURLSessionFetcher.collect(stream, limit: 1024)
+            XCTFail("expected the limit to stop the download")
+        } catch let failure as DesktopHermesInstallFailure {
+            guard case .protocolMismatch = failure else { return XCTFail("\(failure)") }
+        }
+        produced = try await DesktopHermesInstallerURLSessionFetcher.collect(
+            AsyncStream { continuation in
+                for _ in 0..<1024 { continuation.yield(0x41) }
+                continuation.finish()
+            },
+            limit: 1024
+        ).count
+        XCTAssertEqual(produced, 1024)
+    }
+
+    func testLongOutputLinesAreSplitForTheLogNotCut() {
+        let line = String(repeating: "é", count: 3000) // 6000 UTF-8 bytes
+        let pieces = DesktopPosixProcessRunner.pieces(of: line, maximumBytes: 4096)
+        XCTAssertEqual(pieces.count, 2)
+        XCTAssertEqual(pieces.joined(), line)
+        XCTAssertTrue(pieces.allSatisfy { $0.utf8.count <= 4096 })
+        XCTAssertEqual(DesktopPosixProcessRunner.LineReader.clean(Data(String(repeating: "a", count: 9000).utf8)[...]).count, 9000)
+    }
+
+    /// Finding 8.
+    func testInstallerOutputCredentialsAreRedacted() {
+        let text = SecretRedactor.redact("""
+        OPENAI_API_KEY=sk-proj-abcdefghijklmnop1234 ANTHROPIC_API_KEY: "abc123secret"
+        token ghp_abcdefghijklmnopqrstuvwxyz0123456789 key sk-abcdefghijklmnopqrstu
+        proxy http://alice:p@ss/w0rd@10.0.0.2:3128 done
+        """)
+        for secret in ["sk-proj-abcdefghijklmnop1234", "abc123secret", "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+                       "sk-abcdefghijklmnopqrstu", "p@ss/w0rd", "alice"] {
+            XCTAssertFalse(text.contains(secret), secret)
+        }
+        XCTAssertTrue(text.contains("10.0.0.2:3128"))
+        XCTAssertTrue(text.contains("OPENAI_API_KEY=<redacted>"))
+        XCTAssertEqual(
+            SecretRedactor.redact("npm GET https://registry.npmjs.org/@scope/pkg"),
+            "npm GET https://registry.npmjs.org/@scope/pkg"
+        )
     }
 
     func testTheManifestParserReadsUpstreamsRealManifestLine() throws {
@@ -560,6 +816,13 @@ final class HermesInstallWiringTests: XCTestCase {
         XCTAssertTrue(model.contains("await refreshHermesInstallOffer(scopedManagedInstallation)"), "the refresh never offers an install")
         XCTAssertTrue(model.contains("guard !isManagedBootstrapAccountLocked, !isHermesInstallDecisionPending else { return }"))
         XCTAssertTrue(model.contains("!isHermesInstallDecisionPending,"), "component setup must wait for the owner's Hermes decision")
+        // Finding 2: the re-evaluation before running reads the record as it is, writes nothing,
+        // must match the shown offer, and aborts when there is no offer any more.
+        XCTAssertFalse(model.contains("earlierAttemptRecorded: true"))
+        XCTAssertFalse(model.contains("?? shownOffer"))
+        XCTAssertTrue(model.contains("guard let offer = reevaluated, offer.resumeCheckout == shownOffer.resumeCheckout else {"))
+        // Finding 9.
+        XCTAssertTrue(try appSource("HermesGoDesktopApp.swift").contains("DesktopPosixProcessRunner.terminateAllProcessGroups()"))
 
         let card = try appSource("HermesInstallCard.swift")
         XCTAssertEqual(card.components(separatedBy: "model.startHermesInstall()").count - 1, 2, "only the confirmation sheet and Retry may start it")
@@ -587,10 +850,13 @@ private struct FakeInstaller {
     var failure: Failure = .plain
     var hanging: String?
     var protocolVersion = 1
+    /// Lines the failing stage prints before its own failure.
+    var failurePreamble: [String] = []
+    var titleLength = 0
 
     var source: String {
         let manifestStages = stages.map { name in
-            #"{"name":"\#(name)","title":"\#(name)","category":"runtime","needs_user_input":\#(userInputStages.contains(name))}"#
+            #"{"name":"\#(name)","title":"\#(name + String(repeating: "x", count: titleLength))","category":"runtime","needs_user_input":\#(userInputStages.contains(name))}"#
         }.joined(separator: ",")
         let manifest = #"{"protocol_version":\#(protocolVersion),"stages":[\#(manifestStages)]}"#
         let failureBody: String = switch failure {
@@ -622,8 +888,11 @@ private struct FakeInstaller {
           exit 0
         fi
         stage="$2"
+        dir=""; prev=""
+        for a in "$@"; do [ "$prev" = "--dir" ] && dir="$a"; prev="$a"; done
         {
           echo "HOME=$HOME"
+          echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK:-}"
           echo "HERMES_HOME=$HERMES_HOME"
           echo "https_proxy=${https_proxy:-}"
           echo "HTTPS_PROXY=${HTTPS_PROXY:-}"
@@ -640,14 +909,27 @@ private struct FakeInstaller {
           wait
         fi
         if [ "$stage" = "\#(failing ?? "")" ]; then
+        \#(failurePreamble.map { "echo '\($0)' >&2" }.joined(separator: "\n"))
         \#(failureBody)
         fi
+        case "$stage" in
+          repository) mkdir -p "$dir/.git" ;;
+          complete) mkdir -p "$dir"; : > "$dir/.hermes-bootstrap-complete" ;;
+        esac
         printf '\033[0;32m✓\033[0m %s done\n' "$stage"
         echo "OPENAI_API_KEY check: password=sk-live-secret"
         echo "path /Users/\#(NSUserName())/.hermes"
         echo '{"ok":true,"stage":"'"$stage"'","skipped":false}'
         """#
     }
+}
+
+final class MemoryAttemptStore: DesktopHermesInstallAttemptStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: DesktopHermesInstallAttempt?
+    func load() -> DesktopHermesInstallAttempt? { lock.withLock { value } }
+    func save(_ attempt: DesktopHermesInstallAttempt) { lock.withLock { value = attempt } }
+    func clear() { lock.withLock { value = nil } }
 }
 
 private final class StubFetcher: DesktopHermesInstallerScriptFetching, @unchecked Sendable {
@@ -689,6 +971,7 @@ private final class InstallerSandbox {
     let paths: DesktopLocalHermesPaths
     let workRoot: URL
     let logURL: URL
+    let attempts = MemoryAttemptStore()
 
     init() throws {
         root = FileManager.default.temporaryDirectory
@@ -722,9 +1005,20 @@ private final class InstallerSandbox {
             paths: paths,
             localRuntimeEnabled: true,
             freshInstall: true,
-            earlierAttemptRecorded: false,
+            unfinishedCheckout: nil,
             proxy: proxy
         )!
+    }
+
+    func resumeOffer(detection: DesktopLocalHermesDetection) -> DesktopHermesInstallOffer? {
+        DesktopHermesInstallOffer.evaluate(
+            detection: detection,
+            paths: paths,
+            localRuntimeEnabled: true,
+            freshInstall: true,
+            unfinishedCheckout: DesktopHermesInstallResume.reconcile(attempts, paths: paths),
+            proxy: .none
+        )
     }
 
     func installer(
@@ -742,6 +1036,7 @@ private final class InstallerSandbox {
             log: DesktopServiceOperationLog(url: logURL, maximumBytes: 1024 * 1024),
             fetcher: fetcher,
             detect: { sequence.next() },
+            attempts: attempts,
             inheritedEnvironment: inherited,
             userID: userID
         )

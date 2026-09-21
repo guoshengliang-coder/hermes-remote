@@ -257,13 +257,20 @@ public enum DesktopLocalHermesRuntimeSetting {
     }
 
     /// The local Hermes a *fresh* managed install should run directly, or nil for the bundled copy.
-    /// Only a usable, dependency-consistent standard install qualifies, and only with the setting on.
+    /// Only a usable, dependency-consistent standard install qualifies, only with the setting on,
+    /// and never while an install Hermes GO itself started is unfinished: after `python-deps`
+    /// detection already reads `.usable`, but config, the command and upstream's completion marker
+    /// are still missing (`DesktopHermesInstallResume`).
     public static func freshInstallProvider(
         detector: DesktopLocalHermesDetector?,
-        enabled: @escaping @Sendable () -> Bool = { isEnabled() }
+        enabled: @escaping @Sendable () -> Bool = { isEnabled() },
+        installPending: @escaping @Sendable (DesktopLocalHermesPaths) -> Bool = {
+            DesktopHermesInstallResume.pending(DesktopUserDefaultsInstallAttemptStore(), paths: $0)
+        }
     ) -> @Sendable () -> DesktopLocalHermesInstallation? {
         {
             guard enabled(), let detector,
+                  !installPending(detector.paths),
                   !detector.updateInProgress(),
                   let installation = detector.detect().installation,
                   installation.dependenciesConsistent

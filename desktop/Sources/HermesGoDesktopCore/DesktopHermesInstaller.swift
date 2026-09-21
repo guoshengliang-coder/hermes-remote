@@ -21,13 +21,17 @@ public enum DesktopHermesInstallerSource {
     /// on GitHub (which upstream's bootstrap installer downloads from).
     public static let allowedHosts = ["hermes-agent.nousresearch.com", "raw.githubusercontent.com"]
 
-    /// Whether a (post-redirect) URL is still upstream's: HTTPS, and either the official origin or
-    /// a file inside upstream's own repository on GitHub.
+    /// Whether a URL (the request, every redirect hop and the final one) is still upstream's: HTTPS
+    /// on port 443, and either the official origin or exactly upstream's own
+    /// `scripts/install.sh` on the pinned branch at `raw.githubusercontent.com`.
     public static func isOfficial(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(),
               allowedHosts.contains(host), url.port == nil || url.port == 443
         else { return false }
-        return host != "raw.githubusercontent.com" || url.path.hasPrefix("/NousResearch/hermes-agent/")
+        switch host {
+        case "hermes-agent.nousresearch.com": return true
+        default: return url.path == "/NousResearch/hermes-agent/\(branch)/scripts/install.sh"
+        }
     }
     public static let branch = "main"
     /// The only `protocol_version` Desktop speaks. A different one is refused, not guessed at.
@@ -240,6 +244,139 @@ public struct DesktopHermesInstallRun: Equatable, Sendable {
 
 // MARK: - Offer and confirmation
 
+// MARK: - Desktop's own attempts
+
+/// Which directory a checkout is, independent of its path: device, inode and birth time. A checkout
+/// the owner removes and re-creates (a manual clone, a terminal `install.sh`) is a different one.
+public struct DesktopCheckoutIdentity: Codable, Equatable, Sendable {
+    public let device: Int64
+    public let inode: UInt64
+    public let birthSeconds: Int64
+    public let birthNanoseconds: Int64
+
+    public init(device: Int64, inode: UInt64, birthSeconds: Int64, birthNanoseconds: Int64) {
+        self.device = device
+        self.inode = inode
+        self.birthSeconds = birthSeconds
+        self.birthNanoseconds = birthNanoseconds
+    }
+
+    public static func read(_ url: URL) -> DesktopCheckoutIdentity? {
+        var status = stat()
+        guard lstat(url.path, &status) == 0, status.st_mode & S_IFMT == S_IFDIR else { return nil }
+        return DesktopCheckoutIdentity(
+            device: Int64(status.st_dev),
+            inode: UInt64(status.st_ino),
+            birthSeconds: Int64(status.st_birthtimespec.tv_sec),
+            birthNanoseconds: Int64(status.st_birthtimespec.tv_nsec)
+        )
+    }
+}
+
+/// An install Desktop started and that has not finished. `checkout` is the identity of the checkout
+/// Desktop's own stages created, recorded after every stage (upstream's repository stage may move a
+/// broken clone aside and clone again); nil while no stage has created one yet.
+public struct DesktopHermesInstallAttempt: Codable, Equatable, Sendable {
+    public let checkoutPath: String
+    public let checkout: DesktopCheckoutIdentity?
+    public let startedAt: Date
+
+    public init(checkoutPath: String, checkout: DesktopCheckoutIdentity?, startedAt: Date) {
+        self.checkoutPath = checkoutPath
+        self.checkout = checkout
+        self.startedAt = startedAt
+    }
+}
+
+public protocol DesktopHermesInstallAttemptStoring: Sendable {
+    func load() -> DesktopHermesInstallAttempt?
+    func save(_ attempt: DesktopHermesInstallAttempt)
+    func clear()
+}
+
+/// Desktop's user defaults. Deliberately not a file in `~/.hermes`: nothing is written into the
+/// owner's Hermes home that upstream did not write itself.
+public final class DesktopUserDefaultsInstallAttemptStore: DesktopHermesInstallAttemptStoring, @unchecked Sendable {
+    public static let key = "HermesGoLocalHermesInstallAttempt"
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    public func load() -> DesktopHermesInstallAttempt? {
+        defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode(DesktopHermesInstallAttempt.self, from: $0) }
+    }
+
+    public func save(_ attempt: DesktopHermesInstallAttempt) {
+        if let data = try? JSONEncoder().encode(attempt) { defaults.set(data, forKey: Self.key) }
+    }
+
+    public func clear() { defaults.removeObject(forKey: Self.key) }
+}
+
+public enum DesktopHermesInstallResume {
+    /// Written by upstream's `complete` stage (`write_bootstrap_marker`, `$INSTALL_DIR/.hermes-
+    /// bootstrap-complete`) and by nothing earlier. Until it exists, an install Desktop started is
+    /// not finished — even though `venv/bin/hermes` (after `python-deps`) already makes detection
+    /// read `.usable`.
+    public static let completionMarkerName = ".hermes-bootstrap-complete"
+
+    public static func completionMarkerPresent(_ paths: DesktopLocalHermesPaths) -> Bool {
+        var status = stat()
+        return lstat(paths.checkoutRoot.appendingPathComponent(completionMarkerName).path, &status) == 0
+            && status.st_mode & S_IFMT == S_IFREG
+    }
+
+    /// The checkout Desktop's own unfinished install left behind, exactly as it recorded it —
+    /// nil when there is no recorded attempt, no checkout, a different checkout, or the install
+    /// has completed.
+    public static func unfinishedCheckout(
+        _ attempt: DesktopHermesInstallAttempt?,
+        paths: DesktopLocalHermesPaths
+    ) -> DesktopCheckoutIdentity? {
+        guard let attempt, attempt.checkoutPath == paths.checkoutRoot.path,
+              let recorded = attempt.checkout,
+              DesktopCheckoutIdentity.read(paths.checkoutRoot) == recorded,
+              !completionMarkerPresent(paths)
+        else { return nil }
+        return recorded
+    }
+
+    /// Whether a Desktop-started install is still unfinished on this Mac. While it is, the
+    /// half-installed Hermes must not be used for a fresh managed setup.
+    public static func pending(
+        _ store: any DesktopHermesInstallAttemptStoring,
+        paths: DesktopLocalHermesPaths
+    ) -> Bool {
+        unfinishedCheckout(store.load(), paths: paths) != nil
+    }
+
+    /// Drops a record that no longer describes this Mac: its checkout is gone or replaced (someone
+    /// else installed Hermes), or the install finished (the completion marker exists). Returns the
+    /// unfinished checkout that remains resumable, if any.
+    @discardableResult
+    public static func reconcile(
+        _ store: any DesktopHermesInstallAttemptStoring,
+        paths: DesktopLocalHermesPaths
+    ) -> DesktopCheckoutIdentity? {
+        guard let attempt = store.load() else { return nil }
+        let current = DesktopCheckoutIdentity.read(paths.checkoutRoot)
+        let stale: Bool
+        if attempt.checkoutPath != paths.checkoutRoot.path {
+            stale = true
+        } else if let recorded = attempt.checkout {
+            stale = current != recorded || completionMarkerPresent(paths)
+        } else {
+            // No stage created a checkout yet; one that exists now is not Desktop's.
+            stale = current != nil
+        }
+        if stale {
+            store.clear()
+            return nil
+        }
+        return unfinishedCheckout(attempt, paths: paths)
+    }
+}
+
 /// What Desktop proposes to a Mac without Hermes, shown to the owner before anything runs.
 public struct DesktopHermesInstallOffer: Equatable, Sendable {
     public let scriptURL: URL
@@ -247,30 +384,36 @@ public struct DesktopHermesInstallOffer: Equatable, Sendable {
     public let hermesHome: URL
     public let checkoutRoot: URL
     public let proxy: DesktopSystemProxy
-    /// True when this retries Desktop's own earlier, unfinished attempt.
-    public let resumesEarlierAttempt: Bool
+    /// The exact checkout Desktop's own unfinished install left, when this offer resumes it.
+    public let resumeCheckout: DesktopCheckoutIdentity?
+
+    public var resumesEarlierAttempt: Bool { resumeCheckout != nil }
 
     /// Only a Mac with no Hermes code, no Hermes data and no other install qualifies — or one whose
-    /// only Hermes is the unfinished checkout Desktop's own earlier attempt left behind. Everything
-    /// else (profiles, a custom `HERMES_HOME`, pipx, Homebrew, data without a checkout) stays
-    /// "surface, don't touch": the offer is nil and `HR-MIGRATE-008` keeps saying why.
+    /// only Hermes is the unfinished checkout Desktop's own earlier attempt created
+    /// (`unfinishedCheckout`, identified by inode and birth time, and without upstream's
+    /// completion marker). Such a checkout stays offered even when detection already reads it
+    /// `.usable`: a failure after `python-deps` leaves `venv/bin/hermes` behind but no config, no
+    /// command and no completion marker. Everything else (profiles, a custom `HERMES_HOME`, pipx,
+    /// Homebrew, data without a checkout, a checkout someone else made) stays "surface, don't
+    /// touch": the offer is nil and `HR-MIGRATE-008` keeps saying why.
     public static func evaluate(
         detection: DesktopLocalHermesDetection,
         paths: DesktopLocalHermesPaths,
         localRuntimeEnabled: Bool,
         freshInstall: Bool,
-        earlierAttemptRecorded: Bool,
+        unfinishedCheckout: DesktopCheckoutIdentity?,
         proxy: DesktopSystemProxy
     ) -> DesktopHermesInstallOffer? {
         guard localRuntimeEnabled, freshInstall else { return nil }
-        let resumes: Bool
+        let resume: DesktopCheckoutIdentity?
         switch detection {
         case .absent(hermesDataPresent: false):
-            resumes = false
-        case .unsupported(.incompleteInstallation, _), .unsupported(.unreadableIdentity, _):
-            guard earlierAttemptRecorded else { return nil }
-            resumes = true
-        case .absent(hermesDataPresent: true), .unsupported, .usable:
+            resume = nil
+        case .unsupported(.incompleteInstallation, _), .unsupported(.unreadableIdentity, _), .usable:
+            guard let unfinishedCheckout else { return nil }
+            resume = unfinishedCheckout
+        case .absent(hermesDataPresent: true), .unsupported:
             return nil
         }
         return DesktopHermesInstallOffer(
@@ -279,7 +422,7 @@ public struct DesktopHermesInstallOffer: Equatable, Sendable {
             hermesHome: paths.hermesHome,
             checkoutRoot: paths.checkoutRoot,
             proxy: proxy,
-            resumesEarlierAttempt: resumes
+            resumeCheckout: resume
         )
     }
 
@@ -337,6 +480,7 @@ public struct DesktopHermesInstaller: Sendable {
     private let fetcher: any DesktopHermesInstallerScriptFetching
     private let runner: any DesktopHermesInstallerProcessRunning
     private let detect: @Sendable () -> DesktopLocalHermesDetection
+    private let attempts: any DesktopHermesInstallAttemptStoring
     private let inheritedEnvironment: [String: String]
     private let userID: UInt32
     private let bash: URL
@@ -350,6 +494,7 @@ public struct DesktopHermesInstaller: Sendable {
         fetcher: any DesktopHermesInstallerScriptFetching = DesktopHermesInstallerURLSessionFetcher(),
         runner: any DesktopHermesInstallerProcessRunning = DesktopPosixProcessRunner(),
         detect: (@Sendable () -> DesktopLocalHermesDetection)? = nil,
+        attempts: any DesktopHermesInstallAttemptStoring = DesktopUserDefaultsInstallAttemptStore(),
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         userID: UInt32 = Darwin.getuid(),
         bash: URL = URL(fileURLWithPath: "/bin/bash")
@@ -361,6 +506,7 @@ public struct DesktopHermesInstaller: Sendable {
         self.runner = runner
         let detector = DesktopLocalHermesDetector(paths: paths, environment: inheritedEnvironment, currentUserID: userID)
         self.detect = detect ?? { detector.detect() }
+        self.attempts = attempts
         self.inheritedEnvironment = inheritedEnvironment
         self.userID = userID
         self.bash = bash
@@ -379,19 +525,39 @@ public struct DesktopHermesInstaller: Sendable {
             throw DesktopHermesInstallFailure.runningAsRoot
         }
         // The offer was evaluated when it was shown; the Mac may have changed since. Re-check that
-        // it still has no Hermes (or only Desktop's own unfinished one) before running anything.
-        switch detect() {
-        case .absent(hermesDataPresent: false):
-            break
-        case .unsupported(.incompleteInstallation, _) where offer.resumesEarlierAttempt,
-             .unsupported(.unreadableIdentity, _) where offer.resumesEarlierAttempt:
-            break
-        case .usable(let installation):
-            log.record("hermes-install skipped: a usable Hermes \(installation.version) is already present")
-            return installation
-        case let other:
-            throw DesktopHermesInstallFailure.notUsable(stage: "precondition", detail: Self.describe(other))
+        // it still has no Hermes — or, for a resume, that the checkout is still exactly the one
+        // Desktop's own stages created — before running anything. Upstream's repository stage
+        // stashes and resets an existing checkout, so it must never run over somebody else's.
+        let detection = detect()
+        let unfinished = DesktopHermesInstallResume.reconcile(attempts, paths: paths)
+        if let expected = offer.resumeCheckout {
+            switch detection {
+            case .unsupported(.incompleteInstallation, _), .unsupported(.unreadableIdentity, _), .usable:
+                guard unfinished == expected else {
+                    throw DesktopHermesInstallFailure.notUsable(
+                        stage: "precondition",
+                        detail: "the checkout is no longer the one Hermes GO's unfinished install created"
+                    )
+                }
+            default:
+                throw DesktopHermesInstallFailure.notUsable(stage: "precondition", detail: Self.describe(detection))
+            }
+        } else {
+            switch detection {
+            case .absent(hermesDataPresent: false):
+                break
+            case .usable(let installation) where unfinished == nil:
+                log.record("hermes-install skipped: a usable Hermes \(installation.version) is already present")
+                return installation
+            default:
+                throw DesktopHermesInstallFailure.notUsable(stage: "precondition", detail: Self.describe(detection))
+            }
         }
+        attempts.save(DesktopHermesInstallAttempt(
+            checkoutPath: paths.checkoutRoot.path,
+            checkout: offer.resumeCheckout,
+            startedAt: Date()
+        ))
 
         try? FileManager.default.createDirectory(
             at: log.url.deletingLastPathComponent(),
@@ -443,6 +609,7 @@ public struct DesktopHermesInstaller: Sendable {
                     workingDirectory: runDirectory,
                     onLine: { line in log.record("stage=\(name) \(line)") }
                 )
+                recordCheckout()
                 guard let result = DesktopHermesInstallerStageResult.parse(run.standardOutputTail),
                       result.stage == stage.name
                 else {
@@ -469,12 +636,18 @@ public struct DesktopHermesInstaller: Sendable {
 
             progress(.verifying)
             let detection = detect()
-            guard let installation = detection.installation, installation.dependenciesConsistent else {
-                let detail = detection.installation.map { "dependencies: \($0.installedDistribution.summary)" }
-                    ?? Self.describe(detection)
+            guard let installation = detection.installation, installation.dependenciesConsistent,
+                  DesktopHermesInstallResume.completionMarkerPresent(paths)
+            else {
+                let detail = detection.installation.map {
+                    $0.dependenciesConsistent
+                        ? "no \(DesktopHermesInstallResume.completionMarkerName) after the last stage"
+                        : "dependencies: \($0.installedDistribution.summary)"
+                } ?? Self.describe(detection)
                 log.record("hermes-install finished but not usable: \(detail)")
                 throw DesktopHermesInstallFailure.notUsable(stage: "verify", detail: detail)
             }
+            attempts.clear()
             log.record("hermes-install done version=\(installation.version) commit=\(installation.shortCommit)")
             return installation
         } catch is CancellationError {
@@ -489,6 +662,19 @@ public struct DesktopHermesInstaller: Sendable {
         }
     }
 
+    /// Records the checkout Desktop's own stages produced, so that only this checkout can be
+    /// resumed later. Re-read after every stage: the repository stage may replace a broken clone.
+    private func recordCheckout() {
+        guard let current = DesktopCheckoutIdentity.read(paths.checkoutRoot),
+              let attempt = attempts.load(), attempt.checkout != current
+        else { return }
+        attempts.save(DesktopHermesInstallAttempt(
+            checkoutPath: attempt.checkoutPath,
+            checkout: current,
+            startedAt: attempt.startedAt
+        ))
+    }
+
     // MARK: Environment
 
     /// The installer's environment, built from an allowlist rather than inherited wholesale so that
@@ -496,7 +682,10 @@ public struct DesktopHermesInstaller: Sendable {
     /// changes what gets installed, and so a test can state exactly what the child sees.
     public func childEnvironment(offer: DesktopHermesInstallOffer, runDirectory: URL) -> [String: String] {
         var environment: [String: String] = [:]
-        for key in ["USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "SSH_AUTH_SOCK"] {
+        // No `SSH_AUTH_SOCK`: upstream tries an SSH clone first, which would ignore the proxy and
+        // could make an SSH agent (1Password, Secretive) prompt out of nowhere. Without an agent
+        // the SSH attempt fails fast and upstream falls back to HTTPS.
+        for key in ["USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE"] {
             if let value = inheritedEnvironment[key], !value.isEmpty { environment[key] = value }
         }
         environment["HOME"] = paths.homeDirectory.path
@@ -601,11 +790,13 @@ public struct DesktopHermesInstaller: Sendable {
         "unable to access 'http", "ssl_error", "ssl connect error", "tls handshake", "error sending request",
         "dns error", "failed to lookup address", "tcp connect error", "name or service not known",
         "nodename nor servname", "temporary failure in name resolution", "received http code 407",
-        "proxy connect aborted", "proxy authentication required", "could not reach https://",
+        "proxy connect aborted", "proxy authentication required",
         "curl: (6)", "curl: (7)", "curl: (28)", "curl: (35)", "curl: (56)", "rpc failed", "early eof",
         "etimedout", "econnreset", "econnrefused", "enotfound", "eai_again", "request timed out",
-        "failed to download", "failed to fetch",
     ]
+    // Deliberately absent: the prerequisites stage's own connectivity probe ("Could not reach
+    // https://duckduckgo.com/" is a warning on networks that block it, not a failure), and generic
+    // "failed to fetch/download", which also describes checksum and build failures.
 
     static func looksLikeNetworkFailure(_ lines: [String]) -> Bool {
         lines.contains { line in
@@ -641,23 +832,65 @@ public extension DesktopIssue {
 // MARK: - Real seams
 
 /// Fetches the installer with `URLSession`, which applies the system proxy (manual or PAC) itself.
+/// Every redirect hop is checked against `DesktopHermesInstallerSource.isOfficial` before it is
+/// followed, and the body is streamed and abandoned past `maximumScriptBytes` rather than
+/// buffered first.
 public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScriptFetching {
     public init() {}
 
+    /// Refuses any redirect that leaves upstream's origin, and remembers that it did.
+    public final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        private let lock = NSLock()
+        private var refused: URL?
+
+        public var refusedRedirect: URL? { lock.withLock { refused } }
+
+        public func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest,
+            completionHandler: @escaping (URLRequest?) -> Void
+        ) {
+            if let url = request.url, DesktopHermesInstallerSource.isOfficial(url) {
+                completionHandler(request)
+            } else {
+                lock.withLock { refused = request.url ?? URL(string: "about:blank") }
+                completionHandler(nil)
+            }
+        }
+    }
+
     public func fetchInstallerScript(from url: URL) async throws -> Data {
-        guard url.scheme == "https" else {
-            throw DesktopHermesInstallFailure.protocolMismatch(detail: "installer URL is not HTTPS")
+        guard DesktopHermesInstallerSource.isOfficial(url) else {
+            throw DesktopHermesInstallFailure.protocolMismatch(detail: "installer URL is not upstream's")
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 120
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let session = URLSession(configuration: configuration)
+        let guardDelegate = RedirectGuard()
+        let session = URLSession(configuration: configuration, delegate: guardDelegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        let data: Data
-        let response: URLResponse
         do {
-            (data, response) = try await session.data(from: url)
+            let (bytes, response) = try await session.bytes(for: URLRequest(url: url), delegate: guardDelegate)
+            if let refused = guardDelegate.refusedRedirect {
+                throw DesktopHermesInstallFailure.protocolMismatch(
+                    detail: "installer download redirected off the official origin (\(refused.host ?? "?"))"
+                )
+            }
+            guard let http = response as? HTTPURLResponse,
+                  let final = http.url,
+                  DesktopHermesInstallerSource.isOfficial(final)
+            else {
+                throw DesktopHermesInstallFailure.protocolMismatch(detail: "installer download left the official origin")
+            }
+            guard http.statusCode == 200 else {
+                throw DesktopHermesInstallFailure.network(stage: "download", detail: "HTTP \(http.statusCode)")
+            }
+            return try await Self.collect(bytes, limit: DesktopHermesInstallerSource.maximumScriptBytes)
+        } catch let failure as DesktopHermesInstallFailure {
+            throw failure
         } catch let error as URLError where error.code == .cancelled {
             throw CancellationError()
         } catch let error as URLError {
@@ -667,14 +900,17 @@ public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScr
         } catch {
             throw DesktopHermesInstallFailure.network(stage: "download", detail: String(describing: error))
         }
-        guard let http = response as? HTTPURLResponse,
-              let final = http.url,
-              DesktopHermesInstallerSource.isOfficial(final)
-        else {
-            throw DesktopHermesInstallFailure.protocolMismatch(detail: "installer download left the official origin")
-        }
-        guard http.statusCode == 200 else {
-            throw DesktopHermesInstallFailure.network(stage: "download", detail: "HTTP \(http.statusCode)")
+    }
+
+    /// Reads a byte stream, giving up as soon as it passes `limit`.
+    public static func collect<Bytes: AsyncSequence>(_ bytes: Bytes, limit: Int) async throws -> Data
+    where Bytes.Element == UInt8 {
+        var data = Data()
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count > limit {
+                throw DesktopHermesInstallFailure.protocolMismatch(detail: "installer download exceeds \(limit) bytes")
+            }
         }
         return data
     }
@@ -685,10 +921,37 @@ public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScr
 /// `git`, `uv` and `curl` children included. Standard input is `/dev/null`; only the three standard
 /// descriptors are inherited.
 public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
-    public static let maximumLineBytes = 4096
+    /// A line is kept whole up to this size, so a protocol line (the manifest, a result frame) is
+    /// never cut; only past it is it split into pieces of this size.
+    public static let maximumLineBytes = 256 * 1024
+    /// What one log/progress callback carries; longer lines are split, never truncated.
+    public static let maximumCallbackBytes = 4096
     public static let tailLines = 200
 
     public init() {}
+
+    // MARK: Live process groups
+
+    private static let liveLock = NSLock()
+    nonisolated(unsafe) private static var live: Set<pid_t> = []
+
+    /// Process groups this runner started that have not been reaped yet.
+    public static var liveProcessGroups: Set<pid_t> { liveLock.withLock { live } }
+
+    /// Ends every installer process group still running — for Desktop quitting mid-install, so
+    /// that a later resume can never run beside an orphaned stage. `SIGTERM`, then `SIGKILL` for
+    /// whatever is still there after `grace` seconds. Synchronous: it runs from
+    /// `applicationWillTerminate`, after which the process is gone.
+    public static func terminateAllProcessGroups(grace: TimeInterval = 2) {
+        let groups = liveProcessGroups
+        guard !groups.isEmpty else { return }
+        for group in groups { _ = kill(-group, SIGTERM) }
+        let deadline = Date().addingTimeInterval(grace)
+        while Date() < deadline, groups.contains(where: { kill(-$0, 0) == 0 }) {
+            usleep(50_000)
+        }
+        for group in groups where kill(-group, 0) == 0 { _ = kill(-group, SIGKILL) }
+    }
 
     public func run(
         executable: URL,
@@ -808,6 +1071,8 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
             throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO)
         }
         control.started(pid)
+        liveLock.withLock { _ = live.insert(pid) }
+        defer { liveLock.withLock { _ = live.remove(pid) } }
 
         var readers = [LineReader(fd: outPipe[0], isStandardOutput: true), LineReader(fd: errPipe[0], isStandardOutput: false)]
         var stdoutTail: [String] = []
@@ -815,7 +1080,7 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
         func emit(_ line: String, standardOutput: Bool) {
             if standardOutput { append(&stdoutTail, line) }
             append(&combinedTail, line)
-            onLine(line)
+            for piece in Self.pieces(of: line, maximumBytes: maximumCallbackBytes) { onLine(piece) }
         }
 
         var exitStatus: Int32?
@@ -852,6 +1117,26 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
             standardOutputTail: stdoutTail,
             combinedTail: combinedTail
         )
+    }
+
+    /// Splits a line at character boundaries into pieces of at most `maximumBytes` UTF-8 bytes.
+    static func pieces(of line: String, maximumBytes: Int) -> [String] {
+        guard line.utf8.count > maximumBytes else { return [line] }
+        var result: [String] = []
+        var current = ""
+        var currentBytes = 0
+        for character in line {
+            let size = String(character).utf8.count
+            if currentBytes + size > maximumBytes, !current.isEmpty {
+                result.append(current)
+                current = ""
+                currentBytes = 0
+            }
+            current.append(character)
+            currentBytes += size
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
     }
 
     private static func append(_ tail: inout [String], _ line: String) {
@@ -911,7 +1196,7 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
         /// Strips ANSI/OSC escapes and keeps the last carriage-return frame — what a terminal would
         /// finally show for a progress bar redrawn in place.
         static func clean(_ bytes: Data.SubSequence) -> String {
-            let text = String(decoding: bytes.prefix(DesktopPosixProcessRunner.maximumLineBytes), as: UTF8.self)
+            let text = String(decoding: bytes, as: UTF8.self)
             let lastFrame = text.split(separator: "\r", omittingEmptySubsequences: true).last.map(String.init) ?? ""
             let stripped = lastFrame.replacingOccurrences(
                 of: "\u{1B}(\\[[0-9;?]*[ -/]*[@-~]|\\][^\u{07}\u{1B}]*(\u{07}|\u{1B}\\\\)|[@-Z\\\\-_])",

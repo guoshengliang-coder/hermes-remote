@@ -693,6 +693,35 @@ final class DesktopLocalHermesPresentationTests: XCTestCase {
         XCTAssertTrue(DesktopLocalHermesRuntimeSetting.isEnabled(environment: [:], defaults: defaults, bundle: bundle))
     }
 
+    /// Review finding 1: a fresh managed install must not adopt the half-installed Hermes an
+    /// unfinished Hermes GO install left behind, even though detection reads it as usable.
+    func testAFreshInstallDoesNotUseAHermesThatHermesGOsOwnInstallHasNotFinished() throws {
+        let home = try LocalHermesHome()
+        let detector = home.detector()
+        let paths = detector.paths
+        XCTAssertNotNil(detector.detect().installation)
+        let suite = "hermes-install-attempt-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = DesktopUserDefaultsInstallAttemptStore(defaults: defaults)
+        let provider = DesktopLocalHermesRuntimeSetting.freshInstallProvider(
+            detector: detector,
+            enabled: { true },
+            installPending: { DesktopHermesInstallResume.pending(store, paths: $0) }
+        )
+        XCTAssertNotNil(provider(), "without an unfinished attempt the owner's Hermes is used")
+
+        store.save(DesktopHermesInstallAttempt(
+            checkoutPath: paths.checkoutRoot.path,
+            checkout: DesktopCheckoutIdentity.read(paths.checkoutRoot),
+            startedAt: Date()
+        ))
+        XCTAssertNil(provider(), "an unfinished Hermes GO install must not become the fresh install's Hermes")
+
+        try home.write(".hermes/hermes-agent/\(DesktopHermesInstallResume.completionMarkerName)", "{}")
+        XCTAssertNotNil(provider(), "upstream's completion marker finishes it")
+    }
+
     func testUnsupportedLocalHermesIsARegisteredNonRetryableIssue() {
         let issue = DesktopIssue(code: .localHermesUnsupported, technicalCause: "reason=multipleProfiles token=abc")
 

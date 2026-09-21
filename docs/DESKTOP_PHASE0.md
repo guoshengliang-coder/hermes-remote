@@ -1095,11 +1095,26 @@ card, only when all of these hold — the local-runtime setting is on; the Mac i
 (`bootstrapPlan.canBegin` or the component path's); and detection reads
 `.absent(hermesDataPresent: false)` — no checkout, no `state.db`, no pipx/Homebrew/`~/.local/bin`
 entrypoint, no custom `HERMES_HOME`. Every other shape is unchanged: a usable Hermes is used, an
-unusual one is `HR-MIGRATE-008`, Hermes data without a checkout is refused as before. The one
-exception is Desktop's own unfinished attempt: once an install was started on this Mac
-(`HermesGoLocalHermesInstallAttemptedAt` in Desktop's defaults), a checkout detection reads as
-`incompleteInstallation` or `unreadableIdentity` may be resumed; the marker is cleared on success
-and on "改用内置 Hermes".
+unusual one is `HR-MIGRATE-008`, Hermes data without a checkout is refused as before.
+
+The one exception is **Desktop's own unfinished install**. When an install starts, Desktop records
+an attempt in its defaults (`HermesGoLocalHermesInstallAttempt`: checkout path, start time) and,
+after every stage, the identity of the checkout its stages produced — device, inode and birth time
+(`DesktopCheckoutIdentity`), re-read each time because upstream's repository stage may move a broken
+clone aside and clone again. Until upstream's `complete` stage writes
+`~/.hermes/hermes-agent/.hermes-bootstrap-complete` (`write_bootstrap_marker`), that install is
+unfinished — even though after `python-deps` `venv/bin/hermes` exists and detection reads it
+`.usable`. While it is unfinished and the checkout on disk is exactly the recorded one:
+
+- the install stays offered for resume (whether detection reads it `incompleteInstallation`,
+  `unreadableIdentity` or `.usable`), and a failed or cancelled card stays on screen with Retry;
+- setup stays blocked, and `freshInstallProvider` refuses to make it a fresh install's Hermes.
+
+A record whose checkout was removed or replaced (a different inode or birth time — the owner cloned
+or ran `install.sh` themselves), which never produced a checkout while one now exists, or whose
+install finished (the completion marker exists) is dropped on the next refresh, and the Mac is then
+treated like any other. Nothing is written into `~/.hermes` by Desktop itself. The record is cleared
+on success and on "改用内置 Hermes".
 
 **While the owner decides, setup waits.** The offer, a running install, and a failed or cancelled one
 each disable "下载并验证安装包" and "下载缺失组件" (the models refuse too), because starting setup
@@ -1108,17 +1123,25 @@ then would silently pick the bundled copy.
 **Nothing runs without confirmation.** The card explains what will happen; "安装 Hermes…" opens a
 sheet that repeats it (source, destination, size, network and proxy, no administrator rights,
 cancellable, providers configured later, the trust decision) and only its "开始安装" — or "重试"
-after a failure or cancellation — calls `startHermesInstall()`. `DesktopHermesInstaller.install`
+after a failure or cancellation — calls `startHermesInstall()`. That re-reads the Mac first without
+writing anything, and runs only if the result is still the offer the owner saw — a fresh install,
+or a resume of the same checkout; otherwise the new offer (or none, when the setting was just turned
+off) is shown instead. `DesktopHermesInstaller.install`
 accepts only a `DesktopHermesInstallConfirmation`, which only `offer.confirm()` creates, and that
 call exists once, inside `startHermesInstall()` (`HermesInstallWiringTests`).
 
 **What runs** (`DesktopHermesInstaller.install`):
 
 1. Refuse as root. Re-run detection: a usable Hermes that appeared meanwhile is used without running
-   anything; any other change is `HR-MIGRATE-018` before anything runs.
+   anything; a resume whose checkout is no longer the recorded one, or any other change, is
+   `HR-MIGRATE-018` before anything runs — upstream's repository stage stashes and resets an existing
+   checkout, so it must never run over one the owner made.
 2. Download `https://hermes-agent.nousresearch.com/install.sh` with `URLSession` (system proxy,
-   including PAC). It must stay on upstream's origin, be at most 2 MiB and start with `#!`
-   (`HR-MIGRATE-017` otherwise); a transport error or non-200 is `HR-MIGRATE-015`. It is written
+   including PAC). Every redirect hop is checked before it is followed: it must stay HTTPS on the
+   official host or be exactly
+   `https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh`. The body is
+   streamed and abandoned past 2 MiB, and must start with `#!` (`HR-MIGRATE-017` otherwise); a
+   transport error or non-200 is `HR-MIGRATE-015`. It is written
    0600 into a fresh 0700 directory under `~/Library/Caches/com.hermesgo.desktop-hermes-install/`,
    next to a `bin/sudo` that refuses; the directory is removed afterwards. Its SHA-256 is logged.
 3. `/bin/bash install.sh --manifest --dir ~/.hermes/hermes-agent --hermes-home ~/.hermes --branch main`;
@@ -1127,10 +1150,12 @@ call exists once, inside `startHermesInstall()` (`HermesInstallWiringTests`).
    same three options. The last `{"ok":…,"stage":…}` line decides. `ok` with `skipped` is shown as
    "需要交互，稍后配置" (`setup` and `gateway` today); `ok:false` is `HR-MIGRATE-015` when the stage's
    output carries a network signature and `HR-MIGRATE-016` otherwise; no frame is `HR-MIGRATE-017`
-   (or `015` when the output shows a network failure).
+   (or `015` when the output shows a network failure). Only the failing stage's own output is
+   classified, and the prerequisites probe's warning ("Could not reach https://duckduckgo.com/", common
+   on networks that block it) and generic "failed to download/fetch" are not network signatures.
    The first failure stops the run.
-5. Re-run detection. Only a usable, dependency-consistent standard install counts
-   (`HR-MIGRATE-018` otherwise). The card then says Hermes is installed, and the normal managed setup
+5. Re-run detection. Only a usable, dependency-consistent standard install with upstream's
+   completion marker counts (`HR-MIGRATE-018` otherwise); then the attempt record is cleared. The card then says Hermes is installed, and the normal managed setup
    continues in local mode: `freshInstallProvider` sees the usable Hermes and the fresh install
    writes the local agent directly — the bundled agent becomes the kept fallback and never runs.
 
@@ -1138,7 +1163,9 @@ call exists once, inside `startHermesInstall()` (`HermesInstallWiringTests`).
 `/dev/null`, only the three standard descriptors inherited, the signal mask and dispositions reset
 (a dispatch worker's blocked `SIGTERM` would otherwise be inherited and cancellation would only work
 through `SIGKILL`). Its environment is an allowlist, not Desktop's: `HOME`, `USER`, `LOGNAME`,
-`SHELL`, `TMPDIR`, locale, `SSH_AUTH_SOCK`; `HERMES_HOME=~/.hermes`; `PATH` = the refusing-`sudo`
+`SHELL`, `TMPDIR`, locale — deliberately not `SSH_AUTH_SOCK`: upstream tries an SSH clone first,
+which ignores the proxy and could make an SSH agent such as 1Password or Secretive prompt; without
+it the SSH attempt fails fast and upstream falls back to HTTPS; `HERMES_HOME=~/.hermes`; `PATH` = the refusing-`sudo`
 directory, then `/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:~/.local/bin`;
 `TERM=dumb`, `NO_COLOR=1`, `NONINTERACTIVE=1`, `GIT_TERMINAL_PROMPT=0`, `SUDO_ASKPASS=/usr/bin/false`;
 and the proxy variables from `DesktopSystemProxy.environment` — manual HTTP → `http_proxy`, HTTPS →
@@ -1149,15 +1176,20 @@ both cases and only when configured; explicit proxy variables in Desktop's own e
 
 **Cancel** ("取消安装") cancels the task: the whole process group gets `SIGTERM`, then `SIGKILL`
 after five seconds. The card shows "已取消安装 Hermes" — not an error, no code — with "重试" (resumes)
-and "改用内置 Hermes". Quitting Desktop mid-install does not stop the running stage; the next
-Desktop shows the offer again, as a resume.
+and "改用内置 Hermes". Quitting Desktop mid-install ends the running stage's process group the same
+way (`applicationWillTerminate` → `DesktopPosixProcessRunner.terminateAllProcessGroups`), so a later
+resume never runs beside an orphaned stage; the next Desktop shows the install again, as a resume.
+Output lines are kept whole up to 256 KiB, so a protocol line is never cut; for the log they are
+split into 4096-byte pieces rather than truncated.
 
 **The log** is `Managed/logs/hermes-install.log` (the directory is created 0700 if this is the Mac's
 first Hermes GO operation; the file is 0600 and rotates to `.1` past 1 MiB): the start line (URL,
 branch, home, proxy summary), the script's byte count and SHA-256, the manifest, every output line of
 every stage prefixed `stage=<name>` with ANSI stripped, each stage's outcome and the final result.
 Lines pass through `SecretRedactor`: `/Users/<name>` → `/Users/<user>`, `password=`/token patterns,
-and URL credentials (`scheme://user:pass@` → `scheme://<redacted>@`, added for proxy URLs).
+URL credentials (`scheme://user:pass@` → `scheme://<redacted>@`, including passwords that contain
+`@` or `/`), `*_API_KEY=`/`*_API_KEY:` values, GitHub tokens (`ghp_…`, `github_pat_…`) and `sk-…`
+keys.
 
 **After a failure** the card keeps the stage list with the failed stage marked, the registered code,
 "复制诊断", the log path, "重试" when the code is retryable (`015`, `016`), and always "改用内置

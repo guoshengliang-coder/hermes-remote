@@ -144,7 +144,9 @@ engineered around:
 - Any network failure — the download, or a stage whose output matches a network signature — is
   `HR-MIGRATE-015`, which tells the owner to check the network and proxy and retry, and offers the
   bundled copy instead. A retry resumes where the installer stopped (its `repository` stage updates
-  an existing checkout).
+  an existing checkout) — but only the checkout Desktop's own stages created, identified by inode
+  and birth time, never one the owner made meanwhile. Until upstream's completion marker exists that
+  install counts as unfinished, even when detection already reads it as usable.
 
 **2. Local runtime mode is on by default.** `DesktopLocalHermesRuntimeSetting.defaultValue = true`;
 the environment variable, the user default and `Info.plist` still override it. What this does on
@@ -200,14 +202,15 @@ Upstream publishes **no checksum or signature** for `install.sh` (verified 2026-
 trust decision is explicit rather than implied:
 
 - **Trusted: TLS to the official origin.** The script is fetched only over HTTPS from
-  `hermes-agent.nousresearch.com`; after redirects the final URL must still be HTTPS on that host,
-  or a file under `raw.githubusercontent.com/NousResearch/hermes-agent/` (where upstream's own
-  bootstrap fetches it), otherwise `HR-MIGRATE-017`. This is the same trust the owner extends when running upstream's documented
+  `hermes-agent.nousresearch.com`; every redirect hop is checked before it is followed and must
+  stay HTTPS on that host or be exactly
+  `raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh` (where upstream's
+  own bootstrap fetches it), otherwise `HR-MIGRATE-017`. This is the same trust the owner extends when running upstream's documented
   one-liner, and no more: the script then clones the repository and installs its dependencies over
   the same channels, so a verified script alone would not verify what it installs.
 - **Recorded, not verified:** the script's SHA-256 is written to `Managed/logs/hermes-install.log`
   before it runs, so an incident can be traced to the exact bytes.
-- **Bounded:** at most 2 MiB, must start with `#!`, runs from a private 0600 file in a 0700
+- **Bounded:** streamed and abandoned past 2 MiB, must start with `#!`, runs from a private 0600 file in a 0700
   directory that is removed afterwards, and must answer the stage protocol before any stage runs.
 - **Revisit** if upstream starts publishing a checksum or signature: verify it before running, and
   record that here.

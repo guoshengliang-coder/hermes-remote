@@ -318,7 +318,7 @@ The current automated suite covers:
   nothing. Offers: only `.absent(hermesDataPresent: false)` on a fresh Mac with the setting on is
   offered; data without a checkout, profiles, custom home, pipx and too-old are not; an
   incomplete checkout is resumable only after Desktop's own attempt. The origin check accepts only
-  HTTPS on the official host or upstream's own GitHub path; the manifest parser reads upstream's
+  HTTPS on the official host or exactly upstream's `main/scripts/install.sh` on GitHub; the manifest parser reads upstream's
   real 17b5df02 manifest line and refuses malformed ones; the stage result is the last frame; the
   run state folds progress; network signatures are recognised and a compiler error is not; output
   lines are cleaned like a terminal shows them; `HR-MIGRATE-015`–`018` are bilingual with the
@@ -330,6 +330,22 @@ The current automated suite covers:
   environment or after "use the bundled Hermes". Wiring (source assertions): exactly one
   `installer.install(` call site, inside `startHermesInstall()`; the card starts it only from the
   confirmation sheet and Retry; the refresh offers; both setup paths wait for the decision.
+  Review fixes of 2026-09-22 (each checked to fail when its fix is reverted): a failure in
+  `node-deps` after `python-deps` — detection already reads `.usable` — keeps Desktop's attempt
+  pending (setup blocked, the half-installed Hermes still offered for resume) and Retry runs the
+  stages again; an install that ends without upstream's `.hermes-bootstrap-complete` is `018`;
+  `freshInstallProvider` refuses a Hermes whose Desktop-started install is unfinished and accepts
+  it once the completion marker exists; a resume refuses a checkout replaced by the owner (inode and
+  birth time differ) before downloading anything, and a first install refuses a checkout that
+  appeared meanwhile; stale attempt records are dropped; the re-evaluation before running writes
+  nothing, must match the shown offer and aborts without one (source assertion); `SSH_AUTH_SOCK`
+  does not reach the installer; the prerequisites probe's "Could not reach https://duckduckgo.com/"
+  and "Failed to download" do not turn a compiler failure into `015`; a manifest line over 4096
+  bytes reaches the parser whole and log lines are split, not cut; a redirect hop off the origin is
+  refused at the hop and the download stops past its limit; `*_API_KEY=`, `ghp_…`, `sk-…` and URL
+  passwords containing `@` or `/` are redacted while `registry.npmjs.org/@scope` is not; quitting
+  Desktop (`terminateAllProcessGroups`, wired to `applicationWillTerminate`) ends a running stage's
+  process group.
 - 2026-09-21 restart-probe incident (`DESKTOP_E4_TEST_RECORD.md`), each checked to fail when
   reverted where the boundary allows: the loopback shutdown decision is a pure function —
   `.waiting`/`.failed` with `ECONNREFUSED` is "stopped", `.ready` is "listening", every other error,
@@ -387,7 +403,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Managed search-path startup repair (HG-58) | On a committed `account_active` installation whose agent predates the `PATH`, launching Desktop adds the key, restarts **only** Hermes, and proves it healthy; a second launch changes nothing; an existing well-formed `PATH` is left alone; a malformed one and an agent we did not write are refused before any service changes; a failed restart restores the exact file and the running server | Automated (6 cases in `DesktopMigrationCoordinatorTests`). **Physically unverified**: that the repair fires on a real migrated Mac, that the Connector survives the Hermes-only restart window, and that a PDF then sends |
 | Managed startup reconciliation classification (HG-68) | A transferred-account Connector reconciliation failure remains a hard `HR-MIGRATE-002` block; token-storage or search-path repair failures surface as retryable `HR-MIGRATE-007` without changing an available managed-upgrade operation to failed | Automated issue/stage contract plus full Desktop compilation; packaged UI remains pending |
 | Managed schema drift (HG-71) | The account window shows `HR-MIGRATE-006` with the drifted columns behind 详情 whenever the live `state.db` carries columns absent from the running release's `schemaBaseline`; it stays silent when there is no managed release, no readable database, or no drift; it is shown independently of the managed-installation state, so an `inconsistent` install does not hide it | Automated (drift comparison, derived paths, issue mapping, and `ManagedSchemaWiringTests` asserting the call site exists — the check was merged in 0.3.7 with no caller and stayed invisible). Verified on LGS-MACMINI 2026-09-20 with Desktop 0.2.19-dev against managed 0.3.7: the card reads “托管 Hermes 版本落后 … (HR-MIGRATE-006)” beneath the `HR-MIGRATE-002` card, on a Mac whose installation reads `inconsistent` — the state the advisory is deliberately not gated on. Live drift at the time: `messages` 24→26, `sessions` 58→59 |
-| Local Hermes runtime switch | With `HermesGoLocalHermesRuntimeEnabled` on, a committed Mac with a usable standard Hermes rewrites only `com.hermesgo.hermes-server` to the local launcher, restarts only Hermes, passes the readiness proof, and the phone keeps REST and WebSocket traffic; the Connector's PID is unchanged; `HR-MIGRATE-006` disappears; with the owner's gateway running, `cron/executions.db` gains no rows from the serve's PID | Automated with in-memory launchctl; read-only dry run on LGS-MACMINI 2026-09-21 planned `switchToLocal` (0.21.3, `17b5df02`). **Physically unverified**: no machine has been switched |
+| Local Hermes runtime switch | With `HermesGoLocalHermesRuntimeEnabled` on, a committed Mac with a usable standard Hermes rewrites only `com.hermesgo.hermes-server` to the local launcher, restarts only Hermes, passes the readiness proof, and the phone keeps REST and WebSocket traffic; the Connector's PID is unchanged; `HR-MIGRATE-006` disappears; with the owner's gateway running, `cron/executions.db` gains no rows from the serve's PID | Automated with in-memory launchctl; read-only dry run on LGS-MACMINI 2026-09-21 planned `switchToLocal` (0.21.3, `17b5df02`). **Physically verified once**: the Mac mini was switched by hand with Desktop 0.2.22 on 2026-09-21 (about 17 s of Hermes unavailability, Connector PID unchanged; `DESKTOP_E4_TEST_RECORD.md`, "2026-09-21 Mac mini switched to its own Hermes"). The automatic switch of a Mac by the default-on setting is not yet verified (next row) |
 | Local Hermes restart on update | After `hermes update` on a local-mode Mac, the serve's start time is later than the checkout's ref time within one refresh, either because upstream kickstarted our job or because Desktop restarted it; no duplicate or detached serve holds 9119 | Planner and coordinator automated. **Physically unverified**, including upstream's kickstart of our job |
 | Local Hermes rollback | Turning the setting off restores the exact bundled agent from `Managed/state/hermes-server.bundled.plist` and restarts only Hermes | Automated. **Physically unverified** |
 | Local Hermes unsupported | A Mac with profiles, a custom `HERMES_HOME`, or a second install shows `HR-MIGRATE-008` and changes nothing; a fresh install on it is refused | Automated. Packaged UI pending |

@@ -103,9 +103,8 @@ final class DesktopViewModel: ObservableObject {
     private let localHermesDetector: DesktopLocalHermesDetector?
     private let managedPaths: DesktopManagedBootstrapPaths?
     private var hermesInstallTask: Task<Void, Never>?
-    /// Records that Desktop itself started an install on this Mac, so a retry may resume the
-    /// unfinished checkout it left behind (detection reads that as `incompleteInstallation`).
-    private static let hermesInstallAttemptKey = "HermesGoLocalHermesInstallAttemptedAt"
+    /// Desktop's own unfinished install, tied to the exact checkout its stages created.
+    private let hermesInstallAttempts = DesktopUserDefaultsInstallAttemptStore()
     /// After a failed switch or restart, wait before trying again rather than restarting Hermes on
     /// every 15-second refresh while the owner's install is broken.
     private var hermesRuntimeRetryAfter: Date?
@@ -837,26 +836,33 @@ final class DesktopViewModel: ObservableObject {
             hermesInstallPhase = .hidden
             return
         }
-        let attempted = UserDefaults.standard.object(forKey: Self.hermesInstallAttemptKey) != nil
-        let (detection, proxy) = await Task.detached(priority: .utility) {
-            (detector.detect(), DesktopSystemProxy.current())
+        let attempts = hermesInstallAttempts
+        let (detection, proxy, unfinished) = await Task.detached(priority: .utility) {
+            (
+                detector.detect(),
+                DesktopSystemProxy.current(),
+                DesktopHermesInstallResume.reconcile(attempts, paths: detector.paths)
+            )
         }.value
-        let offer = setupAvailable
+        let offer = setupAvailable || unfinished != nil
             ? DesktopHermesInstallOffer.evaluate(
                 detection: detection,
                 paths: detector.paths,
                 localRuntimeEnabled: enabled,
                 freshInstall: fresh,
-                earlierAttemptRecorded: attempted,
+                unfinishedCheckout: unfinished,
                 proxy: proxy
             )
             : nil
         if hermesInstallPhase.isRunning { return }
         switch hermesInstallPhase {
-        case .failed, .cancelled:
-            // Keep the outcome on screen while retrying still makes sense; drop it once the Mac
-            // has Hermes (installed some other way) or the owner turned the setting off.
-            if offer == nil { hermesInstallPhase = .hidden }
+        case .failed(_, let run, let issue):
+            // Keep the outcome on screen while Desktop's own install is unfinished (the offer then
+            // resumes it, even if detection already reads the half-installed Hermes as usable);
+            // drop it once the Mac has Hermes some other way or the setting was turned off.
+            hermesInstallPhase = offer.map { .failed($0, run, issue) } ?? .hidden
+        case .cancelled(_, let run):
+            hermesInstallPhase = offer.map { .cancelled($0, run) } ?? .hidden
         default:
             hermesInstallPhase = offer.map { .offered($0) } ?? .hidden
         }
@@ -871,16 +877,21 @@ final class DesktopViewModel: ObservableObject {
               let detector = localHermesDetector,
               let managedPaths
         else { return }
-        UserDefaults.standard.set(Date(), forKey: Self.hermesInstallAttemptKey)
-        // Re-read the Mac: a retry resumes the checkout the previous attempt left behind.
-        let offer = DesktopHermesInstallOffer.evaluate(
+        // Re-read the Mac before anything runs, from what is recorded now — nothing is written
+        // here. It must still be the offer the owner saw: the same fresh install, or a resume of
+        // the same checkout. Anything else is shown again rather than run.
+        let reevaluated = DesktopHermesInstallOffer.evaluate(
             detection: detector.detect(),
             paths: detector.paths,
             localRuntimeEnabled: DesktopLocalHermesRuntimeSetting.isEnabled(),
             freshInstall: true,
-            earlierAttemptRecorded: true,
+            unfinishedCheckout: DesktopHermesInstallResume.reconcile(hermesInstallAttempts, paths: detector.paths),
             proxy: DesktopSystemProxy.current()
-        ) ?? shownOffer
+        )
+        guard let offer = reevaluated, offer.resumeCheckout == shownOffer.resumeCheckout else {
+            hermesInstallPhase = reevaluated.map { .offered($0) } ?? .hidden
+            return
+        }
         let installer = DesktopHermesInstaller(
             paths: detector.paths,
             workRoot: managedPaths.workspaceRoot.deletingLastPathComponent()
@@ -890,7 +901,8 @@ final class DesktopViewModel: ObservableObject {
                     .appendingPathComponent("logs", isDirectory: true)
                     .appendingPathComponent(DesktopHermesInstaller.logFileName),
                 maximumBytes: 1024 * 1024
-            )
+            ),
+            attempts: hermesInstallAttempts
         )
         let confirmation = offer.confirm()
         hermesInstallPhase = .running(offer, DesktopHermesInstallRun(), cancelling: false)
@@ -921,7 +933,7 @@ final class DesktopViewModel: ObservableObject {
     func useBundledHermes() {
         guard !hermesInstallPhase.isRunning else { return }
         DesktopLocalHermesRuntimeSetting.chooseBundled()
-        UserDefaults.standard.removeObject(forKey: Self.hermesInstallAttemptKey)
+        hermesInstallAttempts.clear()
         hermesInstallPhase = .hidden
     }
 
@@ -936,7 +948,6 @@ final class DesktopViewModel: ObservableObject {
         guard case .running(let offer, var run, _) = hermesInstallPhase else { return }
         switch result {
         case .success(let installation):
-            UserDefaults.standard.removeObject(forKey: Self.hermesInstallAttemptKey)
             hermesInstallPhase = .succeeded(version: installation.version)
         case .failure(.cancelled):
             run.stop()
