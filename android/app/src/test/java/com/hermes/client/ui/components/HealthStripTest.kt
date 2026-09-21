@@ -1,6 +1,10 @@
 package com.hermes.client.ui.components
 
+import com.hermes.client.data.error.AppError
+import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.data.network.GatewayHealth
+import com.hermes.client.data.network.HermesContractNotice
+import com.hermes.client.data.network.HermesContractSeverity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -38,6 +42,52 @@ class HealthStripTest {
     @Test fun sheet_body_reachable_not_running_when_running_false() {
         val body = healthSheetBody(GatewayHealth.Healthy(version = null, running = false, latencyMs = null))
         assertTrue(body.contains("not running"))
+    }
+
+    private val healthy = GatewayHealth.Healthy("0.22.0", true, 10)
+
+    private fun notice(severity: HermesContractSeverity, code: AppErrorCode, vararg features: String) =
+        HermesContractNotice(severity, AppError(code, retryable = false), features.toList(), "0.22.0")
+
+    @Test fun a_breaking_hermes_lights_the_strip_as_an_error_while_the_relay_is_healthy() {
+        val contract = notice(HermesContractSeverity.BREAKING, AppErrorCode.HERMES_INCOMPATIBLE, "history")
+        assertEquals(HealthStripStyle.ERROR, healthStripStyle(healthy, contract))
+        assertTrue(healthStripVisible(healthy, contract))
+        assertEquals("Hermes on the Mac is incompatible", healthStripLabel(healthy, false, contract))
+        assertEquals("Mac 上的 Hermes 不兼容", healthStripLabel(healthy, true, contract))
+    }
+
+    @Test fun a_degraded_hermes_is_neutral_and_names_the_features() {
+        val contract = notice(HermesContractSeverity.DEGRADED, AppErrorCode.HERMES_FEATURES_MISSING, "cron", "skills")
+        assertEquals(HealthStripStyle.NEUTRAL, healthStripStyle(healthy, contract))
+        val zh = healthSheetBody(healthy, true, contract)
+        assertTrue(zh, zh.contains("受影响：定时任务、技能"))
+        assertTrue(zh, zh.contains("0.22.0"))
+        val en = healthSheetBody(healthy, false, contract)
+        assertTrue(en, en.contains("Affected: scheduled tasks, skills"))
+        // The code is rendered on its own line by the sheet, not repeated inside the body.
+        assertTrue(en, !en.contains("HR-COMPAT-002"))
+    }
+
+    @Test fun an_unknown_feature_key_is_named_generically_not_shown_raw() {
+        assertEquals("other features", hermesContractFeatureLabel("teleport", zh = false))
+        assertEquals("其他功能", hermesContractFeatureLabel("teleport", zh = true))
+    }
+
+    @Test fun no_contract_notice_means_no_strip_on_a_healthy_relay() {
+        assertEquals(HealthStripStyle.NONE, healthStripStyle(healthy, null))
+        assertTrue(!healthStripVisible(healthy, null))
+    }
+
+    /** A down Relay is the more basic problem; a stale contract report must not relabel it. */
+    @Test fun gateway_trouble_outranks_the_contract_notice() {
+        val contract = notice(HermesContractSeverity.DEGRADED, AppErrorCode.HERMES_FEATURES_MISSING, "cron")
+        val down = GatewayHealth.GatewayUnreachable("unreachable")
+        assertEquals(HealthStripStyle.ERROR, healthStripStyle(down, contract))
+        assertEquals("Gateway unreachable", healthStripLabel(down, false, contract))
+        assertTrue(healthSheetBody(down, false, contract).contains("isn't responding"))
+        assertEquals(HealthStripStyle.NEUTRAL, healthStripStyle(GatewayHealth.DeviceOffline, contract))
+        assertEquals("You're offline", healthStripLabel(GatewayHealth.DeviceOffline, false, contract))
     }
 
     @Test fun sheet_body_offline_and_unauthorized_copy() {

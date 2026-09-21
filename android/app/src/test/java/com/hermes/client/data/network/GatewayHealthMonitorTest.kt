@@ -6,6 +6,7 @@ import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -47,6 +48,217 @@ class GatewayHealthMonitorTest {
             com.hermes.client.data.diagnostics.DebugLog.setEnabled(false)
             com.hermes.client.data.diagnostics.DebugLog.clear()
         }
+    }
+
+    private fun breakingReport(version: String = "1.2.3") = HermesContractReportDto(
+        schema = 1,
+        status = "breaking",
+        code = "HR-COMPAT-001",
+        hermesVersion = version,
+        missing = listOf(HermesContractMissingDto("GET", "/api/sessions/{id}/messages", "required", "history")),
+    )
+
+    private val compatible = HermesContractReportDto(schema = 1, status = "compatible")
+
+    private fun kotlinx.coroutines.test.TestScope.monitorAt(clock: () -> Long) = GatewayHealthMonitor(
+        api, FakeConnectivity(true), MutableStateFlow(ConnectionState.Connected), backgroundScope, clock = clock,
+    )
+
+    @Test fun a_healthy_probe_reads_the_connectors_contract_report() = runTest {
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } returns "legacy:a"
+        coEvery { api.hermesContract(any()) } returns breakingReport()
+        val m = monitorAt { 0L }
+
+        m.probe()
+
+        val notice = m.contract.value
+        assertEquals(com.hermes.client.data.error.AppErrorCode.HERMES_INCOMPATIBLE, notice?.error?.code)
+        assertEquals(listOf("history"), notice?.features)
+    }
+
+    @Test fun the_report_is_re_read_when_the_version_moves_or_it_goes_stale_not_on_every_probe() = runTest {
+        var now = 0L
+        var version = "1.2.3"
+        coEvery { api.gatewayStatus() } answers { GatewayStatusDto(version = version, gatewayRunning = true) }
+        coEvery { api.contractTargetKey() } returns "legacy:a"
+        coEvery { api.hermesContract(any()) } returns compatible
+        val m = monitorAt { now }
+
+        m.probe(); m.probe(); m.probe()
+        io.mockk.coVerify(exactly = 1) { api.hermesContract(any()) }
+
+        version = "1.3.0"
+        m.probe()
+        io.mockk.coVerify(exactly = 2) { api.hermesContract(any()) }
+
+        now += GatewayHealthMonitor.CONTRACT_REFRESH_MS
+        m.probe()
+        io.mockk.coVerify(exactly = 3) { api.hermesContract(any()) }
+        assertEquals(null, m.contract.value)
+    }
+
+    /**
+     * Review D1. The verdict belongs to one Mac. Switching to another Mac with the same Hermes
+     * version used to keep the first Mac's red strip for up to five minutes, because the cache was
+     * keyed on the version alone.
+     */
+    @Test fun switching_macs_clears_the_verdict_and_asks_the_new_mac_at_once() = runTest {
+        var target: String? = "account:https://relay#acct#mac-a"
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } answers { target }
+        coEvery { api.hermesContract(any()) } returns breakingReport()
+        val m = monitorAt { 0L }
+        m.probe()
+        assertTrue(m.contract.value != null)
+
+        target = "account:https://relay#acct#mac-b"
+        coEvery { api.hermesContract(any()) } returns compatible
+        m.probe()
+
+        assertEquals(null, m.contract.value)
+        io.mockk.coVerify(exactly = 2) { api.hermesContract(any()) }
+    }
+
+    @Test fun signing_out_clears_the_verdict_even_while_the_relay_is_down() = runTest {
+        var target: String? = "legacy:a"
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } answers { target }
+        coEvery { api.hermesContract(any()) } returns breakingReport()
+        val m = monitorAt { 0L }
+        m.probe()
+        assertTrue(m.contract.value != null)
+
+        target = null
+        coEvery { api.gatewayStatus() } throws HermesApiException(0, "no gateway configured")
+        m.probe()
+
+        assertEquals(null, m.contract.value)
+    }
+
+    @Test fun a_report_that_arrives_after_a_switch_is_dropped() = runTest {
+        var target: String? = "legacy:a"
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } answers { target }
+        coEvery { api.hermesContract(any()) } coAnswers {
+            target = "legacy:b" // the user switched while the request was in flight
+            breakingReport()
+        }
+        val m = monitorAt { 0L }
+
+        m.probe()
+
+        assertEquals(null, m.contract.value)
+    }
+
+    /** Review D2. 「重新检查」 right after `hermes update` (same version) must ask again. */
+    @Test fun recheck_re_reads_the_report_inside_the_cache_window() = runTest(UnconfinedTestDispatcher()) {
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } returns "legacy:a"
+        coEvery { api.hermesContract(any()) } returns breakingReport()
+        val m = monitorAt { 0L }
+        m.probe()
+        assertTrue(m.contract.value != null)
+
+        coEvery { api.hermesContract(any()) } returns compatible
+        m.recheck()
+        advanceUntilIdle()
+
+        io.mockk.coVerify(exactly = 2) { api.hermesContract(any()) }
+        assertEquals(null, m.contract.value)
+    }
+
+    /** An older Connector forwards the path to Hermes, which answers 401/404/405: no report. */
+    @Test fun an_older_connector_without_the_route_clears_the_notice() = runTest {
+        for (status in listOf(401, 404, 405)) {
+            var now = 0L
+            coEvery { api.gatewayStatus() } returns ok()
+            coEvery { api.contractTargetKey() } returns "legacy:a"
+            coEvery { api.hermesContract(any()) } returns breakingReport()
+            val m = monitorAt { now }
+            m.probe()
+            assertTrue(m.contract.value != null)
+
+            coEvery { api.hermesContract(any()) } throws HermesApiException(status, "no report")
+            now += GatewayHealthMonitor.CONTRACT_REFRESH_MS
+            m.probe()
+
+            assertEquals("status $status", null, m.contract.value)
+        }
+    }
+
+    /**
+     * Review D3. A 503 `device_offline` or 504 from the Relay says nothing about Hermes. It used to
+     * clear a real breaking verdict and then pin "no report" for five minutes.
+     */
+    @Test fun a_relay_5xx_keeps_the_last_verdict_and_asks_again_on_the_next_probe() = runTest {
+        var now = 0L
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } returns "legacy:a"
+        coEvery { api.hermesContract(any()) } returns breakingReport()
+        val m = monitorAt { now }
+        m.probe()
+        now += GatewayHealthMonitor.CONTRACT_REFRESH_MS
+
+        for (status in listOf(503, 504)) {
+            coEvery { api.hermesContract(any()) } throws HermesApiException(status, "device_offline")
+            m.probe()
+            assertEquals("status $status", com.hermes.client.data.error.AppErrorCode.HERMES_INCOMPATIBLE, m.contract.value?.error?.code)
+        }
+
+        // No time passes: the failure must not have been cached as an answer.
+        coEvery { api.hermesContract(any()) } returns compatible
+        m.probe()
+        assertEquals(null, m.contract.value)
+    }
+
+    @Test fun a_transport_failure_keeps_the_last_report_and_asks_again_next_probe() = runTest {
+        var now = 0L
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } returns "legacy:a"
+        coEvery { api.hermesContract(any()) } returns breakingReport()
+        val m = monitorAt { now }
+        m.probe()
+        now += GatewayHealthMonitor.CONTRACT_REFRESH_MS
+
+        coEvery { api.hermesContract(any()) } throws java.io.IOException("reset")
+        m.probe()
+        assertTrue(m.contract.value != null)
+
+        coEvery { api.hermesContract(any()) } returns compatible
+        m.probe()
+        assertEquals(null, m.contract.value)
+    }
+
+    /**
+     * Review D4. The report used to be read inside the probe lock, and OkHttp's blocking call is
+     * not interrupted by `withTimeout`, so a stalled report swallowed every probe a dropped or
+     * restored socket asked for.
+     */
+    @Test fun a_stalled_report_does_not_block_the_next_probe() = runTest(UnconfinedTestDispatcher()) {
+        val stalled = kotlinx.coroutines.CompletableDeferred<HermesContractReportDto>()
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } returns "legacy:a"
+        coEvery { api.hermesContract(any()) } coAnswers { stalled.await() }
+        val m = monitorAt { 0L }
+
+        val first = backgroundScope.launch { m.probe() }
+        m.probe()
+
+        io.mockk.coVerify(exactly = 2) { api.gatewayStatus() }
+        io.mockk.coVerify(exactly = 1) { api.hermesContract(any()) }
+        stalled.complete(compatible)
+        first.join()
+    }
+
+    @Test fun an_unhealthy_relay_is_not_asked_for_a_report() = runTest {
+        coEvery { api.gatewayStatus() } throws java.io.IOException("connection refused")
+        coEvery { api.contractTargetKey() } returns "legacy:a"
+        val m = monitorAt { 0L }
+
+        m.probe()
+
+        io.mockk.coVerify(exactly = 0) { api.hermesContract(any()) }
     }
 
     @Test fun probe_reports_healthy_on_2xx() = runTest {

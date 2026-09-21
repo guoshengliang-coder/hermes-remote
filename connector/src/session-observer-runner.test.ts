@@ -189,6 +189,31 @@ test("never forwards a lifecycle transition before its outbox snapshot is durabl
   observer.stop();
 });
 
+test("every socket the observer opens to Hermes is announced, so a restart re-runs the contract check", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hermes-observer-runner-"));
+  const sockets: FakeSocket[] = [];
+  let connected = 0;
+  const observer = new HermesSessionObserver({
+    deviceId: "mac-mini",
+    stateStore: new ObserverStateStore(join(root, "state.json")),
+    websocketUrl: async () => "wss://hermes.test/api/ws?ticket=test",
+    createSocket: () => { const socket = new FakeSocket(); sockets.push(socket); return socket; },
+    sendLifecycle: () => true,
+    reconnectMs: 1,
+    onHermesConnected: () => { connected += 1; },
+  });
+  await observer.start();
+  await waitFor(() => sockets.length === 1);
+  sockets[0].emit("open");
+  assert.equal(connected, 1);
+  // Hermes restarted: the socket closes and the observer reconnects on a new one.
+  sockets[0].close();
+  await waitFor(() => sockets.length === 2);
+  sockets[1].emit("open");
+  assert.equal(connected, 2);
+  observer.stop();
+});
+
 async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
   const started = Date.now();
   while (!predicate()) {

@@ -1502,4 +1502,47 @@ class ScreenshotTest {
             }
         }
     }
+
+    // ── Health strip carrying the Connector's Hermes contract verdict (docs/DESIGN.md §5.20):
+    // red + warning sign for HR-COMPAT-001, neutral + warning sign for HR-COMPAT-002/003.
+    private fun contractNotice(breaking: Boolean) = com.hermes.client.data.network.HermesContractNotice(
+        severity = if (breaking) com.hermes.client.data.network.HermesContractSeverity.BREAKING
+        else com.hermes.client.data.network.HermesContractSeverity.DEGRADED,
+        error = com.hermes.client.data.error.AppError(
+            if (breaking) com.hermes.client.data.error.AppErrorCode.HERMES_INCOMPATIBLE
+            else com.hermes.client.data.error.AppErrorCode.HERMES_FEATURES_MISSING,
+            retryable = false,
+        ),
+        features = if (breaking) listOf("history") else listOf("cron", "skills"),
+        hermesVersion = "0.22.0",
+    )
+
+    @androidx.compose.runtime.Composable
+    private fun ContractStrip(breaking: Boolean, language: com.hermes.client.ui.localization.AppLanguage) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.hermes.client.ui.localization.LocalAppLanguage provides language,
+        ) {
+            com.hermes.client.ui.components.HealthStrip(
+                health = com.hermes.client.data.network.GatewayHealth.Healthy("0.22.0", true, 12),
+                onClick = {},
+                contract = contractNotice(breaking),
+            )
+        }
+    }
+
+    @Test fun healthStripContractBreaking() = snap("health-strip-contract-breaking") {
+        ContractStrip(breaking = true, language = com.hermes.client.ui.localization.AppLanguage.ZH)
+    }
+
+    @Test fun healthStripContractBreakingDark() = snap("health-strip-contract-breaking-dark", darkTheme = true) {
+        ContractStrip(breaking = true, language = com.hermes.client.ui.localization.AppLanguage.ZH)
+    }
+
+    @Test fun healthStripContractDegraded() = snap("health-strip-contract-degraded") {
+        ContractStrip(breaking = false, language = com.hermes.client.ui.localization.AppLanguage.ZH)
+    }
+
+    @Test fun healthStripContractDegradedDarkEn() = snap("health-strip-contract-degraded-dark-en", darkTheme = true, fontScale = 1.3f) {
+        ContractStrip(breaking = false, language = com.hermes.client.ui.localization.AppLanguage.EN)
+    }
 }

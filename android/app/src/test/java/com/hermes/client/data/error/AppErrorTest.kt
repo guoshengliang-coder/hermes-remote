@@ -78,6 +78,33 @@ class AppErrorTest {
         assertFalse(diagnostic.contains("xyz"))
     }
 
+    /**
+     * HR-COMPAT-001..003: the Connector's contract check against the Mac's own Hermes. Bilingual,
+     * each with its own copy, and never retryable — only updating Hermes or the app changes them.
+     */
+    @Test fun hermesContractCodesAreBilingualDistinctAndNotRetryable() {
+        val cases = mapOf(
+            AppErrorCode.HERMES_INCOMPATIBLE to ("HR-COMPAT-001" to "不兼容"),
+            AppErrorCode.HERMES_FEATURES_MISSING to ("HR-COMPAT-002" to "缺少部分接口"),
+            AppErrorCode.HERMES_BELOW_MINIMUM to ("HR-COMPAT-003" to "最低版本"),
+        )
+        val english = mutableSetOf<String>()
+        cases.forEach { (code, expected) ->
+            val (value, zhFragment) = expected
+            assertEquals(value, code.value)
+            val error = AppError(code, retryable = false, technicalCause = "missing=GET /api/x token=abc")
+            val zh = error.localizedMessage(AppLanguage.ZH)
+            val en = error.localizedMessage(AppLanguage.EN)
+            assertTrue(zh, zh.contains(zhFragment) && zh.endsWith("($value)"))
+            assertTrue(en, en.contains("Hermes") && en.endsWith("($value)"))
+            english += en
+            assertEquals(code, AppErrorCode.fromValue(value))
+            assertFalse(error.sanitizedDiagnostic().contains("abc"))
+        }
+        assertEquals(3, english.size)
+        assertEquals("COMPAT-001", AppErrorCode.HERMES_INCOMPATIBLE.compact)
+    }
+
     @Test fun diagnosticsKeepTheCodeAndRedactSecrets() {
         val diagnostic = AppError(
             code = AppErrorCode.CONNECTION_FAILED,
