@@ -449,7 +449,35 @@ internal fun galleryTargetSize(width: Int, height: Int, requestedPx: Int): Pair<
         (height * scale).roundToInt().coerceAtLeast(1)
 }
 
-private fun decodeGalleryBitmap(
+internal data class GalleryCropPlan(
+    val targetWidth: Int,
+    val targetHeight: Int,
+    val cropLeft: Int,
+    val cropTop: Int,
+    val cropRight: Int,
+    val cropBottom: Int,
+)
+
+internal fun galleryCropPlan(width: Int, height: Int, requestedPx: Int): GalleryCropPlan? {
+    if (width <= 0 || height <= 0 || requestedPx <= 0) return null
+    val shortEdge = minOf(width, height)
+    val scale = minOf(1f, requestedPx.toFloat() / shortEdge.toFloat())
+    val targetWidth = (width * scale).roundToInt().coerceAtLeast(1)
+    val targetHeight = (height * scale).roundToInt().coerceAtLeast(1)
+    val cropEdge = minOf(requestedPx, targetWidth, targetHeight)
+    val cropLeft = (targetWidth - cropEdge) / 2
+    val cropTop = (targetHeight - cropEdge) / 2
+    return GalleryCropPlan(
+        targetWidth = targetWidth,
+        targetHeight = targetHeight,
+        cropLeft = cropLeft,
+        cropTop = cropTop,
+        cropRight = cropLeft + cropEdge,
+        cropBottom = cropTop + cropEdge,
+    )
+}
+
+internal fun decodeGalleryBitmap(
     resolver: android.content.ContentResolver,
     uri: Uri,
     requestedPx: Int,
@@ -459,12 +487,17 @@ private fun decodeGalleryBitmap(
         val source = ImageDecoder.createSource(resolver, uri)
         return@runCatching ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
             if (crop) {
-                val edge = minOf(info.size.width, info.size.height)
-                val left = (info.size.width - edge) / 2
-                val top = (info.size.height - edge) / 2
-                decoder.setCrop(android.graphics.Rect(left, top, left + edge, top + edge))
-                val target = minOf(requestedPx, edge).coerceAtLeast(1)
-                decoder.setTargetSize(target, target)
+                val plan = checkNotNull(galleryCropPlan(info.size.width, info.size.height, requestedPx))
+                // ImageDecoder interprets crop coordinates in the scaled output space.
+                decoder.setTargetSize(plan.targetWidth, plan.targetHeight)
+                decoder.setCrop(
+                    android.graphics.Rect(
+                        plan.cropLeft,
+                        plan.cropTop,
+                        plan.cropRight,
+                        plan.cropBottom,
+                    ),
+                )
             } else {
                 val (width, height) = galleryTargetSize(info.size.width, info.size.height, requestedPx)
                 decoder.setTargetSize(width, height)

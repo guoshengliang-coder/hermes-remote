@@ -17,6 +17,21 @@ class PhotoGalleryDialogTest {
         assertEquals(8, gallerySampleSize(4000, 3000, 320, crop = false))
     }
 
+    @Test fun crop_coordinates_are_contained_in_the_scaled_decoder_output() {
+        assertEquals(
+            GalleryCropPlan(427, 320, 53, 0, 373, 320),
+            galleryCropPlan(4000, 3000, 320),
+        )
+        assertEquals(
+            GalleryCropPlan(320, 1067, 0, 373, 320, 693),
+            galleryCropPlan(1200, 4000, 320),
+        )
+        assertEquals(
+            GalleryCropPlan(240, 4000, 0, 1880, 240, 2120),
+            galleryCropPlan(240, 4000, 320),
+        )
+    }
+
     @Test fun selection_preserves_order_across_albums_and_honours_cap() {
         var selected = emptyList<String>()
         selected = toggleGallerySelection(selected, "content://a/1", 3)
