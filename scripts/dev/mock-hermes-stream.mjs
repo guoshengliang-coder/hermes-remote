@@ -745,7 +745,15 @@ wss.on("connection", (socket) => {
         // rehearsal built on it. HR_MOCK_SILENT_RESUME=1 reproduces the upstream that stays quiet.
         if (SILENT_RESUME) break;
         const ws = workspaceFor(String(request.params?.session_id ?? ""));
-        emit("session.info", String(request.params?.session_id ?? STORED_ID), { running: false, cwd: ws.cwd, branch: ws.branch });
+        // Report the run's real state, as upstream's _session_info does (`running:
+        // bool(sess.get("running"))`). A constant `false` told the client that a run blocked on an
+        // approval or clarify had ended, so the card it had just restored from open_requests was
+        // cleared again -- which made force-stop restore, approval-then-clarify and the approval
+        // queue unverifiable against this mock (device smoke test, 2026-09-21). Every run streams
+        // into the one mock conversation, so only that one can be running.
+        const resumed = String(request.params?.session_id ?? STORED_ID);
+        const running = mockRunActive && (resumed === STORED_ID || resumed === LIVE_ID);
+        emit("session.info", resumed, { running, cwd: ws.cwd, branch: ws.branch });
         break;
       }
       case "session.access": {
