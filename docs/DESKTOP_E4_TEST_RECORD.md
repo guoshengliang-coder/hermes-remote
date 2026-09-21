@@ -1172,7 +1172,14 @@ so the whole journal read as `DesktopMigrationJournalError.invalidState`, and De
   restored — up to three times (2 s, 4 s back-off). If the job is still not loaded the failure is a new
   registered, retryable `HR-MIGRATE-013` instead of silence.
 - A bundled job that is not loaded now plans `.loadAgent` and is loaded again, with the setting on
-  or off, bounded by those retries and the five-minute runtime back-off.
+  or off, bounded by those retries and the five-minute runtime back-off. Desktop stopped nothing in
+  that case, so it probes 9119 once first: if another process already listens there it loads
+  nothing (a bootstrap would crash-loop on `EADDRINUSE` against the shared `state.db`) and surfaces
+  retryable `HR-MIGRATE-014`.
+- **Runbook change for controlled activations: quit Desktop first** (or hold
+  `Managed/state/migration-operation.lock` throughout). Desktop now loads an unloaded bundled job on
+  its next refresh, so a Desktop left running would reload the old agent mid-activation. The
+  2026-09-19 activations already quit Desktop; it is now a hard precondition.
 - `DesktopServiceRecoveryFailure` carries the operation, the original error and the recovery error
   into `HR-MIGRATE-009`/`-013`/`-004` diagnostics, redacted.
 - `Managed/logs/desktop-runtime.log` (0600, rotated at 256 KiB) records every launchctl mutation with

@@ -1511,6 +1511,57 @@ final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
         }
     }
 
+    /// Review of #356: a job that is not loaded, with something else already on 9119, must not be
+    /// bootstrapped (it would crash-loop on EADDRINUSE against the shared database), and must not
+    /// hold the lease through a 75-attempt wait for a listener Desktop never stopped.
+    func testAnUnloadedJobIsNotStartedWhileAnotherProcessHoldsThePort() async throws {
+        for enabled in [true, false] {
+            let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+            defer { fixture.cleanup() }
+            try fixture.installCommittedManagedServices(inlineToken: nil)
+            fixture.runner.replaceLoaded(with: [DesktopManagedInstallLayout.connectorLabel])
+            fixture.shutdown.timeOutWaits(1)
+
+            await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileHermesRuntime {
+                try fixture.runtimeObservation(
+                    enabled ? .usable(fixture.localInstallation()) : .absent(hermesDataPresent: false),
+                    enabled: enabled,
+                    service: .notLoaded
+                )
+            }) { error in
+                XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .hermesPortInUse, "enabled=\(enabled)")
+                let issue = DesktopIssue.hermesRuntimeFailure(error)
+                XCTAssertEqual(issue.code.rawValue, "HR-MIGRATE-014")
+                XCTAssertTrue(issue.retryable)
+            }
+
+            XCTAssertEqual(fixture.serviceMutations(), [], "nothing is bootstrapped onto an occupied port")
+            XCTAssertEqual(fixture.shutdown.requestedAttempts(), [1], "one probe, not the full stop wait")
+            XCTAssertEqual(fixture.readiness.waitCount(), 0)
+            let log = try String(contentsOf: fixture.operationLog.url, encoding: .utf8)
+            XCTAssertTrue(log.contains("load-agent refused reason=port-9119-in-use"))
+            XCTAssertFalse(log.contains("reload hermes"))
+        }
+    }
+
+    /// And if the port is taken between that probe and the start, the answer is the same.
+    func testAPortTakenAfterTheProbeIsStillNeverBootstrapped() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        fixture.runner.replaceLoaded(with: [DesktopManagedInstallLayout.connectorLabel])
+        fixture.shutdown.scriptWaits([true, false])
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.absent(hermesDataPresent: false), enabled: false, service: .notLoaded)
+        }) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .hermesPortInUse)
+        }
+
+        XCTAssertEqual(fixture.serviceMutations(), [])
+        XCTAssertFalse(fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel))
+    }
+
     /// Item 3: an upgrade in local mode makes the kept bundled agent name the new release, and a
     /// failed upgrade puts the old kept agent back with everything else.
     func testAnUpgradeInLocalModeRefreshesTheKeptBundledAgent() async throws {
@@ -2482,7 +2533,8 @@ private final class MigrationHermesReadiness: DesktopHermesCandidateReadinessChe
 private final class MigrationHermesShutdown: DesktopHermesShutdownChecking, @unchecked Sendable {
     private let lock = NSLock()
     private var waits = 0
-    private var failingWaits = 0
+    private var attempts: [Int] = []
+    private var scripted: [Bool] = []
 
     func waitUntilStopped(
         contract: DesktopHermesRuntimeContract,
@@ -2491,15 +2543,17 @@ private final class MigrationHermesShutdown: DesktopHermesShutdownChecking, @unc
     ) async throws -> Bool {
         lock.withLock {
             waits += 1
-            guard failingWaits > 0 else { return true }
-            failingWaits -= 1
-            return false
+            attempts.append(maximumAttempts)
+            return scripted.isEmpty ? true : scripted.removeFirst()
         }
     }
 
     func waitCount() -> Int { lock.withLock { waits } }
+    func requestedAttempts() -> [Int] { lock.withLock { attempts } }
     /// The next `count` waits time out, the way every wait did before the ECONNREFUSED fix.
-    func timeOutWaits(_ count: Int) { lock.withLock { failingWaits = count } }
+    func timeOutWaits(_ count: Int) { lock.withLock { scripted = Array(repeating: false, count: count) } }
+    /// The next waits answer these results in order; later ones answer "stopped".
+    func scriptWaits(_ results: [Bool]) { lock.withLock { scripted = results } }
 }
 
 private func XCTAssertThrowsErrorAsync<T>(

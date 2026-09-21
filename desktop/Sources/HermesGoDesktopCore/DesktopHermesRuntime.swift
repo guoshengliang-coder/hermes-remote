@@ -747,12 +747,15 @@ public extension DesktopIssue {
     }
 
     /// A failed runtime reconciliation. `HR-MIGRATE-013` when the Hermes job was left unloaded,
-    /// `HR-MIGRATE-009` otherwise; either way the cause names the operation, the original error and
+    /// `HR-MIGRATE-014` when it was not loaded and another process holds 9119, `HR-MIGRATE-009`
+    /// otherwise; either way the cause names the operation, the original error and
     /// the recovery error (`DesktopServiceRecoveryFailure`).
     static func hermesRuntimeFailure(_ error: Error) -> DesktopIssue {
-        let code: DesktopIssueCode = DesktopServiceRecoveryFailure.classification(of: error) == .hermesReloadFailed
-            ? .managedHermesNotLoaded
-            : .localHermesRuntimeFailed
+        let code: DesktopIssueCode = switch DesktopServiceRecoveryFailure.classification(of: error) {
+        case .hermesReloadFailed: .managedHermesNotLoaded
+        case .hermesPortInUse: .managedHermesPortInUse
+        default: .localHermesRuntimeFailed
+        }
         return DesktopIssue(code: code, technicalCause: "stage=runtime \(String(describing: error))")
     }
 

@@ -730,6 +730,19 @@ final class DesktopLocalHermesPresentationTests: XCTestCase {
         XCTAssertTrue(diagnostic.contains("recovery=Bootstrap failed: 5"))
         XCTAssertFalse(diagnostic.contains("guoshengliang"))
         XCTAssertTrue(diagnostic.contains("/Users/<user>/Library/LaunchAgents"))
+        // Accurate whether Desktop stopped the job or found it not loaded: no claim of a restart.
+        XCTAssertFalse(issue.detailChinese.contains("重启"))
+        XCTAssertFalse(issue.detailEnglish.contains("restarted"))
+
+        let portInUse = DesktopIssue.hermesRuntimeFailure(DesktopMigrationCoordinatorError.hermesPortInUse)
+        XCTAssertEqual(portInUse.code.rawValue, "HR-MIGRATE-014")
+        XCTAssertEqual(portInUse.summaryChinese, "Hermes 端口被占用")
+        XCTAssertEqual(portInUse.summaryEnglish, "Hermes port in use")
+        XCTAssertTrue(portInUse.detailChinese.contains("9119"))
+        XCTAssertTrue(portInUse.detailEnglish.contains("port 9119"))
+        XCTAssertTrue(portInUse.retryable)
+        XCTAssertEqual(portInUse.recoveryAction, .details)
+        XCTAssertTrue(portInUse.sanitizedDiagnostic.contains("cause=stage=runtime hermesPortInUse"))
 
         // A restore that failed but left the job loaded stays HR-MIGRATE-009.
         let restored = DesktopServiceRecoveryFailure(

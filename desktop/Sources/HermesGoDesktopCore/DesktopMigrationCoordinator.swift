@@ -25,6 +25,10 @@ public enum DesktopMigrationCoordinatorError: Error, Equatable, Sendable {
     /// Desktop stopped the managed Hermes job and could not load it again: launchd refused every
     /// bootstrap attempt, so the phone has no Hermes until someone loads it.
     case hermesReloadFailed
+    /// The managed Hermes job is not loaded, yet something else already accepts connections on
+    /// `127.0.0.1:9119` (or the port could not be proved free). Loading the job would only crash-loop
+    /// on EADDRINUSE, opening the shared `state.db` on every start, so nothing is started.
+    case hermesPortInUse
 }
 
 /// A failed service operation whose recovery failed too.
@@ -960,15 +964,30 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             }
             return .reloadedAgent
         case .loadAgent:
-            // The job is not loaded at all: start the agent file as it is, with the same shutdown
-            // and readiness proofs as any other start. Bounded by `ensureHermesLoaded`'s retries per
-            // attempt and by the caller's back-off between attempts.
+            // The job is not loaded at all and Desktop stopped nothing, so there is no old listener
+            // to wait for: anything accepting on 9119 now is some other process (the owner's own
+            // Hermes or dashboard, say). One probe decides. A port that is not provably free is
+            // left alone — no 75-attempt wait holding the lease, and no bootstrap that would
+            // crash-loop on EADDRINUSE against the shared database.
+            guard try await hermesShutdown.waitUntilStopped(
+                contract: .serveV1,
+                maximumAttempts: 1,
+                delayNanoseconds: 0
+            ) else {
+                operationLog?.record("load-agent refused reason=port-9119-in-use; not loading")
+                throw DesktopMigrationCoordinatorError.hermesPortInUse
+            }
             do {
                 try await restartManagedHermes(
                     logURL: installer.managedHermesLogURL,
                     recording: nil,
                     observe: observe
                 )
+            } catch DesktopMigrationCoordinatorError.hermesStopTimedOut {
+                // Something took the port between the probe and the start: same answer, and never
+                // a bootstrap on top of it.
+                operationLog?.record("load-agent refused reason=port-9119-in-use; not loading")
+                throw DesktopMigrationCoordinatorError.hermesPortInUse
             } catch {
                 try await ensureHermesLoadedAfterFailure("load-agent", error)
                 throw error

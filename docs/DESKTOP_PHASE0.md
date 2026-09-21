@@ -960,8 +960,21 @@ not have loaded is no longer "in some other operation's hands" (`.keep`): the pl
 and readiness proofs under the migration lease (an upgrade that has the job stopped on purpose holds
 that lease and a non-`account_active` journal, so it is not interfered with). The bound is the same as
 every other runtime failure: three bootstrap attempts per reconciliation, then five minutes of back-off.
-An operator who wants the job down must quit Desktop first, as the controlled activations in
-`DESKTOP_E4_TEST_RECORD.md` did.
+
+Loading differs from every other start in one respect: Desktop stopped nothing, so there is no old
+listener to wait out. It probes `127.0.0.1:9119` **once**; if anything accepts (or the port cannot be
+proved free), some other process holds it — typically the owner's own Hermes or dashboard — and
+Desktop neither waits the 75-attempt stop proof under the lease nor loads the job, which would only
+crash-loop on `EADDRINUSE` and open the shared `state.db` on every start. That is retryable
+`HR-MIGRATE-014`, retried after the five-minute back-off; a port taken between the probe and the start
+gives the same answer, never a reload.
+
+**Controlled activations — hard precondition.** Because Desktop loads an unloaded bundled job on its
+next refresh (every 15 s), an operator who boots the managed Hermes out by hand **must quit Desktop
+first** (or hold `Managed/state/migration-operation.lock` for the whole operation) and reopen it only
+after the job is loaded again. Otherwise Desktop will load the old agent in the middle of the
+activation. The 2026-09-19 controlled activations in `DESKTOP_E4_TEST_RECORD.md` already quit Desktop; this is
+now mandatory, not a precaution.
 
 #### Switching, falling back, and everything else that had to change
 
