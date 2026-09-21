@@ -111,11 +111,15 @@ object ServerRequests {
         }
     }
 
-    /** [OPEN_SNAPSHOT_EVENT] for a resume answer: the live session it covers and its open request ids. */
-    fun openSnapshotEvent(result: JsonObject): ServerEvent? {
+    /**
+     * [OPEN_SNAPSHOT_EVENT] for a resume answer: the live session it covers and the request ids to keep —
+     * those it lists, plus [alsoOpen], the requests that arrived while the resume was in flight and
+     * may postdate upstream's snapshot.
+     */
+    fun openSnapshotEvent(result: JsonObject, alsoOpen: Set<String> = emptySet()): ServerEvent? {
         val sessionId = (result["session_id"] as? JsonPrimitive)?.contentOrNull ?: return null
-        val ids = (result["open_requests"] as? JsonArray).orEmpty()
-            .mapNotNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull }
+        val ids = ((result["open_requests"] as? JsonArray).orEmpty()
+            .mapNotNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull } + alsoOpen).distinct()
         return ServerEvent(
             type = OPEN_SNAPSHOT_EVENT,
             sessionId = sessionId,

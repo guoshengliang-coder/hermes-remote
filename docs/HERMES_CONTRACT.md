@@ -326,6 +326,12 @@ Load-bearing facts, all from the 17b5df02 source:
   clarify surfaces `HR-CLARIFY-001` again (as `clarify.respond` did on f159e581) and an expired
   approval surfaces `HR-APPROVAL-003`. Approval uses it too: the extra round trip costs nothing
   and replaces HR-APPROVAL-001's after-the-fact inference with Hermes' own answer.
+  **`request.answer` is therefore required** of any Hermes that sends server→client requests — the
+  app treats 17b5df02 as the minimum for the new protocol, and there is deliberately no fallback to
+  a bare response frame (that is exactly the silent path this replaced). A Hermes that sends
+  requests but answers `request.answer` with -32601 fails the answer like any RPC error: the in-app
+  approval sheet shows `HR-RPC-001`, a clarify card is put back for a retry, a notification action
+  shows `HR-NOTIF-001`.
 - **Stale cards are pruned on resume.** Because "answered elsewhere" sends no cancel, and a card
   restored from `SessionPhaseStore` may name a request that timed out while no socket was attached,
   every `session.resume` answer on a connection that advertised the capability is followed by a
@@ -333,7 +339,17 @@ Load-bearing facts, all from the 17b5df02 source:
   are dropped. Absent `open_requests` means none: `_live_session_payload` only sets non-empty values,
   and a cold resume mints a fresh live handle that owns no requests. The snapshot is queued on the
   socket's reader thread, so it is ordered after every frame that arrived before the answer and
-  before every frame after it — a request raised just after the resume is never pruned.
+  before every frame after it — a request raised just after the resume is never pruned. A request
+  raised *during* the resume is not pruned either: `_resume_reuse_live` snapshots `_open_requests`
+  before the pool worker writes the answer, and `server_requests._register` does not take
+  `_session_resume_lock`, so its frame can arrive before an answer that does not list it. Every
+  server-request id received on the socket between sending `session.resume` and reading its answer
+  is kept open in the snapshot.
+- **Notification-shade answers settle their own card.** The shade answers by the id it was built
+  with and then removes that id (`SessionRuntimeStore.settleShadeAnswer`), never "whatever is on
+  screen now": between the notification and the tap, its request may have been answered elsewhere
+  and the next queued approval taken its place. An `expired` answer from the shade leaves
+  `HR-APPROVAL-003` / `HR-CLARIFY-001` in the conversation, like the in-app sheets.
 - **An error answer means "no handler".** For methods the phone has no card for (`sudo`, `secret`,
   `vault.*`, `terminal.read`, `preview.*`, `window.read`, `tour`) it answers
   `{jsonrpc, id, error:{code:-32601, …}}` at once. Upstream reads any error response as `None` —

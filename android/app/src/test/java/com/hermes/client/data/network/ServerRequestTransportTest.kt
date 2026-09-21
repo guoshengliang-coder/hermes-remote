@@ -161,14 +161,21 @@ class ServerRequestTransportTest {
     }
 
     /** A far end whose `session.resume` answers with [resumeResult] (after the capability reply). */
-    private fun resumingFarEnd(capability: (String) -> String, resumeResult: String) = object : WebSocketListener() {
+    private fun resumingFarEnd(
+        capability: (String) -> String,
+        resumeResult: String,
+        beforeAnswer: (WebSocket) -> Unit = {},
+    ) = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) { webSocket.send(READY) }
         override fun onMessage(webSocket: WebSocket, text: String) {
             val obj = Json.parseToJsonElement(text).jsonObject
             val id = obj["id"]?.toString()
             when (obj["method"]?.jsonPrimitive?.content) {
                 "client.capabilities" -> webSocket.send(capability(id!!))
-                "session.resume" -> webSocket.send("""{"jsonrpc":"2.0","id":$id,"result":$resumeResult}""")
+                "session.resume" -> {
+                    beforeAnswer(webSocket)
+                    webSocket.send("""{"jsonrpc":"2.0","id":$id,"result":$resumeResult}""")
+                }
             }
         }
     }
@@ -208,6 +215,21 @@ class ServerRequestTransportTest {
         val events = resumeAndCollect(resumingFarEnd(advertised, """{"session_id":"live-1"}"""))
         assertEquals(listOf(ServerRequests.OPEN_SNAPSHOT_EVENT), events.map { it.type })
         assertTrue(events.single().strList("ids").isEmpty())
+    }
+
+    /**
+     * Upstream snapshots `open_requests` before its worker writes the answer, and a request can be
+     * registered in between: its frame arrives BEFORE the answer that does not list it. Pruning it
+     * would leave the agent waiting out the whole timeout for a card the phone just removed.
+     */
+    @Test fun a_request_that_arrives_while_the_resume_is_in_flight_is_kept_open() = runTest {
+        val events = resumeAndCollect(
+            resumingFarEnd(advertised, """{"session_id":"live-1"}""") { ws ->
+                ws.send("""{"jsonrpc":"2.0","id":"srq-late","method":"approval","params":{"session_id":"live-1","request_id":"q-9","command":"ls"}}""")
+            },
+        )
+        assertEquals(listOf("approval.request", ServerRequests.OPEN_SNAPSHOT_EVENT), events.map { it.type })
+        assertEquals(listOf("srq-late"), events[1].strList("ids"))
     }
 
     /** An older Hermes asks through events; its cards have no ids and nothing may prune them. */

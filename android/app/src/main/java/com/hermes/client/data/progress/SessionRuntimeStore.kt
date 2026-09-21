@@ -30,7 +30,10 @@ import com.hermes.client.ui.chat.ClarifyRequest
 import com.hermes.client.ui.chat.markInterrupted
 import com.hermes.client.ui.chat.organizedForDisplay
 import com.hermes.client.ui.chat.reduce
+import com.hermes.client.ui.chat.approvalNoLongerOpenNotice
+import com.hermes.client.ui.chat.clarifyExpiredNotice
 import com.hermes.client.ui.chat.withApprovalAnswered
+import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.chat.withServerRequestCancelled
 import com.hermes.client.ui.chat.withUserMessage
 import kotlinx.coroutines.CancellationException
@@ -876,24 +879,54 @@ class SessionRuntimeStore(
         updateRuntime(key) { it.copy(title = clean) }
     }
 
-    /** An approval was answered from the notification shade: clear the pending card locally. */
-    fun clearPendingApproval(key: SessionRuntimeKey) {
-        updateRuntime(key) { it.copy(chat = it.chat.withApprovalAnswered()) }
-    }
-
     /**
-     * A clarify answer was sent from the notification shade. Mirrors ChatViewModel.clarify: a
-     * batch request locks one answer (by qid) and advances; a single question clears the request.
+     * A notification-shade answer came back from Hermes; settle the card it was for.
+     *
+     * By the card's own id, never "whatever is on screen now": the notification can be older than
+     * the state — X answered elsewhere, Y queued behind it and now showing — and settling the head
+     * would have removed Y unanswered. An old-protocol approval has no id and settles the head, as
+     * `approval.respond` does upstream; a clarify is only touched if it is still the request the
+     * action named.
+     *
+     * [expired]: Hermes said the request was no longer open. That is a lost action, and a lost
+     * action is never silent: the conversation gets the same notice the in-app sheet shows
+     * (HR-APPROVAL-003 / HR-CLARIFY-001) instead of the run being moved on as if it had landed.
      */
-    fun lockClarifyAnswer(key: SessionRuntimeKey, questionId: String?, answer: String) {
-        updateRuntime(key) { runtime ->
-            val request = runtime.chat.pendingClarify ?: return@updateRuntime runtime
-            val next = if (!questionId.isNullOrBlank()) {
-                request.copy(lockedAnswers = request.lockedAnswers + (questionId to answer))
-                    .takeIf { it.currentQuestion != null }
-            } else null
-            runtime.copy(chat = runtime.chat.copy(pendingClarify = next))
+    fun settleShadeAnswer(key: SessionRuntimeKey, answer: ShadeAnswer, expired: Boolean, language: AppLanguage) {
+        var answeredLastCard = false
+        updateRuntime(key, cause = if (expired) "shade-answer-expired" else "shade-answer") { runtime ->
+            val chat = runtime.chat
+            val settled = if (answer.approval) {
+                if (answer.serverRequest && !answer.requestId.isNullOrBlank()) {
+                    chat.withServerRequestCancelled(answer.requestId)
+                } else chat.withApprovalAnswered()
+            } else {
+                val request = chat.pendingClarify
+                val same = request != null &&
+                    (answer.requestId.isNullOrBlank() || request.requestId == answer.requestId)
+                val next = when {
+                    !same -> request
+                    expired -> null
+                    !answer.questionId.isNullOrBlank() ->
+                        request!!.copy(lockedAnswers = request.lockedAnswers + (answer.questionId to answer.answer))
+                            .takeIf { it.currentQuestion != null }
+                    else -> null
+                }
+                chat.copy(pendingClarify = next)
+            }
+            answeredLastCard = !expired && settled.pendingApproval == null && settled.pendingClarify == null
+            val withNotice = if (!expired) settled else settled.copy(
+                messages = settled.messages + ChatMessage(
+                    id = "s-${settled.messages.size}",
+                    role = Role.SYSTEM,
+                    text = if (answer.approval) approvalNoLongerOpenNotice(language) else clarifyExpiredNotice(language),
+                ),
+            )
+            runtime.copy(chat = withNotice)
         }
+        // Still waiting on another card (the next queued approval, the rest of a batch) stays
+        // waiting; continueAfterInput reads the cards itself.
+        if (!expired && (answer.approval || answeredLastCard)) continueAfterInput(key)
     }
 
     /**
@@ -2038,3 +2071,12 @@ internal fun phaseAfterWithdrawal(current: SessionRunPhase, chat: ChatUiState): 
         SessionRunPhase.THINKING
     else -> current
 }
+
+/** What a notification-shade action answered; see [SessionRuntimeStore.settleShadeAnswer]. */
+data class ShadeAnswer(
+    val approval: Boolean,
+    val requestId: String?,
+    val serverRequest: Boolean,
+    val questionId: String? = null,
+    val answer: String = "",
+)

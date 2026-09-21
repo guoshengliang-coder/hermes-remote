@@ -128,6 +128,14 @@ open class HermesGatewayClient(
 
     private val pending = ConcurrentHashMap<Long, PendingCall>()
 
+    /**
+     * Server requests received while a `session.resume` is in flight, per resume call id. Upstream
+     * snapshots `open_requests` before its worker writes the answer, and registering a request does
+     * not take the resume lock — so a question can reach us *before* the answer that omits it. It is
+     * open all the same, and the snapshot must not prune it. See [onResumeAnswered].
+     */
+    private val resumeWindows = ConcurrentHashMap<Long, MutableSet<String>>()
+
     @Volatile private var ws: WebSocket? = null
     @Volatile protected var manuallyClosed = false
 
@@ -559,7 +567,9 @@ open class HermesGatewayClient(
                         // Settled here, on the reader, not in the coroutine awaiting it: the next
                         // frame may already be a resume answer that needs to know.
                         if (call?.method == ServerRequests.CAPABILITIES_METHOD) serverRequestsState = "advertised"
-                        if (call?.method == ServerRequests.RESUME_METHOD) onResumeAnswered(webSocket, msg.result)
+                        if (call?.method == ServerRequests.RESUME_METHOD) {
+                            onResumeAnswered(webSocket, msg.result, resumeWindows.remove(msg.id).orEmpty())
+                        }
                         call?.deferred?.complete(msg.result)
                     }
                     is RpcErrorReply -> {
@@ -770,6 +780,7 @@ open class HermesGatewayClient(
             return
         }
         DebugLog.log("ws", "server request ${request.method} id=${request.id.content} session=${event.sessionId ?: "-"}")
+        request.id.contentOrNull?.let { id -> resumeWindows.values.forEach { it += id } }
         if (eventQueue.trySend(event).isFailure) {
             DebugLog.log("ws", "event queue overflow; reconnecting for history resync")
             webSocket.close(1013, "event queue overflow")
@@ -790,10 +801,11 @@ open class HermesGatewayClient(
      * no requests), so absent means empty. Queued behind every frame that arrived before this answer
      * and ahead of every frame after it, which is why it is not done in the coroutine awaiting the call.
      */
-    private fun onResumeAnswered(webSocket: WebSocket, result: JsonElement) {
+    private fun onResumeAnswered(webSocket: WebSocket, result: JsonElement, arrivedDuringResume: Set<String>) {
         if (serverRequestsState != "advertised") return
         val obj = result as? JsonObject ?: return
-        val events = ServerRequests.openRequestEvents(obj) + listOfNotNull(ServerRequests.openSnapshotEvent(obj))
+        val events = ServerRequests.openRequestEvents(obj) +
+            listOfNotNull(ServerRequests.openSnapshotEvent(obj, alsoOpen = arrivedDuringResume))
         events.forEach { event ->
             if (event.type != ServerRequests.OPEN_SNAPSHOT_EVENT) {
                 DebugLog.log("ws", "re-delivering open ${event.type} session=${event.sessionId ?: "-"}")
@@ -832,6 +844,8 @@ open class HermesGatewayClient(
         val id = nextId.getAndIncrement()
         val deferred = CompletableDeferred<JsonElement>()
         val call = PendingCall(method, deferred)
+        // Opened before the request leaves, so no server request can slip in unrecorded.
+        if (method == ServerRequests.RESUME_METHOD) resumeWindows[id] = ConcurrentHashMap.newKeySet()
         pending[id] = call
         // A polling method stays quiet while it is quick and successful — the rule the inbox poll
         // already follows (DESIGN.md §5.15). process.list runs every 5s per active run and was 55
@@ -842,6 +856,7 @@ open class HermesGatewayClient(
         val sent = ws?.send(RpcRequest(id, method, params).encode(json)) ?: false
         if (!sent) {
             pending.remove(id)
+            resumeWindows.remove(id)
             DebugLog.log("ws", "rpc#$id $method failed: not connected")
             throw GatewayRpcException(0, "not connected")
         }
@@ -863,6 +878,7 @@ open class HermesGatewayClient(
             throw GatewayRpcException(0, "gateway response timeout")
         } finally {
             pending.remove(id, call)
+            resumeWindows.remove(id)
         }
     }
 

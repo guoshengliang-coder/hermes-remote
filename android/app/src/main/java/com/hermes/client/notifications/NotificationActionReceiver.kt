@@ -6,6 +6,8 @@ import android.content.Intent
 import androidx.core.app.RemoteInput
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.progress.SessionRuntimeStore
+import com.hermes.client.data.progress.ShadeAnswer
+import com.hermes.client.ui.localization.AppLanguageProvider
 import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.ui.chat.ApprovalChoice
 import com.hermes.client.data.auth.AccountSessionManager
@@ -44,6 +46,8 @@ fun receiverActionFor(action: String?): ReceiverAction = when (action) {
  * request (newer Hermes), the response frame / `clarify.lock` for that request id. The card shows "Working…" while the RPC
  * runs, the local session state is updated on success so the chat and the card move on together,
  * and a failure puts the buttons back with an HR-NOTIF-001 hint so a lost action is never silent.
+ * An answer Hermes reports as `expired` is lost too, and leaves HR-APPROVAL-003 / HR-CLARIFY-001 in
+ * the conversation (SessionRuntimeStore.settleShadeAnswer).
  */
 @AndroidEntryPoint
 class NotificationActionReceiver : BroadcastReceiver() {
@@ -51,6 +55,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
     @Inject lateinit var runtimes: SessionRuntimeStore
     @Inject lateinit var notifications: SessionNotificationCoordinator
     @Inject lateinit var accountSessions: AccountSessionManager
+    @Inject lateinit var languages: AppLanguageProvider
 
     override fun onReceive(context: Context, intent: Intent) {
         val storedId = intent.getStringExtra(Notif.EXTRA_STORED_SESSION_ID)
@@ -100,31 +105,28 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         }
                     }
                 }.onSuccess { status ->
-                    if (status == "expired") {
-                        // Hermes says the request is no longer open (timed out, run stopped, or
-                        // answered elsewhere): the card is stale, and the run's state is asked for
-                        // rather than guessed. Not a failure to retry — retrying cannot land.
+                    val expired = status == "expired"
+                    if (expired) {
                         DebugLog.log("notif", "action on an expired request session=$storedId action=${intent.action}")
-                        if (ra is ReceiverAction.Approval) runtimes.clearPendingApproval(key)
-                        else runtimes.lockClarifyAnswer(key, null, "")
-                        notifications.clearActionState(key)
-                        runtimes.probe(key, force = true)
-                        return@onSuccess
                     }
-                    when (ra) {
-                        is ReceiverAction.Approval -> {
-                            runtimes.clearPendingApproval(key)
-                            runtimes.continueAfterInput(key)
-                        }
-                        ReceiverAction.Reply, ReceiverAction.Choice -> {
-                            runtimes.lockClarifyAnswer(key, questionId, answer!!)
-                            if (runtimes.runtimes.value[key]?.chat?.pendingClarify == null) {
-                                runtimes.continueAfterInput(key)
-                            }
-                        }
-                        else -> Unit
+                    if (ra is ReceiverAction.Approval || ra is ReceiverAction.Reply || ra is ReceiverAction.Choice) {
+                        runtimes.settleShadeAnswer(
+                            key,
+                            ShadeAnswer(
+                                approval = ra is ReceiverAction.Approval,
+                                requestId = requestId.ifBlank { null },
+                                serverRequest = serverRequest,
+                                questionId = questionId,
+                                answer = answer.orEmpty(),
+                            ),
+                            expired = expired,
+                            language = languages.current,
+                        )
                     }
                     notifications.clearActionState(key)
+                    // Expired: Hermes has moved on without this answer; ask what the run is doing
+                    // rather than guess. Not a failure to retry — retrying cannot land.
+                    if (expired) runtimes.probe(key, force = true)
                 }.onFailure { e ->
                     DebugLog.log("notif", "action failed session=$storedId action=${intent.action}: ${e.message}")
                     notifications.markActionFailed(key)
