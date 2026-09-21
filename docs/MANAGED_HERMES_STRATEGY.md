@@ -92,8 +92,11 @@ was verified on), and again after `main` reached `83031d0`:
 4. Install-when-missing through upstream's installer. **Open question:** GitHub is often
    unreachable from the owner's network (`hermes update` failed to fetch repeatedly on 2026-09-19
    before it got through), so a first install may need to be served through the Hong Kong release server.
-5. Switch the Mac mini — a production change the owner authorises separately, with the bundled
-   release kept in place as the rollback.
+5. **Done (2026-09-21, 20:55 +08:00):** the Mac mini runs its own Hermes. Desktop 0.2.22 switched
+   the managed `hermes-server` job to `~/.hermes/hermes-agent` (0.21.3, `17b5df02`) with about 17 s
+   of Hermes unavailability; the bundled agent is kept as the rollback. The first attempt with
+   0.2.21 left Hermes unloaded for ~3 minutes and led to the #356 fix — see
+   `docs/DESKTOP_E4_TEST_RECORD.md`.
 6. Retire the bundled copy — component archive, `desktop/hermes-patches/`, schema baseline and
    `HR-MIGRATE-006` — once install-when-missing replaces it as the fallback. Not before: it is the
    only path for a Mac without Hermes until step 4 exists.
