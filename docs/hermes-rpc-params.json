@@ -1,0 +1,299 @@
+{
+  "_comment": "Params keys each WebSocket RPC may carry, per the Hermes 17b5df02 contracts (tui_gateway/contracts/*.py, base Params is extra=forbid: an undeclared key answers 4000). Read by android RpcParamContractTest and by scripts/dev/mock-hermes-stream.mjs (strict mode). Regenerate on every Hermes upgrade; see docs/HERMES_CONTRACT.md section 3.",
+  "upstream": "17b5df02",
+  "methods": {
+    "session.create": {
+      "model": "SessionCreateParams",
+      "keys": [
+        "close_on_disconnect",
+        "cols",
+        "cwd",
+        "fast",
+        "follow_profile_config",
+        "hidden",
+        "messages",
+        "model",
+        "parent_session_id",
+        "profile",
+        "provider",
+        "reasoning_effort",
+        "room_plumbing",
+        "source",
+        "title"
+      ]
+    },
+    "session.workspace.move": {
+      "model": "SessionWorkspaceMoveParams",
+      "keys": [
+        "cwd",
+        "profile",
+        "session_key"
+      ]
+    },
+    "session.resume": {
+      "model": "SessionResumeParams",
+      "keys": [
+        "close_on_disconnect",
+        "cols",
+        "defer_history",
+        "eager_build",
+        "lazy",
+        "omit_messages",
+        "profile",
+        "session_id",
+        "source"
+      ]
+    },
+    "prompt.submit": {
+      "model": "PromptSubmitParams",
+      "keys": [
+        "confirm_empty_truncate",
+        "confirm_truncate",
+        "display_kind",
+        "hosted_task",
+        "hosted_terminal_callback",
+        "interrupted",
+        "profile",
+        "queued",
+        "rebind_survivor_row_ids",
+        "session_id",
+        "surface",
+        "text",
+        "title_preview",
+        "truncate_before_message_id",
+        "truncate_before_row_id",
+        "truncate_before_user_ordinal",
+        "turn_author",
+        "voice_context"
+      ]
+    },
+    "slash.exec": {
+      "model": "SlashExecParams",
+      "keys": [
+        "command",
+        "profile",
+        "session_id"
+      ]
+    },
+    "complete.path": {
+      "model": "CompletePathParams",
+      "keys": [
+        "cwd",
+        "profile",
+        "session_id",
+        "word"
+      ]
+    },
+    "config.get": {
+      "model": "ConfigGetParams",
+      "keys": [
+        "cwd",
+        "key",
+        "profile",
+        "session_id"
+      ]
+    },
+    "config.set": {
+      "model": "ConfigSetParams",
+      "keys": [
+        "confirm_expensive_model",
+        "key",
+        "profile",
+        "scope",
+        "session_id",
+        "value"
+      ]
+    },
+    "commands.catalog": {
+      "model": "CommandsCatalogParams",
+      "keys": [
+        "profile",
+        "session_id"
+      ]
+    },
+    "session.interrupt": {
+      "model": "SessionInterruptParams",
+      "keys": [
+        "expected_hosted_task_id",
+        "profile",
+        "session_id"
+      ]
+    },
+    "image.attach_bytes": {
+      "model": "ImageAttachBytesParams",
+      "keys": [
+        "content_base64",
+        "data",
+        "ext",
+        "filename",
+        "profile",
+        "session_id"
+      ]
+    },
+    "image.attach": {
+      "model": "ImageAttachParams",
+      "keys": [
+        "path",
+        "profile",
+        "session_id"
+      ]
+    },
+    "pdf.attach": {
+      "model": "PdfAttachParams",
+      "keys": [
+        "content_base64",
+        "data",
+        "filename",
+        "first_page",
+        "last_page",
+        "path",
+        "profile",
+        "session_id"
+      ]
+    },
+    "file.attach": {
+      "model": "FileAttachParams",
+      "keys": [
+        "data_url",
+        "name",
+        "path",
+        "profile",
+        "session_id"
+      ]
+    },
+    "process.list": {
+      "model": "ProcessListParams",
+      "keys": [
+        "profile",
+        "session_id"
+      ]
+    },
+    "approval.respond": {
+      "model": "ApprovalRespondParams",
+      "keys": [
+        "all",
+        "choice",
+        "profile",
+        "request_id",
+        "session_id"
+      ]
+    },
+    "clarify.lock": {
+      "model": "ClarifyLockParams",
+      "keys": [
+        "answer",
+        "profile",
+        "question_id",
+        "request_id"
+      ]
+    },
+    "client.capabilities": {
+      "model": "ClientCapabilitiesParams",
+      "keys": [
+        "server_requests"
+      ]
+    },
+    "projects.tree": {
+      "model": "ProjectsTreeParams",
+      "keys": [
+        "preview_limit",
+        "profile",
+        "session_limit"
+      ]
+    },
+    "projects.project_sessions": {
+      "model": "ProjectsProjectSessionsParams",
+      "keys": [
+        "profile",
+        "project_id",
+        "session_limit"
+      ]
+    },
+    "projects.create": {
+      "model": "ProjectsCreateParams",
+      "keys": [
+        "board_slug",
+        "color",
+        "description",
+        "folders",
+        "icon",
+        "name",
+        "primary_path",
+        "profile",
+        "slug",
+        "use"
+      ]
+    },
+    "projects.update": {
+      "model": "ProjectsUpdateParams",
+      "keys": [
+        "board_slug",
+        "color",
+        "description",
+        "icon",
+        "id",
+        "name",
+        "profile"
+      ]
+    },
+    "projects.add_folder": {
+      "model": "ProjectsAddFolderParams",
+      "keys": [
+        "id",
+        "is_primary",
+        "label",
+        "path",
+        "profile"
+      ]
+    },
+    "projects.remove_folder": {
+      "model": "ProjectFolderParams",
+      "keys": [
+        "id",
+        "path",
+        "profile"
+      ]
+    },
+    "projects.set_primary": {
+      "model": "ProjectFolderParams",
+      "keys": [
+        "id",
+        "path",
+        "profile"
+      ]
+    },
+    "projects.delete": {
+      "model": "ProjectIdParams",
+      "keys": [
+        "id",
+        "profile"
+      ]
+    },
+    "session.active_list": {
+      "model": "SessionActiveListParams",
+      "keys": [
+        "current_session_id",
+        "profile"
+      ]
+    }
+  },
+  "absent_upstream": {
+    "session.access": {
+      "source": "managed patch 030 (desktop/hermes-patches/030-session-access.patch)",
+      "keys": [
+        "live_session_id",
+        "profile",
+        "session_id"
+      ]
+    },
+    "clarify.respond": {
+      "source": "f159e581 tui_gateway/server.py _respond",
+      "keys": [
+        "answer",
+        "question_id",
+        "request_id",
+        "session_id"
+      ]
+    }
+  }
+}

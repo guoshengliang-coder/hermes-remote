@@ -128,9 +128,17 @@ class ChatRepositoryTest {
         assertEquals(640, attached.width)
         coVerify {
             client.call("image.attach_bytes", match {
-                it["content_base64"]?.jsonPrimitive?.content == "YWJj" && !it.containsKey("data")
+                it["content_base64"]?.jsonPrimitive?.content == "YWJj" && !it.containsKey("data") &&
+                    it["ext"]?.jsonPrimitive?.content == "png" && !it.containsKey("mime_type")
             })
         }
+    }
+
+    @Test fun image_extension_hint_maps_known_types_and_leaves_the_rest_to_magic_bytes() {
+        assertEquals("jpg", imageExtensionHint("image/jpeg"))
+        assertEquals("png", imageExtensionHint("IMAGE/PNG; charset=binary"))
+        assertEquals("webp", imageExtensionHint("image/webp"))
+        assertEquals(null, imageExtensionHint("application/octet-stream"))
     }
 
     @Test fun attach_pdf_uses_remote_bytes_contract() = runTest {
@@ -217,7 +225,8 @@ class ChatRepositoryTest {
         coVerify {
             client.call("session.resume", match {
                 it["source"]?.jsonPrimitive?.content == "hermes_remote" &&
-                    it["inline_images"]?.jsonPrimitive?.content == "false"
+                    it["omit_messages"]?.jsonPrimitive?.content == "true" &&
+                    !it.containsKey("inline_images")
             })
         }
     }

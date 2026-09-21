@@ -723,7 +723,7 @@ open class HermesGatewayClient(
         val deferred = CompletableDeferred<JsonElement>()
         val call = PendingCall(ServerRequests.CAPABILITIES_METHOD, deferred)
         pending[id] = call
-        val params = buildJsonObject { put("server_requests", true) }
+        val params = ServerRequests.capabilityParams()
         if (!webSocket.send(RpcRequest(id, ServerRequests.CAPABILITIES_METHOD, params).encode(json))) {
             pending.remove(id, call)
             DebugLog.log("ws", "client.capabilities not sent (gen=$gen): socket closing")

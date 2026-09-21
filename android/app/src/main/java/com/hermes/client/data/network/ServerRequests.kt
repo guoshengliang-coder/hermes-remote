@@ -48,6 +48,9 @@ object ServerRequests {
      */
     const val SERVER_REQUEST_ID_KEY = "hr_server_request_id"
 
+    /** `client.capabilities` params: this connection answers server→client requests. */
+    fun capabilityParams(): JsonObject = buildJsonObject { put("server_requests", true) }
+
     /** The methods this client answers; anything else gets [METHOD_NOT_FOUND]. */
     val HANDLED: Set<String> = setOf(APPROVAL, CLARIFY)
 

@@ -89,7 +89,9 @@ talk to, on a device or emulator connected through the real Gateway and Connecto
 
 The same flow runs locally against the dev mock with `HR_MOCK_SERVER_REQUESTS=1` (every run also asks
 one `sudo`, which the app must refuse with -32601 — the mock logs `answered with error`), and without
-the flag for the old protocol.
+the flag for the old protocol. With that flag (or `HR_MOCK_STRICT_PARAMS=1` alone) the mock also
+refuses any params key 17b5df02 does not declare with 4000, from `docs/hermes-rpc-params.json`, and
+logs `refused 4000` — a line that must never appear while using the app.
 
 ### Android notification and battery checks
 

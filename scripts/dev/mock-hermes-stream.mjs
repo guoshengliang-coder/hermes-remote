@@ -2,6 +2,7 @@
 // session RPC surface and streams an agent-run-shaped answer (prose, fences,
 // raw JSON payloads, terminal output) at realistic delta cadence.
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 
@@ -323,6 +324,28 @@ function openRequestSnapshots(sessionId) {
     }));
 }
 
+/**
+ * Reject params keys the way Hermes 17b5df02 does: every method's params model is
+ * `extra="forbid"`, so one undeclared key answers 4000 (tui_gateway/contracts/registry.py). The key
+ * lists are docs/hermes-rpc-params.json — the same file the Android build test enforces — and the two
+ * methods 17b5df02 no longer has answer -32601. On with HR_MOCK_SERVER_REQUESTS=1 (the mock then
+ * emulates 17b5df02 as a whole) or alone with HR_MOCK_STRICT_PARAMS=1.
+ */
+const STRICT_PARAMS = SERVER_REQUESTS || process.env.HR_MOCK_STRICT_PARAMS === "1";
+const RPC_PARAMS = JSON.parse(readFileSync(new URL("../../docs/hermes-rpc-params.json", import.meta.url), "utf8"));
+
+function paramsViolation(method, params) {
+  if (method in RPC_PARAMS.absent_upstream) return { code: -32601, message: `unknown method: ${method}` };
+  const declared = RPC_PARAMS.methods[method]?.keys;
+  if (!declared) return null;
+  const extra = Object.keys(params ?? {}).filter((key) => !declared.includes(key));
+  if (extra.length === 0) return null;
+  return {
+    code: 4000,
+    message: `invalid params for ${method}: ${extra[0]}: Extra inputs are not permitted — the client and the Hermes backend are out of sync`,
+  };
+}
+
 const liveSockets = new Set();
 function broadcastEvent(type, payload) {
   const frame = JSON.stringify({ jsonrpc: "2.0", method: "event", params: { type, session_id: LIVE_ID, stored_session_id: STORED_ID, payload } });
@@ -607,6 +630,14 @@ wss.on("connection", (socket) => {
     }
     const reply = (result) => socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
     const replyError = (code, message) => socket.send(JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code, message } }));
+    if (STRICT_PARAMS) {
+      const violation = paramsViolation(request.method, request.params);
+      if (violation) {
+        console.log(`[mock] ${request.method} refused ${violation.code}: ${violation.message}`);
+        replyError(violation.code, violation.message);
+        return;
+      }
+    }
     const emit = (type, sessionId, payload) =>
       socket.send(JSON.stringify({ jsonrpc: "2.0", method: "event", params: { type, session_id: sessionId, payload } }));
     switch (request.method) {

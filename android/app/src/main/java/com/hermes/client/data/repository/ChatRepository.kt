@@ -159,10 +159,15 @@ class ChatRepository(private val client: HermesGatewayClient) {
         val result = client.call("session.resume", buildJsonObject {
             put("session_id", sessionId)
             put("source", clientSource)
-            // The app reads history through the chunked REST endpoint. Repeating every historical
-            // base64 image in this control-plane answer can exceed the relay frame before the
-            // returned live handle reaches us (HG-69).
-            put("inline_images", false)
+            // The app reads history through the chunked REST endpoint and takes nothing but the live
+            // handle (and `open_requests`) from this answer, so it asks for no transcript at all.
+            // A transcript here repeats every historical base64 image and can exceed the relay
+            // frame before the handle reaches us (HG-65/HG-69). `omit_messages` is upstream's own
+            // flag for exactly this (Desktop sends it) and means the same in f159e581 and 17b5df02;
+            // the earlier `inline_images=false` came from managed patch 020 and 17b5df02 rejects it
+            // with 4000. It also makes upstream's runaway-transcript guard count the tip segment
+            // only, as for Desktop. See docs/HERMES_CONTRACT.md section 3.
+            put("omit_messages", true)
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
         val obj = result as? JsonObject
@@ -289,7 +294,9 @@ class ChatRepository(private val client: HermesGatewayClient) {
             put("session_id", sessionId)
             // Current Hermes uses content_base64; `data` was a legacy alias.
             put("content_base64", dataBase64)
-            put("mime_type", mimeType)
+            // Upstream sniffs the image type from its magic bytes; `ext` is only the fallback hint.
+            // It was `mime_type`, a key neither f159e581 nor 17b5df02 declares — the latter answers 4000.
+            imageExtensionHint(mimeType)?.let { put("ext", it) }
         })
         val obj = result.jsonObject
         return AttachedImage(
@@ -442,3 +449,16 @@ class ChatRepository(private val client: HermesGatewayClient) {
         return (result as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
     }
 }
+
+/** `image.attach_bytes`' `ext` hint for a MIME type, or null to let upstream's magic-byte sniff decide. */
+internal fun imageExtensionHint(mimeType: String): String? =
+    when (mimeType.substringBefore(';').trim().lowercase()) {
+        "image/jpeg", "image/jpg" -> "jpg"
+        "image/png" -> "png"
+        "image/gif" -> "gif"
+        "image/webp" -> "webp"
+        "image/heic" -> "heic"
+        "image/heif" -> "heif"
+        "image/bmp" -> "bmp"
+        else -> null
+    }
