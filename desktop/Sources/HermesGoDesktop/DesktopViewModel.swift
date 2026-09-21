@@ -78,6 +78,10 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var localHermesIssue: DesktopIssue?
     @Published private(set) var hermesInstallPhase: DesktopHermesInstallPhase = .hidden
     @Published var isHermesInstallConfirmationPresented = false
+    /// A fresh setup was refused because this Mac already has Hermes in a shape Hermes GO leaves
+    /// alone (`HR-MIGRATE-008`). "改用内置 Hermes" must stay reachable then: it is the only in-app
+    /// way to finish setup on such a Mac.
+    @Published private(set) var isFreshInstallBlockedByLocalHermes = false
     @Published private(set) var componentPreflightPresentation:
         DesktopComponentPreflightPresentation?
     @Published private(set) var isComponentPreflightRefreshing = false
@@ -935,6 +939,11 @@ final class DesktopViewModel: ObservableObject {
         DesktopLocalHermesRuntimeSetting.chooseBundled()
         hermesInstallAttempts.clear()
         hermesInstallPhase = .hidden
+        if isFreshInstallBlockedByLocalHermes {
+            isFreshInstallBlockedByLocalHermes = false
+            if managedBootstrapIssue?.code == .localHermesUnsupported { managedBootstrapIssue = nil }
+            if componentBootstrapIssue?.code == .localHermesUnsupported { componentBootstrapIssue = nil }
+        }
     }
 
     private func applyHermesInstallProgress(_ progress: DesktopHermesInstallProgress) {
@@ -945,7 +954,24 @@ final class DesktopViewModel: ObservableObject {
 
     private func finishHermesInstall(_ result: Result<DesktopLocalHermesInstallation, DesktopHermesInstallFailure>) async {
         hermesInstallTask = nil
-        guard case .running(let offer, var run, _) = hermesInstallPhase else { return }
+        guard case .running(let shownOffer, var run, _) = hermesInstallPhase else { return }
+        // Re-read the Mac before Retry becomes available, so the offer behind it already names the
+        // checkout this attempt created and the first Retry click resumes instead of bouncing back.
+        var offer = shownOffer
+        if case .failure = result, let detector = localHermesDetector {
+            let attempts = hermesInstallAttempts
+            let refreshed = await Task.detached(priority: .userInitiated) {
+                DesktopHermesInstallOffer.evaluate(
+                    detection: detector.detect(),
+                    paths: detector.paths,
+                    localRuntimeEnabled: DesktopLocalHermesRuntimeSetting.isEnabled(),
+                    freshInstall: true,
+                    unfinishedCheckout: DesktopHermesInstallResume.reconcile(attempts, paths: detector.paths),
+                    proxy: shownOffer.proxy
+                )
+            }.value
+            if let refreshed { offer = refreshed }
+        }
         switch result {
         case .success(let installation):
             hermesInstallPhase = .succeeded(version: installation.version)
@@ -994,6 +1020,7 @@ final class DesktopViewModel: ObservableObject {
     func prepareManagedBootstrap() async {
         guard !isManagedBootstrapAccountLocked, !isHermesInstallDecisionPending else { return }
         managedBootstrapIssue = nil
+        isFreshInstallBlockedByLocalHermes = false
         managedBootstrapOperation = .preparing
         guard let runtime = managedBootstrapRuntime else {
             failManagedBootstrap(DesktopManagedBootstrapExecutorError.notPrepared)
@@ -1010,6 +1037,7 @@ final class DesktopViewModel: ObservableObject {
             if let block = localHermesInstallBlock(for: installation) {
                 managedBootstrapOperation = .failed
                 managedBootstrapIssue = block
+                isFreshInstallBlockedByLocalHermes = true
                 return
             }
             managedBootstrapPreparation = try await runtime.executor.prepare(
@@ -1111,6 +1139,7 @@ final class DesktopViewModel: ObservableObject {
         else { return }
 
         componentBootstrapIssue = nil
+        isFreshInstallBlockedByLocalHermes = false
         componentBootstrapOperation = .preparing
         do {
             applyAccountState(try await accountController.refresh())
@@ -1125,6 +1154,7 @@ final class DesktopViewModel: ObservableObject {
             if let block = localHermesInstallBlock(for: machine.installation) {
                 componentBootstrapOperation = .failed
                 componentBootstrapIssue = block
+                isFreshInstallBlockedByLocalHermes = true
                 return
             }
             let probe = componentEntrypointProbe

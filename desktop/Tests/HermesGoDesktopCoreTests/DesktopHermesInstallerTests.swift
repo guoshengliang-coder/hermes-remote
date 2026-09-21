@@ -384,7 +384,7 @@ final class DesktopHermesInstallerTests: XCTestCase {
         let path = sandbox.paths.checkoutRoot.path
         // No stage had created a checkout, and now one exists: someone else's.
         try FileManager.default.createDirectory(at: sandbox.paths.checkoutRoot, withIntermediateDirectories: true)
-        sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: nil, startedAt: Date()))
+        sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: nil, startedAt: Date().addingTimeInterval(60)))
         XCTAssertNil(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths))
         XCTAssertNil(sandbox.attempts.load())
 
@@ -462,6 +462,49 @@ final class DesktopHermesInstallerTests: XCTestCase {
         XCTAssertTrue(gone, "the stage's child outlived Desktop's termination")
         _ = await task.result
         XCTAssertTrue(DesktopPosixProcessRunner.liveProcessGroups.isEmpty)
+    }
+
+    /// Re-review finding: a cancel while the first install's `repository` stage is still running
+    /// (the clone has landed, the stage has not returned) must leave the checkout recorded as
+    /// Desktop's. Before, recording happened only after the stage returned, the record kept
+    /// `checkout: nil`, the next refresh called the checkout someone else's, and the card vanished.
+    func testCancellingDuringTheRepositoryStageKeepsTheCheckoutResumable() async throws {
+        let script = FakeInstaller(stages: ["repository", "python-deps", "complete"], hanging: "repository")
+        let installer = sandbox.installer(script: script, detections: [.absent(hermesDataPresent: false)])
+        let offer = sandbox.offer()
+        let task = Task { try await installer.install(offer.confirm()) { _ in } }
+        _ = try await sandbox.waitForChildPID()
+        XCTAssertNotNil(DesktopCheckoutIdentity.read(sandbox.paths.checkoutRoot), "the fake clone must have landed")
+
+        task.cancel()
+        let result = await task.result
+
+        guard case .failure(let error) = result, error as? DesktopHermesInstallFailure == .cancelled else {
+            return XCTFail("expected cancellation, got \(result)")
+        }
+        XCTAssertEqual(sandbox.attempts.load()?.checkout, DesktopCheckoutIdentity.read(sandbox.paths.checkoutRoot))
+        XCTAssertTrue(DesktopHermesInstallResume.pending(sandbox.attempts, paths: sandbox.paths))
+        let resume = try XCTUnwrap(sandbox.resumeOffer(detection: .unsupported(.incompleteInstallation, detail: "")))
+        XCTAssertTrue(resume.resumesEarlierAttempt)
+    }
+
+    /// The quit path: Desktop dies with the stage, so nothing records the checkout. A checkout born
+    /// after Desktop's install started is claimed as Desktop's; an older one is not.
+    func testACheckoutBornAfterDesktopsInstallStartedIsClaimedAfterAQuit() throws {
+        let path = sandbox.paths.checkoutRoot.path
+        sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: nil, startedAt: Date().addingTimeInterval(-30)))
+        try FileManager.default.createDirectory(at: sandbox.paths.checkoutRoot, withIntermediateDirectories: true)
+
+        let claimed = DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths)
+
+        XCTAssertEqual(claimed, DesktopCheckoutIdentity.read(sandbox.paths.checkoutRoot))
+        XCTAssertEqual(sandbox.attempts.load()?.checkout, claimed)
+        XCTAssertNotNil(sandbox.resumeOffer(detection: .unsupported(.incompleteInstallation, detail: ""))?.resumeCheckout)
+
+        // A checkout older than the attempt is somebody else's.
+        sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: nil, startedAt: Date().addingTimeInterval(60)))
+        XCTAssertNil(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths))
+        XCTAssertNil(sandbox.attempts.load())
     }
 
     // MARK: Helpers
@@ -823,6 +866,11 @@ final class HermesInstallWiringTests: XCTestCase {
         XCTAssertTrue(model.contains("guard let offer = reevaluated, offer.resumeCheckout == shownOffer.resumeCheckout else {"))
         // Finding 9.
         XCTAssertTrue(try appSource("HermesGoDesktopApp.swift").contains("DesktopPosixProcessRunner.terminateAllProcessGroups()"))
+        // Re-review: "use the bundled Hermes" stays reachable whenever a fresh setup is refused.
+        XCTAssertEqual(model.components(separatedBy: "isFreshInstallBlockedByLocalHermes = true").count - 1, 2)
+        let views = try appSource("SecondaryViews.swift")
+        XCTAssertTrue(views.contains("if model.isFreshInstallBlockedByLocalHermes, model.hermesInstallPhase == .hidden {"))
+        XCTAssertTrue(views.contains("Button(\"改用内置 Hermes\") { model.useBundledHermes() }"))
 
         let card = try appSource("HermesInstallCard.swift")
         XCTAssertEqual(card.components(separatedBy: "model.startHermesInstall()").count - 1, 2, "only the confirmation sheet and Retry may start it")
@@ -903,6 +951,7 @@ private struct FakeInstaller {
         case " \#(userInputStages.joined(separator: " ")) " in
           *" $stage "*) echo '{"ok":true,"stage":"'"$stage"'","skipped":true}'; exit 0 ;;
         esac
+        [ "$stage" = "repository" ] && mkdir -p "$dir/.git"
         if [ "$stage" = "\#(hanging ?? "")" ]; then
           sleep 60 &
           echo "$!" > "$HOME/child.pid"

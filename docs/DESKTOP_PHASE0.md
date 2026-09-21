@@ -1099,7 +1099,8 @@ unusual one is `HR-MIGRATE-008`, Hermes data without a checkout is refused as be
 
 The one exception is **Desktop's own unfinished install**. When an install starts, Desktop records
 an attempt in its defaults (`HermesGoLocalHermesInstallAttempt`: checkout path, start time) and,
-after every stage, the identity of the checkout its stages produced — device, inode and birth time
+after every stage attempt — success, failure, cancellation or spawn error alike — the identity of
+the checkout its stages produced — device, inode and birth time
 (`DesktopCheckoutIdentity`), re-read each time because upstream's repository stage may move a broken
 clone aside and clone again. Until upstream's `complete` stage writes
 `~/.hermes/hermes-agent/.hermes-bootstrap-complete` (`write_bootstrap_marker`), that install is
@@ -1110,9 +1111,11 @@ unfinished — even though after `python-deps` `venv/bin/hermes` exists and dete
   `unreadableIdentity` or `.usable`), and a failed or cancelled card stays on screen with Retry;
 - setup stays blocked, and `freshInstallProvider` refuses to make it a fresh install's Hermes.
 
-A record whose checkout was removed or replaced (a different inode or birth time — the owner cloned
-or ran `install.sh` themselves), which never produced a checkout while one now exists, or whose
-install finished (the completion marker exists) is dropped on the next refresh, and the Mac is then
+If Desktop quits mid-stage, nothing records the checkout; a record without one then claims a
+checkout born after the install started (within a second) as Desktop's, and treats an older one as
+somebody else's. A record whose checkout was removed or replaced (a different inode or birth time —
+the owner cloned or ran `install.sh` themselves), which never produced a checkout while an older one
+exists, or whose install finished (the completion marker exists) is dropped on the next refresh, and the Mac is then
 treated like any other. Nothing is written into `~/.hermes` by Desktop itself. The record is cleared
 on success and on "改用内置 Hermes".
 
@@ -1126,7 +1129,8 @@ cancellable, providers configured later, the trust decision) and only its "开�
 after a failure or cancellation — calls `startHermesInstall()`. That re-reads the Mac first without
 writing anything, and runs only if the result is still the offer the owner saw — a fresh install,
 or a resume of the same checkout; otherwise the new offer (or none, when the setting was just turned
-off) is shown instead. `DesktopHermesInstaller.install`
+off) is shown instead. After a failure or cancellation the offer is re-read before Retry appears,
+so the first Retry already resumes the checkout that attempt created. `DesktopHermesInstaller.install`
 accepts only a `DesktopHermesInstallConfirmation`, which only `offer.confirm()` creates, and that
 call exists once, inside `startHermesInstall()` (`HermesInstallWiringTests`).
 
@@ -1196,7 +1200,9 @@ keys.
 Hermes". That choice (a confirmation dialog first) writes `HermesGoLocalHermesRuntimeEnabled=false`
 for this Mac: the setup card returns and installs the bundled copy exactly as before local mode
 existed, and every later refresh behaves as with the setting off. Anything already in `~/.hermes` is
-left alone.
+left alone. The same choice is offered beside `HR-MIGRATE-008` whenever a fresh setup is refused
+because the Mac's own Hermes is in a shape Hermes GO leaves alone: it is the only in-app way to
+finish setup there, and it says that the built-in copy then runs beside the existing Hermes.
 
 Not verified here: the real installer. No test runs upstream's `install.sh`, touches the network, the
 real `~/.hermes`, launchd or `~/Library`; the driver is tested against fake installer scripts run by

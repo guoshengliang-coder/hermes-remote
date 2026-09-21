@@ -345,7 +345,11 @@ The current automated suite covers:
   refused at the hop and the download stops past its limit; `*_API_KEY=`, `ghp_…`, `sk-…` and URL
   passwords containing `@` or `/` are redacted while `registry.npmjs.org/@scope` is not; quitting
   Desktop (`terminateAllProcessGroups`, wired to `applicationWillTerminate`) ends a running stage's
-  process group.
+  process group. Re-review (both fail against d90fbcc): cancelling while the `repository` stage
+  still runs after its clone landed keeps the checkout recorded, pending and resumable; after a
+  quit, a record without a checkout claims one born after the install started and drops an older
+  one. Source assertions: both refused fresh setups raise the flag that keeps “改用内置 Hermes”
+  reachable, and the card offering it exists.
 - 2026-09-21 restart-probe incident (`DESKTOP_E4_TEST_RECORD.md`), each checked to fail when
   reverted where the boundary allows: the loopback shutdown decision is a pure function —
   `.waiting`/`.failed` with `ECONNREFUSED` is "stopped", `.ready` is "listening", every other error,

@@ -261,6 +261,10 @@ public struct DesktopCheckoutIdentity: Codable, Equatable, Sendable {
         self.birthNanoseconds = birthNanoseconds
     }
 
+    public var birthDate: Date {
+        Date(timeIntervalSince1970: TimeInterval(birthSeconds) + TimeInterval(birthNanoseconds) / 1_000_000_000)
+    }
+
     public static func read(_ url: URL) -> DesktopCheckoutIdentity? {
         var status = stat()
         guard lstat(url.path, &status) == 0, status.st_mode & S_IFMT == S_IFDIR else { return nil }
@@ -365,9 +369,22 @@ public enum DesktopHermesInstallResume {
             stale = true
         } else if let recorded = attempt.checkout {
             stale = current != recorded || completionMarkerPresent(paths)
+        } else if let current {
+            // No checkout was recorded, yet one exists. It is Desktop's only if it was born after
+            // Desktop's install started: a stage killed with Desktop itself (quit mid-`repository`)
+            // never reached the recording step. Anything older is somebody else's.
+            if current.birthDate >= attempt.startedAt.addingTimeInterval(-1) {
+                let claimed = DesktopHermesInstallAttempt(
+                    checkoutPath: attempt.checkoutPath,
+                    checkout: current,
+                    startedAt: attempt.startedAt
+                )
+                store.save(claimed)
+                return unfinishedCheckout(claimed, paths: paths)
+            }
+            stale = true
         } else {
-            // No stage created a checkout yet; one that exists now is not Desktop's.
-            stale = current != nil
+            stale = false
         }
         if stale {
             store.clear()
@@ -602,6 +619,9 @@ public struct DesktopHermesInstaller: Sendable {
                 progress(.stageStarted(stage))
                 let log = self.log
                 let name = stage.name
+                // Whatever happens to the stage — success, failure, cancellation, a spawn error —
+                // the checkout it may have created is recorded as Desktop's before anything else.
+                defer { recordCheckout() }
                 let run = try await runner.run(
                     executable: bash,
                     arguments: [scriptURL.path, "--stage", stage.name, "--non-interactive", "--json"] + common,
@@ -609,7 +629,6 @@ public struct DesktopHermesInstaller: Sendable {
                     workingDirectory: runDirectory,
                     onLine: { line in log.record("stage=\(name) \(line)") }
                 )
-                recordCheckout()
                 guard let result = DesktopHermesInstallerStageResult.parse(run.standardOutputTail),
                       result.stage == stage.name
                 else {

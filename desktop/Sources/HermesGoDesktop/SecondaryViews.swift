@@ -55,6 +55,7 @@ struct AccountDevicesView: View {
     @State private var invitationAcknowledged = false
     @State private var grantToRevoke: DeviceAccessGrant?
     @State private var sharedDeviceToLeave: AccountDevice?
+    @State private var isBundledHermesChoicePresented = false
     @State private var isAccountDeletionPresented = false
     @State private var accountDeletionConfirmation = ""
     @State private var accountDeletionAcknowledged = false
@@ -350,6 +351,9 @@ struct AccountDevicesView: View {
         if let issue = model.managedBootstrapIssue {
             accountIssueCard(issue)
         }
+        if model.isFreshInstallBlockedByLocalHermes, model.hermesInstallPhase == .hidden {
+            bundledHermesChoiceCard
+        }
         if let issue = model.managedSchemaIssue {
             accountIssueCard(issue)
         }
@@ -572,6 +576,35 @@ struct AccountDevicesView: View {
         .padding(26)
         .frame(width: 540)
         .interactiveDismissDisabled(model.componentBootstrapOperation == .committing)
+    }
+
+    /// Shown with `HR-MIGRATE-008` on a fresh setup: the Mac's own Hermes is in a shape Hermes GO
+    /// leaves alone, and the built-in copy is the only in-app way to finish setup.
+    private var bundledHermesChoiceCard: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("也可以改用 Hermes GO 内置的 Hermes")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("内置 Hermes 会作为单独的一份运行，与这台 Mac 上已有的 Hermes 共用同一份数据；已有的 Hermes 保持不动。整理好本机 Hermes 后，可删除设置 HermesGoLocalHermesRuntimeEnabled 恢复使用它。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button("改用内置 Hermes") { isBundledHermesChoicePresented = true }
+                .buttonStyle(.bordered)
+        }
+        .padding(18)
+        .hermesCard()
+        .confirmationDialog(
+            "这台 Mac 改用 Hermes GO 内置的 Hermes？",
+            isPresented: $isBundledHermesChoicePresented
+        ) {
+            Button("改用内置 Hermes") { model.useBundledHermes() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("之后的设置会安装并运行 Hermes GO 自带的 Hermes，与本机已有的 Hermes 并存；本机 Hermes 及其数据不会被修改。")
+        }
     }
 
     private var componentCleanupRecoveryCard: some View {
