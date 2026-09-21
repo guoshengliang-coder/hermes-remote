@@ -159,22 +159,61 @@ public struct DesktopLocalHermesLaunchAgent: Sendable {
     }
 }
 
-/// What Desktop wrote down the last time it started the owner's Hermes itself.
+/// Which commit the running local Hermes process loaded, as far as Desktop knows.
+///
+/// Written when Desktop starts the owner's Hermes itself, and *adopted* when a process it did not
+/// start (typically `hermes update`'s own `launchctl kickstart`) provably started after the checkout
+/// last moved. That is what lets the planner restart only when the commit actually changed, rather
+/// than whenever a git file's timestamp moved.
 public struct DesktopLocalHermesRuntimeRecord: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let executable: String
     public let commit: String
     public let version: String
-    /// Taken immediately before `launchctl bootstrap`, so a process that started at or after it is
-    /// the one Desktop launched (or a later one).
+    /// Lower bound: taken immediately before `launchctl bootstrap` (or the process start, when
+    /// adopted).
     public let launchedAt: Date
+    /// The exact kernel start time of the process this record describes, once known.
+    public let processStartedAt: Date?
+    /// Desktop-initiated starts, newest last, for the crash-loop back-off.
+    public let recentLaunches: [Date]
 
-    public init(executable: String, commit: String, version: String, launchedAt: Date) {
+    public init(
+        executable: String,
+        commit: String,
+        version: String,
+        launchedAt: Date,
+        processStartedAt: Date? = nil,
+        recentLaunches: [Date] = []
+    ) {
         schemaVersion = 1
         self.executable = executable
         self.commit = commit
         self.version = version
         self.launchedAt = launchedAt
+        self.processStartedAt = processStartedAt
+        self.recentLaunches = recentLaunches
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, executable, commit, version, launchedAt, processStartedAt, recentLaunches
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        executable = try container.decode(String.self, forKey: .executable)
+        commit = try container.decode(String.self, forKey: .commit)
+        version = try container.decode(String.self, forKey: .version)
+        launchedAt = try container.decode(Date.self, forKey: .launchedAt)
+        processStartedAt = try container.decodeIfPresent(Date.self, forKey: .processStartedAt)
+        recentLaunches = try container.decodeIfPresent([Date].self, forKey: .recentLaunches) ?? []
+    }
+
+    /// Whether this record describes the process launchd is running now.
+    func describes(processStartedAt started: Date) -> Bool {
+        if let exact = processStartedAt { return abs(exact.timeIntervalSince(started)) < 1 }
+        return started >= launchedAt.addingTimeInterval(-1)
     }
 }
 
@@ -205,24 +244,47 @@ public enum DesktopLocalHermesRuntimeSetting {
         if let number = bundle.object(forInfoDictionaryKey: defaultsKey) as? NSNumber { return number.boolValue }
         return false
     }
+
+    /// The local Hermes a *fresh* managed install should run directly, or nil for the bundled copy.
+    /// Only a usable, dependency-consistent standard install qualifies, and only with the setting on.
+    public static func freshInstallProvider(
+        detector: DesktopLocalHermesDetector?,
+        enabled: @escaping @Sendable () -> Bool = { isEnabled() }
+    ) -> @Sendable () -> DesktopLocalHermesInstallation? {
+        {
+            guard enabled(), let detector,
+                  !detector.updateInProgress(),
+                  let installation = detector.detect().installation,
+                  installation.dependenciesConsistent
+            else { return nil }
+            return installation
+        }
+    }
 }
 
 public struct DesktopHermesRuntimeObservation: Equatable, Sendable {
     public let enabled: Bool
-    public let detection: DesktopLocalHermesDetection
+    /// nil when detection was skipped (setting off and the agent is not in local mode).
+    public let detection: DesktopLocalHermesDetection?
     public let mode: DesktopHermesRuntimeMode
+    /// Whether the launcher on disk is exactly what this build writes, privately.
+    public let launcherCurrent: Bool
     public let updateInProgress: Bool
     public let service: DesktopHermesServiceProcess
+    /// `ProgramArguments` of the agent file on disk.
+    public let agentArguments: [String]?
     public let record: DesktopLocalHermesRuntimeRecord?
     public let bundledFallbackAvailable: Bool
     public let now: Date
 
     public init(
         enabled: Bool = true,
-        detection: DesktopLocalHermesDetection,
+        detection: DesktopLocalHermesDetection?,
         mode: DesktopHermesRuntimeMode,
+        launcherCurrent: Bool = true,
         updateInProgress: Bool,
         service: DesktopHermesServiceProcess,
+        agentArguments: [String]? = nil,
         record: DesktopLocalHermesRuntimeRecord?,
         bundledFallbackAvailable: Bool,
         now: Date
@@ -230,8 +292,10 @@ public struct DesktopHermesRuntimeObservation: Equatable, Sendable {
         self.enabled = enabled
         self.detection = detection
         self.mode = mode
+        self.launcherCurrent = launcherCurrent
         self.updateInProgress = updateInProgress
         self.service = service
+        self.agentArguments = agentArguments
         self.record = record
         self.bundledFallbackAvailable = bundledFallbackAvailable
         self.now = now
@@ -239,17 +303,20 @@ public struct DesktopHermesRuntimeObservation: Equatable, Sendable {
 }
 
 public enum DesktopHermesRuntimeRestartReason: String, Equatable, Sendable {
-    /// The checkout moved after the running process started, so it is serving code that is no
-    /// longer on disk.
+    /// The commit the running process loaded is no longer the one on disk.
     case codeChanged
-    /// The job is loaded but no process is running (for example `hermes update` stopped it and
-    /// its own `launchctl kickstart` did not bring it back).
+    /// launchd reports no process for the job, or the job is not loaded.
     case notRunning
 }
 
 public enum DesktopHermesRuntimeWaitReason: String, Equatable, Sendable {
     case updateInProgress
     case settling
+    /// The checkout's version and the version installed in its venv differ: dependencies have not
+    /// been reinstalled for the code on disk, so starting it could fail with nothing to roll back to.
+    case dependenciesPending
+    /// Another Desktop operation holds the migration lease; try again on the next refresh.
+    case busy
 }
 
 public enum DesktopHermesRuntimePlan: Equatable, Sendable {
@@ -257,31 +324,45 @@ public enum DesktopHermesRuntimePlan: Equatable, Sendable {
     case wait(DesktopHermesRuntimeWaitReason)
     case switchToLocal(DesktopLocalHermesInstallation)
     case restartLocal(DesktopLocalHermesInstallation, DesktopHermesRuntimeRestartReason)
-    case restoreBundled
+    /// Return to the kept bundled agent. `localUsable` says whether the owner's Hermes is still
+    /// there to fall back to if the bundled one cannot be started (the setting-off rollback).
+    case restoreBundled(localUsable: Bool)
+    /// launchd is running arguments that differ from the agent file (Desktop stopped between writing
+    /// the file and restarting). The file is the intent; restart it. `recording` is set in local mode.
+    case reloadAgent(recording: DesktopLocalHermesInstallation?)
+    /// Local mode is intact but the launcher differs from this build's, or is not private.
+    case repairLauncher(executable: URL)
+    /// A process Desktop did not start is provably on the current commit; remember that.
+    case adopt(DesktopLocalHermesRuntimeRecord)
     /// This Mac has a Hermes Desktop may not use (or is left without one); nothing is changed, and
     /// the reason is shown instead.
     case surface(DesktopHermesRuntimeAttention)
 
+    /// Whether executing the plan touches services or LaunchAgent files (and so needs the lease).
     public var mutates: Bool {
         switch self {
-        case .switchToLocal, .restartLocal, .restoreBundled: true
-        case .keep, .wait, .surface: false
+        case .switchToLocal, .restartLocal, .restoreBundled, .reloadAgent, .repairLauncher: true
+        case .keep, .wait, .surface, .adopt: false
         }
     }
 }
 
 public enum DesktopHermesRuntimeAttention: Equatable, Sendable {
     case unsupported(DesktopLocalHermesUnsupportedReason, detail: String)
-    /// Local mode is configured but the owner's Hermes is gone and there is no bundled agent to
-    /// return to.
+    /// Local mode is configured but the owner's Hermes is gone and there is no usable bundled agent
+    /// to return to.
     case localHermesMissingWithoutFallback
+    /// Desktop restarted the owner's Hermes repeatedly and it keeps stopping.
+    case localHermesKeepsStopping(launches: Int)
 }
 
 public enum DesktopHermesRuntimePlanner {
     /// How long the checkout must stay unchanged before Desktop restarts onto it. `hermes update`
-    /// holds its marker for the whole run; this covers a bare `git pull`, where the code moves
-    /// before the owner has had a chance to reinstall dependencies.
+    /// holds its marker for the whole run; this covers a bare `git pull` or `git checkout`.
     public static let settleInterval: TimeInterval = 60
+    /// Crash-loop back-off: at most this many Desktop-initiated starts within `launchWindow`.
+    public static let maximumLaunches = 3
+    public static let launchWindow: TimeInterval = 30 * 60
 
     public static func plan(_ observation: DesktopHermesRuntimeObservation) -> DesktopHermesRuntimePlan {
         switch observation.mode {
@@ -292,80 +373,161 @@ public enum DesktopHermesRuntimePlanner {
         case .bundled, .localHermes:
             break
         }
+        // First, before anything reads the checkout: an update briefly removes the entrypoint and
+        // rewrites HEAD, and nothing seen during it is a fact about the Mac.
+        if observation.updateInProgress { return .wait(.updateInProgress) }
+
+        let usable = observation.detection?.installation
+        if case .running(_, let loaded?) = observation.service,
+           let agent = observation.agentArguments, loaded != agent {
+            if case .localHermes(let executable) = observation.mode {
+                let recording = usable.flatMap { $0.executable.path == executable.path ? $0 : nil }
+                return .reloadAgent(recording: recording)
+            }
+            return .reloadAgent(recording: nil)
+        }
+
         guard observation.enabled else {
             // Turned off: a Mac in local mode goes back to the agent it had before the switch.
             guard observation.mode.isLocal else { return .keep }
-            if observation.updateInProgress { return .wait(.updateInProgress) }
             return observation.bundledFallbackAvailable
-                ? .restoreBundled
+                ? .restoreBundled(localUsable: usable != nil)
                 : .surface(.localHermesMissingWithoutFallback)
         }
-        switch observation.detection {
+        guard let detection = observation.detection else { return .keep }
+        switch detection {
         case .unsupported(let reason, let detail):
             return .surface(.unsupported(reason, detail: detail))
         case .absent:
             guard observation.mode.isLocal else { return .keep }
-            if observation.updateInProgress { return .wait(.updateInProgress) }
             return observation.bundledFallbackAvailable
-                ? .restoreBundled
+                ? .restoreBundled(localUsable: false)
                 : .surface(.localHermesMissingWithoutFallback)
         case .usable(let installation):
-            if observation.updateInProgress { return .wait(.updateInProgress) }
-            if observation.now.timeIntervalSince(installation.identityChangedAt) < settleInterval {
-                return .wait(.settling)
-            }
-            guard case .localHermes(let executable) = observation.mode,
-                  executable.standardizedFileURL.path == installation.executable.standardizedFileURL.path
-            else { return .switchToLocal(installation) }
-            switch observation.service {
-            case .unknown:
-                // Never restart on a reading that failed: a broken probe must not turn into a
-                // restart every refresh.
-                return .keep
-            case .stopped:
-                return .restartLocal(installation, .notRunning)
-            case .running(let started):
-                return isFresh(started: started, installation: installation, record: observation.record)
-                    ? .keep
-                    : .restartLocal(installation, .codeChanged)
-            }
+            return planUsable(installation, observation)
         }
     }
 
-    /// A running local Hermes is serving the code on disk when either
-    ///  - it started after the checkout last moved (this covers `hermes update`, which restarts our
-    ///    job itself through `launchctl kickstart`), or
-    ///  - Desktop launched it with exactly this commit — which keeps a git housekeeping rewrite of
-    ///    `packed-refs`, which moves the timestamp but not the commit, from costing a restart.
-    static func isFresh(
+    private static func planUsable(
+        _ installation: DesktopLocalHermesInstallation,
+        _ observation: DesktopHermesRuntimeObservation
+    ) -> DesktopHermesRuntimePlan {
+        let settled = observation.now.timeIntervalSince(installation.identityChangedAt) >= settleInterval
+        guard case .localHermes(let executable) = observation.mode,
+              executable.standardizedFileURL.path == installation.executable.standardizedFileURL.path
+        else {
+            // A bundled Mac whose Hermes service is not loaded is in some other operation's hands.
+            if observation.mode == .bundled, observation.service == .notLoaded { return .keep }
+            guard settled else { return .wait(.settling) }
+            guard installation.dependenciesConsistent else { return .wait(.dependenciesPending) }
+            return .switchToLocal(installation)
+        }
+        if !observation.launcherCurrent { return .repairLauncher(executable: executable) }
+
+        let reason: DesktopHermesRuntimeRestartReason
+        switch observation.service {
+        case .unknown:
+            // Never restart on a reading that failed: a broken probe must not turn into a
+            // restart every refresh.
+            return .keep
+        case .stopped, .notLoaded:
+            let recent = (observation.record?.recentLaunches ?? [])
+                .filter { observation.now.timeIntervalSince($0) < launchWindow }
+            if recent.count >= maximumLaunches {
+                return .surface(.localHermesKeepsStopping(launches: recent.count))
+            }
+            reason = .notRunning
+        case .running(let started, _):
+            switch loadedCommit(started: started, installation: installation, record: observation.record) {
+            case .current(let adopt):
+                return adopt.map { .adopt($0) } ?? .keep
+            case .stale:
+                reason = .codeChanged
+            }
+        }
+        guard settled else { return .wait(.settling) }
+        guard installation.dependenciesConsistent else { return .wait(.dependenciesPending) }
+        return .restartLocal(installation, reason)
+    }
+
+    enum LoadedCommit: Equatable {
+        /// Serving the commit on disk; a record to write when that was learned just now.
+        case current(adopt: DesktopLocalHermesRuntimeRecord?)
+        case stale
+    }
+
+    /// Which commit a running process loaded.
+    ///
+    ///  - A record that describes this process knows: restart only if that commit differs from the
+    ///    one on disk. A `git pack-refs` that moves a timestamp but not the commit costs nothing.
+    ///  - Otherwise a process that started after the checkout last moved loaded the code on disk
+    ///    (this is `hermes update`'s own kickstart) — adopt it, so a later timestamp-only change is
+    ///    judged by commit too.
+    ///  - Otherwise the loaded commit is unknowable and the checkout has moved since the process
+    ///    started; that is treated as stale. It needs a record to have been lost, so it is rare.
+    static func loadedCommit(
         started: Date,
         installation: DesktopLocalHermesInstallation,
         record: DesktopLocalHermesRuntimeRecord?
-    ) -> Bool {
-        if started >= installation.identityChangedAt { return true }
-        guard let record else { return false }
-        return record.commit == installation.commit
-            && record.executable == installation.executable.standardizedFileURL.path
-            && started >= record.launchedAt
+    ) -> LoadedCommit {
+        let executable = installation.executable.standardizedFileURL.path
+        if let record, record.executable == executable, record.describes(processStartedAt: started) {
+            guard record.commit == installation.commit else { return .stale }
+            return .current(adopt: record.processStartedAt == nil
+                ? record.adopting(processStartedAt: started, commit: installation)
+                : nil)
+        }
+        guard started >= installation.identityChangedAt else { return .stale }
+        return .current(adopt: DesktopLocalHermesRuntimeRecord(
+            executable: executable,
+            commit: installation.commit,
+            version: installation.version,
+            launchedAt: started,
+            processStartedAt: started,
+            recentLaunches: record?.recentLaunches ?? []
+        ))
     }
 }
 
-// MARK: - Process start time
+extension DesktopLocalHermesRuntimeRecord {
+    func adopting(processStartedAt started: Date, commit installation: DesktopLocalHermesInstallation)
+        -> DesktopLocalHermesRuntimeRecord {
+        DesktopLocalHermesRuntimeRecord(
+            executable: executable,
+            commit: installation.commit,
+            version: installation.version,
+            launchedAt: launchedAt,
+            processStartedAt: started,
+            recentLaunches: recentLaunches
+        )
+    }
+}
+
+// MARK: - Process state
 
 /// What launchd reports for the managed Hermes label.
 public enum DesktopHermesServiceProcess: Equatable, Sendable {
-    case running(startedAt: Date)
+    /// `arguments` is the vector launchd loaded, when it could be read.
+    case running(startedAt: Date, arguments: [String]?)
     /// launchd answered and the job has no process.
     case stopped
+    /// The job is not loaded at all.
+    case notLoaded
     /// launchd could not be asked, or its answer could not be read.
     case unknown
+
+    public var startedAt: Date? {
+        if case .running(let started, _) = self { return started }
+        return nil
+    }
 }
 
 public protocol DesktopHermesServiceProcessInspecting: Sendable {
     func hermesServiceProcess() -> DesktopHermesServiceProcess
 }
 
-/// Reads the PID from `launchctl print` and its start time from the kernel. Read-only.
+/// Reads the PID and loaded arguments from `launchctl print` and the start time from the kernel.
+/// Read-only.
 public struct DesktopLaunchdHermesServiceProcessInspector<Runner: OutputCommandRunning & Sendable>:
     DesktopHermesServiceProcessInspecting {
     private let runner: Runner
@@ -382,8 +544,10 @@ public struct DesktopLaunchdHermesServiceProcessInspector<Runner: OutputCommandR
             arguments: ["print", "gui/\(userID)/\(DesktopManagedInstallLayout.hermesLabel)"],
             maximumOutputBytes: 256 * 1024
         )
-        guard output.status == 0, !output.outputLimitExceeded,
-              let text = String(data: output.stdout, encoding: .utf8)
+        guard !output.outputLimitExceeded else { return .unknown }
+        // `launchctl print` exits 113 ("Could not find service") for an unloaded label.
+        if output.status == 113 { return .notLoaded }
+        guard output.status == 0, let text = String(data: output.stdout, encoding: .utf8)
         else { return .unknown }
         return Self.process(fromLaunchctlPrint: text, startDate: Self.startDate(pid:))
     }
@@ -393,7 +557,8 @@ public struct DesktopLaunchdHermesServiceProcessInspector<Runner: OutputCommandR
         startDate: (pid_t) -> Date?
     ) -> DesktopHermesServiceProcess {
         if let pid = pid(fromLaunchctlPrint: text) {
-            return startDate(pid).map { .running(startedAt: $0) } ?? .unknown
+            return startDate(pid).map { .running(startedAt: $0, arguments: arguments(fromLaunchctlPrint: text)) }
+                ?? .unknown
         }
         let stopped = text.split(separator: "\n").contains {
             $0.trimmingCharacters(in: .whitespaces) == "state = not running"
@@ -410,6 +575,20 @@ public struct DesktopLaunchdHermesServiceProcessInspector<Runner: OutputCommandR
         return nil
     }
 
+    /// The top-level `arguments = { … }` block: one argument per line, tab-indented one level
+    /// deeper than the key. Arguments containing a newline cannot be represented; nil then.
+    static func arguments(fromLaunchctlPrint text: String) -> [String]? {
+        let lines = text.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: { $0 == "\targuments = {" }) else { return nil }
+        var result: [String] = []
+        for line in lines[(start + 1)...] {
+            if line == "\t}" { return result }
+            guard line.hasPrefix("\t\t") else { return nil }
+            result.append(String(line.dropFirst(2)))
+        }
+        return nil
+    }
+
     static func startDate(pid: pid_t) -> Date? {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
@@ -422,7 +601,6 @@ public struct DesktopLaunchdHermesServiceProcessInspector<Runner: OutputCommandR
     }
 }
 
-
 // MARK: - Presentation
 
 public extension DesktopIssue {
@@ -434,8 +612,13 @@ public extension DesktopIssue {
             return DesktopIssue(code: .localHermesUnsupported, technicalCause: "reason=\(reason.rawValue) \(detail)")
         case .localHermesMissingWithoutFallback:
             return DesktopIssue(
+                code: .localHermesMissingWithoutFallback,
+                technicalCause: "stage=restore-bundled no usable bundled agent is stored to return to"
+            )
+        case .localHermesKeepsStopping(let launches):
+            return DesktopIssue(
                 code: .localHermesRuntimeFailed,
-                technicalCause: "stage=restore-bundled this Mac's Hermes is gone and no bundled agent is stored"
+                technicalCause: "stage=restart-local stopped again after \(launches) restarts in 30 minutes; paused"
             )
         }
     }

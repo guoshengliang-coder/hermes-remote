@@ -3,6 +3,12 @@ import Foundation
 
 /// A Hermes LaunchAgent rewritten by a runtime switch, plus the exact bytes to put back if the
 /// restart that follows cannot prove a healthy server.
+public enum DesktopHermesRuntimeError: Error, Equatable, Sendable {
+    /// The bundled agent still stores the session token inline; the token-file migration must run
+    /// before Desktop will switch.
+    case bundledAgentCarriesInlineToken
+}
+
 public struct DesktopHermesRuntimeSwitch: Sendable {
     public let launchAgentURL: URL
     public let logURL: URL
@@ -83,11 +89,53 @@ extension DesktopManagedInstaller {
         guard try sessionTokenStorage(in: plist.object) == .file else {
             throw DesktopManagedInstallError.unsafeFilesystemObject
         }
-        let executableURL = URL(fileURLWithPath: executable)
-        guard try readOwnedPrivateFile(layout.localHermesLauncher)
-                == DesktopLocalHermesLauncher.script(executable: executableURL)
-        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
-        return (plist, executableURL)
+        // Recognised by the agent's shape alone. The launcher is checked separately
+        // (`localHermesLauncherIsCurrent`): a launcher from an older build, or one whose mode a
+        // backup restore loosened, is something to rewrite — not a reason to stop recognising a
+        // Mac as being in local mode, which would strand it there (no rollback, no upgrade).
+        return (plist, URL(fileURLWithPath: executable))
+    }
+
+    /// Whether the launcher on disk is exactly what this build writes for `executable`, owned by
+    /// this user and not readable or writable by anyone else.
+    public func localHermesLauncherIsCurrent(executable: URL) -> Bool {
+        var metadata = stat()
+        guard Darwin.lstat(layout.localHermesLauncher.path, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG,
+              metadata.st_uid == Darwin.getuid(),
+              metadata.st_mode & 0o777 == 0o700,
+              let expected = try? DesktopLocalHermesLauncher.script(executable: executable),
+              let actual = try? Data(contentsOf: layout.localHermesLauncher)
+        else { return false }
+        return actual == expected
+    }
+
+    public func writeLocalHermesLauncher(executable: URL) throws {
+        let script: Data
+        do { script = try DesktopLocalHermesLauncher.script(executable: executable) }
+        catch { throw DesktopManagedInstallError.invalidInput }
+        try ensurePrivateDirectory(layout.localHermesLauncher.deletingLastPathComponent())
+        try atomicWrite(script, to: layout.localHermesLauncher, permissions: 0o700)
+    }
+
+    /// A cheap, non-throwing look at the agent: does its first program argument name the local
+    /// launcher? Used to skip everything else while the setting is off.
+    public var hermesAgentLooksLocal: Bool {
+        guard let data = try? Data(contentsOf: layout.hermesLaunchAgent),
+              let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+                as? [String: Any],
+              let first = (object["ProgramArguments"] as? [String])?.first
+        else { return false }
+        return first == layout.localHermesLauncher.standardizedFileURL.path
+    }
+
+    /// `ProgramArguments` of the agent file, for comparison with what launchd loaded.
+    public var hermesAgentProgramArguments: [String]? {
+        guard let data = try? Data(contentsOf: layout.hermesLaunchAgent),
+              let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+                as? [String: Any]
+        else { return nil }
+        return object["ProgramArguments"] as? [String]
     }
 
     /// A bundled agent: the v1 `current/hermes_server` release, or a v2 component-store `hermes_core`.
@@ -118,8 +166,29 @@ extension DesktopManagedInstaller {
     }
 
     /// Whether a recognised bundled agent is stored to return to.
+    ///
+    /// The shape is not enough: a component-store agent names a content-addressed directory that
+    /// garbage collection may have removed, so the program and the Python runtime it names must
+    /// still exist.
     public var bundledHermesFallbackAvailable: Bool {
-        (try? loadBundledHermesLaunchAgent(at: layout.bundledHermesLaunchAgentBackup)) != nil
+        guard let bundled = try? loadBundledHermesLaunchAgent(at: layout.bundledHermesLaunchAgentBackup),
+              (try? sessionTokenStorage(in: bundled.object)) == .file,
+              let program = (bundled.object["ProgramArguments"] as? [String])?.first,
+              FileManager.default.isExecutableFile(atPath: URL(fileURLWithPath: program).resolvingSymlinksInPath().path)
+        else { return false }
+        if let python = (bundled.object["EnvironmentVariables"] as? [String: Any])?["HERMES_PYTHON_RUNTIME_ROOT"] as? String {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: python, isDirectory: &isDirectory), isDirectory.boolValue
+            else { return false }
+        }
+        return true
+    }
+
+    /// Store `data` (an encoded bundled agent) as the one to return to. Used by upgrades in local
+    /// mode, so the kept agent always names the release that is actually installed.
+    func writeBundledHermesBackup(_ data: Data) throws {
+        try ensurePrivateDirectory(layout.stateRoot)
+        try atomicWrite(data, to: layout.bundledHermesLaunchAgentBackup, permissions: 0o600)
     }
 
     /// The local-mode agent for this installation, bound to this layout's launcher, token and logs.
@@ -144,8 +213,13 @@ extension DesktopManagedInstaller {
         _ installation: DesktopLocalHermesInstallation
     ) throws -> DesktopHermesRuntimeSwitch {
         let configuration = localHermesLaunchAgent(for: installation)
-        _ = try validatedSessionTokenIfPresent(required: true)
         let mode = try currentHermesRuntimeMode()
+        if mode == .bundled,
+           let bundled = try? loadBundledHermesLaunchAgent(at: layout.hermesLaunchAgent),
+           try sessionTokenStorage(in: bundled.object) != .file {
+            throw DesktopHermesRuntimeError.bundledAgentCarriesInlineToken
+        }
+        _ = try validatedSessionTokenIfPresent(required: true)
         let original = try readOwnedPrivateFile(layout.hermesLaunchAgent)
         let replacement: Data
         let script: Data
@@ -157,6 +231,12 @@ extension DesktopManagedInstaller {
 
         switch mode {
         case .bundled:
+            // An agent that still carries the token inline would copy the secret into `state/`, and
+            // could never be restored (restore requires the file contract). The startup token
+            // reconciler migrates such agents; switch only after it has.
+            guard let bundled = try? loadBundledHermesLaunchAgent(at: layout.hermesLaunchAgent),
+                  try sessionTokenStorage(in: bundled.object) == .file
+            else { throw DesktopHermesRuntimeError.bundledAgentCarriesInlineToken }
             try ensurePrivateDirectory(layout.stateRoot)
             try atomicWrite(original, to: layout.bundledHermesLaunchAgentBackup, permissions: 0o600)
         case .localHermes:
@@ -185,6 +265,9 @@ extension DesktopManagedInstaller {
     /// Put the stored bundled agent back, for a Mac whose own Hermes has been removed.
     public func prepareBundledHermesRuntimeRestore() throws -> DesktopHermesRuntimeSwitch {
         guard try currentHermesRuntimeMode().isLocal else {
+            throw DesktopManagedInstallError.unsafeFilesystemObject
+        }
+        guard bundledHermesFallbackAvailable else {
             throw DesktopManagedInstallError.unsafeFilesystemObject
         }
         let original = try readOwnedPrivateFile(layout.hermesLaunchAgent)

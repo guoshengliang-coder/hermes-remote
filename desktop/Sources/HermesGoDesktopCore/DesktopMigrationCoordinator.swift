@@ -39,6 +39,8 @@ public enum DesktopHermesRuntimeReconciliation: Equatable, Sendable {
     case switchedToLocal(DesktopLocalHermesInstallation)
     case restartedLocal(DesktopLocalHermesInstallation, DesktopHermesRuntimeRestartReason)
     case restoredBundled
+    case reloadedAgent
+    case repairedLauncher
 }
 
 public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @unchecked Sendable {
@@ -75,7 +77,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     private let hermesShutdown: any DesktopHermesShutdownChecking
     private let maximumHealthPolls: Int
     private let healthPollDelayNanoseconds: UInt64
+    private let localHermesForFreshInstall: @Sendable () -> DesktopLocalHermesInstallation?
 
+    /// `localHermesForFreshInstall` names the Mac's own Hermes when a fresh install should run it
+    /// directly instead of the bundled copy (local runtime mode with the setting on).
     public init(
         account: any DesktopBindingCoordinating,
         journal: DesktopMigrationJournalStore,
@@ -85,7 +90,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             = DesktopHermesCandidateReadinessChecker(),
         hermesShutdown: any DesktopHermesShutdownChecking = DesktopHermesShutdownChecker(),
         maximumHealthPolls: Int = 75,
-        healthPollDelayNanoseconds: UInt64 = 1_000_000_000
+        healthPollDelayNanoseconds: UInt64 = 1_000_000_000,
+        localHermesForFreshInstall: @escaping @Sendable () -> DesktopLocalHermesInstallation? = { nil }
     ) throws {
         guard (1...300).contains(maximumHealthPolls) else {
             throw DesktopMigrationCoordinatorError.invalidStartingState
@@ -98,6 +104,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         self.hermesShutdown = hermesShutdown
         self.maximumHealthPolls = maximumHealthPolls
         self.healthPollDelayNanoseconds = healthPollDelayNanoseconds
+        self.localHermesForFreshInstall = localHermesForFreshInstall
     }
 
     public static func confirmationText(releaseVersion: String) -> String {
@@ -247,23 +254,24 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             switch candidate {
             case .bundled(let manifest, let sources):
                 _ = try installer.stageRelease(manifest: manifest, runID: runID, sources: sources)
-                hermesLaunchAgentURL = keepLocalHermes
-                    ? installer.managedHermesLaunchAgentURL
-                    : try installer.writeHermesLaunchAgent(
-                        hermesLaunchAgentConfiguration,
-                        manifest: manifest
-                    )
+                // In local mode the new release's bundled agent becomes the one to return to.
+                let written = try installer.writeHermesLaunchAgent(
+                    hermesLaunchAgentConfiguration,
+                    manifest: manifest,
+                    to: keepLocalHermes ? installer.bundledHermesLaunchAgentBackupURL : nil
+                )
+                hermesLaunchAgentURL = keepLocalHermes ? installer.managedHermesLaunchAgentURL : written
                 accountLaunchAgentURL = try installer.writeLaunchAgent(
                     launchAgentConfiguration,
                     manifest: manifest
                 )
             case .components(_, let activationPlan):
-                hermesLaunchAgentURL = keepLocalHermes
-                    ? installer.managedHermesLaunchAgentURL
-                    : try installer.writeHermesLaunchAgent(
-                        hermesLaunchAgentConfiguration,
-                        activationPlan: activationPlan
-                    )
+                let written = try installer.writeHermesLaunchAgent(
+                    hermesLaunchAgentConfiguration,
+                    activationPlan: activationPlan,
+                    to: keepLocalHermes ? installer.bundledHermesLaunchAgentBackupURL : nil
+                )
+                hermesLaunchAgentURL = keepLocalHermes ? installer.managedHermesLaunchAgentURL : written
                 accountLaunchAgentURL = try installer.writeLaunchAgent(
                     launchAgentConfiguration,
                     activationPlan: activationPlan
@@ -407,6 +415,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     activationPlan: activationPlan
                 )
             }
+            // With local runtime mode on and a usable Hermes on the Mac, the fresh install runs
+            // that Hermes from the start: the bundled agent just written becomes the kept fallback
+            // and never runs against the owner's database.
+            let localHermes = localHermesForFreshInstall()
             _ = try journal.transition(runID: runID, to: .accountStaged)
             _ = try journal.transition(runID: runID, to: .candidateStarting)
             if case .bundled = candidate {
@@ -414,6 +426,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     releaseVersion: candidate.releaseVersion,
                     runID: runID
                 )
+            }
+            if let localHermes {
+                _ = try installer.prepareLocalHermesRuntime(localHermes)
             }
             let hermesCheckpoint = try hermesReadiness.checkpoint(
                 logURL: hermesLaunchAgentConfiguration.standardOutput
@@ -777,20 +792,21 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     /// copy of Hermes code per Mac). Called on every Desktop refresh.
     ///
     /// Cheap when there is nothing to do: `observe` is file reads plus one `launchctl print`, and the
-    /// journal lease is taken only when the plan changes something. The plan is then recomputed
-    /// under the lease, so a refresh racing another operation acts on current state.
+    /// journal lease is taken only when the plan changes something. The plan is recomputed under the
+    /// lease; if another operation holds it, this answers `.wait(.busy)` for the next refresh.
     ///
     /// Only Hermes restarts. The Connector keeps its agent, its token file and port 9119, and
     /// reconnects by itself — the same terms as `reconcileCommittedHermesSearchPath`, including the
     /// cost stated there: nothing can tell whether a turn is in flight.
     ///
-    /// Failure handling differs by direction, deliberately:
-    ///  - switching to local, or back to bundled: the previous agent is restored byte for byte and
-    ///    restarted, so a failed switch leaves the Mac where it was;
-    ///  - restarting local Hermes onto new code: there is nothing to go back to. The old process
-    ///    served code that is no longer on disk, and falling back to the bundled copy would put the
-    ///    pinned code back on a database the new code may already have migrated. The error is
-    ///    surfaced instead, for the owner to repair their own install.
+    /// Every failure path leaves the Hermes job **loaded** with the agent it settles on, so the next
+    /// refresh can act again (an unloaded job is invisible to everything else):
+    ///  - switching to local: the bundled agent is restored and restarted with a readiness proof;
+    ///  - returning to bundled: if the owner's Hermes is still usable (the setting-off rollback), the
+    ///    local agent is restored and restarted; if it is gone, the bundled agent stays and is loaded;
+    ///  - restarting local Hermes onto new code, or reloading an agent: the agent file is restored
+    ///    and the job loaded again. Nothing falls back to the bundled copy here, because that would
+    ///    put pinned code back on a database the new code may already have migrated.
     @discardableResult
     public func reconcileHermesRuntime(
         observe: () throws -> DesktopHermesRuntimeObservation
@@ -800,19 +816,24 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               let previewBindingID = preview.bindingID,
               let previewGeneration = preview.bindingGeneration
         else { return .notInstalled }
-        guard launchAgent.inspectAllowingDuplicateConnector().hermesLoaded else {
+        let previewPlan = DesktopHermesRuntimePlanner.plan(try observe())
+        if case .adopt(let record) = previewPlan {
+            try? installer.writeLocalHermesRuntimeRecord(record)
             return .unchanged(.keep)
         }
-        let previewPlan = DesktopHermesRuntimePlanner.plan(try observe())
         guard previewPlan.mutates else { return .unchanged(previewPlan) }
 
-        let operationLease = try journal.acquireOperationLease()
+        let operationLease: DesktopMigrationOperationLease
+        do {
+            operationLease = try journal.acquireOperationLease()
+        } catch DesktopMigrationJournalError.lockUnavailable {
+            return .unchanged(.wait(.busy))
+        }
         defer { withExtendedLifetime(operationLease) {} }
         guard let recorded = try journal.load(),
               recorded.state == .accountActive,
               recorded.bindingID == previewBindingID,
-              recorded.bindingGeneration == previewGeneration,
-              launchAgent.inspectAllowingDuplicateConnector().hermesLoaded
+              recorded.bindingGeneration == previewGeneration
         else { return .unchanged(.keep) }
 
         let plan = DesktopHermesRuntimePlanner.plan(try observe())
@@ -820,33 +841,55 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         case .switchToLocal(let installation):
             let runtimeSwitch = try installer.prepareLocalHermesRuntime(installation)
             do {
-                try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: installation)
+                try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: installation, observe: observe)
             } catch {
-                try await restoreHermesRuntime(runtimeSwitch)
+                try await restoreAndRestart(runtimeSwitch, observe: observe)
                 throw error
             }
             return .switchedToLocal(installation)
         case .restartLocal(let installation, let reason):
             let runtimeSwitch = try installer.prepareLocalHermesRuntime(installation)
             do {
-                try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: installation)
+                try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: installation, observe: observe)
             } catch {
                 try? installer.rollbackHermesRuntimeSwitch(runtimeSwitch)
+                ensureHermesLoaded()
                 throw error
             }
             return .restartedLocal(installation, reason)
-        case .restoreBundled:
+        case .restoreBundled(let localUsable):
             let runtimeSwitch = try installer.prepareBundledHermesRuntimeRestore()
             do {
-                try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: nil)
+                try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: nil, observe: observe)
                 try installer.commitBundledHermesRuntimeRestore()
             } catch {
-                // The local agent points at a Hermes that is gone, so there is no running server to
-                // restore; putting the file back keeps the next attempt starting from known state.
-                try? installer.rollbackHermesRuntimeSwitch(runtimeSwitch)
+                if localUsable {
+                    try await restoreAndRestart(runtimeSwitch, observe: observe)
+                } else {
+                    // The owner's Hermes is gone: the bundled agent is the only thing that can run.
+                    ensureHermesLoaded()
+                }
                 throw error
             }
             return .restoredBundled
+        case .reloadAgent(let installation):
+            do {
+                try await restartManagedHermes(
+                    logURL: installer.managedHermesLogURL,
+                    recording: installation,
+                    observe: observe
+                )
+            } catch {
+                ensureHermesLoaded()
+                throw error
+            }
+            return .reloadedAgent
+        case .repairLauncher(let executable):
+            try installer.writeLocalHermesLauncher(executable: executable)
+            return .repairedLauncher
+        case .adopt(let record):
+            try? installer.writeLocalHermesRuntimeRecord(record)
+            return .unchanged(.keep)
         case .keep, .wait, .surface:
             return .unchanged(plan)
         }
@@ -854,7 +897,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
 
     private func restartManagedHermes(
         logURL: URL,
-        recording installation: DesktopLocalHermesInstallation?
+        recording installation: DesktopLocalHermesInstallation?,
+        observe: () throws -> DesktopHermesRuntimeObservation
     ) async throws {
         let checkpoint = try hermesReadiness.checkpoint(logURL: logURL)
         if launchAgent.inspectAllowingDuplicateConnector().hermesLoaded {
@@ -866,6 +910,21 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             delayNanoseconds: healthPollDelayNanoseconds
         ) else { throw DesktopMigrationCoordinatorError.hermesStopTimedOut }
         let launchedAt = Date()
+        if let installation {
+            // Counted before the proof: a Hermes that dies during start-up is exactly the loop the
+            // back-off exists for.
+            let previous = installer.readLocalHermesRuntimeRecord()
+            let launches = ((previous?.recentLaunches ?? []) + [launchedAt])
+                .filter { launchedAt.timeIntervalSince($0) < DesktopHermesRuntimePlanner.launchWindow }
+            try? installer.writeLocalHermesRuntimeRecord(DesktopLocalHermesRuntimeRecord(
+                executable: installation.executable.standardizedFileURL.path,
+                commit: previous?.commit ?? installation.commit,
+                version: previous?.version ?? installation.version,
+                launchedAt: previous?.launchedAt ?? launchedAt,
+                processStartedAt: previous?.processStartedAt,
+                recentLaunches: launches
+            ))
+        }
         try launchAgent.startHermes(plistURL: installer.managedHermesLaunchAgentURL)
         guard try await hermesReadiness.waitUntilReady(
             checkpoint: checkpoint,
@@ -874,23 +933,38 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             delayNanoseconds: healthPollDelayNanoseconds
         ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
         if let installation {
-            // Best effort: the record only saves a spurious restart after git housekeeping.
+            // Which commit this process loaded, with its exact start time when launchd can say, so
+            // later decisions are made by commit rather than by file timestamps.
+            let started = (try? observe())?.service.startedAt
             try? installer.writeLocalHermesRuntimeRecord(DesktopLocalHermesRuntimeRecord(
                 executable: installation.executable.standardizedFileURL.path,
                 commit: installation.commit,
                 version: installation.version,
-                launchedAt: launchedAt
+                launchedAt: launchedAt,
+                processStartedAt: started.flatMap { $0 >= launchedAt.addingTimeInterval(-1) ? $0 : nil },
+                recentLaunches: installer.readLocalHermesRuntimeRecord()?.recentLaunches ?? [launchedAt]
             ))
         }
     }
 
-    private func restoreHermesRuntime(_ runtimeSwitch: DesktopHermesRuntimeSwitch) async throws {
+    /// Put the previous agent back and prove it healthy; whatever happens, leave the job loaded.
+    private func restoreAndRestart(
+        _ runtimeSwitch: DesktopHermesRuntimeSwitch,
+        observe: () throws -> DesktopHermesRuntimeObservation
+    ) async throws {
         do {
             try installer.rollbackHermesRuntimeSwitch(runtimeSwitch)
-            try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: nil)
+            try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: nil, observe: observe)
         } catch {
+            ensureHermesLoaded()
             throw DesktopMigrationCoordinatorError.rollbackFailed
         }
+    }
+
+    /// A job left unloaded by a failed start is invisible to every later check; load it again.
+    private func ensureHermesLoaded() {
+        guard !launchAgent.inspectAllowingDuplicateConnector().hermesLoaded else { return }
+        try? launchAgent.startHermes(plistURL: installer.managedHermesLaunchAgentURL)
     }
 
     private func rollbackUpgrade(

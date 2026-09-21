@@ -278,7 +278,18 @@ The current automated suite covers:
   when disabled, unsupported or uninstalled; a managed upgrade keeps the local agent; the startup
   token/PATH reconcilers are inert in local mode; `HR-MIGRATE-006` is silent in local mode; the
   fresh-install gate; `HR-MIGRATE-008`/`009` bilingual contract and redaction; source wiring of the
-  refresh call, both install gates, and the window card.
+  refresh call, both install gates, and the window card. Review fixes (each checked to fail when its
+  fix is reverted): a failed return to bundled restores and proves the intact local Hermes, or keeps
+  the bundled agent loaded when local is gone; a failed `bootstrap` during a switch or restart leaves
+  the job loaded, and an unloaded local job is started again; an upgrade in local mode refreshes the
+  kept bundled agent and a failed one restores the old one; a kept agent whose program is gone is no
+  fallback (`HR-MIGRATE-010`); a loosened or older launcher is repaired while local mode stays
+  recognised; the setting off does no detection or `launchctl` work on a bundled Mac; three restarts
+  in 30 minutes pause and surface; launchd's loaded arguments that differ from the file reload the
+  agent; adopting an update-started process; restarting only on a commit change, not a timestamp;
+  waiting for reinstalled dependencies; a fresh install starting only the local Hermes; nothing
+  shown mid-update; a separate non-retryable `HR-MIGRATE-010`; `/Users/<name>` redacted; an
+  inline-token agent is never switched from; lease contention waits without an error.
 
 Remaining email-first release acceptance requires live-provider tests for resend/cooldown, expiry,
 account-existence-neutral delivery behavior, packaged-UI inspection proving that an `email_otp`-only

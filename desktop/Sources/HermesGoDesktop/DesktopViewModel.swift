@@ -722,6 +722,13 @@ final class DesktopViewModel: ObservableObject {
         guard !isManagedServiceOperationInProgress else { return }
         if let retryAfter = hermesRuntimeRetryAfter, Date() < retryAfter { return }
         let enabled = DesktopLocalHermesRuntimeSetting.isEnabled()
+        // Setting off: no detection, no launchctl, no errors — unless this Mac is actually in local
+        // mode, which is the rollback case.
+        guard enabled || runtime.hermesAgentLooksLocal else {
+            localHermesIssue = nil
+            hermesRuntimeRetryAfter = nil
+            return
+        }
         do {
             let result = try await Task.detached(priority: .utility) {
                 try await runtime.reconcileHermesRuntime(detector: detector, enabled: enabled)

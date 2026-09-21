@@ -485,6 +485,7 @@ versioned by upstream:
 |---|---|---|
 | `~/.hermes/hermes-agent/venv/bin/hermes serve --host 127.0.0.1 --port 9119` | the standard installer's layout and the headless serve's `HERMES_BACKEND_READY port=<n>` stdout line | detection reports `incompleteInstallation`, or readiness times out and the switch is rolled back |
 | `.git/HEAD`, loose refs, `packed-refs`; `hermes_cli/__init__.py` `__version__ = "x.y.z"` | read as files to identify the code on disk | `unreadableIdentity` — surfaced, nothing switched |
+| `venv/lib/python*/site-packages/hermes_agent-<version>.dist-info` | its version must equal `__version__` before Desktop starts the checkout's code | Desktop waits (`dependenciesPending`) and never switches or restarts |
 | `~/.hermes/.hermes-update-in-progress` (`hermes_cli/update_lock.py`, 20-minute ceiling) | restarts wait while it is fresh | a restart could land mid-update |
 | `~/.hermes/profiles/`, `~/.hermes/active_profile` | a profile makes local mode unsupported | a new profile mechanism would be missed |
 | `ai.hermes.*.plist` `EnvironmentVariables.HERMES_HOME` and `ProgramArguments[0]` | how the owner actually runs Hermes | a custom home or second install could be missed |

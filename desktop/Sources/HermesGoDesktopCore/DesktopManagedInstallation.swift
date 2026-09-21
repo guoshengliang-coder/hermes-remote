@@ -182,12 +182,19 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         }
         let hermes = try readOwnedPrivateFile(layout.hermesLaunchAgent)
         let connector = try readOwnedPrivateFile(layout.connectorLaunchAgent)
+        // In local runtime mode an upgrade rewrites the kept bundled agent; keep the old one too.
+        let bundledBackup = FileManager.default.fileExists(atPath: layout.bundledHermesLaunchAgentBackup.path)
+            ? try readOwnedPrivateFile(layout.bundledHermesLaunchAgentBackup)
+            : nil
         try ensurePrivateDirectory(layout.stateRoot)
         try ensurePrivateDirectory(managedUpgradeSnapshotsRoot)
         try ensurePrivateDirectory(root)
         do {
             try atomicWrite(hermes, to: root.appendingPathComponent("hermes.plist"), permissions: 0o600)
             try atomicWrite(connector, to: root.appendingPathComponent("connector.plist"), permissions: 0o600)
+            if let bundledBackup {
+                try atomicWrite(bundledBackup, to: root.appendingPathComponent("hermes-bundled.plist"), permissions: 0o600)
+            }
             let metadata = ManagedUpgradeSnapshotMetadata(snapshot: snapshot)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
@@ -266,6 +273,14 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
             to: layout.connectorLaunchAgent,
             permissions: 0o600
         )
+        let bundledBackup = root.appendingPathComponent("hermes-bundled.plist")
+        if FileManager.default.fileExists(atPath: bundledBackup.path) {
+            try atomicWrite(
+                try readOwnedPrivateFile(bundledBackup),
+                to: layout.bundledHermesLaunchAgentBackup,
+                permissions: 0o600
+            )
+        }
     }
 
     public func discardManagedUpgradeSnapshot(_ snapshot: DesktopManagedUpgradeSnapshot) throws {
@@ -274,6 +289,16 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         }
         do { try fileManager.removeItem(at: managedUpgradeSnapshotRoot(snapshot.runID)) }
         catch { throw DesktopManagedInstallError.persistenceFailed }
+    }
+
+    private func hermesAgentDestination(_ destination: URL?) throws -> URL {
+        guard let destination else { return layout.hermesLaunchAgent }
+        let allowed = [layout.hermesLaunchAgent, layout.bundledHermesLaunchAgentBackup]
+            .map(\.standardizedFileURL.path)
+        guard allowed.contains(destination.standardizedFileURL.path) else {
+            throw DesktopManagedInstallError.invalidInput
+        }
+        return destination.standardizedFileURL
     }
 
     private func managedUpgradeSnapshotRoot(_ runID: String) -> URL {
@@ -290,6 +315,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
     }
 
     public var managedHermesLaunchAgentURL: URL { layout.hermesLaunchAgent }
+    public var bundledHermesLaunchAgentBackupURL: URL { layout.bundledHermesLaunchAgentBackup }
     public var managedConnectorLaunchAgentURL: URL { layout.connectorLaunchAgent }
 
     /// Installs already checksum-verified, safely extracted component trees. It never reads or
@@ -667,9 +693,12 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         return layout.connectorLaunchAgent
     }
 
+    /// `destination` defaults to the live agent. An upgrade in local runtime mode passes the kept
+    /// bundled-agent backup instead, so the live agent keeps running the owner's Hermes.
     public func writeHermesLaunchAgent(
         _ configuration: DesktopHermesServerLaunchAgent,
-        manifest: DesktopReleaseManifest
+        manifest: DesktopReleaseManifest,
+        to destination: URL? = nil
     ) throws -> URL {
         guard let hermes = manifest.artifacts.first(where: { $0.component == .hermesServer }) else {
             throw DesktopManagedInstallError.invalidInput
@@ -692,8 +721,12 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         guard data.count <= 64 * 1024 else { throw DesktopManagedInstallError.invalidInput }
         try ensureOwnedDirectory(layout.launchAgentsRoot)
         try ensurePrivateDirectory(layout.logsRoot)
-        try atomicWrite(data, to: layout.hermesLaunchAgent, permissions: 0o600)
-        return layout.hermesLaunchAgent
+        let target = try hermesAgentDestination(destination)
+        if target.path != layout.hermesLaunchAgent.standardizedFileURL.path {
+            try ensurePrivateDirectory(layout.stateRoot)
+        }
+        try atomicWrite(data, to: target, permissions: 0o600)
+        return target
     }
 
     public func writeLaunchAgent(
@@ -727,7 +760,8 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
 
     public func writeHermesLaunchAgent(
         _ configuration: DesktopHermesServerLaunchAgent,
-        activationPlan: DesktopComponentReleaseActivationPlan
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        to destination: URL? = nil
     ) throws -> URL {
         guard let hermes = activationPlan.component(.hermesCore),
               let python = activationPlan.component(.pythonRuntime),
@@ -750,8 +784,12 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         guard data.count <= 64 * 1024 else { throw DesktopManagedInstallError.invalidInput }
         try ensureOwnedDirectory(layout.launchAgentsRoot)
         try ensurePrivateDirectory(layout.logsRoot)
-        try atomicWrite(data, to: layout.hermesLaunchAgent, permissions: 0o600)
-        return layout.hermesLaunchAgent
+        let target = try hermesAgentDestination(destination)
+        if target.path != layout.hermesLaunchAgent.standardizedFileURL.path {
+            try ensurePrivateDirectory(layout.stateRoot)
+        }
+        try atomicWrite(data, to: target, permissions: 0o600)
+        return target
     }
 
     func replaceHermesLaunchAgent(

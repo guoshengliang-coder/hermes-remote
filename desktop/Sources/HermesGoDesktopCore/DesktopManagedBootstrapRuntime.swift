@@ -135,18 +135,33 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
         ((try? installer.currentHermesRuntimeMode()) ?? .unrecognised) != .absent
     }
 
-    /// Everything the runtime planner reads, in one place. File reads plus one `launchctl print`.
+    /// Cheap and non-throwing: whether the Hermes agent's first program argument is the local
+    /// launcher. With the setting off, nothing else runs unless this is true.
+    public var hermesAgentLooksLocal: Bool { installer.hermesAgentLooksLocal }
+
+    /// Everything the runtime planner reads, in one place. With the setting off and the agent not in
+    /// local mode, neither detection nor `launchctl` runs.
     public func observeHermesRuntime(
         detector: DesktopLocalHermesDetector,
         enabled: Bool,
         now: Date = Date()
     ) throws -> DesktopHermesRuntimeObservation {
-        DesktopHermesRuntimeObservation(
+        let mode = try installer.currentHermesRuntimeMode()
+        let relevant = enabled || mode.isLocal
+        let launcherCurrent: Bool
+        if case .localHermes(let executable) = mode {
+            launcherCurrent = installer.localHermesLauncherIsCurrent(executable: executable)
+        } else {
+            launcherCurrent = true
+        }
+        return DesktopHermesRuntimeObservation(
             enabled: enabled,
-            detection: detector.detect(),
-            mode: try installer.currentHermesRuntimeMode(),
+            detection: relevant ? detector.detect() : nil,
+            mode: mode,
+            launcherCurrent: launcherCurrent,
             updateInProgress: detector.updateInProgress(now: now),
-            service: processInspector.hermesServiceProcess(),
+            service: relevant ? processInspector.hermesServiceProcess() : .unknown,
+            agentArguments: installer.hermesAgentProgramArguments,
             record: installer.readLocalHermesRuntimeRecord(),
             bundledFallbackAvailable: installer.bundledHermesFallbackAvailable,
             now: now
@@ -229,7 +244,11 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
             account: account,
             journal: journal,
             installer: DesktopManagedInstaller(layout: layout),
-            launchAgent: launchAgent
+            launchAgent: launchAgent,
+            localHermesForFreshInstall: DesktopLocalHermesRuntimeSetting.freshInstallProvider(
+                detector: (try? DesktopLocalHermesPaths(homeDirectory: paths.hermesHome.deletingLastPathComponent()))
+                    .map { DesktopLocalHermesDetector(paths: $0) }
+            )
         )
 
         manifestURL = releaseConfiguration.manifestURL

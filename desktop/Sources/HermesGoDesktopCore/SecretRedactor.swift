@@ -10,6 +10,10 @@ public enum SecretRedactor {
     private static let queryPattern = try! NSRegularExpression(
         pattern: #"(?i)([?&](?:token|ticket|password)=)([^&#\s]+)"#
     )
+    /// Home directories name a person; diagnostics keep the shape of a path without the name.
+    private static let homeDirectoryPattern = try! NSRegularExpression(
+        pattern: #"/Users/(?!Shared/|<user>)[^/\s'"]+"#
+    )
     private static let accountCredentialPattern = try! NSRegularExpression(
         pattern: #"\b(?:hga|hgr|hgg|hsi)_[A-Za-z0-9_-]+\b"#
     )
@@ -19,6 +23,7 @@ public enum SecretRedactor {
         result = replace(environmentPattern, in: result, template: "$1$2<redacted>")
         result = replace(queryPattern, in: result, template: "$1<redacted>")
         result = replace(accountCredentialPattern, in: result, template: "<redacted>")
+        result = replace(homeDirectoryPattern, in: result, template: "/Users/<user>")
 
         for secret in knownSecrets.filter({ $0.count >= 4 }).sorted(by: { $0.count > $1.count }) {
             result = result.replacingOccurrences(of: secret, with: "<redacted>")

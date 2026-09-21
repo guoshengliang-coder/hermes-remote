@@ -75,6 +75,8 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
     /// When the checkout last moved: the newest modification time among the git files `HEAD` was
     /// resolved through. `git pull`, `git checkout` and `hermes update` all rewrite one of them.
     public let identityChangedAt: Date
+    /// The `hermes_agent` version installed in the checkout's venv (`*.dist-info`), nil if none.
+    public let installedVersion: String?
 
     public init(
         executable: URL,
@@ -82,7 +84,8 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
         hermesHome: URL,
         commit: String,
         version: String,
-        identityChangedAt: Date
+        identityChangedAt: Date,
+        installedVersion: String? = nil
     ) {
         self.executable = executable
         self.checkoutRoot = checkoutRoot
@@ -90,7 +93,14 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
         self.commit = commit
         self.version = version
         self.identityChangedAt = identityChangedAt
+        self.installedVersion = installedVersion ?? version
     }
+
+    /// Whether the venv was installed for the code on disk, as far as files can tell: the installed
+    /// distribution's version equals the checkout's `__version__`. A `git pull` that bumps the
+    /// version before dependencies are reinstalled fails this. A pull that changes dependencies
+    /// without a version bump does not — that is the limit of a check that runs no Hermes code.
+    public var dependenciesConsistent: Bool { installedVersion == version }
 
     public var shortCommit: String { String(commit.prefix(8)) }
 }
@@ -203,7 +213,8 @@ public struct DesktopLocalHermesDetector: Sendable {
             hermesHome: paths.hermesHome,
             commit: identity.commit,
             version: version,
-            identityChangedAt: identity.changedAt
+            identityChangedAt: identity.changedAt,
+            installedVersion: readInstalledVersion() ?? ""
         ))
     }
 
@@ -322,6 +333,19 @@ public struct DesktopLocalHermesDetector: Sendable {
               let range = Range(match.range(at: 1), in: text)
         else { return nil }
         return String(text[range])
+    }
+
+    private func readInstalledVersion() -> String? {
+        let lib = paths.checkoutRoot.appendingPathComponent("venv/lib", isDirectory: true)
+        guard let pythons = try? FileManager.default.contentsOfDirectory(atPath: lib.path) else { return nil }
+        for python in pythons.sorted() where python.hasPrefix("python") {
+            let sitePackages = lib.appendingPathComponent(python).appendingPathComponent("site-packages")
+            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: sitePackages.path) else { continue }
+            for entry in entries where entry.hasPrefix("hermes_agent-") && entry.hasSuffix(".dist-info") {
+                return String(entry.dropFirst("hermes_agent-".count).dropLast(".dist-info".count))
+            }
+        }
+        return nil
     }
 
     // MARK: - Owner LaunchAgents

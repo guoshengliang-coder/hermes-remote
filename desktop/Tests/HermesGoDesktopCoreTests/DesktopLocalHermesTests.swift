@@ -191,25 +191,52 @@ final class DesktopLocalHermesDetectorTests: XCTestCase {
 final class DesktopHermesRuntimePlannerTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private let executable = URL(fileURLWithPath: "/Users/o/.hermes/hermes-agent/venv/bin/hermes")
+    private var localArguments: [String] {
+        ["/Users/o/Library/Application Support/Hermes Go/Managed/bin/hermes-local-serve", executable.path,
+         "serve", "--host", "127.0.0.1", "--port", "9119"]
+    }
 
-    private func installation(commit: String = "b", changedSecondsAgo: TimeInterval = 3_600) -> DesktopLocalHermesInstallation {
+    private func installation(
+        commit: String = "b",
+        changedSecondsAgo: TimeInterval = 3_600,
+        installedVersion: String? = nil
+    ) -> DesktopLocalHermesInstallation {
         DesktopLocalHermesInstallation(
             executable: executable,
             checkoutRoot: URL(fileURLWithPath: "/Users/o/.hermes/hermes-agent"),
             hermesHome: URL(fileURLWithPath: "/Users/o/.hermes"),
             commit: String(repeating: commit, count: 40),
             version: "0.21.3",
-            identityChangedAt: now.addingTimeInterval(-changedSecondsAgo)
+            identityChangedAt: now.addingTimeInterval(-changedSecondsAgo),
+            installedVersion: installedVersion
+        )
+    }
+
+    private func record(
+        commit: String,
+        launchedSecondsAgo: TimeInterval,
+        startedSecondsAgo: TimeInterval? = nil,
+        launches: [TimeInterval] = []
+    ) -> DesktopLocalHermesRuntimeRecord {
+        DesktopLocalHermesRuntimeRecord(
+            executable: executable.path,
+            commit: String(repeating: commit, count: 40),
+            version: "0.21.3",
+            launchedAt: now.addingTimeInterval(-launchedSecondsAgo),
+            processStartedAt: startedSecondsAgo.map { now.addingTimeInterval(-$0) },
+            recentLaunches: launches.map { now.addingTimeInterval(-$0) }
         )
     }
 
     private func plan(
-        _ detection: DesktopLocalHermesDetection,
+        _ detection: DesktopLocalHermesDetection?,
         mode: DesktopHermesRuntimeMode = .bundled,
         enabled: Bool = true,
+        launcherCurrent: Bool = true,
         updateInProgress: Bool = false,
         startedSecondsAgo: TimeInterval? = 10,
         service: DesktopHermesServiceProcess? = nil,
+        agentArguments: [String]? = nil,
         record: DesktopLocalHermesRuntimeRecord? = nil,
         fallback: Bool = true
     ) -> DesktopHermesRuntimePlan {
@@ -217,8 +244,12 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
             enabled: enabled,
             detection: detection,
             mode: mode,
+            launcherCurrent: launcherCurrent,
             updateInProgress: updateInProgress,
-            service: service ?? startedSecondsAgo.map { .running(startedAt: now.addingTimeInterval(-$0)) } ?? .stopped,
+            service: service ?? startedSecondsAgo.map {
+                .running(startedAt: now.addingTimeInterval(-$0), arguments: nil)
+            } ?? .stopped,
+            agentArguments: agentArguments,
             record: record,
             bundledFallbackAvailable: fallback,
             now: now
@@ -234,10 +265,11 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
 
     func testNothingSwitchesWhileTheSettingIsOff() {
         XCTAssertEqual(plan(.usable(installation()), enabled: false), .keep)
+        XCTAssertEqual(plan(nil, enabled: false), .keep, "detection skipped entirely")
     }
 
     func testTurningTheSettingOffReturnsALocalMacToBundled() {
-        XCTAssertEqual(plan(.usable(installation()), mode: local, enabled: false), .restoreBundled)
+        XCTAssertEqual(plan(.usable(installation()), mode: local, enabled: false), .restoreBundled(localUsable: true))
         XCTAssertEqual(
             plan(.usable(installation()), mode: local, enabled: false, fallback: false),
             .surface(.localHermesMissingWithoutFallback)
@@ -249,6 +281,14 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
         XCTAssertEqual(plan(.usable(installation()), mode: local, updateInProgress: true), .wait(.updateInProgress))
     }
 
+    /// Review item 11: an update briefly removes the entrypoint and rewrites HEAD. What detection
+    /// sees then is not a fact about the Mac and must not light HR-MIGRATE-008.
+    func testUnsupportedDuringAnUpdateIsNotShown() {
+        let midUpdate = DesktopLocalHermesDetection.unsupported(.incompleteInstallation, detail: "venv/bin/hermes is missing")
+        XCTAssertEqual(plan(midUpdate, mode: local, updateInProgress: true), .wait(.updateInProgress))
+        XCTAssertEqual(plan(midUpdate, updateInProgress: true), .wait(.updateInProgress))
+    }
+
     func testFreshlyMovedCodeIsGivenTimeToSettle() {
         XCTAssertEqual(plan(.usable(installation(changedSecondsAgo: 10))), .wait(.settling))
         XCTAssertEqual(
@@ -257,47 +297,72 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
         )
     }
 
-    func testAServerStartedAfterTheCheckoutMovedIsCurrent() {
-        XCTAssertEqual(plan(.usable(installation(changedSecondsAgo: 600)), mode: local, startedSecondsAgo: 300), .keep)
-    }
-
-    func testAServerStartedBeforeTheCheckoutMovedIsStale() {
-        let usable = installation(changedSecondsAgo: 300)
+    /// Review item 9: a pulled tree whose venv was not reinstalled is not restarted into, because a
+    /// failed restart onto new code has nothing to roll back to.
+    func testCodeWhoseDependenciesWereNotReinstalledIsWaitedFor() {
+        let pulled = installation(changedSecondsAgo: 300, installedVersion: "0.21.2")
+        XCTAssertFalse(pulled.dependenciesConsistent)
+        XCTAssertEqual(plan(.usable(pulled)), .wait(.dependenciesPending))
         XCTAssertEqual(
-            plan(.usable(usable), mode: local, startedSecondsAgo: 600),
-            .restartLocal(usable, .codeChanged)
-        )
-        let record = DesktopLocalHermesRuntimeRecord(
-            executable: executable.path,
-            commit: String(repeating: "a", count: 40),
-            version: "0.21.3",
-            launchedAt: now.addingTimeInterval(-601)
-        )
-        XCTAssertEqual(
-            plan(.usable(usable), mode: local, startedSecondsAgo: 600, record: record),
-            .restartLocal(usable, .codeChanged)
+            plan(.usable(pulled), mode: local, startedSecondsAgo: 600, record: record(commit: "a", launchedSecondsAgo: 601)),
+            .wait(.dependenciesPending)
         )
     }
 
-    /// `git pack-refs` moves the timestamp without moving the commit. The record of what Desktop
-    /// launched keeps that from costing a restart.
-    func testGitHousekeepingOnTheSameCommitIsNotARestart() {
+    /// `hermes update` kickstarted our job after moving the checkout: current, and remembered.
+    func testAProcessStartedAfterTheCheckoutMovedIsAdopted() {
+        let usable = installation(changedSecondsAgo: 600)
+        guard case .adopt(let adopted) = plan(.usable(usable), mode: local, startedSecondsAgo: 300,
+                                              record: record(commit: "a", launchedSecondsAgo: 5_000, startedSecondsAgo: 5_000))
+        else { return XCTFail("expected adopt") }
+        XCTAssertEqual(adopted.commit, usable.commit)
+        XCTAssertEqual(adopted.processStartedAt, now.addingTimeInterval(-300))
+    }
+
+    /// Review item 8: once adopted, a later `git pack-refs` (timestamp moves, commit does not) must
+    /// not restart a live conversation.
+    func testATimestampOnlyChangeAfterAnAdoptedUpdateIsNotARestart() {
+        let usable = installation(changedSecondsAgo: 100)
+        let adopted = record(commit: "b", launchedSecondsAgo: 300, startedSecondsAgo: 300)
+        XCTAssertEqual(plan(.usable(usable), mode: local, startedSecondsAgo: 300, record: adopted), .keep)
+    }
+
+    /// Review item 9: restart only when the commit the process loaded differs.
+    func testARecordedProcessIsRestartedOnlyWhenTheCommitChanged() {
         let usable = installation(changedSecondsAgo: 300)
-        let record = DesktopLocalHermesRuntimeRecord(
-            executable: executable.path,
-            commit: usable.commit,
-            version: "0.21.3",
-            launchedAt: now.addingTimeInterval(-601)
+        XCTAssertEqual(
+            plan(.usable(usable), mode: local, startedSecondsAgo: 600,
+                 record: record(commit: "a", launchedSecondsAgo: 601, startedSecondsAgo: 600)),
+            .restartLocal(usable, .codeChanged)
         )
-        XCTAssertEqual(plan(.usable(usable), mode: local, startedSecondsAgo: 600, record: record), .keep)
+        XCTAssertEqual(
+            plan(.usable(usable), mode: local, startedSecondsAgo: 600,
+                 record: record(commit: "b", launchedSecondsAgo: 601, startedSecondsAgo: 600)),
+            .keep
+        )
+    }
+
+    func testAnUnrecordedProcessOlderThanTheCheckoutIsStale() {
+        let usable = installation(changedSecondsAgo: 300)
+        XCTAssertEqual(plan(.usable(usable), mode: local, startedSecondsAgo: 600), .restartLocal(usable, .codeChanged))
     }
 
     func testALoadedJobWithNoProcessIsRestarted() {
         let usable = installation()
+        XCTAssertEqual(plan(.usable(usable), mode: local, startedSecondsAgo: nil), .restartLocal(usable, .notRunning))
+        XCTAssertEqual(plan(.usable(usable), mode: local, service: .notLoaded), .restartLocal(usable, .notRunning))
+    }
+
+    /// Review item 6: a Hermes that passes readiness and then dies is not restarted forever.
+    func testAHermesThatKeepsStoppingIsPausedAndShown() {
+        let usable = installation()
+        let looping = record(commit: "b", launchedSecondsAgo: 60, launches: [1_500, 900, 60])
         XCTAssertEqual(
-            plan(.usable(usable), mode: local, startedSecondsAgo: nil),
-            .restartLocal(usable, .notRunning)
+            plan(.usable(usable), mode: local, startedSecondsAgo: nil, record: looping),
+            .surface(.localHermesKeepsStopping(launches: 3))
         )
+        let old = record(commit: "b", launchedSecondsAgo: 60, launches: [4_000, 3_000, 60])
+        XCTAssertEqual(plan(.usable(usable), mode: local, startedSecondsAgo: nil, record: old), .restartLocal(usable, .notRunning))
     }
 
     /// A probe that cannot read launchd must never become a restart on every refresh.
@@ -305,12 +370,46 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
         XCTAssertEqual(plan(.usable(installation()), mode: local, service: .unknown), .keep)
     }
 
-    func testLaunchctlPrintIsReadForThePidOrAnExplicitStop() {
+    /// Review item 7: Desktop stopped between writing the agent and restarting it.
+    func testRunningArgumentsThatDifferFromTheAgentFileAreReloaded() {
+        let usable = installation()
+        let bundledArguments = ["/m/current/hermes_server/bin/hermes-server", "serve", "--host", "127.0.0.1", "--port", "9119"]
+        XCTAssertEqual(
+            plan(.usable(usable), mode: local,
+                 service: .running(startedAt: now.addingTimeInterval(-10), arguments: bundledArguments),
+                 agentArguments: localArguments),
+            .reloadAgent(recording: usable)
+        )
+        XCTAssertEqual(
+            plan(.usable(usable), mode: .bundled, enabled: false,
+                 service: .running(startedAt: now.addingTimeInterval(-10), arguments: localArguments),
+                 agentArguments: bundledArguments),
+            .reloadAgent(recording: nil)
+        )
+        XCTAssertEqual(
+            plan(.usable(usable), mode: local,
+                 service: .running(startedAt: now.addingTimeInterval(-10), arguments: localArguments),
+                 agentArguments: localArguments,
+                 record: record(commit: "b", launchedSecondsAgo: 11, startedSecondsAgo: 10)),
+            .keep
+        )
+    }
+
+    /// Review item 4: an older or loosened launcher is rewritten, not a reason to stop recognising.
+    func testAnOutdatedLauncherIsRepairedWithoutARestart() {
+        XCTAssertEqual(
+            plan(.usable(installation()), mode: local, launcherCurrent: false),
+            .repairLauncher(executable: executable)
+        )
+    }
+
+    func testLaunchctlPrintIsReadForThePidArgumentsOrAnExplicitStop() {
         typealias Inspector = DesktopLaunchdHermesServiceProcessInspector<SystemOutputCommandRunner>
         let started = Date(timeIntervalSince1970: 1_790_000_000)
+        let text = "gui/501/x = {\n\tstate = running\n\tprogram = /a\n\targuments = {\n\t\t/a b\n\t\tserve\n\t}\n\tpid = 4242\n}"
         XCTAssertEqual(
-            Inspector.process(fromLaunchctlPrint: "gui/501/x = {\n\tstate = running\n\tpid = 4242\n}", startDate: { $0 == 4242 ? started : nil }),
-            .running(startedAt: started)
+            Inspector.process(fromLaunchctlPrint: text, startDate: { $0 == 4242 ? started : nil }),
+            .running(startedAt: started, arguments: ["/a b", "serve"])
         )
         XCTAssertEqual(
             Inspector.process(fromLaunchctlPrint: "gui/501/x = {\n\tstate = not running\n}", startDate: { _ in nil }),
@@ -343,7 +442,7 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
     }
 
     func testALocalMacWhoseHermesWasRemovedGoesBackToBundled() {
-        XCTAssertEqual(plan(.absent(hermesDataPresent: true), mode: local), .restoreBundled)
+        XCTAssertEqual(plan(.absent(hermesDataPresent: true), mode: local), .restoreBundled(localUsable: false))
         XCTAssertEqual(
             plan(.absent(hermesDataPresent: true), mode: local, fallback: false),
             .surface(.localHermesMissingWithoutFallback)
@@ -353,6 +452,10 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
     func testAnAgentDesktopDidNotWriteIsNeverTouched() {
         XCTAssertEqual(plan(.usable(installation()), mode: .unrecognised), .keep)
         XCTAssertEqual(plan(.usable(installation()), mode: .absent), .keep)
+    }
+
+    func testABundledMacWhoseServiceIsNotLoadedIsLeftAlone() {
+        XCTAssertEqual(plan(.usable(installation()), service: .notLoaded), .keep)
     }
 }
 
@@ -496,6 +599,45 @@ final class DesktopLocalHermesPresentationTests: XCTestCase {
         XCTAssertFalse(secret.sanitizedDiagnostic.contains("s3cret"))
     }
 
+    /// Item 12: a Mac left without any Hermes to run is not something retrying fixes.
+    func testMissingWithoutFallbackIsItsOwnNonRetryableCode() {
+        let issue = DesktopIssue.hermesRuntime(.unchanged(.surface(.localHermesMissingWithoutFallback)))
+        XCTAssertEqual(issue?.code.rawValue, "HR-MIGRATE-010")
+        XCTAssertEqual(issue?.retryable, false)
+        XCTAssertTrue(issue?.detailChinese.contains("重新安装") == true)
+        XCTAssertTrue(issue?.detailEnglish.contains("Reinstall") == true)
+        XCTAssertEqual(
+            DesktopIssue.hermesRuntime(.unchanged(.surface(.localHermesKeepsStopping(launches: 3))))?.code,
+            .localHermesRuntimeFailed
+        )
+    }
+
+    /// Item 12: detection details name paths under a person's home; diagnostics must not.
+    func testDiagnosticsDoNotCarryTheHomeDirectoryName() {
+        let issue = DesktopIssue(
+            code: .localHermesUnsupported,
+            technicalCause: "reason=nonStandardLocation a hermes entrypoint at /Users/guoshengliang/.local/bin/hermes"
+        )
+        XCTAssertFalse(issue.sanitizedDiagnostic.contains("guoshengliang"))
+        XCTAssertTrue(issue.sanitizedDiagnostic.contains("/Users/<user>/.local/bin/hermes"))
+        XCTAssertEqual(SecretRedactor.redact("/Users/Shared/x"), "/Users/Shared/x")
+    }
+
+    /// Item 5: with the setting off and no local agent, nothing is detected and launchd is not asked.
+    func testTheSettingOffDoesNoWorkOnABundledMac() throws {
+        let home = try LocalHermesHome()
+        let paths = try DesktopManagedBootstrapPaths(homeDirectory: home.root)
+        let layout = try DesktopManagedInstallLayout(root: paths.managedRoot, launchAgentsRoot: paths.launchAgentsRoot)
+        try DesktopManagedInstaller(layout: layout).writeBundledAgentForTesting(layout: layout, hermesHome: paths.hermesHome)
+        let runtime = try DesktopManagedRecoveryRuntime(account: InertBindingCoordinator(), paths: paths)
+
+        XCTAssertFalse(runtime.hermesAgentLooksLocal)
+        let observation = try runtime.observeHermesRuntime(detector: home.detector(), enabled: false)
+        XCTAssertNil(observation.detection)
+        XCTAssertEqual(observation.service, .unknown)
+        XCTAssertEqual(DesktopHermesRuntimePlanner.plan(observation), .keep)
+    }
+
     func testReconciliationOutcomesMapToIssues() {
         XCTAssertNil(DesktopIssue.hermesRuntime(.notInstalled))
         XCTAssertNil(DesktopIssue.hermesRuntime(.unchanged(.keep)))
@@ -506,7 +648,7 @@ final class DesktopLocalHermesPresentationTests: XCTestCase {
         )
         XCTAssertEqual(
             DesktopIssue.hermesRuntime(.unchanged(.surface(.localHermesMissingWithoutFallback)))?.code,
-            .localHermesRuntimeFailed
+            .localHermesMissingWithoutFallback
         )
     }
 
@@ -550,6 +692,10 @@ final class LocalHermesWiringTests: XCTestCase {
     func testTheRefreshReconcilesTheRuntimeAndTheWindowShowsIt() throws {
         let model = try appSource("DesktopViewModel.swift")
         XCTAssertTrue(model.contains("await refreshHermesRuntime()"), "nothing reconciles the Hermes runtime")
+        XCTAssertTrue(
+            model.contains("guard enabled || runtime.hermesAgentLooksLocal else"),
+            "with the setting off the refresh must not detect, ask launchd, or report errors"
+        )
         XCTAssertTrue(model.contains("runtime.reconcileHermesRuntime(detector: detector, enabled: enabled)"))
         XCTAssertTrue(model.contains("localHermesInstallBlock(for: installation)"), "fresh managed install is not gated")
         XCTAssertTrue(model.contains("localHermesInstallBlock(for: machine.installation)"), "fresh component install is not gated")
@@ -716,4 +862,11 @@ private extension DesktopManagedInstaller {
             manifest: manifest
         )
     }
+}
+
+private struct InertBindingCoordinator: DesktopBindingCoordinating {
+    func beginBinding(retryingTerminalBindingID: String?, retryingTerminalGeneration: Int?) async throws
+        -> DesktopBindingPreparation { throw AccountClientError.transport }
+    func refresh() async throws -> DesktopAccountState { .signedOut }
+    func confirmBinding() async throws -> DesktopAccountState { .signedOut }
 }
