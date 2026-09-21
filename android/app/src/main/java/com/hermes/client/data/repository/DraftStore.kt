@@ -102,7 +102,7 @@ private val Context.draftDataStore by preferencesDataStore(name = "session_draft
  * [SessionPhaseStore]: Preferences DataStore rewrites the whole file on every `edit`, so
  * per-session keys buy no IO and only make eviction harder.
  *
- * **Text only.** Staged attachments are in-memory bytes (6 MB each, six at a time); persisting
+ * **Text only.** Staged attachments are in-memory bytes (6 MB each, nine at a time); persisting
  * them needs a cache directory, an eviction policy and a story for "the file you attached is gone
  * now", which is a different feature. Attachments are still dropped on leaving — deliberately, not
  * by omission.

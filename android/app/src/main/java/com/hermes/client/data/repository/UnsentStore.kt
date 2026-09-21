@@ -62,7 +62,7 @@ fun decodeUnsent(raw: String?): List<UnsentRecord> =
  * An over-long message is TRUNCATED rather than dropped — losing the tail of something the user
  * wrote is bad, losing all of it is worse.
  *
- * Unlike a draft, blank text is KEPT when the record carries attachments: "six images and no
+ * Unlike a draft, blank text is KEPT when the record carries attachments: "nine images and no
  * caption" is a real send, and a refused one still has to be reported.
  */
 fun encodeUnsent(records: List<UnsentRecord>): String {
@@ -124,7 +124,7 @@ private val Context.unsentDataStore by preferencesDataStore(name = "session_unse
  * [DraftStore] and [SessionPhaseStore]: Preferences DataStore rewrites the whole file on every
  * `edit`, so per-session keys buy no IO and only make eviction harder.
  *
- * **Text only.** Staged attachments are in-memory bytes (6 MB each, six at a time); persisting them
+ * **Text only.** Staged attachments are in-memory bytes (6 MB each, nine at a time); persisting them
  * needs a cache directory, an eviction policy and a story for "the file you attached is gone now",
  * which is a different feature — the same ruling [DraftStore] makes about drafts. What this file
  * does instead is remember HOW MANY there were, so the restored bubble can say the attachments are

@@ -651,8 +651,52 @@ class ChatViewModelTest {
         coVerify(exactly = 2) { sessionRepo.history("s1", null) }
     }
 
+    @Test fun manualRefreshRechecksOwnershipAndRestoresTheComposerAfterDesktopReleasesIt() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.sessionAccess("s1", null, "s1-live") } returnsMany listOf(
+            com.hermes.client.data.repository.SessionAccess(
+                state = com.hermes.client.data.repository.SessionAccessState.OWNED_ELSEWHERE,
+                // Ownership is the behaviour under test; keeping the runtime idle avoids the
+                // store's intentional periodic probe loop from making advanceUntilIdle endless.
+                running = false,
+                writable = false,
+                ownerSurface = "desktop",
+            ),
+            com.hermes.client.data.repository.SessionAccess(
+                state = com.hermes.client.data.repository.SessionAccessState.AVAILABLE,
+                running = false,
+                writable = true,
+                ownerSurface = null,
+            ),
+        )
+        val vm = buildVm()
+
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals(
+            com.hermes.client.data.repository.SessionAccessState.OWNED_ELSEWHERE,
+            vm.sessionAccessState.value,
+        )
+
+        vm.refreshCurrentConversation()
+        advanceUntilIdle()
+
+        assertEquals(
+            com.hermes.client.data.repository.SessionAccessState.AVAILABLE,
+            vm.sessionAccessState.value,
+        )
+        coVerify(exactly = 2) { chatRepo.sessionAccess("s1", null, "s1-live") }
+    }
+
     @Test fun manualRefreshDuringARunAsksHermesAndReportsItStillRunning() = runTest {
         coEvery { sessionRepo.history("s1", null) } returns listOf(ChatMessage("u", Role.USER, "跑起来"))
+        coEvery { chatRepo.sessionAccess(any(), any(), any()) } returns
+            com.hermes.client.data.repository.SessionAccess(
+                state = com.hermes.client.data.repository.SessionAccessState.OWNED_BY_REQUESTER,
+                running = true,
+                writable = true,
+                ownerSurface = "android",
+            )
         connectionStateFlow.value = ConnectionState.Connected
         val vm = buildVm()
         vm.open("s1")

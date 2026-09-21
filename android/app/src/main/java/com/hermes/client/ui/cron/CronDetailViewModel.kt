@@ -125,8 +125,9 @@ class CronDetailViewModel @Inject constructor(
      * tap did not work when it had, and 「请查看详情后重试」 sent the user into a second tap that
      * loses the claim race against their own first run and fails with `Fire claim was not acquired`.
      *
-     * So a timeout is not the verdict; the job record is. [runStartedDespite] asks the server
-     * whether a run is now in flight, and only a timeout with nothing to show for it stays an error.
+     * So neither a timeout nor the 409 returned when a concurrent fire wins the claim is the
+     * verdict; the job record is. [runStartedDespite] asks the server whether a run is now in
+     * flight, and only a failure with nothing to show for it stays an error.
      */
     fun trigger() = viewModelScope.launch {
         val before = _state.value.job?.lastRunAt
@@ -141,7 +142,7 @@ class CronDetailViewModel @Inject constructor(
                 load(jobId)
             }
             .onFailure { error ->
-                if (error.isTimeout() && runStartedDespite(before)) {
+                if (error.isUncertainCronTrigger() && runStartedDespite(before)) {
                     _state.value = _state.value.copy(
                         message = localizedText(
                             "已触发，正在后台运行",
@@ -194,3 +195,7 @@ class CronDetailViewModel @Inject constructor(
  * runs out — which is the one a long cron run hits.
  */
 internal fun Throwable.isTimeout(): Boolean = this is java.io.InterruptedIOException
+
+/** A trigger failure whose outcome must be reconciled against the authoritative job record. */
+internal fun Throwable.isUncertainCronTrigger(): Boolean =
+    isTimeout() || (this as? HermesApiException)?.code == 409

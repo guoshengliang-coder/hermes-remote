@@ -33,7 +33,7 @@ class PendingAttachment(
     override fun hashCode() = 31 * id.hashCode() + revision
 }
 
-const val ATTACH_CAP = 6
+const val ATTACH_CAP = 9
 const val MAX_DIRECT_ATTACHMENT_BYTES = 6 * 1024 * 1024
 
 fun attachmentKind(mimeType: String, name: String): AttachmentKind = when {
@@ -51,7 +51,7 @@ fun attachmentSizeLabel(bytes: Long): String = when {
 /**
  * How many more attachments this message can take. The 「添加会话」 picker caps its selection with
  * this rather than keeping a count of its own: conversations-as-Markdown land on the same chip row
- * as photos and files, and two separate ceilings would let someone pick six conversations and only
+ * as photos and files, and two separate ceilings would let someone pick nine conversations and only
  * then be told they do not fit (HG-38).
  */
 fun remainingAttachmentSlots(staged: Int, cap: Int = ATTACH_CAP): Int = (cap - staged).coerceAtLeast(0)

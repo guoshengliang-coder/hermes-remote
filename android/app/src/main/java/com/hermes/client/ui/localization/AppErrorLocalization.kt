@@ -4,8 +4,7 @@ import com.hermes.client.data.error.AppError
 import com.hermes.client.data.error.AppErrorCode
 
 /** Product-safe error copy. Technical causes remain available only through diagnostics. */
-fun AppError.localizedMessage(language: AppLanguage): String {
-    val summary = when (code) {
+fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
         AppErrorCode.CONNECTION_FAILED ->
             localized(language, "无法连接 Relay，请重试。", "Couldn't connect to the Relay. Retry.")
         AppErrorCode.HANDSHAKE_TIMEOUT ->
@@ -218,9 +217,11 @@ fun AppError.localizedMessage(language: AppLanguage): String {
             localized(language, "这个链接无法打开。", "This link can't be opened.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
-    }
-    return "$summary (${code.value})"
 }
+
+/** Product-safe error copy including its stable code exactly once. */
+fun AppError.localizedMessage(language: AppLanguage): String =
+    "${localizedSummary(language)} (${code.value})"
 
 /**
  * The same copy as [localizedMessage], in the language-independent form a ViewModel can hold.

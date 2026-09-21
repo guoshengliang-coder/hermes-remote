@@ -66,6 +66,7 @@ import com.hermes.client.ui.components.TrashStrokeIcon
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.l10n
 import com.hermes.client.ui.localization.localizedMessage
+import com.hermes.client.ui.localization.localizedSummary
 import com.hermes.client.ui.theme.CronActionLabel
 import com.hermes.client.ui.theme.CronActionLabelSmall
 import com.hermes.client.ui.theme.CronDetailTopBarTitle
@@ -562,7 +563,7 @@ private fun CronErrorBlock(error: AppError, raw: String) {
         Column(Modifier.padding(16.dp)) {
             Text(
                 // Code first, then a short reason — never the raw body as the primary message.
-                "${error.code.value} · ${error.localizedMessage(language)}",
+                "${error.code.value} · ${error.localizedSummary(language)}",
                 style = CronFieldValue,
                 color = statusColor(StatusTone.BAD),
                 modifier = Modifier.clickable { expanded = !expanded },

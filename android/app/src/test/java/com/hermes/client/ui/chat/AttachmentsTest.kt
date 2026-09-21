@@ -20,8 +20,8 @@ class AttachmentsTest {
     @Test fun plusCapped_adds_under_cap_and_noops_at_cap() {
         val four = (0 until 4).map { att("a$it") }
         assertEquals(5, four.plusCapped(att("a4")).size)
-        val six = (0 until ATTACH_CAP).map { att("a$it") }
-        assertEquals(ATTACH_CAP, six.plusCapped(att("aX")).size) // no-op at cap
+        val full = (0 until ATTACH_CAP).map { att("a$it") }
+        assertEquals(ATTACH_CAP, full.plusCapped(att("aX")).size) // no-op at cap
     }
 
     @Test fun pendingAttachment_equality_by_id() {
@@ -41,7 +41,7 @@ class AttachmentsTest {
 
     @Test fun remaining_slots_are_shared_with_everything_already_staged() {
         assertEquals(ATTACH_CAP, remainingAttachmentSlots(0))
-        assertEquals(4, remainingAttachmentSlots(2))
+        assertEquals(ATTACH_CAP - 2, remainingAttachmentSlots(2))
         assertEquals(0, remainingAttachmentSlots(ATTACH_CAP))
         // Defensive: a list somehow past the cap must not hand out negative slots.
         assertEquals(0, remainingAttachmentSlots(ATTACH_CAP + 3))

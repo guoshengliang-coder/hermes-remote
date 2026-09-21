@@ -1,14 +1,23 @@
 package com.hermes.client.ui.chat
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
+import android.util.LruCache
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -30,9 +40,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,9 +61,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -66,6 +78,7 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 internal data class GalleryPhoto(
     val uri: String,
@@ -132,7 +145,12 @@ internal fun GalleryPermissionState(
 ) {
     val language = LocalAppLanguage.current
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-        GalleryTopBar(localized(language, "选择照片", "Choose photos"), onCancel)
+        GalleryTopBar(
+            title = localized(language, "选择照片", "Choose photos"),
+            albumsOpen = false,
+            onClose = onCancel,
+            onToggleAlbums = null,
+        )
         Column(
             Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center,
@@ -184,31 +202,26 @@ private fun GalleryContent(
     var albumId by rememberSaveable { mutableStateOf<String?>(null) }
     var previewUri by rememberSaveable { mutableStateOf<String?>(null) }
 
-    BackHandler { if (previewUri != null) previewUri = null else onCancel() }
+    BackHandler {
+        when {
+            previewUri != null -> previewUri = null
+            albumsMode -> albumsMode = false
+            else -> onCancel()
+        }
+    }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        val currentAlbumName = (loaded as? GalleryLoadState.Loaded)?.photos
+            ?.firstOrNull { it.albumId == albumId }?.albumName
         GalleryTopBar(
-            when {
-                albumId != null -> (loaded as? GalleryLoadState.Loaded)?.photos?.firstOrNull { it.albumId == albumId }?.albumName.orEmpty()
-                else -> localized(language, "选择照片", "Choose photos")
-            },
-            onBack = { if (albumId != null) albumId = null else onCancel() },
+            title = currentAlbumName?.ifBlank { null }
+                ?: localized(language, "所有照片", "All photos"),
+            albumsOpen = albumsMode,
+            onClose = onCancel,
+            onToggleAlbums = { albumsMode = !albumsMode },
         )
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = !albumsMode,
-                onClick = { albumsMode = false; albumId = null },
-                label = { Text(localized(language, "最近", "Recent")) },
-            )
-            FilterChip(
-                selected = albumsMode,
-                onClick = { albumsMode = true; albumId = null },
-                label = { Text(localized(language, "相册", "Albums")) },
-            )
-            Spacer(Modifier.weight(1f))
-            if (limitedAccess) {
+        if (limitedAccess) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                Spacer(Modifier.weight(1f))
                 OutlinedButton(onClick = onRequestAccess) {
                     Text(localized(language, "选择更多", "Select more"))
                 }
@@ -228,7 +241,15 @@ private fun GalleryContent(
                             title = localized(language, "没有可用照片", "No photos available"),
                             subtitle = if (limitedAccess) localized(language, "点“选择更多”添加可访问的照片。", "Use Select more to add accessible photos.") else null,
                         )
-                        albumsMode && albumId == null -> AlbumGrid(galleryAlbums(state.photos)) { albumId = it }
+                        albumsMode -> AlbumList(
+                            albums = galleryAlbums(state.photos),
+                            totalCount = state.photos.size,
+                            allPhotosCover = state.photos.first().uri,
+                            onOpen = {
+                                albumId = it
+                                albumsMode = false
+                            },
+                        )
                         else -> PhotoGrid(photos, selected, selectionCap) { uri ->
                             selected = toggleGallerySelection(selected, uri, selectionCap)
                         }
@@ -289,26 +310,58 @@ private fun GalleryContent(
 }
 
 @Composable
-private fun GalleryTopBar(title: String, onBack: () -> Unit) {
+private fun GalleryTopBar(
+    title: String,
+    albumsOpen: Boolean,
+    onClose: () -> Unit,
+    onToggleAlbums: (() -> Unit)?,
+) {
     val language = LocalAppLanguage.current
-    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Rounded.ArrowBack, localized(language, "返回", "Back"))
+    Box(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp)) {
+        IconButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterStart)) {
+            Icon(Icons.Rounded.Close, localized(language, "关闭", "Close"))
         }
-        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp))
+        Row(
+            Modifier.align(Alignment.Center)
+                .then(if (onToggleAlbums != null) Modifier.clickable(onClick = onToggleAlbums) else Modifier)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (onToggleAlbums != null) {
+                Icon(
+                    Icons.Rounded.ArrowDropDown,
+                    contentDescription = if (albumsOpen) localized(language, "收起相册", "Hide albums")
+                    else localized(language, "选择相册", "Choose album"),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun PhotoGrid(photos: List<GalleryPhoto>, selected: List<String>, cap: Int, onToggle: (String) -> Unit) {
-    LazyVerticalGrid(columns = GridCells.Fixed(3), modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    val density = LocalDensity.current
+    val tilePx = with(density) {
+        (LocalConfiguration.current.screenWidthDp.dp / 4).roundToPx()
+    }.coerceAtLeast(1)
+    LazyVerticalGrid(columns = GridCells.Fixed(4), modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(photos, key = { it.uri }) { photo ->
             val order = selected.indexOf(photo.uri)
-            Box(Modifier.fillMaxWidth().height(126.dp).clickable(enabled = order >= 0 || selected.size < cap) { onToggle(photo.uri) }) {
-                GalleryThumbnail(photo.uri, Modifier.fillMaxSize())
+            Box(Modifier.fillMaxWidth().aspectRatio(1f).clickable(enabled = order >= 0 || selected.size < cap) { onToggle(photo.uri) }) {
+                GalleryThumbnail(photo.uri, Modifier.fillMaxSize(), requestedPx = tilePx)
                 if (order >= 0) {
                     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)))
-                    Text("${order + 1}", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.TopEnd).padding(7.dp).background(MaterialTheme.colorScheme.primary, CircleShape).padding(horizontal = 7.dp, vertical = 3.dp)) // l10n-allow: selection ordinal
+                    Text(
+                        "${order + 1}",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
+                            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                    ) // l10n-allow: selection ordinal
                 }
             }
         }
@@ -316,17 +369,40 @@ private fun PhotoGrid(photos: List<GalleryPhoto>, selected: List<String>, cap: I
 }
 
 @Composable
-private fun AlbumGrid(albums: List<GalleryAlbum>, onOpen: (String) -> Unit) {
-    LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        items(albums, key = { it.id }) { album ->
-            Column(Modifier.clickable { onOpen(album.id) }) {
-                GalleryThumbnail(album.coverUri, Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(12.dp)))
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(album.name.ifBlank { localized(LocalAppLanguage.current, "图片", "Pictures") }, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text("${album.count}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) // l10n-allow: album item count
+private fun AlbumList(
+    albums: List<GalleryAlbum>,
+    totalCount: Int,
+    allPhotosCover: String,
+    onOpen: (String?) -> Unit,
+) {
+    val language = LocalAppLanguage.current
+    val rows = listOf(GalleryAlbum("", localized(language, "所有照片", "All photos"), allPhotosCover, totalCount)) + albums
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
+        items(rows, key = { "album:${it.id}" }) { album ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpen(album.id.ifBlank { null }) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                GalleryThumbnail(
+                    album.coverUri,
+                    Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)),
+                    requestedPx = 256,
+                )
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(
+                        album.name.ifBlank { localized(language, "图片", "Pictures") },
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "${album.count}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ) // l10n-allow: album item count
                 }
+                Icon(Icons.Rounded.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -340,21 +416,109 @@ private fun GalleryThumbnail(
     contentScale: ContentScale = ContentScale.Crop,
 ) {
     val resolver = androidx.compose.ui.platform.LocalContext.current.contentResolver
-    val bitmap by produceState<ImageBitmap?>(null, uri, requestedPx) {
-        value = withContext(Dispatchers.IO) { decodeGalleryBitmap(resolver, Uri.parse(uri), requestedPx) }
+    val crop = contentScale == ContentScale.Crop
+    val cacheKey = "$uri#$requestedPx#$crop"
+    val bitmap by produceState<Bitmap?>(GalleryBitmapCache.get(cacheKey), uri, requestedPx, crop) {
+        value = withContext(Dispatchers.IO) {
+            GalleryBitmapCache.get(cacheKey) ?: decodeGalleryBitmap(resolver, Uri.parse(uri), requestedPx, crop)
+                ?.also { GalleryBitmapCache.put(cacheKey, it) }
+        }
     }
     val image = bitmap
     if (image == null) Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant))
-    else Image(image, contentDescription = null, modifier = modifier, contentScale = contentScale)
+    else Image(image.asImageBitmap(), contentDescription = null, modifier = modifier, contentScale = contentScale)
 }
 
-private fun decodeGalleryBitmap(resolver: android.content.ContentResolver, uri: Uri, requestedPx: Int): ImageBitmap? = runCatching {
+private object GalleryBitmapCache : LruCache<String, Bitmap>(24 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
+}
+
+internal fun gallerySampleSize(width: Int, height: Int, requestedPx: Int, crop: Boolean = true): Int {
+    if (width <= 0 || height <= 0 || requestedPx <= 0) return 1
+    var sample = 1
+    val edge = if (crop) minOf(width, height) else maxOf(width, height)
+    while (edge / (sample * 2) >= requestedPx) sample *= 2
+    return sample
+}
+
+internal fun galleryTargetSize(width: Int, height: Int, requestedPx: Int): Pair<Int, Int> {
+    val longEdge = maxOf(width, height)
+    if (width <= 0 || height <= 0 || requestedPx <= 0 || longEdge <= requestedPx) return width to height
+    val scale = requestedPx.toFloat() / longEdge.toFloat()
+    return (width * scale).roundToInt().coerceAtLeast(1) to
+        (height * scale).roundToInt().coerceAtLeast(1)
+}
+
+private fun decodeGalleryBitmap(
+    resolver: android.content.ContentResolver,
+    uri: Uri,
+    requestedPx: Int,
+    crop: Boolean,
+): Bitmap? = runCatching {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val source = ImageDecoder.createSource(resolver, uri)
+        return@runCatching ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            if (crop) {
+                val edge = minOf(info.size.width, info.size.height)
+                val left = (info.size.width - edge) / 2
+                val top = (info.size.height - edge) / 2
+                decoder.setCrop(android.graphics.Rect(left, top, left + edge, top + edge))
+                val target = minOf(requestedPx, edge).coerceAtLeast(1)
+                decoder.setTargetSize(target, target)
+            } else {
+                val (width, height) = galleryTargetSize(info.size.width, info.size.height, requestedPx)
+                decoder.setTargetSize(width, height)
+            }
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+    }
+
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-    var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > requestedPx) sample *= 2
-    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }?.asImageBitmap()
+    val decoded = resolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(
+            it,
+            null,
+            BitmapFactory.Options().apply {
+                inSampleSize = gallerySampleSize(bounds.outWidth, bounds.outHeight, requestedPx, crop)
+            },
+        )
+    } ?: return@runCatching null
+    val orientation = resolver.openInputStream(uri)?.use {
+        ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+    } ?: ExifInterface.ORIENTATION_NORMAL
+    val matrix = Matrix().apply {
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                setRotate(180f)
+                postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                setRotate(90f)
+                postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                setRotate(-90f)
+                postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> setRotate(-90f)
+        }
+    }
+    if (orientation == ExifInterface.ORIENTATION_NORMAL || orientation == ExifInterface.ORIENTATION_UNDEFINED) {
+        decoded
+    } else Bitmap.createBitmap(
+        decoded,
+        0,
+        0,
+        decoded.width,
+        decoded.height,
+        matrix,
+        true,
+    ).also { if (it !== decoded) decoded.recycle() }
 }.getOrNull()
 
 private fun queryGalleryPhotos(context: Context): List<GalleryPhoto> {

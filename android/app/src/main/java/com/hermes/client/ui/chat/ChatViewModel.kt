@@ -1065,6 +1065,14 @@ class ChatViewModel @Inject constructor(
                         .map { it[key]?.let { r -> r.phase.isActive || r.chat.isGenerating } == true }
                         .first { it != wasActive }
                 }
+                // The ownership lease can change without changing the transcript or the runtime
+                // phase. Refreshing only resume/history left an occupied composer stuck read-only
+                // until the app foregrounded or the socket reconnected (HG-82/HG-88).
+                refreshSessionAccess(
+                    id,
+                    profile,
+                    runtimeStore.runtimes.value[key]?.liveHandle,
+                )
                 val rawHistory = sessions.history(id, profile, currentDeviceId)
                 val organizedHistory = withContext(defaultDispatcher) {
                     rawHistory.map { it.organizedForDisplay() }
@@ -1747,8 +1755,13 @@ class ChatViewModel @Inject constructor(
             val access = chat.sessionAccess(storedId, profile, liveHandle)
             if (this.storedSessionId != storedId) return
             _sessionAccessState.value = access.state
-            runtimeKey?.takeIf { it.sessionId == storedId }?.let { key ->
-                runtimeStore.applyAuthoritativeAccess(key, access, cause = "chat:session.access")
+            // UNKNOWN is the fail-open compatibility answer, not evidence that an active run
+            // stopped. Applying it to the runtime would let an old/partial Hermes erase a live
+            // streaming state during a manual refresh.
+            if (access.state != SessionAccessState.UNKNOWN) {
+                runtimeKey?.takeIf { it.sessionId == storedId }?.let { key ->
+                    runtimeStore.applyAuthoritativeAccess(key, access, cause = "chat:session.access")
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled

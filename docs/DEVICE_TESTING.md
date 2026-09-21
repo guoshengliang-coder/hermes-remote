@@ -179,6 +179,11 @@ adb -s <serial> exec-out screencap -p > screen.png
   会话各自的历史。所以刚起完开发栈、一条消息都没发时，任何会话的历史都是空的 —— 这时去验
   「添加会话」（HG-38）会看到零个 chip 加一条 `HR-SESS-014`，那是 mock 没内容，不是 App 的 bug。
   **先随便发一条消息**，之后每个会话的 `/messages` 才有东西可返回。
+- 验证另一个客户端占用会话时，用
+  `HR_MOCK_SESSION_OWNED_ELSEWHERE=1 ./scripts/dev/dev-stack.sh start`。mock 的 `session.access`
+  会返回 `owned_elsewhere + running=true + owner_surface=desktop`，用于检查 `HR-SESS-013` 输入区替换、
+  草稿/附件保留与重试入口；默认值按 `streamRun` 的实际生命周期回答
+  `owned_by_requester + running`，所以同一条「重试」也能验证释放后恢复。
 - **`file.attach` / `image.attach` / `pdf.attach` 2026-09-12 才补进 mock。** 在那之前它们落到
   兜底分支、只回 `{ok:true}`，而客户端读不到 `ref_text` 就抛错 —— 于是**本地发任何带附件的消息
   都会失败**，气泡停在「未发送 · SESS-007」，看上去完全像 App 的 bug。要验附件相关的东西，先确认
