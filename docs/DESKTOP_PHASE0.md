@@ -906,8 +906,9 @@ flight. Desktop's refresh loop (every 15 s) decides, from `DesktopHermesRuntimeP
   as stale. It needs the record to have been lost, so it is rare, and it is the only case where a
   timestamp alone leads to a restart.
 - **Not running** — launchd answers that the job has no process, or the job is not loaded — is
-  restarted, at most three times in 30 minutes; after that the restarts pause and `HR-MIGRATE-009`
-  says the owner's Hermes keeps stopping. An answer that cannot be read changes nothing, so a
+  restarted at once, whatever the venv looks like (leaving it down is never better for the phone), at
+  most three times in 30 minutes; after that the restarts pause and `HR-MIGRATE-009` says the owner's
+  Hermes keeps stopping. An answer that cannot be read changes nothing, so a
   broken probe can never become a restart on every refresh.
 - **Arguments differ from the agent file** — launchd's loaded `arguments` are not the file's
   `ProgramArguments`, because Desktop stopped between writing the file and restarting — the file is
@@ -916,9 +917,20 @@ flight. Desktop's refresh loop (every 15 s) decides, from `DesktopHermesRuntimeP
   is younger than upstream's own 20-minute ceiling (nothing seen mid-update — a missing entrypoint, a
   rewritten `HEAD` — is reported either); for 60 s after the checkout moves; and while the venv's
   installed `hermes_agent-*.dist-info` version differs from the checkout's `__version__`, i.e. a
-  `git pull` or `git checkout` whose dependencies have not been reinstalled. That last check runs no
-  Hermes code, so a pull that changes dependencies without bumping the version passes it; `hermes
-  update` always reinstalls, and it holds the lock while it does.
+  `git pull` or `git checkout` whose dependencies have not been reinstalled. That gate applies only to
+  starting *new* code — a switch, or replacing a running process on a commit change — never to
+  starting a stopped one. A mismatch still there ten minutes after the checkout moved is shown
+  (`HR-MIGRATE-008`, `reason=dependenciesInconsistent`); zero or several `hermes_agent` dist-info
+  (read in sorted order) is shown at once. The check runs no Hermes code, so a pull that changes
+  dependencies without bumping the version passes it; `hermes update` always reinstalls, and it
+  holds the lock while it does.
+- **Repeated failures pause.** A switch that fails twice on the same commit (for example a Hermes
+  that never prints `HERMES_BACKEND_READY` within the readiness window — each attempt costs the phone
+  its Hermes for minutes) stops being retried until the commit changes or the setting is turned off
+  and on. With the setting off, a return to the bundled copy that fails twice with the same kept
+  agent stops until that agent changes or the setting is turned on; the owner's Hermes keeps running.
+  Both are shown as non-retryable `HR-MIGRATE-011`. Failures are kept in
+  `Managed/state/local-hermes-runtime-failures.json`.
 
 This checkout has other branches (`codex`, `feat`) and agents do run `git checkout` in it. The policy
 is deliberate: the phone runs **whatever commit is checked out**, once it has been stable for 60 s
@@ -955,7 +967,11 @@ again next time.
   the program and Python runtime it names still exist; otherwise non-retryable `HR-MIGRATE-010`.
 - **Setting off costs nothing**: while it is off, the refresh reads only the agent's first program
   argument; no detection, no `launchctl`, and no error can surface — unless that argument is the
-  local launcher, which is the rollback case.
+  local launcher, which is the rollback case. The one exception is a single `launchctl print` per
+  Desktop launch, comparing the running arguments with the agent file, so a rollback interrupted
+  between writing the file and restarting is finished by reloading the agent rather than waiting
+  for the next login. With the setting off and no usable kept agent while the owner's Hermes is
+  intact, `HR-MIGRATE-012` says so — distinct from `HR-MIGRATE-010`, where Hermes is actually gone.
 - **Upgrade**: a managed upgrade on a local-mode Mac keeps the local agent and moves only the
   Connector (and `current`). The new release's bundled agent is written into the kept backup, so a
   later fallback runs the release that is installed rather than a component that may have been

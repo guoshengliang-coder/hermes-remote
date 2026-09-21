@@ -79,6 +79,9 @@ final class DesktopViewModel: ObservableObject {
     /// every 15-second refresh while the owner's install is broken.
     private var hermesRuntimeRetryAfter: Date?
     private static let hermesRuntimeRetryInterval: TimeInterval = 5 * 60
+    /// With the setting off, launchd's running arguments are compared with the agent file once per
+    /// launch, to finish a rollback that was interrupted between writing the file and restarting.
+    private var hasCheckedRunningAgentWhileDisabled = false
 
     init(profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore()) {
         self.profileStore = profileStore
@@ -725,8 +728,17 @@ final class DesktopViewModel: ObservableObject {
         // Setting off: no detection, no launchctl, no errors — unless this Mac is actually in local
         // mode, which is the rollback case.
         guard enabled || runtime.hermesAgentLooksLocal else {
-            localHermesIssue = nil
+            let checkRunningAgent = !hasCheckedRunningAgentWhileDisabled
+            hasCheckedRunningAgentWhileDisabled = true
             hermesRuntimeRetryAfter = nil
+            do {
+                _ = try await Task.detached(priority: .utility) {
+                    try await runtime.reconcileWhileDisabled(detector: detector, checkRunningAgent: checkRunningAgent)
+                }.value
+                localHermesIssue = nil
+            } catch {
+                localHermesIssue = DesktopIssue.hermesRuntimeFailure(error)
+            }
             return
         }
         do {

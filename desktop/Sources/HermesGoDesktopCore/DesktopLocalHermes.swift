@@ -75,8 +75,8 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
     /// When the checkout last moved: the newest modification time among the git files `HEAD` was
     /// resolved through. `git pull`, `git checkout` and `hermes update` all rewrite one of them.
     public let identityChangedAt: Date
-    /// The `hermes_agent` version installed in the checkout's venv (`*.dist-info`), nil if none.
-    public let installedVersion: String?
+    /// What the checkout's venv says is installed (`hermes_agent-*.dist-info`).
+    public let installedDistribution: DesktopLocalHermesInstalledDistribution
 
     public init(
         executable: URL,
@@ -85,7 +85,7 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
         commit: String,
         version: String,
         identityChangedAt: Date,
-        installedVersion: String? = nil
+        installedDistribution: DesktopLocalHermesInstalledDistribution? = nil
     ) {
         self.executable = executable
         self.checkoutRoot = checkoutRoot
@@ -93,16 +93,32 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
         self.commit = commit
         self.version = version
         self.identityChangedAt = identityChangedAt
-        self.installedVersion = installedVersion ?? version
+        self.installedDistribution = installedDistribution ?? .version(version)
     }
 
     /// Whether the venv was installed for the code on disk, as far as files can tell: the installed
     /// distribution's version equals the checkout's `__version__`. A `git pull` that bumps the
     /// version before dependencies are reinstalled fails this. A pull that changes dependencies
     /// without a version bump does not — that is the limit of a check that runs no Hermes code.
-    public var dependenciesConsistent: Bool { installedVersion == version }
+    public var dependenciesConsistent: Bool { installedDistribution == .version(version) }
 
     public var shortCommit: String { String(commit.prefix(8)) }
+}
+
+/// What the venv records as installed. Anything but exactly one distribution is an inconsistency
+/// the owner has to resolve; it is never guessed around.
+public enum DesktopLocalHermesInstalledDistribution: Equatable, Sendable {
+    case version(String)
+    case missing
+    case multiple([String])
+
+    public var summary: String {
+        switch self {
+        case .version(let version): "installed \(version)"
+        case .missing: "no hermes_agent dist-info in the venv"
+        case .multiple(let versions): "several hermes_agent dist-info in the venv: \(versions.joined(separator: ", "))"
+        }
+    }
 }
 
 public enum DesktopLocalHermesUnsupportedReason: String, Equatable, Sendable {
@@ -214,7 +230,7 @@ public struct DesktopLocalHermesDetector: Sendable {
             commit: identity.commit,
             version: version,
             identityChangedAt: identity.changedAt,
-            installedVersion: readInstalledVersion() ?? ""
+            installedDistribution: readInstalledDistribution()
         ))
     }
 
@@ -335,17 +351,24 @@ public struct DesktopLocalHermesDetector: Sendable {
         return String(text[range])
     }
 
-    private func readInstalledVersion() -> String? {
+    /// Every `hermes_agent-*.dist-info` in every `venv/lib/python*/site-packages`, sorted, so the
+    /// answer does not depend on directory order. Zero or several is itself the finding.
+    private func readInstalledDistribution() -> DesktopLocalHermesInstalledDistribution {
         let lib = paths.checkoutRoot.appendingPathComponent("venv/lib", isDirectory: true)
-        guard let pythons = try? FileManager.default.contentsOfDirectory(atPath: lib.path) else { return nil }
+        var versions: [String] = []
+        let pythons = (try? FileManager.default.contentsOfDirectory(atPath: lib.path)) ?? []
         for python in pythons.sorted() where python.hasPrefix("python") {
             let sitePackages = lib.appendingPathComponent(python).appendingPathComponent("site-packages")
-            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: sitePackages.path) else { continue }
-            for entry in entries where entry.hasPrefix("hermes_agent-") && entry.hasSuffix(".dist-info") {
-                return String(entry.dropFirst("hermes_agent-".count).dropLast(".dist-info".count))
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: sitePackages.path)) ?? []
+            for entry in entries.sorted() where entry.hasPrefix("hermes_agent-") && entry.hasSuffix(".dist-info") {
+                versions.append(String(entry.dropFirst("hermes_agent-".count).dropLast(".dist-info".count)))
             }
         }
-        return nil
+        switch versions.count {
+        case 0: return .missing
+        case 1: return .version(versions[0])
+        default: return .multiple(versions)
+        }
     }
 
     // MARK: - Owner LaunchAgents

@@ -29,6 +29,19 @@ final class DesktopLocalHermesDetectorTests: XCTestCase {
         XCTAssertEqual(installation.identityChangedAt.timeIntervalSince1970, changed.timeIntervalSince1970, accuracy: 1)
     }
 
+    func testTheInstalledDistributionIsReadDeterministically() throws {
+        let home = try LocalHermesHome()
+        XCTAssertEqual(home.detect().installation?.installedDistribution, .version("0.21.3"))
+        XCTAssertEqual(home.detect().installation?.dependenciesConsistent, true)
+
+        try home.write(".hermes/hermes-agent/venv/lib/python3.11/site-packages/hermes_agent-0.21.2.dist-info/METADATA", "")
+        XCTAssertEqual(home.detect().installation?.installedDistribution, .multiple(["0.21.2", "0.21.3"]))
+
+        try FileManager.default.removeItem(atPath: home.path(".hermes/hermes-agent/venv/lib"))
+        XCTAssertEqual(home.detect().installation?.installedDistribution, .missing)
+        XCTAssertEqual(home.detect().installation?.dependenciesConsistent, false)
+    }
+
     func testAPackedRefIsResolved() throws {
         let home = try LocalHermesHome()
         try FileManager.default.removeItem(atPath: home.path(".hermes/hermes-agent/.git/refs/heads/main"))
@@ -199,7 +212,7 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
     private func installation(
         commit: String = "b",
         changedSecondsAgo: TimeInterval = 3_600,
-        installedVersion: String? = nil
+        installed: DesktopLocalHermesInstalledDistribution? = nil
     ) -> DesktopLocalHermesInstallation {
         DesktopLocalHermesInstallation(
             executable: executable,
@@ -208,7 +221,7 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
             commit: String(repeating: commit, count: 40),
             version: "0.21.3",
             identityChangedAt: now.addingTimeInterval(-changedSecondsAgo),
-            installedVersion: installedVersion
+            installedDistribution: installed
         )
     }
 
@@ -238,7 +251,9 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
         service: DesktopHermesServiceProcess? = nil,
         agentArguments: [String]? = nil,
         record: DesktopLocalHermesRuntimeRecord? = nil,
-        fallback: Bool = true
+        fallback: Bool = true,
+        failures: DesktopHermesRuntimeFailures = DesktopHermesRuntimeFailures(),
+        backupDigest: String? = "kept-1"
     ) -> DesktopHermesRuntimePlan {
         DesktopHermesRuntimePlanner.plan(DesktopHermesRuntimeObservation(
             enabled: enabled,
@@ -252,6 +267,8 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
             agentArguments: agentArguments,
             record: record,
             bundledFallbackAvailable: fallback,
+            failures: failures,
+            bundledBackupDigest: backupDigest,
             now: now
         ))
     }
@@ -270,10 +287,45 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
 
     func testTurningTheSettingOffReturnsALocalMacToBundled() {
         XCTAssertEqual(plan(.usable(installation()), mode: local, enabled: false), .restoreBundled(localUsable: true))
+        // Nothing was removed: the owner's Hermes is intact, only the kept agent is unusable.
         XCTAssertEqual(
             plan(.usable(installation()), mode: local, enabled: false, fallback: false),
+            .surface(.bundledFallbackUnavailableLocalIntact)
+        )
+        XCTAssertEqual(
+            plan(.absent(hermesDataPresent: true), mode: local, enabled: false, fallback: false),
             .surface(.localHermesMissingWithoutFallback)
         )
+    }
+
+    /// Re-review A: a local Hermes that never becomes ready must not cost the phone its Hermes
+    /// every five minutes forever.
+    func testRepeatedlyFailedSwitchesPauseUntilTheCommitChanges() {
+        let usable = installation()
+        let once = DesktopHermesRuntimeFailures().recordingSwitchFailure(commit: usable.commit)
+        XCTAssertEqual(plan(.usable(usable), failures: once), .switchToLocal(usable), "one failure may be transient")
+        let twice = once.recordingSwitchFailure(commit: usable.commit)
+        XCTAssertEqual(plan(.usable(usable), failures: twice), .surface(.switchToLocalPaused(commit: usable.commit, failures: 2)))
+        let updated = installation(commit: "c")
+        XCTAssertEqual(plan(.usable(updated), failures: twice), .switchToLocal(updated))
+        XCTAssertEqual(twice.clearingSwitch.switchFailures, 0)
+    }
+
+    /// Re-review B: a bundled copy that cannot start must not be retried every five minutes with the
+    /// setting off, each time stopping the working local Hermes.
+    func testRepeatedlyFailedRollbacksPauseUntilTheKeptAgentChanges() {
+        let failed = DesktopHermesRuntimeFailures()
+            .recordingRestoreFailure(backupDigest: "kept-1")
+            .recordingRestoreFailure(backupDigest: "kept-1")
+        XCTAssertEqual(
+            plan(.usable(installation()), mode: local, enabled: false, failures: failed),
+            .surface(.restoreBundledPaused(failures: 2))
+        )
+        XCTAssertEqual(
+            plan(.usable(installation()), mode: local, enabled: false, failures: failed, backupDigest: "kept-2"),
+            .restoreBundled(localUsable: true)
+        )
+        XCTAssertEqual(failed.clearingRestore.restoreFailures, 0)
     }
 
     func testAnUpdateInProgressIsWaitedOut() {
@@ -299,8 +351,41 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
 
     /// Review item 9: a pulled tree whose venv was not reinstalled is not restarted into, because a
     /// failed restart onto new code has nothing to roll back to.
+    /// Re-review C: a stopped Hermes is started again even after a `git pull` without reinstall —
+    /// leaving it down forever with nothing shown was a regression.
+    func testAStoppedHermesIsRestartedWhateverItsVenvSays() {
+        let pulled = installation(changedSecondsAgo: 30, installed: .version("0.21.2"))
+        XCTAssertEqual(plan(.usable(pulled), mode: local, startedSecondsAgo: nil), .restartLocal(pulled, .notRunning))
+        XCTAssertEqual(
+            plan(.usable(installation(installed: .missing)), mode: local, service: .notLoaded),
+            .restartLocal(installation(installed: .missing), .notRunning)
+        )
+    }
+
+    func testADependencyMismatchIsShownOnceItPersists() {
+        let pulled = installation(changedSecondsAgo: 11 * 60, installed: .version("0.21.2"))
+        XCTAssertEqual(
+            plan(.usable(pulled), mode: local, startedSecondsAgo: 20 * 60,
+                 record: record(commit: "a", launchedSecondsAgo: 1_201, startedSecondsAgo: 1_200)),
+            .surface(.dependenciesInconsistent(detail: "checkout 0.21.3, installed 0.21.2"))
+        )
+    }
+
+    func testAMissingOrDuplicatedDistInfoIsShownAtOnce() {
+        let missing = installation(changedSecondsAgo: 120, installed: .missing)
+        XCTAssertEqual(
+            plan(.usable(missing)),
+            .surface(.dependenciesInconsistent(detail: "checkout 0.21.3, no hermes_agent dist-info in the venv"))
+        )
+        let several = installation(changedSecondsAgo: 120, installed: .multiple(["0.21.2", "0.21.3"]))
+        XCTAssertEqual(
+            plan(.usable(several)),
+            .surface(.dependenciesInconsistent(detail: "checkout 0.21.3, several hermes_agent dist-info in the venv: 0.21.2, 0.21.3"))
+        )
+    }
+
     func testCodeWhoseDependenciesWereNotReinstalledIsWaitedFor() {
-        let pulled = installation(changedSecondsAgo: 300, installedVersion: "0.21.2")
+        let pulled = installation(changedSecondsAgo: 300, installed: .version("0.21.2"))
         XCTAssertFalse(pulled.dependenciesConsistent)
         XCTAssertEqual(plan(.usable(pulled)), .wait(.dependenciesPending))
         XCTAssertEqual(
@@ -612,6 +697,24 @@ final class DesktopLocalHermesPresentationTests: XCTestCase {
         )
     }
 
+    func testPausedAndFallbackUnavailableAreRegisteredNonRetryableCodes() {
+        let paused = DesktopIssue.hermesRuntime(.unchanged(.surface(.switchToLocalPaused(commit: String(repeating: "a", count: 40), failures: 2))))
+        XCTAssertEqual(paused?.code.rawValue, "HR-MIGRATE-011")
+        XCTAssertEqual(paused?.retryable, false)
+        XCTAssertTrue(paused?.detailChinese.contains("暂停") == true)
+        XCTAssertTrue(paused?.detailEnglish.contains("paused") == true)
+        XCTAssertEqual(DesktopIssue.hermesRuntime(.unchanged(.surface(.restoreBundledPaused(failures: 2))))?.code, .localHermesRuntimePaused)
+        let intact = DesktopIssue.hermesRuntime(.unchanged(.surface(.bundledFallbackUnavailableLocalIntact)))
+        XCTAssertEqual(intact?.code.rawValue, "HR-MIGRATE-012")
+        XCTAssertEqual(intact?.retryable, false)
+        XCTAssertFalse(intact?.detailChinese.contains("已被移除") == true, "nothing was removed in this case")
+        XCTAssertTrue(intact?.detailEnglish.contains("keeps using this Mac's own Hermes") == true)
+        XCTAssertEqual(
+            DesktopIssue.hermesRuntime(.unchanged(.surface(.dependenciesInconsistent(detail: "x"))))?.code,
+            .localHermesUnsupported
+        )
+    }
+
     /// Item 12: detection details name paths under a person's home; diagnostics must not.
     func testDiagnosticsDoNotCarryTheHomeDirectoryName() {
         let issue = DesktopIssue(
@@ -696,6 +799,10 @@ final class LocalHermesWiringTests: XCTestCase {
             model.contains("guard enabled || runtime.hermesAgentLooksLocal else"),
             "with the setting off the refresh must not detect, ask launchd, or report errors"
         )
+        XCTAssertTrue(
+            model.contains("runtime.reconcileWhileDisabled(detector: detector, checkRunningAgent: checkRunningAgent)"),
+            "with the setting off, an interrupted rollback is never finished"
+        )
         XCTAssertTrue(model.contains("runtime.reconcileHermesRuntime(detector: detector, enabled: enabled)"))
         XCTAssertTrue(model.contains("localHermesInstallBlock(for: installation)"), "fresh managed install is not gated")
         XCTAssertTrue(model.contains("localHermesInstallBlock(for: machine.installation)"), "fresh component install is not gated")
@@ -729,6 +836,7 @@ private final class LocalHermesHome {
         try write(".hermes/hermes-agent/.git/refs/heads/main", Self.commit + "\n")
         try write(".hermes/hermes-agent/hermes_cli/__init__.py", "\"\"\"Hermes.\"\"\"\n\n__version__ = \"\(version)\"\n")
         try write(".hermes/hermes-agent/venv/bin/hermes", "#!/usr/bin/env python3\n", mode: 0o755)
+        try write(".hermes/hermes-agent/venv/lib/python3.11/site-packages/hermes_agent-\(version).dist-info/METADATA", "")
     }
 
     deinit { try? FileManager.default.removeItem(at: root) }

@@ -1537,6 +1537,66 @@ final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(record.processStartedAt?.timeIntervalSince1970 ?? 0, started.timeIntervalSince1970, accuracy: 0.001)
     }
 
+    /// Re-review A: two switches that never become ready pause switching, and the phone keeps the
+    /// bundled Hermes instead of losing it every five minutes.
+    func testRepeatedlyFailedSwitchesStopTouchingTheService() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true, hermesReadinessResponses: [false, true, false, true])
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let local = fixture.localInstallation()
+        for _ in 0..<2 {
+            await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileHermesRuntime {
+                try fixture.runtimeObservation(.usable(local))
+            })
+        }
+        XCTAssertEqual(fixture.installer.readHermesRuntimeFailures().switchFailures, 2)
+        let mutations = fixture.serviceMutations().count
+
+        let result = try await fixture.coordinator.reconcileHermesRuntime { try fixture.runtimeObservation(.usable(local)) }
+
+        XCTAssertEqual(result, .unchanged(.surface(.switchToLocalPaused(commit: local.commit, failures: 2))))
+        XCTAssertEqual(fixture.serviceMutations().count, mutations)
+        XCTAssertEqual(try fixture.installer.currentHermesRuntimeMode(), .bundled)
+
+        // Turning the setting off is the owner's reset.
+        _ = try await fixture.coordinator.reconcileHermesRuntime { try fixture.runtimeObservation(.usable(local), enabled: false) }
+        XCTAssertEqual(fixture.installer.readHermesRuntimeFailures().switchFailures, 0)
+    }
+
+    /// Re-review B: with the setting off and a bundled copy that cannot start, the rollback is
+    /// attempted twice and then left alone, with the owner's Hermes running.
+    func testRepeatedlyFailedRollbacksStopStoppingTheLocalHermes() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            hermesReadinessResponses: [true, false, true, false, true]
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        try fixture.stageBundledExecutable()
+        let local = fixture.localInstallation()
+        _ = try await fixture.coordinator.reconcileHermesRuntime { try fixture.runtimeObservation(.usable(local)) }
+        for _ in 0..<2 {
+            await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileHermesRuntime {
+                try fixture.runtimeObservation(.usable(local), enabled: false)
+            })
+        }
+        let mutations = fixture.serviceMutations().count
+
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(local), enabled: false)
+        }
+
+        XCTAssertEqual(result, .unchanged(.surface(.restoreBundledPaused(failures: 2))))
+        XCTAssertEqual(fixture.serviceMutations().count, mutations)
+        XCTAssertTrue(try fixture.installer.currentHermesRuntimeMode().isLocal)
+        XCTAssertTrue(fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel))
+
+        // Turning the setting back on forgets it.
+        _ = try await fixture.coordinator.reconcileHermesRuntime { try fixture.runtimeObservation(.usable(local)) }
+        XCTAssertEqual(fixture.installer.readHermesRuntimeFailures().restoreFailures, 0)
+    }
+
     /// An upgrade must not quietly put the bundled Hermes back on a Mac running its own.
     func testAManagedUpgradeKeepsLocalHermes() async throws {
         let fixture = try Fixture(
@@ -1609,6 +1669,8 @@ private extension Fixture {
             agentArguments: installer.hermesAgentProgramArguments,
             record: installer.readLocalHermesRuntimeRecord(),
             bundledFallbackAvailable: installer.bundledHermesFallbackAvailable,
+            failures: installer.readHermesRuntimeFailures(),
+            bundledBackupDigest: installer.bundledHermesBackupDigest,
             now: Date()
         )
     }

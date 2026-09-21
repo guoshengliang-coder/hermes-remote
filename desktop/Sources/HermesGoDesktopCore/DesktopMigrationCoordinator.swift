@@ -816,7 +816,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               let previewBindingID = preview.bindingID,
               let previewGeneration = preview.bindingGeneration
         else { return .notInstalled }
-        let previewPlan = DesktopHermesRuntimePlanner.plan(try observe())
+        let previewObservation = try observe()
+        forgetFailuresTheSettingResets(previewObservation)
+        let previewPlan = DesktopHermesRuntimePlanner.plan(previewObservation)
         if case .adopt(let record) = previewPlan {
             try? installer.writeLocalHermesRuntimeRecord(record)
             return .unchanged(.keep)
@@ -836,16 +838,21 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               recorded.bindingGeneration == previewGeneration
         else { return .unchanged(.keep) }
 
-        let plan = DesktopHermesRuntimePlanner.plan(try observe())
+        let observation = try observe()
+        let plan = DesktopHermesRuntimePlanner.plan(observation)
         switch plan {
         case .switchToLocal(let installation):
             let runtimeSwitch = try installer.prepareLocalHermesRuntime(installation)
             do {
                 try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: installation, observe: observe)
             } catch {
+                try? installer.writeHermesRuntimeFailures(
+                    installer.readHermesRuntimeFailures().recordingSwitchFailure(commit: installation.commit)
+                )
                 try await restoreAndRestart(runtimeSwitch, observe: observe)
                 throw error
             }
+            try? installer.writeHermesRuntimeFailures(installer.readHermesRuntimeFailures().clearingSwitch)
             return .switchedToLocal(installation)
         case .restartLocal(let installation, let reason):
             let runtimeSwitch = try installer.prepareLocalHermesRuntime(installation)
@@ -858,12 +865,17 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             }
             return .restartedLocal(installation, reason)
         case .restoreBundled(let localUsable):
+            let backupDigest = observation.bundledBackupDigest
             let runtimeSwitch = try installer.prepareBundledHermesRuntimeRestore()
             do {
                 try await restartManagedHermes(logURL: runtimeSwitch.logURL, recording: nil, observe: observe)
                 try installer.commitBundledHermesRuntimeRestore()
+                try? installer.writeHermesRuntimeFailures(installer.readHermesRuntimeFailures().clearingRestore)
             } catch {
                 if localUsable {
+                    try? installer.writeHermesRuntimeFailures(
+                        installer.readHermesRuntimeFailures().recordingRestoreFailure(backupDigest: backupDigest)
+                    )
                     try await restoreAndRestart(runtimeSwitch, observe: observe)
                 } else {
                     // The owner's Hermes is gone: the bundled agent is the only thing that can run.
@@ -959,6 +971,15 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             ensureHermesLoaded()
             throw DesktopMigrationCoordinatorError.rollbackFailed
         }
+    }
+
+    /// Toggling the setting is the owner's "try again": turning it off forgets failed switches,
+    /// turning it on forgets failed setting-off rollbacks.
+    private func forgetFailuresTheSettingResets(_ observation: DesktopHermesRuntimeObservation) {
+        var failures = observation.failures
+        if observation.enabled, failures.restoreFailures > 0 { failures = failures.clearingRestore }
+        if !observation.enabled, failures.switchFailures > 0 { failures = failures.clearingSwitch }
+        if failures != observation.failures { try? installer.writeHermesRuntimeFailures(failures) }
     }
 
     /// A job left unloaded by a failed start is invisible to every later check; load it again.

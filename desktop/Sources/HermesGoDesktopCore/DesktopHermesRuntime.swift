@@ -275,6 +275,11 @@ public struct DesktopHermesRuntimeObservation: Equatable, Sendable {
     public let agentArguments: [String]?
     public let record: DesktopLocalHermesRuntimeRecord?
     public let bundledFallbackAvailable: Bool
+    /// Repeated failures Desktop remembers, so a switch or rollback that cannot succeed is not
+    /// retried every five minutes at the phone's expense.
+    public let failures: DesktopHermesRuntimeFailures
+    /// SHA-256 of the kept bundled agent, nil when there is none.
+    public let bundledBackupDigest: String?
     public let now: Date
 
     public init(
@@ -287,6 +292,8 @@ public struct DesktopHermesRuntimeObservation: Equatable, Sendable {
         agentArguments: [String]? = nil,
         record: DesktopLocalHermesRuntimeRecord?,
         bundledFallbackAvailable: Bool,
+        failures: DesktopHermesRuntimeFailures = DesktopHermesRuntimeFailures(),
+        bundledBackupDigest: String? = nil,
         now: Date
     ) {
         self.enabled = enabled
@@ -298,8 +305,54 @@ public struct DesktopHermesRuntimeObservation: Equatable, Sendable {
         self.agentArguments = agentArguments
         self.record = record
         self.bundledFallbackAvailable = bundledFallbackAvailable
+        self.failures = failures
+        self.bundledBackupDigest = bundledBackupDigest
         self.now = now
     }
+}
+
+/// Failed switches and rollbacks, keyed by what would have to change for a retry to make sense.
+///
+/// A local Hermes that never becomes ready fails the switch after the full readiness window, and
+/// the bundled copy is restored; retried every five minutes, that costs the phone its Hermes for
+/// minutes at a time, forever. So after `DesktopHermesRuntimePlanner.maximumAttempts` failures the
+/// attempt pauses until the thing it failed on changes:
+///  - a switch, until the owner's commit changes or the setting is turned off and on again;
+///  - a setting-off rollback, until the kept bundled agent changes or the setting is turned on.
+public struct DesktopHermesRuntimeFailures: Codable, Equatable, Sendable {
+    public var switchCommit: String?
+    public var switchFailures: Int
+    public var restoreBackupDigest: String?
+    public var restoreFailures: Int
+
+    public init(
+        switchCommit: String? = nil,
+        switchFailures: Int = 0,
+        restoreBackupDigest: String? = nil,
+        restoreFailures: Int = 0
+    ) {
+        self.switchCommit = switchCommit
+        self.switchFailures = switchFailures
+        self.restoreBackupDigest = restoreBackupDigest
+        self.restoreFailures = restoreFailures
+    }
+
+    public func recordingSwitchFailure(commit: String) -> Self {
+        var next = self
+        next.switchFailures = switchCommit == commit ? switchFailures + 1 : 1
+        next.switchCommit = commit
+        return next
+    }
+
+    public func recordingRestoreFailure(backupDigest: String?) -> Self {
+        var next = self
+        next.restoreFailures = restoreBackupDigest == backupDigest ? restoreFailures + 1 : 1
+        next.restoreBackupDigest = backupDigest
+        return next
+    }
+
+    public var clearingSwitch: Self { Self(restoreBackupDigest: restoreBackupDigest, restoreFailures: restoreFailures) }
+    public var clearingRestore: Self { Self(switchCommit: switchCommit, switchFailures: switchFailures) }
 }
 
 public enum DesktopHermesRuntimeRestartReason: String, Equatable, Sendable {
@@ -354,6 +407,16 @@ public enum DesktopHermesRuntimeAttention: Equatable, Sendable {
     case localHermesMissingWithoutFallback
     /// Desktop restarted the owner's Hermes repeatedly and it keeps stopping.
     case localHermesKeepsStopping(launches: Int)
+    /// The setting is off and the owner's Hermes is intact, but no usable bundled agent is kept to
+    /// return to. Nothing was removed; Hermes GO keeps running the Mac's own Hermes.
+    case bundledFallbackUnavailableLocalIntact
+    /// Switching to the owner's Hermes failed repeatedly on this commit; paused.
+    case switchToLocalPaused(commit: String, failures: Int)
+    /// Returning to the bundled copy failed repeatedly with this kept agent; paused.
+    case restoreBundledPaused(failures: Int)
+    /// The venv does not match the checkout (version mismatch for too long, or missing/several
+    /// `hermes_agent` dist-info), so Desktop will not start the new code.
+    case dependenciesInconsistent(detail: String)
 }
 
 public enum DesktopHermesRuntimePlanner {
@@ -363,6 +426,10 @@ public enum DesktopHermesRuntimePlanner {
     /// Crash-loop back-off: at most this many Desktop-initiated starts within `launchWindow`.
     public static let maximumLaunches = 3
     public static let launchWindow: TimeInterval = 30 * 60
+    /// Failed switches (or setting-off rollbacks) before automatic retries pause.
+    public static let maximumAttempts = 2
+    /// How long a version mismatch between checkout and venv is waited out before it is shown.
+    public static let dependencyGrace: TimeInterval = 10 * 60
 
     public static func plan(_ observation: DesktopHermesRuntimeObservation) -> DesktopHermesRuntimePlan {
         switch observation.mode {
@@ -390,9 +457,15 @@ public enum DesktopHermesRuntimePlanner {
         guard observation.enabled else {
             // Turned off: a Mac in local mode goes back to the agent it had before the switch.
             guard observation.mode.isLocal else { return .keep }
-            return observation.bundledFallbackAvailable
-                ? .restoreBundled(localUsable: usable != nil)
-                : .surface(.localHermesMissingWithoutFallback)
+            guard observation.bundledFallbackAvailable else {
+                return .surface(usable != nil ? .bundledFallbackUnavailableLocalIntact : .localHermesMissingWithoutFallback)
+            }
+            let failures = observation.failures
+            if usable != nil, failures.restoreFailures >= maximumAttempts,
+               failures.restoreBackupDigest == observation.bundledBackupDigest {
+                return .surface(.restoreBundledPaused(failures: failures.restoreFailures))
+            }
+            return .restoreBundled(localUsable: usable != nil)
         }
         guard let detection = observation.detection else { return .keep }
         switch detection {
@@ -419,12 +492,15 @@ public enum DesktopHermesRuntimePlanner {
             // A bundled Mac whose Hermes service is not loaded is in some other operation's hands.
             if observation.mode == .bundled, observation.service == .notLoaded { return .keep }
             guard settled else { return .wait(.settling) }
-            guard installation.dependenciesConsistent else { return .wait(.dependenciesPending) }
+            if let blocked = dependencyBlock(installation, observation) { return blocked }
+            let failures = observation.failures
+            if failures.switchCommit == installation.commit, failures.switchFailures >= maximumAttempts {
+                return .surface(.switchToLocalPaused(commit: installation.commit, failures: failures.switchFailures))
+            }
             return .switchToLocal(installation)
         }
         if !observation.launcherCurrent { return .repairLauncher(executable: executable) }
 
-        let reason: DesktopHermesRuntimeRestartReason
         switch observation.service {
         case .unknown:
             // Never restart on a reading that failed: a broken probe must not turn into a
@@ -436,18 +512,37 @@ public enum DesktopHermesRuntimePlanner {
             if recent.count >= maximumLaunches {
                 return .surface(.localHermesKeepsStopping(launches: recent.count))
             }
-            reason = .notRunning
+            // A stopped Hermes is started again whatever its venv looks like: leaving it down is
+            // never better for the phone, and the crash back-off above bounds a start that fails.
+            return .restartLocal(installation, .notRunning)
         case .running(let started, _):
             switch loadedCommit(started: started, installation: installation, record: observation.record) {
             case .current(let adopt):
                 return adopt.map { .adopt($0) } ?? .keep
             case .stale:
-                reason = .codeChanged
+                break
             }
         }
+        let reason = DesktopHermesRuntimeRestartReason.codeChanged
         guard settled else { return .wait(.settling) }
-        guard installation.dependenciesConsistent else { return .wait(.dependenciesPending) }
+        if let blocked = dependencyBlock(installation, observation) { return blocked }
         return .restartLocal(installation, reason)
+    }
+
+    /// Whether the venv lets Desktop start the checkout's code: switching to it, or replacing a
+    /// running process with it. A version mismatch is waited out for `dependencyGrace` (the owner is
+    /// probably mid-reinstall) and then shown; a missing or duplicated dist-info is shown at once.
+    private static func dependencyBlock(
+        _ installation: DesktopLocalHermesInstallation,
+        _ observation: DesktopHermesRuntimeObservation
+    ) -> DesktopHermesRuntimePlan? {
+        guard !installation.dependenciesConsistent else { return nil }
+        let detail = "checkout \(installation.version), \(installation.installedDistribution.summary)"
+        if case .version = installation.installedDistribution,
+           observation.now.timeIntervalSince(installation.identityChangedAt) < dependencyGrace {
+            return .wait(.dependenciesPending)
+        }
+        return .surface(.dependenciesInconsistent(detail: detail))
     }
 
     enum LoadedCommit: Equatable {
@@ -614,6 +709,26 @@ public extension DesktopIssue {
             return DesktopIssue(
                 code: .localHermesMissingWithoutFallback,
                 technicalCause: "stage=restore-bundled no usable bundled agent is stored to return to"
+            )
+        case .bundledFallbackUnavailableLocalIntact:
+            return DesktopIssue(
+                code: .localHermesFallbackUnavailable,
+                technicalCause: "stage=restore-bundled setting off; kept bundled agent unusable; local Hermes intact and still running"
+            )
+        case .switchToLocalPaused(let commit, let failures):
+            return DesktopIssue(
+                code: .localHermesRuntimePaused,
+                technicalCause: "stage=switch-to-local commit=\(commit.prefix(12)) failed \(failures) times; paused until the commit changes or the setting is toggled"
+            )
+        case .restoreBundledPaused(let failures):
+            return DesktopIssue(
+                code: .localHermesRuntimePaused,
+                technicalCause: "stage=restore-bundled failed \(failures) times; paused until the kept agent changes or the setting is turned on"
+            )
+        case .dependenciesInconsistent(let detail):
+            return DesktopIssue(
+                code: .localHermesUnsupported,
+                technicalCause: "reason=dependenciesInconsistent \(detail)"
             )
         case .localHermesKeepsStopping(let launches):
             return DesktopIssue(

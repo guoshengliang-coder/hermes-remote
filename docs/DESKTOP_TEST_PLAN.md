@@ -289,7 +289,13 @@ The current automated suite covers:
   agent; adopting an update-started process; restarting only on a commit change, not a timestamp;
   waiting for reinstalled dependencies; a fresh install starting only the local Hermes; nothing
   shown mid-update; a separate non-retryable `HR-MIGRATE-010`; `/Users/<name>` redacted; an
-  inline-token agent is never switched from; lease contention waits without an error.
+  inline-token agent is never switched from; lease contention waits without an error. Re-review fixes (each checked to fail when reverted): two failed switches on one commit pause
+  switching (`HR-MIGRATE-011`) until the commit changes or the setting is turned off; two failed
+  setting-off rollbacks with one kept agent pause until it changes or the setting is turned on,
+  leaving local Hermes running; a stopped local Hermes is restarted regardless of its venv; a
+  persistent version mismatch and a missing or duplicated dist-info are shown; dist-info is read
+  deterministically; setting off with an intact local Hermes and no kept agent is `HR-MIGRATE-012`;
+  the once-per-launch running-agent check is wired.
 
 Remaining email-first release acceptance requires live-provider tests for resend/cooldown, expiry,
 account-existence-neutral delivery behavior, packaged-UI inspection proving that an `email_otp`-only

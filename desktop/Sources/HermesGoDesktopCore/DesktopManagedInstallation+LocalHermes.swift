@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -321,6 +322,32 @@ extension DesktopManagedInstaller {
         do { data = try encoder.encode(record) } catch { throw DesktopManagedInstallError.persistenceFailed }
         try ensurePrivateDirectory(layout.stateRoot)
         try atomicWrite(data, to: layout.localHermesRuntimeRecord, permissions: 0o600)
+    }
+
+    public func readHermesRuntimeFailures() -> DesktopHermesRuntimeFailures {
+        guard let data = try? readOwnedPrivateFile(layout.localHermesRuntimeFailures),
+              let failures = try? JSONDecoder().decode(DesktopHermesRuntimeFailures.self, from: data)
+        else { return DesktopHermesRuntimeFailures() }
+        return failures
+    }
+
+    public func writeHermesRuntimeFailures(_ failures: DesktopHermesRuntimeFailures) throws {
+        if failures == DesktopHermesRuntimeFailures() {
+            try removeOwnedRegularFileIfPresent(layout.localHermesRuntimeFailures)
+            return
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data: Data
+        do { data = try encoder.encode(failures) } catch { throw DesktopManagedInstallError.persistenceFailed }
+        try ensurePrivateDirectory(layout.stateRoot)
+        try atomicWrite(data, to: layout.localHermesRuntimeFailures, permissions: 0o600)
+    }
+
+    /// SHA-256 of the kept bundled agent, so a paused rollback resumes when the agent changes.
+    public var bundledHermesBackupDigest: String? {
+        guard let data = try? readOwnedPrivateFile(layout.bundledHermesLaunchAgentBackup) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func existingOwnedFile(_ url: URL) throws -> Data? {

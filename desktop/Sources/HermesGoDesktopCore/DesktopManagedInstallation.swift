@@ -43,6 +43,9 @@ public struct DesktopManagedInstallLayout: Equatable, Sendable {
     public var localHermesRuntimeRecord: URL {
         stateRoot.appendingPathComponent("local-hermes-runtime.json")
     }
+    public var localHermesRuntimeFailures: URL {
+        stateRoot.appendingPathComponent("local-hermes-runtime-failures.json")
+    }
 
     public func release(_ version: String) throws -> URL {
         guard Self.validVersion(version) else { throw DesktopManagedInstallError.invalidInput }
