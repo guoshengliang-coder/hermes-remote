@@ -173,15 +173,21 @@ public struct DesktopManagedSchemaInspector: Sendable {
     public let identityURL: URL
     public let databaseURL: URL
     private let runner: @Sendable (String, [String]) -> String?
+    private let runtimeMode: @Sendable () -> DesktopHermesRuntimeMode
 
+    /// `runtimeMode` reports which Hermes the managed service runs. In local runtime mode the code
+    /// writing `state.db` and the code reading it are the same checkout, so there is no drift to
+    /// report — and the bundled release's baseline describes a program that is not running.
     public init(
         identityURL: URL,
         databaseURL: URL,
-        runner: (@Sendable (String, [String]) -> String?)? = nil
+        runner: (@Sendable (String, [String]) -> String?)? = nil,
+        runtimeMode: @escaping @Sendable () -> DesktopHermesRuntimeMode = { .bundled }
     ) {
         self.identityURL = identityURL
         self.databaseURL = databaseURL
         self.runner = runner ?? DesktopManagedSchemaInspector.runSQLite
+        self.runtimeMode = runtimeMode
     }
 
     /// The pair the managed services actually run with: the baseline of the release `current`
@@ -194,6 +200,10 @@ public struct DesktopManagedSchemaInspector: Sendable {
         managedPaths paths: DesktopManagedBootstrapPaths,
         runner: (@Sendable (String, [String]) -> String?)? = nil
     ) {
+        let installer = (try? DesktopManagedInstallLayout(
+            root: paths.managedRoot,
+            launchAgentsRoot: paths.launchAgentsRoot
+        )).map { DesktopManagedInstaller(layout: $0) }
         self.init(
             identityURL: paths.managedRoot
                 .appendingPathComponent("current", isDirectory: true)
@@ -203,13 +213,19 @@ public struct DesktopManagedSchemaInspector: Sendable {
                 )
                 .appendingPathComponent("BUILD-IDENTITY.json"),
             databaseURL: paths.hermesHome.appendingPathComponent("state.db"),
-            runner: runner
+            runner: runner,
+            runtimeMode: {
+                // An unreadable agent is reported by the startup repairs; here it must not silence
+                // the one check that exists for the bundled copy, so it counts as bundled.
+                (try? installer?.currentHermesRuntimeMode()) ?? .bundled
+            }
         )
     }
 
     /// nil when either half is unavailable — a missing baseline means a release built before this
     /// existed, and silence is the right answer for one of those rather than a false alarm.
     public func inspect() -> DesktopManagedSchemaDrift? {
+        guard !runtimeMode().isLocal else { return nil }
         guard let identity = readIdentity() else { return nil }
         guard !identity.baseline.isEmpty else { return nil }
         var live: [String: [DesktopManagedSchemaColumn]] = [:]

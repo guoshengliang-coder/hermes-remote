@@ -95,6 +95,8 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
     public let journal: DesktopMigrationJournalStore
     private let migration: DesktopMigrationCoordinator<SystemCommandRunner>
     private let launchAgent: DesktopLaunchAgentController<SystemCommandRunner>
+    private let installer: DesktopManagedInstaller
+    private let processInspector: any DesktopHermesServiceProcessInspecting
 
     public init(
         account: any DesktopBindingCoordinating,
@@ -111,14 +113,93 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
             launchAgentsRoot: paths.launchAgentsRoot,
             runner: SystemCommandRunner()
         )
+        let installer = DesktopManagedInstaller(layout: layout)
         self.journal = journal
         self.launchAgent = launchAgent
+        self.installer = installer
+        processInspector = DesktopLaunchdHermesServiceProcessInspector(
+            runner: SystemOutputCommandRunner(),
+            userID: userID
+        )
         migration = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,
-            installer: DesktopManagedInstaller(layout: layout),
+            installer: installer,
             launchAgent: launchAgent
         )
+    }
+
+    /// Whether a managed Hermes LaunchAgent exists at all, i.e. whether a bootstrap would be an
+    /// upgrade rather than a fresh install.
+    public var hasManagedHermesLaunchAgent: Bool {
+        ((try? installer.currentHermesRuntimeMode()) ?? .unrecognised) != .absent
+    }
+
+    /// Cheap and non-throwing: whether the Hermes agent's first program argument is the local
+    /// launcher. With the setting off, nothing else runs unless this is true.
+    public var hermesAgentLooksLocal: Bool { installer.hermesAgentLooksLocal }
+
+    /// Everything the runtime planner reads, in one place. With the setting off and the agent not in
+    /// local mode, neither detection nor `launchctl` runs.
+    /// `probeService` reads launchd even with the setting off and a bundled agent — used once per
+    /// launch to catch a rollback that stopped between writing the agent and restarting it.
+    public func observeHermesRuntime(
+        detector: DesktopLocalHermesDetector,
+        enabled: Bool,
+        probeService: Bool = false,
+        now: Date = Date()
+    ) throws -> DesktopHermesRuntimeObservation {
+        let mode = try installer.currentHermesRuntimeMode()
+        let relevant = enabled || mode.isLocal
+        let launcherCurrent: Bool
+        if case .localHermes(let executable) = mode {
+            launcherCurrent = installer.localHermesLauncherIsCurrent(executable: executable)
+        } else {
+            launcherCurrent = true
+        }
+        return DesktopHermesRuntimeObservation(
+            enabled: enabled,
+            detection: relevant ? detector.detect() : nil,
+            mode: mode,
+            launcherCurrent: launcherCurrent,
+            updateInProgress: detector.updateInProgress(now: now),
+            service: relevant || probeService ? processInspector.hermesServiceProcess() : .unknown,
+            agentArguments: installer.hermesAgentProgramArguments,
+            record: installer.readLocalHermesRuntimeRecord(),
+            bundledFallbackAvailable: installer.bundledHermesFallbackAvailable,
+            failures: installer.readHermesRuntimeFailures(),
+            bundledBackupDigest: installer.bundledHermesBackupDigest,
+            now: now
+        )
+    }
+
+    /// With the setting off and a bundled agent: forget failed switches (turning the setting off is
+    /// the owner's reset), and — once per launch — reload the agent if launchd is running arguments
+    /// other than the file's (a rollback interrupted between writing and restarting). Only a failed
+    /// reload throws; every other outcome is silent, so the setting off surfaces no other error.
+    public func reconcileWhileDisabled(
+        detector: DesktopLocalHermesDetector,
+        checkRunningAgent: Bool
+    ) async throws -> DesktopHermesRuntimeReconciliation? {
+        let failures = installer.readHermesRuntimeFailures()
+        if failures.switchFailures > 0 { try? installer.writeHermesRuntimeFailures(failures.clearingSwitch) }
+        guard checkRunningAgent,
+              let observation = try? observeHermesRuntime(detector: detector, enabled: false, probeService: true),
+              case .reloadAgent = DesktopHermesRuntimePlanner.plan(observation)
+        else { return nil }
+        return try await migration.reconcileHermesRuntime {
+            try observeHermesRuntime(detector: detector, enabled: false, probeService: true)
+        }
+    }
+
+    @discardableResult
+    public func reconcileHermesRuntime(
+        detector: DesktopLocalHermesDetector,
+        enabled: Bool
+    ) async throws -> DesktopHermesRuntimeReconciliation {
+        try await migration.reconcileHermesRuntime {
+            try observeHermesRuntime(detector: detector, enabled: enabled)
+        }
     }
 
     public func inspectInstallation() throws -> DesktopManagedBootstrapInstallationStatus {
@@ -187,7 +268,11 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
             account: account,
             journal: journal,
             installer: DesktopManagedInstaller(layout: layout),
-            launchAgent: launchAgent
+            launchAgent: launchAgent,
+            localHermesForFreshInstall: DesktopLocalHermesRuntimeSetting.freshInstallProvider(
+                detector: (try? DesktopLocalHermesPaths(homeDirectory: paths.hermesHome.deletingLastPathComponent()))
+                    .map { DesktopLocalHermesDetector(paths: $0) }
+            )
         )
 
         manifestURL = releaseConfiguration.manifestURL

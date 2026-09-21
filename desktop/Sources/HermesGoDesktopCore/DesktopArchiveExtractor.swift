@@ -11,7 +11,7 @@ public protocol OutputCommandRunning {
     func run(executable: URL, arguments: [String], maximumOutputBytes: Int) -> DesktopCommandOutput
 }
 
-public struct SystemOutputCommandRunner: OutputCommandRunning {
+public struct SystemOutputCommandRunner: OutputCommandRunning, Sendable {
     public init() {}
 
     public func run(

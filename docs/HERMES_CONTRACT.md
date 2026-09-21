@@ -475,6 +475,23 @@ that reaches the live adapter. Until then, cron `deliver=<channel>` is the only 
 This is also why the 机器人 conversation carries a one-time dialog rather than a promise
 (`docs/DESIGN.md` §5.16).
 
+### 8. Local runtime mode: the owner's install itself (added 2026-09-21)
+
+When Desktop runs the Mac's own Hermes instead of its bundled copy (`docs/DESKTOP_PHASE0.md`, "Local
+Hermes runtime"), it depends on the shape of the install, not only on the wire. None of these are
+versioned by upstream:
+
+| Surface | What Desktop relies on | If upstream changes it |
+|---|---|---|
+| `~/.hermes/hermes-agent/venv/bin/hermes serve --host 127.0.0.1 --port 9119` | the standard installer's layout and the headless serve's `HERMES_BACKEND_READY port=<n>` stdout line | detection reports `incompleteInstallation`, or readiness times out and the switch is rolled back |
+| `.git/HEAD`, loose refs, `packed-refs`; `hermes_cli/__init__.py` `__version__ = "x.y.z"` | read as files to identify the code on disk | `unreadableIdentity` — surfaced, nothing switched |
+| `venv/lib/python*/site-packages/hermes_agent-<version>.dist-info` | its version must equal `__version__` before Desktop starts the checkout's code | Desktop waits (`dependenciesPending`) and never switches or restarts |
+| `~/.hermes/.hermes-update-in-progress` (`hermes_cli/update_lock.py`, 20-minute ceiling) | restarts wait while it is fresh | a restart could land mid-update |
+| `~/.hermes/profiles/`, `~/.hermes/active_profile` | a profile makes local mode unsupported | a new profile mechanism would be missed |
+| `ai.hermes.*.plist` `EnvironmentVariables.HERMES_HOME` and `ProgramArguments[0]` | how the owner actually runs Hermes | a custom home or second install could be missed |
+| `HERMES_DESKTOP=1` (§3) | the `/api/ws` loopback exemption, and a cron ticker gated per tick on the owner's gateway for one or more profiles (0.21.3; 0.21.0 gated only for more than one) | the ticker could race the owner's gateway again — check `_start_desktop_cron_ticker` |
+| `hermes update` → `_kill_stale_dashboard_processes` | restarts a launchd job via `launchctl kickstart` when `shlex.join(ProgramArguments)` contains `hermes serve`, instead of respawning a detached copy | Desktop's own staleness check still restarts the serve, one refresh later |
+
 ## Upgrade checklist
 
 Run this before adopting a new Hermes, and record the outcome by updating the version table above.
@@ -550,6 +567,10 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 8f. Confirm the bare attachment placeholders (section 4) still use the labels the client strips.
     A new label is not an error; it reaches the person as a stray `[something]` line under their own
     message, which is what HG-60 was.
+8h. If any Mac runs in local runtime mode, re-read the table in section 8 against the new commit —
+    in particular `_start_desktop_cron_ticker`'s `profile_gate`, `_desktop_loopback_auth_exempt`,
+    `update_lock.MARKER_NAME`, and `_loaded_launchd_backend_jobs` — and raise
+    `DesktopLocalHermesDetector.minimumVersion` if a behaviour Desktop relies on moved.
 9. **Read the source, not the notes.** See below.
 
 ## Known hazards

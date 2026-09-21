@@ -78,6 +78,22 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     /// A post-install token/PATH repair failed, but the active installation remains usable and
     /// an available managed upgrade must not be hidden behind a false Connector-conflict state.
     case managedInstallationRepairFailed = "HR-MIGRATE-007"
+    /// This Mac already has Hermes, but not in the standard layout Hermes GO can run for its owner
+    /// (profiles, a custom `HERMES_HOME`, a second install, an incomplete or too-old checkout).
+    /// Nothing is switched and no second copy is installed; the reason is behind Details.
+    case localHermesUnsupported = "HR-MIGRATE-008"
+    /// Desktop could not switch its Hermes service to this Mac's own Hermes, restart it onto updated
+    /// code, or return it to the bundled copy. The diagnostic names the step and whether the previous
+    /// configuration was restored.
+    case localHermesRuntimeFailed = "HR-MIGRATE-009"
+    /// Local mode is configured, but the owner's Hermes is gone and no usable bundled agent is kept
+    /// to return to. Retrying cannot fix this; reinstalling Hermes or Hermes GO can.
+    case localHermesMissingWithoutFallback = "HR-MIGRATE-010"
+    /// A switch to (or setting-off rollback from) this Mac's own Hermes failed repeatedly; automatic
+    /// retries are paused until what they failed on changes. The current service stays as it is.
+    case localHermesRuntimePaused = "HR-MIGRATE-011"
+    /// The setting is off but no usable bundled Hermes is kept; this Mac's own Hermes keeps running.
+    case localHermesFallbackUnavailable = "HR-MIGRATE-012"
 }
 
 public enum DesktopManagedStartupRepairStage: String, Sendable {
@@ -252,6 +268,18 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("托管 Hermes 版本落后", "The managed Hermes is behind", "这台 Mac 的数据库比托管 Hermes 新，请升级托管副本。", "This Mac's database is newer than the managed Hermes. Update the managed copy.", false, .details)
         case .managedInstallationRepairFailed:
             ("托管安装补救未完成", "Managed installation repair didn't finish", "当前服务仍可使用，后台补救未完成；请查看详情后重试。", "The current services remain available, but a background repair did not finish. Review the details and retry.", true, .retry)
+        case .localHermesUnsupported:
+            // Not retryable: the answer only changes when the Mac's own setup does. Offering a retry
+            // would suggest Hermes GO could fix it by trying again, or by installing a second copy.
+            ("本机 Hermes 无法直接使用", "This Mac's Hermes can't be used directly", "这台 Mac 已有 Hermes，但安装方式不是 Hermes GO 能直接使用的标准形式；为避免出现第二份 Hermes，未做任何更改。请查看详情。", "This Mac already has Hermes, but not in the standard layout Hermes GO can use. To avoid a second copy of Hermes, nothing was changed. Review the details.", false, .details)
+        case .localHermesRuntimeFailed:
+            ("未能切换到本机 Hermes", "Couldn't switch to this Mac's Hermes", "Hermes GO 未能启动或切换本机 Hermes；能恢复的已恢复为原来的服务。请查看详情，稍后会自动重试。", "Hermes GO couldn't start or switch to this Mac's Hermes. Whatever could be restored was restored. Review the details; it will retry automatically.", true, .details)
+        case .localHermesRuntimePaused:
+            ("已暂停自动切换 Hermes", "Automatic Hermes switching paused", "多次尝试切换 Hermes 均未成功，已暂停自动切换，当前服务保持不变。更新 Hermes 或重新开关本机 Hermes 设置后会再试。", "Switching Hermes failed several times, so automatic switching is paused and the current service is unchanged. It will try again after Hermes is updated or the setting is toggled.", false, .details)
+        case .localHermesFallbackUnavailable:
+            ("无法恢复内置 Hermes", "Can't return to the built-in Hermes", "本机 Hermes 设置已关闭，但没有可用的内置 Hermes 可恢复；Hermes GO 会继续使用这台 Mac 自己的 Hermes。重新安装 Hermes GO 后可恢复。", "The setting is off, but there's no usable built-in Hermes to return to, so Hermes GO keeps using this Mac's own Hermes. Reinstall Hermes GO to restore it.", false, .details)
+        case .localHermesMissingWithoutFallback:
+            ("本机 Hermes 已不存在", "This Mac's Hermes is gone", "这台 Mac 上的 Hermes 已被移除，且没有可恢复的内置 Hermes。请重新安装 Hermes 或 Hermes GO。", "This Mac's Hermes was removed and there is no built-in Hermes to return to. Reinstall Hermes or Hermes GO.", false, .details)
         }
     }
 

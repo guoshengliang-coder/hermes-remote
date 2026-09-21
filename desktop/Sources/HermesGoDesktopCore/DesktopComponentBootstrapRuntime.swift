@@ -38,7 +38,11 @@ public final class DesktopComponentBootstrapRuntime: @unchecked Sendable {
             account: account,
             journal: journal,
             installer: DesktopManagedInstaller(layout: layout),
-            launchAgent: launchAgent
+            launchAgent: launchAgent,
+            localHermesForFreshInstall: DesktopLocalHermesRuntimeSetting.freshInstallProvider(
+                detector: (try? DesktopLocalHermesPaths(homeDirectory: paths.hermesHome.deletingLastPathComponent()))
+                    .map { DesktopLocalHermesDetector(paths: $0) }
+            )
         )
         let installer = try DesktopComponentReleaseInstaller(
             storeRoot: paths.managedRoot,
