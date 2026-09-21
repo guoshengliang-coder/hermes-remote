@@ -4,6 +4,7 @@ import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.phaseAfterWithdrawal
 import com.hermes.client.ui.chat.ChatUiState
 import com.hermes.client.ui.chat.reduce
+import com.hermes.client.ui.chat.withApprovalAnswered
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -52,17 +53,11 @@ class ServerRequestsTest {
         assertTrue(parseInbound(json, """{"jsonrpc":"2.0","id":"x","result":{}}""") is RpcResult)
     }
 
-    @Test fun response_frames_echo_the_id_and_carry_result_or_error() {
-        val ok = json.parseToJsonElement(
-            encodeServerResponse(json, JsonPrimitive("srq-1"), JsonObject(mapOf("choice" to JsonPrimitive("once")))),
-        ).jsonObject
-        assertEquals(setOf("jsonrpc", "id", "result"), ok.keys)
-        assertEquals("srq-1", (ok["id"] as JsonPrimitive).content)
-        assertTrue((ok["id"] as JsonPrimitive).isString)
-        assertFalse("a response has no method, or upstream would dispatch it as a call", "method" in ok)
+    @Test fun the_no_handler_frame_echoes_the_id_and_carries_no_method() {
         val err = json.parseToJsonElement(encodeServerError(json, JsonPrimitive("srq-2"), -32601, "no handler")).jsonObject
         assertEquals("-32601", err["error"]!!.jsonObject["code"].toString())
-        assertFalse("method" in err)
+        assertEquals(JsonPrimitive("srq-2"), err["id"])
+        assertFalse("a response has no method, or upstream would dispatch it as a call", "method" in err)
     }
 
     @Test fun an_approval_request_becomes_the_approval_card_marked_with_its_request_id() {
@@ -161,5 +156,75 @@ class ServerRequestsTest {
             phaseAfterWithdrawal(SessionRunPhase.WAITING_APPROVAL, stillAsking),
         )
         assertEquals(SessionRunPhase.IDLE, phaseAfterWithdrawal(SessionRunPhase.IDLE, ChatUiState()))
+    }
+
+    private fun approvalFrame(id: String, command: String) =
+        """{"jsonrpc":"2.0","id":"$id","method":"approval","params":{"session_id":"live-1","request_id":"q-$id","command":"$command"}}"""
+
+    private fun snapshot(vararg ids: String): ServerEvent = ServerRequests.openSnapshotEvent(
+        json.parseToJsonElement(
+            """{"session_id":"live-1","open_requests":[${ids.joinToString(",") { """{"id":"$it","method":"approval","params":{}}""" }}]}""",
+        ).jsonObject,
+    )!!
+
+    /** Several approvals open in one session used to show only the newest; the older ones timed out. */
+    @Test fun concurrent_server_request_approvals_queue_oldest_first() {
+        val state = fold(fold(fold(ChatUiState(), approvalFrame("srq-a", "one")), approvalFrame("srq-b", "two")), approvalFrame("srq-c", "three"))
+        assertEquals("one", state.pendingApproval!!.command)
+        assertEquals(listOf("two", "three"), state.queuedApprovals.map { it.command })
+        // Re-delivery of one already known updates it in place instead of queueing a duplicate.
+        val again = fold(state, approvalFrame("srq-b", "two"))
+        assertEquals(state, again)
+        val next = state.withApprovalAnswered()
+        assertEquals("two", next.pendingApproval!!.command)
+        assertEquals(listOf("three"), next.queuedApprovals.map { it.command })
+    }
+
+    @Test fun a_cancel_of_the_shown_approval_brings_up_the_next_and_a_queued_one_just_leaves() {
+        val state = fold(fold(fold(ChatUiState(), approvalFrame("srq-a", "one")), approvalFrame("srq-b", "two")), approvalFrame("srq-c", "three"))
+        val cancel = { id: String ->
+            event("""{"jsonrpc":"2.0","method":"event","params":{"type":"request.cancel","session_id":"live-1","payload":{"id":"$id","method":"approval","reason":"timeout"}}}""")
+        }
+        val queuedGone = state.reduce(cancel("srq-b"))
+        assertEquals("one", queuedGone.pendingApproval!!.command)
+        assertEquals(listOf("three"), queuedGone.queuedApprovals.map { it.command })
+        val shownGone = queuedGone.reduce(cancel("srq-a"))
+        assertEquals("three", shownGone.pendingApproval!!.command)
+        assertTrue(shownGone.queuedApprovals.isEmpty())
+    }
+
+    @Test fun old_protocol_approvals_still_replace_rather_than_queue() {
+        val first = event("""{"jsonrpc":"2.0","method":"event","params":{"type":"approval.request","session_id":"live-1","payload":{"command":"one"}}}""")
+        val second = event("""{"jsonrpc":"2.0","method":"event","params":{"type":"approval.request","session_id":"live-1","payload":{"command":"two"}}}""")
+        val state = ChatUiState().reduce(first).reduce(second)
+        assertEquals("two", state.pendingApproval!!.command)
+        assertTrue(state.queuedApprovals.isEmpty())
+    }
+
+    /**
+     * Answered on another surface, or timed out while no socket was attached: upstream sends no
+     * request.cancel, and only the resume's open list reveals it.
+     */
+    @Test fun a_resume_snapshot_drops_server_request_cards_that_are_no_longer_open() {
+        val state = fold(fold(fold(ChatUiState(), approvalFrame("srq-a", "one")), approvalFrame("srq-b", "two")), batchClarifyFrame)
+        val pruned = state.reduce(snapshot("srq-b"))
+        assertEquals("two", pruned.pendingApproval!!.command)
+        assertTrue(pruned.queuedApprovals.isEmpty())
+        assertNull("the clarify srq-bbbbbbbbbbbb was not listed", pruned.pendingClarify)
+        assertNull(pruned.reduce(snapshot()).pendingApproval)
+    }
+
+    @Test fun a_resume_snapshot_never_touches_old_protocol_cards() {
+        val approval = event("""{"jsonrpc":"2.0","method":"event","params":{"type":"approval.request","session_id":"live-1","payload":{"command":"ls"}}}""")
+        val clarify = event("""{"jsonrpc":"2.0","method":"event","params":{"type":"clarify.request","session_id":"live-1","payload":{"request_id":"ab12cd34","question":"Q?"}}}""")
+        val state = ChatUiState().reduce(approval).reduce(clarify)
+        assertEquals(state, state.reduce(snapshot()))
+    }
+
+    @Test fun an_absent_open_requests_field_is_an_empty_snapshot() {
+        val event = ServerRequests.openSnapshotEvent(json.parseToJsonElement("""{"session_id":"live-1"}""").jsonObject)!!
+        assertEquals(ServerRequests.OPEN_SNAPSHOT_EVENT, event.type)
+        assertEquals("live-1", event.sessionId)
+        assertTrue(event.strList("ids").isEmpty())
     }
 }

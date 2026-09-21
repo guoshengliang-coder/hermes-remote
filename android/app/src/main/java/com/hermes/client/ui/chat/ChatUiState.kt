@@ -686,6 +686,17 @@ fun approvalExpiredNotice(language: com.hermes.client.ui.localization.AppLanguag
     )
 
 /**
+ * User-visible notice for HR-APPROVAL-003: Hermes itself said the approval request was no longer open
+ * (`request.answer` → `expired`). Registered in docs/ERROR_HANDLING.md.
+ */
+fun approvalNoLongerOpenNotice(language: com.hermes.client.ui.localization.AppLanguage): String =
+    com.hermes.client.ui.localization.localized(
+        language,
+        "这次审批没有送达：这条审批已不再等待回答（可能已超时、运行已停止，或已在其他设备上处理）（HR-APPROVAL-003）。如仍需要，请在输入框重新说明。",
+        "This approval didn't reach the agent: the request was no longer waiting — it may have timed out, the run stopped, or it was answered on another device (HR-APPROVAL-003). If you still want it, say so in the composer.",
+    )
+
+/**
  * User-visible notice for HR-APPROVAL-002: this conversation is waiting on an approval, but the
  * request itself did not survive the app restart. Unlike a clarify request, an approval carries no
  * id and `approval.respond` returns nothing, so a card rebuilt from a local snapshot could address
@@ -755,6 +766,44 @@ fun parseClarifyRequest(payload: kotlinx.serialization.json.JsonObject): Clarify
     )
 }
 
+/** The current approval is settled (answered or withdrawn): the next queued one, if any, takes its place. */
+fun ChatUiState.withApprovalAnswered(): ChatUiState =
+    copy(pendingApproval = queuedApprovals.firstOrNull(), queuedApprovals = queuedApprovals.drop(1))
+
+/**
+ * An approval arrived. A server-request approval with an id already shown or queued is updated in
+ * place (a resume re-delivers every open one); a new one queues behind the card on screen. Anything
+ * else — an old-protocol event — replaces the card, as it always has.
+ */
+fun ChatUiState.withApprovalRequest(request: ApprovalRequest): ChatUiState {
+    val id = request.serverRequestId
+    val current = pendingApproval
+    if (id == null || current?.serverRequestId == null) return copy(pendingApproval = request)
+    return when {
+        current.serverRequestId == id -> copy(pendingApproval = request)
+        queuedApprovals.any { it.serverRequestId == id } ->
+            copy(queuedApprovals = queuedApprovals.map { if (it.serverRequestId == id) request else it })
+        else -> copy(queuedApprovals = queuedApprovals + request)
+    }
+}
+
+/**
+ * A `session.resume` on a server-request connection listed [openIds] as everything still open. A
+ * server-request card not among them is stale — timed out while no socket was attached, restored from
+ * disk, or answered on another surface, which sends no `request.cancel` — and goes. Old-protocol
+ * cards have no id and are untouched.
+ */
+fun ChatUiState.withOnlyOpenServerRequests(openIds: Set<String>): ChatUiState {
+    fun ApprovalRequest.open() = serverRequestId == null || serverRequestId in openIds
+    val approvals = listOfNotNull(pendingApproval) + queuedApprovals
+    val kept = approvals.filter { it.open() }
+    return copy(
+        pendingApproval = kept.firstOrNull(),
+        queuedApprovals = kept.drop(1),
+        pendingClarify = pendingClarify?.takeUnless { it.serverRequest && it.requestId !in openIds },
+    )
+}
+
 /**
  * `request.cancel {id, method, reason}`: Hermes withdrew a server→client request — it timed out,
  * the run was interrupted, the session closed, or another surface answered it first. Only the card
@@ -763,8 +812,9 @@ fun parseClarifyRequest(payload: kotlinx.serialization.json.JsonObject): Clarify
  */
 fun ChatUiState.withServerRequestCancelled(requestId: String?): ChatUiState {
     if (requestId.isNullOrBlank()) return this
-    return copy(
-        pendingApproval = pendingApproval?.takeUnless { it.serverRequestId == requestId },
+    val withoutQueued = copy(queuedApprovals = queuedApprovals.filterNot { it.serverRequestId == requestId })
+    val approvalGone = if (pendingApproval?.serverRequestId == requestId) withoutQueued.withApprovalAnswered() else withoutQueued
+    return approvalGone.copy(
         pendingClarify = pendingClarify?.takeUnless { it.serverRequest && it.requestId == requestId },
     )
 }
@@ -773,6 +823,13 @@ data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val backgroundProcesses: List<com.hermes.client.data.repository.BackgroundProcess> = emptyList(),
     val pendingApproval: ApprovalRequest? = null,
+    /**
+     * Server-request approvals waiting behind [pendingApproval], oldest first. Newer Hermes can have
+     * several open at once in one session, each with its own id; the one slot used to show only the
+     * newest and leave the older ones to time out unanswered. Old-protocol approvals are never
+     * queued: they carry no id, and `approval.respond` always resolves the oldest anyway.
+     */
+    val queuedApprovals: List<ApprovalRequest> = emptyList(),
     val pendingClarify: ClarifyRequest? = null,
     val isGenerating: Boolean = false,
     /**
@@ -915,8 +972,8 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
                 ) else it
             })
         }
-        "approval.request" -> state.copy(
-            pendingApproval = ApprovalRequest(
+        "approval.request" -> state.withApprovalRequest(
+            ApprovalRequest(
                 command = event.str("command") ?: "",
                 description = event.str("description") ?: "",
                 patternKeys = event.strList("pattern_keys")
@@ -931,6 +988,8 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
         )
         com.hermes.client.data.network.ServerRequests.CANCEL_EVENT ->
             state.withServerRequestCancelled(event.str("id"))
+        com.hermes.client.data.network.ServerRequests.OPEN_SNAPSHOT_EVENT ->
+            state.withOnlyOpenServerRequests(event.strList("ids").toSet())
         "error" -> state.copy(
             messages = state.messages + ChatMessage(
                 id = "e-${state.messages.size}", role = Role.SYSTEM,

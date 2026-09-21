@@ -75,14 +75,6 @@ fun parseInbound(json: Json, line: String): RpcInbound {
     return RpcResult(id, obj["result"] ?: JsonPrimitive("null"))
 }
 
-/** The response frame that answers server request [id] with [result]. */
-fun encodeServerResponse(json: Json, id: JsonPrimitive, result: JsonObject): String =
-    json.encodeToString(JsonObject.serializer(), buildJsonObject {
-        put("jsonrpc", "2.0")
-        put("id", id)
-        put("result", result)
-    })
-
 /** The error frame that answers server request [id]: upstream reads any error as "no answer". */
 fun encodeServerError(json: Json, id: JsonPrimitive, code: Int, message: String): String =
     json.encodeToString(JsonObject.serializer(), buildJsonObject {

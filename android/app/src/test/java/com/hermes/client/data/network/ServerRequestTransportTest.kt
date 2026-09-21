@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -117,7 +118,7 @@ class ServerRequestTransportTest {
         }
     }
 
-    @Test fun an_approval_request_is_emitted_as_a_marked_event_and_answered_by_id() = runTest {
+    @Test fun an_approval_request_is_emitted_as_a_marked_event() = runTest {
         val farEnd = FarEnd(advertised) { ws ->
             ws.send("""{"jsonrpc":"2.0","id":"srq-0123456789ab","method":"approval","params":{"session_id":"live-1","request_id":"q-7","command":"ls","choices":["once","deny"]}}""")
         }
@@ -131,17 +132,6 @@ class ServerRequestTransportTest {
             val event = withContext(Dispatchers.Default) { withTimeout(5_000) { arriving.await() } }
             assertEquals("live-1", event.sessionId)
             assertEquals("srq-0123456789ab", ServerRequests.idOf(event.payload))
-            withContext(Dispatchers.Default) {
-                withTimeout(5_000) {
-                    client.respondToServerRequest("srq-0123456789ab", buildJsonObject { put("choice", "once") })
-                }
-            }
-            val answer = withContext(Dispatchers.IO) {
-                generateSequence { farEnd.next() }.first { "method" !in it }
-            }
-            assertEquals(JsonPrimitive("srq-0123456789ab"), answer["id"])
-            assertEquals(buildJsonObject { put("choice", "once") }, answer["result"])
-            assertFalse("error" in answer)
         } finally {
             tearDown(client, okHttp)
         }
@@ -170,25 +160,62 @@ class ServerRequestTransportTest {
         }
     }
 
-    @Test fun redelivered_open_requests_reach_the_event_stream() = runTest {
-        val farEnd = FarEnd(advertised)
-        val (client, okHttp) = connect(farEnd)
+    /** A far end whose `session.resume` answers with [resumeResult] (after the capability reply). */
+    private fun resumingFarEnd(capability: (String) -> String, resumeResult: String) = object : WebSocketListener() {
+        override fun onOpen(webSocket: WebSocket, response: Response) { webSocket.send(READY) }
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            val obj = Json.parseToJsonElement(text).jsonObject
+            val id = obj["id"]?.toString()
+            when (obj["method"]?.jsonPrimitive?.content) {
+                "client.capabilities" -> webSocket.send(capability(id!!))
+                "session.resume" -> webSocket.send("""{"jsonrpc":"2.0","id":$id,"result":$resumeResult}""")
+            }
+        }
+    }
+
+    private suspend fun resumeAndCollect(far: WebSocketListener): List<ServerEvent> {
+        serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(far).build())
+        val url = serverRule.server.url("/api/ws").toString().replace("http", "ws")
+        val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val client = HermesGatewayClient(okHttp, json, testScope, wsEndpointProvider = { GatewayWebSocketEndpoint(url, "t") })
+        val seen = java.util.Collections.synchronizedList(mutableListOf<ServerEvent>())
+        val collecting = testScope.launch(start = CoroutineStart.UNDISPATCHED) { client.events.collect { seen += it } }
         client.connect()
         try {
-            val waiting = testScope.async(start = CoroutineStart.UNDISPATCHED) {
-                client.events.first { it.type == "clarify.request" }
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) { client.call("session.resume", buildJsonObject { put("session_id", "stored-1") }) }
+                kotlinx.coroutines.delay(200)
             }
-            val events = ServerRequests.openRequestEvents(
-                Json.parseToJsonElement(
-                    """{"open_requests":[{"id":"srq-aa","method":"clarify","params":{"session_id":"live-1","question":"Q?"}}]}""",
-                ).jsonObject,
-            )
-            client.redeliver(events)
-            val event = withContext(Dispatchers.Default) { withTimeout(5_000) { waiting.await() } }
-            assertEquals("srq-aa", ServerRequests.idOf(event.payload))
+            return seen.filter { it.type != "gateway.ready" }
         } finally {
+            collecting.cancel()
             tearDown(client, okHttp)
         }
+    }
+
+    @Test fun a_resume_re_delivers_open_requests_and_then_says_which_are_open() = runTest {
+        val events = resumeAndCollect(
+            resumingFarEnd(advertised, """{"session_id":"live-1","open_requests":[{"id":"srq-aa","method":"clarify","params":{"session_id":"live-1","question":"Q?"}}]}"""),
+        )
+        assertEquals(listOf("clarify.request", ServerRequests.OPEN_SNAPSHOT_EVENT), events.map { it.type })
+        assertEquals("srq-aa", ServerRequests.idOf(events[0].payload))
+        assertEquals(listOf("srq-aa"), events[1].strList("ids"))
+        assertEquals("live-1", events[1].sessionId)
+    }
+
+    /** Upstream omits the field when nothing is open, and the phone must still learn that. */
+    @Test fun a_resume_without_open_requests_still_reports_an_empty_snapshot() = runTest {
+        val events = resumeAndCollect(resumingFarEnd(advertised, """{"session_id":"live-1"}"""))
+        assertEquals(listOf(ServerRequests.OPEN_SNAPSHOT_EVENT), events.map { it.type })
+        assertTrue(events.single().strList("ids").isEmpty())
+    }
+
+    /** An older Hermes asks through events; its cards have no ids and nothing may prune them. */
+    @Test fun a_socket_that_did_not_advertise_gets_no_snapshot() = runTest {
+        val events = resumeAndCollect(
+            resumingFarEnd({ id -> """{"jsonrpc":"2.0","id":$id,"error":{"code":-32601,"message":"unknown method"}}""" }, """{"session_id":"live-1"}"""),
+        )
+        assertTrue(events.isEmpty())
     }
 
     private companion object {

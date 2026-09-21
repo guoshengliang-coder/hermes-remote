@@ -46,11 +46,13 @@ class RespondApprovalTest {
         assertNull(params.captured["approved"])
     }
 
-    @Test fun a_server_request_approval_is_answered_by_response_frame_with_the_choice() = runTest {
-        val result = slot<JsonObject>()
-        coEvery { client.respondToServerRequest("srq-0123456789ab", capture(result)) } returns Unit
-        repo.respondApproval("s1", ApprovalChoice.ALWAYS, serverRequestId = "srq-0123456789ab")
-        assertEquals(mapOf("choice" to JsonPrimitive("always")), result.captured)
-        coVerify(exactly = 0) { client.call(any(), any()) }
+    @Test fun a_server_request_approval_answers_that_request_by_id() = runTest {
+        val params = slot<JsonObject>()
+        coEvery { client.call("request.answer", capture(params)) } returns
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"status":"ok"}""")
+        assertEquals("ok", repo.respondApproval("s1", ApprovalChoice.ALWAYS, serverRequestId = "srq-0123456789ab"))
+        assertEquals(JsonPrimitive("srq-0123456789ab"), params.captured["id"])
+        assertEquals(mapOf("choice" to JsonPrimitive("always")), params.captured["result"])
+        coVerify(exactly = 0) { client.call("approval.respond", any()) }
     }
 }

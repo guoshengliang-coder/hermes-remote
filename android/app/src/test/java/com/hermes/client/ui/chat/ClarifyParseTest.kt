@@ -88,6 +88,16 @@ class ClarifyParseTest {
     }
 
     @Test
+    fun approvalNoLongerOpenNoticeCarriesItsCodeInBothLanguages() {
+        val zh = approvalNoLongerOpenNotice(com.hermes.client.ui.localization.AppLanguage.ZH)
+        val en = approvalNoLongerOpenNotice(com.hermes.client.ui.localization.AppLanguage.EN)
+        assertTrue(zh.contains("HR-APPROVAL-003"))
+        assertTrue(en.contains("HR-APPROVAL-003"))
+        assertTrue(zh.contains("其他设备"))
+        assertTrue(en.contains("another device"))
+    }
+
+    @Test
     fun expiredNoticeCarriesErrorCodeInBothLanguages() {
         val zh = clarifyExpiredNotice(com.hermes.client.ui.localization.AppLanguage.ZH)
         val en = clarifyExpiredNotice(com.hermes.client.ui.localization.AppLanguage.EN)

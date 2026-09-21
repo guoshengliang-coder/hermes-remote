@@ -1891,12 +1891,19 @@ class ChatViewModel @Inject constructor(
 
     fun respondApproval(choice: ApprovalChoice) {
         val request = _state.value.pendingApproval
-        mutateState { it.copy(pendingApproval = null) }
+        mutateState { it.withApprovalAnswered() }
         viewModelScope.launch {
             val respondedAt = System.currentTimeMillis()
             runCatching { chat.respondApproval(sessionId, choice, request?.serverRequestId) }
-                .onSuccess {
+                .onSuccess { status ->
                     val key = runtimeKey ?: return@onSuccess
+                    // A server-request approval is answered through request.answer, which says for
+                    // itself whether anything was still waiting (HR-APPROVAL-003).
+                    if (status == "expired") {
+                        appendSystem(approvalNoLongerOpenNotice(appLanguage))
+                        runtimeStore.probe(key, force = true)
+                        return@onSuccess
+                    }
                     // approval.respond answers nothing, so "did it land" has to be inferred from
                     // whether the run was still waiting afterwards (HR-APPROVAL-001). An approval
                     // whose command then finished the turn ends with a terminal AFTER the answer,
@@ -1980,6 +1987,9 @@ class ChatViewModel @Inject constructor(
     private fun onClarifyExpired() {
         mutateState { it.copy(pendingClarify = null) }
         appendSystem(clarifyExpiredNotice(appLanguage))
+        // The run is no longer waiting on this question; ask what it is doing instead of leaving
+        // the phase on "waiting for your answer" with no card.
+        runtimeKey?.let { key -> viewModelScope.launch { runtimeStore.probe(key, force = true) } }
     }
 
     /** Explicit skip of the WHOLE request (empty answer = upstream Skip semantics). */
@@ -1988,7 +1998,10 @@ class ChatViewModel @Inject constructor(
         mutateState { it.copy(pendingClarify = null) }
         viewModelScope.launch {
             runCatching { chat.respondClarify(sessionId, request.requestId, "", serverRequest = request.serverRequest) }
-                .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
+                .onSuccess { status ->
+                    if (status == "expired") onClarifyExpired()
+                    else runtimeKey?.let(runtimeStore::continueAfterInput)
+                }
         }
     }
 

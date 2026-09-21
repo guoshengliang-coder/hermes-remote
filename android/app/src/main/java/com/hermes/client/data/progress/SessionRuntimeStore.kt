@@ -30,6 +30,7 @@ import com.hermes.client.ui.chat.ClarifyRequest
 import com.hermes.client.ui.chat.markInterrupted
 import com.hermes.client.ui.chat.organizedForDisplay
 import com.hermes.client.ui.chat.reduce
+import com.hermes.client.ui.chat.withApprovalAnswered
 import com.hermes.client.ui.chat.withServerRequestCancelled
 import com.hermes.client.ui.chat.withUserMessage
 import kotlinx.coroutines.CancellationException
@@ -165,6 +166,7 @@ internal fun SessionRuntime.normalized(): SessionRuntime {
             runStartedAt = if (active) runStartedAt else null,
             messages = messages,
             pendingApproval = if (active) chat.pendingApproval else null,
+            queuedApprovals = if (active) chat.queuedApprovals else emptyList(),
             pendingClarify = if (active) chat.pendingClarify else null,
         ),
         phaseBeforeReconnect = if (phase == SessionRunPhase.RECONNECTING) phaseBeforeReconnect else null,
@@ -876,7 +878,7 @@ class SessionRuntimeStore(
 
     /** An approval was answered from the notification shade: clear the pending card locally. */
     fun clearPendingApproval(key: SessionRuntimeKey) {
-        updateRuntime(key) { it.copy(chat = it.chat.copy(pendingApproval = null)) }
+        updateRuntime(key) { it.copy(chat = it.chat.withApprovalAnswered()) }
     }
 
     /**
@@ -1304,7 +1306,13 @@ class SessionRuntimeStore(
                 return@updateRuntime runtime
             }
             runtime.copy(
-                phase = SessionRunPhase.THINKING,
+                // Answering one card does not end the wait while another is still showing (the
+                // next queued approval, or the rest of a batch).
+                phase = when {
+                    runtime.chat.pendingApproval != null -> SessionRunPhase.WAITING_APPROVAL
+                    runtime.chat.pendingClarify != null -> SessionRunPhase.WAITING_CLARIFICATION
+                    else -> SessionRunPhase.THINKING
+                },
                 lastEventAt = System.currentTimeMillis(),
                 startedLocally = true,
                 occurredAt = System.currentTimeMillis(),
@@ -1610,7 +1618,8 @@ class SessionRuntimeStore(
                 "tool.complete" -> if (withTerminalOutput.isGenerating) SessionRunPhase.THINKING else runtime.phase
                 "approval.request" -> SessionRunPhase.WAITING_APPROVAL
                 "clarify.request" -> SessionRunPhase.WAITING_CLARIFICATION
-                ServerRequests.CANCEL_EVENT -> phaseAfterWithdrawal(runtime.phase, withTerminalOutput)
+                ServerRequests.CANCEL_EVENT, ServerRequests.OPEN_SNAPSHOT_EVENT ->
+                    phaseAfterWithdrawal(runtime.phase, withTerminalOutput)
                 "message.complete" -> if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD
                 "error" -> SessionRunPhase.FAILED
                 "session.info" -> when (event.bool("running")) {

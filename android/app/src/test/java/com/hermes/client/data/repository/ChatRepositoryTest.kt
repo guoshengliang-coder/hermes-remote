@@ -129,16 +129,44 @@ class ChatRepositoryTest {
         coVerify {
             client.call("image.attach_bytes", match {
                 it["content_base64"]?.jsonPrimitive?.content == "YWJj" && !it.containsKey("data") &&
-                    it["ext"]?.jsonPrimitive?.content == "png" && !it.containsKey("mime_type")
+                    // "abc" is no image signature: the hint would win over upstream's sniff, so none.
+                    !it.containsKey("ext") && !it.containsKey("mime_type")
             })
         }
     }
 
-    @Test fun image_extension_hint_maps_known_types_and_leaves_the_rest_to_magic_bytes() {
-        assertEquals("jpg", imageExtensionHint("image/jpeg"))
-        assertEquals("png", imageExtensionHint("IMAGE/PNG; charset=binary"))
-        assertEquals("webp", imageExtensionHint("image/webp"))
-        assertEquals(null, imageExtensionHint("application/octet-stream"))
+    private fun b64(vararg bytes: Int) = java.util.Base64.getEncoder()
+        .encodeToString(ByteArray(bytes.size) { bytes[it].toByte() } + ByteArray(16))
+
+    /**
+     * Upstream's `_sniff_image_ext` lets the `ext` hint WIN over its magic-byte sniff, and neither
+     * version accepts `.heic`: the hint must say what the bytes are, and nothing when unsure.
+     */
+    @Test fun image_ext_comes_from_the_bytes_never_from_the_declared_type() {
+        assertEquals("png", imageExtensionOf(b64(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)))
+        assertEquals("jpg", imageExtensionOf(b64(0xFF, 0xD8, 0xFF, 0xE0)))
+        assertEquals("gif", imageExtensionOf(b64(0x47, 0x49, 0x46, 0x38, 0x39, 0x61)))
+        assertEquals("webp", imageExtensionOf(b64(0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50)))
+        assertEquals("bmp", imageExtensionOf(b64(0x42, 0x4D)))
+        assertEquals("tiff", imageExtensionOf(b64(0x49, 0x49, 0x2A, 0x00)))
+        // HEIC ("....ftypheic"): not an extension upstream accepts, so no hint at all.
+        assertEquals(null, imageExtensionOf(b64(0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63)))
+        assertEquals(null, imageExtensionOf("not base64 !!"))
+    }
+
+    @Test fun a_heic_upload_sends_no_ext_even_when_declared_heic() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("path", "/tmp/x.png") }
+        val heic = b64(0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63)
+        ChatRepository(client).attachImageBytes("live-1", heic, "image/heic")
+        coVerify { client.call("image.attach_bytes", match { !it.containsKey("ext") }) }
+    }
+
+    @Test fun a_jpeg_labelled_png_is_sent_as_what_the_bytes_are() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call(any(), any()) } returns buildJsonObject { put("path", "/tmp/x.jpg") }
+        ChatRepository(client).attachImageBytes("live-1", b64(0xFF, 0xD8, 0xFF, 0xE0), "image/png")
+        coVerify { client.call("image.attach_bytes", match { it["ext"]?.jsonPrimitive?.content == "jpg" }) }
     }
 
     @Test fun attach_pdf_uses_remote_bytes_contract() = runTest {

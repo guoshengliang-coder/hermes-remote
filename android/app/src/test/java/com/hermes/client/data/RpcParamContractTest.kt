@@ -112,6 +112,9 @@ class RpcParamContractTest {
         chat.respondApproval("live-1", ApprovalChoice.ONCE)
         chat.respondClarify("live-1", "clr-1", "a", questionId = "q0")
         chat.respondClarify("live-1", "srq-1", "a", questionId = "q0", serverRequest = true)
+        chat.respondClarify("live-1", "srq-1", "a", serverRequest = true)
+        chat.respondApproval("live-1", ApprovalChoice.DENY, serverRequestId = "srq-2")
+        chat.attachImageBytes("live-1", java.util.Base64.getEncoder().encodeToString(byteArrayOf(-1, -40, -1, 0)), "image/jpeg")
         runCatching { projects.tree() }
         runCatching { projects.projectSessions("p1") }
         runCatching { projects.create("n", "/w", "icon", "#fff") }
@@ -144,7 +147,7 @@ class RpcParamContractTest {
         assertTrue("source tree not found from ${File(".").absolutePath}", sources.isNotEmpty())
         val literal = Regex("""(?:\.call|mutate)\(\s*"([a-z_]+(?:\.[a-z_]+)+)"""")
         val named = sources.flatMap { file -> literal.findAll(file.readText()).map { it.groupValues[1] }.toList() }
-            .toSet() + "clarify.lock" + "client.capabilities" // named through ServerRequests constants
+            .toSet() + "clarify.lock" + "client.capabilities" + "request.answer" // via ServerRequests constants
         assertEquals("methods named in sources but not pinned", emptySet<String>(), named - ALLOWED.keys)
         assertEquals("methods named in sources but not exercised", emptySet<String>(), named - exercised)
     }

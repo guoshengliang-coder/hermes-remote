@@ -305,12 +305,13 @@ function settleRequest(id, result) {
   const request = openRequests.get(id);
   if (!request) {
     console.log(`[mock] response for ${id} dropped: request no longer open`);
-    return;
+    return false;
   }
   openRequests.delete(id);
   clearTimeout(request.timer);
   if (result && request.qids && result.answers) result = { ...result, answers: { ...request.locked, ...result.answers } };
   request.resolve(result);
+  return true;
 }
 
 function openRequestSnapshots(sessionId) {
@@ -734,7 +735,9 @@ wss.on("connection", (socket) => {
           reply({ session_id: LIVE_ID, inlined_attachments: "A".repeat(OVERSIZED_RESUME_BYTES) });
           break;
         }
-        reply(SERVER_REQUESTS ? { session_id: LIVE_ID, open_requests: openRequestSnapshots(LIVE_ID) } : { session_id: LIVE_ID });
+        // Like upstream's _live_session_payload, the field is only present when something is open.
+        const open = SERVER_REQUESTS ? openRequestSnapshots(LIVE_ID) : [];
+        reply(open.length ? { session_id: LIVE_ID, open_requests: open } : { session_id: LIVE_ID });
         // Hermes' session.info is a response-shaped push, not a guarantee. Real upstreams
         // sometimes answer a resume without one, and because this mock always sent it, the
         // client's only self-heal path was always available here -- which is why HG-59 (a
@@ -778,6 +781,14 @@ wss.on("connection", (socket) => {
           open.resolve(null);
         }
         reply({ status: "interrupted", interrupted: true });
+        break;
+      }
+      case "request.answer": {
+        if (!SERVER_REQUESTS) { replyError(-32601, "unknown method: request.answer"); break; }
+        const id = String(request.params?.id ?? "");
+        const result = request.params?.result;
+        if (!id || typeof result !== "object" || result === null) { replyError(4002, "id and an object result required"); break; }
+        reply({ status: settleRequest(id, result) ? "ok" : "expired" });
         break;
       }
       case "clarify.lock": {

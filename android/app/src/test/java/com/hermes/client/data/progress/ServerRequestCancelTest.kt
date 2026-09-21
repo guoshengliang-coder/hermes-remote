@@ -93,4 +93,32 @@ class ServerRequestCancelTest {
         coVerify { chat.resume("s1", "personal") }
         scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     }
+
+    /** With two approvals open, answering the first must leave the run waiting on the second. */
+    @Test fun answering_one_of_two_queued_approvals_keeps_the_run_waiting_on_the_next() = runTest {
+        val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
+        val chat = mockk<ChatRepository>(relaxed = true)
+        every { chat.events } returns events
+        every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
+        val profiles = mockk<ProfileManager>(relaxed = true)
+        every { profiles.active } returns MutableStateFlow<String?>("personal")
+        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val store = SessionRuntimeStore(chatRepository = chat, appScope = scope, profiles = profiles)
+
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "清理")
+        events.emit(start("s1"))
+        events.emit(approvalRequest("s1", "srq-aaaaaaaaaaaa"))
+        events.emit(approvalRequest("s1", "srq-bbbbbbbbbbbb"))
+        advanceUntilIdle()
+        assertEquals("srq-aaaaaaaaaaaa", store.runtimes.value.getValue(key).chat.pendingApproval?.serverRequestId)
+
+        // What the notification shade does after a successful answer.
+        store.clearPendingApproval(key)
+        store.continueAfterInput(key)
+        val after = store.runtimes.value.getValue(key)
+        assertEquals("srq-bbbbbbbbbbbb", after.chat.pendingApproval?.serverRequestId)
+        assertEquals(SessionRunPhase.WAITING_APPROVAL, after.phase)
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
 }

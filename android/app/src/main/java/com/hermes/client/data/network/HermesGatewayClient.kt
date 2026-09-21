@@ -556,6 +556,10 @@ open class HermesGatewayClient(
                         // opens, so it proves nothing about the socket staying useful. Counting it
                         // would reset the backoff on exactly the sockets HG-65 was about.
                         if (call?.method != ServerRequests.CAPABILITIES_METHOD) currentSocketAnsweredAnRpc = true
+                        // Settled here, on the reader, not in the coroutine awaiting it: the next
+                        // frame may already be a resume answer that needs to know.
+                        if (call?.method == ServerRequests.CAPABILITIES_METHOD) serverRequestsState = "advertised"
+                        if (call?.method == ServerRequests.RESUME_METHOD) onResumeAnswered(webSocket, msg.result)
                         call?.deferred?.complete(msg.result)
                     }
                     is RpcErrorReply -> {
@@ -735,7 +739,6 @@ open class HermesGatewayClient(
                 val methods = ((result as? JsonObject)?.get("server_requests") as? JsonArray)
                     ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
                     .orEmpty()
-                if (gen == generation.get()) serverRequestsState = "advertised"
                 DebugLog.log("ws", "server requests advertised (gen=$gen); Hermes may ask: ${methods.joinToString(",")}")
             } catch (e: GatewayRpcException) {
                 if (gen == generation.get()) serverRequestsState = "unsupported"
@@ -774,30 +777,31 @@ open class HermesGatewayClient(
     }
 
     /**
-     * Answer server request [id] with [result]. There is no reply: upstream resolves the waiting
-     * request by id — from any connection, not only the one it was sent on — and silently drops
-     * an answer for a request that has already ended (`request.cancel` tells us about those).
+     * A `session.resume` answer, handled on the reader thread so its place in the frame order is kept.
+     *
+     * Newer Hermes does not replay a question asked while no socket of ours was attached; it lists it
+     * in `open_requests` and expects the client to re-deliver it as if it had just arrived. The same
+     * list is also the only way to learn that a card went stale *without* a `request.cancel`: upstream
+     * sends none when another surface answers first, and a card restored from disk may name a request
+     * that timed out while no socket was attached. So on a connection that advertised server requests,
+     * the answer is followed by an [ServerRequests.OPEN_SNAPSHOT_EVENT] naming every id still open, and
+     * server-request cards not in it are dropped. Upstream omits the field when nothing is open
+     * (`_live_session_payload` only sets non-empty values; a cold resume mints a fresh handle that owns
+     * no requests), so absent means empty. Queued behind every frame that arrived before this answer
+     * and ahead of every frame after it, which is why it is not done in the coroutine awaiting the call.
      */
-    suspend fun respondToServerRequest(id: String, result: JsonObject) {
-        awaitReadiness("respond $id")
-        val sent = ws?.send(encodeServerResponse(json, JsonPrimitive(id), result)) ?: false
-        if (!sent) {
-            DebugLog.log("ws", "server request $id answer failed: not connected")
-            throw GatewayRpcException(0, "not connected")
-        }
-        DebugLog.log("ws", "server request $id answered")
-    }
-
-    /**
-     * Put events back through the same queue live frames use — for questions a `session.resume`
-     * reports as still open, which upstream expects a reconnecting client to re-deliver as if they
-     * had just arrived.
-     */
-    fun redeliver(events: List<ServerEvent>) {
+    private fun onResumeAnswered(webSocket: WebSocket, result: JsonElement) {
+        if (serverRequestsState != "advertised") return
+        val obj = result as? JsonObject ?: return
+        val events = ServerRequests.openRequestEvents(obj) + listOfNotNull(ServerRequests.openSnapshotEvent(obj))
         events.forEach { event ->
-            DebugLog.log("ws", "re-delivering open ${event.type} session=${event.sessionId ?: "-"}")
+            if (event.type != ServerRequests.OPEN_SNAPSHOT_EVENT) {
+                DebugLog.log("ws", "re-delivering open ${event.type} session=${event.sessionId ?: "-"}")
+            }
             if (eventQueue.trySend(event).isFailure) {
-                DebugLog.log("ws", "event queue full; open request ${event.type} not re-delivered")
+                DebugLog.log("ws", "event queue overflow; reconnecting for history resync")
+                webSocket.close(1013, "event queue overflow")
+                return
             }
         }
     }

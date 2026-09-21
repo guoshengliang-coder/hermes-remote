@@ -170,12 +170,9 @@ class ChatRepository(private val client: HermesGatewayClient) {
             put("omit_messages", true)
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
-        val obj = result as? JsonObject
-        // A question asked while no socket of ours was attached is not replayed as a frame; newer
-        // Hermes returns it here instead and expects the client to re-deliver it (an older one
-        // has no such field, and this is then empty).
-        ServerRequests.openRequestEvents(obj).takeIf { it.isNotEmpty() }?.let(client::redeliver)
-        return obj?.get("session_id")?.jsonPrimitive?.content
+        // `open_requests` in this answer is handled by the socket itself, in frame order
+        // (HermesGatewayClient.onResumeAnswered).
+        return (result as? JsonObject)?.get("session_id")?.jsonPrimitive?.content
     }
 
     /**
@@ -294,9 +291,10 @@ class ChatRepository(private val client: HermesGatewayClient) {
             put("session_id", sessionId)
             // Current Hermes uses content_base64; `data` was a legacy alias.
             put("content_base64", dataBase64)
-            // Upstream sniffs the image type from its magic bytes; `ext` is only the fallback hint.
-            // It was `mime_type`, a key neither f159e581 nor 17b5df02 declares — the latter answers 4000.
-            imageExtensionHint(mimeType)?.let { put("ext", it) }
+            // `ext` WINS over upstream's own magic-byte sniff (`_sniff_image_ext` checks the hint
+            // first, in both versions), so it is only sent when it names what the bytes actually
+            // are. It replaced `mime_type`, which no version declares and 17b5df02 answers with 4000.
+            imageExtensionOf(dataBase64)?.let { put("ext", it) }
         })
         val obj = result.jsonObject
         return AttachedImage(
@@ -393,13 +391,14 @@ class ChatRepository(private val client: HermesGatewayClient) {
 
     /**
      * Answer an approval. [serverRequestId] is set when the card came from a server→client request
-     * (newer Hermes): the answer is then the response frame `{choice}` for that exact request, which
-     * cannot land on a different approval. Otherwise it is the older `approval.respond` RPC.
+     * (newer Hermes): the answer then goes to exactly that request through `request.answer`, which
+     * cannot land on a different approval and says `expired` when the request is gone — timed out,
+     * the run stopped, or answered on another surface. Otherwise it is the older `approval.respond`
+     * RPC, which answers nothing checkable, and this returns "".
      */
-    suspend fun respondApproval(sessionId: String, choice: ApprovalChoice, serverRequestId: String? = null) {
+    suspend fun respondApproval(sessionId: String, choice: ApprovalChoice, serverRequestId: String? = null): String {
         if (!serverRequestId.isNullOrBlank()) {
-            client.respondToServerRequest(serverRequestId, buildJsonObject { put("choice", choice.wire) })
-            return
+            return answerServerRequest(serverRequestId, buildJsonObject { put("choice", choice.wire) })
         }
         client.call("approval.respond", buildJsonObject {
             put("session_id", sessionId)
@@ -407,6 +406,16 @@ class ChatRepository(private val client: HermesGatewayClient) {
             // Hermes rejects any key its contract does not declare with 4000.
             put("choice", choice.wire)
         })
+        return ""
+    }
+
+    /** `request.answer {id, result}` → `"ok"` or `"expired"`. */
+    private suspend fun answerServerRequest(id: String, result: JsonObject): String {
+        val answered = client.call(ServerRequests.ANSWER_METHOD, buildJsonObject {
+            put("id", id)
+            put("result", result)
+        })
+        return (answered as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
     }
 
     /**
@@ -416,9 +425,8 @@ class ChatRepository(private val client: HermesGatewayClient) {
      *
      * [serverRequest] marks a card raised by a server→client `clarify` request (newer Hermes), for
      * which `clarify.respond` no longer exists: one batch answer is locked with `clarify.lock`
-     * (which still says `ok`/`expired`, and whose last lock resolves the request), while a single
-     * answer, a skip or a cancel-all is the response frame `{answer}`. That frame gets no reply, so
-     * it reports `ok`; a request that had already ended is withdrawn with `request.cancel` instead.
+     * (which says `ok`/`expired`, and whose last lock resolves the request), while a single answer,
+     * a skip or a cancel-all is `request.answer {id, result:{answer}}`, which says the same.
      */
     suspend fun respondClarify(
         sessionId: String,
@@ -436,8 +444,7 @@ class ChatRepository(private val client: HermesGatewayClient) {
                 })
                 return (locked as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
             }
-            client.respondToServerRequest(requestId, buildJsonObject { put("answer", answer) })
-            return "ok"
+            return answerServerRequest(requestId, buildJsonObject { put("answer", answer) })
         }
         val result = client.call("clarify.respond", buildJsonObject {
             put("session_id", sessionId)
@@ -450,15 +457,27 @@ class ChatRepository(private val client: HermesGatewayClient) {
     }
 }
 
-/** `image.attach_bytes`' `ext` hint for a MIME type, or null to let upstream's magic-byte sniff decide. */
-internal fun imageExtensionHint(mimeType: String): String? =
-    when (mimeType.substringBefore(';').trim().lowercase()) {
-        "image/jpeg", "image/jpg" -> "jpg"
-        "image/png" -> "png"
-        "image/gif" -> "gif"
-        "image/webp" -> "webp"
-        "image/heic" -> "heic"
-        "image/heif" -> "heif"
-        "image/bmp" -> "bmp"
+/**
+ * The `image.attach_bytes` `ext` for what these base64 bytes actually are, or null to leave it to
+ * upstream. Only types upstream accepts (`cli._IMAGE_EXTENSIONS`, identical in f159e581 and 17b5df02)
+ * and that upstream's own sniff would not get wrong: a HEIC is not in that set at all, so naming it
+ * would only turn a fallback into a 4016.
+ */
+internal fun imageExtensionOf(dataBase64: String): String? {
+    val head = runCatching {
+        java.util.Base64.getMimeDecoder().decode(dataBase64.take(32).let { it.take(it.length / 4 * 4) })
+    }.getOrNull() ?: return null
+    fun startsWith(vararg bytes: Int) =
+        head.size >= bytes.size && bytes.indices.all { head[it] == bytes[it].toByte() }
+    return when {
+        startsWith(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) -> "png"
+        startsWith(0xFF, 0xD8, 0xFF) -> "jpg"
+        startsWith(0x47, 0x49, 0x46, 0x38) -> "gif"
+        head.size >= 12 && startsWith(0x52, 0x49, 0x46, 0x46) &&
+            head[8] == 'W'.code.toByte() && head[9] == 'E'.code.toByte() &&
+            head[10] == 'B'.code.toByte() && head[11] == 'P'.code.toByte() -> "webp"
+        startsWith(0x42, 0x4D) -> "bmp"
+        startsWith(0x49, 0x49, 0x2A, 0x00) || startsWith(0x4D, 0x4D, 0x00, 0x2A) -> "tiff"
         else -> null
     }
+}

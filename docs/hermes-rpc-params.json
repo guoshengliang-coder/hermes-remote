@@ -275,6 +275,14 @@
         "current_session_id",
         "profile"
       ]
+    },
+    "request.answer": {
+      "model": "RequestAnswerParams",
+      "keys": [
+        "id",
+        "profile",
+        "result"
+      ]
     }
   },
   "absent_upstream": {

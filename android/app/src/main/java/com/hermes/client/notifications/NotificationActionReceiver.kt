@@ -99,7 +99,18 @@ class NotificationActionReceiver : BroadcastReceiver() {
                             else -> Unit
                         }
                     }
-                }.onSuccess {
+                }.onSuccess { status ->
+                    if (status == "expired") {
+                        // Hermes says the request is no longer open (timed out, run stopped, or
+                        // answered elsewhere): the card is stale, and the run's state is asked for
+                        // rather than guessed. Not a failure to retry — retrying cannot land.
+                        DebugLog.log("notif", "action on an expired request session=$storedId action=${intent.action}")
+                        if (ra is ReceiverAction.Approval) runtimes.clearPendingApproval(key)
+                        else runtimes.lockClarifyAnswer(key, null, "")
+                        notifications.clearActionState(key)
+                        runtimes.probe(key, force = true)
+                        return@onSuccess
+                    }
                     when (ra) {
                         is ReceiverAction.Approval -> {
                             runtimes.clearPendingApproval(key)

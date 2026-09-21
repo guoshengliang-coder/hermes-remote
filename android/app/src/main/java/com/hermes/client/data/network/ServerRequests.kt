@@ -14,8 +14,9 @@ import kotlinx.serialization.json.put
  * answered by the `approval.respond` / `clarify.respond` RPCs.
  *
  * **New protocol** (`tui_gateway/server_requests.py`, e.g. 17b5df02): a server→client JSON-RPC
- * request `{jsonrpc, id:"srq-…", method:"approval"|"clarify"|…, params:{session_id, …}}` answered
- * by a response frame with the same id; a batch clarify locks answers one at a time through the
+ * request `{jsonrpc, id:"srq-…", method:"approval"|"clarify"|…, params:{session_id, …}}`, which this
+ * client answers by id through `request.answer` (it reports `expired`, a bare response frame does
+ * not); a batch clarify locks answers one at a time through the
  * `clarify.lock` RPC; `request.cancel {id, method, reason}` withdraws a request; and unanswered
  * requests come back in `open_requests` on `session.resume`. Hermes only sends them on a
  * connection that said `client.capabilities {server_requests: true}` — otherwise approvals are
@@ -31,6 +32,19 @@ object ServerRequests {
     const val CLARIFY = "clarify"
     const val CAPABILITIES_METHOD = "client.capabilities"
     const val CLARIFY_LOCK_METHOD = "clarify.lock"
+    /**
+     * Answers an open request by id and says whether it was still open (`{status:"ok"|"expired"}`,
+     * `tui_gateway/methods_prompt.py`). Preferred to a bare response frame, which upstream drops
+     * without a word when the request is gone — timed out, interrupted, or answered on another surface
+     * (which sends no `request.cancel`) — so the phone reported success for an answer nobody received.
+     */
+    const val ANSWER_METHOD = "request.answer"
+    const val RESUME_METHOD = "session.resume"
+    /**
+     * Client-internal event: the ids a `session.resume` reported as still open for one session. Never
+     * on the wire; see HermesGatewayClient.onResumeAnswered.
+     */
+    const val OPEN_SNAPSHOT_EVENT = "hr.open_requests"
     const val CANCEL_EVENT = "request.cancel"
     const val APPROVAL_EVENT = "approval.request"
     const val CLARIFY_EVENT = "clarify.request"
@@ -95,6 +109,21 @@ object ServerRequests {
             val params = entry["params"] as? JsonObject ?: JsonObject(emptyMap())
             toEvent(id, method, params)
         }
+    }
+
+    /** [OPEN_SNAPSHOT_EVENT] for a resume answer: the live session it covers and its open request ids. */
+    fun openSnapshotEvent(result: JsonObject): ServerEvent? {
+        val sessionId = (result["session_id"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val ids = (result["open_requests"] as? JsonArray).orEmpty()
+            .mapNotNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull }
+        return ServerEvent(
+            type = OPEN_SNAPSHOT_EVENT,
+            sessionId = sessionId,
+            payload = buildJsonObject {
+                put("session_id", sessionId)
+                put("ids", JsonArray(ids.map(::JsonPrimitive)))
+            },
+        )
     }
 
     /** The server request id a card was raised by, or null for an old-protocol event. */

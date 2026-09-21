@@ -174,7 +174,7 @@ placed in the signed release.
 ```
 session.create   session.resume   session.access*    session.interrupt   session.workspace.move
 prompt.submit    slash.exec       complete.path       commands.catalog
-approval.respond clarify.respond† clarify.lock‡      client.capabilities‡
+approval.respond clarify.respond† clarify.lock‡      client.capabilities‡  request.answer‡
 config.get       config.set
 file.attach      image.attach     image.attach_bytes  pdf.attach
 process.list     projects.tree    projects.project_sessions
@@ -221,6 +221,7 @@ at build time (and checks this table against) and which the dev mock enforces in
 | `process.list` | `ProcessListParams` | `profile`, `session_id` | `session_id` | present, unvalidated |
 | `approval.respond` | `ApprovalRespondParams` | `all`, `choice`, `profile`, `request_id`, `session_id` | `session_id`, `choice` | present, unvalidated |
 | `clarify.lock` | `ClarifyLockParams` | `answer`, `profile`, `question_id`, `request_id` | `request_id`, `question_id`, `answer` | absent (-32601; only sent for a server-request card, which f159e581 never raises) |
+| `request.answer` | `RequestAnswerParams` | `id`, `profile`, `result` | `id`, `result` | absent (only sent for a server-request card, which f159e581 never raises) |
 | `client.capabilities` | `ClientCapabilitiesParams` | `server_requests` | `server_requests` | absent (-32601, tolerated) |
 | `projects.tree` | `ProjectsTreeParams` | `preview_limit`, `profile`, `session_limit` | `preview_limit` | present, unvalidated |
 | `projects.project_sessions` | `ProjectsProjectSessionsParams` | `profile`, `project_id`, `session_limit` | `project_id` | present, unvalidated |
@@ -240,7 +241,7 @@ so nothing here depends on guessing the version:
 | Call | Was | 17b5df02 | Now |
 |---|---|---|---|
 | `session.resume` | `inline_images: false` (managed patch 020) | 4000 — every conversation open failed | `omit_messages: true`, identical in f159e581 and 17b5df02 (below) |
-| `image.attach_bytes` | `mime_type` | 4000 — every photo upload failed | `ext` from the MIME subtype, omitted when unknown; both versions read `filename`/`ext` as the fallback hint and sniff magic bytes first |
+| `image.attach_bytes` | `mime_type` | 4000 — every photo upload failed | `ext` only when the phone's own magic-byte check says what the bytes are (png/jpg/gif/webp/bmp/tiff), else omitted. In both versions `_sniff_image_ext` lets the hint **win** over its magic-byte sniff, so a hint must never be a guess; HEIC/HEIF are not in `cli._IMAGE_EXTENSIONS` in either version, and naming them would turn upstream's fallback into a 4016 |
 | `approval.respond` | `approved` | 4000 | dropped; no version ever read it |
 | `session.access` | — | method absent, -32601 | unchanged: the caller already fails open (patch 030 supplies it on the managed copy) |
 | `clarify.respond` | — | method absent, -32601 | unchanged: only sent for an old-protocol card, which only f159e581 raises |
@@ -292,12 +293,13 @@ per card from what actually arrives, never from a version guess (`ServerRequests
 | | Old (f159e581) | New (17b5df02) |
 |---|---|---|
 | Ask | event `approval.request` / `clarify.request` | request frame `{jsonrpc, id:"srq-<12 hex>", method:"approval"\|"clarify", params:{session_id, …}}` |
-| Approval answer | `approval.respond {session_id, choice}` — resolves the *oldest* approval | response frame `{jsonrpc, id, result:{choice}}` — exactly that request |
-| Single clarify answer | `clarify.respond {session_id, request_id, answer}` | response frame `{result:{answer}}` (`""` = skip) |
+| Approval answer | `approval.respond {session_id, choice}` — resolves the *oldest* approval | `request.answer {id, result:{choice}}` → `{status:"ok"\|"expired"}` — exactly that request |
+| Single clarify answer | `clarify.respond {session_id, request_id, answer}` | `request.answer {id, result:{answer}}` (`""` = skip) → `ok`/`expired` |
 | Batch clarify answer | `clarify.respond` + `question_id`, one lock at a time | `clarify.lock {request_id, question_id, answer}` → `{status:"ok"\|"expired", remaining}`; the last lock resolves the request |
-| Cancel-all | `clarify.respond` without `question_id`, `answer:""` | response frame `{result:{answer:""}}` (no `answers` key = cancel-all) |
+| Cancel-all | `clarify.respond` without `question_id`, `answer:""` | `request.answer {id, result:{answer:""}}` (no `answers` key = cancel-all) |
 | Withdrawn | `clarify.expire {request_id}` (not consumed) | event `request.cancel {id, method, reason}` — the card with that id is torn down |
-| After a reconnect | not replayed to this app | `session.resume` returns `open_requests: [{id, method, params}]`; a batch's params carry the locked `answers` |
+| After a reconnect | not replayed to this app | `session.resume` returns `open_requests: [{id, method, params}]` (omitted when empty); a batch's params carry the locked `answers`; server-request cards not listed are dropped |
+| Several approvals open at once | one card; the newest replaces the older | queued by id, shown oldest first |
 
 Load-bearing facts, all from the 17b5df02 source:
 
@@ -315,11 +317,35 @@ Load-bearing facts, all from the 17b5df02 source:
   one process-wide table. An answer therefore works from a different connection than the one the
   question was sent on — which is what a notification-shade answer after a reconnect is — and an
   answer to a request that has already ended is dropped without a reply (hence `request.cancel`).
+- **Answers go through `request.answer`, not a bare response frame.** A response frame for an id
+  no longer open is dropped by `resolve_response` without a reply, and a request answered on
+  *another* surface is settled there without any `request.cancel` (upstream emits cancel only on
+  timeout, interrupt, session close and shutdown). With a bare frame the phone therefore showed
+  success, moved the run to 思考中 and nothing happened. `request.answer {id, result}`
+  (`methods_prompt.py`) resolves the same way and answers `{status:"ok"|"expired"}`, so an expired
+  clarify surfaces `HR-CLARIFY-001` again (as `clarify.respond` did on f159e581) and an expired
+  approval surfaces `HR-APPROVAL-003`. Approval uses it too: the extra round trip costs nothing
+  and replaces HR-APPROVAL-001's after-the-fact inference with Hermes' own answer.
+- **Stale cards are pruned on resume.** Because "answered elsewhere" sends no cancel, and a card
+  restored from `SessionPhaseStore` may name a request that timed out while no socket was attached,
+  every `session.resume` answer on a connection that advertised the capability is followed by a
+  client-internal `hr.open_requests` snapshot, and server-request cards whose id it does not list
+  are dropped. Absent `open_requests` means none: `_live_session_payload` only sets non-empty values,
+  and a cold resume mints a fresh live handle that owns no requests. The snapshot is queued on the
+  socket's reader thread, so it is ordered after every frame that arrived before the answer and
+  before every frame after it — a request raised just after the resume is never pruned.
 - **An error answer means "no handler".** For methods the phone has no card for (`sudo`, `secret`,
   `vault.*`, `terminal.read`, `preview.*`, `window.read`, `tour`) it answers
   `{jsonrpc, id, error:{code:-32601, …}}` at once. Upstream reads any error response as `None` —
   `_ask` returns `""`, an approval is withdrawn — instead of waiting the request's full deadline
   (300 s for a prompt). `contracts/liveness.py` names -32601 as exactly this signal.
+  **Trade-off:** a session can have several clients attached (`FanoutTransport`); the request frame
+  goes to all of them and the first response wins. If Desktop is attached too and *could* answer a
+  `sudo` / `secret` / `vault.*` / `tour` prompt (17b5df02 has no `mcp.setup` server request), the phone's immediate -32601 can win that race and
+  the prompt resolves as "no answer" before the person at the Mac sees it. This is upstream's
+  documented expectation for a client without a handler, and waiting silently instead would stall
+  the agent for the full deadline whenever the phone is the only client — so the phone keeps
+  answering -32601, and those prompts need the Mac.
 - **Newer Hermes rejects unknown params keys with 4000** — see "WebSocket RPC params" above for the
   full audit and fixes.
 
