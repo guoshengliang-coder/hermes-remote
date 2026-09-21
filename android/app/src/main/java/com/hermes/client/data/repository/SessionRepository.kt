@@ -18,10 +18,9 @@ import kotlinx.coroutines.launch
 
 /**
  * Mirror the desktop sidebar session list: show interactive, used sessions only. Sessions whose
- * source is in [SessionRepository.EXCLUDED_SOURCES] — cron (shown in the Cron view), the internal
- * subagent/tool sources, and every messaging platform (telegram/slack/email/… live in their own
- * surfaces) — plus empty (0-message) scratch sessions are hidden, matching the desktop's
- * SIDEBAR_EXCLUDED_SOURCES so the two lists agree. A null/unknown source is kept.
+ * source is in [SessionRepository.EXCLUDED_SOURCES] — scheduled/internal automation and every
+ * messaging platform (telegram/slack/email/… live in their own surfaces) — plus empty (0-message)
+ * scratch sessions are hidden. A null/unknown source is kept.
  */
 private fun Session.isInteractive(): Boolean =
     messageCount > 0 && (source == null || source !in SessionRepository.EXCLUDED_SOURCES)
@@ -83,12 +82,20 @@ class SessionRepository(
 
     companion object {
         /**
-         * Sources hidden from the sessions list, matching the desktop's SIDEBAR_EXCLUDED_SOURCES:
-         * cron + subagent + tool + every messaging platform. Local sources (cli/tui/desktop/…) and
-         * the app's own `hermes-dispatch` sessions are NOT excluded — they show in the list.
+         * Sources created by Hermes machinery rather than by a person's conversation. Upstream's
+         * human-facing session pickers exclude kanban/tool/oneshot; cron has its own app surface,
+         * and subagent is retained for older Hermes data. Keep this separate from messaging
+         * sources so the Bots segment cannot accidentally classify new machinery as a channel.
          */
-        val EXCLUDED_SOURCES: Set<String> = setOf(
-            "cron", "subagent", "tool",
+        val INTERNAL_SESSION_SOURCES: Set<String> = setOf(
+            "cron", "subagent", "tool", "kanban", "oneshot",
+        )
+
+        /**
+         * Sources hidden from the interactive sessions list. Local sources (cli/tui/desktop/…)
+         * and the app's own `hermes-dispatch` sessions are NOT excluded — they show in the list.
+         */
+        val EXCLUDED_SOURCES: Set<String> = INTERNAL_SESSION_SOURCES + setOf(
             "telegram", "discord", "slack", "mattermost", "matrix", "signal", "whatsapp",
             "bluebubbles", "homeassistant", "email", "sms", "webhook", "api_server",
             "weixin", "wecom", "qqbot", "yuanbao", "dingtalk", "feishu",
@@ -121,7 +128,8 @@ class SessionRepository(
      * All non-archived sessions across every profile, each tagged with its true profile.
      * This is the desktop-mirror list source — it replaces the single-profile [list] for the
      * sessions screen. The endpoint already excludes archived; the filter is defensive.
-     * [isInteractive] hides cron + empty sessions so the counts match the desktop dashboard.
+     * [isInteractive] hides internal automation + empty sessions so the counts match a human
+     * session picker.
      */
     suspend fun listAllProfiles(): List<Session> {
         val context = accountSessions?.routingContext()

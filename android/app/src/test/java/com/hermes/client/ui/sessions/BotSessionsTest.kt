@@ -33,6 +33,8 @@ class BotSessionsTest {
         assertFalse(isBotSession("cron"))
         assertFalse(isBotSession("subagent"))
         assertFalse(isBotSession("tool"))
+        assertFalse(isBotSession("kanban"))
+        assertFalse(isBotSession("oneshot"))
     }
 
     @Test fun a_local_or_unknown_source_is_not_a_bot_session() {
@@ -60,6 +62,8 @@ class BotSessionsTest {
         assertFalse("cron" in BOT_SOURCES)
         assertFalse("subagent" in BOT_SOURCES)
         assertFalse("tool" in BOT_SOURCES)
+        assertFalse("kanban" in BOT_SOURCES)
+        assertFalse("oneshot" in BOT_SOURCES)
         // The app's own sessions must never be swept in here.
         assertFalse("hermes_remote" in BOT_SOURCES)
         assertFalse("tui" in BOT_SOURCES)

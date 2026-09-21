@@ -43,8 +43,11 @@ class HermesContractTest {
     // `source` drives which sessions the list shows. Upstream owns these values; a new one appearing
     // is safe (unknown sources are kept), but losing one of these silently un-hides a whole class.
     @Test fun excluded_session_sources_are_pinned() {
-        assertEquals(22, SessionRepository.EXCLUDED_SOURCES.size)
-        listOf("cron", "subagent", "tool", "dingtalk", "feishu", "telegram", "email").forEach {
+        assertEquals(24, SessionRepository.EXCLUDED_SOURCES.size)
+        listOf(
+            "cron", "subagent", "tool", "kanban", "oneshot",
+            "dingtalk", "feishu", "telegram", "email",
+        ).forEach {
             assertTrue("$it must stay excluded from the interactive list", it in SessionRepository.EXCLUDED_SOURCES)
         }
         // Deliberately NOT excluded: the phone's own sessions arrive as one of these.

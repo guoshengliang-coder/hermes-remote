@@ -383,10 +383,12 @@ and aligning to it would silently drop `html` and `md` attachments.
 
 ### 6. Session `source` values
 
-`cron`, `subagent`, `tool`, `dingtalk`, `feishu`, `telegram`, `discord`, `slack`, `mattermost`,
-`matrix`, `signal`, `whatsapp`, `bluebubbles`, `homeassistant`, `email`, `sms`, `webhook`,
-`api_server`, `weixin`, `wecom`, `qqbot`, `yuanbao` are hidden from the interactive list
-(`SessionRepository.EXCLUDED_SOURCES`). `tui`, `cli`, `desktop`, `hermes-dispatch`,
+`cron`, `subagent`, `tool`, `kanban`, `oneshot`, `dingtalk`, `feishu`, `telegram`, `discord`, `slack`,
+`mattermost`, `matrix`, `signal`, `whatsapp`, `bluebubbles`, `homeassistant`, `email`, `sms`,
+`webhook`, `api_server`, `weixin`, `wecom`, `qqbot`, `yuanbao` are hidden from the interactive list
+(`SessionRepository.EXCLUDED_SOURCES`). Upstream's human-facing pickers exclude `kanban`, `tool`,
+and `oneshot`; the app additionally keeps `cron` in its dedicated surface and retains `subagent`
+for older data. `tui`, `cli`, `desktop`, `hermes-dispatch`,
 **`hermes_remote`** (this app's own) and any unknown value stay visible. A new upstream value is
 safe by default; a removed one is not — and a future upstream value colliding with `hermes_remote`
 would make the phone hide every session it created, so `HermesContractTest` asserts it stays out of
@@ -416,9 +418,10 @@ channel), so `platform=local` is refused with 4025. `handoff.request` also goes 
 `_with_session`, which requires a session live in the **dashboard** process — a channel session
 lives in the **gateway** process. **A channel conversation cannot be pulled back to the phone.**
 
-`BOT_SOURCES` is derived from the `EXCLUDED_SOURCES` in §6 (minus `cron`/`subagent`/`tool`) rather
-than hand-listed a second time: a platform source added upstream then joins the 机器人 segment
-instead of belonging to neither surface.
+`BOT_SOURCES` is derived from the `EXCLUDED_SOURCES` in §6 minus the complete
+`INTERNAL_SESSION_SOURCES` set rather than hand-listed a second time: a platform source added
+upstream then joins the 机器人 segment instead of belonging to neither surface, while a newly
+excluded internal source cannot accidentally appear as a bot.
 
 ### 7c. Manual cron fire is synchronous, and `fire_claim` is the only run signal (verified 2026-09-20)
 
