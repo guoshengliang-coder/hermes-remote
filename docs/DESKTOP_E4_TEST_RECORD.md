@@ -1236,3 +1236,49 @@ which restores the kept bundled agent on the next refresh. The in-app managed up
 other half of HG-68) has not been exercised on this Mac yet. The owner's checkout is ~34k upstream
 commits behind `origin/main`; run the `docs/HERMES_CONTRACT.md` upgrade checklist before the next
 `hermes update`.
+
+## 2026-09-21 managed release 0.3.9 (Connector 0.1.6), Desktop 0.2.23 and Android 0.1.138
+
+Ships the Connector upstream-contract check (#359) to the Mac mini and the phones. Version and
+publish gates were authorised by the owner.
+
+**Managed release 0.3.9** (schema-v1, channel `internal`, `desktop-internal-2026-a`):
+
+| Artifact | Bytes | SHA-256 |
+|---|---|---|
+| `Hermes-Desktop-0.3.9-arm64.manifest.json` | 1,306 | `935a2bc3bee822b5b1fbb993cf9d354a1927f740981ddfbc0c1b9286fabbd44c` |
+| `Hermes-Server-0.21.0-arm64.tar.gz` (0.3.8's exact published artifact, downloaded and checked against the signed 0.3.8 manifest before reuse) | 285,064,472 | `06513b2a2d137d70541d2a7b190ea305365a421f8f90d6e21ebb9e814852dc1e` |
+| `Hermes-Connector-0.1.6-arm64.tar.gz` (built at `4234589`, `BUILD-IDENTITY.json` connector 0.1.6) | 37,066,062 | `569bcdc9ec82baa2c3f94d2eb193bc8e6389c17b480e652aebe65d6f49bbbc9d` |
+
+Created 2026-09-21T14:55:00Z, expires 2026-10-05T00:00:00Z. The packaging gate derived the pinned
+public key `vhY90f6l…`; the independent verifier accepted the local output and, after publication, a
+full public re-download. The component packager requires realpaths, so every input was given under
+`/private/tmp` rather than `/tmp`; its throwaway Hermes rebuild came out byte-size identical to the
+published one but was not used.
+
+Publication on the HK host followed the 0.3.5 route: owner-only staging, re-hashed on the host,
+root-owned 0644 files under a new 0755 `/srv/hermes-desktop-releases/0.3.9`, and three exact
+`location` blocks appended to `/etc/hermes-go/desktop-release-routes.conf` only after its hash
+matched the audited `43404078…` (new hash `0715c3a3…`, backup
+`/root/desktop-release-routes.conf.before-0.3.9`); `nginx -t` passed, reload completed, Nginx
+active. The directory URL returns 404, POST 403, 0.3.8 and the Android index still 200, Relay
+`/health` 200. Staging removed.
+
+**Desktop 0.2.23/build 26** (#360, `4234589`) is 0.2.22 with the pinned manifest moved to 0.3.9. Built
+from a clean detached worktree at the merge commit after 470 Desktop tests passed; every packaged
+`Info.plist` value except the version and that URL matched the installed app; strict codesign
+passed (ad-hoc). Installed over 0.2.22 with only the GUI restarted.
+
+**Activation — the first in-app managed upgrade to complete unattended.** The owner confirmed the
+upgrade in Desktop. `desktop-runtime.log` shows it took 31 s: both jobs booted out, `wait-stopped
+result=stopped attempts=1 elapsed=0.0s`, Hermes bootstrapped and ready, then the Connector. The
+journal reads `account_active 0.3.9`, `current -> releases/0.3.9`, and local-Hermes mode survived the
+upgrade (the job still runs `hermes-local-serve` → `~/.hermes/hermes-agent`). The new Connector
+logged `hermes.contract status=compatible version=0.21.3 checked=41 missingRequired=0
+missingOptional=0` at startup. Together with the 2026-09-21 restart-probe entry this is the physical
+evidence HG-68 was waiting for.
+
+**Android 0.1.138/code 139** (#361, tag `android-v0.1.138` at `80f8704`) published by the release
+workflow: 31,995,744 bytes, SHA-256 `211695aa8cb33cc1acae73dbe33d7eaf38f960babae68a42b1babba374f003d5`,
+certificate `06c18dfc…`; the public file and index entry were re-downloaded and matched. Installed
+on HONOR CLK-AN00 as an upgrade with data kept; the vivo was not attached.
