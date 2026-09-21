@@ -258,6 +258,9 @@ const SILENT_RESUME = process.env.HR_MOCK_SILENT_RESUME === "1";
  * HR_MOCK_OVERSIZED_RESUME=14000000 puts the same shape in front of the client locally.
  */
 const OVERSIZED_RESUME_BYTES = Number(process.env.HR_MOCK_OVERSIZED_RESUME ?? 0);
+/** Keep session.access occupied so the Android replacement composer can be exercised on a device. */
+const SESSION_OWNED_ELSEWHERE = process.env.HR_MOCK_SESSION_OWNED_ELSEWHERE === "1";
+let mockRunActive = false;
 const LIVE_ID = "live-mock-1";
 const STORED_ID = "stored-mock-1";
 
@@ -602,6 +605,12 @@ wss.on("connection", (socket) => {
         emit("session.info", String(request.params?.session_id ?? STORED_ID), { running: false, cwd: ws.cwd, branch: ws.branch });
         break;
       }
+      case "session.access": {
+        reply(SESSION_OWNED_ELSEWHERE
+          ? { state: "owned_elsewhere", running: true, writable: false, owner_surface: "desktop" }
+          : { state: "owned_by_requester", running: mockRunActive, writable: true, owner_surface: "android" });
+        break;
+      }
       case "session.workspace.move": {
         const target = String(request.params?.session_key ?? "");
         const cwd = String(request.params?.cwd ?? "").trim();
@@ -627,7 +636,8 @@ wss.on("connection", (socket) => {
           promptCount += 1;
           promptTexts.push(submitted);
           reply({ ok: true });
-          void streamRun(socket);
+          mockRunActive = true;
+          void streamRun(socket).finally(() => { mockRunActive = false; });
         };
         if (submitted.startsWith("!slow")) setTimeout(ack, 6000); else ack();
         break;

@@ -422,6 +422,11 @@ fun ChatScreen(
     }
     val connected = connState is ConnectionState.Connected
     val sessionWritable = sessionAccessState != com.hermes.client.data.repository.SessionAccessState.OWNED_ELSEWHERE
+    LaunchedEffect(sessionWritable) {
+        // An occupied session has no editable control. Drop any focus inherited from the moment
+        // before session.access landed so tapping the replacement cannot reopen the IME.
+        if (!sessionWritable) collapseComposer()
+    }
     val canSend = canSend(
         connected,
         draft.isNotBlank(),
@@ -1031,17 +1036,26 @@ fun ChatScreen(
                         }
                     }
                 }
-                if (!sessionWritable) {
-                    SessionOwnershipNotice(language)
-                }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(if (composerFocused) 28.dp else 30.dp),
+                    shape = RoundedCornerShape(if (sessionWritable && composerFocused) 28.dp else 30.dp),
                     tonalElevation = 1.dp,
                     shadowElevation = 7.dp,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = if (composerFocused) 126.dp else 60.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(
+                        min = when {
+                            !sessionWritable -> 84.dp
+                            composerFocused -> 126.dp
+                            else -> 60.dp
+                        },
+                    ),
                 ) {
-                    if (composerFocused) {
+                    if (!sessionWritable) {
+                        SessionOwnershipComposer(
+                            language = language,
+                            refreshing = refreshingConversation,
+                            onRetry = { vm.refreshCurrentConversation() },
+                        )
+                    } else if (composerFocused) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
                             OutlinedTextField(
                                 value = draft,
@@ -2078,17 +2092,43 @@ fun ChatScreen(
 }
 
 @Composable
-internal fun SessionOwnershipNotice(language: com.hermes.client.ui.localization.AppLanguage) {
-    Text(
-        localized(
-            language,
-            "该会话正在另一个客户端运行，当前为只读。（HR-SESS-013）",
-            "This conversation is running in another client and is read-only. (HR-SESS-013)",
-        ),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.error,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-    )
+internal fun SessionOwnershipComposer(
+    language: com.hermes.client.ui.localization.AppLanguage,
+    refreshing: Boolean,
+    onRetry: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                localized(
+                    language,
+                    "该会话正在另一个客户端运行",
+                    "This conversation is running in another client",
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                localized(
+                    language,
+                    "结束那边的运行后重试。草稿和附件会保留。（HR-SESS-013）",
+                    "Finish it there, then retry. Your draft and attachments are preserved. (HR-SESS-013)",
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        TextButton(onClick = onRetry, enabled = !refreshing) {
+            Text(
+                if (refreshing) localized(language, "检查中…", "Checking…")
+                else localized(language, "重试", "Retry"),
+            )
+        }
+    }
 }
 
 /**

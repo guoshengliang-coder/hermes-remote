@@ -87,9 +87,9 @@ class CronViewModel @Inject constructor(
                 CronAction.DELETE -> tools.deleteCron(jobId, p)
             }
         }
-        // A timed-out 「立即运行」 is not a failed one until the job record says so.
+        // A timed-out or claim-racing 「立即运行」 is not failed until the job record says so.
         val startedInBackground = action == CronAction.RUN &&
-            triggerStartedDespiteTimeout(jobId, p, lastRunBefore, outcome.exceptionOrNull())
+            triggerStartedDespiteFailure(jobId, p, lastRunBefore, outcome.exceptionOrNull())
         val started = localizedText(
             "已触发 $name，正在后台运行",
             "Triggered $name — running in the background",
@@ -122,7 +122,7 @@ class CronViewModel @Inject constructor(
     }
 
     /**
-     * Whether a timed-out 「立即运行」 nevertheless started the job.
+     * Whether an uncertain 「立即运行」 failure nevertheless started the job.
      *
      * `POST .../trigger` runs the job synchronously upstream, so any run longer than the REST
      * timeout answers with a timeout while executing to completion on the Mac. `fire_claim` is the
@@ -130,13 +130,13 @@ class CronViewModel @Inject constructor(
      * finished between the timeout and this question. A job that cannot be re-read answers no, so
      * a genuinely unreachable gateway still reports the failure it is.
      */
-    private suspend fun triggerStartedDespiteTimeout(
+    private suspend fun triggerStartedDespiteFailure(
         jobId: String,
         profile: String?,
         lastRunBefore: String?,
         error: Throwable?,
     ): Boolean {
-        if (error?.isTimeout() != true) return false
+        if (error?.isUncertainCronTrigger() != true) return false
         val job = runCatching { tools.cronJob(jobId, profile) }.getOrNull() ?: return false
         return job.isRunning || (job.lastRunAt != null && job.lastRunAt != lastRunBefore)
     }

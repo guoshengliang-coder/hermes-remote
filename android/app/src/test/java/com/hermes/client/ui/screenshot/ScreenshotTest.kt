@@ -751,7 +751,7 @@ class ScreenshotTest {
 
     /**
      * The session picker's rows (HG-38). The four states that can appear at once: selected,
-     * selectable, an archived hit from search, and a row disabled because the six-attachment
+     * selectable, an archived hit from search, and a row disabled because the nine-attachment
      * budget is already spoken for — the last one is the whole point of deciding the cap up front
      * rather than reporting it afterwards.
      */

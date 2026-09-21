@@ -4,6 +4,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PhotoGalleryDialogTest {
+    @Test fun thumbnail_sampling_never_decodes_below_the_requested_crop_edge() {
+        assertEquals(8, gallerySampleSize(4000, 3000, 320))
+        assertEquals(4, gallerySampleSize(1200, 4000, 256))
+        assertEquals(1, gallerySampleSize(240, 4000, 320))
+    }
+
+    @Test fun full_preview_targets_the_long_edge_without_cropping_or_oversized_decode() {
+        assertEquals(320 to 240, galleryTargetSize(4000, 3000, 320))
+        assertEquals(96 to 320, galleryTargetSize(1200, 4000, 320))
+        assertEquals(19 to 320, galleryTargetSize(240, 4000, 320))
+        assertEquals(8, gallerySampleSize(4000, 3000, 320, crop = false))
+    }
+
     @Test fun selection_preserves_order_across_albums_and_honours_cap() {
         var selected = emptyList<String>()
         selected = toggleGallerySelection(selected, "content://a/1", 3)

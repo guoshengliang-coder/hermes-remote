@@ -41,7 +41,7 @@ class UnsentRecordTest {
     }
 
     /**
-     * Unlike a draft, an empty body is a real send when it carried attachments — "six images and no
+     * Unlike a draft, an empty body is a real send when it carried attachments — "nine images and no
      * caption" is a message, and a refused one still has to be reported on the row.
      */
     @Test fun blankTextSurvivesOnlyWhenItCarriedAttachments() {

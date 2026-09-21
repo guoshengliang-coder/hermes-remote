@@ -115,8 +115,8 @@ class CronTriggerTimeoutTest {
         assertFalse(vm.state.value.triggering)
     }
 
-    /** A refusal is a refusal: only a timeout earns the second question. */
-    @Test fun a_server_refusal_is_not_re_examined() = runTest(dispatcher) {
+    /** A concurrent fire can win the claim before this request; the job record settles that 409. */
+    @Test fun a_claim_conflict_that_is_now_running_is_reported_as_started() = runTest(dispatcher) {
         val tools = detailTools(running, HermesApiException(409, "HTTP 409"))
         val vm = detailViewModel(tools)
         vm.load("job-1")
@@ -125,9 +125,20 @@ class CronTriggerTimeoutTest {
         vm.trigger()
         runCurrent()
 
+        assertNull(vm.state.value.actionError)
+        assertTrue(vm.state.value.message?.resolve(AppLanguage.ZH).orEmpty().contains("正在后台运行"))
+        coVerify(atLeast = 2) { tools.cronJob(any(), any()) }
+    }
+
+    @Test fun a_claim_conflict_without_a_run_behind_it_stays_failed() = runTest(dispatcher) {
+        val vm = detailViewModel(detailTools(idle, HermesApiException(409, "HTTP 409")))
+        vm.load("job-1")
+        runCurrent()
+
+        vm.trigger()
+        runCurrent()
+
         assertEquals(AppErrorCode.CRON_ACTION_FAILED, vm.state.value.actionError?.code)
-        // Once for load(), and not again: a 409 needs no second opinion.
-        coVerify(exactly = 1) { tools.cronJob(any(), any()) }
     }
 
     /** While a claim is held the page must not offer the tap that would lose the race. */
@@ -148,6 +159,22 @@ class CronTriggerTimeoutTest {
         coEvery { tools.cronJobs(any()) } returns listOf(idle)
         coEvery { tools.cronJob(any(), any()) } returns running
         coEvery { tools.triggerCron(any(), any()) } throws InterruptedIOException("timeout")
+        val vm = CronViewModel(tools, profiles())
+        runCurrent()
+
+        vm.runAction("job-1", "周报汇总", CronAction.RUN)
+        runCurrent()
+
+        val shown = vm.state.value.message?.resolve(AppLanguage.ZH).orEmpty()
+        assertTrue(shown, shown.contains("正在后台运行"))
+        assertFalse(shown, shown.contains("HR-CRON-003"))
+    }
+
+    @Test fun the_list_reconciles_a_claim_conflict_against_the_running_job() = runTest(dispatcher) {
+        val tools = mockk<ToolsRepository>()
+        coEvery { tools.cronJobs(any()) } returns listOf(idle)
+        coEvery { tools.cronJob(any(), any()) } returns running
+        coEvery { tools.triggerCron(any(), any()) } throws HermesApiException(409, "HTTP 409")
         val vm = CronViewModel(tools, profiles())
         runCurrent()
 

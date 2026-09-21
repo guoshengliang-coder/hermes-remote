@@ -36,7 +36,13 @@ class SessionOwnershipNoticeScreenshotTest {
                     LocalAppLanguage provides AppLanguage.ZH,
                     LocalDensity provides Density(density.density, fontScale),
                 ) {
-                    Surface { SessionOwnershipNotice(AppLanguage.ZH) }
+                    Surface {
+                        SessionOwnershipComposer(
+                            language = AppLanguage.ZH,
+                            refreshing = false,
+                            onRetry = {},
+                        )
+                    }
                 }
             }
         }
@@ -44,6 +50,6 @@ class SessionOwnershipNoticeScreenshotTest {
         compose.onRoot().captureRoboImage("screenshots/$name.png", roborazziOptions = options)
     }
 
-    @Test fun lightLargeFont() = snap("session-owned-notice-zh-360-fs13", dark = false, fontScale = 1.3f)
-    @Test fun darkLargeFont() = snap("session-owned-notice-dark-zh-360-fs13", dark = true, fontScale = 1.3f)
+    @Test fun lightLargeFont() = snap("session-owned-composer-zh-360-fs13", dark = false, fontScale = 1.3f)
+    @Test fun darkLargeFont() = snap("session-owned-composer-dark-zh-360-fs13", dark = true, fontScale = 1.3f)
 }

@@ -2,12 +2,19 @@ package com.hermes.client.data.error
 
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localizedMessage
+import com.hermes.client.ui.localization.localizedSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun localizedSummaryDoesNotRepeatTheStableCode() {
+        val error = AppError(AppErrorCode.CRON_ACTION_FAILED, retryable = true)
+        assertFalse(error.localizedSummary(AppLanguage.ZH).contains("HR-CRON-003"))
+        assertEquals(1, Regex("HR-CRON-003").findAll(error.localizedMessage(AppLanguage.ZH)).count())
+    }
+
     @Test fun gallery_failures_have_bilingual_codes_and_retryability() {
         val cases = listOf(
             AppError(AppErrorCode.GALLERY_READ_FAILED, retryable = true),
