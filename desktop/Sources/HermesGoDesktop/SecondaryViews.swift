@@ -326,10 +326,13 @@ struct AccountDevicesView: View {
             accountCard(dashboard)
             bindingCard(dashboard.binding)
         }
+        if model.hermesInstallPhase != .hidden {
+            HermesInstallCard()
+        }
         if let presentation = model.componentPreflightPresentation {
             ComponentPreflightCard(
                 presentation: presentation,
-                canBegin: model.componentBootstrapCanBegin,
+                canBegin: model.componentBootstrapCanBegin && !model.isHermesInstallDecisionPending,
                 isUpgrade: model.bootstrapPlan.readiness == .managedUpgradeAvailable,
                 operation: model.componentBootstrapOperation,
                 cleanupRetryAvailable: model.componentCleanupRetryAvailable,
@@ -450,7 +453,12 @@ struct AccountDevicesView: View {
                 }
             }
         case .idle, .failed:
-            if plan.canBegin, !model.isComponentBootstrapPathSelected {
+            if plan.canBegin, !model.isComponentBootstrapPathSelected, model.isHermesInstallDecisionPending {
+                Divider()
+                Text("先在上方决定如何获取 Hermes：安装官方 Hermes，或改用内置 Hermes。")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            } else if plan.canBegin, !model.isComponentBootstrapPathSelected {
                 Divider()
                 HStack {
                     Text("第一步只写入私有临时缓存，不会停止或启动任何服务。")

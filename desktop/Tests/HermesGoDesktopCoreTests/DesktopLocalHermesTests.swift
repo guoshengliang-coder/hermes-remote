@@ -665,20 +665,32 @@ final class DesktopLocalHermesLaunchTests: XCTestCase {
 // MARK: - Setting and presentation
 
 final class DesktopLocalHermesPresentationTests: XCTestCase {
-    func testTheRuntimeIsOffUnlessTurnedOn() throws {
+    func testTheRuntimeIsOnUnlessTurnedOff() throws {
         let suite = "hermes-local-runtime-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let bundle = Bundle(for: Self.self)
 
-        XCTAssertFalse(DesktopLocalHermesRuntimeSetting.isEnabled(environment: [:], defaults: defaults, bundle: bundle))
-        defaults.set(true, forKey: DesktopLocalHermesRuntimeSetting.defaultsKey)
+        // Owner decision 2026-09-22: one Hermes per Mac, so nothing configured means on.
+        XCTAssertTrue(DesktopLocalHermesRuntimeSetting.defaultValue)
         XCTAssertTrue(DesktopLocalHermesRuntimeSetting.isEnabled(environment: [:], defaults: defaults, bundle: bundle))
         XCTAssertFalse(DesktopLocalHermesRuntimeSetting.isEnabled(
             environment: [DesktopLocalHermesRuntimeSetting.environmentKey: "0"],
             defaults: defaults,
             bundle: bundle
         ))
+        DesktopLocalHermesRuntimeSetting.chooseBundled(defaults: defaults)
+        XCTAssertFalse(
+            DesktopLocalHermesRuntimeSetting.isEnabled(environment: [:], defaults: defaults, bundle: bundle),
+            "choosing the bundled Hermes must persist as the setting turned off"
+        )
+        XCTAssertTrue(DesktopLocalHermesRuntimeSetting.isEnabled(
+            environment: [DesktopLocalHermesRuntimeSetting.environmentKey: "1"],
+            defaults: defaults,
+            bundle: bundle
+        ))
+        defaults.set(true, forKey: DesktopLocalHermesRuntimeSetting.defaultsKey)
+        XCTAssertTrue(DesktopLocalHermesRuntimeSetting.isEnabled(environment: [:], defaults: defaults, bundle: bundle))
     }
 
     func testUnsupportedLocalHermesIsARegisteredNonRetryableIssue() {

@@ -6,6 +6,10 @@
 > that led to it, because the incidents and measurements behind it are what made the new decision
 > possible. Until each Mac has been switched, the bundled copy still exists as a fallback and the
 > *Operating rules* at the end still govern it.
+>
+> **2026-09-22, phase 1 of install-when-missing:** local runtime mode is on by default, and a Mac
+> without Hermes is offered upstream's own installer, run directly against upstream through the
+> system proxy. The bundled copy stays as the fallback until phase 2 (see *用户决策 · 2026-09-22*).
 
 ## 用户决策 · 2026-09-21 — one Hermes per Mac
 
@@ -88,8 +92,8 @@ was verified on), and again after `main` reached `83031d0`:
    the switch.
 2. **Done (#350):** `docs/HERMES_CONTRACT.md` records the new protocol and the params allowlist.
 3. **Done (#351, merged 2026-09-21):** Desktop local-Hermes mode — detection, launching the local
-   `hermes serve`, restart on commit change, rollback to the bundled agent. Default off; switched on
-   per Mac. `HERMES_DESKTOP=1` stays: from 0.21.3 the ticker it starts checks, per tick, whether the
+   `hermes serve`, restart on commit change, rollback to the bundled agent. Default off at first,
+   switched on per Mac; **on by default since 2026-09-22** (step 4). `HERMES_DESKTOP=1` stays: from 0.21.3 the ticker it starts checks, per tick, whether the
    owner's gateway is running and stands down if so (`profile_gate` now applies with one profile),
    so it no longer competes for `cron/.tick.lock`; removing the variable would break `/api/ws` auth
    once `dashboard.public_url` names a non-loopback host. The minimum local version is 0.21.3.
@@ -98,9 +102,13 @@ was verified on), and again after `main` reached `83031d0`:
    a managed Connector component release for the Mac and an APK carrying the Android half; either
    half alone is harmless — an older Connector answers the report route with Hermes' 401/404, which
    the app reads as "no report", and an older app never asks.
-4. Install-when-missing through upstream's installer. **Open question:** GitHub is often
-   unreachable from the owner's network (`hermes update` failed to fetch repeatedly on 2026-09-19
-   before it got through), so a first install may need to be served through the Hong Kong release server.
+4. **Phase 1 built (2026-09-22, not yet released):** install-when-missing through upstream's
+   installer, and local runtime mode on by default. The open question — GitHub is often unreachable
+   from the owner's network, so should a first install be served through the Hong Kong release
+   server? — was decided by the owner: **no mirror; upstream directly, through the system proxy**.
+   Mechanism in `docs/DESKTOP_PHASE0.md` ("Installing Hermes when the Mac has none"); decisions and
+   the installer trust decision in *用户决策 · 2026-09-22* below. Phase 2 (retiring the bundled
+   copy, the manifest schema change, the patches and the drift check) is step 6.
 5. **Done (2026-09-21, 20:55 +08:00):** the Mac mini runs its own Hermes. Desktop 0.2.22 switched
    the managed `hermes-server` job to `~/.hermes/hermes-agent` (0.21.3, `17b5df02`) with about 17 s
    of Hermes unavailability; the bundled agent is kept as the rollback. The first attempt with
@@ -112,6 +120,97 @@ was verified on), and again after `main` reached `83031d0`:
 
 Waiting for upstream PR #116677 before step 5 avoids both degradations; switching earlier is
 possible and costs exactly the two rows marked *Degraded* above.
+
+## 用户决策 · 2026-09-22 — install from upstream, through the system proxy
+
+Three decisions, and what each one means in the code.
+
+**1. Upstream directly, no Hong Kong mirror.** When detection finds no Hermes at all
+(`.absent(hermesDataPresent: false)`), Desktop offers upstream's official installer,
+`https://hermes-agent.nousresearch.com/install.sh`, and installs to the standard location
+(`--dir ~/.hermes/hermes-agent --hermes-home ~/.hermes`), so the Mac becomes an ordinary "Mac with
+Hermes" that the owner can `hermes update` themselves. The network cost is accepted rather than
+engineered around:
+
+- Desktop downloads the script with `URLSession`, which follows the macOS system proxy (manual or
+  PAC) by itself.
+- The installer's children (`git`, `curl`, `uv`, `npm`) read only environment variables. Desktop
+  exports the **manual** HTTP/HTTPS/SOCKS proxies from System Settings to the installer's
+  environment only — `http_proxy`/`https_proxy`/`all_proxy` in both cases, loopback always in
+  `no_proxy` — and only when one is configured. Explicit proxy variables already in Desktop's
+  environment win unchanged. A PAC-only configuration cannot be expressed as one variable: it is
+  logged and the installer runs without one. Proxy credentials live in the keychain and are never
+  read; a proxy that needs them fails with a 407, which is a network failure.
+- Any network failure — the download, or a stage whose output matches a network signature — is
+  `HR-MIGRATE-015`, which tells the owner to check the network and proxy and retry, and offers the
+  bundled copy instead. A retry resumes where the installer stopped (its `repository` stage updates
+  an existing checkout).
+
+**2. Local runtime mode is on by default.** `DesktopLocalHermesRuntimeSetting.defaultValue = true`;
+the environment variable, the user default and `Info.plist` still override it. What this does on
+each kind of Mac after it upgrades Desktop:
+
+| Mac | Next refresh |
+|---|---|
+| Managed install, bundled agent, usable standard Hermes | `switchToLocal` through the proven path (#351, and the #356 shutdown/reload fixes): keep the bundled agent, write the launcher, restart only Hermes, readiness proof, byte-for-byte restore on failure. This is what the Mac mini did by hand on 2026-09-21 |
+| Managed install, no Hermes of its own | Nothing: `.absent` with a bundled agent is `.keep`. No install is offered to an installed Mac |
+| Managed install, Hermes in an unusual shape | Nothing is changed, but `HR-MIGRATE-008` now appears on its card, where before the setting kept it silent |
+| Fresh Mac with a usable Hermes | The fresh managed install writes the local agent directly (`freshInstallProvider`); the bundled agent is only the kept fallback and never runs |
+| Fresh Mac without Hermes | The install offer (decision 1) appears above the setup card; setup waits for the owner's choice |
+| Fresh Mac with Hermes in an unusual shape | The fresh install is refused with `HR-MIGRATE-008`, as it was with the setting on |
+
+Opting out stays one command: `defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled
+-bool false`, which on a local-mode Mac is also the rollback.
+
+**3. Phase 1 keeps the bundled copy as the fallback.** The manifest schema, `hermes_server`, the
+patches and the drift check are unchanged. "改用内置 Hermes" in the offer, and after a failed or
+cancelled install, persists the setting off for this Mac, after which setup behaves exactly as it did
+before local mode existed. Retiring the bundled copy is phase 2 (step 6).
+
+### How the installer is driven
+
+- **Protocol, not text.** Desktop runs `install.sh --manifest`, requires `protocol_version` 1, then
+  runs each listed stage as `install.sh --stage <name> --non-interactive --json` and reads the last
+  `{"ok":…,"stage":…,"skipped":…}` line of its output — the protocol upstream's own Electron and
+  Tauri bootstraps drive (`apps/desktop/electron/bootstrap-runner.ts`,
+  `apps/bootstrap-installer`). Like them, every stage is invoked and the installer itself skips the
+  interactive ones. A different protocol version, a malformed manifest or a stage with no result
+  frame is `HR-MIGRATE-017` and nothing further runs.
+- **Interactive stages are skipped, not answered.** `setup` (API keys and provider) and `gateway`
+  (messaging gateway service) are `needs_user_input` and are skipped by `--non-interactive`, the
+  same effect as `--skip-setup` in the one-liner. The owner configures a model provider afterwards
+  with `hermes setup`; Desktop runs the serve itself, so the messaging gateway is not needed for the
+  phone.
+- **Branch `main`**, upstream's own default, and no `--commit` pin: the installed checkout is then
+  what `hermes update` moves, which is the point of one Hermes per Mac. If upstream's `main` is ever
+  below `DesktopLocalHermesDetector.minimumVersion`, detection refuses it with `HR-MIGRATE-018`
+  instead of running it.
+- **No root, no sudo, no terminal.** Desktop refuses to run as root. The installer runs as the
+  owner with standard input on `/dev/null`, `NONINTERACTIVE=1` and `GIT_TERMINAL_PROMPT=0`, in its
+  own process group, with a private `bin/` first on `PATH` whose `sudo` refuses. On macOS upstream
+  uses no `sudo` at all; it may use an existing Homebrew for optional tools and may open Apple's
+  Command Line Tools installer.
+
+### Installer trust decision
+
+Upstream publishes **no checksum or signature** for `install.sh` (verified 2026-09-22 against
+`17b5df02`: nothing in the repository, its site-deploy workflow included, produces one; there is no
+`.sha256`, `.sig` or `.asc` beside it; and upstream's own Tauri bootstrap downloads it from
+`raw.githubusercontent.com` without verification). There is nothing to verify it against, so the
+trust decision is explicit rather than implied:
+
+- **Trusted: TLS to the official origin.** The script is fetched only over HTTPS from
+  `hermes-agent.nousresearch.com`; after redirects the final URL must still be HTTPS on that host,
+  or a file under `raw.githubusercontent.com/NousResearch/hermes-agent/` (where upstream's own
+  bootstrap fetches it), otherwise `HR-MIGRATE-017`. This is the same trust the owner extends when running upstream's documented
+  one-liner, and no more: the script then clones the repository and installs its dependencies over
+  the same channels, so a verified script alone would not verify what it installs.
+- **Recorded, not verified:** the script's SHA-256 is written to `Managed/logs/hermes-install.log`
+  before it runs, so an incident can be traced to the exact bytes.
+- **Bounded:** at most 2 MiB, must start with `#!`, runs from a private 0600 file in a 0700
+  directory that is removed afterwards, and must answer the stage protocol before any stage runs.
+- **Revisit** if upstream starts publishing a checksum or signature: verify it before running, and
+  record that here.
 
 ## 用户决策 · 2026-09-20 (superseded 2026-09-21)
 

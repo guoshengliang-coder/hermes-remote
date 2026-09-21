@@ -14,6 +14,10 @@ public enum SecretRedactor {
     private static let homeDirectoryPattern = try! NSRegularExpression(
         pattern: #"/Users/(?!Shared/|<user>)[^/\s'"]+"#
     )
+    /// `scheme://user:password@host` — proxy URLs are the usual carrier.
+    private static let urlUserInfoPattern = try! NSRegularExpression(
+        pattern: #"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s@:'"]+(?::[^/\s@'"]*)?@"#
+    )
     private static let accountCredentialPattern = try! NSRegularExpression(
         pattern: #"\b(?:hga|hgr|hgg|hsi)_[A-Za-z0-9_-]+\b"#
     )
@@ -23,6 +27,7 @@ public enum SecretRedactor {
         result = replace(environmentPattern, in: result, template: "$1$2<redacted>")
         result = replace(queryPattern, in: result, template: "$1<redacted>")
         result = replace(accountCredentialPattern, in: result, template: "<redacted>")
+        result = replace(urlUserInfoPattern, in: result, template: "$1<redacted>@")
         result = replace(homeDirectoryPattern, in: result, template: "/Users/<user>")
 
         for secret in knownSecrets.filter({ $0.count >= 4 }).sorted(by: { $0.count > $1.count }) {

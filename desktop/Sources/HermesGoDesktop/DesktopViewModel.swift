@@ -22,6 +22,30 @@ enum DesktopComponentBootstrapOperation: Equatable {
     case failed
 }
 
+/// Install-when-missing (`DesktopHermesInstaller`): where the owner is in deciding how a Mac with no
+/// Hermes gets one. Nothing runs before `.running`, which only `startHermesInstall()` enters — from
+/// the confirmation sheet or an explicit retry.
+enum DesktopHermesInstallPhase: Equatable {
+    case hidden
+    case offered(DesktopHermesInstallOffer)
+    case running(DesktopHermesInstallOffer, DesktopHermesInstallRun, cancelling: Bool)
+    case succeeded(version: String)
+    case cancelled(DesktopHermesInstallOffer, DesktopHermesInstallRun)
+    case failed(DesktopHermesInstallOffer, DesktopHermesInstallRun, DesktopIssue)
+
+    var offer: DesktopHermesInstallOffer? {
+        switch self {
+        case .offered(let offer), .running(let offer, _, _), .cancelled(let offer, _), .failed(let offer, _, _): offer
+        case .hidden, .succeeded: nil
+        }
+    }
+
+    var isRunning: Bool {
+        if case .running = self { return true }
+        return false
+    }
+}
+
 @MainActor
 final class DesktopViewModel: ObservableObject {
     @Published private(set) var health: DesktopHealthSnapshot = .checking
@@ -52,6 +76,8 @@ final class DesktopViewModel: ObservableObject {
     /// `docs/DESKTOP_PHASE0.md`). Its own slot for the same reason as `managedSchemaIssue`: it is
     /// orthogonal to the bootstrap state machine, which clears its issue on most transitions.
     @Published private(set) var localHermesIssue: DesktopIssue?
+    @Published private(set) var hermesInstallPhase: DesktopHermesInstallPhase = .hidden
+    @Published var isHermesInstallConfirmationPresented = false
     @Published private(set) var componentPreflightPresentation:
         DesktopComponentPreflightPresentation?
     @Published private(set) var isComponentPreflightRefreshing = false
@@ -75,6 +101,11 @@ final class DesktopViewModel: ObservableObject {
     private var componentInterruptedRunID: String?
     private var monitorTask: Task<Void, Never>?
     private let localHermesDetector: DesktopLocalHermesDetector?
+    private let managedPaths: DesktopManagedBootstrapPaths?
+    private var hermesInstallTask: Task<Void, Never>?
+    /// Records that Desktop itself started an install on this Mac, so a retry may resume the
+    /// unfinished checkout it left behind (detection reads that as `incompleteInstallation`).
+    private static let hermesInstallAttemptKey = "HermesGoLocalHermesInstallAttemptedAt"
     /// After a failed switch or restart, wait before trying again rather than restarting Hermes on
     /// every 15-second refresh while the owner's install is broken.
     private var hermesRuntimeRetryAfter: Date?
@@ -105,6 +136,7 @@ final class DesktopViewModel: ObservableObject {
         )
         accountController = controller
         let managedPaths = try? DesktopManagedBootstrapPaths.currentUser()
+        self.managedPaths = managedPaths
         localHermesDetector = (try? DesktopLocalHermesPaths.currentUser())
             .map { DesktopLocalHermesDetector(paths: $0) }
         managedSchemaInspector = managedPaths.map {
@@ -709,6 +741,7 @@ final class DesktopViewModel: ObservableObject {
             targetReleaseVersion: selectedTargetReleaseVersion
         )
         applyManagedBootstrapInstallation(scopedManagedInstallation)
+        await refreshHermesInstallOffer(scopedManagedInstallation)
         await refreshManagedSchemaIssue()
         await refreshHermesRuntime()
     }
@@ -767,6 +800,156 @@ final class DesktopViewModel: ObservableObject {
         }
     }
 
+    // MARK: Install-when-missing
+
+    /// While the owner has not yet decided how this Mac gets its Hermes — or an install is running,
+    /// failed or was cancelled — the managed setup waits: starting it would pick the bundled copy
+    /// behind the owner's back.
+    var isHermesInstallDecisionPending: Bool {
+        switch hermesInstallPhase {
+        case .offered, .running, .cancelled, .failed: true
+        case .hidden, .succeeded: false
+        }
+    }
+
+    var hermesInstallLogPath: String {
+        "~/Library/Application Support/Hermes Go/Managed/logs/\(DesktopHermesInstaller.logFileName)"
+    }
+
+    /// Runs on every refresh. Offers upstream's installer only on a fresh Mac about to be set up,
+    /// with the local-runtime setting on and no Hermes at all (`DesktopHermesInstallOffer.evaluate`);
+    /// any other shape keeps today's behaviour, including `HR-MIGRATE-008` for unusual installs.
+    private func refreshHermesInstallOffer(_ installation: DesktopManagedBootstrapInstallationStatus) async {
+        guard let detector = localHermesDetector else {
+            hermesInstallPhase = .hidden
+            return
+        }
+        if hermesInstallPhase.isRunning { return }
+        let fresh = installation == .absent && !(managedRecoveryRuntime?.hasManagedHermesLaunchAgent ?? false)
+        if case .succeeded = hermesInstallPhase {
+            if !fresh { hermesInstallPhase = .hidden }
+            return
+        }
+        let setupAvailable = bootstrapPlan.canBegin || componentBootstrapCanBegin
+        let enabled = DesktopLocalHermesRuntimeSetting.isEnabled()
+        // Most refreshes end here: an installed Mac, or the setting off, needs no detection.
+        guard fresh, enabled else {
+            hermesInstallPhase = .hidden
+            return
+        }
+        let attempted = UserDefaults.standard.object(forKey: Self.hermesInstallAttemptKey) != nil
+        let (detection, proxy) = await Task.detached(priority: .utility) {
+            (detector.detect(), DesktopSystemProxy.current())
+        }.value
+        let offer = setupAvailable
+            ? DesktopHermesInstallOffer.evaluate(
+                detection: detection,
+                paths: detector.paths,
+                localRuntimeEnabled: enabled,
+                freshInstall: fresh,
+                earlierAttemptRecorded: attempted,
+                proxy: proxy
+            )
+            : nil
+        if hermesInstallPhase.isRunning { return }
+        switch hermesInstallPhase {
+        case .failed, .cancelled:
+            // Keep the outcome on screen while retrying still makes sense; drop it once the Mac
+            // has Hermes (installed some other way) or the owner turned the setting off.
+            if offer == nil { hermesInstallPhase = .hidden }
+        default:
+            hermesInstallPhase = offer.map { .offered($0) } ?? .hidden
+        }
+    }
+
+    /// The owner's explicit "install" — from the confirmation sheet, or "重试" after a failure or
+    /// cancellation. The only path into `DesktopHermesInstaller.install`.
+    func startHermesInstall() {
+        isHermesInstallConfirmationPresented = false
+        guard !hermesInstallPhase.isRunning,
+              let shownOffer = hermesInstallPhase.offer,
+              let detector = localHermesDetector,
+              let managedPaths
+        else { return }
+        UserDefaults.standard.set(Date(), forKey: Self.hermesInstallAttemptKey)
+        // Re-read the Mac: a retry resumes the checkout the previous attempt left behind.
+        let offer = DesktopHermesInstallOffer.evaluate(
+            detection: detector.detect(),
+            paths: detector.paths,
+            localRuntimeEnabled: DesktopLocalHermesRuntimeSetting.isEnabled(),
+            freshInstall: true,
+            earlierAttemptRecorded: true,
+            proxy: DesktopSystemProxy.current()
+        ) ?? shownOffer
+        let installer = DesktopHermesInstaller(
+            paths: detector.paths,
+            workRoot: managedPaths.workspaceRoot.deletingLastPathComponent()
+                .appendingPathComponent("com.hermesgo.desktop-hermes-install", isDirectory: true),
+            log: DesktopServiceOperationLog(
+                url: managedPaths.managedRoot
+                    .appendingPathComponent("logs", isDirectory: true)
+                    .appendingPathComponent(DesktopHermesInstaller.logFileName),
+                maximumBytes: 1024 * 1024
+            )
+        )
+        let confirmation = offer.confirm()
+        hermesInstallPhase = .running(offer, DesktopHermesInstallRun(), cancelling: false)
+        hermesInstallTask = Task { [weak self] in
+            do {
+                let installation = try await installer.install(confirmation) { progress in
+                    // The main queue is FIFO, so stages arrive in the order the driver sent them.
+                    DispatchQueue.main.async { self?.applyHermesInstallProgress(progress) }
+                }
+                await self?.finishHermesInstall(.success(installation))
+            } catch let failure as DesktopHermesInstallFailure {
+                await self?.finishHermesInstall(.failure(failure))
+            } catch {
+                await self?.finishHermesInstall(.failure(.stageFailed(stage: "spawn", detail: String(describing: error))))
+            }
+        }
+    }
+
+    func cancelHermesInstall() {
+        guard case .running(let offer, let run, cancelling: false) = hermesInstallPhase else { return }
+        hermesInstallPhase = .running(offer, run, cancelling: true)
+        hermesInstallTask?.cancel()
+    }
+
+    /// "改用内置 Hermes": the owner's persisted choice for this Mac. Turning the local-runtime
+    /// setting off makes the managed setup — and every later refresh — behave exactly as before
+    /// local runtime mode existed. Whatever an unfinished install left in `~/.hermes` is not touched.
+    func useBundledHermes() {
+        guard !hermesInstallPhase.isRunning else { return }
+        DesktopLocalHermesRuntimeSetting.chooseBundled()
+        UserDefaults.standard.removeObject(forKey: Self.hermesInstallAttemptKey)
+        hermesInstallPhase = .hidden
+    }
+
+    private func applyHermesInstallProgress(_ progress: DesktopHermesInstallProgress) {
+        guard case .running(let offer, var run, let cancelling) = hermesInstallPhase else { return }
+        run.apply(progress)
+        hermesInstallPhase = .running(offer, run, cancelling: cancelling)
+    }
+
+    private func finishHermesInstall(_ result: Result<DesktopLocalHermesInstallation, DesktopHermesInstallFailure>) async {
+        hermesInstallTask = nil
+        guard case .running(let offer, var run, _) = hermesInstallPhase else { return }
+        switch result {
+        case .success(let installation):
+            UserDefaults.standard.removeObject(forKey: Self.hermesInstallAttemptKey)
+            hermesInstallPhase = .succeeded(version: installation.version)
+        case .failure(.cancelled):
+            run.stop()
+            hermesInstallPhase = .cancelled(offer, run)
+        case .failure(let failure):
+            run.fail(stage: failure.stage)
+            let issue = DesktopIssue.hermesInstall(failure)
+                ?? DesktopIssue(code: .hermesInstallStageFailed, technicalCause: "stage=\(failure.stage)")
+            hermesInstallPhase = .failed(offer, run, issue)
+        }
+        await refresh()
+    }
+
     /// A fresh install on a Mac that already has Hermes in a shape Hermes GO cannot run would put a
     /// second copy of Hermes beside it. Stop and say why instead.
     private func localHermesInstallBlock(
@@ -798,7 +981,7 @@ final class DesktopViewModel: ObservableObject {
     }
 
     func prepareManagedBootstrap() async {
-        guard !isManagedBootstrapAccountLocked else { return }
+        guard !isManagedBootstrapAccountLocked, !isHermesInstallDecisionPending else { return }
         managedBootstrapIssue = nil
         managedBootstrapOperation = .preparing
         guard let runtime = managedBootstrapRuntime else {
@@ -910,6 +1093,7 @@ final class DesktopViewModel: ObservableObject {
 
     func prepareComponentBootstrap() async {
         guard !isManagedBootstrapAccountLocked,
+              !isHermesInstallDecisionPending,
               componentBootstrapOperation == .idle || componentBootstrapOperation == .failed,
               let runtime = componentBootstrapRuntime,
               let trustedPreflight = trustedComponentPreflight
