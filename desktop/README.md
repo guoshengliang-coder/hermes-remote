@@ -1,6 +1,17 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.22** (build 25). One fix (#356).
+Current internal test release candidate: **0.2.23** (build 26). One change.
+
+Its pinned schema-v1 manifest moves from 0.3.8 to **0.3.9**
+(`https://mrlgs.net/desktop/releases/0.3.9/Hermes-Desktop-0.3.9-arm64.manifest.json`), which carries
+**Connector 0.1.6** with the upstream contract check (#359): the Connector compares the local
+Hermes' `openapi.json` with the routes the app depends on and serves the verdict at
+`/api/hermes-remote/contract`, so an incompatible `hermes update` reaches the phone as
+`HR-COMPAT-001/002/003` instead of later, vaguer failures. Hermes Server is 0.3.8's exact artifact.
+Nothing else in the app changes; the rebuild is required because the manifest URL is written into
+`Info.plist` at build time.
+
+0.2.22 (build 25) had one fix (#356).
 
 Every managed Hermes restart — switching to or from this Mac's own Hermes, reloading, and the
 in-app managed upgrade and its rollback — waited for a proof that the old Hermes had released
