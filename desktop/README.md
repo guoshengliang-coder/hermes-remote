@@ -1,6 +1,20 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.21** (build 24). One change.
+Current internal test release candidate: **0.2.22** (build 25). One fix (#356).
+
+Every managed Hermes restart — switching to or from this Mac's own Hermes, reloading, and the
+in-app managed upgrade and its rollback — waited for a proof that the old Hermes had released
+127.0.0.1:9119 that could never succeed on macOS: a refused loopback connection stays in
+`NWConnection`'s `.waiting(ECONNREFUSED)` and was read as "still listening". On 2026-09-21 this
+left the Mac mini's Hermes unloaded for about three minutes after a runtime switch (HG-68's "needs a
+manual activation" is the same bug). The probe now treats a refused connection as proof, a failed
+restore re-bootstraps its agent and reports `HR-MIGRATE-013` instead of staying silent, an unloaded
+bundled job is loaded again unless another process holds the port (`HR-MIGRATE-014`), diagnostics
+keep the original and recovery errors, service operations are logged to
+`Managed/logs/desktop-runtime.log`, and the migration journal reads timestamps without fractional
+seconds.
+
+0.2.21 (build 24) had one change.
 
 It can run this Mac's own Hermes instead of a second, pinned copy (`docs/MANAGED_HERMES_STRATEGY.md`,
 one Hermes per Mac). When the owner's standard install (`~/.hermes/hermes-agent`, 0.21.3 or newer,
