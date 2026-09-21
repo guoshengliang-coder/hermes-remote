@@ -539,8 +539,30 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
         XCTAssertEqual(plan(.usable(installation()), mode: .absent), .keep)
     }
 
-    func testABundledMacWhoseServiceIsNotLoadedIsLeftAlone() {
-        XCTAssertEqual(plan(.usable(installation()), service: .notLoaded), .keep)
+    /// 2026-09-21: `.keep` here left a committed installation with no Hermes until an operator
+    /// bootstrapped it. A bundled job that is not loaded is loaded — with the setting on or off,
+    /// with or without a usable local Hermes, and without waiting for a checkout update.
+    func testABundledMacWhoseServiceIsNotLoadedIsLoadedAgain() {
+        XCTAssertEqual(plan(.usable(installation()), service: .notLoaded), .loadAgent)
+        XCTAssertEqual(plan(.absent(hermesDataPresent: false), service: .notLoaded), .loadAgent)
+        XCTAssertEqual(plan(nil, enabled: false, service: .notLoaded), .loadAgent)
+        XCTAssertEqual(plan(.usable(installation()), updateInProgress: true, service: .notLoaded), .loadAgent)
+        XCTAssertTrue(DesktopHermesRuntimePlan.loadAgent.mutates)
+        // A stopped (loaded) bundled job is launchd's to restart; an unknown reading changes nothing.
+        XCTAssertEqual(plan(nil, enabled: false, service: .stopped), .keep)
+        XCTAssertEqual(plan(nil, enabled: false, service: .unknown), .keep)
+        // Local mode keeps its own crash-loop-bounded restart.
+        XCTAssertEqual(
+            plan(.usable(installation()), mode: local, service: .notLoaded),
+            .restartLocal(installation(), .notRunning)
+        )
+    }
+
+    func testWithTheSettingOffALoadRunsEveryRefreshAndAReloadOncePerLaunch() {
+        XCTAssertTrue(DesktopManagedRecoveryRuntime.runsWhileDisabled(.loadAgent, checkRunningAgent: false))
+        XCTAssertTrue(DesktopManagedRecoveryRuntime.runsWhileDisabled(.reloadAgent(recording: nil), checkRunningAgent: true))
+        XCTAssertFalse(DesktopManagedRecoveryRuntime.runsWhileDisabled(.reloadAgent(recording: nil), checkRunningAgent: false))
+        XCTAssertFalse(DesktopManagedRecoveryRuntime.runsWhileDisabled(.keep, checkRunningAgent: true))
     }
 }
 
@@ -684,6 +706,44 @@ final class DesktopLocalHermesPresentationTests: XCTestCase {
         XCTAssertFalse(secret.sanitizedDiagnostic.contains("s3cret"))
     }
 
+    /// A job Desktop could not load again is its own registered, retryable code, and the diagnostic
+    /// keeps both causes with home-directory names redacted.
+    func testAnUnloadedHermesJobIsItsOwnRetryableCodeWithBothCauses() {
+        let failure = DesktopServiceRecoveryFailure(
+            classification: .hermesReloadFailed,
+            operation: "switch-to-local",
+            cause: DesktopMigrationCoordinatorError.hermesStopTimedOut,
+            recoveryCause: "Bootstrap failed: 5 for /Users/guoshengliang/Library/LaunchAgents/com.hermesgo.hermes-server.plist"
+        )
+        let issue = DesktopIssue.hermesRuntimeFailure(failure)
+
+        XCTAssertEqual(issue.code.rawValue, "HR-MIGRATE-013")
+        XCTAssertEqual(issue.summaryChinese, "Hermes 服务未运行")
+        XCTAssertEqual(issue.summaryEnglish, "Hermes service isn't running")
+        XCTAssertTrue(issue.detailChinese.contains("自动重试"))
+        XCTAssertTrue(issue.detailEnglish.contains("retry automatically"))
+        XCTAssertTrue(issue.retryable)
+        XCTAssertEqual(issue.recoveryAction, .details)
+        XCTAssertTrue(issue.displayChinese.contains("HR-MIGRATE-013"))
+        let diagnostic = issue.sanitizedDiagnostic
+        XCTAssertTrue(diagnostic.contains("cause=DesktopMigrationCoordinatorError.hermesStopTimedOut"))
+        XCTAssertTrue(diagnostic.contains("recovery=Bootstrap failed: 5"))
+        XCTAssertFalse(diagnostic.contains("guoshengliang"))
+        XCTAssertTrue(diagnostic.contains("/Users/<user>/Library/LaunchAgents"))
+
+        // A restore that failed but left the job loaded stays HR-MIGRATE-009.
+        let restored = DesktopServiceRecoveryFailure(
+            classification: .rollbackFailed,
+            operation: "switch-to-local",
+            cause: DesktopMigrationCoordinatorError.hermesHealthTimedOut,
+            recoveryCause: "x"
+        )
+        XCTAssertEqual(DesktopIssue.hermesRuntimeFailure(restored).code, .localHermesRuntimeFailed)
+        // In a managed-upgrade context both classifications are HR-MIGRATE-004 (manual recovery).
+        XCTAssertEqual(DesktopIssue.migration(failure, terminalState: nil).code, .migrationRollbackFailed)
+        XCTAssertEqual(DesktopIssue.migration(restored, terminalState: nil).code, .migrationRollbackFailed)
+    }
+
     /// Item 12: a Mac left without any Hermes to run is not something retrying fixes.
     func testMissingWithoutFallbackIsItsOwnNonRetryableCode() {
         let issue = DesktopIssue.hermesRuntime(.unchanged(.surface(.localHermesMissingWithoutFallback)))
@@ -745,6 +805,7 @@ final class DesktopLocalHermesPresentationTests: XCTestCase {
         XCTAssertNil(DesktopIssue.hermesRuntime(.notInstalled))
         XCTAssertNil(DesktopIssue.hermesRuntime(.unchanged(.keep)))
         XCTAssertNil(DesktopIssue.hermesRuntime(.restoredBundled))
+        XCTAssertNil(DesktopIssue.hermesRuntime(.loadedAgent))
         XCTAssertEqual(
             DesktopIssue.hermesRuntime(.unchanged(.surface(.unsupported(.customHermesHome, detail: "x"))))?.code,
             .localHermesUnsupported

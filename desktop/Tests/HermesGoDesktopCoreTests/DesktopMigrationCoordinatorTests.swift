@@ -951,6 +951,37 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.shutdown.waitCount(), 2)
     }
 
+    /// HG-68 / 2026-09-21: before the ECONNREFUSED fix every stop wait timed out, so an in-app
+    /// upgrade and then its own rollback both failed. What is left must name both causes.
+    func testAnUpgradeWhoseRollbackAlsoFailsCarriesBothCauses() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil, releaseVersion: "1.2.2")
+        fixture.shutdown.timeOutWaits(2)
+
+        var thrown: Error?
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.upgrade(
+            manifest: fixture.manifest,
+            sources: fixture.sources,
+            hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: fixture.launchAgentConfiguration,
+            runID: "10000000-0000-4000-8000-000000000019",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .confirmationText(releaseVersion: fixture.manifest.releaseVersion)
+        )) { thrown = $0 }
+
+        let failure = try XCTUnwrap(thrown as? DesktopServiceRecoveryFailure)
+        XCTAssertEqual(failure.classification, .rollbackFailed)
+        XCTAssertEqual(failure.operation, "managed-upgrade")
+        XCTAssertEqual(failure.cause, "DesktopMigrationCoordinatorError.hermesStopTimedOut")
+        XCTAssertEqual(failure.recoveryCause, "DesktopMigrationCoordinatorError.hermesStopTimedOut")
+        XCTAssertEqual(try fixture.journal.load()?.state, .rollbackAttentionRequired)
+        let issue = DesktopIssue.migration(failure, terminalState: .rollbackAttentionRequired)
+        XCTAssertEqual(issue.code.rawValue, "HR-MIGRATE-004")
+        XCTAssertTrue(issue.technicalCause?.contains("cause=DesktopMigrationCoordinatorError.hermesStopTimedOut") == true)
+        XCTAssertTrue(issue.technicalCause?.contains("recovery=DesktopMigrationCoordinatorError.hermesStopTimedOut") == true)
+    }
+
     func testManagedUpgradeCanMoveFromBundledReleaseToComponentStore() async throws {
         let fixture = try Fixture(
             legacyRunning: false,
@@ -1347,6 +1378,139 @@ final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.installer.readLocalHermesRuntimeRecord()?.recentLaunches.count, 2)
     }
 
+    /// The 2026-09-21 sequence: the switch's stop wait timed out, and so did the restore's. The job
+    /// must end loaded (with the bundled agent restored), and the error must carry both causes
+    /// instead of a bare `rollbackFailed`.
+    func testASwitchWhoseRestoreAlsoFailsLeavesTheJobLoadedAndNamesBothCauses() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let bundled = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        fixture.shutdown.timeOutWaits(2)
+
+        var thrown: Error?
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }) { thrown = $0 }
+
+        let failure = try XCTUnwrap(thrown as? DesktopServiceRecoveryFailure)
+        XCTAssertEqual(failure.classification, .rollbackFailed)
+        XCTAssertEqual(failure.operation, "switch-to-local")
+        XCTAssertEqual(failure.cause, "DesktopMigrationCoordinatorError.hermesStopTimedOut")
+        XCTAssertEqual(failure.recoveryCause, "DesktopMigrationCoordinatorError.hermesStopTimedOut")
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), bundled)
+        XCTAssertTrue(fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel))
+        XCTAssertEqual(fixture.serviceMutations(), [
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+        ], "the rolled-back agent is bootstrapped again, exactly once")
+
+        let issue = DesktopIssue.hermesRuntimeFailure(failure)
+        XCTAssertEqual(issue.code.rawValue, "HR-MIGRATE-009")
+        XCTAssertEqual(
+            issue.technicalCause,
+            "stage=runtime rollbackFailed operation=switch-to-local "
+                + "cause=DesktopMigrationCoordinatorError.hermesStopTimedOut "
+                + "recovery=DesktopMigrationCoordinatorError.hermesStopTimedOut"
+        )
+
+        let log = try String(contentsOf: fixture.operationLog.url, encoding: .utf8)
+        XCTAssertTrue(log.contains("launchctl bootout gui/501/\(DesktopManagedInstallLayout.hermesLabel) status=0"))
+        XCTAssertTrue(log.contains("restart hermes result=stop-timed-out"))
+        XCTAssertTrue(log.contains("reload hermes after=switch-to-local attempt=1 result=loaded"))
+    }
+
+    /// launchd can refuse a bootstrap right after a bootout; the reload tries again.
+    func testATransientlyRefusedReloadIsRetried() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        fixture.shutdown.timeOutWaits(2)
+        fixture.runner.failHermesBootstraps(2)
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }) { error in
+            XCTAssertEqual((error as? DesktopServiceRecoveryFailure)?.classification, .rollbackFailed)
+        }
+
+        XCTAssertTrue(fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel))
+        XCTAssertEqual(fixture.serviceMutations().filter { $0.hasPrefix("bootstrap:") }.count, 3)
+        let log = try String(contentsOf: fixture.operationLog.url, encoding: .utf8)
+        XCTAssertTrue(log.contains("status=5 stderr=Bootstrap failed: 5: Input/output error"))
+        XCTAssertTrue(log.contains("reload hermes after=switch-to-local attempt=3 result=loaded"))
+    }
+
+    /// If launchd keeps refusing, the service is down and that is said plainly — never swallowed.
+    func testAReloadLaunchdKeepsRefusingIsItsOwnRegisteredError() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        fixture.shutdown.timeOutWaits(2)
+        fixture.runner.failHermesBootstraps(100)
+
+        var thrown: Error?
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }) { thrown = $0 }
+
+        let failure = try XCTUnwrap(thrown as? DesktopServiceRecoveryFailure)
+        XCTAssertEqual(failure.classification, .hermesReloadFailed)
+        XCTAssertTrue(failure.recoveryCause.contains("job still unloaded after 3 bootstrap attempts"))
+        XCTAssertFalse(fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel))
+        let issue = DesktopIssue.hermesRuntimeFailure(failure)
+        XCTAssertEqual(issue.code, .managedHermesNotLoaded)
+        XCTAssertEqual(issue.code.rawValue, "HR-MIGRATE-013")
+        XCTAssertTrue(issue.retryable)
+    }
+
+    /// A restart onto new local code that fails with nothing to restore still ends loaded, or says
+    /// it could not.
+    func testAFailedLocalRestartWhoseReloadIsRefusedIsReported() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let local = fixture.localInstallation()
+        _ = try await fixture.coordinator.reconcileHermesRuntime { try fixture.runtimeObservation(.usable(local)) }
+        fixture.runner.failHermesBootstraps(100)
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(local), service: .stopped)
+        }) { error in
+            let failure = error as? DesktopServiceRecoveryFailure
+            XCTAssertEqual(failure?.classification, .hermesReloadFailed)
+            XCTAssertEqual(failure?.operation, "restart-local")
+            XCTAssertEqual(failure?.cause, "DesktopLaunchAgentControllerError.hermesStartFailed")
+        }
+    }
+
+    /// A bundled job that launchd does not have loaded is loaded again, with or without the
+    /// setting, instead of being "left alone" forever.
+    func testABundledJobThatIsNotLoadedIsLoadedAgain() async throws {
+        for enabled in [true, false] {
+            let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+            defer { fixture.cleanup() }
+            try fixture.installCommittedManagedServices(inlineToken: nil)
+            let bundled = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+            fixture.runner.replaceLoaded(with: [DesktopManagedInstallLayout.connectorLabel])
+
+            let result = try await fixture.coordinator.reconcileHermesRuntime {
+                try fixture.runtimeObservation(
+                    enabled ? .usable(fixture.localInstallation()) : .absent(hermesDataPresent: false),
+                    enabled: enabled,
+                    service: fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel)
+                        ? nil : .notLoaded
+                )
+            }
+
+            XCTAssertEqual(result, .loadedAgent, "enabled=\(enabled)")
+            XCTAssertTrue(fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel))
+            XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), bundled)
+            XCTAssertEqual(fixture.serviceMutations(), ["bootstrap:\(DesktopManagedInstallLayout.hermesLabel)"])
+            XCTAssertEqual(fixture.readiness.waitCount(), 1, "the loaded server is proved ready")
+        }
+    }
+
     /// Item 3: an upgrade in local mode makes the kept bundled agent name the new release, and a
     /// failed upgrade puts the old kept agent back with everything else.
     func testAnUpgradeInLocalModeRefreshesTheKeptBundledAgent() async throws {
@@ -1710,6 +1874,7 @@ private final class Fixture {
     let account: MigrationAccountFake
     let readiness: MigrationHermesReadiness
     let shutdown: MigrationHermesShutdown
+    let operationLog: DesktopServiceOperationLog
     let coordinator: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
     let manifest: DesktopReleaseManifest
     let sources: [DesktopManagedReleaseSource]
@@ -1740,10 +1905,12 @@ private final class Fixture {
         installer = DesktopManagedInstaller(layout: layout)
         journal = try DesktopMigrationJournalStore(root: root.appendingPathComponent("journal"))
         runner = InMemoryLaunchctlRunner(legacyLoaded: legacyRunning, failAccountStart: failAccountStart)
+        operationLog = DesktopServiceOperationLog(layout: layout)
         let controller = try DesktopLaunchAgentController(
             userID: 501,
             launchAgentsRoot: layout.launchAgentsRoot,
-            runner: runner
+            runner: runner,
+            log: operationLog
         )
         account = MigrationAccountFake(
             bindingID: bindingID,
@@ -1764,6 +1931,8 @@ private final class Fixture {
             hermesShutdown: shutdown,
             maximumHealthPolls: 2,
             healthPollDelayNanoseconds: 0,
+            serviceReloadDelayNanoseconds: 0,
+            operationLog: operationLog,
             localHermesForFreshInstall: { localHermesForFreshInstall }
         )
         manifest = Self.manifest(releaseVersion: manifestVersion)
@@ -2255,7 +2424,7 @@ private final class InMemoryLaunchctlRunner: CommandRunning, @unchecked Sendable
                 }
                 if label == DesktopManagedInstallLayout.hermesLabel, failingHermesBootstraps > 0 {
                     failingHermesBootstraps -= 1
-                    return CommandResult(status: 5)
+                    return CommandResult(status: 5, standardError: "Bootstrap failed: 5: Input/output error")
                 }
                 loaded.insert(label)
                 return CommandResult(status: 0)
@@ -2313,17 +2482,24 @@ private final class MigrationHermesReadiness: DesktopHermesCandidateReadinessChe
 private final class MigrationHermesShutdown: DesktopHermesShutdownChecking, @unchecked Sendable {
     private let lock = NSLock()
     private var waits = 0
+    private var failingWaits = 0
 
     func waitUntilStopped(
         contract: DesktopHermesRuntimeContract,
         maximumAttempts: Int,
         delayNanoseconds: UInt64
     ) async throws -> Bool {
-        lock.withLock { waits += 1 }
-        return true
+        lock.withLock {
+            waits += 1
+            guard failingWaits > 0 else { return true }
+            failingWaits -= 1
+            return false
+        }
     }
 
     func waitCount() -> Int { lock.withLock { waits } }
+    /// The next `count` waits time out, the way every wait did before the ECONNREFUSED fix.
+    func timeOutWaits(_ count: Int) { lock.withLock { failingWaits = count } }
 }
 
 private func XCTAssertThrowsErrorAsync<T>(

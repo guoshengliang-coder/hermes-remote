@@ -179,7 +179,7 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
   never imply that installing its own Hermes is the fix. A failed switch or restart reads
   `HR-MIGRATE-009`, says what was restored, and retries by itself; it offers no button that would
   restart Hermes on demand. A Mac left with no Hermes to run at all reads non-retryable
-  `HR-MIGRATE-010`, which says to reinstall rather than promising a retry. Repeated failures pause with `HR-MIGRATE-011`, which says what will make it try again; setting off with no kept bundled agent while the Mac's own Hermes keeps running is `HR-MIGRATE-012`, which must not say Hermes was removed. With the setting off the
+  `HR-MIGRATE-010`, which says to reinstall rather than promising a retry. Repeated failures pause with `HR-MIGRATE-011`, which says what will make it try again; setting off with no kept bundled agent while the Mac's own Hermes keeps running is `HR-MIGRATE-012`, which must not say Hermes was removed. A Hermes service Desktop stopped and could not load again reads retryable `HR-MIGRATE-013` ("Hermes 服务未运行"), which says plainly that the phone cannot reach this Mac for now and that it will retry — never the softer "whatever could be restored was restored" of `HR-MIGRATE-009`. With the setting off the
   card never appears unless the Mac is actually in local mode. A successful switch or restart is silent: the Hermes row keeps reporting
   reachability, not which codebase answered.
 - Technical details and logs are secondary, selectable, and redacted before presentation.

@@ -29,16 +29,20 @@ public final class DesktopComponentBootstrapRuntime: @unchecked Sendable {
             currentUserID: userID
         )
         let journal = try DesktopMigrationJournalStore(root: paths.migrationJournalRoot)
+        let operationLog = DesktopServiceOperationLog(layout: layout)
         let launchAgent = try DesktopLaunchAgentController(
             userID: userID,
             launchAgentsRoot: paths.launchAgentsRoot,
-            runner: SystemCommandRunner()
+            runner: SystemCommandRunner(capturesStandardError: true),
+            log: operationLog
         )
         let migration = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,
             installer: DesktopManagedInstaller(layout: layout),
             launchAgent: launchAgent,
+            hermesShutdown: DesktopHermesShutdownChecker(log: operationLog),
+            operationLog: operationLog,
             localHermesForFreshInstall: DesktopLocalHermesRuntimeSetting.freshInstallProvider(
                 detector: (try? DesktopLocalHermesPaths(homeDirectory: paths.hermesHome.deletingLastPathComponent()))
                     .map { DesktopLocalHermesDetector(paths: $0) }

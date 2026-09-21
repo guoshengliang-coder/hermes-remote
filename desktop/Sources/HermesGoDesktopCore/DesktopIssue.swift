@@ -94,6 +94,10 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     case localHermesRuntimePaused = "HR-MIGRATE-011"
     /// The setting is off but no usable bundled Hermes is kept; this Mac's own Hermes keeps running.
     case localHermesFallbackUnavailable = "HR-MIGRATE-012"
+    /// Desktop stopped the managed Hermes job and launchd refused every attempt to load it again, so
+    /// this Mac has no Hermes running. Distinct from `HR-MIGRATE-009`, whose failures leave a job
+    /// loaded: here nothing serves the phone until the job is loaded.
+    case managedHermesNotLoaded = "HR-MIGRATE-013"
 }
 
 public enum DesktopManagedStartupRepairStage: String, Sendable {
@@ -278,6 +282,8 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("已暂停自动切换 Hermes", "Automatic Hermes switching paused", "多次尝试切换 Hermes 均未成功，已暂停自动切换，当前服务保持不变。更新 Hermes 或重新开关本机 Hermes 设置后会再试。", "Switching Hermes failed several times, so automatic switching is paused and the current service is unchanged. It will try again after Hermes is updated or the setting is toggled.", false, .details)
         case .localHermesFallbackUnavailable:
             ("无法恢复内置 Hermes", "Can't return to the built-in Hermes", "本机 Hermes 设置已关闭，但没有可用的内置 Hermes 可恢复；Hermes GO 会继续使用这台 Mac 自己的 Hermes。重新安装 Hermes GO 后可恢复。", "The setting is off, but there's no usable built-in Hermes to return to, so Hermes GO keeps using this Mac's own Hermes. Reinstall Hermes GO to restore it.", false, .details)
+        case .managedHermesNotLoaded:
+            ("Hermes 服务未运行", "Hermes service isn't running", "Hermes GO 重启 Hermes 服务后未能重新载入，手机暂时无法使用这台 Mac。稍后会自动重试；请查看详情。", "Hermes GO restarted the Hermes service but couldn't load it again, so the phone can't reach this Mac for now. It will retry automatically; review the details.", true, .details)
         case .localHermesMissingWithoutFallback:
             ("本机 Hermes 已不存在", "This Mac's Hermes is gone", "这台 Mac 上的 Hermes 已被移除，且没有可恢复的内置 Hermes。请重新安装 Hermes 或 Hermes GO。", "This Mac's Hermes was removed and there is no built-in Hermes to return to. Reinstall Hermes or Hermes GO.", false, .details)
         }
@@ -351,9 +357,11 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         _ error: Error,
         terminalState: DesktopMigrationState?
     ) -> DesktopIssue {
+        let classification = DesktopServiceRecoveryFailure.classification(of: error)
         if terminalState == .rollbackAttentionRequired
-            || error as? DesktopMigrationCoordinatorError == .rollbackFailed
-            || error as? DesktopMigrationCoordinatorError == .commitAmbiguous {
+            || classification == .rollbackFailed
+            || classification == .hermesReloadFailed
+            || classification == .commitAmbiguous {
             return DesktopIssue(
                 code: .migrationRollbackFailed,
                 technicalCause: String(describing: error)
@@ -362,7 +370,7 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         if let accountError = error as? AccountClientError {
             return account(accountError)
         }
-        let candidateFailed: Bool = switch error as? DesktopMigrationCoordinatorError {
+        let candidateFailed: Bool = switch classification {
         case .hermesStopTimedOut, .hermesHealthTimedOut, .healthTimedOut, .commitNotApplied:
             true
         default:

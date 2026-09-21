@@ -108,10 +108,12 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
             launchAgentsRoot: paths.launchAgentsRoot
         )
         let journal = try DesktopMigrationJournalStore(root: paths.migrationJournalRoot)
+        let operationLog = DesktopServiceOperationLog(layout: layout)
         let launchAgent = try DesktopLaunchAgentController(
             userID: userID,
             launchAgentsRoot: paths.launchAgentsRoot,
-            runner: SystemCommandRunner()
+            runner: SystemCommandRunner(capturesStandardError: true),
+            log: operationLog
         )
         let installer = DesktopManagedInstaller(layout: layout)
         self.journal = journal
@@ -125,7 +127,9 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
             account: account,
             journal: journal,
             installer: installer,
-            launchAgent: launchAgent
+            launchAgent: launchAgent,
+            hermesShutdown: DesktopHermesShutdownChecker(log: operationLog),
+            operationLog: operationLog
         )
     }
 
@@ -174,21 +178,34 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
     }
 
     /// With the setting off and a bundled agent: forget failed switches (turning the setting off is
-    /// the owner's reset), and — once per launch — reload the agent if launchd is running arguments
-    /// other than the file's (a rollback interrupted between writing and restarting). Only a failed
-    /// reload throws; every other outcome is silent, so the setting off surfaces no other error.
+    /// the owner's reset); on every refresh, load the Hermes job if launchd does not have it loaded at
+    /// all (one `launchctl print`, the same read `inspectInstallation` already makes); and — once per
+    /// launch — reload the agent if launchd is running arguments other than the file's (a rollback
+    /// interrupted between writing and restarting). Only a failed load or reload throws; every other
+    /// outcome is silent, so the setting off surfaces no other error. The caller backs off after a
+    /// throw.
     public func reconcileWhileDisabled(
         detector: DesktopLocalHermesDetector,
         checkRunningAgent: Bool
     ) async throws -> DesktopHermesRuntimeReconciliation? {
         let failures = installer.readHermesRuntimeFailures()
         if failures.switchFailures > 0 { try? installer.writeHermesRuntimeFailures(failures.clearingSwitch) }
-        guard checkRunningAgent,
-              let observation = try? observeHermesRuntime(detector: detector, enabled: false, probeService: true),
-              case .reloadAgent = DesktopHermesRuntimePlanner.plan(observation)
+        guard let observation = try? observeHermesRuntime(detector: detector, enabled: false, probeService: true),
+              Self.runsWhileDisabled(DesktopHermesRuntimePlanner.plan(observation), checkRunningAgent: checkRunningAgent)
         else { return nil }
         return try await migration.reconcileHermesRuntime {
             try observeHermesRuntime(detector: detector, enabled: false, probeService: true)
+        }
+    }
+
+    /// With the setting off only launchd-level repairs run: a load of a job that is not loaded at
+    /// all (every refresh), or a reload of an agent launchd runs with other arguments (once per
+    /// launch).
+    static func runsWhileDisabled(_ plan: DesktopHermesRuntimePlan, checkRunningAgent: Bool) -> Bool {
+        switch plan {
+        case .loadAgent: true
+        case .reloadAgent: checkRunningAgent
+        default: false
         }
     }
 
@@ -259,16 +276,20 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
             manifestVerifier: verifier
         )
         let journal = try DesktopMigrationJournalStore(root: paths.migrationJournalRoot)
+        let operationLog = DesktopServiceOperationLog(layout: layout)
         let launchAgent = try DesktopLaunchAgentController(
             userID: userID,
             launchAgentsRoot: paths.launchAgentsRoot,
-            runner: SystemCommandRunner()
+            runner: SystemCommandRunner(capturesStandardError: true),
+            log: operationLog
         )
         let migration = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,
             installer: DesktopManagedInstaller(layout: layout),
             launchAgent: launchAgent,
+            hermesShutdown: DesktopHermesShutdownChecker(log: operationLog),
+            operationLog: operationLog,
             localHermesForFreshInstall: DesktopLocalHermesRuntimeSetting.freshInstallProvider(
                 detector: (try? DesktopLocalHermesPaths(homeDirectory: paths.hermesHome.deletingLastPathComponent()))
                     .map { DesktopLocalHermesDetector(paths: $0) }

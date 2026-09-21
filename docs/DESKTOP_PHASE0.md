@@ -190,7 +190,8 @@ An `account_active` installation is eligible for the same two-stage flow when th
 schema-v1 release or verified schema-v2 component release is strictly newer. Preparation remains
 cache-only. The confirmation sheet states that the current account, device binding and local data are
 preserved. Commit uses a dedicated upgrade transaction: snapshot the exact owner-only LaunchAgents
-and old bundled pointer, stop Connector then Hermes, prove port 9119 is free, start Hermes then
+and old bundled pointer, stop Connector then Hermes, prove port 9119 is free (a connection refusal is
+the proof; see "Proving the old listener is gone" below), start Hermes then
 Connector, and require a fresh Cloud health timestamp for the same binding ID/generation. It performs
 no binding creation or confirmation. A failed or interrupted candidate restores and re-proves the old
 release before another upgrade can begin.
@@ -949,6 +950,19 @@ that would put pinned code back on a database the new code may already have migr
 Another Desktop operation holding the migration lease is not a failure: the refresh simply tries
 again next time.
 
+"Loads it again" is a bootstrap of whatever agent file is at the managed path — after a rollback, the
+file just restored — retried three times with a 2 s, then 4 s delay, because launchd can refuse a
+bootstrap transiently right after a bootout. It is never swallowed: if the job is still not loaded
+after the last attempt, the failure is `HR-MIGRATE-013` ("Hermes 服务未运行", retryable), not
+`HR-MIGRATE-009`, because the phone has no Hermes at all. And a **bundled** job that launchd does
+not have loaded is no longer "in some other operation's hands" (`.keep`): the planner answers
+`.loadAgent` for it, with the setting on or off, and the coordinator loads it with the usual shutdown
+and readiness proofs under the migration lease (an upgrade that has the job stopped on purpose holds
+that lease and a non-`account_active` journal, so it is not interfered with). The bound is the same as
+every other runtime failure: three bootstrap attempts per reconciliation, then five minutes of back-off.
+An operator who wants the job down must quit Desktop first, as the controlled activations in
+`DESKTOP_E4_TEST_RECORD.md` did.
+
 #### Switching, falling back, and everything else that had to change
 
 - **Switch** (`reconcileHermesRuntime`, committed `account_active` installations only, under the
@@ -965,10 +979,11 @@ again next time.
   owner's Hermes is intact, so the local agent is restored and restarted; after the checkout
   disappeared the bundled agent stays and stays loaded. The kept agent counts as a fallback only if
   the program and Python runtime it names still exist; otherwise non-retryable `HR-MIGRATE-010`.
-- **Setting off costs nothing**: while it is off, the refresh reads only the agent's first program
-  argument; no detection, no `launchctl`, and no error can surface — unless that argument is the
-  local launcher, which is the rollback case. The one exception is a single `launchctl print` per
-  Desktop launch, comparing the running arguments with the agent file, so a rollback interrupted
+- **Setting off costs almost nothing**: while it is off, the refresh reads the agent's first program
+  argument and makes one `launchctl print` (the same read `inspectInstallation` already makes); no
+  detection runs and no error can surface — unless that argument is the local launcher, which is the
+  rollback case, or the Hermes job is not loaded at all, which is loaded again (`.loadAgent`, above).
+  Once per Desktop launch the print is also compared with the agent file, so a rollback interrupted
   between writing the file and restarting is finished by reloading the agent rather than waiting
   for the next login. With the setting off and no usable kept agent while the owner's Hermes is
   intact, `HR-MIGRATE-012` says so — distinct from `HR-MIGRATE-010`, where Hermes is actually gone.
@@ -988,6 +1003,55 @@ again next time.
 - **Optional on-demand components** (`replaceHermesLaunchAgent`) still expect the bundled agent and
   refuse a local one. That path is not wired into the app; the owner's Hermes installs its own
   optional dependencies.
+
+#### Proving the old listener is gone, and what is logged (2026-09-21 incident)
+
+Every stop that precedes a start — the managed upgrade, its rollback, and every runtime switch,
+restart, restore, reload and load — waits for `127.0.0.1:9119` to stop accepting connections
+(`DesktopHermesShutdownChecker`), because a terminating Hermes can hold the port for seconds after
+`bootout` returns. The probe opens a TCP connection each second and decides per attempt
+(`DesktopLoopbackProbeDecision.decide`, a pure function):
+
+| Connection state | Decision |
+|---|---|
+| `.ready` | still listening |
+| `.waiting` or `.failed` with POSIX `ECONNREFUSED` | **stopped** — the kernel's own statement that no socket listens |
+| any other `.waiting`/`.failed` error, `.setup`, `.preparing`, `.cancelled` | undecided |
+| no decision within 500 ms | treated as still listening |
+
+The `.waiting` row is the fix. On macOS a connection to a free loopback port does **not** end in
+`.failed`: Network.framework reports `.waiting(ECONNREFUSED)` within a few milliseconds and stays
+there. The previous probe accepted only `.failed`/`.cancelled`, so once the old Hermes had gone every
+attempt fell through to the 500 ms timeout, every wait ran all 75 attempts (~112 s) and failed with
+`hermesStopTimedOut`, and every rollback failed the same way. Other errors stay undecided on purpose:
+a local resource failure such as `EMFILE` says nothing about the port.
+
+Diagnostics that survive a failure:
+
+- **Both causes.** A failed operation whose restore also failed throws `DesktopServiceRecoveryFailure`
+  (classification `rollbackFailed` or `hermesReloadFailed`, the operation name, the original error and
+  the recovery error). `HR-MIGRATE-009`/`-013`/`-004` diagnostics carry all of it, e.g.
+  `stage=runtime rollbackFailed operation=switch-to-local cause=DesktopMigrationCoordinatorError.hermesStopTimedOut recovery=…`,
+  redacted by `SecretRedactor`.
+- **`Managed/logs/desktop-runtime.log`** (0600, rotated to `desktop-runtime.log.1` past 256 KiB, so at
+  most ~512 KiB): one line per launchctl mutation (`bootstrap`, `bootout`, `enable`, `disable`) with
+  its exit status and launchd's standard error; one summary line per convergence wait (the `print`
+  polls after a mutation); a line for each start refused before launchctl was asked (invalid plist,
+  already loaded); and the outcome of every shutdown wait, readiness wait and reload attempt. Lines
+  are redacted like diagnostics (`/Users/<user>`); no token ever reaches them. `launchd.log` shows
+  what launchd did; this file shows what Desktop asked and why it stopped asking.
+
+The migration journal (`Managed/state/migration-state.json`) is Desktop's, and **must never be
+edited by hand**: a journal that fails validation blocks every managed operation and is shown as
+"受管服务状态不一致" / `HR-MIGRATE-002` (`cause=…invalidState`). Writing stays canonical
+(`2026-09-20T11:48:09.000Z`, UTC, milliseconds); reading also accepts RFC 3339 without fractional
+seconds or with an offset, because the timestamp decides nothing and a hand-written
+`2026-09-20T11:48:09Z` is exactly what broke this Mac on 2026-09-21. If an operator activation ever
+has to change the journal again, quit Desktop, copy the file aside, change only the fields that must
+change, keep `updatedAt` in the canonical form (or leave it untouched), keep the file owner-only
+`0600`, and confirm Desktop reads it (Account & Devices shows the installation as active) before
+walking away. A journal that is already broken is repaired the same way: from the copy, correcting
+only the offending field.
 
 #### What this does not do yet
 

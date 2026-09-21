@@ -186,6 +186,42 @@ final class DesktopLaunchAgentControllerTests: XCTestCase {
         ])
     }
 
+    /// Every mutation lands in the operation log with its status and launchd's own words; the
+    /// convergence polls are summarised, and a start refused before launchctl says why.
+    func testMutationsWaitsAndRefusalsAreLogged() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hermes-controller-log-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = DesktopServiceOperationLog(url: directory.appendingPathComponent("desktop-runtime.log"))
+        let runner = ScriptedCommandRunner(
+            statuses: [1, 5, /* already loaded: */ 0],
+            standardError: "Bootstrap failed: 5: Input/output error"
+        )
+        let root = URL(fileURLWithPath: "/tmp/test-agents")
+        let controller = try DesktopLaunchAgentController(
+            userID: 501,
+            launchAgentsRoot: root,
+            runner: runner,
+            convergenceAttempts: 1,
+            convergenceDelay: 0,
+            log: log
+        )
+        let plist = root.appendingPathComponent("com.hermesgo.hermes-server.plist")
+
+        XCTAssertThrowsError(try controller.startHermes(plistURL: plist))
+        XCTAssertThrowsError(try controller.startHermes(plistURL: plist))
+        XCTAssertThrowsError(try controller.startHermes(plistURL: root.appendingPathComponent("other.plist")))
+
+        let text = try String(contentsOf: log.url, encoding: .utf8)
+        XCTAssertTrue(text.contains(
+            "launchctl bootstrap gui/501 /tmp/test-agents/com.hermesgo.hermes-server.plist status=5 stderr=Bootstrap failed: 5: Input/output error"
+        ), text)
+        XCTAssertTrue(text.contains("start com.hermesgo.hermes-server refused reason=already-loaded"), text)
+        XCTAssertTrue(text.contains("start com.hermesgo.hermes-server refused reason=invalid-plist"), text)
+        XCTAssertFalse(text.contains("launchctl print"), "reads are summarised, not logged one by one")
+    }
+
     private func snapshot(root: URL, running: Bool) -> LegacyConnectorSnapshot {
         LegacyConnectorSnapshot(
             isInstalled: true,
@@ -201,14 +237,19 @@ final class DesktopLaunchAgentControllerTests: XCTestCase {
 private final class ScriptedCommandRunner: CommandRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var statuses: [Int32]
+    private let standardError: String?
     private var invocations: [[String]] = []
 
-    init(statuses: [Int32]) { self.statuses = statuses }
+    init(statuses: [Int32], standardError: String? = nil) {
+        self.statuses = statuses
+        self.standardError = standardError
+    }
 
     func run(executable: URL, arguments: [String]) -> CommandResult {
         lock.withLock {
             invocations.append(arguments)
-            return CommandResult(status: statuses.isEmpty ? -1 : statuses.removeFirst())
+            let status = statuses.isEmpty ? -1 : statuses.removeFirst()
+            return CommandResult(status: status, standardError: status == 0 ? nil : standardError)
         }
     }
 
