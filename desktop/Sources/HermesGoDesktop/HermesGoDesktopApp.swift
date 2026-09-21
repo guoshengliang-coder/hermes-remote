@@ -1,8 +1,19 @@
 import AppKit
 import SwiftUI
 
+import HermesGoDesktopCore
+
+/// Quitting Desktop mid-install must not leave an installer stage running on its own: a later
+/// resume would then run beside it.
+final class HermesGoDesktopAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        DesktopPosixProcessRunner.terminateAllProcessGroups()
+    }
+}
+
 @main
 struct HermesGoDesktopApp: App {
+    @NSApplicationDelegateAdaptor(HermesGoDesktopAppDelegate.self) private var appDelegate
     @StateObject private var model = DesktopViewModel()
 
     var body: some Scene {

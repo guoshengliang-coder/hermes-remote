@@ -221,15 +221,17 @@ public struct DesktopLocalHermesRuntimeRecord: Codable, Equatable, Sendable {
 
 /// Whether this Mac may run its own Hermes in place of the bundled copy.
 ///
-/// Off unless turned on. Switching a Mac is a production change (it restarts the Hermes the phone is
-/// talking to, and puts the phone on whatever upstream version the owner runs), so it is an explicit
-/// per-Mac decision rather than a side effect of installing a newer Desktop:
+/// **On by default since the owner decision of 2026-09-22** (one Hermes per Mac): a Mac with a
+/// usable standard Hermes switches to it on its next refresh after Desktop is upgraded — through the
+/// proven switch path (#351/#356) — and a fresh managed install writes the local agent directly.
+/// A Mac with no Hermes is offered upstream's installer (`DesktopHermesInstaller`). It can still be
+/// turned off per Mac, which is also the rollback on a Mac in local mode (the next refresh restores
+/// the bundled agent Desktop kept when it switched) and what "use the bundled Hermes" writes:
 ///
-///     defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool true
+///     defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool false
 ///
-/// Turning it off again on a Mac in local mode is the rollback: the next refresh restores the
-/// bundled agent Desktop kept when it switched. Precedence: environment, then user defaults, then
-/// the app's `Info.plist`, so a packaged build can ship it on later without code changes.
+/// Precedence: environment (`1` on, anything else off), then user defaults, then the app's
+/// `Info.plist`, then on.
 public enum DesktopLocalHermesRuntimeSetting {
     public static let environmentKey = "HERMES_GO_LOCAL_HERMES_RUNTIME_ENABLED"
     public static let defaultsKey = "HermesGoLocalHermesRuntimeEnabled"
@@ -242,17 +244,33 @@ public enum DesktopLocalHermesRuntimeSetting {
         if let value = environment[environmentKey] { return value == "1" }
         if defaults.object(forKey: defaultsKey) != nil { return defaults.bool(forKey: defaultsKey) }
         if let number = bundle.object(forInfoDictionaryKey: defaultsKey) as? NSNumber { return number.boolValue }
-        return false
+        return defaultValue
+    }
+
+    /// The value with nothing configured (owner decision 2026-09-22).
+    public static let defaultValue = true
+
+    /// "Use the bundled Hermes on this Mac": the owner's explicit choice, persisted. Afterwards this
+    /// Mac behaves exactly as it did before local runtime mode existed.
+    public static func chooseBundled(defaults: UserDefaults = .standard) {
+        defaults.set(false, forKey: defaultsKey)
     }
 
     /// The local Hermes a *fresh* managed install should run directly, or nil for the bundled copy.
-    /// Only a usable, dependency-consistent standard install qualifies, and only with the setting on.
+    /// Only a usable, dependency-consistent standard install qualifies, only with the setting on,
+    /// and never while an install Hermes GO itself started is unfinished: after `python-deps`
+    /// detection already reads `.usable`, but config, the command and upstream's completion marker
+    /// are still missing (`DesktopHermesInstallResume`).
     public static func freshInstallProvider(
         detector: DesktopLocalHermesDetector?,
-        enabled: @escaping @Sendable () -> Bool = { isEnabled() }
+        enabled: @escaping @Sendable () -> Bool = { isEnabled() },
+        installPending: @escaping @Sendable (DesktopLocalHermesPaths) -> Bool = {
+            DesktopHermesInstallResume.pending(DesktopUserDefaultsInstallAttemptStore(), paths: $0)
+        }
     ) -> @Sendable () -> DesktopLocalHermesInstallation? {
         {
             guard enabled(), let detector,
+                  !installPending(detector.paths),
                   !detector.updateInProgress(),
                   let installation = detector.detect().installation,
                   installation.dependenciesConsistent

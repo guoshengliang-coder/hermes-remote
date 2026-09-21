@@ -55,6 +55,7 @@ struct AccountDevicesView: View {
     @State private var invitationAcknowledged = false
     @State private var grantToRevoke: DeviceAccessGrant?
     @State private var sharedDeviceToLeave: AccountDevice?
+    @State private var isBundledHermesChoicePresented = false
     @State private var isAccountDeletionPresented = false
     @State private var accountDeletionConfirmation = ""
     @State private var accountDeletionAcknowledged = false
@@ -326,10 +327,13 @@ struct AccountDevicesView: View {
             accountCard(dashboard)
             bindingCard(dashboard.binding)
         }
+        if model.hermesInstallPhase != .hidden {
+            HermesInstallCard()
+        }
         if let presentation = model.componentPreflightPresentation {
             ComponentPreflightCard(
                 presentation: presentation,
-                canBegin: model.componentBootstrapCanBegin,
+                canBegin: model.componentBootstrapCanBegin && !model.isHermesInstallDecisionPending,
                 isUpgrade: model.bootstrapPlan.readiness == .managedUpgradeAvailable,
                 operation: model.componentBootstrapOperation,
                 cleanupRetryAvailable: model.componentCleanupRetryAvailable,
@@ -346,6 +350,11 @@ struct AccountDevicesView: View {
         bootstrapPlanCard(model.bootstrapPlan)
         if let issue = model.managedBootstrapIssue {
             accountIssueCard(issue)
+        }
+        if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {
+            bundledHermesChoiceCard
+        } else if model.isFreshInstallBlockedByOwnersHermes {
+            ownersHermesGuidanceCard
         }
         if let issue = model.managedSchemaIssue {
             accountIssueCard(issue)
@@ -450,7 +459,12 @@ struct AccountDevicesView: View {
                 }
             }
         case .idle, .failed:
-            if plan.canBegin, !model.isComponentBootstrapPathSelected {
+            if plan.canBegin, !model.isComponentBootstrapPathSelected, model.isHermesInstallDecisionPending {
+                Divider()
+                Text("先在上方决定如何获取 Hermes：安装官方 Hermes，或改用内置 Hermes。")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            } else if plan.canBegin, !model.isComponentBootstrapPathSelected {
                 Divider()
                 HStack {
                     Text("第一步只写入私有临时缓存，不会停止或启动任何服务。")
@@ -564,6 +578,50 @@ struct AccountDevicesView: View {
         .padding(26)
         .frame(width: 540)
         .interactiveDismissDisabled(model.componentBootstrapOperation == .committing)
+    }
+
+    /// Shown with `HR-MIGRATE-008` on a fresh setup only when the blocking checkout is the one
+    /// Hermes GO's own install left behind — never for a Hermes the owner installed.
+    private var bundledHermesChoiceCard: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("这份 Hermes 是 Hermes GO 之前的安装留下的")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("它没有安装完整，Hermes GO 无法直接使用。可以改用 Hermes GO 内置的 Hermes 完成设置；留下的文件保持不动，删除 ~/.hermes/hermes-agent 后可重新安装官方 Hermes。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button("改用内置 Hermes") { isBundledHermesChoicePresented = true }
+                .buttonStyle(.bordered)
+        }
+        .padding(18)
+        .hermesCard()
+        .confirmationDialog(
+            "这台 Mac 改用 Hermes GO 内置的 Hermes？",
+            isPresented: $isBundledHermesChoicePresented
+        ) {
+            Button("改用内置 Hermes") { model.useBundledHermes() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("之后的设置会安装并运行 Hermes GO 自带的 Hermes。Hermes GO 之前留下的文件不会被修改。")
+        }
+    }
+
+    /// Shown with `HR-MIGRATE-008` when the owner's own Hermes blocks a fresh setup. No alternative
+    /// is offered: the owner's rule is never a second copy next to a Hermes they installed.
+    private var ownersHermesGuidanceCard: some View {
+        Label(
+            "这台 Mac 上的 Hermes 是你自己安装的，Hermes GO 不会再另装一份。请按“复制诊断”里的原因整理它（例如改为默认的 ~/.hermes、单一 profile、升级到 \(DesktopLocalHermesDetector.minimumVersion) 或更新），或将其移除后刷新。",
+            systemImage: "info.circle"
+        )
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hermesCard()
     }
 
     private var componentCleanupRecoveryCard: some View {

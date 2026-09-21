@@ -39,3 +39,7 @@ fb253f4e1bbd53e45ae4a5075c8cde47ef1e4595:gateway/src/account-mode.test.ts:generi
 b00a560e94676b67f59f3176de0262ed00022fcc:desktop/Tests/HermesGoDesktopCoreTests/DesktopComponentReleaseManifestV2Tests.swift:generic-api-key:100
 b00a560e94676b67f59f3176de0262ed00022fcc:desktop/Tests/HermesGoDesktopCoreTests/DesktopComponentReleaseManifestV2Tests.swift:generic-api-key:187
 b00a560e94676b67f59f3176de0262ed00022fcc:desktop/Tests/HermesGoDesktopCoreTests/DesktopComponentReleaseManifestV2Tests.swift:generic-api-key:194
+
+# SecretRedactor test fixture added in d90fbcc: the API-key values are inert strings that exist only to prove the
+# installer log redacts them. Fingerprint-specific so any new finding in the same file still fails CI.
+d90fbcc4dd5caff05eb5262cf53a586b2d5e080e:desktop/Tests/HermesGoDesktopCoreTests/DesktopHermesInstallerTests.swift:generic-api-key:619
