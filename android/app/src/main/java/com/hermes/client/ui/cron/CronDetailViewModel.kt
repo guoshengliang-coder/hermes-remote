@@ -32,6 +32,13 @@ data class CronDetailUiState(
      */
     val actionError: AppError? = null,
     val deleted: Boolean = false,
+    /**
+     * A 「立即运行」 this page started and has not resolved yet, or a run some scheduler is
+     * executing right now ([CronJobDto.isRunning]). Both disable the button: pressing it again
+     * loses the claim race against the run already in flight and produces a second, misleading
+     * HR-CRON-003.
+     */
+    val triggering: Boolean = false,
 )
 
 @HiltViewModel
@@ -57,7 +64,9 @@ class CronDetailViewModel @Inject constructor(
                     error = AppError(AppErrorCode.RPC_FAILED, retryable = true, stage = "cron_detail_load"),
                 )
             } else {
-                _state.value.copy(job = job, runs = runs, loading = false)
+                // `triggering` follows the server: a job still holding a fire claim is still
+                // running, whoever started it and whether or not this page is what timed out.
+                _state.value.copy(job = job, runs = runs, loading = false, triggering = job.isRunning)
             }
         }
     }
@@ -105,7 +114,64 @@ class CronDetailViewModel @Inject constructor(
 
     fun pause() = act(localizedText("已暂停", "Paused"), "cron_pause") { tools.pauseCron(jobId, profile) }
     fun resume() = act(localizedText("已恢复", "Resumed"), "cron_resume") { tools.resumeCron(jobId, profile) }
-    fun trigger() = act(localizedText("已触发", "Triggered"), "cron_trigger") { tools.triggerCron(jobId, profile) }
+
+    /**
+     * 「立即运行」. Not [act], because this one action can time out while succeeding.
+     *
+     * `POST /api/cron/jobs/{id}/trigger` runs the job **synchronously**: upstream Hermes fires it
+     * and only answers once the run has finished. A job that takes longer than [REST_TIMEOUT_SECONDS]
+     * therefore always times out on the wire — measured at 6 minutes for a real one — while running
+     * to completion on the Mac. Reporting that as a failed action was wrong twice over: it said the
+     * tap did not work when it had, and 「请查看详情后重试」 sent the user into a second tap that
+     * loses the claim race against their own first run and fails with `Fire claim was not acquired`.
+     *
+     * So a timeout is not the verdict; the job record is. [runStartedDespite] asks the server
+     * whether a run is now in flight, and only a timeout with nothing to show for it stays an error.
+     */
+    fun trigger() = viewModelScope.launch {
+        val before = _state.value.job?.lastRunAt
+        _state.value = _state.value.copy(triggering = true)
+        runCatching { tools.triggerCron(jobId, profile) }
+            .onSuccess {
+                _state.value = _state.value.copy(
+                    message = localizedText("已触发", "Triggered"),
+                    actionError = null,
+                    triggering = false,
+                )
+                load(jobId)
+            }
+            .onFailure { error ->
+                if (error.isTimeout() && runStartedDespite(before)) {
+                    _state.value = _state.value.copy(
+                        message = localizedText(
+                            "已触发，正在后台运行",
+                            "Triggered — running in the background",
+                        ),
+                        actionError = null,
+                        triggering = true,
+                    )
+                    load(jobId)
+                } else {
+                    val failure = actionError(error, "cron_trigger")
+                    _state.value = _state.value.copy(
+                        message = failure.asLocalizedText(),
+                        actionError = failure,
+                        triggering = false,
+                    )
+                }
+            }
+    }
+
+    /**
+     * Whether the server shows a run in flight after a timed-out trigger. `fire_claim` is the live
+     * signal ([CronJobDto.isRunning]); a changed `last_run_at` covers the run that already finished
+     * in the window between the timeout and this question. A job we cannot re-read answers no, so
+     * an offline gateway still reports the failure it actually is.
+     */
+    private suspend fun runStartedDespite(lastRunAtBefore: String?): Boolean {
+        val job = runCatching { tools.cronJob(jobId, profile) }.getOrNull() ?: return false
+        return job.isRunning || (job.lastRunAt != null && job.lastRunAt != lastRunAtBefore)
+    }
 
     fun delete() = viewModelScope.launch {
         runCatching { tools.deleteCron(jobId, profile) }
@@ -121,3 +187,10 @@ class CronDetailViewModel @Inject constructor(
 
     fun clearMessage() { _state.value = _state.value.copy(message = null) }
 }
+
+/**
+ * A wire timeout, as OkHttp reports it: `SocketTimeoutException` for the socket-level ones and the
+ * plain `InterruptedIOException("timeout")` that `Call.timeout()` throws when the whole-call clock
+ * runs out — which is the one a long cron run hits.
+ */
+internal fun Throwable.isTimeout(): Boolean = this is java.io.InterruptedIOException

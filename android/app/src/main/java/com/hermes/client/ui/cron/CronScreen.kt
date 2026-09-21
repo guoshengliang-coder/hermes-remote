@@ -386,8 +386,17 @@ private fun CronRow(
                     text = { Text(if (job.isPaused) l10n("恢复", "Resume") else l10n("暂停", "Pause")) },
                     onClick = { onAction(if (job.isPaused) CronAction.RESUME else CronAction.PAUSE) },
                 )
+                // A job that already holds a fire claim is running; a second fire loses the
+                // claim race against it and returns HR-CRON-003, so the entry reports the run
+                // instead of offering to start it again.
                 DropdownMenuItem(
-                    text = { Text(l10n("立即运行", "Run now")) },
+                    text = {
+                        Text(
+                            if (job.isRunning) l10n("正在运行…", "Running…")
+                            else l10n("立即运行", "Run now"),
+                        )
+                    },
+                    enabled = !job.isRunning,
                     onClick = { onAction(CronAction.RUN) },
                 )
                 DropdownMenuItem(text = { Text(l10n("编辑", "Edit")) }, onClick = onEdit)

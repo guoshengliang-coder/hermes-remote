@@ -332,8 +332,13 @@ internal fun CronDetailContent(
                             // 「立即运行」 is the one thing this page is usually opened to do, so it
                             // gets the full width and the filled treatment. Near-black, not brand
                             // blue — see Tiles.kt's CronActionLight.
+                            // While a run is in flight the button holds the same shape and colour
+                            // at reduced alpha and says so, rather than inviting a second tap: the
+                            // second tap loses the claim race against the first run and comes back
+                            // as HR-CRON-003 (docs/DESIGN.md §5.5).
                             Button(
                                 onClick = onTrigger,
+                                enabled = !state.triggering,
                                 modifier = Modifier.fillMaxWidth().height(44.dp).border(
                                     1.dp, cronActionOutlineColor(), RoundedCornerShape(12.dp),
                                 ),
@@ -341,11 +346,17 @@ internal fun CronDetailContent(
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = cronActionColor(),
                                     contentColor = Color.White,
+                                    disabledContainerColor = cronActionColor().copy(alpha = 0.55f),
+                                    disabledContentColor = Color.White.copy(alpha = 0.85f),
                                 ),
                             ) {
                                 Icon(PlayGlyphIcon, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.size(8.dp))
-                                Text(l10n("立即运行", "Run now"), style = CronActionLabel)
+                                Text(
+                                    if (state.triggering) l10n("正在运行…", "Running…")
+                                    else l10n("立即运行", "Run now"),
+                                    style = CronActionLabel,
+                                )
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 CronSecondaryButton(
