@@ -38,6 +38,26 @@ npm run smoke:compat
 
 The test passes only after `/api/status` traverses the REST tunnel and a JSON-RPC request traverses `/api/ws` in both directions.
 
+### Stalled control-channel recovery (HG-90)
+
+Automated unit and loopback tests cover the cancellation wire message and the Gateway heartbeat.
+For an end-to-end fault injection, run the local stack and verify all three boundaries:
+
+1. Pause the Connector process longer than `CONTROL_HEARTBEAT_TIMEOUT_MS`. The Gateway must log
+   `connector.heartbeat_timeout`, close the stale control socket, and report the device offline;
+   after the process resumes, the Connector must reconnect without a Gateway restart.
+2. Start a slow `/api/*` request and abort its HTTP client. The Connector must receive exactly one
+   `tunnel.http.cancel` with `client_aborted`, log `http.cancelled`, and stop the local Hermes fetch
+   or response-chunk ACK wait. Repeat by letting `REQUEST_TIMEOUT_MS` expire; the reason must be
+   `gateway_timeout`, with no late response forwarded to the abandoned client.
+3. While Android shows the unhealthy strip, allow a different Connector-routed `/api/*` request to
+   return 2xx. Android must immediately re-probe `/api/status`; only a successful probe clears the
+   strip, and the WebSocket state must remain unchanged. Relay-owned `/api/mobile/events`,
+   `/relay-health`, and `/health` must not trigger this recovery probe.
+
+During a rolling upgrade, deploy the new Connector before relying on request cancellation. The
+additive message is safe with an old Connector, but only the new Connector consumes it.
+
 With `HERMES_MODE=live`, the Connector also opens a private observer socket. Confirm its log contains
 `Hermes lifecycle observer connected`, then query the Relay inbox without exposing the token in the
 URL:

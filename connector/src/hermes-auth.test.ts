@@ -70,6 +70,24 @@ test("the relay path still refuses anything outside /api/", async () => {
   await assert.rejects(auth.request("/openapi.json", { method: "GET" }), /unsupported Hermes path/);
 });
 
+test("relay calls honor caller cancellation without disabling the local timeout", async () => {
+  const { server, baseUrl } = await serve(() => undefined);
+  try {
+    const caller = new AbortController();
+    const cancelled = new HermesAuth({ baseUrl, sessionToken: "t", requestTimeoutMs: 5_000 })
+      .request("/api/status", { method: "GET", signal: caller.signal });
+    caller.abort(new Error("client_aborted"));
+    await assert.rejects(cancelled, /client_aborted/);
+
+    const neverCancelled = new AbortController();
+    const timedOut = new HermesAuth({ baseUrl, sessionToken: "t", requestTimeoutMs: 20 })
+      .request("/api/status", { method: "GET", signal: neverCancelled.signal });
+    await assert.rejects(timedOut, { name: "TimeoutError" });
+  } finally {
+    server.close();
+  }
+});
+
 test("a schema over the ceiling is too_large, declared or streamed", async () => {
   const big = "x".repeat(4096);
   const declared = await serve((_request, respond) => respond(200, big, { "content-length": String(big.length) }));
