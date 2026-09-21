@@ -55,6 +55,9 @@ ACCOUNT_GOOGLE_AUTH_ENABLED=0
 ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=0
 ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED=0
 ACCOUNT_WEB_SESSION_ENABLED=0
+ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=0
+WEB_APP_ENABLED=0
+# WEB_APP_DIR=/opt/hermes-go/web/current
 ACCOUNT_DATABASE_URL_FILE=/etc/hermes-remote/secrets/account-database-url
 ACCOUNT_TOKEN_HASH_KEY_FILE=/etc/hermes-remote/secrets/account-token-hash-key
 ACCOUNT_EMAIL_OTP_HASH_KEY_FILE=/etc/hermes-remote/secrets/account-email-otp-hash-key
@@ -158,6 +161,14 @@ shell, email OTP, and an exact HTTPS `ACCOUNT_WEB_ORIGIN`. It does not require a
 the email-first release. Web access
 and refresh values use `__Host-` Secure/HttpOnly/SameSite=Strict cookies; every mutation additionally
 requires exact Origin, same-origin Fetch Metadata when present, and a matching CSRF cookie/header.
+`ACCOUNT_WEB_DEVICE_ACCESS_ENABLED` (default off; requires `ACCOUNT_WEB_SESSION_ENABLED=1` and
+`ACCOUNT_BINDING_ENABLED=1`) lets the Web app at `/app/` use the device API, device WebSocket and
+lifecycle inbox with that same browser session, behind the REST route and WebSocket method
+allowlists of `docs/ACCOUNT_MODE_API.md` §8. `WEB_APP_ENABLED=1` with an absolute `WEB_APP_DIR`
+serves the built Web app from that host directory; the Gateway validates the path at start-up and
+reads files per request, so a Web release swaps the directory (a `current` symlink) without a
+Gateway restart. Production nginx must additionally forward `/app/` and the Web device routes to the
+Gateway before either flag has any public effect; that edge change is a separate ops rollout.
 Account mode also opens one separately pooled PostgreSQL connection for transaction-scoped access
 revocation notifications. It does not consume `ACCOUNT_DATABASE_POOL_SIZE`; if the listener reconnects
 or misses a notification, per-request authorization and the five-second WebSocket recheck remain the

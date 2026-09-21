@@ -12,6 +12,16 @@ is the inventory of what we consume, and the checklist to run before adopting a 
 legitimately changes one of them, update the code, that test, and the version recorded here in the
 same change.
 
+**Consumers.** Two clients now speak this contract: the Android app (the reference implementation
+cited throughout) and, since 2026-09-21, the browser Web app in `web/` (`web/src/hermes/`, ported
+from the Android DTOs, RPC framing, server-request handling, `MEDIA:` parsing and search quoting).
+The Web app uses a subset: the REST routes and RPC methods on the Gateway's browser allowlists
+(`docs/ACCOUNT_MODE_API.md` §8) — nothing outside `HERMES_REST_CONTRACT` and
+`docs/hermes-rpc-params.json`. Its unit tests check every RPC param it can emit against that params
+file. A surface change here therefore needs both clients addressed in the same change, and the Web
+app's allowlists in the Gateway (`gateway/src/account/web-device-access.ts`,
+`web-rpc-filter.ts`) when it adds a route or method.
+
 ## Adapted upstream version
 
 | Field | Value |
@@ -790,6 +800,8 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 
 1. `cd android && ./gradlew :app:testDebugUnitTest --tests "*HermesContractTest*"` — the mechanical
    pins. A failure here names the exact surface that moved.
+1a. `cd web && npm test` — the Web app's parser, RPC-params and server-request tests, the browser
+   client's equivalent of the Android pins.
 1b. **Run the Connector contract check against the new Hermes before adopting it**: save its schema
    (`curl -s http://127.0.0.1:9119/openapi.json`, read-only) over
    `connector/fixtures/hermes-openapi/hermes-<version>-complete.json` (keep paths and methods only,
