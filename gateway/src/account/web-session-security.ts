@@ -21,7 +21,7 @@ export interface WebBootstrapState {
 }
 
 export class WebSessionSecurity {
-  constructor(private readonly origin: string) {}
+  constructor(readonly origin: string) {}
 
   bootstrap(request: IncomingMessage): WebBootstrapState {
     const cookies = parseCookies(request.headers.cookie);
@@ -57,6 +57,14 @@ export class WebSessionSecurity {
     const access = valid(parseCookies(request.headers.cookie).get(WEB_COOKIE_NAMES.access), ACCESS_PATTERN);
     if (!access) throw accountErrors.sessionExpired();
     return `Bearer ${access}`;
+  }
+
+  hasAccessCookie(request: IncomingMessage): boolean {
+    try {
+      return parseCookies(request.headers.cookie).has(WEB_COOKIE_NAMES.access);
+    } catch {
+      return true;
+    }
   }
 
   refreshToken(request: IncomingMessage): string {

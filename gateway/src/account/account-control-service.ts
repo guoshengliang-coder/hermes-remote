@@ -32,6 +32,7 @@ export class AccountControlService {
     private readonly now: () => Date = () => new Date(),
     private readonly maxOwnedDevices = 1,
     private readonly sharedAccess?: AccountDeviceAccessRepository,
+    private readonly browserLifecycleInbox = false,
   ) {
     if (!Number.isSafeInteger(maxOwnedDevices) || maxOwnedDevices < 1 || maxOwnedDevices > 3) {
       throw new Error("maxOwnedDevices must be an integer between 1 and 3");
@@ -212,7 +213,7 @@ export class AccountControlService {
     after: number,
     limit: number,
   ): Promise<LifecycleEventPage> {
-    requirePhone(principal);
+    requireLifecycleInstallation(principal, this.browserLifecycleInbox);
     return this.repository.listAccountLifecycleEvents(principal, after, limit);
   }
 
@@ -221,7 +222,7 @@ export class AccountControlService {
     eventIds: string[],
     field: "delivered" | "read",
   ): Promise<number> {
-    requirePhone(principal);
+    requireLifecycleInstallation(principal, this.browserLifecycleInbox);
     return this.repository.markAccountLifecycleEvents(principal, eventIds, field);
   }
 
@@ -498,10 +499,11 @@ function requireDesktop(principal: AccountPrincipal): void {
   }
 }
 
-function requirePhone(principal: AccountPrincipal): void {
-  if (principal.installation.kind !== "phone" || principal.installation.platform !== "android") {
-    throw accountErrors.invalidRequest("Lifecycle events are available only to phone installations.");
-  }
+function requireLifecycleInstallation(principal: AccountPrincipal, allowBrowser: boolean): void {
+  const { kind, platform } = principal.installation;
+  if (kind === "phone" && platform === "android") return;
+  if (allowBrowser && kind === "browser" && platform === "web") return;
+  throw accountErrors.invalidRequest("Lifecycle events are available only to phone installations.");
 }
 
 function decodePublicKey(value: string): Buffer {

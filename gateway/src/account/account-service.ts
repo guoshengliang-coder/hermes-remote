@@ -206,6 +206,10 @@ export class AccountService {
     }
   }
 
+  isSessionLive(principal: AccountPrincipal): Promise<boolean> {
+    return this.repository.isSessionLive(principal.sessionId, principal.installation.id);
+  }
+
   async signOut(authorization: string | undefined, idempotencyKey: string): Promise<void> {
     const accessTokenHash = this.accessTokenHash(authorization);
     const result = await this.repository.revokeSession(

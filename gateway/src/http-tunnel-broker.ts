@@ -26,6 +26,7 @@ interface PendingHttp {
   method: string;
   path: string;
   device: string;
+  responseHeaders(headers: Record<string, string>): Record<string, string>;
 }
 
 type SendWireMessage = (socket: WebSocket, message: WireMessage) => void;
@@ -46,6 +47,7 @@ export class HttpTunnelBroker {
     response: ServerResponse,
     url: URL,
     connector: HttpConnector,
+    responseHeaders: (headers: Record<string, string>) => Record<string, string> = (headers) => headers,
   ): Promise<void> {
     if (this.pending.size >= this.maxPendingRequests) {
       sendHttpError(response, 503, "relay_capacity_reached");
@@ -72,6 +74,7 @@ export class HttpTunnelBroker {
       method: request.method ?? "GET",
       path: `${url.pathname}${url.search}`,
       device: connector.deviceId,
+      responseHeaders,
     });
     request.on("aborted", () => this.clear(id));
     response.on("close", () => this.clear(id));
@@ -99,7 +102,10 @@ export class HttpTunnelBroker {
       }
       const body = message.bodyBase64 ? Buffer.from(message.bodyBase64, "base64") : Buffer.alloc(0);
       this.logOutcome(pending, "response", message.status, body.length);
-      pending.response.writeHead(message.status, selectResponseHeaders(message.headers));
+      pending.response.writeHead(
+        message.status,
+        pending.responseHeaders(selectResponseHeaders(message.headers)),
+      );
       pending.response.end(body);
       return true;
     }
@@ -109,7 +115,10 @@ export class HttpTunnelBroker {
       if (!pending || pending.routingKey !== connector.routingKey || pending.started) return true;
       pending.started = true;
       this.refreshTimeout(message.requestId, pending);
-      pending.response.writeHead(message.status, selectResponseHeaders(message.headers));
+      pending.response.writeHead(
+        message.status,
+        pending.responseHeaders(selectResponseHeaders(message.headers)),
+      );
       return true;
     }
 

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AccountGatewayControl } from "./account/account-runtime.js";
-import { AccountModeError, accountErrors } from "./account/model.js";
+import { AccountModeError, accountErrors, type AccountPrincipal } from "./account/model.js";
 import type { LifecycleEventStore } from "./lifecycle-event-store.js";
 import {
   nonNegativeIntegerQuery,
@@ -60,14 +60,14 @@ export async function handleAccountMobileEvents(
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
-  authorization: string,
+  authenticate: (control: AccountGatewayControl) => Promise<AccountPrincipal>,
   control: AccountGatewayControl | undefined,
   maxBodyBytes: number,
   sendAccountError: (response: ServerResponse, error: unknown) => void,
 ): Promise<void> {
   try {
     if (!control) throw accountErrors.featureDisabled();
-    const principal = await control.authenticate(authorization);
+    const principal = await authenticate(control);
     if (url.pathname === "/api/mobile/events" && request.method === "GET") {
       const after = nonNegativeIntegerQuery(url, "after", 0);
       const limit = positiveIntegerQuery(url, "limit", 100, 500);

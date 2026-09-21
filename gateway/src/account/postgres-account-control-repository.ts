@@ -116,6 +116,7 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
     private readonly pool: Pool,
     private readonly maxAccountLifecycleEvents = 10_000,
     private readonly maxOwnedDevices = 1,
+    private readonly browserLifecycleReceipts = false,
   ) {
     if (!Number.isSafeInteger(maxAccountLifecycleEvents) || maxAccountLifecycleEvents < 1) {
       throw new Error("maxAccountLifecycleEvents must be a positive safe integer");
@@ -1306,10 +1307,12 @@ export class PostgresAccountControlRepository implements AccountControlRepositor
          SELECT $1, $2, i.id
            FROM installations i
           WHERE i.account_id = $2
-            AND i.kind = 'phone'
-            AND i.platform = 'android'
-            AND i.revoked_at IS NULL`,
-        [inserted.rows[0].sequence, material.accountId],
+            AND i.revoked_at IS NULL
+            AND ((i.kind = 'phone' AND i.platform = 'android')
+              OR ($3::boolean AND i.kind = 'browser' AND i.platform = 'web'
+                  AND EXISTS (SELECT 1 FROM account_sessions s
+                               WHERE s.installation_id = i.id AND s.revoked_at IS NULL)))`,
+        [inserted.rows[0].sequence, material.accountId, this.browserLifecycleReceipts],
       );
       await client.query(
         `DELETE FROM account_lifecycle_events

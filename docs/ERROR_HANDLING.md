@@ -68,6 +68,7 @@ reassigned.
 | `MSG` | Messaging channels (DingTalk, Slack, …) | list/save failure, profile conflict, platform not connected, gateway restart |
 | `LINK` | Links the app opens out of its own content | no app can open the link, non-web scheme refused |
 | `COMPAT` | The Mac's upstream Hermes against the REST contract this app depends on | required route missing, optional route missing, Hermes older than verified |
+| `WEB` | The browser Web app (`/app/`) and the Gateway surfaces only it uses | route withheld from browsers, unsupported browser, Web shell/update failure |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
 
 ## Canonical structured error
@@ -164,6 +165,7 @@ expanded without changing the underlying meaning.
 | `HR-ACCOUNT-010` | Secure Web account-session endpoints are disabled by their independent rollout flag | 此 Relay 尚未启用安全网页账号会话。 | Secure Web account sessions aren't enabled on this Gateway yet. | No |
 | `HR-ACCOUNT-011` | Identity removal would leave the account without any usable sign-in identity | 此账号必须至少保留一种登录方式，请先绑定其他登录方式。 | Keep at least one sign-in identity on this account. Link another sign-in method first. | No (link another identity) |
 | `HR-ACCOUNT-012` | A verified identity or retained session belongs to an account already in permanent-deletion state | 此 Hermes GO 账号正在永久删除，已无法再次登录。 | This Hermes GO account is being permanently deleted and can no longer sign in. | No |
+| `HR-WEB-001` | A browser (Web app) session asked the Gateway for a device route outside the browser allowlist (`gateway/src/account/web-device-access.ts`): configuration, secrets, scheduled tasks, skills, messaging, Gateway restart and every other administration route stay with the Android and Desktop apps. Returned as HTTP 403 before anything reaches the Mac | 网页版不支持此功能，请使用 Android 应用。 | This feature isn't available in the Hermes GO web app. Use the Android app instead. | No |
 | `HR-BIND-001` | Account has no active Desktop Connector binding | 这个账号还没有连接 Desktop，请先在 Mac 上打开 Hermes Go Desktop。 | This account has no Desktop connection yet. Open Hermes Go Desktop on the Mac. | Yes |
 | `HR-BIND-002` | Account already has another active Desktop Connector binding | 这个账号已经连接另一台 Mac；确认替换前，原连接会继续工作。 | This account is already connected to another Mac. The existing connection will keep working until replacement is confirmed. | No (verify and replace) |
 | `HR-BIND-003` | First-binding or replacement request expired, or a single-use confirmation was consumed | Desktop 绑定确认已失效，请重新开始。 | The Desktop binding confirmation expired. Start again. | Yes (restart binding/replacement) |
