@@ -388,13 +388,19 @@ final class DesktopHermesInstallerTests: XCTestCase {
         XCTAssertNil(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths))
         XCTAssertNil(sandbox.attempts.load())
 
-        // Desktop's checkout, finished by other means: the completion marker exists.
+        // Desktop's checkout with the completion marker: no longer resumable, still Desktop's
+        // until it is seen finished and usable, then forgotten.
         let ours = try XCTUnwrap(DesktopCheckoutIdentity.read(sandbox.paths.checkoutRoot))
         sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: ours, startedAt: Date()))
         XCTAssertEqual(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths), ours)
         try Data().write(to: sandbox.paths.checkoutRoot.appendingPathComponent(DesktopHermesInstallResume.completionMarkerName))
         XCTAssertNil(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths))
+        XCTAssertTrue(DesktopHermesInstallResume.desktopOwnsCheckout(sandbox.attempts, paths: sandbox.paths))
+        DesktopHermesInstallResume.forgetIfFinished(sandbox.attempts, paths: sandbox.paths, detection: .unsupported(.versionTooOld, detail: ""))
+        XCTAssertNotNil(sandbox.attempts.load(), "a finished-but-unusable checkout (018) stays Desktop's")
+        DesktopHermesInstallResume.forgetIfFinished(sandbox.attempts, paths: sandbox.paths, detection: .usable(sandbox.installation))
         XCTAssertNil(sandbox.attempts.load())
+        try FileManager.default.removeItem(at: sandbox.paths.checkoutRoot.appendingPathComponent(DesktopHermesInstallResume.completionMarkerName))
 
         // No checkout yet and nothing created: still Desktop's, kept.
         try FileManager.default.removeItem(at: sandbox.paths.checkoutRoot)
@@ -505,6 +511,41 @@ final class DesktopHermesInstallerTests: XCTestCase {
         sandbox.attempts.save(DesktopHermesInstallAttempt(checkoutPath: path, checkout: nil, startedAt: Date().addingTimeInterval(60)))
         XCTAssertNil(DesktopHermesInstallResume.reconcile(sandbox.attempts, paths: sandbox.paths))
         XCTAssertNil(sandbox.attempts.load())
+    }
+
+    /// Owner decision on the HR-MIGRATE-008 escape: only a checkout Desktop's own install created
+    /// may be answered with the built-in Hermes.
+    func testOnlyDesktopsOwnLeftoverCheckoutAllowsTheBuiltInEscape() async throws {
+        // Desktop's leftover: an install that stopped after the clone.
+        let failing = FakeInstaller(stages: ["repository", "python-deps", "complete"], failing: "python-deps", failure: .plain)
+        _ = await installFailure(sandbox.installer(script: failing, detections: [.absent(hermesDataPresent: false)]))
+        XCTAssertTrue(DesktopHermesInstallResume.desktopOwnsCheckout(sandbox.attempts, paths: sandbox.paths))
+
+        // Claimed after a quit.
+        sandbox.attempts.save(DesktopHermesInstallAttempt(
+            checkoutPath: sandbox.paths.checkoutRoot.path, checkout: nil, startedAt: Date().addingTimeInterval(-60)
+        ))
+        XCTAssertTrue(DesktopHermesInstallResume.desktopOwnsCheckout(sandbox.attempts, paths: sandbox.paths))
+
+        // The owner's own checkout, replacing Desktop's: not Desktop's.
+        try FileManager.default.removeItem(at: sandbox.paths.checkoutRoot)
+        try FileManager.default.createDirectory(at: sandbox.paths.checkoutRoot, withIntermediateDirectories: true)
+        sandbox.attempts.save(DesktopHermesInstallAttempt(
+            checkoutPath: sandbox.paths.checkoutRoot.path,
+            checkout: DesktopCheckoutIdentity(device: 0, inode: 1, birthSeconds: 0, birthNanoseconds: 0),
+            startedAt: Date()
+        ))
+        XCTAssertFalse(DesktopHermesInstallResume.desktopOwnsCheckout(sandbox.attempts, paths: sandbox.paths))
+
+        // The owner's own Hermes with no Desktop attempt at all (profiles, custom home, pipx, old
+        // version, data only): never.
+        sandbox.attempts.clear()
+        XCTAssertFalse(DesktopHermesInstallResume.desktopOwnsCheckout(sandbox.attempts, paths: sandbox.paths))
+        // A checkout older than Desktop's attempt: never.
+        sandbox.attempts.save(DesktopHermesInstallAttempt(
+            checkoutPath: sandbox.paths.checkoutRoot.path, checkout: nil, startedAt: Date().addingTimeInterval(60)
+        ))
+        XCTAssertFalse(DesktopHermesInstallResume.desktopOwnsCheckout(sandbox.attempts, paths: sandbox.paths))
     }
 
     // MARK: Helpers
@@ -867,9 +908,16 @@ final class HermesInstallWiringTests: XCTestCase {
         // Finding 9.
         XCTAssertTrue(try appSource("HermesGoDesktopApp.swift").contains("DesktopPosixProcessRunner.terminateAllProcessGroups()"))
         // Re-review: "use the bundled Hermes" stays reachable whenever a fresh setup is refused.
-        XCTAssertEqual(model.components(separatedBy: "isFreshInstallBlockedByLocalHermes = true").count - 1, 2)
+        // Owner decision: the built-in escape beside HR-MIGRATE-008 exists only for Desktop's own
+        // leftover checkout; the owner's own Hermes gets guidance and no alternative.
+        XCTAssertEqual(model.components(separatedBy: "noteFreshInstallBlock()").count - 1, 3, "both refusals must classify the block")
+        XCTAssertTrue(model.contains("DesktopHermesInstallResume.desktopOwnsCheckout(hermesInstallAttempts, paths: $0.paths)"))
+        XCTAssertTrue(model.contains("isFreshInstallBlockedByOwnersHermes = !owned"))
         let views = try appSource("SecondaryViews.swift")
-        XCTAssertTrue(views.contains("if model.isFreshInstallBlockedByLocalHermes, model.hermesInstallPhase == .hidden {"))
+        XCTAssertTrue(views.contains("if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {"))
+        let guidance = try XCTUnwrap(views.range(of: "private var ownersHermesGuidanceCard"))
+        let guidanceBody = views[guidance.lowerBound...].prefix(900)
+        XCTAssertFalse(guidanceBody.contains("useBundledHermes"), "no second copy is offered next to the owner's Hermes")
         XCTAssertTrue(views.contains("Button(\"改用内置 Hermes\") { model.useBundledHermes() }"))
 
         let card = try appSource("HermesInstallCard.swift")

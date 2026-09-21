@@ -162,11 +162,12 @@ with “复制诊断”, the log path, “重试” only when the code is retrya
 “改用内置 Hermes” asks once in a native confirmation dialog and explains that setup then installs the
 built-in Hermes as before and that `~/.hermes` is left as it is. Macs with an existing or unusual
 Hermes never see this card; the `HR-MIGRATE-008` rule below still holds — the product never implies
-that installing a second Hermes is the fix. When a fresh setup is refused with `HR-MIGRATE-008`, a
-separate small card beside it keeps “改用内置 Hermes” reachable (the only in-app way to finish setup
-there): it states plainly that the built-in copy runs as a separate Hermes beside the existing one
-and shares its data, leaves the existing Hermes untouched, and asks once in a confirmation dialog.
-It is an explicit owner choice, never presented as the fix for `HR-MIGRATE-008`.
+that installing a second Hermes is the fix. **One narrow exception:** when a fresh setup is refused
+with `HR-MIGRATE-008` and the blocking checkout is the one Hermes GO's own install left behind
+(never a Hermes the owner installed), a small card beside the code says so (“这份 Hermes 是 Hermes GO
+之前的安装留下的”) and offers bordered “改用内置 Hermes” behind a confirmation dialog. For the owner's
+own Hermes the card instead carries secondary guidance to fix or remove that install, and offers no
+alternative.
 
 ## Shared visual tokens
 

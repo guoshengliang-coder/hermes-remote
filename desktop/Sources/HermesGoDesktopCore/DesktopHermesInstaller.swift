@@ -354,9 +354,37 @@ public enum DesktopHermesInstallResume {
         unfinishedCheckout(store.load(), paths: paths) != nil
     }
 
+    /// Whether the checkout on disk is the one Desktop's own install created (recorded, or claimed
+    /// after a quit), finished or not. This — and only this — lets Desktop offer its built-in Hermes
+    /// beside `HR-MIGRATE-008`: the owner's rule is never to put a second copy next to a Hermes the
+    /// owner installed (profiles, a custom `HERMES_HOME`, pipx, an old version, data without a
+    /// checkout, a checkout not born from Desktop's attempt).
+    public static func desktopOwnsCheckout(
+        _ store: any DesktopHermesInstallAttemptStoring,
+        paths: DesktopLocalHermesPaths
+    ) -> Bool {
+        reconcile(store, paths: paths)
+        guard let attempt = store.load(), attempt.checkoutPath == paths.checkoutRoot.path,
+              let recorded = attempt.checkout
+        else { return false }
+        return DesktopCheckoutIdentity.read(paths.checkoutRoot) == recorded
+    }
+
+    /// Clears the record once its checkout is a finished, usable Hermes — from then on it is simply
+    /// the Mac's Hermes, whoever installed it.
+    public static func forgetIfFinished(
+        _ store: any DesktopHermesInstallAttemptStoring,
+        paths: DesktopLocalHermesPaths,
+        detection: DesktopLocalHermesDetection
+    ) {
+        guard let installation = detection.installation, installation.dependenciesConsistent,
+              completionMarkerPresent(paths), store.load() != nil
+        else { return }
+        store.clear()
+    }
+
     /// Drops a record that no longer describes this Mac: its checkout is gone or replaced (someone
-    /// else installed Hermes), or the install finished (the completion marker exists). Returns the
-    /// unfinished checkout that remains resumable, if any.
+    /// else installed Hermes). Returns the unfinished checkout that remains resumable, if any.
     @discardableResult
     public static func reconcile(
         _ store: any DesktopHermesInstallAttemptStoring,
@@ -368,7 +396,9 @@ public enum DesktopHermesInstallResume {
         if attempt.checkoutPath != paths.checkoutRoot.path {
             stale = true
         } else if let recorded = attempt.checkout {
-            stale = current != recorded || completionMarkerPresent(paths)
+            // A finished checkout stays recorded until `forgetIfFinished` sees it usable: an install
+            // that ran every stage but failed verification (018) is still Desktop's own leftover.
+            stale = current != recorded
         } else if let current {
             // No checkout was recorded, yet one exists. It is Desktop's only if it was born after
             // Desktop's install started: a stage killed with Desktop itself (quit mid-`repository`)

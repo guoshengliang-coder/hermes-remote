@@ -348,8 +348,12 @@ The current automated suite covers:
   process group. Re-review (both fail against d90fbcc): cancelling while the `repository` stage
   still runs after its clone landed keeps the checkout recorded, pending and resumable; after a
   quit, a record without a checkout claims one born after the install started and drops an older
-  one. Source assertions: both refused fresh setups raise the flag that keeps “改用内置 Hermes”
-  reachable, and the card offering it exists.
+  one. Owner decision on the `HR-MIGRATE-008` escape: `desktopOwnsCheckout` is true for Desktop's
+  leftover checkout (after a failed stage, and when claimed after a quit) and false for a replaced
+  checkout, no attempt at all, and a checkout older than the attempt; a finished-but-unusable
+  checkout stays Desktop's until it is seen usable. Source assertions: both refusals classify the
+  block; the built-in card is shown only for Desktop's checkout and the owner's-Hermes guidance card
+  offers no built-in alternative.
 - 2026-09-21 restart-probe incident (`DESKTOP_E4_TEST_RECORD.md`), each checked to fail when
   reverted where the boundary allows: the loopback shutdown decision is a pure function —
   `.waiting`/`.failed` with `ECONNREFUSED` is "stopped", `.ready` is "listening", every other error,

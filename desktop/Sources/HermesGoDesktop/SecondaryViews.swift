@@ -351,8 +351,10 @@ struct AccountDevicesView: View {
         if let issue = model.managedBootstrapIssue {
             accountIssueCard(issue)
         }
-        if model.isFreshInstallBlockedByLocalHermes, model.hermesInstallPhase == .hidden {
+        if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {
             bundledHermesChoiceCard
+        } else if model.isFreshInstallBlockedByOwnersHermes {
+            ownersHermesGuidanceCard
         }
         if let issue = model.managedSchemaIssue {
             accountIssueCard(issue)
@@ -578,14 +580,14 @@ struct AccountDevicesView: View {
         .interactiveDismissDisabled(model.componentBootstrapOperation == .committing)
     }
 
-    /// Shown with `HR-MIGRATE-008` on a fresh setup: the Mac's own Hermes is in a shape Hermes GO
-    /// leaves alone, and the built-in copy is the only in-app way to finish setup.
+    /// Shown with `HR-MIGRATE-008` on a fresh setup only when the blocking checkout is the one
+    /// Hermes GO's own install left behind — never for a Hermes the owner installed.
     private var bundledHermesChoiceCard: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("也可以改用 Hermes GO 内置的 Hermes")
+                Text("这份 Hermes 是 Hermes GO 之前的安装留下的")
                     .font(.system(size: 13, weight: .semibold))
-                Text("内置 Hermes 会作为单独的一份运行，与这台 Mac 上已有的 Hermes 共用同一份数据；已有的 Hermes 保持不动。整理好本机 Hermes 后，可删除设置 HermesGoLocalHermesRuntimeEnabled 恢复使用它。")
+                Text("它没有安装完整，Hermes GO 无法直接使用。可以改用 Hermes GO 内置的 Hermes 完成设置；留下的文件保持不动，删除 ~/.hermes/hermes-agent 后可重新安装官方 Hermes。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -603,8 +605,23 @@ struct AccountDevicesView: View {
             Button("改用内置 Hermes") { model.useBundledHermes() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("之后的设置会安装并运行 Hermes GO 自带的 Hermes，与本机已有的 Hermes 并存；本机 Hermes 及其数据不会被修改。")
+            Text("之后的设置会安装并运行 Hermes GO 自带的 Hermes。Hermes GO 之前留下的文件不会被修改。")
         }
+    }
+
+    /// Shown with `HR-MIGRATE-008` when the owner's own Hermes blocks a fresh setup. No alternative
+    /// is offered: the owner's rule is never a second copy next to a Hermes they installed.
+    private var ownersHermesGuidanceCard: some View {
+        Label(
+            "这台 Mac 上的 Hermes 是你自己安装的，Hermes GO 不会再另装一份。请按“复制诊断”里的原因整理它（例如改为默认的 ~/.hermes、单一 profile、升级到 \(DesktopLocalHermesDetector.minimumVersion) 或更新），或将其移除后刷新。",
+            systemImage: "info.circle"
+        )
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hermesCard()
     }
 
     private var componentCleanupRecoveryCard: some View {

@@ -1114,8 +1114,9 @@ unfinished — even though after `python-deps` `venv/bin/hermes` exists and dete
 If Desktop quits mid-stage, nothing records the checkout; a record without one then claims a
 checkout born after the install started (within a second) as Desktop's, and treats an older one as
 somebody else's. A record whose checkout was removed or replaced (a different inode or birth time —
-the owner cloned or ran `install.sh` themselves), which never produced a checkout while an older one
-exists, or whose install finished (the completion marker exists) is dropped on the next refresh, and the Mac is then
+the owner cloned or ran `install.sh` themselves), or which never produced a checkout while an older
+one exists, is dropped on the next refresh; a record whose checkout is finished and usable (completion
+marker present, detection `.usable` and dependency-consistent) is forgotten the same way, and the Mac is then
 treated like any other. Nothing is written into `~/.hermes` by Desktop itself. The record is cleared
 on success and on "改用内置 Hermes".
 
@@ -1200,9 +1201,19 @@ keys.
 Hermes". That choice (a confirmation dialog first) writes `HermesGoLocalHermesRuntimeEnabled=false`
 for this Mac: the setup card returns and installs the bundled copy exactly as before local mode
 existed, and every later refresh behaves as with the setting off. Anything already in `~/.hermes` is
-left alone. The same choice is offered beside `HR-MIGRATE-008` whenever a fresh setup is refused
-because the Mac's own Hermes is in a shape Hermes GO leaves alone: it is the only in-app way to
-finish setup there, and it says that the built-in copy then runs beside the existing Hermes.
+left alone.
+
+**`HR-MIGRATE-008` on a fresh setup — one narrow exception.** The owner's rule is never to install or
+ship a second copy on a Mac that has Hermes. When a fresh setup is refused with `HR-MIGRATE-008`,
+Desktop therefore asks whose Hermes blocked it (`DesktopHermesInstallResume.desktopOwnsCheckout`):
+
+- **Desktop's own leftover** — the checkout on disk is exactly the one Desktop's install created
+  (recorded after a stage, or claimed after a quit), for example one that ran every stage but failed
+  verification (`018`). Only then does a small card beside the code offer "改用内置 Hermes"
+  (with a confirmation), because the in-app flow created the problem and must also offer a way out.
+- **The owner's own Hermes** — profiles, a custom `HERMES_HOME`, pipx, an old version, Hermes data
+  without a checkout, or any checkout not born from Desktop's attempt. Only `HR-MIGRATE-008` is shown,
+  with guidance to fix or remove that install; no built-in alternative is offered.
 
 Not verified here: the real installer. No test runs upstream's `install.sh`, touches the network, the
 real `~/.hermes`, launchd or `~/Library`; the driver is tested against fake installer scripts run by

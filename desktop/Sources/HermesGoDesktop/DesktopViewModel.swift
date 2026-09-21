@@ -78,10 +78,14 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var localHermesIssue: DesktopIssue?
     @Published private(set) var hermesInstallPhase: DesktopHermesInstallPhase = .hidden
     @Published var isHermesInstallConfirmationPresented = false
-    /// A fresh setup was refused because this Mac already has Hermes in a shape Hermes GO leaves
-    /// alone (`HR-MIGRATE-008`). "改用内置 Hermes" must stay reachable then: it is the only in-app
-    /// way to finish setup on such a Mac.
-    @Published private(set) var isFreshInstallBlockedByLocalHermes = false
+    /// A fresh setup was refused with `HR-MIGRATE-008`, and the checkout that caused it is the one
+    /// Desktop's own install created (`DesktopHermesInstallResume.desktopOwnsCheckout`). Only then
+    /// is "改用内置 Hermes" offered beside the code; for the owner's own Hermes, never — the owner's
+    /// rule is no second copy next to a Hermes they installed.
+    @Published private(set) var isFreshInstallBlockedByDesktopsOwnCheckout = false
+    /// A fresh setup was refused with `HR-MIGRATE-008` because of the owner's own Hermes: shown with
+    /// guidance to fix or remove that install, and no alternative.
+    @Published private(set) var isFreshInstallBlockedByOwnersHermes = false
     @Published private(set) var componentPreflightPresentation:
         DesktopComponentPreflightPresentation?
     @Published private(set) var isComponentPreflightRefreshing = false
@@ -848,6 +852,7 @@ final class DesktopViewModel: ObservableObject {
                 DesktopHermesInstallResume.reconcile(attempts, paths: detector.paths)
             )
         }.value
+        DesktopHermesInstallResume.forgetIfFinished(attempts, paths: detector.paths, detection: detection)
         let offer = setupAvailable || unfinished != nil
             ? DesktopHermesInstallOffer.evaluate(
                 detection: detection,
@@ -939,8 +944,8 @@ final class DesktopViewModel: ObservableObject {
         DesktopLocalHermesRuntimeSetting.chooseBundled()
         hermesInstallAttempts.clear()
         hermesInstallPhase = .hidden
-        if isFreshInstallBlockedByLocalHermes {
-            isFreshInstallBlockedByLocalHermes = false
+        if isFreshInstallBlockedByDesktopsOwnCheckout {
+            isFreshInstallBlockedByDesktopsOwnCheckout = false
             if managedBootstrapIssue?.code == .localHermesUnsupported { managedBootstrapIssue = nil }
             if componentBootstrapIssue?.code == .localHermesUnsupported { componentBootstrapIssue = nil }
         }
@@ -987,6 +992,19 @@ final class DesktopViewModel: ObservableObject {
         await refresh()
     }
 
+    private func noteFreshInstallBlock() {
+        let owned = localHermesDetector.map {
+            DesktopHermesInstallResume.desktopOwnsCheckout(hermesInstallAttempts, paths: $0.paths)
+        } ?? false
+        isFreshInstallBlockedByDesktopsOwnCheckout = owned
+        isFreshInstallBlockedByOwnersHermes = !owned
+    }
+
+    private func clearFreshInstallBlock() {
+        isFreshInstallBlockedByDesktopsOwnCheckout = false
+        isFreshInstallBlockedByOwnersHermes = false
+    }
+
     /// A fresh install on a Mac that already has Hermes in a shape Hermes GO cannot run would put a
     /// second copy of Hermes beside it. Stop and say why instead.
     private func localHermesInstallBlock(
@@ -1020,7 +1038,7 @@ final class DesktopViewModel: ObservableObject {
     func prepareManagedBootstrap() async {
         guard !isManagedBootstrapAccountLocked, !isHermesInstallDecisionPending else { return }
         managedBootstrapIssue = nil
-        isFreshInstallBlockedByLocalHermes = false
+        clearFreshInstallBlock()
         managedBootstrapOperation = .preparing
         guard let runtime = managedBootstrapRuntime else {
             failManagedBootstrap(DesktopManagedBootstrapExecutorError.notPrepared)
@@ -1037,7 +1055,7 @@ final class DesktopViewModel: ObservableObject {
             if let block = localHermesInstallBlock(for: installation) {
                 managedBootstrapOperation = .failed
                 managedBootstrapIssue = block
-                isFreshInstallBlockedByLocalHermes = true
+                noteFreshInstallBlock()
                 return
             }
             managedBootstrapPreparation = try await runtime.executor.prepare(
@@ -1139,7 +1157,7 @@ final class DesktopViewModel: ObservableObject {
         else { return }
 
         componentBootstrapIssue = nil
-        isFreshInstallBlockedByLocalHermes = false
+        clearFreshInstallBlock()
         componentBootstrapOperation = .preparing
         do {
             applyAccountState(try await accountController.refresh())
@@ -1154,7 +1172,7 @@ final class DesktopViewModel: ObservableObject {
             if let block = localHermesInstallBlock(for: machine.installation) {
                 componentBootstrapOperation = .failed
                 componentBootstrapIssue = block
-                isFreshInstallBlockedByLocalHermes = true
+                noteFreshInstallBlock()
                 return
             }
             let probe = componentEntrypointProbe
