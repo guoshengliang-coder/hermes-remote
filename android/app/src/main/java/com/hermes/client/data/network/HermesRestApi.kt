@@ -106,6 +106,8 @@ class HermesRestApi(
             "/api/messaging/platforms",
         )
         const val CONNECTION_TEST_TIMEOUT_SECONDS = 12L
+        /** The contract report is a cached, tiny JSON body; anything slower is a stalled tunnel. */
+        const val CONTRACT_TIMEOUT_SECONDS = 5L
     }
 
     private fun config(): GatewayConfig =
@@ -208,12 +210,16 @@ class HermesRestApi(
      * Transport failures are now logged too. Previously a timed-out call left only the opening
      * line and no outcome at all, which reads exactly like a request that never returned.
      */
-    private suspend fun getRaw(path: String, deviceIdOverride: String? = null): String = withContext(Dispatchers.IO) {
+    private suspend fun getRaw(
+        path: String,
+        deviceIdOverride: String? = null,
+        timeoutSeconds: Long = REST_TIMEOUT_SECONDS,
+    ): String = withContext(Dispatchers.IO) {
         val call = restCall(builder(path, deviceIdOverride).get().build())
         // The shared client deliberately has no read timeout because WebSockets are long-lived.
         // A per-call deadline is essential for REST, otherwise a stalled Relay/Connector request
         // leaves a Compose loading screen spinning forever.
-        call.timeout().timeout(REST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        call.timeout().timeout(timeoutSeconds, TimeUnit.SECONDS)
         val startedAt = System.currentTimeMillis()
         val response = try {
             call.execute()
@@ -304,6 +310,39 @@ class HermesRestApi(
 
     /** Public /api/status — gateway version + running state. */
     suspend fun gatewayStatus(): GatewayStatusDto = get("/api/status")
+
+    /**
+     * The Connector's upstream-contract report (docs/HERMES_CONTRACT.md §2). Served by the
+     * Connector itself, never by Hermes; an older Connector forwards it and Hermes answers 401/404,
+     * which the caller reads as "no report".
+     */
+    suspend fun hermesContract(
+        timeoutSeconds: Long = CONTRACT_TIMEOUT_SECONDS,
+    ): HermesContractReportDto =
+        // Its own short deadline: `withTimeout` cannot interrupt OkHttp's blocking execute(), so
+        // without this a stalled report would hold the health monitor for the full REST timeout.
+        json.decodeFromString(getRaw(HERMES_CONTRACT_REPORT_PATH, timeoutSeconds = timeoutSeconds))
+
+    /**
+     * Which Mac a contract report would describe — account, base URL and device, or the legacy
+     * gateway and a short digest of its token — with no credential in it. Null when there is no
+     * target at all (signed out, no configuration). The health monitor keys its cached verdict on
+     * this, so switching Macs, accounts or gateways never shows the previous Mac's verdict.
+     */
+    suspend fun contractTargetKey(): String? {
+        accountSessionManager?.connection()?.let { account ->
+            val accountId = accountSessionManager.session.value?.accountId.orEmpty()
+            return "account:${account.baseUrl.trimEnd('/')}#$accountId#${account.deviceId}"
+        }
+        if (accountSessionManager?.requiresAccountReauthentication() == true) return null
+        if (accountSessionManager?.transportMode() == AccountTransportMode.DEVICE_SELECTION_REQUIRED) return null
+        val cfg = configProvider() ?: return null
+        val base = runCatching { normalizeGatewayBaseUrl(cfg.baseUrl) }.getOrDefault(cfg.baseUrl).trimEnd('/')
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(cfg.token.toByteArray(Charsets.UTF_8))
+            .take(6).joinToString("") { "%02x".format(it) }
+        return "legacy:$base#$digest"
+    }
 
     /** Relay health — which Mac connectors are currently attached (deviceId + online).
      *  The production edge maps the gateway's /health to /relay-health (bare /health belongs to

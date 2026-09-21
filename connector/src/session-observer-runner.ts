@@ -30,6 +30,8 @@ export interface SessionObserverOptions {
   reconnectMs?: number;
   unsupportedRetryMs?: number;
   log?: (message: string) => void;
+  /** Every time the observer's socket to Hermes opens — startup and each reconnect. */
+  onHermesConnected?: () => void;
 }
 
 const SOCKET_OPEN = 1;
@@ -111,7 +113,10 @@ export class HermesSessionObserver {
       if (this.stopped) return;
       const socket = this.options.createSocket(url);
       this.socket = socket;
-      socket.on("open", () => this.options.log?.("Hermes lifecycle observer connected"));
+      socket.on("open", () => {
+        this.options.log?.("Hermes lifecycle observer connected");
+        this.options.onHermesConnected?.();
+      });
       socket.on("message", (data) => void this.handleMessage(data));
       socket.on("error", (error) => this.options.log?.(`Hermes lifecycle observer error: ${error.message}`));
       socket.on("close", () => {

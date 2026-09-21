@@ -83,6 +83,32 @@ curl -X POST -H "X-Hermes-Session-Token: $APP_TOKEN" \
   http://127.0.0.1:8787/api/mobile/events/read
 ```
 
+### Connector contract check against a real Hermes (added 2026-09-21)
+
+Automated coverage stops at fixtures (`connector/src/hermes-contract*.test.ts`) and Android JVM
+tests. Against a live stack:
+
+1. Start the Connector against the real local Hermes. Its log carries exactly one
+   `"kind":"hermes.contract"` line with `"status":"compatible"` and the Hermes version.
+2. Read the report through the Relay, as the phone does:
+
+   ```bash
+   curl -s -H "X-Hermes-Session-Token: $APP_TOKEN" http://127.0.0.1:8787/api/hermes-remote/contract
+   ```
+
+   Expect `"schema":1,"status":"compatible","missing":[]`. Repeat it: the Connector must not log a
+   second `hermes.contract` line (the result is cached).
+3. Restart Hermes (not in production without the owner): the observer reconnects and the check runs
+   again; an unchanged result still logs nothing new.
+4. Breaking path, dev stack only: point the Connector at a mock whose `/openapi.json` omits
+   `/api/sessions/{session_id}/messages` (for example serve
+   `connector/fixtures/hermes-openapi/hermes-missing-required.json`). The report turns `breaking`
+   with `HR-COMPAT-001`; the phone's health strip turns red with 「Mac 上的 Hermes 不兼容」, its sheet
+   lists 历史记录 and shows `HR-COMPAT-001` on its own line; chat and every other route still relay.
+5. Unknown path: make `/openapi.json` answer 404. The report is `unknown`, the phone shows nothing.
+
+Device status: **not yet run on a device** (L2) as of 2026-09-21 — only L1 (JVM) covers the strip.
+
 ### Approval and clarify against a real Hermes
 
 Automated coverage stops at a mock: the question protocol changed between Hermes f159e581 (events +

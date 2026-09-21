@@ -124,6 +124,13 @@ enum class AppErrorCode(val value: String) {
     MESSAGING_PROFILE_CONFLICT("HR-MSG-003"),
     MESSAGING_PLATFORM_FAILED("HR-MSG-004"),
     MESSAGING_RESTART_FAILED("HR-MSG-005"),
+    // The Connector checked the Mac's own Hermes against the REST contract this app depends on
+    // (docs/HERMES_CONTRACT.md §2) and found it wanting. Hermes GO no longer pins Hermes, so these
+    // are what an owner's `hermes update` moving an upstream route looks like — named up front
+    // instead of as a vague failure later. None is retryable: only updating Hermes or the app helps.
+    HERMES_INCOMPATIBLE("HR-COMPAT-001"),
+    HERMES_FEATURES_MISSING("HR-COMPAT-002"),
+    HERMES_BELOW_MINIMUM("HR-COMPAT-003"),
     LINK_NO_HANDLER("HR-LINK-001"),
     LINK_NOT_OPENABLE("HR-LINK-002"),
     UNKNOWN("HR-UNKNOWN-001"),

@@ -52,7 +52,12 @@ health-gate or roll back. Compatibility therefore moves out of packaging and int
    from a version guess.
 2. **The Connector checks the upstream contract at startup** (`docs/HERMES_CONTRACT.md` §2 paths in
    the server's `openapi.json`) and reports a registered `HR-` code instead of failing later.
-   *Not built yet* — see *Order of work*.
+   *Built 2026-09-21 (step 3b)*: at Connector startup, on every reconnect to Hermes and when
+   `/api/status` reports a new version; a missing required route is `HR-COMPAT-001`, a missing
+   optional one `HR-COMPAT-002`, a Hermes older than the verified minimum `HR-COMPAT-003`, and a
+   schema it could not read is `unknown` and shows nothing. It reports and never refuses to relay.
+   The phone shows the code on its health strip. Reaches a Mac only with the next Connector
+   (managed component) release and a phones' APK that reads it.
 3. **The `serve` Hermes GO owns is restarted when the local code changes.** Two mechanisms, and
    the second is the backstop for the first. Upstream `hermes update` (0.21.3) restarts every
    launchd job whose `ProgramArguments` contain `hermes serve` with `launchctl kickstart` — which in
@@ -88,7 +93,11 @@ was verified on), and again after `main` reached `83031d0`:
    owner's gateway is running and stands down if so (`profile_gate` now applies with one profile),
    so it no longer competes for `cron/.tick.lock`; removing the variable would break `/api/ws` auth
    once `dashboard.public_url` names a non-loopback host. The minimum local version is 0.21.3.
-3b. **Not built:** the Connector's startup contract check (principle 2 above).
+3b. **Built (2026-09-21, not yet shipped):** the Connector's startup contract check (principle 2
+   above; mechanism in `docs/HERMES_CONTRACT.md` §2, "Connector contract check"). Shipping it needs
+   a managed Connector component release for the Mac and an APK carrying the Android half; either
+   half alone is harmless — an older Connector answers the report route with Hermes' 401/404, which
+   the app reads as "no report", and an older app never asks.
 4. Install-when-missing through upstream's installer. **Open question:** GitHub is often
    unreachable from the owner's network (`hermes update` failed to fetch repeatedly on 2026-09-19
    before it got through), so a first install may need to be served through the Hong Kong release server.

@@ -20,6 +20,10 @@ class ShellViewModel @Inject constructor(
     /** Backend health for the shell's status strip + You-tab badge. */
     val health: StateFlow<com.hermes.client.data.network.GatewayHealth> = healthMonitor.health
 
+    /** The Mac's Hermes against the app's REST contract; null when there is nothing to say. */
+    val hermesContract: StateFlow<com.hermes.client.data.network.HermesContractNotice?> =
+        healthMonitor.contract
+
     init { viewModelScope.launch { profileManager.refresh() } }
 
     /** Name of the profile a switch just failed for, or null. UI shows a retry affordance and

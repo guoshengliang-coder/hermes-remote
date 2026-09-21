@@ -211,6 +211,24 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "这个渠道没能连上，请检查设置。", "This channel didn't connect. Check its setup.")
         AppErrorCode.MESSAGING_RESTART_FAILED ->
             localized(language, "网关重启失败，请重试。", "The gateway restart failed. Retry.")
+        AppErrorCode.HERMES_INCOMPATIBLE ->
+            localized(
+                language,
+                "这台 Mac 上的 Hermes 与 Hermes GO 不兼容，会话或历史记录可能无法打开。请更新 Hermes GO，或把 Hermes 恢复到兼容版本。",
+                "The Hermes on this Mac isn't compatible with Hermes GO, so conversations or history may not open. Update Hermes GO, or return Hermes to a compatible version.",
+            )
+        AppErrorCode.HERMES_FEATURES_MISSING ->
+            localized(
+                language,
+                "这台 Mac 上的 Hermes 缺少部分接口，定时任务、技能等部分功能可能无法使用；聊天不受影响。",
+                "The Hermes on this Mac is missing some interfaces, so features such as scheduled tasks or skills may not work. Chat is unaffected.",
+            )
+        AppErrorCode.HERMES_BELOW_MINIMUM ->
+            localized(
+                language,
+                "这台 Mac 上的 Hermes 版本低于 Hermes GO 已验证的最低版本，部分功能可能异常。请更新 Hermes。",
+                "The Hermes on this Mac is older than the oldest version Hermes GO was verified with, so some features may misbehave. Update Hermes.",
+            )
         AppErrorCode.LINK_NO_HANDLER ->
             localized(language, "没有能打开链接的应用，链接已复制。", "No app can open this link. It was copied to the clipboard.")
         AppErrorCode.LINK_NOT_OPENABLE ->

@@ -283,11 +283,11 @@ object AppModule {
         routedRestRecoverySignal: RoutedRestRecoverySignal,
     ): com.hermes.client.data.network.GatewayHealthMonitor =
         com.hermes.client.data.network.GatewayHealthMonitor(
-            api,
-            connectivity,
-            client.connectionState,
-            scope,
-            routedRestRecoverySignal,
+            api = api,
+            connectivity = connectivity,
+            connectionState = client.connectionState,
+            scope = scope,
+            routedRestRecoverySignal = routedRestRecoverySignal,
         )
 
     @Provides

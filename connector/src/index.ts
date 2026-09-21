@@ -32,6 +32,10 @@ import { describeRejectedPath } from "./file-log.js";
 import { tunnelCloseForApp } from "./tunnel-close.js";
 import { decideOversizedFrame } from "./oversized-frame.js";
 import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
+import { displayVersion } from "./hermes-contract.js";
+import { HermesAuth, boundedResponseBody, fetchHermesOpenApi } from "./hermes-auth.js";
+import { contractReportResponse, tunnelHttpRoute } from "./tunnel-routes.js";
+import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
 // reconnect-churn investigation impossible to correlate with server-side events.
@@ -207,6 +211,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
         deviceId = message.deviceId;
         controlAuthenticated = message.routingEnabled;
         console.log(`Connected to gateway as ${deviceId} in account mode (${message.bindingStatus})`);
+        void contractMonitor.ensureFresh("relay_connected");
         if (message.routingEnabled) startLifecycleObserver();
         else setTimeout(() => socket.close(1012, "pending binding activation"), 250);
         return;
@@ -223,6 +228,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
       log.info("relay.connected", { device: message.deviceId, tunnels: localSockets.size });
       controlAuthenticated = true;
       lifecycleObserver?.relayConnected();
+      void contractMonitor.ensureFresh("relay_connected");
       return;
     case "session.lifecycle.ack":
       log.info("lifecycle.acked", { eventId: message.eventId });
@@ -261,9 +267,15 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
   const controller = inFlightHttpRequests.begin(request.id);
   let streamStarted = false;
   try {
-    if (request.path.startsWith("/api/files")) {
-      await handleFileRequest(socket, request, controller.signal);
-      return;
+    switch (tunnelHttpRoute(request.path)) {
+      case "contract":
+        await handleContractRequest(socket, request, controller.signal);
+        return;
+      case "files":
+        await handleFileRequest(socket, request, controller.signal);
+        return;
+      case "hermes":
+        break;
     }
     const response = await hermesAuth.request(request.path, {
       method: request.method,
@@ -351,6 +363,25 @@ function sendResponseChunk(
 
 function acknowledgeResponseChunk(requestId: string, sequence: number): void {
   responseChunkWaiters.acknowledge(requestId, sequence);
+}
+
+/**
+ * Connector-owned, like `/api/files`: never forwarded to Hermes. Serves the cached upstream
+ * contract report so the phone can name an incompatible Hermes with a registered HR-COMPAT code
+ * instead of failing later and vaguely (docs/HERMES_CONTRACT.md, "Connector contract check").
+ */
+async function handleContractRequest(
+  socket: WebSocket,
+  request: TunnelHttpRequest,
+  signal: AbortSignal,
+): Promise<void> {
+  signal.throwIfAborted();
+  const response = await contractReportResponse(
+    request.method,
+    () => contractMonitor.ensureFresh("app_request"),
+  );
+  signal.throwIfAborted();
+  sendJsonResponse(socket, request.id, response.status, response.body, response.headers);
 }
 
 async function handleFileRequest(
@@ -884,120 +915,9 @@ function selectResponseHeaders(headers: Headers): Record<string, string> {
   return selected;
 }
 
-class HermesAuth {
-  private readonly baseUrl: string;
-  private readonly sessionToken?: string;
-  private readonly username?: string;
-  private readonly password?: string;
-  private readonly cookies = new Map<string, string>();
-  private loginInFlight?: Promise<boolean>;
-
-  constructor(config: {
-    baseUrl: string;
-    sessionToken?: string;
-    username?: string;
-    password?: string;
-  }) {
-    this.baseUrl = config.baseUrl;
-    this.sessionToken = config.sessionToken;
-    this.username = config.username;
-    this.password = config.password;
-    if (Boolean(this.username) !== Boolean(this.password)) {
-      throw new Error("HERMES_BASIC_AUTH_USERNAME and HERMES_BASIC_AUTH_PASSWORD must be configured together");
-    }
-  }
-
-  async request(path: string, init: RequestInit): Promise<Response> {
-    this.assertApiPath(path);
-    if (this.username && this.cookies.size === 0) await this.login();
-    let response = await fetch(new URL(path, this.baseUrl), this.withAuth(init));
-    this.captureCookies(response.headers);
-    if (response.status === 401 && this.username) {
-      await this.login(true);
-      response = await fetch(new URL(path, this.baseUrl), this.withAuth(init));
-      this.captureCookies(response.headers);
-    }
-    return response;
-  }
-
-  async websocketUrl(path: string): Promise<string> {
-    if (path !== "/api/ws") throw new Error("unsupported WebSocket path");
-    const wsBase = this.baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
-    if (this.sessionToken) {
-      const url = new URL(path, wsBase);
-      url.searchParams.set("token", this.sessionToken);
-      return url.toString();
-    }
-    if (this.username) {
-      const response = await this.request("/api/auth/ws-ticket", { method: "POST" });
-      if (!response.ok) throw new Error(`Hermes WS ticket returned HTTP ${response.status}`);
-      const payload = await response.json() as { ticket?: string };
-      if (!payload.ticket) throw new Error("Hermes WS ticket response contained no ticket");
-      const url = new URL(path, wsBase);
-      url.searchParams.set("ticket", payload.ticket);
-      return url.toString();
-    }
-    return new URL(path, wsBase).toString();
-  }
-
-  private async login(force = false): Promise<void> {
-    if (!this.username || !this.password) return;
-    if (!force && this.cookies.size > 0) return;
-    if (!this.loginInFlight) {
-      this.loginInFlight = this.performLogin().finally(() => {
-        this.loginInFlight = undefined;
-      });
-    }
-    const ok = await this.loginInFlight;
-    if (!ok) throw new Error("Hermes Basic Auth login failed");
-  }
-
-  private async performLogin(): Promise<boolean> {
-    this.cookies.clear();
-    const response = await fetch(new URL("/auth/password-login", this.baseUrl), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "basic", username: this.username, password: this.password }),
-      signal: AbortSignal.timeout(localRequestTimeoutMs),
-    });
-    this.captureCookies(response.headers);
-    return response.ok;
-  }
-
-  private withAuth(init: RequestInit): RequestInit {
-    const headers = new Headers(init.headers);
-    headers.delete("x-hermes-session-token");
-    headers.delete("cookie");
-    if (this.sessionToken) headers.set("x-hermes-session-token", this.sessionToken);
-    const cookie = [...this.cookies.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
-    if (cookie) headers.set("cookie", cookie);
-    return {
-      ...init,
-      headers,
-      signal: init.signal
-        ? AbortSignal.any([init.signal, AbortSignal.timeout(localRequestTimeoutMs)])
-        : AbortSignal.timeout(localRequestTimeoutMs),
-    };
-  }
-
-  private captureCookies(headers: Headers): void {
-    const cookieHeaders = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.()
-      ?? (headers.get("set-cookie") ? [headers.get("set-cookie") as string] : []);
-    for (const value of cookieHeaders) {
-      const pair = value.split(";", 1)[0];
-      const separator = pair.indexOf("=");
-      if (separator <= 0) continue;
-      this.cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
-    }
-  }
-
-  private assertApiPath(path: string): void {
-    if (!path.startsWith("/api/")) throw new Error("unsupported Hermes path");
-  }
-}
-
 const hermesAuth = new HermesAuth({
   baseUrl: hermesBaseUrl,
+  requestTimeoutMs: localRequestTimeoutMs,
   sessionToken: loadHermesSessionToken({
     inline: process.env.HERMES_SESSION_TOKEN,
     file: process.env.HERMES_SESSION_TOKEN_FILE,
@@ -1006,8 +926,21 @@ const hermesAuth = new HermesAuth({
   password: process.env.HERMES_BASIC_AUTH_PASSWORD,
 });
 
+const contractMonitor = new HermesContractMonitor(
+  {
+    fetchOpenApi: () => fetchHermesOpenApi(hermesAuth),
+    fetchStatusVersion: async () => {
+      const status = await readHermesStatus();
+      if (!status.reachable) throw new Error("hermes_unreachable");
+      return status.version;
+    },
+  },
+  { log: (level, kind, fields) => log[level](kind, fields) },
+);
+
 connect();
 if (connectorMode === "legacy") startLifecycleObserver();
+void contractMonitor.refresh("startup");
 
 function startLifecycleObserver(): void {
   if (!sessionObserverEnabled || lifecycleObserver) return;
@@ -1037,6 +970,9 @@ function startLifecycleObserver(): void {
     idlePollMs: sessionObserverIdlePollMs,
     rpcTimeoutMs: sessionObserverRpcTimeoutMs,
     log: (message) => console.log(message),
+    // A fresh socket to Hermes is the only sign of a Hermes restart this process gets —
+    // `hermes update` kickstarts the serve job onto new code without changing anything else here.
+    onHermesConnected: () => { void contractMonitor.refresh("hermes_connected"); },
   });
   void lifecycleObserver.start().catch((error) => {
     console.error("Unable to start Hermes lifecycle observer", safeError(error));
@@ -1044,6 +980,12 @@ function startLifecycleObserver(): void {
 }
 
 async function accountConnectorPreflight(): Promise<{ reachable: boolean; version?: string }> {
+  const status = await readHermesStatus();
+  if (status.reachable) contractMonitor.observeVersion(status.version, "preflight");
+  return status;
+}
+
+async function readHermesStatus(): Promise<{ reachable: boolean; version?: string }> {
   try {
     const response = await hermesAuth.request("/api/status", { method: "GET" });
     if (!response.ok) return { reachable: false };
@@ -1051,11 +993,8 @@ async function accountConnectorPreflight(): Promise<{ reachable: boolean; versio
     if (!body) return { reachable: true };
     const value = JSON.parse(body) as unknown;
     if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      const version = (value as Record<string, unknown>).version;
-      if (typeof version === "string" && version.length <= 64
-          && !/[\u0000-\u001f\u007f]/.test(version)) {
-        return { reachable: true, version };
-      }
+      const version = displayVersion((value as Record<string, unknown>).version);
+      if (version !== undefined) return { reachable: true, version };
     }
     return { reachable: true };
   } catch {
@@ -1063,25 +1002,6 @@ async function accountConnectorPreflight(): Promise<{ reachable: boolean; versio
   }
 }
 
-async function boundedResponseBody(response: Response, maximumBytes: number): Promise<string> {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error("Hermes status response too large");
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maximumBytes) {
-      await reader.cancel();
-      throw new Error("Hermes status response too large");
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
 
 function shutdown(signal: string): void {
   if (stopping) return;
