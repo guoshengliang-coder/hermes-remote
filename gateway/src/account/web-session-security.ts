@@ -13,6 +13,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const CSRF_PATTERN = /^hgc_[A-Za-z0-9_-]{43}$/;
 const ACCESS_PATTERN = /^hga_[A-Za-z0-9_-]{43}$/;
 const REFRESH_PATTERN = /^hgr_[A-Za-z0-9_-]{43}$/;
+const ACCESS_COOKIE_PROBE = new RegExp(`(?:^|;)\\s*${WEB_COOKIE_NAMES.access}=`);
 
 export interface WebBootstrapState {
   installationId: string;
@@ -59,12 +60,11 @@ export class WebSessionSecurity {
     return `Bearer ${access}`;
   }
 
+  // A loose probe by name only: a malformed header that merely contains the name still takes the
+  // Web path (where parsing rejects it), while unrelated junk cookies never divert a native request.
   hasAccessCookie(request: IncomingMessage): boolean {
-    try {
-      return parseCookies(request.headers.cookie).has(WEB_COOKIE_NAMES.access);
-    } catch {
-      return true;
-    }
+    const raw = request.headers.cookie;
+    return typeof raw === "string" && ACCESS_COOKIE_PROBE.test(raw);
   }
 
   refreshToken(request: IncomingMessage): string {

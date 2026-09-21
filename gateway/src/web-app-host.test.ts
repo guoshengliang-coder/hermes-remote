@@ -25,6 +25,8 @@ async function withHost(
   await writeFile(join(dist, "manifest.webmanifest"), "{}");
   await writeFile(join(dist, "icon-192.png"), "png");
   await writeFile(join(dist, "notes.unknown"), "?");
+  await mkdir(join(dist, "icons"));
+  await writeFile(join(dist, "icons", "icon-512.png"), "png512");
   await writeFile(join(root, "secret.txt"), "outside the build");
   await symlink(join(root, "secret.txt"), join(dist, "assets", "leak.txt"));
   const host = new WebAppHost({ dir: dist, webOrigin: "https://web.example.test" });
@@ -63,7 +65,7 @@ async function withHost(
 
 test("the app shell is never cached and carries a strict CSP without inline or external sources", async () => {
   await withHost(async (get) => {
-    for (const path of ["/app/", "/app/sessions", "/app/sessions/abc-123"]) {
+    for (const path of ["/app/", "/app/sessions", "/app/sessions/abc-123", "/app/sessions/"]) {
       const response = await get(path);
       assert.equal(response.status, 200, path);
       assert.match(response.body, /Hermes GO/);
@@ -94,6 +96,11 @@ test("hashed assets are immutable; sw.js and the manifest revalidate", async () 
     assert.equal(manifest.headers["cache-control"], "no-cache");
     assert.equal(manifest.headers["content-type"], "application/manifest+json");
     assert.equal((await get("/app/icon-192.png")).headers["content-type"], "image/png");
+    const nested = await get("/app/icons/icon-512.png");
+    assert.equal(nested.headers["content-type"], "image/png");
+    assert.equal(nested.body, "png512");
+    // A missing file is a 404, never the HTML shell under an image name.
+    assert.equal((await get("/app/icons/missing.png")).status, 404);
   });
 });
 

@@ -55,6 +55,7 @@ test("browser route allowlist covers the chat client and nothing that administer
     ["GET", "/api/sessions/search"],
     ["GET", "/api/sessions/stats"],
     ["GET", "/api/sessions/abc"],
+    ["GET", "/api/sessions/20260918_204034_16def7"],
     ["GET", "/api/sessions/abc/messages"],
     ["GET", "/api/profiles"],
     ["GET", "/api/profiles/sessions"],
@@ -77,6 +78,10 @@ test("browser route allowlist covers the chat client and nothing that administer
     ["GET", "/api/skills"],
     ["POST", "/api/files"],
     ["GET", "/api/files/upload"],
+    // An encoded separator would be decoded upstream into a sibling route.
+    ["GET", "/api/sessions/abc%2Fexport"],
+    ["GET", "/api/sessions/abc%2F..%2F..%2Fenv/messages"],
+    ["GET", "/api/sessions/"],
   ] as const) {
     assert.equal(browserRouteAllowed(method, path), false, `${method} ${path}`);
   }
@@ -107,6 +112,9 @@ test("files from the Mac are always downloads, and only raster images keep their
   assert.equal(json["content-type"], "application/json");
   assert.equal(json["content-disposition"], undefined);
   assert.equal(json["content-security-policy"], "default-src 'none'; sandbox");
+  const cached = browserResponseHeaders("/api/sessions", { "cache-control": "public, max-age=600" });
+  assert.equal(cached["cache-control"], "private, no-store");
+  assert.equal(cached.vary, "Cookie");
 });
 
 test("cookie reads need same-origin fetch metadata or the exact Origin", async () => {
@@ -182,6 +190,9 @@ test("presence of the access cookie decides whether the Web path applies", () =>
   assert.equal(web.presents(request("GET", {})), false);
   assert.equal(web.presents(request("GET", { cookie: `__Host-hermes_go_csrf=${CSRF}` })), false);
   assert.equal(web.presents(request("GET", { cookie })), true);
-  // A malformed cookie header still takes the Web path, where it is rejected rather than ignored.
-  assert.equal(web.presents(request("GET", { cookie: "garbage" })), true);
+  // Unrelated or malformed cookies never divert a (native, bearer) request onto the Web path…
+  assert.equal(web.presents(request("GET", { cookie: "garbage" })), false);
+  assert.equal(web.presents(request("GET", { cookie: "x__Host-hermes_go_access=1" })), false);
+  // …while a malformed header that does carry the access cookie takes it and is rejected there.
+  assert.equal(web.presents(request("GET", { cookie: `junk; __Host-hermes_go_access=${ACCESS}` })), true);
 });

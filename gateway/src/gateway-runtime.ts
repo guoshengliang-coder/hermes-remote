@@ -20,6 +20,7 @@ import { LifecycleEventStore } from "./lifecycle-event-store.js";
 import { LifecycleMessageHandler } from "./lifecycle-message-handler.js";
 import { WebSocketTunnelBroker } from "./websocket-tunnel-broker.js";
 import { WebAppHost } from "./web-app-host.js";
+import { screenBrowserFrame } from "./account/web-rpc-filter.js";
 import { rejectUpgrade } from "./websocket-utils.js";
 import {
   loadServerReleaseManifest,
@@ -244,6 +245,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
             ? () => appWebSocketAuthorizer.resolveAccountConnector(authorization, connector.deviceId)
             : undefined,
         access,
+        webPrincipal ? screenBrowserFrame : undefined,
       );
     },
     closeDependencies: async () => {

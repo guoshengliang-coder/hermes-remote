@@ -60,7 +60,9 @@ export class WebDeviceAccess {
   }
 }
 
-const SESSION_ID = "[^/]+";
+// Session ids are Hermes' own (`20260918_204034_16def7`, UUIDs). A strict charset keeps an encoded
+// separator (`abc%2Fexport`) from matching here and then being decoded into a sibling route upstream.
+const SESSION_ID = "[A-Za-z0-9_.:-]{1,128}";
 // The Web app is a chat client, not a Mac administration console: it reaches only the routes it
 // renders. Everything else (env, config, cron, skills, messaging, gateway restart, …) stays with the
 // Android and Desktop apps.
@@ -96,6 +98,10 @@ export function browserResponseHeaders(
     ...headers,
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; sandbox",
+    // Cookie-authenticated conversation data must not linger in the HTTP cache of a shared computer
+    // (bearer requests got that from the Authorization caching rules; cookie requests do not).
+    "cache-control": "private, no-store",
+    vary: "Cookie",
   };
   if (apiPath === "/api/files") {
     const type = (headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();

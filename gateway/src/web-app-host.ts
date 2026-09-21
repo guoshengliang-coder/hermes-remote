@@ -9,10 +9,14 @@ const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".webmanifest": "application/manifest+json",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
@@ -35,7 +39,9 @@ export class WebAppHost {
   private readonly documentHeaders: Record<string, string>;
 
   constructor(private readonly options: WebAppHostOptions) {
-    const websocketOrigin = options.webOrigin?.replace(/^https:/, "wss:");
+    const websocketOrigin = options.webOrigin && /^https:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.test(options.webOrigin)
+      ? options.webOrigin.replace(/^https:/, "wss:")
+      : undefined;
     this.documentHeaders = {
       ...BASE_HEADERS,
       "content-security-policy": [
@@ -81,13 +87,9 @@ export class WebAppHost {
       await this.sendFile(request, response, relative, "public, max-age=31536000, immutable");
       return;
     }
-    if (!relative.includes("/") && extname(relative) && relative !== "index.html") {
-      await this.sendFile(
-        request,
-        response,
-        relative,
-        REVALIDATED_FILES.has(relative) ? "no-cache" : "public, max-age=3600",
-      );
+    if (extname(relative) && relative !== "index.html") {
+      const revalidate = REVALIDATED_FILES.has(relative) || relative.endsWith(".json");
+      await this.sendFile(request, response, relative, revalidate ? "no-cache" : "public, max-age=3600");
       return;
     }
     // Everything else is a client-side route: the shell decides what to render. It never needs a
@@ -154,6 +156,7 @@ function safeRelativePath(raw: string): string | undefined {
   } catch {
     return undefined;
   }
+  if (decoded.endsWith("/")) decoded = decoded.slice(0, -1);
   if (decoded === "") return "index.html";
   if (decoded.length > 256 || /[\u0000-\u001f\u007f\\]/.test(decoded)) return undefined;
   const segments = decoded.split("/");

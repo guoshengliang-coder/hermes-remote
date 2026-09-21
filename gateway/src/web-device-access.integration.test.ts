@@ -240,8 +240,13 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     const wsUrl = `ws://127.0.0.1:${port}/v2/devices/${deviceId}/ws`;
     const web = await openSocket(wsUrl, { cookie: cookie(browserAccess), origin: WEB_ORIGIN });
     sockets.push(web);
-    web.send("hello");
-    assert.equal(await nextRawMessage(web), "account:hello");
+    web.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "prompt.submit", params: {} }));
+    assert.match(await nextRawMessage(web), /^account:.*prompt\.submit/);
+    // Administration over the socket is refused in-band and never reaches the Mac.
+    web.send(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "config.set", params: {} }));
+    const refused = JSON.parse(await nextRawMessage(web)) as { id: number; error: { data: { code: string } } };
+    assert.equal(refused.id, 2);
+    assert.equal(refused.error.data.code, "HR-WEB-001");
     assert.equal(await rejectedUpgradeStatus(wsUrl, { cookie: cookie(browserAccess) }), 403);
     assert.equal(
       await rejectedUpgradeStatus(wsUrl, { cookie: cookie(browserAccess), origin: "https://evil.example.test" }),
@@ -299,17 +304,33 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
 
     // The access token rotating underneath (a refresh) does not drop the open socket: it is
     // revalidated by session, every five seconds.
+    const rotatedAccess = codec.issueAccessToken();
     await setup.query(
       "UPDATE account_sessions SET access_token_hash = $2 WHERE id = $1",
-      [browserSession, codec.hashAccessToken(codec.issueAccessToken())],
+      [browserSession, codec.hashAccessToken(rotatedAccess)],
     );
     await delay(6_000);
     assert.equal(web.readyState, WebSocket.OPEN);
-    web.send("still-here");
-    assert.equal(await nextRawMessage(web), "account:still-here");
+    web.send(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "session.resume", params: {} }));
+    assert.match(await nextRawMessage(web), /^account:.*session\.resume/);
 
-    // Ending the session closes it.
-    const closed = nextClose(web, 8_000);
+    // A session its browser stopped refreshing (tab gone, or signed out after the access token
+    // expired) loses the socket a few minutes after its last access token, as a bearer socket does.
+    const abandoned = nextClose(web, 8_000);
+    await setup.query(
+      "UPDATE account_sessions SET access_expires_at = now() - interval '6 minutes' WHERE id = $1",
+      [browserSession],
+    );
+    assert.equal((await abandoned).code, 4403);
+
+    // Ending the session closes a socket opened with the rotated token.
+    await setup.query(
+      "UPDATE account_sessions SET access_expires_at = now() + interval '1 hour' WHERE id = $1",
+      [browserSession],
+    );
+    const second = await openSocket(wsUrl, { cookie: cookie(rotatedAccess), origin: WEB_ORIGIN });
+    sockets.push(second);
+    const closed = nextClose(second, 8_000);
     await setup.query("UPDATE account_sessions SET revoked_at = now() WHERE id = $1", [browserSession]);
     assert.equal((await closed).code, 4403);
   } finally {

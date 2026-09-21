@@ -98,6 +98,11 @@ Gateway/account DB <- outbound Connector -> localhost/private Hermes
 | WebSocket replay or pre-auth resource exhaustion | Impersonation/DoS | Random connection challenge, five-second timeout, single use, per-IP/global unauth limits, max payload | Replay/timeout/capacity tests |
 | Token in URL/referrer/log | Credential leak | Authorization header only; reject query tokens in account mode; central redaction | Log/trace/proxy inspection |
 | Ambiguous legacy + account credentials | Wrong-tenant routing | Reject requests containing both authentication modes | Dual-header test |
+| Cross-site request or WebSocket rides the Web session cookie | Hermes use as the victim (prompts, approvals, file reads) | `SameSite=Strict` `__Host-` cookie; cookie reads need `Sec-Fetch-Site: same-origin` or the exact Origin; writes need exact Origin + CSRF double submit; WebSocket upgrades need the exact Origin; a cookie together with a bearer header is rejected | Cross-site/foreign-Origin/missing-CSRF REST and upgrade tests |
+| Browser session drives Mac administration | Secret disclosure, config change, service restart | Browser route allowlist in the Gateway (chat client routes only); everything else answers `HR-WEB-001` before reaching the Connector | Allowlist unit tests and integration denials for env reveal / restart |
+| Model output or Mac file runs script on the Gateway origin | Session riding from inside the origin | Web app renders Markdown with raw HTML disabled, `https:`-only links and a DOMPurify pass; CSP without `unsafe-inline`; Mac files served to browsers as `attachment` + `nosniff` + `CSP: sandbox`, only raster images keep their type | Markdown XSS regression suite; file-header integration test |
+| Browser socket outlives or is cut by credential rotation | Revoked browser keeps streaming, or every refresh drops the chat | Cookie WebSockets revalidate by session liveness (session and installation unrevoked, account active, a live refresh token) every five seconds plus the revocation bus, not by the 15-minute access token they opened with | Integration test: survives an access-token rotation, closes on session revocation |
+| Shared or public computer keeps chat content | Later user reads conversations | Service worker caches only the app shell and session-list metadata, never chat content; sign-out or revocation clears every cache; access/refresh never in Web storage | Web app unit tests; device smoke test |
 | Compromised Gateway/database | Account metadata/credential attack | Token hashes; authenticated-encrypted, bounded idempotency responses; public Connector key only; encrypted backups; least-privilege service role; rotation procedures | Storage inspection/restore drill |
 | Connector routing bug | Cross-phone/account response leak | Owner maps include account+installation+request/tunnel; response only to exact owner | Adversarial concurrent routing tests |
 | Multi-phone cursor sharing | Lost/leaked notifications | Per-installation cursor/ack; local read state remains local | Two-phone event tests |
@@ -161,6 +166,57 @@ Google-only accounts use the same provider-neutral reauthentication endpoint for
 installation revocation; those grants retain their exact scope and are consumed by only the pending
 mutation.
 
+#### Browser Hermes access (Web app)
+
+The account center is not a Hermes client, but the separate Web app at `/app/` is (2026-09-21; see
+`docs/ACCOUNT_PLATFORM_EXPANSION.md` §5). It is served by the Gateway from the same origin and uses
+the same browser session; no new credential type exists. Behind
+`ACCOUNT_WEB_DEVICE_ACCESS_ENABLED`, the Gateway accepts the `__Host-hermes_go_access` cookie on
+`/v2/devices/{deviceId}/api/*`, `/v2/devices/{deviceId}/ws` and `/api/mobile/events*`, for
+`browser/web` installations only:
+
+- reads require `Sec-Fetch-Site: same-origin`, or the exact Origin when Fetch Metadata is absent;
+- writes pass the same exact-Origin, Fetch Metadata and CSRF checks as account-center mutations;
+- WebSocket upgrades require the exact Origin and carry no query string. Browsers attach
+  same-origin cookies to the upgrade but cannot set an Authorization header, so the earlier
+  single-use `/v2/ws-ticket` design is not needed: a ticket would add state without adding
+  protection beyond the Origin check that already stops cross-site WebSocket hijacking;
+- a request carrying both the cookie and a bearer header is rejected as ambiguous;
+- only the routes the Web app renders are forwarded (status, contract report, session list/detail/
+  messages/search/stats, profiles, file download and upload; session ids limited to a strict
+  character set so an encoded `/` cannot reach a sibling route upstream). Configuration, secrets,
+  scheduled tasks, skills, messaging and Gateway restart stay with the native apps and answer
+  `HR-WEB-001`;
+- the WebSocket is screened the same way: a browser tunnel forwards only the chat client's JSON-RPC
+  methods (`client.capabilities`, `session.create/resume/interrupt`, `prompt.submit`,
+  `image.attach`, `file.attach`, `request.answer`, `clarify.lock`, and the older
+  `approval.respond`/`clarify.respond`) plus the client's answers to server requests. Any other
+  method is answered in-band with a JSON-RPC error carrying `HR-WEB-001` and never reaches the Mac;
+  binary or non-JSON frames close the socket. Within those methods the browser has the phone's
+  chat authority, including attaching any file path the Mac's Hermes can read;
+- responses from the Mac carry `nosniff`, `CSP: sandbox` and `Cache-Control: private, no-store`;
+  `/api/files` is always a download and only PNG/JPEG/GIF/WebP keep their type, so HTML or SVG from
+  the Mac never renders on the origin;
+- an open browser WebSocket is revalidated by session liveness instead of by the access token it
+  opened with, because that token rotates every 15 minutes: the session and installation must be
+  unrevoked, the account active, a live refresh token present, and the session's last access token
+  no more than five minutes expired. The Web app refreshes proactively while it is open, so an
+  active socket survives rotation, while an abandoned tab — or one signed out after its access token
+  expired — loses the socket within minutes, as a bearer socket does. Sign-out, installation
+  revocation, refresh reuse, account state and binding changes close it at once.
+
+Because `SameSite=Strict` stops cross-site requests but not a cross-site *navigation* to
+`/app/…`, after which the page's own calls are same-origin, the Web app must never perform a
+mutation — `prompt.submit`, an upload, an approval, sign-out — from URL input (path, query or hash)
+without a user gesture. URLs may select what to display, never what to do.
+
+Reads rely on Fetch Metadata, so the Web app requires a browser that sends `Sec-Fetch-Site`
+(Safari/iOS 16.4 or later); older browsers are refused with `HR-AUTH-012`.
+
+The Web app handles prompts, output and files only transiently in page memory, exactly like the
+phone. Its service worker caches the shell and session-list metadata only, and clears everything on
+sign-out or revocation. Sharing an owner's device with a browser is outside this first release.
+
 Every new session stores the opaque identity row that established it. Identity unlink uses a distinct
 `account.identity.unlink` recent-authentication scope, serializes all identity removals for the
 account, and refuses to reduce the usable set below one. In the same transaction it revokes every
@@ -186,7 +242,7 @@ diagnostic API.
 | --- | ---: | ---: | ---: | ---: |
 | Read own account | Yes | Yes | Yes | No |
 | Read active remote-device status | Yes | Yes | Yes | Own binding during proof only |
-| Use Hermes facade | Yes | Optional diagnostic probe | No | Tunnel only |
+| Use Hermes facade | Yes | Optional diagnostic probe | Web app only: session cookie + browser route allowlist (§4) | Tunnel only |
 | Sign out current session | Yes | Yes | Yes | No |
 | Revoke current phone installation | Yes | No | No | No |
 | List/revoke account installations | No in V1 | Phones only in V1 | Yes + recent reauth to revoke | No |
@@ -194,7 +250,7 @@ diagnostic API.
 | Create first Connector binding | No | Yes | No | Proves key after creation |
 | Replace/unbind Connector | No | Yes + recent reauth | No | No |
 | List/create/cancel/revoke own-device shares | No in E5 | Yes; creation needs recent reauth | Yes; creation needs recent reauth | No |
-| Use an owner-shared Hermes device | Yes when adopted | Yes | No | Tunnel only for owner binding |
+| Use an owner-shared Hermes device | Yes when adopted | Yes | No (not in the first Web app release) | Tunnel only for owner binding |
 | Accept/leave a device share | No in E5 | Yes | Yes | No |
 | Re-share or bind/unbind someone else's device | No | No | No | No |
 | Read prompts/responses/files from account DB | Never | Never | Never | Never; only transient tunnel access |
