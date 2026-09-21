@@ -48,26 +48,43 @@ class HermesRestApi(
     private val json: Json,
     private val accountSessionManager: AccountSessionManager? = null,
     private val accountOkHttp: OkHttpClient? = null,
+    private val routedRestRecoverySignal: RoutedRestRecoverySignal = RoutedRestRecoverySignal(),
     private val configProvider: () -> GatewayConfig?,
 ) {
-    private data class AccountRequestContext(val deviceId: String?)
+    private data class RestRequestContext(
+        val deviceId: String?,
+        val originalPath: String,
+        val connectorRouted: Boolean,
+    )
+
+    private val legacyRestOkHttp = okHttp.newBuilder()
+        .addInterceptor { chain -> interceptRest(chain) }
+        .build()
 
     private val accountRestOkHttp = accountOkHttp?.newBuilder()
         ?.addInterceptor { chain ->
-            val request = chain.request()
-            val response = chain.proceed(request)
-            val context = request.tag(AccountRequestContext::class.java)
-            if (context != null && !response.isSuccessful) {
-                val stableCode = runCatching {
-                    json.decodeFromString<AccountErrorEnvelopeDto>(
-                        response.peekBody(16L * 1_024L).string(),
-                    ).error.code
-                }.getOrNull()
-                accountSessionManager?.handleRestRejection(response.code, stableCode, context.deviceId)
-            }
-            response
+            interceptRest(chain)
         }
         ?.build()
+
+    private fun interceptRest(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
+        val request = chain.request()
+        val response = chain.proceed(request)
+        val context = request.tag(RestRequestContext::class.java)
+        val accountRequest = request.header("Authorization")?.startsWith("Bearer ") == true
+        if (accountRequest && context != null && !response.isSuccessful) {
+            val stableCode = runCatching {
+                json.decodeFromString<AccountErrorEnvelopeDto>(
+                    response.peekBody(16L * 1_024L).string(),
+                ).error.code
+            }.getOrNull()
+            accountSessionManager?.handleRestRejection(response.code, stableCode, context.deviceId)
+        }
+        if (response.isSuccessful && context?.connectorRouted == true && context.originalPath != "/api/status") {
+            routedRestRecoverySignal.reportSuccess()
+        }
+        return response
+    }
 
     private companion object {
         const val REST_TIMEOUT_SECONDS = 20L
@@ -101,7 +118,10 @@ class HermesRestApi(
                 return Request.Builder()
                     .url("${account.baseUrl.trimEnd('/')}$path")
                     .header("Authorization", "Bearer ${account.bearer}")
-                    .tag(AccountRequestContext::class.java, AccountRequestContext(deviceId = null))
+                    .tag(
+                        RestRequestContext::class.java,
+                        RestRequestContext(deviceId = null, originalPath = path, connectorRouted = false),
+                    )
             }
             if (accountSessionManager?.requiresAccountReauthentication() == true) {
                 throw HermesApiException(401, "HR-AUTH-003", errorCode = "HR-AUTH-003")
@@ -121,7 +141,14 @@ class HermesRestApi(
                 return Request.Builder()
                     .url("${account.baseUrl.trimEnd('/')}$routedPath")
                     .header("Authorization", "Bearer ${account.bearer}")
-                    .tag(AccountRequestContext::class.java, AccountRequestContext(account.deviceId))
+                    .tag(
+                        RestRequestContext::class.java,
+                        RestRequestContext(
+                            deviceId = account.deviceId,
+                            originalPath = path,
+                            connectorRouted = true,
+                        ),
+                    )
             }
             if (accountSessionManager?.requiresAccountReauthentication() == true) {
                 throw HermesApiException(401, "HR-AUTH-003", errorCode = "HR-AUTH-003")
@@ -137,6 +164,15 @@ class HermesRestApi(
         // Trim trailing slashes so a user-entered "http://host:9119/" doesn't produce
         // "//api/..." — the gateway routes a double slash to its web UI (HTML), not the API.
         val b = Request.Builder().url("${cfg.baseUrl.trimEnd('/')}$path")
+            .tag(
+                RestRequestContext::class.java,
+                RestRequestContext(
+                    deviceId = null,
+                    originalPath = path,
+                    connectorRouted = path.startsWith("/api/") &&
+                        !path.startsWith("/api/mobile/events"),
+                ),
+            )
         if (cfg.token.isNotBlank()) b.header("X-Hermes-Session-Token", cfg.token)
         return b
     }
@@ -148,9 +184,7 @@ class HermesRestApi(
     private fun clientFor(request: Request): OkHttpClient =
         if (request.header("Authorization")?.startsWith("Bearer ") == true) {
             checkNotNull(accountRestOkHttp) { "account transport client unavailable" }
-        } else {
-            okHttp
-        }
+        } else legacyRestOkHttp
 
     /** The shared clients have no REST-wide deadline; every REST call gets one here. */
     private fun restCall(request: Request): Call = clientFor(request).newCall(request).apply {

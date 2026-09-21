@@ -224,4 +224,49 @@ class GatewayHealthMonitorTest {
         assertTrue(m.health.value is GatewayHealth.Healthy)
         io.mockk.coVerify(atLeast = 1) { api.gatewayStatus() }
     }
+
+    /** HG-90: WS can recover before the Connector REST queue does; the later 2xx is the next hint. */
+    @Test fun routed_rest_success_reprobes_a_stale_unreachable_even_when_ws_never_changes() =
+        runTest(UnconfinedTestDispatcher()) {
+            var reachable = false
+            coEvery { api.gatewayStatus() } answers {
+                if (reachable) ok() else throw java.io.IOException("control queue stalled")
+            }
+            val signal = RoutedRestRecoverySignal()
+            val m = GatewayHealthMonitor(
+                api,
+                FakeConnectivity(true),
+                MutableStateFlow(ConnectionState.Connected),
+                backgroundScope,
+                signal,
+            )
+            m.probe()
+            assertTrue(m.health.value is GatewayHealth.GatewayUnreachable)
+
+            reachable = true
+            signal.reportSuccess()
+            advanceUntilIdle()
+
+            assertTrue(m.health.value.toString(), m.health.value is GatewayHealth.Healthy)
+        }
+
+    @Test fun routed_rest_success_does_not_probe_an_already_healthy_gateway() =
+        runTest(UnconfinedTestDispatcher()) {
+            coEvery { api.gatewayStatus() } returns ok()
+            val signal = RoutedRestRecoverySignal()
+            val m = GatewayHealthMonitor(
+                api,
+                FakeConnectivity(true),
+                MutableStateFlow(ConnectionState.Connected),
+                backgroundScope,
+                signal,
+            )
+            m.probe()
+            io.mockk.clearMocks(api, answers = false)
+
+            signal.reportSuccess()
+            advanceUntilIdle()
+
+            io.mockk.coVerify(exactly = 0) { api.gatewayStatus() }
+        }
 }

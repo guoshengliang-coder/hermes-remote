@@ -154,6 +154,19 @@ export interface TunnelHttpRequest {
   bodyBase64?: string;
 }
 
+export type TunnelHttpCancelReason =
+  | "client_aborted"
+  | "gateway_timeout"
+  | "gateway_rejected";
+
+/** Stops Connector work after the originating HTTP exchange is no longer useful. */
+export interface TunnelHttpCancel {
+  type: "tunnel.http.cancel";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+  reason: TunnelHttpCancelReason;
+}
+
 export interface TunnelHttpResponse {
   type: "tunnel.http.response";
   version: typeof PROTOCOL_VERSION;
@@ -234,6 +247,7 @@ export type WireMessage =
   | SessionLifecycleAck
   | ErrorMessage
   | TunnelHttpRequest
+  | TunnelHttpCancel
   | TunnelHttpResponse
   | TunnelHttpResponseStart
   | TunnelHttpResponseChunk
@@ -444,6 +458,17 @@ export function parseWireMessage(raw: string): WireMessage {
         ...(bodyBase64 === undefined ? {} : { bodyBase64 }),
       };
     }
+    case "tunnel.http.cancel":
+      return {
+        type: "tunnel.http.cancel",
+        version: PROTOCOL_VERSION,
+        requestId: boundedString(value.requestId, "invalid_request_id", 1, 128),
+        reason: oneOf(
+          value.reason,
+          ["client_aborted", "gateway_timeout", "gateway_rejected"] as const,
+          "invalid_cancel_reason",
+        ),
+      };
     case "tunnel.http.response": {
       const bodyBase64 = optionalBase64(value.bodyBase64);
       return {

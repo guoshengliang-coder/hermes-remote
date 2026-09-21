@@ -22,6 +22,8 @@
     "MAX_PENDING_REQUESTS": { "$ref": "#/$defs/positiveInteger" },
     "MAX_WS_TUNNELS": { "$ref": "#/$defs/positiveInteger" },
     "MAX_CONTROL_CONNECTIONS": { "$ref": "#/$defs/positiveInteger" },
+    "CONTROL_HEARTBEAT_INTERVAL_MS": { "$ref": "#/$defs/positiveInteger" },
+    "CONTROL_HEARTBEAT_TIMEOUT_MS": { "$ref": "#/$defs/positiveInteger" },
     "MAX_WIRE_PAYLOAD_BYTES": { "$ref": "#/$defs/positiveInteger" },
     "MAX_APP_WS_PAYLOAD_BYTES": { "$ref": "#/$defs/positiveInteger" },
     "MAX_SOCKET_BUFFERED_BYTES": { "$ref": "#/$defs/positiveInteger" },

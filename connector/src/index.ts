@@ -31,6 +31,7 @@ import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
 import { tunnelCloseForApp } from "./tunnel-close.js";
 import { decideOversizedFrame } from "./oversized-frame.js";
+import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
 // reconnect-churn investigation impossible to correlate with server-side events.
@@ -109,7 +110,8 @@ const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
 const tunnelStats = new Map<string, { openedAt: number; framesToApp: number; framesFromApp: number; lastTerminal?: string }>();
 /** The last local-socket error per tunnel, so its close can say what actually killed it. */
 const localErrors = new Map<string, string>();
-const responseChunkWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
+const inFlightHttpRequests = new InFlightHttpRequests();
+const responseChunkWaiters = new ResponseChunkWaiters();
 let retryMs = 1_000;
 let controlSocket: WebSocket | undefined;
 let controlAuthenticated = false;
@@ -172,7 +174,8 @@ function connect(): void {
 
   socket.on("close", () => {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
-    rejectResponseChunkWaiters(new Error("control_socket_closed"));
+    inFlightHttpRequests.abortAll("control_socket_closed");
+    responseChunkWaiters.rejectAll(new Error("control_socket_closed"));
     closeLocalSockets();
     if (controlSocket === socket) controlSocket = undefined;
     if (controlSocket === undefined) controlAuthenticated = false;
@@ -231,6 +234,11 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
     case "tunnel.http.request":
       await handleTunnelHttp(socket, message);
       return;
+    case "tunnel.http.cancel":
+      if (inFlightHttpRequests.cancel(message.requestId, message.reason)) {
+        log.info("http.cancelled", { requestId: message.requestId, reason: message.reason });
+      }
+      return;
     case "tunnel.ws.open":
       await openTunnelSocket(socket, message);
       return;
@@ -250,17 +258,20 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
 
 async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
   if (request.targetDeviceId !== deviceId) return;
-  if (request.path.startsWith("/api/files")) {
-    await handleFileRequest(socket, request);
-    return;
-  }
+  const controller = inFlightHttpRequests.begin(request.id);
   let streamStarted = false;
   try {
+    if (request.path.startsWith("/api/files")) {
+      await handleFileRequest(socket, request, controller.signal);
+      return;
+    }
     const response = await hermesAuth.request(request.path, {
       method: request.method,
       headers: request.headers,
       body: request.bodyBase64 ? Buffer.from(request.bodyBase64, "base64") : undefined,
+      signal: controller.signal,
     });
+    controller.signal.throwIfAborted();
     sendControl(socket, {
       type: "tunnel.http.response.start",
       version: PROTOCOL_VERSION,
@@ -278,7 +289,7 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
         const buffer = Buffer.from(value);
         for (let offset = 0; offset < buffer.length; offset += httpResponseChunkBytes) {
           const chunk = buffer.subarray(offset, Math.min(offset + httpResponseChunkBytes, buffer.length));
-          await sendResponseChunk(socket, request.id, sequence++, chunk);
+          await sendResponseChunk(socket, request.id, sequence++, chunk, controller.signal);
         }
       }
     }
@@ -288,6 +299,7 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
       requestId: request.id,
     });
   } catch (error) {
+    if (controller.signal.aborted) return;
     console.error("Local Hermes HTTP error", safeError(error));
     if (streamStarted) {
       sendControl(socket, {
@@ -307,6 +319,8 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
       bodyBase64: Buffer.from(JSON.stringify({ error: "hermes_unreachable" }))
         .toString("base64"),
     });
+  } finally {
+    inFlightHttpRequests.finish(request.id, controller);
   }
 }
 
@@ -315,45 +329,38 @@ function sendResponseChunk(
   requestId: string,
   sequence: number,
   data: Buffer,
+  signal: AbortSignal,
 ): Promise<void> {
   if (socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("control_socket_closed"));
-  const key = `${requestId}:${sequence}`;
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      responseChunkWaiters.delete(key);
-      reject(new Error("response_chunk_ack_timeout"));
-    }, httpResponseChunkAckTimeoutMs);
-    responseChunkWaiters.set(key, { resolve, reject, timer });
-    sendControl(socket, {
-      type: "tunnel.http.response.chunk",
-      version: PROTOCOL_VERSION,
-      requestId,
-      sequence,
-      dataBase64: data.toString("base64"),
-    });
+  const waiting = responseChunkWaiters.wait(
+    requestId,
+    sequence,
+    httpResponseChunkAckTimeoutMs,
+    signal,
+  );
+  if (signal.aborted) return waiting;
+  sendControl(socket, {
+    type: "tunnel.http.response.chunk",
+    version: PROTOCOL_VERSION,
+    requestId,
+    sequence,
+    dataBase64: data.toString("base64"),
   });
+  return waiting;
 }
 
 function acknowledgeResponseChunk(requestId: string, sequence: number): void {
-  const key = `${requestId}:${sequence}`;
-  const waiter = responseChunkWaiters.get(key);
-  if (!waiter) return;
-  responseChunkWaiters.delete(key);
-  clearTimeout(waiter.timer);
-  waiter.resolve();
+  responseChunkWaiters.acknowledge(requestId, sequence);
 }
 
-function rejectResponseChunkWaiters(error: Error): void {
-  for (const waiter of responseChunkWaiters.values()) {
-    clearTimeout(waiter.timer);
-    waiter.reject(error);
-  }
-  responseChunkWaiters.clear();
-}
-
-async function handleFileRequest(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
+async function handleFileRequest(
+  socket: WebSocket,
+  request: TunnelHttpRequest,
+  signal: AbortSignal,
+): Promise<void> {
   let streamStarted = false;
   const fail = (status: number, error: string, extraHeaders: Record<string, string> = {}): void => {
+    if (signal.aborted) return;
     // Log every rejection. Without this a refused download left no trace on either side: the phone
     // showed one generic message and connector.log said nothing, so diagnosing a 2026-09-05 failure
     // meant reading FILES_ROOT by hand. Never log the requested path — it would put the Mac's
@@ -370,7 +377,7 @@ async function handleFileRequest(socket: WebSocket, request: TunnelHttpRequest):
     return;
   }
   if (url.pathname === "/api/files/upload") {
-    await handleUploadRequest(socket, request, url);
+    await handleUploadRequest(socket, request, url, signal);
     return;
   }
   if (request.method.toUpperCase() !== "GET") {
@@ -433,10 +440,11 @@ async function handleFileRequest(socket: WebSocket, request: TunnelHttpRequest):
       streamStarted = true;
       let sequence = 0;
       while (true) {
+        signal.throwIfAborted();
         const chunk = Buffer.allocUnsafe(httpResponseChunkBytes);
         const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
         if (bytesRead === 0) break;
-        await sendResponseChunk(socket, request.id, sequence++, chunk.subarray(0, bytesRead));
+        await sendResponseChunk(socket, request.id, sequence++, chunk.subarray(0, bytesRead), signal);
       }
       sendControl(socket, {
         type: "tunnel.http.response.end",
@@ -447,6 +455,7 @@ async function handleFileRequest(socket: WebSocket, request: TunnelHttpRequest):
       await handle.close();
     }
   } catch (error) {
+    if (signal.aborted) return;
     const code = (error as NodeJS.ErrnoException).code;
     if (streamStarted) {
       sendControl(socket, {
@@ -464,7 +473,13 @@ async function handleFileRequest(socket: WebSocket, request: TunnelHttpRequest):
   }
 }
 
-async function handleUploadRequest(socket: WebSocket, request: TunnelHttpRequest, url: URL): Promise<void> {
+async function handleUploadRequest(
+  socket: WebSocket,
+  request: TunnelHttpRequest,
+  url: URL,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) return;
   if (request.method.toUpperCase() !== "POST") {
     sendFileError(socket, request.id, 405, "method_not_allowed", { allow: "POST" });
     return;
@@ -481,17 +496,21 @@ async function handleUploadRequest(socket: WebSocket, request: TunnelHttpRequest
   const requestedName = (url.searchParams.get("name") ?? "attachment")
     .replace(/[\u0000-\u001f\u007f/\\]/g, "_")
     .slice(0, 160) || "attachment";
+  let writtenPath: string | undefined;
   try {
     await mkdir(uploadRoot, { recursive: true, mode: 0o700 });
     const storedName = `${randomUUID()}-${requestedName}`;
     const path = resolve(uploadRoot, storedName);
     if (!isWithinRoot(path, uploadRoot)) throw new Error("invalid_upload_path");
     const handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    writtenPath = path;
     try {
+      signal.throwIfAborted();
       await handle.writeFile(bytes);
     } finally {
       await handle.close();
     }
+    signal.throwIfAborted();
     sendJsonResponse(socket, request.id, 201, {
       path,
       name: requestedName,
@@ -501,6 +520,10 @@ async function handleUploadRequest(socket: WebSocket, request: TunnelHttpRequest
       console.error("Unable to trim upload cache", safeError(error));
     });
   } catch (error) {
+    if (signal.aborted) {
+      if (writtenPath) await unlink(writtenPath).catch(() => undefined);
+      return;
+    }
     console.error("File upload failed", safeError(error));
     sendFileError(socket, request.id, 500, "file_upload_failed");
   }
@@ -951,7 +974,9 @@ class HermesAuth {
     return {
       ...init,
       headers,
-      signal: init.signal ?? AbortSignal.timeout(localRequestTimeoutMs),
+      signal: init.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(localRequestTimeoutMs)])
+        : AbortSignal.timeout(localRequestTimeoutMs),
     };
   }
 
@@ -1063,7 +1088,8 @@ function shutdown(signal: string): void {
   stopping = true;
   console.log(`Received ${signal}; closing Connector`);
   lifecycleObserver?.stop();
-  rejectResponseChunkWaiters(new Error("connector_stopping"));
+  inFlightHttpRequests.abortAll("connector_stopping");
+  responseChunkWaiters.rejectAll(new Error("connector_stopping"));
   closeLocalSockets();
   controlSocket?.close(1000, "connector stopping");
   setTimeout(() => process.exit(0), 250).unref();

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 
 /** Abstraction over Android connectivity so the monitor is unit-testable. */
@@ -98,6 +99,7 @@ class GatewayHealthMonitor(
     private val connectivity: ConnectivityChecker,
     private val connectionState: StateFlow<ConnectionState>,
     private val scope: CoroutineScope,
+    private val routedRestRecoverySignal: RoutedRestRecoverySignal = RoutedRestRecoverySignal(),
 ) {
     private val _health = MutableStateFlow<GatewayHealth>(GatewayHealth.Unknown)
     val health: StateFlow<GatewayHealth> = _health.asStateFlow()
@@ -122,28 +124,36 @@ class GatewayHealthMonitor(
                 if (st is ConnectionState.Error || st is ConnectionState.Disconnected || recovered) probe()
             }
         }
+        scope.launch {
+            routedRestRecoverySignal.successes.collect {
+                if (!_health.value.isUnhealthy()) return@collect
+                // Unlike ordinary hints, a real routed REST success must not be lost merely
+                // because the periodic/socket probe is currently holding the mutex. Wait for it,
+                // re-check the tier, and probe once more only if the stale down claim remains.
+                probeGuard.withLock {
+                    if (_health.value.isUnhealthy()) updateHealth(evaluate())
+                }
+            }
+        }
     }
 
     /** Run one health probe, coalescing with any probe already in flight. */
     suspend fun probe() {
         if (!probeGuard.tryLock()) return
         try {
-            val next = evaluate()
-            // Only transitions: the probe runs every 30s in the foreground and the answer is
-            // usually the same one as last time.
-            //
-            // Comparing the values themselves never suppressed a single line, because Healthy
-            // carries latencyMs and that differs on every probe. 18 of the 500 entries in the
-            // HG-27 report were "healthy(201ms) → healthy(236ms)" — a state change that was not
-            // one. Compare the tier; keep the latency in the line that does get written, where
-            // it is still worth reading.
-            if (tier(next) != tier(_health.value)) {
-                DebugLog.log("health", "${describe(_health.value)} → ${describe(next)}")
-            }
-            _health.value = next
+            updateHealth(evaluate())
         } finally {
             probeGuard.unlock()
         }
+    }
+
+    private fun updateHealth(next: GatewayHealth) {
+        // Only transitions: the probe runs every 30s in the foreground and the answer is usually
+        // the same one as last time. Healthy carries a moving latency, so compare tiers.
+        if (tier(next) != tier(_health.value)) {
+            DebugLog.log("health", "${describe(_health.value)} → ${describe(next)}")
+        }
+        _health.value = next
     }
 
     /**

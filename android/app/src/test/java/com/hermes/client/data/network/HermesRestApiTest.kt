@@ -7,6 +7,8 @@ import com.hermes.client.data.auth.AccountSessionStore
 import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.PendingEmailChallenge
 import kotlinx.coroutines.test.runTest
+import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.serialization.json.Json
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -48,6 +50,40 @@ class HermesRestApiTest {
         val recorded = serverRule.server.takeRequest()
         assertTrue(recorded.target.startsWith("/api/sessions"))
         assertEquals("secret", recorded.headers["X-Hermes-Session-Token"])
+    }
+
+    @Test fun successful_routed_rest_emits_recovery_but_status_does_not_recurse() = runTest {
+        val signal = mockk<RoutedRestRecoverySignal>(relaxed = true)
+        val api = HermesRestApi(
+            okHttp = testHttpClient(),
+            json = json,
+            routedRestRecoverySignal = signal,
+            configProvider = {
+                GatewayConfig(serverRule.server.url("/").toString().trimEnd('/'), "secret")
+            },
+        )
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body(
+            """{"version":"1.2.3","gateway_running":true,"gateway_state":"running"}""",
+        ).build())
+        api.gatewayStatus()
+        verify(exactly = 0) { signal.reportSuccess() }
+
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body(
+            """{"ok":true,"connectors":1,"devices":[]}""",
+        ).build())
+        api.relayHealth()
+        verify(exactly = 0) { signal.reportSuccess() }
+
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body(
+            """{"events":[],"nextCursor":0,"hasMore":false}""",
+        ).build())
+        api.lifecycleEvents(after = 0)
+        verify(exactly = 0) { signal.reportSuccess() }
+
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"sessions":[]}""").build())
+        api.sessions(limit = 20, offset = 0)
+
+        verify(exactly = 1) { signal.reportSuccess() }
     }
 
     @Test fun account_mode_uses_explicit_device_path_and_never_sends_legacy_token() = runTest {

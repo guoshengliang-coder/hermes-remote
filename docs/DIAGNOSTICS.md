@@ -94,8 +94,17 @@ HG-27 就停在这里：那一版还没有这些行，四处缺陷叠加，只�
 聊天页的「正在连接 Relay…」由 `[ws]` 驱动（WebSocket 状态）。两者可以互相矛盾，而且矛盾本身就是线索：
 REST 一路 200 而 socket 卡死，是 HG-19 那一类；socket 已经 `gateway.ready` 而红条还挂着，是探测结果
 过期。探测在前台每 30 秒一次、退后台完全停止，所以红条**必须**在 socket 恢复时立刻重探一次，否则它
-描述的是上一个坏时刻而不是现在（HG-42）。排查时按时间对齐这两类行：`[health] … → healthy` 应当紧跟在
-`gateway.ready` 之后，而不是落后半分钟。
+描述的是上一个坏时刻而不是现在（HG-42）。HG-90 又补了另一条复核入口：健康档仍失败时，任一真正经
+Connector 路由的非 status `/api/*` 请求拿到 2xx，也会合并触发一次 `/api/status`；**2xx 本身不改健康
+结论**。排查时按时间对齐这三类行：`[health] … → healthy` 应当紧跟 `gateway.ready` 或首个恢复的
+REST 成功之后，而不是落后半分钟。
+
+**Connector 显示在线但控制通道不再处理请求（HG-90）**：Gateway 现在独立向每条 legacy/account
+Connector 控制 socket 发 ping；超过 `CONTROL_HEARTBEAT_TIMEOUT_MS` 未收到 pong，会记录结构化事件
+`connector.heartbeat_timeout` 并终止旧 socket，Connector 随即按既有退避重连。若手机先取消请求、
+Gateway 自己超时或拒绝流式序列，Gateway 还会发 `tunnel.http.cancel`；新 Connector 记录
+`http.cancelled`，并中止本地 fetch、文件读写和分块 ACK 等待。看到超时后旧请求仍持续占资源，通常说明
+Gateway/Connector 尚未一起升级；滚动升级期间旧 Connector 会忽略这个新增消息，安全但不会获得取消收益。
 
 **自愈记录随反馈一起到（0.1.124 起）**：诊断日志默认关闭，而 HG-27 和 HG-42 都是用户先发现、事后
 才想起开日志——App 其实早就自己检测到了故障，只是没有地方把它留下来。现在客户端每次**自己修好**一次

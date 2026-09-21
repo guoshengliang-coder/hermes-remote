@@ -146,6 +146,20 @@ test("round-trips a tunneled HTTP request", () => {
   assert.deepEqual(parseWireMessage(encodeWireMessage(message)), message);
 });
 
+test("round-trips and validates a tunneled HTTP cancellation", () => {
+  const message = {
+    type: "tunnel.http.cancel" as const,
+    version: PROTOCOL_VERSION,
+    requestId: "request-1",
+    reason: "client_aborted" as const,
+  };
+  assert.deepEqual(parseWireMessage(encodeWireMessage(message)), message);
+  assert.throws(
+    () => parseWireMessage(JSON.stringify({ ...message, reason: "try_harder" })),
+    /invalid_cancel_reason/,
+  );
+});
+
 test("round-trips a sanitized session lifecycle event and acknowledgement", () => {
   const event = {
     type: "session.lifecycle" as const,

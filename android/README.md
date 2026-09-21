@@ -48,6 +48,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Account-routed Hermes REST responses are classified centrally: session-family invalidation opens
   the persistent sign-in repair, explicit `HR-BIND-011` repairs only the request's Mac route, and an
   ordinary `404` or `HR-AUTH-006` leaves the valid account/default route intact.
+- A successful Connector-routed REST call now prompts an immediate, coalesced `/api/status` recheck
+  when the health strip is stale. Only that status probe can clear the strip, and WebSocket state is
+  kept independent, so a recovered data path is reflected without waiting for the 30-second poll.
 - Authenticated account/device management calls use the same classifier and immediately stop a stale
   active route when sign-in or Mac selection must be repaired. Recent-auth `HR-AUTH-006` keeps the
   current account transport and shows its registered bilingual explanation.
