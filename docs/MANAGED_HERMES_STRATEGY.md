@@ -52,9 +52,14 @@ health-gate or roll back. Compatibility therefore moves out of packaging and int
    from a version guess.
 2. **The Connector checks the upstream contract at startup** (`docs/HERMES_CONTRACT.md` §2 paths in
    the server's `openapi.json`) and reports a registered `HR-` code instead of failing later.
-3. **Desktop restarts the `serve` it owns when the local code changes.** `hermes update` restarts
-   the services it knows — gateway, dashboard — and not ours; without a restart the phone keeps
-   talking to the old code still in memory.
+   *Not built yet* — see *Order of work*.
+3. **The `serve` Hermes GO owns is restarted when the local code changes.** Two mechanisms, and
+   the second is the backstop for the first. Upstream `hermes update` (0.21.3) restarts every
+   launchd job whose `ProgramArguments` contain `hermes serve` with `launchctl kickstart` — which in
+   local mode includes ours, deliberately: the launcher keeps the real entrypoint in `argv[1]` so
+   that match succeeds. Desktop independently restarts it when the checkout's resolved commit
+   changes (`docs/DESKTOP_PHASE0.md`). Without either, the phone keeps talking to the old code still
+   in memory.
 
 ### Compatibility of the owner's Hermes, verified 2026-09-21
 
@@ -63,20 +68,27 @@ was verified on), and again after `main` reached `83031d0`:
 
 | Area | Finding | Consequence |
 |---|---|---|
-| Approval and clarify | Upstream replaced the `approval.request` / `clarify.request` events and the `clarify.respond` method with **server→client JSON-RPC requests** (`tui_gateway/server_requests.py`). A client that never sends `client.capabilities {server_requests: true}` is treated as outdated: approvals are withdrawn and clarify returns nothing | **Blocker.** The phone would silently stop seeing approval and clarify cards. Android must speak both protocols before any Mac is switched |
-| Inline images on read (patch 020) | `session_history.py` still reads with `image_urls=True` | Degraded: existing sessions with large inlined images are costly again on the phone. Resolved upstream by PR #116677 |
+| Approval and clarify | Upstream replaced the `approval.request` / `clarify.request` events and the `clarify.respond` method with **server→client JSON-RPC requests** (`tui_gateway/server_requests.py`). A client that never sends `client.capabilities {server_requests: true}` is treated as outdated: approvals are withdrawn and clarify returns nothing | **Blocker — fixed in #350** (both protocols; see `docs/HERMES_CONTRACT.md` §3). Still has to reach the phones in a released APK |
+| RPC params | Every params model is `extra="forbid"` (`tui_gateway/contracts/base.py`): an unknown key answers **4000**. The app sent three: `session.resume` `inline_images` (every conversation would fail to open), `image.attach_bytes` `mime_type`, `approval.respond` `approved` | **Blocker — fixed in #350** with one params form both servers accept (`session.resume` now sends `omit_messages`). `RpcParamContractTest` pins the allowlist at build time. Missed by the first check on this page, which compared method names only |
+| Inline images on read (patch 020) | `session_history.py` still reads with `image_urls=True`. `session.resume` no longer carries a transcript (`omit_messages`), so only REST `GET /messages` pages remain affected | Degraded: existing sessions with large inlined images are costly again on the phone. Page size on 17b5df02 not yet measured (contract checklist 8g) — measure before the switch. Resolved upstream by PR #116677 |
 | `session.access` (patch 030) | Not present | Degraded, fail-open: the phone cannot show "occupied elsewhere" in advance (HG-82/88); `prompt.submit` 4090 still guards. Resolved upstream by PR #116677 |
 | Unknown columns (patch 010) | The owner's code drops `display_identity` / `display_order` itself | Not needed: one code writes and reads |
 | REST paths, events, mirrored constants, error numbers, `/api/ws` auth, cron `fire_claim` and synchronous trigger | Unchanged | Compatible. `session.lifecycle`, listed in the contract, exists in neither commit |
 
 ### Order of work
 
-1. Android: approval and clarify over both protocols. Precondition for any switch, and it has to
-   reach the phones in a released APK first.
-2. `docs/HERMES_CONTRACT.md` records the new protocol.
-3. Desktop: local-Hermes mode — detection, launching the local `hermes serve`, restart on code
-   change, and not running a second cron ticker (`HERMES_DESKTOP=1` currently starts one in our
-   `serve`, competing with the owner's gateway for `cron/.tick.lock`).
+1. **Done (#350, merged 2026-09-21):** Android speaks both question protocols and sends only params
+   both servers accept. Precondition for any switch, and it has to reach the phones in a released
+   APK first; verified at L1 only, so the real-Hermes smoke test in `docs/SMOKE_TEST.md` runs before
+   the switch.
+2. **Done (#350):** `docs/HERMES_CONTRACT.md` records the new protocol and the params allowlist.
+3. **Done (#351, merged 2026-09-21):** Desktop local-Hermes mode — detection, launching the local
+   `hermes serve`, restart on commit change, rollback to the bundled agent. Default off; switched on
+   per Mac. `HERMES_DESKTOP=1` stays: from 0.21.3 the ticker it starts checks, per tick, whether the
+   owner's gateway is running and stands down if so (`profile_gate` now applies with one profile),
+   so it no longer competes for `cron/.tick.lock`; removing the variable would break `/api/ws` auth
+   once `dashboard.public_url` names a non-loopback host. The minimum local version is 0.21.3.
+3b. **Not built:** the Connector's startup contract check (principle 2 above).
 4. Install-when-missing through upstream's installer. **Open question:** GitHub is often
    unreachable from the owner's network (`hermes update` failed to fetch repeatedly on 2026-09-19
    before it got through), so a first install may need to be served through the Hong Kong release server.
