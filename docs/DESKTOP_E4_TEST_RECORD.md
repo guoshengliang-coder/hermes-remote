@@ -1194,3 +1194,45 @@ Verified: `swift test --package-path desktop` and `npm run desktop:assets:test`.
 was run against the old decision mapping and failed (the wait took the full 15 s and answered "not
 stopped"). **Physically unverified:** no packaged build ran, no service was touched on any Mac, and
 the in-app upgrade and a runtime switch still need a physical run to close HG-68.
+
+## 2026-09-21 Mac mini switched to its own Hermes (Desktop 0.2.22)
+
+Owner-authorised switch of the managed `com.hermesgo.hermes-server` job from the bundled copy
+(managed release 0.3.8, upstream `f159e581` + patches) to the owner's `~/.hermes/hermes-agent`
+(0.21.3, `17b5df02`), per `docs/MANAGED_HERMES_STRATEGY.md` (one Hermes per Mac).
+
+Sequence:
+
+1. Desktop 0.2.21 (#351, #355) was built from a clean worktree at its merge commit with the same
+   packaged configuration as the installed 0.2.20 (compared key by key), installed over it with the
+   GUI restarted only; Hermes and Connector PIDs were unchanged and, with the setting off, the
+   LaunchAgent stayed byte-identical.
+2. The first attempt surfaced `HR-MIGRATE-009 cause=stage=runtime invalidState`: the migration
+   journal's `updatedAt` had been hand-written without fractional seconds by the 09-20 controlled
+   activation, so the journal read as invalid (this also produced the long-standing "受管服务状态不一致"
+   and `HR-MIGRATE-002`, which disappeared once repaired). Only that field was rewritten to the
+   same instant with `.000Z`, with Desktop quit, backup kept.
+3. The second attempt left Hermes unloaded for ~3 minutes — the restart-probe incident recorded in
+   the entry above. It was restored by bootstrapping the unchanged bundled agent by hand, and the
+   setting was turned off until #356 shipped in Desktop 0.2.22 (#357).
+4. With 0.2.22 installed the same way (setting off: no change), the setting was turned on at
+   20:53:52 +08:00. Desktop switched at 20:55:17; `desktop-runtime.log` shows `bootout status=0`,
+   `wait-stopped result=stopped attempts=1 elapsed=0.0s`, `bootstrap status=0`, and
+   `restart hermes result=ready` at 20:55:34. Hermes was unavailable for about 17 s and the job
+   never left launchd.
+
+Verified after the switch:
+
+- `com.hermesgo.hermes-server` runs `Managed/bin/hermes-local-serve` →
+  `~/.hermes/hermes-agent/venv/bin/hermes serve --host 127.0.0.1 --port 9119`; the token is handed
+  over from the private file, not the plist; `/api/status` reports 0.21.3 and `HERMES_HOME=~/.hermes`.
+- The Connector (unchanged PID) kept serving the phone.
+- Cron: every execution after the switch was claimed by the owner's gateway; the new serve claimed
+  none, i.e. its desktop ticker stands down while the gateway runs (0.21.3 `profile_gate`).
+- Owner, on a physical phone through the public relay: three tasks worked end to end.
+
+Rollback remains `defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool false`,
+which restores the kept bundled agent on the next refresh. The in-app managed upgrade path (the
+other half of HG-68) has not been exercised on this Mac yet. The owner's checkout is ~34k upstream
+commits behind `origin/main`; run the `docs/HERMES_CONTRACT.md` upgrade checklist before the next
+`hermes update`.
