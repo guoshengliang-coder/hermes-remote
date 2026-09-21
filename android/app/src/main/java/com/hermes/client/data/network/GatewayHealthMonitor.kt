@@ -110,8 +110,13 @@ class GatewayHealthMonitor(
      * compatible, unknown, or not reported at all (an older Connector). See [refreshContract].
      */
     val contract: StateFlow<HermesContractNotice?> = _contract.asStateFlow()
+    private val contractGuard = Mutex()
+    private var contractTarget: String? = null
     private var contractVersion: String? = null
     private var contractFetchedAt: Long? = null
+
+    /** Set by [recheck]; the next healthy probe re-reads the report whatever the cache says. */
+    @Volatile private var contractRecheckRequested = false
 
     private val probeGuard = Mutex()
     private var periodicJob: Job? = null
@@ -138,6 +143,7 @@ class GatewayHealthMonitor(
     /** Run one health probe, coalescing with any probe already in flight. */
     suspend fun probe() {
         if (!probeGuard.tryLock()) return
+        val healthy: GatewayHealth.Healthy?
         try {
             val next = evaluate()
             // Only transitions: the probe runs every 30s in the foreground and the answer is
@@ -152,42 +158,84 @@ class GatewayHealthMonitor(
                 DebugLog.log("health", "${describe(_health.value)} → ${describe(next)}")
             }
             _health.value = next
-            if (next is GatewayHealth.Healthy) refreshContract(next.version)
+            healthy = next as? GatewayHealth.Healthy
         } finally {
             probeGuard.unlock()
         }
+        // Outside the probe lock: a slow report must never make the monitor drop the probes a
+        // dropped or restored socket asks for.
+        refreshContract(healthy?.version, healthy != null)
     }
 
     /**
      * Ask the Connector for its contract report — only after a healthy probe, and only when the
-     * Hermes version moved or [CONTRACT_REFRESH_MS] passed. The Connector caches the check itself,
-     * so this is one small tunnelled GET, not a schema download.
+     * target Mac changed, the Hermes version moved, the user asked ([recheck]) or
+     * [CONTRACT_REFRESH_MS] passed. The Connector caches the check itself, so this is one small
+     * tunnelled GET, not a schema download.
      *
-     * An HTTP answer that is not a report (an older Connector forwards the path to Hermes: 401/404)
-     * or a body this build cannot read means "no report" and clears the notice; a transport failure
-     * keeps whatever was last known and asks again on the next probe.
+     * The verdict belongs to one Mac: it is keyed on [HermesRestApi.contractTargetKey] and cleared
+     * the moment that changes (another device, account, gateway, or signing out), so one Mac's red
+     * strip is never shown for another.
+     *
+     * 401/404/405 mean "no report here" — an older Connector forwards the path to Hermes — and so
+     * does a body this build cannot read: the notice clears. Anything else (a 5xx such as the
+     * Relay's `device_offline`, a timeout, a dropped connection) says nothing about Hermes: the
+     * last verdict stays and the next probe asks again.
      */
-    private suspend fun refreshContract(version: String?) {
-        val fetchedAt = contractFetchedAt
-        val now = clock()
-        if (fetchedAt != null && version == contractVersion && now - fetchedAt < CONTRACT_REFRESH_MS) return
-        val next = try {
-            withTimeout(PROBE_TIMEOUT_MS) { api.hermesContract() }.toNotice()
-        } catch (e: HermesApiException) {
-            null
-        } catch (e: kotlinx.serialization.SerializationException) {
-            null
-        } catch (e: IllegalArgumentException) {
-            null
-        } catch (e: TimeoutCancellationException) {
-            return
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return
+    private suspend fun refreshContract(version: String?, healthy: Boolean) {
+        if (!contractGuard.tryLock()) return
+        try {
+            val target = currentContractTarget()
+            if (target != contractTarget) {
+                contractTarget = target
+                contractVersion = null
+                contractFetchedAt = null
+                publishContract(null)
+            }
+            if (target == null || !healthy) return
+            val fetchedAt = contractFetchedAt
+            val now = clock()
+            val forced = contractRecheckRequested
+            if (!forced && fetchedAt != null && version == contractVersion && now - fetchedAt < CONTRACT_REFRESH_MS) {
+                return
+            }
+            contractRecheckRequested = false
+            val next = try {
+                api.hermesContract().toNotice()
+            } catch (e: HermesApiException) {
+                if (e.code in NO_REPORT_STATUSES) null else return retryContractNextProbe()
+            } catch (e: kotlinx.serialization.SerializationException) {
+                null
+            } catch (e: IllegalArgumentException) {
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return retryContractNextProbe()
+            }
+            // The user may have switched Macs while the report was in flight.
+            if (currentContractTarget() != target) return
+            contractVersion = version
+            contractFetchedAt = now
+            publishContract(next)
+        } finally {
+            contractGuard.unlock()
         }
-        contractVersion = version
-        contractFetchedAt = now
+    }
+
+    private fun retryContractNextProbe() {
+        contractFetchedAt = null
+    }
+
+    private suspend fun currentContractTarget(): String? = try {
+        api.contractTargetKey()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun publishContract(next: HermesContractNotice?) {
         val previous = _contract.value
         if (previous?.error?.code != next?.error?.code || previous?.features != next?.features) {
             DebugLog.log(
@@ -266,6 +314,9 @@ class GatewayHealthMonitor(
 
     /** Fire an immediate probe (the sheet's Re-check button). */
     fun recheck() {
+        // The user is asking *now* — typically right after `hermes update`, which can leave the
+        // version string unchanged — so the cached verdict must not answer for the Mac.
+        contractRecheckRequested = true
         scope.launch { probe() }
     }
 
@@ -292,5 +343,8 @@ class GatewayHealthMonitor(
 
         /** How long a contract report is trusted while the Hermes version stays the same. */
         const val CONTRACT_REFRESH_MS = 5 * 60_000L
+
+        /** Answers that mean "this Connector has no report", as opposed to "could not ask". */
+        private val NO_REPORT_STATUSES = setOf(401, 404, 405)
     }
 }

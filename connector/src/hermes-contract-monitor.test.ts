@@ -23,9 +23,11 @@ class FakeProbe implements HermesContractProbe {
 
   async fetchOpenApi(): Promise<OpenApiFetchResult> {
     this.openApiCalls += 1;
+    // What the process answered when asked; a later change is a different process.
+    const answer = this.openapi;
     if (this.gate) await this.gate;
-    if (this.openapi instanceof Error) throw this.openapi;
-    return this.openapi;
+    if (answer instanceof Error) throw answer;
+    return answer;
   }
 
   async fetchStatusVersion(): Promise<string | undefined> {
@@ -78,7 +80,7 @@ test("a reconnect re-checks even when the version did not move", async () => {
   assert.equal(report.status, "breaking");
 });
 
-test("concurrent triggers share one check", async () => {
+test("requests during a check share it", async () => {
   const probe = new FakeProbe();
   let release!: () => void;
   probe.gate = new Promise((resolve) => { release = resolve; });
@@ -86,8 +88,8 @@ test("concurrent triggers share one check", async () => {
 
   const pending = [
     monitor.refresh("startup"),
-    monitor.refresh("hermes_connected"),
     monitor.ensureFresh("app_request"),
+    monitor.ensureFresh("relay_connected"),
   ];
   await new Promise((resolve) => setImmediate(resolve));
   release();
@@ -95,6 +97,29 @@ test("concurrent triggers share one check", async () => {
 
   assert.equal(probe.openApiCalls, 1);
   assert.ok(reports.every((report) => report === reports[0]));
+});
+
+test("a reconnect during a check is not absorbed by it: one follow-up check runs after", async () => {
+  // The running check may have read the Hermes that is restarting away; the reconnect is news.
+  const probe = new FakeProbe();
+  let release!: () => void;
+  probe.gate = new Promise((resolve) => { release = resolve; });
+  const monitor = new HermesContractMonitor(probe);
+
+  const startup = monitor.refresh("startup");
+  await new Promise((resolve) => setImmediate(resolve));
+  // Hermes restarts onto new code while the startup check is still reading the old process.
+  const reconnects = [monitor.refresh("hermes_connected"), monitor.refresh("hermes_connected")];
+  const request = monitor.ensureFresh("app_request");
+  probe.openapi = { kind: "ok", body: missingRequired };
+  release();
+
+  assert.equal((await startup).status, "compatible");
+  const [first, second] = await Promise.all(reconnects);
+  assert.equal(probe.openApiCalls, 2, "exactly one follow-up, shared by both reconnects");
+  assert.equal(first.status, "breaking");
+  assert.equal(first, second);
+  assert.equal(await request, first, "a request queued behind the follow-up gets its answer");
 });
 
 test("an unknown result is retried once it is stale, not on every request", async () => {

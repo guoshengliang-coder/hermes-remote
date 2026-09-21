@@ -204,7 +204,11 @@ the Connector checks this table against the running Hermes instead of trusting a
    Connector), and whenever `/api/status` reports a different `version` than the cached result was
    taken against (read cheaply on each phone request, on each Relay reconnect and in the account
    preflight). Otherwise the result is cached: `openapi.json` is not fetched per request. A cached
-   `unknown` is retried after 60 s. `HermesContractMonitor` (`connector/src/hermes-contract-monitor.ts`).
+   `unknown` is retried after 60 s. A trigger that arrives while a check is running queues one
+   follow-up check rather than sharing the running one, which may have read the process Hermes is
+   restarting away from. `HermesContractMonitor` (`connector/src/hermes-contract-monitor.ts`); the
+   schema fetch and its credentials are in `connector/src/hermes-auth.ts`, the local route in
+   `connector/src/tunnel-routes.ts`.
 3. **What it concludes.** `compatible`; `degraded` (optional entries missing → `HR-COMPAT-002`, or
    Hermes older than `MINIMUM_HERMES_VERSION` → `HR-COMPAT-003`); `breaking` (a required entry
    missing → `HR-COMPAT-001`); or `unknown` when it could not look — Hermes unreachable, a non-2xx,
@@ -218,7 +222,10 @@ the Connector checks this table against the running Hermes instead of trusting a
    `GET /api/hermes-remote/contract` (Connector-owned like `/api/files`; never forwarded to Hermes),
    so it rides the existing HTTP tunnel in both legacy and account mode with no Gateway, protocol
    or database change. The app reads it after a healthy `/api/status` probe
-   (`GatewayHealthMonitor`), when the Hermes version changes or at most every five minutes, and a
+   (`GatewayHealthMonitor`), when the Hermes version changes, when the user taps 「重新检查」, or at
+   most every five minutes; the verdict is keyed on the Mac it describes (account, device, gateway)
+   and cleared the moment that changes. 401/404/405 mean "no report"; a Relay 5xx or timeout keeps
+   the last verdict and asks again on the next probe. A
    `degraded`/`breaking` report lights the existing health strip with the code; its sheet names the
    affected features. An older Connector forwards the path to Hermes, which answers 401/404 — the
    app treats any non-2xx or unreadable answer as "no report" and shows nothing.

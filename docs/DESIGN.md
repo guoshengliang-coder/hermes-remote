@@ -2595,7 +2595,13 @@ Relay 正常时，健康条还承载 **Connector 对 Mac 上 Hermes 的契约检
   绝不显示原始键或路径）+ Hermes 版本；错误码**单独一行** `labelSmall` 次要色（同 §5.11）。
   这些状态都不可重试，「重新检查」只是重新探测，不承诺能修好。
 
-由 `HealthStripTest` 钉死（样式、文案、Relay 故障优先）。
+- 文案占满剩余宽度并**允许换行**，右侧箭头永远可见（英文 + 大字号下，箭头曾被挤出屏幕 ——
+  它是这条可点的唯一提示）。
+- 判定属于**一台 Mac**：换设备、换账号、换 Relay 或退出登录时立即清除，绝不把上一台 Mac 的红条
+  挂到下一台上；「重新检查」会绕过五分钟缓存重新读取报告；Relay 的 5xx / 超时不会抹掉已知判定。
+
+由 `HealthStripTest`（样式、文案、Relay 故障优先）、`GatewayHealthMonitorTest`（按 Mac 失效、
+重新检查、5xx 保留）和 Roborazzi 截图 `health-strip-contract-*`（红 / 中性、深浅、中英、1.3 倍字号）钉死。
 
 ## 6. 文案
 

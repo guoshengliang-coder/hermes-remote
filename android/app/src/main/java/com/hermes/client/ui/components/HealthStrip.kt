@@ -172,10 +172,10 @@ fun HealthStrip(
         horizontalArrangement = Arrangement.Start,
     ) {
         Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.padding(end = 8.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = fg, modifier = Modifier.padding(end = 8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = fg)
-        }
+        // The label takes the remaining width and wraps, so a long label (English, large font
+        // scale) can never push the chevron — the only sign the strip is tappable — off screen.
+        Text(label, style = MaterialTheme.typography.labelLarge, color = fg, modifier = Modifier.weight(1f).padding(end = 8.dp))
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = fg)
     }
 }
 

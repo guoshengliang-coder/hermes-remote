@@ -41,6 +41,7 @@ export interface HermesContractMonitorOptions {
 export class HermesContractMonitor {
   private report?: HermesContractReport;
   private inFlight?: Promise<HermesContractReport>;
+  private followUp?: Promise<HermesContractReport>;
   private lastFingerprint?: string;
   private readonly now: () => Date;
   private readonly unknownRetryMs: number;
@@ -57,14 +58,27 @@ export class HermesContractMonitor {
     return this.report;
   }
 
-  /** Re-check unconditionally (startup, Hermes reconnect). Shares a check already running. */
+  /**
+   * Re-check unconditionally (startup, Hermes reconnect, a new version).
+   *
+   * A trigger that arrives while a check is running is not absorbed by it: that check may have
+   * read the process Hermes is restarting away from. It queues exactly one follow-up check, which
+   * every trigger arriving meanwhile shares.
+   */
   refresh(trigger: string): Promise<HermesContractReport> {
     if (!this.inFlight) {
       this.inFlight = this.check(trigger).finally(() => {
         this.inFlight = undefined;
       });
+      return this.inFlight;
     }
-    return this.inFlight;
+    if (!this.followUp) {
+      this.followUp = this.inFlight.then(() => undefined, () => undefined).then(() => {
+        this.followUp = undefined;
+        return this.refresh(trigger);
+      });
+    }
+    return this.followUp;
   }
 
   /**
@@ -72,6 +86,7 @@ export class HermesContractMonitor {
    * version moved, nothing is cached yet, or a cached `unknown` has gone stale.
    */
   async ensureFresh(trigger: string): Promise<HermesContractReport> {
+    if (this.followUp) return this.followUp;
     if (this.inFlight) return this.inFlight;
     const cached = this.report;
     if (!cached) return this.refresh(trigger);
