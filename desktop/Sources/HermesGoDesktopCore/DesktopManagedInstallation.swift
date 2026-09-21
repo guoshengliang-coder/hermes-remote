@@ -31,6 +31,18 @@ public struct DesktopManagedInstallLayout: Equatable, Sendable {
     public var hermesLaunchAgent: URL {
         launchAgentsRoot.appendingPathComponent(Self.hermesLabel + ".plist")
     }
+    /// Desktop-owned launcher that starts this Mac's own Hermes in local runtime mode.
+    public var localHermesLauncher: URL {
+        root.appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("hermes-local-serve")
+    }
+    /// The exact bundled Hermes agent, kept while local mode is active so it can be put back.
+    public var bundledHermesLaunchAgentBackup: URL {
+        stateRoot.appendingPathComponent("hermes-server.bundled.plist")
+    }
+    public var localHermesRuntimeRecord: URL {
+        stateRoot.appendingPathComponent("local-hermes-runtime.json")
+    }
 
     public func release(_ version: String) throws -> URL {
         guard Self.validVersion(version) else { throw DesktopManagedInstallError.invalidInput }
@@ -121,12 +133,12 @@ public struct DesktopHermesLaunchAgentReplacement: Sendable {
     fileprivate let replacementData: Data
 }
 
-private enum ManagedSessionTokenStorage: Equatable {
+enum ManagedSessionTokenStorage: Equatable {
     case file
     case inline(String)
 }
 
-private struct ManagedLaunchAgentPropertyList {
+struct ManagedLaunchAgentPropertyList {
     let data: Data
     let object: [String: Any]
     let logURL: URL
@@ -134,8 +146,8 @@ private struct ManagedLaunchAgentPropertyList {
 
 public final class DesktopManagedInstaller: @unchecked Sendable {
     private static let releaseMarkerName = ".hermes-go-managed-release.json"
-    private let layout: DesktopManagedInstallLayout
-    private let fileManager: FileManager
+    let layout: DesktopManagedInstallLayout
+    let fileManager: FileManager
 
     public init(layout: DesktopManagedInstallLayout, fileManager: FileManager = .default) {
         self.layout = layout
@@ -388,14 +400,9 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         try ensurePrivateDirectory(layout.root)
         try ensurePrivateDirectory(layout.secretsRoot)
         let markerPresent = try validatedCompletionMarkerIfPresent()
-        let hermes = try loadManagedLaunchAgent(
-            layout.hermesLaunchAgent,
-            label: DesktopManagedInstallLayout.hermesLabel,
-            component: .hermesServer,
-            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
-            expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
-            expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
-        )
+        // Local runtime mode runs the owner's Hermes through Desktop's launcher, with the same
+        // token-file contract; either shape is a Hermes agent this migration may reason about.
+        let hermes = try loadHermesLaunchAgentForTokenContract()
         let connector = try loadManagedLaunchAgent(
             layout.connectorLaunchAgent,
             label: DesktopManagedInstallLayout.connectorLabel,
@@ -484,6 +491,9 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
     /// marker file: once the key is in place this answers nil forever, so the restart that follows a
     /// repair happens at most once per machine.
     public func prepareHermesSearchPathRepair() throws -> DesktopHermesSearchPathRepair? {
+        // A local-mode agent is written with its search path already in place (venv first, then
+        // the same list), and is not the bundled shape this repair recognises.
+        if try currentHermesRuntimeMode().isLocal { return nil }
         let hermes = try loadManagedLaunchAgent(
             layout.hermesLaunchAgent,
             label: DesktopManagedInstallLayout.hermesLabel,
@@ -542,14 +552,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
     }
 
     public func commitHermesSessionTokenFileMigration() throws {
-        let hermes = try loadManagedLaunchAgent(
-            layout.hermesLaunchAgent,
-            label: DesktopManagedInstallLayout.hermesLabel,
-            component: .hermesServer,
-            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
-            expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
-            expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
-        )
+        let hermes = try loadHermesLaunchAgentForTokenContract()
         let connector = try loadManagedLaunchAgent(
             layout.connectorLaunchAgent,
             label: DesktopManagedInstallLayout.connectorLabel,
@@ -573,14 +576,18 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
               validManagedComponent(hermesComponent),
               validManagedComponent(connectorComponent)
         else { throw DesktopManagedInstallError.unsafeFilesystemObject }
-        let hermes = try loadManagedLaunchAgent(
-            layout.hermesLaunchAgent,
-            label: DesktopManagedInstallLayout.hermesLabel,
-            expectedExecutable: hermesComponent.entrypoint,
-            trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
-            expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
-            expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
-        )
+        // An upgrade on a Mac in local runtime mode keeps the owner's Hermes; only the Connector
+        // moves to the new component.
+        let hermes = try currentHermesRuntimeMode().isLocal
+            ? loadLocalHermesLaunchAgent().plist
+            : loadManagedLaunchAgent(
+                layout.hermesLaunchAgent,
+                label: DesktopManagedInstallLayout.hermesLabel,
+                expectedExecutable: hermesComponent.entrypoint,
+                trailingArguments: ["serve", "--host", "127.0.0.1", "--port", "9119"],
+                expectedLog: layout.logsRoot.appendingPathComponent("hermes-server.log"),
+                expectedErrorLog: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
+            )
         let connector = try loadManagedLaunchAgent(
             layout.connectorLaunchAgent,
             label: DesktopManagedInstallLayout.connectorLabel,
@@ -795,7 +802,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         try atomicWrite(replacement.originalData, to: layout.hermesLaunchAgent, permissions: 0o600)
     }
 
-    private func readOwnedPrivateFile(_ url: URL) throws -> Data {
+    func readOwnedPrivateFile(_ url: URL) throws -> Data {
         var metadata = stat()
         guard Darwin.lstat(url.path, &metadata) == 0,
               metadata.st_mode & S_IFMT == S_IFREG,
@@ -945,7 +952,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         return true
     }
 
-    private func validatedSessionTokenIfPresent(required: Bool) throws -> Data? {
+    func validatedSessionTokenIfPresent(required: Bool) throws -> Data? {
         var metadata = stat()
         if Darwin.lstat(layout.hermesSessionToken.path, &metadata) != 0 {
             guard errno == ENOENT, !required else {
@@ -964,7 +971,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         return data
     }
 
-    private func loadManagedLaunchAgent(
+    func loadManagedLaunchAgent(
         _ url: URL,
         label: String,
         component: DesktopReleaseComponentKind,
@@ -984,7 +991,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         )
     }
 
-    private func loadManagedLaunchAgent(
+    func loadManagedLaunchAgent(
         _ url: URL,
         label: String,
         expectedExecutable: URL,
@@ -1025,7 +1032,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         )
     }
 
-    private func sessionTokenStorage(in object: [String: Any]) throws -> ManagedSessionTokenStorage {
+    func sessionTokenStorage(in object: [String: Any]) throws -> ManagedSessionTokenStorage {
         guard let rawEnvironment = object["EnvironmentVariables"] as? [String: Any],
               rawEnvironment.allSatisfy({ $0.value is String })
         else { throw DesktopManagedInstallError.unsafeFilesystemObject }
@@ -1051,7 +1058,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         return .inline(inline)
     }
 
-    private static func validSessionToken(_ value: String) -> Bool {
+    static func validSessionToken(_ value: String) -> Bool {
         (value.utf8.count == 43
             && value.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil)
             || (value.utf8.count == 64
@@ -1082,7 +1089,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         }
     }
 
-    private func removeOwnedRegularFileIfPresent(_ url: URL) throws {
+    func removeOwnedRegularFileIfPresent(_ url: URL) throws {
         var metadata = stat()
         if Darwin.lstat(url.path, &metadata) != 0 {
             guard errno == ENOENT else { throw DesktopManagedInstallError.unsafeFilesystemObject }
@@ -1206,7 +1213,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         else { throw DesktopManagedInstallError.missingEntrypoint }
     }
 
-    private func ensurePrivateDirectory(_ url: URL) throws {
+    func ensurePrivateDirectory(_ url: URL) throws {
         if !fileManager.fileExists(atPath: url.path) {
             do {
                 try fileManager.createDirectory(
@@ -1251,7 +1258,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
         return owner.uint32Value == Darwin.getuid()
     }
 
-    private func atomicWrite(_ data: Data, to destination: URL, permissions: Int) throws {
+    func atomicWrite(_ data: Data, to destination: URL, permissions: Int) throws {
         let temporary = destination.deletingLastPathComponent()
             .appendingPathComponent(".\(destination.lastPathComponent)-\(UUID().uuidString.lowercased()).tmp")
         do {

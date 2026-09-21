@@ -78,6 +78,29 @@ final class DesktopManagedSchemaDriftTests: XCTestCase {
         XCTAssertEqual(drift.summary, "messages: display_identity")
     }
 
+    /// Local runtime mode: the code that writes `state.db` and the code that reads it are the same
+    /// checkout, so the baseline of a bundled release that is not running describes nothing. The
+    /// same drifted database that reports above must be silent, and must not even be read.
+    func testLocalRuntimeModeIsSilentEvenWithADriftedDatabase() throws {
+        let directory = try makeTemporaryDirectory()
+        let identity = directory.appendingPathComponent("BUILD-IDENTITY.json")
+        try #"{"schemaVersion":1,"schemaBaseline":{"messages":["id","content"]}}"#
+            .write(to: identity, atomically: true, encoding: .utf8)
+
+        let inspector = DesktopManagedSchemaInspector(
+            identityURL: identity,
+            databaseURL: directory.appendingPathComponent("state.db"),
+            runner: { _, _ in
+                XCTFail("local mode has no second codebase to compare against")
+                return "0|id|INTEGER|0||1\n1|content|TEXT|0||0\n2|display_identity|BLOB|0||0\n"
+            },
+            runtimeMode: { .localHermes(executable: URL(fileURLWithPath: "/Users/o/.hermes/hermes-agent/venv/bin/hermes")) }
+        )
+
+        XCTAssertNil(inspector.inspect())
+        XCTAssertNil(DesktopIssue.managedSchemaDrift(inspector.inspect()))
+    }
+
     /// A release built before this existed has no baseline. Silence is the right answer for one of
     /// those; a false alarm on every older installation would teach people to ignore the real one.
     func testAMissingBaselineIsSilentRatherThanAlarming() throws {

@@ -95,6 +95,8 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
     public let journal: DesktopMigrationJournalStore
     private let migration: DesktopMigrationCoordinator<SystemCommandRunner>
     private let launchAgent: DesktopLaunchAgentController<SystemCommandRunner>
+    private let installer: DesktopManagedInstaller
+    private let processInspector: any DesktopHermesServiceProcessInspecting
 
     public init(
         account: any DesktopBindingCoordinating,
@@ -111,14 +113,54 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
             launchAgentsRoot: paths.launchAgentsRoot,
             runner: SystemCommandRunner()
         )
+        let installer = DesktopManagedInstaller(layout: layout)
         self.journal = journal
         self.launchAgent = launchAgent
+        self.installer = installer
+        processInspector = DesktopLaunchdHermesServiceProcessInspector(
+            runner: SystemOutputCommandRunner(),
+            userID: userID
+        )
         migration = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,
-            installer: DesktopManagedInstaller(layout: layout),
+            installer: installer,
             launchAgent: launchAgent
         )
+    }
+
+    /// Whether a managed Hermes LaunchAgent exists at all, i.e. whether a bootstrap would be an
+    /// upgrade rather than a fresh install.
+    public var hasManagedHermesLaunchAgent: Bool {
+        ((try? installer.currentHermesRuntimeMode()) ?? .unrecognised) != .absent
+    }
+
+    /// Everything the runtime planner reads, in one place. File reads plus one `launchctl print`.
+    public func observeHermesRuntime(
+        detector: DesktopLocalHermesDetector,
+        enabled: Bool,
+        now: Date = Date()
+    ) throws -> DesktopHermesRuntimeObservation {
+        DesktopHermesRuntimeObservation(
+            enabled: enabled,
+            detection: detector.detect(),
+            mode: try installer.currentHermesRuntimeMode(),
+            updateInProgress: detector.updateInProgress(now: now),
+            service: processInspector.hermesServiceProcess(),
+            record: installer.readLocalHermesRuntimeRecord(),
+            bundledFallbackAvailable: installer.bundledHermesFallbackAvailable,
+            now: now
+        )
+    }
+
+    @discardableResult
+    public func reconcileHermesRuntime(
+        detector: DesktopLocalHermesDetector,
+        enabled: Bool
+    ) async throws -> DesktopHermesRuntimeReconciliation {
+        try await migration.reconcileHermesRuntime {
+            try observeHermesRuntime(detector: detector, enabled: enabled)
+        }
     }
 
     public func inspectInstallation() throws -> DesktopManagedBootstrapInstallationStatus {

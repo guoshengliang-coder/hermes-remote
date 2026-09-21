@@ -350,6 +350,9 @@ struct AccountDevicesView: View {
         if let issue = model.managedSchemaIssue {
             accountIssueCard(issue)
         }
+        if let issue = model.localHermesIssue {
+            accountIssueCard(issue)
+        }
         if !dashboard.devices.isEmpty {
             devicesCard(dashboard)
         }

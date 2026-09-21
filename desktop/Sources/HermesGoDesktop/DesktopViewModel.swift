@@ -48,6 +48,10 @@ final class DesktopViewModel: ObservableObject {
     /// also runs its own hermes-agent — sharing one slot would mean the drift is never the thing
     /// shown.
     @Published private(set) var managedSchemaIssue: DesktopIssue?
+    /// Which Hermes the managed service runs is reconciled on every refresh (local runtime mode,
+    /// `docs/DESKTOP_PHASE0.md`). Its own slot for the same reason as `managedSchemaIssue`: it is
+    /// orthogonal to the bootstrap state machine, which clears its issue on most transitions.
+    @Published private(set) var localHermesIssue: DesktopIssue?
     @Published private(set) var componentPreflightPresentation:
         DesktopComponentPreflightPresentation?
     @Published private(set) var isComponentPreflightRefreshing = false
@@ -70,6 +74,11 @@ final class DesktopViewModel: ObservableObject {
     private var trustedComponentPreflight: DesktopTrustedComponentPreflight?
     private var componentInterruptedRunID: String?
     private var monitorTask: Task<Void, Never>?
+    private let localHermesDetector: DesktopLocalHermesDetector?
+    /// After a failed switch or restart, wait before trying again rather than restarting Hermes on
+    /// every 15-second refresh while the owner's install is broken.
+    private var hermesRuntimeRetryAfter: Date?
+    private static let hermesRuntimeRetryInterval: TimeInterval = 5 * 60
 
     init(profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore()) {
         self.profileStore = profileStore
@@ -93,6 +102,8 @@ final class DesktopViewModel: ObservableObject {
         )
         accountController = controller
         let managedPaths = try? DesktopManagedBootstrapPaths.currentUser()
+        localHermesDetector = (try? DesktopLocalHermesPaths.currentUser())
+            .map { DesktopLocalHermesDetector(paths: $0) }
         managedSchemaInspector = managedPaths.map {
             DesktopManagedSchemaInspector(managedPaths: $0)
         }
@@ -696,6 +707,57 @@ final class DesktopViewModel: ObservableObject {
         )
         applyManagedBootstrapInstallation(scopedManagedInstallation)
         await refreshManagedSchemaIssue()
+        await refreshHermesRuntime()
+    }
+
+    /// Runs on every refresh: keeps the managed Hermes service on this Mac's own Hermes when it has a
+    /// usable one, restarts it when that code changed underneath it (`hermes update`), and returns
+    /// it to the bundled copy only if the owner's Hermes is removed. Inert without a committed
+    /// managed installation, and skipped while a bootstrap is changing the same services.
+    private func refreshHermesRuntime() async {
+        guard let runtime = managedRecoveryRuntime, let detector = localHermesDetector else {
+            localHermesIssue = nil
+            return
+        }
+        guard !isManagedServiceOperationInProgress else { return }
+        if let retryAfter = hermesRuntimeRetryAfter, Date() < retryAfter { return }
+        let enabled = DesktopLocalHermesRuntimeSetting.isEnabled()
+        do {
+            let result = try await Task.detached(priority: .utility) {
+                try await runtime.reconcileHermesRuntime(detector: detector, enabled: enabled)
+            }.value
+            hermesRuntimeRetryAfter = nil
+            if case .unchanged(.wait) = result { return }
+            localHermesIssue = DesktopIssue.hermesRuntime(result)
+        } catch {
+            hermesRuntimeRetryAfter = Date().addingTimeInterval(Self.hermesRuntimeRetryInterval)
+            localHermesIssue = DesktopIssue.hermesRuntimeFailure(error)
+        }
+    }
+
+    private var isManagedServiceOperationInProgress: Bool {
+        switch managedBootstrapOperation {
+        case .preparing, .committing, .recovering: return true
+        default: break
+        }
+        switch componentBootstrapOperation {
+        case .preparing, .committing: return true
+        default: return false
+        }
+    }
+
+    /// A fresh install on a Mac that already has Hermes in a shape Hermes GO cannot run would put a
+    /// second copy of Hermes beside it. Stop and say why instead.
+    private func localHermesInstallBlock(
+        for installation: DesktopManagedBootstrapInstallationStatus
+    ) -> DesktopIssue? {
+        guard let detector = localHermesDetector else { return nil }
+        let fresh = installation == .absent && !(managedRecoveryRuntime?.hasManagedHermesLaunchAgent ?? false)
+        return DesktopIssue.localHermesInstallBlock(
+            detector.detect(),
+            freshInstall: fresh,
+            localRuntimeEnabled: DesktopLocalHermesRuntimeSetting.isEnabled()
+        )
     }
 
     /// Runs on every refresh and is not gated on the installation status.
@@ -730,6 +792,11 @@ final class DesktopViewModel: ObservableObject {
         }
         do {
             let installation = await inspectScopedManagedBootstrapInstallation()
+            if let block = localHermesInstallBlock(for: installation) {
+                managedBootstrapOperation = .failed
+                managedBootstrapIssue = block
+                return
+            }
             managedBootstrapPreparation = try await runtime.executor.prepare(
                 manifestURL: runtime.manifestURL,
                 workspaceRoot: runtime.workspaceRoot,
@@ -838,6 +905,11 @@ final class DesktopViewModel: ObservableObject {
             componentBootstrapCanBegin = machine.plan.canBegin
             guard machine.plan.canBegin else {
                 throw DesktopMigrationCoordinatorError.invalidStartingState
+            }
+            if let block = localHermesInstallBlock(for: machine.installation) {
+                componentBootstrapOperation = .failed
+                componentBootstrapIssue = block
+                return
             }
             let probe = componentEntrypointProbe
             let runID = UUID().uuidString.lowercased()

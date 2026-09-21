@@ -262,6 +262,23 @@ The current automated suite covers:
   migration preflight and can enter the signed two-stage migration only while that health check and
   the complete managed-install capability agree; stopped/unhealthy or unsigned cases stay read-only;
 - bilingual `HR-MIGRATE-001` through `HR-MIGRATE-005` terminal-state mapping.
+- local Hermes runtime (`DesktopLocalHermesTests`, `DesktopHermesRuntimeCoordinatorTests`):
+  detection of the standard layout from git files alone (loose ref, `packed-refs`, detached `HEAD`)
+  and of every surfaced shape — profiles, non-default `active_profile`, `HERMES_HOME` in the
+  environment or an owner `ai.hermes.*` agent, an owner agent outside the checkout, a foreign
+  entrypoint or pipx install, missing venv, group-writable entrypoint, version below 0.21.3,
+  unreadable `HEAD`; upstream's update lock honoured only within its 20-minute ceiling; the planner's
+  switch/keep/wait/restart/restore/surface table including the `hermes update` self-restart and the
+  `git pack-refs` no-restart cases; the launcher **executed** against a stand-in Hermes (token handed
+  over, `PYTHONPATH` cleared, unsafe token file, malformed token and foreign argv refused before
+  exec); the exact local-mode `ProgramArguments`/environment and that `shlex.join` of them contains
+  `hermes serve`; switch restarts only Hermes and keeps the exact bundled agent; a failed switch
+  restores both files and proves the old server; restart on code change; no restart for a process
+  started after the update; restore on removal and on turning the setting off; nothing mutated
+  when disabled, unsupported or uninstalled; a managed upgrade keeps the local agent; the startup
+  token/PATH reconcilers are inert in local mode; `HR-MIGRATE-006` is silent in local mode; the
+  fresh-install gate; `HR-MIGRATE-008`/`009` bilingual contract and redaction; source wiring of the
+  refresh call, both install gates, and the window card.
 
 Remaining email-first release acceptance requires live-provider tests for resend/cooldown, expiry,
 account-existence-neutral delivery behavior, packaged-UI inspection proving that an `email_otp`-only
@@ -296,6 +313,10 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Managed search-path startup repair (HG-58) | On a committed `account_active` installation whose agent predates the `PATH`, launching Desktop adds the key, restarts **only** Hermes, and proves it healthy; a second launch changes nothing; an existing well-formed `PATH` is left alone; a malformed one and an agent we did not write are refused before any service changes; a failed restart restores the exact file and the running server | Automated (6 cases in `DesktopMigrationCoordinatorTests`). **Physically unverified**: that the repair fires on a real migrated Mac, that the Connector survives the Hermes-only restart window, and that a PDF then sends |
 | Managed startup reconciliation classification (HG-68) | A transferred-account Connector reconciliation failure remains a hard `HR-MIGRATE-002` block; token-storage or search-path repair failures surface as retryable `HR-MIGRATE-007` without changing an available managed-upgrade operation to failed | Automated issue/stage contract plus full Desktop compilation; packaged UI remains pending |
 | Managed schema drift (HG-71) | The account window shows `HR-MIGRATE-006` with the drifted columns behind 详情 whenever the live `state.db` carries columns absent from the running release's `schemaBaseline`; it stays silent when there is no managed release, no readable database, or no drift; it is shown independently of the managed-installation state, so an `inconsistent` install does not hide it | Automated (drift comparison, derived paths, issue mapping, and `ManagedSchemaWiringTests` asserting the call site exists — the check was merged in 0.3.7 with no caller and stayed invisible). Verified on LGS-MACMINI 2026-09-20 with Desktop 0.2.19-dev against managed 0.3.7: the card reads “托管 Hermes 版本落后 … (HR-MIGRATE-006)” beneath the `HR-MIGRATE-002` card, on a Mac whose installation reads `inconsistent` — the state the advisory is deliberately not gated on. Live drift at the time: `messages` 24→26, `sessions` 58→59 |
+| Local Hermes runtime switch | With `HermesGoLocalHermesRuntimeEnabled` on, a committed Mac with a usable standard Hermes rewrites only `com.hermesgo.hermes-server` to the local launcher, restarts only Hermes, passes the readiness proof, and the phone keeps REST and WebSocket traffic; the Connector's PID is unchanged; `HR-MIGRATE-006` disappears; with the owner's gateway running, `cron/executions.db` gains no rows from the serve's PID | Automated with in-memory launchctl; read-only dry run on LGS-MACMINI 2026-09-21 planned `switchToLocal` (0.21.3, `17b5df02`). **Physically unverified**: no machine has been switched |
+| Local Hermes restart on update | After `hermes update` on a local-mode Mac, the serve's start time is later than the checkout's ref time within one refresh, either because upstream kickstarted our job or because Desktop restarted it; no duplicate or detached serve holds 9119 | Planner and coordinator automated. **Physically unverified**, including upstream's kickstart of our job |
+| Local Hermes rollback | Turning the setting off restores the exact bundled agent from `Managed/state/hermes-server.bundled.plist` and restarts only Hermes | Automated. **Physically unverified** |
+| Local Hermes unsupported | A Mac with profiles, a custom `HERMES_HOME`, or a second install shows `HR-MIGRATE-008` and changes nothing; a fresh install on it is refused | Automated. Packaged UI pending |
 | Managed patch 020 — bounded inline images (HG-74) | A bounded read carries `[image]` in place of an inline `data:` image; the image still appears on the phone, from the Mac path in the text part; an `https://` image URL is untouched; the placeholder never reaches a bubble | Both client-side behaviours the patch depends on are pinned by Android tests (`TimelineNoteTest`, `MultimodalContentMappingTest`) — neither is new, both were unpinned, and the patch lives in another program. Measured against the real database: one message 27,479,595→6,374 characters, the whole HG-65 session 105.07 MiB→0.265 MiB. **Not yet live**: needs a managed release and a controlled activation, so no phone has read a bounded response |
 | Keychain profile | App Token persists across restart and is never shown in visible UI | Verified locally and on target with disposable test Token 2026-09-02 |
 | Invalid App Token | End-to-end check reports `HR-AUTH-001` with recovery guidance | Automated + local/target UI verified 2026-09-02 |

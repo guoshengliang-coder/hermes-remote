@@ -173,6 +173,13 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
   `HR-MIGRATE-002`. Token-storage and search-path repair failures use retryable `HR-MIGRATE-007`
   beside the still-actionable upgrade; an advisory repair must never masquerade as a Connector
   conflict.
+- Which Hermes the managed service runs is its own card, beside the schema-drift card and never
+  folded into the bootstrap state. A Mac whose own Hermes cannot be used reads non-retryable
+  `HR-MIGRATE-008` and says that nothing was changed *to avoid a second copy* — the product must
+  never imply that installing its own Hermes is the fix. A failed switch or restart reads
+  `HR-MIGRATE-009`, says what was restored, and retries by itself; it offers no button that would
+  restart Hermes on demand. A successful switch or restart is silent: the Hermes row keeps reporting
+  reachability, not which codebase answered.
 - Technical details and logs are secondary, selectable, and redacted before presentation.
 - Current reachability and historical log warnings are separate. Old warning lines may be counted and
   shown as history, but cannot by themselves mark a currently healthy connection offline.

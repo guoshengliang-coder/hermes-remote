@@ -1033,6 +1033,291 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 }
 
+/// Local runtime mode (owner decision 2026-09-21: one copy of Hermes code per Mac). These drive
+/// `reconcileHermesRuntime` through the same in-memory launchctl and readiness fakes as the other
+/// reconcilers, with the observation supplied directly so every branch is reachable.
+final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
+    func testAUsableLocalHermesReplacesTheBundledCopyAndOnlyHermesRestarts() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let bundled = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let connector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+        let local = fixture.localInstallation()
+
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(local))
+        }
+
+        XCTAssertEqual(result, .switchedToLocal(local))
+        XCTAssertEqual(try fixture.installer.currentHermesRuntimeMode(), .localHermes(executable: local.executable))
+        XCTAssertEqual(try fixture.programArguments(at: fixture.layout.hermesLaunchAgent), [
+            fixture.layout.localHermesLauncher.path, local.executable.path,
+            "serve", "--host", "127.0.0.1", "--port", "9119",
+        ])
+        let environment = try fixture.environment(at: fixture.layout.hermesLaunchAgent)
+        XCTAssertEqual(environment["HERMES_DESKTOP"], "1")
+        XCTAssertEqual(environment["HERMES_SESSION_TOKEN_FILE"], fixture.layout.hermesSessionToken.path)
+        XCTAssertNil(environment["HERMES_DASHBOARD_SESSION_TOKEN"], "the token stays in its private file")
+        // The exact bundled agent is kept: it is the only record of what to go back to.
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.bundledHermesLaunchAgentBackup), bundled)
+        XCTAssertTrue(fixture.installer.bundledHermesFallbackAvailable)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), connector)
+        XCTAssertEqual(fixture.serviceMutations(), [
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+        ])
+        XCTAssertEqual(fixture.shutdown.waitCount(), 1)
+        XCTAssertEqual(fixture.installer.readLocalHermesRuntimeRecord()?.commit, local.commit)
+        let launcher = try FileManager.default.attributesOfItem(atPath: fixture.layout.localHermesLauncher.path)
+        XCTAssertEqual((launcher[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    }
+
+    /// The startup repairs recognise only the agents they wrote. In local mode they must stay quiet
+    /// instead of reporting HR-MIGRATE-007 on every launch.
+    func testStartupRepairsAreInertInLocalMode() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        try fixture.installer.commitHermesSessionTokenFileMigration()
+        _ = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }
+        let mutations = fixture.serviceMutations().count
+
+        let pathRepaired = try await fixture.coordinator.reconcileCommittedHermesSearchPath()
+        let tokenMigrated = try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage()
+
+        XCTAssertFalse(pathRepaired)
+        XCTAssertFalse(tokenMigrated)
+        XCTAssertEqual(fixture.serviceMutations().count, mutations)
+    }
+
+    func testAFailedSwitchRestoresTheBundledAgentAndItsServer() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            hermesReadinessResponses: [false, true]
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let bundled = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+
+        do {
+            _ = try await fixture.coordinator.reconcileHermesRuntime {
+                try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+            }
+            XCTFail("an unhealthy local Hermes must not be reported as a switch")
+        } catch {
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .hermesHealthTimedOut)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), bundled)
+        XCTAssertEqual(try fixture.installer.currentHermesRuntimeMode(), .bundled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.localHermesLauncher.path))
+        XCTAssertNil(fixture.installer.readLocalHermesRuntimeRecord())
+        XCTAssertEqual(fixture.runner.loadedLabels(), [
+            DesktopManagedInstallLayout.connectorLabel,
+            DesktopManagedInstallLayout.hermesLabel,
+        ])
+        XCTAssertEqual(fixture.readiness.waitCount(), 2, "the restored server is proved healthy too")
+    }
+
+    func testCodeThatChangedUnderTheRunningServerRestartsIt() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let old = fixture.localInstallation(commit: String(repeating: "a", count: 40))
+        _ = try await fixture.coordinator.reconcileHermesRuntime { try fixture.runtimeObservation(.usable(old)) }
+        let updated = fixture.localInstallation(
+            commit: String(repeating: "b", count: 40),
+            changedAt: Date().addingTimeInterval(-120)
+        )
+
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(updated), serviceStartedAt: Date().addingTimeInterval(-600))
+        }
+
+        XCTAssertEqual(result, .restartedLocal(updated, .codeChanged))
+        XCTAssertEqual(Array(fixture.serviceMutations().suffix(2)), [
+            "bootout:\(DesktopManagedInstallLayout.hermesLabel)",
+            "bootstrap:\(DesktopManagedInstallLayout.hermesLabel)",
+        ])
+        XCTAssertEqual(fixture.installer.readLocalHermesRuntimeRecord()?.commit, updated.commit)
+        // The kept bundled agent is still the original one, not the local agent it was replaced by.
+        XCTAssertTrue(fixture.installer.bundledHermesFallbackAvailable)
+    }
+
+    /// `hermes update` restarts our job itself (`launchctl kickstart`). A process that started after
+    /// the checkout moved is already on the new code, and restarting it again would only cost the
+    /// owner another interrupted turn.
+    func testAServerStartedAfterTheUpdateIsLeftAlone() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        _ = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }
+        let mutations = fixture.serviceMutations().count
+        let updated = fixture.localInstallation(
+            commit: String(repeating: "c", count: 40),
+            changedAt: Date().addingTimeInterval(-300)
+        )
+
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(updated), serviceStartedAt: Date().addingTimeInterval(-200))
+        }
+
+        XCTAssertEqual(result, .unchanged(.keep))
+        XCTAssertEqual(fixture.serviceMutations().count, mutations)
+    }
+
+    func testRemovingTheOwnersHermesRestoresTheBundledCopy() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let bundled = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        _ = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }
+
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.absent(hermesDataPresent: true))
+        }
+
+        XCTAssertEqual(result, .restoredBundled)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), bundled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.bundledHermesLaunchAgentBackup.path))
+        XCTAssertNil(fixture.installer.readLocalHermesRuntimeRecord())
+    }
+
+    /// Turning the setting off is the rollback, and needs no knowledge of what was on disk before.
+    func testTurningTheSettingOffRestoresTheBundledCopy() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let bundled = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let local = fixture.localInstallation()
+        _ = try await fixture.coordinator.reconcileHermesRuntime { try fixture.runtimeObservation(.usable(local)) }
+
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(local), enabled: false)
+        }
+
+        XCTAssertEqual(result, .restoredBundled)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), bundled)
+    }
+
+    func testDisabledOrUnsupportedChangesNothing() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let bundled = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+
+        let disabled = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(fixture.localInstallation()), enabled: false)
+        }
+        let unsupported = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.unsupported(.multipleProfiles, detail: "2 profile(s)"))
+        }
+
+        XCTAssertEqual(disabled, .unchanged(.keep))
+        XCTAssertEqual(unsupported, .unchanged(.surface(.unsupported(.multipleProfiles, detail: "2 profile(s)"))))
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), bundled)
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.bundledHermesLaunchAgentBackup.path))
+    }
+
+    func testNothingIsReconciledBeforeACommittedInstallation() async throws {
+        let fixture = try Fixture(legacyRunning: false)
+        defer { fixture.cleanup() }
+
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            XCTFail("an uninstalled Mac must not even be observed")
+            return try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }
+
+        XCTAssertEqual(result, .notInstalled)
+        XCTAssertTrue(fixture.runner.events().isEmpty)
+    }
+
+    /// An upgrade must not quietly put the bundled Hermes back on a Mac running its own.
+    func testAManagedUpgradeKeepsLocalHermes() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false,
+            resumeBoundBinding: true,
+            healthCheckedAtSequence: [
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:00.000Z",
+                "2026-09-07T00:00:01.000Z",
+            ]
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil, releaseVersion: "1.2.2")
+        let local = fixture.localInstallation()
+        _ = try await fixture.coordinator.reconcileHermesRuntime { try fixture.runtimeObservation(.usable(local)) }
+        let localAgent = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+
+        let outcome = try await fixture.coordinator.upgrade(
+            manifest: fixture.manifest,
+            sources: fixture.sources,
+            hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: fixture.launchAgentConfiguration,
+            runID: "10000000-0000-4000-8000-000000000009",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .confirmationText(releaseVersion: fixture.manifest.releaseVersion)
+        )
+
+        XCTAssertEqual(outcome.releaseVersion, "1.2.3")
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), localAgent)
+        XCTAssertEqual(try fixture.installer.currentHermesRuntimeMode(), .localHermes(executable: local.executable))
+    }
+}
+
+private extension Fixture {
+    func localInstallation(
+        commit: String = "17b5df02f2a729d8f46fbbf78cfc1f5a8cf0f121",
+        changedAt: Date = Date().addingTimeInterval(-3_600)
+    ) -> DesktopLocalHermesInstallation {
+        let checkout = root.appendingPathComponent("owner/.hermes/hermes-agent", isDirectory: true)
+        return DesktopLocalHermesInstallation(
+            executable: checkout.appendingPathComponent("venv/bin/hermes"),
+            checkoutRoot: checkout,
+            hermesHome: root.appendingPathComponent("owner/.hermes", isDirectory: true),
+            commit: commit,
+            version: "0.21.3",
+            identityChangedAt: changedAt
+        )
+    }
+
+    /// An observation built from the real installer state, with the Mac-side facts supplied.
+    func runtimeObservation(
+        _ detection: DesktopLocalHermesDetection,
+        enabled: Bool = true,
+        serviceStartedAt: Date = Date(),
+        updateInProgress: Bool = false
+    ) throws -> DesktopHermesRuntimeObservation {
+        DesktopHermesRuntimeObservation(
+            enabled: enabled,
+            detection: detection,
+            mode: try installer.currentHermesRuntimeMode(),
+            updateInProgress: updateInProgress,
+            service: .running(startedAt: serviceStartedAt),
+            record: installer.readLocalHermesRuntimeRecord(),
+            bundledFallbackAvailable: installer.bundledHermesFallbackAvailable,
+            now: Date()
+        )
+    }
+
+    func programArguments(at url: URL) throws -> [String] {
+        let object = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: Data(contentsOf: url), options: [], format: nil)
+                as? [String: Any]
+        )
+        return try XCTUnwrap(object["ProgramArguments"] as? [String])
+    }
+}
+
 private final class Fixture {
     let root: URL
     let layout: DesktopManagedInstallLayout

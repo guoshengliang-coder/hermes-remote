@@ -770,3 +770,180 @@ such a check — the token-file reconcile beside it restarts *both* services on 
 bounds it is that it happens at most once per machine: the repair is idempotent through its own
 state, so the second launch finds the key present, returns false, and spends nothing. No marker file
 is involved, which also means a machine whose `PATH` is removed again is repaired again.
+
+### Local Hermes runtime — 2026-09-21
+
+Owner decision of 2026-09-21: **one copy of Hermes code per Mac.** If the Mac already has Hermes,
+Hermes GO must not run a second one; if it has none, Hermes GO only helps install one. Until then this
+Mac ran two codebases against one `HERMES_HOME=/Users/bs/.hermes` — the bundled copy (upstream
+`f159e581` plus three read-side patches, label `com.hermesgo.hermes-server`) and the owner's own
+`~/.hermes/hermes-agent` (`17b5df02`, rolled forward by `hermes update`) — and the schema drift
+between them caused the 2026-09-19 500s. The strategy text itself lives in
+`docs/MANAGED_HERMES_STRATEGY.md`; this section records what Desktop does.
+
+**Off unless turned on, per Mac.** Switching restarts the Hermes the phone is talking to and puts the
+phone on whatever upstream version the owner runs, so it is a production decision, not a side effect
+of installing a newer Desktop:
+
+```bash
+defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool true    # switch
+defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool false   # roll back
+```
+
+(`HERMES_GO_LOCAL_HERMES_RUNTIME_ENABLED=1|0` in the environment and a `HermesGoLocalHermesRuntimeEnabled`
+key in the app's `Info.plist` are also read, in that order after the environment; the shipped
+`Info.plist` does not carry the key.) With the setting off, nothing below runs except the restore of
+a Mac that is already in local mode.
+
+#### Detection (`DesktopLocalHermesDetector`)
+
+File reads only — no Hermes code is executed, so it runs on every 15-second refresh. `hermes
+--version` was rejected: it imports the whole CLI (over a second here) and reports the version, which
+does not change between commits.
+
+- **Usable** means exactly the standard upstream layout: checkout `~/.hermes/hermes-agent`, entrypoint
+  `venv/bin/hermes` (a private regular executable of this user, path quotable without escaping),
+  `HERMES_HOME=~/.hermes`, one default profile, and `hermes_cli.__version__` at or above **0.21.3**.
+- **Identity** is `HEAD` resolved through `.git/HEAD`, the loose ref or `packed-refs`, plus the newest
+  modification time among those files ("when the checkout last moved"). `hermes update`, `git pull`
+  and `git checkout` all rewrite one of them.
+- **Everything else is surfaced, never guessed** (`HR-MIGRATE-008`, reason behind Details): a profile
+  under `~/.hermes/profiles/` or a non-default `active_profile`; `HERMES_HOME` pointing elsewhere in
+  Desktop's environment or in any of the owner's `ai.hermes.*.plist` agents; an `ai.hermes.*` agent
+  running Hermes from outside the checkout; a `hermes` entrypoint in `~/.local/bin`, `/opt/homebrew/bin`
+  or `/usr/local/bin` that does not lead back to the checkout (upstream's own `~/.local/bin/hermes`
+  shim, which names the checkout, is accepted); a pipx install; a missing `venv/bin/hermes`; an
+  unsafe checkout; an unreadable `HEAD` or version; a version below the floor.
+- **Why 0.21.3.** It is the version this was verified against, and the first known to gate the
+  Desktop cron ticker on the owner's gateway for a *single* profile — see `HERMES_DESKTOP` below. The
+  owner's checkout is shallow, so the exact introducing release cannot be named; the floor is the
+  version that was read, not a guess below it.
+- **A fresh managed install is refused** (with the setting on) when detection is unsupported, or when
+  `~/.hermes/state.db` exists without the standard checkout — some other Hermes wrote that database.
+  An existing installation is never blocked; it keeps running what it runs.
+
+#### The LaunchAgent in local mode
+
+Same label, same loopback port, same private token file, same log files, same `RunAtLoad`,
+`ProcessType=Background` and `ThrottleInterval=30`. Only the program differs. On this Mac mini it
+would be (read-only dry run on 2026-09-21, not written):
+
+```
+ProgramArguments
+  /Users/bs/Library/Application Support/Hermes Go/Managed/bin/hermes-local-serve
+  /Users/bs/.hermes/hermes-agent/venv/bin/hermes
+  serve --host 127.0.0.1 --port 9119
+EnvironmentVariables
+  HERMES_HOME                = /Users/bs/.hermes
+  HERMES_DESKTOP             = 1
+  HERMES_SESSION_TOKEN_FILE  = /Users/bs/Library/Application Support/Hermes Go/Managed/secrets/hermes-session-token
+  PATH                       = /Users/bs/.hermes/hermes-agent/venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+  VIRTUAL_ENV                = /Users/bs/.hermes/hermes-agent/venv
+```
+
+`hermes-local-serve` is a Desktop-written `0700` script. The bundled `hermes-server` launcher turns
+`HERMES_SESSION_TOKEN_FILE` into `HERMES_DASHBOARD_SESSION_TOKEN`; upstream's entrypoint does not,
+and putting the value in the plist would undo the token-file contract. The script checks the token
+file the same way (private regular file owned by this user, mode `600`/`400`, 43- or 64-character
+token), exports it, clears `PYTHONPATH`/`PYTHONHOME`, and `exec`s — so the PID launchd supervises is
+Hermes itself. It refuses any argument vector other than the one Desktop wrote, so it cannot be used
+as a general "run this with the token" helper. Desktop re-validates the script byte for byte before
+it treats an agent as local.
+
+The real entrypoint stays visible as `argv[1]` on purpose. Upstream's `hermes update`
+(`_kill_stale_dashboard_processes`, 17b5df02) stops every `hermes serve` with the same `HERMES_HOME`
+after updating; it restarts one through `launchctl kickstart` only when a loaded launchd job's
+`shlex.join(ProgramArguments)` contains `hermes serve`. Otherwise it treats the process as manually
+started and respawns a *detached* copy from its argv with the updater's own environment — on our
+port, without our token (`_restart_killed_backends` → `_respawn_dashboard_processes`). The bundled
+agent (`…/hermes-server serve`) does not match that pattern; the local agent does. This is read from
+the code at 17b5df02 and has not been observed; if it holds, `hermes update` already disturbs the
+bundled serve on this Mac today.
+
+#### `HERMES_DESKTOP=1` — what it toggles at 17b5df02, and why it stays
+
+Read in `~/.hermes/hermes-agent` (read-only):
+
+| Site | Effect with `HERMES_DESKTOP=1` | In local mode |
+|---|---|---|
+| `web_server._lifespan` → `_start_desktop_cron_ticker` | the serve ticks cron itself, for every served profile | At 0.21.3 the ticker is given a per-tick `profile_gate` for **one or more** profiles ("Even one profile needs the per-tick gateway gate") that stands down while that profile's gateway runs. At 0.21.0 (`f159e581`, the bundled copy) the gate was attached only for **more than one** profile — which is why the bundled serve raced the owner's gateway for `cron/.tick.lock` on this single-profile Mac on 2026-09-20. With the gateway up, the local serve does not tick; with it down, it covers, delivering through the standalone path. |
+| `web_server._lifespan` → `_reap_unsupervised_gateway_orphans` | kills gateway processes no supervisor owns | launchd-supervised gateways (`ai.hermes.gateway*`) are excluded by upstream; unchanged from today |
+| `web_server._lifespan` shutdown → `_terminate_desktop_managed_gateway` | stops only a `gateway-restart` child this process spawned | harmless |
+| `web_server._desktop_loopback_auth_exempt` | a loopback bind plus an env session token is exempt from the ticket-only gate a non-loopback `dashboard.public_url` engages | **the reason to keep it**: without it, setting `public_url` (the owner's dashboard is on the Tailscale address) would make `/api/ws` refuse the Connector's `?token=` or stop startup fail-closed |
+| `web_server.start_server` → `_reap_orphaned_desktop_local_serves` | reaps orphaned `serve --port 0` backends | our serve is `--port 9119` and never matches; it may reap the Electron app's orphans |
+| `main._dashboard_sanitize_desktop_env`, `main._dashboard_prepare_runtime` | keeps `HERMES_WEB_DIST`; starts MCP discovery after bind | headless, timing only |
+| `main_dashboard` profile routing | named-profile launches stay per-profile | only the default profile is supported |
+| `tui_gateway.server._resolve_session_platform` | an empty session `source` becomes `desktop` | the phone always sends `source=hermes_remote` |
+| `gateway.hosted_room_peer.catalog_mapping` | advertises the process as non-persistent | no effect on the phone |
+
+Dropping the variable was considered — it would remove the ticker outright — and rejected: the only
+gain is a ticker that already stands down while the gateway runs, and the cost is `/api/ws` auth on
+any Mac whose owner sets a non-loopback `public_url`, discovered only when that setting changes.
+
+#### Restarting when the owner updates Hermes
+
+The process the phone talks to must not keep serving code that is no longer on disk. Desktop's
+refresh loop (every 15 s) decides, from `DesktopHermesRuntimePlanner`:
+
+- **stale** when the running process started before the checkout last moved — process start time
+  from `launchctl print` (PID) and the kernel (`sysctl KERN_PROC_PID`), compared with the identity
+  time above — unless Desktop itself launched that process on exactly this commit (a record in
+  `Managed/state/local-hermes-runtime.json`, so a `git pack-refs` that moves a timestamp but not the
+  commit does not cost a restart);
+- **not running** when launchd answers that the loaded job has no process (`hermes update` stopped it
+  and its own kickstart did not bring it back). An answer that cannot be read changes nothing, so a
+  broken probe can never become a restart on every refresh;
+- **wait** while upstream's update lock `~/.hermes/.hermes-update-in-progress` is younger than
+  upstream's own 20-minute ceiling, and for 60 s after the checkout moves (a bare `git pull` before
+  the owner reinstalls dependencies).
+
+Why the refresh loop and not file watching: the loop already runs, needs no extra long-lived
+resource, and survives Desktop restarts; a watcher would still need the same start-time comparison
+after a relaunch, and it would fire mid-update, which is exactly when acting is wrong. The cost is up
+to 15 s of latency, and in the common case none at all — `hermes update` restarts our job itself
+(above), leaving a process that started after the checkout moved, which the planner leaves alone.
+
+A restart onto new code that fails is **not** rolled back to the bundled copy: that would put pinned
+code back on a database the new code may already have migrated. It is reported (`HR-MIGRATE-009`) and
+retried after five minutes; the owner's own Hermes is what needs repairing.
+
+#### Switching, falling back, and everything else that had to change
+
+- **Switch** (`reconcileHermesRuntime`, committed `account_active` installations only, under the
+  journal lease): keep the exact bundled agent at `Managed/state/hermes-server.bundled.plist`, write
+  the launcher and the agent, stop Hermes, wait for 9119 to close, start, and require the same
+  readiness proof as a migration (`HERMES_BACKEND_READY port=9119` after the checkpoint plus a healthy
+  `/api/status`). Only Hermes restarts; the Connector keeps its agent, token and port and reconnects.
+  A failure restores both files byte for byte and proves the old server healthy again.
+- **Fallback**: the bundled `hermes_server` path is unchanged when there is no local Hermes. If a
+  local-mode Mac's checkout disappears, or the setting is turned off, the kept bundled agent is put
+  back and restarted; without a kept agent, `HR-MIGRATE-009` says so.
+- **Upgrade**: a managed upgrade on a local-mode Mac keeps the local agent and moves only the
+  Connector (and `current`), instead of writing the bundled agent and running the pinned copy until
+  the next reconcile.
+- **Startup repairs**: the token-file and search-path reconcilers recognise the local agent. The
+  search-path repair has nothing to do there; the token contract validates it like the bundled one.
+- **Schema drift (`HR-MIGRATE-006`)** is silent in local mode: the same checkout writes and reads
+  `state.db`, and the bundled release's baseline describes a program that is not running.
+- **Optional on-demand components** (`replaceHermesLaunchAgent`) still expect the bundled agent and
+  refuse a local one. That path is not wired into the app; the owner's Hermes installs its own
+  optional dependencies.
+
+#### What this does not do yet
+
+- **The bundled Hermes is still downloaded and staged.** The component archive, the patches and the
+  drift check stay (the release still carries `hermes_server`); local mode guarantees it is never
+  *run* on a Mac that has its own. A fresh install on such a Mac still runs the bundled copy for the
+  migration's own health proof, and the next refresh (≤ 15 s after commit) switches it away. A
+  connector-only release manifest is the follow-up that removes both.
+- **Installing Hermes when the Mac has none** is not implemented. Its intended shape: the `.absent`
+  detection branch is where it slots in — instead of staging `hermes_server`, Desktop runs upstream's
+  standard installer (mirrored through the Hong Kong server, because GitHub is often unreachable from
+  this network; open decision) into `~/.hermes`, then re-runs detection, which now reports
+  `.usable`, and the existing switch path takes over. Nothing in the runtime path needs to know how
+  Hermes got there, which is why detection, not installation, owns the decision.
+
+Not verified here: any of this against a running service. No LaunchAgent, process, `~/.hermes` file or
+`Managed` file was touched on any machine. What was run on this Mac mini was the detector, the mode
+reader and the process-start reader, read-only, in a throwaway test: it reported `usable` (0.21.3,
+`17b5df02`), mode `bundled`, and would plan `switchToLocal`.
