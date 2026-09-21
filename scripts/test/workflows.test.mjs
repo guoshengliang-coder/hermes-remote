@@ -129,7 +129,7 @@ test('routine workflows cancel stale PR runs and bound every job', async () => {
 test('CI keeps secret scanning universal while component builds use tested path selection', async () => {
   const ci = await read('ci.yml');
   assert.match(ci, /run: node scripts\/ci\/changed-components\.mjs/);
-  for (const component of ['node', 'android', 'desktop']) {
+  for (const component of ['node', 'android', 'desktop', 'web']) {
     assert.match(ci, new RegExp(`  ${component}:[\\s\\S]*?needs: changes[\\s\\S]*?if: needs\\.changes\\.outputs\\.${component} == 'true'`));
   }
   assert.match(ci, /  secrets:\n    runs-on:/, 'secret scanning must not depend on the path-selection job');

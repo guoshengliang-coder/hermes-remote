@@ -417,6 +417,14 @@ per card from what actually arrives, never from a version guess (`ServerRequests
 | After a reconnect | not replayed to this app | `session.resume` returns `open_requests: [{id, method, params}]` (omitted when empty); a batch's params carry the locked `answers`; server-request cards not listed are dropped |
 | Several approvals open at once | one card; the newest replaces the older | queued by id, shown oldest first |
 
+**Which clarify answer path a card takes is decided by the question id, not by how many questions
+there are.** A question that carries a non-empty `qid` is locked with `clarify.lock`, even when
+`questions[]` has a single element; only a card without a `qid` answers with
+`request.answer {answer}`. Answering a one-element batch that way would send no `answers` key, which
+upstream reads as cancel-all. Android (`ChatRepository.kt`) and the Web app (`web/src/hermes/requests.ts`)
+both follow this rule. Several open approvals are queued in arrival order, deduplicated by id; the
+`srq-` ids are random hex, so "oldest first" means arrival order, not id order.
+
 Load-bearing facts, all from the 17b5df02 source:
 
 - **Nothing is asked unless the connection says it can answer.** A WebSocket client must send
