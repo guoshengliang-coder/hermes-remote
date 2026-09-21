@@ -616,6 +616,12 @@ data class ApprovalRequest(
     val patternKeys: List<String>,
     val allowPermanent: Boolean,
     val smartDenied: Boolean = false,
+    /**
+     * The server→client request this card answers (newer Hermes), or null when it came from an
+     * `approval.request` event. Set, the answer goes to exactly this request; unset, it is the
+     * older `approval.respond`, which resolves whatever approval is oldest. See ServerRequests.
+     */
+    val serverRequestId: String? = null,
 )
 /**
  * One structured question from the agent. Mirrors the upstream clarify tool's wire shape:
@@ -639,6 +645,12 @@ data class ClarifyRequest(
     val requestId: String,
     val questions: List<ClarifyQuestion>,
     val lockedAnswers: Map<String, String> = emptyMap(),
+    /**
+     * Raised by a server→client `clarify` request (newer Hermes), whose id is [requestId]. It is
+     * answered with `clarify.lock` / a response frame instead of `clarify.respond`, which that
+     * Hermes no longer has. See ServerRequests.
+     */
+    val serverRequest: Boolean = false,
 ) {
     val isBatch: Boolean get() = questions.size > 1
 
@@ -735,7 +747,26 @@ fun parseClarifyRequest(payload: kotlinx.serialization.json.JsonObject): Clarify
         ?.mapNotNull { (k, v) -> prim(v)?.let { k to it } }
         ?.toMap()
         .orEmpty()
-    return ClarifyRequest(requestId = requestId, questions = questions, lockedAnswers = locked)
+    return ClarifyRequest(
+        requestId = requestId,
+        questions = questions,
+        lockedAnswers = locked,
+        serverRequest = com.hermes.client.data.network.ServerRequests.idOf(payload) != null,
+    )
+}
+
+/**
+ * `request.cancel {id, method, reason}`: Hermes withdrew a server→client request — it timed out,
+ * the run was interrupted, the session closed, or another surface answered it first. Only the card
+ * raised by that exact request is torn down; an old-protocol card has no request id to match and is
+ * never touched by it.
+ */
+fun ChatUiState.withServerRequestCancelled(requestId: String?): ChatUiState {
+    if (requestId.isNullOrBlank()) return this
+    return copy(
+        pendingApproval = pendingApproval?.takeUnless { it.serverRequestId == requestId },
+        pendingClarify = pendingClarify?.takeUnless { it.serverRequest && it.requestId == requestId },
+    )
 }
 
 data class ChatUiState(
@@ -892,11 +923,14 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
                     .ifEmpty { event.str("pattern_key")?.let { listOf(it) } ?: emptyList() },
                 allowPermanent = event.bool("allow_permanent") ?: false,
                 smartDenied = event.bool("smart_denied") ?: false,
+                serverRequestId = com.hermes.client.data.network.ServerRequests.idOf(event.payload),
             ),
         )
         "clarify.request" -> state.copy(
             pendingClarify = parseClarifyRequest(event.payload),
         )
+        com.hermes.client.data.network.ServerRequests.CANCEL_EVENT ->
+            state.withServerRequestCancelled(event.str("id"))
         "error" -> state.copy(
             messages = state.messages + ChatMessage(
                 id = "e-${state.messages.size}", role = Role.SYSTEM,

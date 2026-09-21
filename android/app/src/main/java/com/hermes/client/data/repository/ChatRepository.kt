@@ -3,6 +3,7 @@ package com.hermes.client.data.repository
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.data.network.ServerRequests
 import com.hermes.client.ui.chat.ApprovalChoice
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -164,7 +165,12 @@ class ChatRepository(private val client: HermesGatewayClient) {
             put("inline_images", false)
             if (!profile.isNullOrBlank()) put("profile", profile)
         })
-        return result.jsonObject["session_id"]?.jsonPrimitive?.content
+        val obj = result as? JsonObject
+        // A question asked while no socket of ours was attached is not replayed as a frame; newer
+        // Hermes returns it here instead and expects the client to re-deliver it (an older one
+        // has no such field, and this is then empty).
+        ServerRequests.openRequestEvents(obj).takeIf { it.isNotEmpty() }?.let(client::redeliver)
+        return obj?.get("session_id")?.jsonPrimitive?.content
     }
 
     /**
@@ -378,11 +384,21 @@ class ChatRepository(private val client: HermesGatewayClient) {
         }
     }
 
-    suspend fun respondApproval(sessionId: String, choice: ApprovalChoice) {
+    /**
+     * Answer an approval. [serverRequestId] is set when the card came from a server→client request
+     * (newer Hermes): the answer is then the response frame `{choice}` for that exact request, which
+     * cannot land on a different approval. Otherwise it is the older `approval.respond` RPC.
+     */
+    suspend fun respondApproval(sessionId: String, choice: ApprovalChoice, serverRequestId: String? = null) {
+        if (!serverRequestId.isNullOrBlank()) {
+            client.respondToServerRequest(serverRequestId, buildJsonObject { put("choice", choice.wire) })
+            return
+        }
         client.call("approval.respond", buildJsonObject {
             put("session_id", sessionId)
+            // Only `choice`: upstream never read an `approved` flag (f159e581 included), and newer
+            // Hermes rejects any key its contract does not declare with 4000.
             put("choice", choice.wire)
-            put("approved", choice != ApprovalChoice.DENY)
         })
     }
 
@@ -390,13 +406,32 @@ class ChatRepository(private val client: HermesGatewayClient) {
      * Returns the server's status string: "ok" when the pending request was released with this
      * answer, "expired" when the request was already gone server-side (timeout, interrupt, or a
      * concurrent release) — the agent never sees an answer delivered onto an expired request.
+     *
+     * [serverRequest] marks a card raised by a server→client `clarify` request (newer Hermes), for
+     * which `clarify.respond` no longer exists: one batch answer is locked with `clarify.lock`
+     * (which still says `ok`/`expired`, and whose last lock resolves the request), while a single
+     * answer, a skip or a cancel-all is the response frame `{answer}`. That frame gets no reply, so
+     * it reports `ok`; a request that had already ended is withdrawn with `request.cancel` instead.
      */
     suspend fun respondClarify(
         sessionId: String,
         requestId: String,
         answer: String,
         questionId: String? = null,
+        serverRequest: Boolean = false,
     ): String {
+        if (serverRequest) {
+            if (!questionId.isNullOrEmpty()) {
+                val locked = client.call(ServerRequests.CLARIFY_LOCK_METHOD, buildJsonObject {
+                    put("request_id", requestId)
+                    put("question_id", questionId)
+                    put("answer", answer)
+                })
+                return (locked as? JsonObject)?.get("status")?.let { (it as? JsonPrimitive)?.content }.orEmpty()
+            }
+            client.respondToServerRequest(requestId, buildJsonObject { put("answer", answer) })
+            return "ok"
+        }
         val result = client.call("clarify.respond", buildJsonObject {
             put("session_id", sessionId)
             put("request_id", requestId)

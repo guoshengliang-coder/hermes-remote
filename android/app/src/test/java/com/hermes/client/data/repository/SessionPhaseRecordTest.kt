@@ -35,6 +35,28 @@ class SessionPhaseRecordTest {
         assertEquals(listOf(original), decodePhaseRecords(encodePhaseRecords(listOf(original))))
     }
 
+    @Test fun aServerRequestClarifyKeepsItsProtocolAcrossARoundTrip() {
+        val original = SessionPhaseRecord(
+            sessionId = "s1",
+            phase = "WAITING_CLARIFICATION",
+            clarify = PersistedClarify(
+                requestId = "srq-0123456789ab",
+                questions = listOf(PersistedQuestion("q0", "DB?"), PersistedQuestion("q1", "Notes?")),
+                lockedAnswers = mapOf("q0" to "pg"),
+                serverRequest = true,
+            ),
+        )
+        val back = decodePhaseRecords(encodePhaseRecords(listOf(original))).single()
+        assertTrue(back.clarify!!.serverRequest)
+        assertEquals(original, back)
+    }
+
+    /** Written before server requests existed: the card came from an event, and must stay on that path. */
+    @Test fun aClarifyStoredBeforeServerRequestsIsAnEventClarify() {
+        val raw = """[{"v":1,"sessionId":"s1","phase":"WAITING_CLARIFICATION","clarify":{"requestId":"clr-1","questions":[{"qid":"","question":"Q?"}]}}]"""
+        assertEquals(false, decodePhaseRecords(raw).single().clarify!!.serverRequest)
+    }
+
     @Test fun unknownFieldsDoNotDropTheRecord() {
         val raw = """[{"v":1,"sessionId":"s1","phase":"COMPLETED_UNREAD","somethingNewer":42}]"""
         assertEquals(listOf("s1"), decodePhaseRecords(raw).map { it.sessionId })

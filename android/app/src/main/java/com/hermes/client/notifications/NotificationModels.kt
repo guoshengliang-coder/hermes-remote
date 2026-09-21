@@ -61,6 +61,11 @@ data class NotifAction(
     val questionId: String? = null,
     val answer: String? = null,
     val deviceId: String? = null,
+    /**
+     * The card came from a server→client request, so [requestId] is that request's id and the
+     * answer is sent to it directly (approval included) instead of via `*.respond`.
+     */
+    val serverRequest: Boolean = false,
 )
 
 /** Progress bar for the running card. [shortText] is the API 36+ status-bar chip text. */
@@ -217,6 +222,7 @@ object Notif {
     const val EXTRA_NOTIF_ID = "notif_id"
     const val EXTRA_REQUEST_ID = "request_id"
     const val EXTRA_QUESTION_ID = "question_id"
+    const val EXTRA_SERVER_REQUEST = "server_request"
     const val EXTRA_ANSWER = "answer"
     const val EXTRA_KIND = "kind"
 }

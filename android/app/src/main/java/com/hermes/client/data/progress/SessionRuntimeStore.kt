@@ -5,6 +5,7 @@ import com.hermes.client.data.network.GatewayRpcException
 import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.network.RELAY_RESPONSE_TOO_LARGE_CODE
 import com.hermes.client.data.network.ServerEvent
+import com.hermes.client.data.network.ServerRequests
 import com.hermes.client.data.network.bool
 import com.hermes.client.data.network.str
 import com.hermes.client.data.network.todoCounts
@@ -29,6 +30,7 @@ import com.hermes.client.ui.chat.ClarifyRequest
 import com.hermes.client.ui.chat.markInterrupted
 import com.hermes.client.ui.chat.organizedForDisplay
 import com.hermes.client.ui.chat.reduce
+import com.hermes.client.ui.chat.withServerRequestCancelled
 import com.hermes.client.ui.chat.withUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -386,6 +388,7 @@ class SessionRuntimeStore(
                         PersistedQuestion(it.qid, it.question, it.choices, it.multiSelect)
                     },
                     lockedAnswers = request.lockedAnswers,
+                    serverRequest = request.serverRequest,
                 )
             },
             // The approval card is deliberately absent; see SessionPhaseStore's KDoc.
@@ -448,6 +451,7 @@ class SessionRuntimeStore(
                     ClarifyQuestion(it.qid, it.question, it.choices, it.multiSelect)
                 },
                 lockedAnswers = card.lockedAnswers,
+                serverRequest = card.serverRequest,
             )
         }
         return copy(
@@ -1580,6 +1584,9 @@ class SessionRuntimeStore(
         // fold is what retires the phase, and the unread decision below depends on which of the two
         // things `session.info{running:false}` is saying — see [saysATurnJustFinished].
         val wasRunning = _runtimes.value[key]?.phase?.isActive == true
+        val withdrewACard = event.type == ServerRequests.CANCEL_EVENT && _runtimes.value[key]?.chat?.let {
+            it.withServerRequestCancelled(event.str("id")) != it
+        } == true
         updateRuntime(key, cause = "event:${event.type}") { runtime ->
             val reduced = try {
                 runtime.chat.reduce(event)
@@ -1603,6 +1610,7 @@ class SessionRuntimeStore(
                 "tool.complete" -> if (withTerminalOutput.isGenerating) SessionRunPhase.THINKING else runtime.phase
                 "approval.request" -> SessionRunPhase.WAITING_APPROVAL
                 "clarify.request" -> SessionRunPhase.WAITING_CLARIFICATION
+                ServerRequests.CANCEL_EVENT -> phaseAfterWithdrawal(runtime.phase, withTerminalOutput)
                 "message.complete" -> if (isWatched(key)) SessionRunPhase.IDLE else SessionRunPhase.COMPLETED_UNREAD
                 "error" -> SessionRunPhase.FAILED
                 "session.info" -> when (event.bool("running")) {
@@ -1676,6 +1684,11 @@ class SessionRuntimeStore(
         }
         if (event.type in setOf("tool.complete", "message.complete", "agent.terminal.output")) {
             scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
+        }
+        if (event.type == ServerRequests.CANCEL_EVENT && withdrewACard) {
+            // A withdrawal says the question is gone, not what the run did next: a timed-out
+            // approval continues, an interrupt ends the run. Ask rather than guess.
+            appScope.launch { probe(key, force = true) }
         }
         if (saysATurnJustFinished(event, wasRunning)) {
             if (isWatched(key)) markRead(key) else markUnread(key)
@@ -2002,4 +2015,17 @@ class SessionRuntimeStore(
         /** How long to wait for a run to settle before calling an approval answer undelivered. */
         const val APPROVAL_CONFIRM_SETTLE_MS = 2_500L
     }
+}
+
+/**
+ * The phase after `request.cancel` withdrew a card. A run still holding another card keeps waiting
+ * on it; a run whose last card went away is no longer waiting on the user, and is assumed to carry
+ * on (a timed-out approval or clarify does) until the probe the store sends says otherwise.
+ */
+internal fun phaseAfterWithdrawal(current: SessionRunPhase, chat: ChatUiState): SessionRunPhase = when {
+    chat.pendingApproval != null -> SessionRunPhase.WAITING_APPROVAL
+    chat.pendingClarify != null -> SessionRunPhase.WAITING_CLARIFICATION
+    current == SessionRunPhase.WAITING_APPROVAL || current == SessionRunPhase.WAITING_CLARIFICATION ->
+        SessionRunPhase.THINKING
+    else -> current
 }

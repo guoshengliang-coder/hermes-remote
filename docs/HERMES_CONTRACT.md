@@ -174,17 +174,79 @@ placed in the signed release.
 ```
 session.create   session.resume   session.access*    session.interrupt   session.workspace.move
 prompt.submit    slash.exec       complete.path       commands.catalog
-approval.respond clarify.respond  config.get          config.set
+approval.respond clarify.respond† clarify.lock‡      client.capabilities‡
+config.get       config.set
 file.attach      image.attach     image.attach_bytes  pdf.attach
 process.list     projects.tree    projects.project_sessions
 ```
+
+† old question protocol only (f159e581); gone in 17b5df02. ‡ new question protocol; an older Hermes
+answers `client.capabilities` with -32601, which is expected and only logged. See
+"How Hermes asks the phone a question" below.
 
 `session.access*` is supplied by managed read-side patch 030 until upstream #116651 / PR #116677 lands; clients
 must tolerate method-not-found and retain the submit-time 4090 fallback.
 
 Server events consumed: `message.start` / `message.delta` / `message.complete`,
-`tool.start` / `tool.complete`, `session.info` / `session.lifecycle`,
-`approval.request`, `clarify.request`, `session.reclaimed`, `sessions.changed`.
+`tool.start` / `tool.complete`, `session.info`, `approval.request` / `clarify.request` (old question
+protocol), `request.cancel` (new question protocol), `session.reclaimed`, `sessions.changed`.
+
+`session.lifecycle` used to be listed here and is **not a Hermes event**: neither f159e581 nor
+17b5df02 emits or declares it (`git grep -F '"session.lifecycle"'` finds nothing; the loose pattern
+only hits the `session_lifecycle` module, and `contracts/events.py` has no such event). It is this
+repository's own Relay wire type — the Connector's observer derives it from `session.active_list`
+polls (`connector/src/session-observer.ts`) and the app reads it from the Relay inbox
+(`LifecycleEventRepository`), never from `/api/ws`.
+
+**How Hermes asks the phone a question — two protocols, both supported (verified 2026-09-21).**
+Between f159e581 and 17b5df02 upstream replaced the paired notification/respond protocol with
+server→client JSON-RPC requests (`tui_gateway/server_requests.py`). The app speaks both and decides
+per card from what actually arrives, never from a version guess (`ServerRequests.kt`):
+
+| | Old (f159e581) | New (17b5df02) |
+|---|---|---|
+| Ask | event `approval.request` / `clarify.request` | request frame `{jsonrpc, id:"srq-<12 hex>", method:"approval"\|"clarify", params:{session_id, …}}` |
+| Approval answer | `approval.respond {session_id, choice}` — resolves the *oldest* approval | response frame `{jsonrpc, id, result:{choice}}` — exactly that request |
+| Single clarify answer | `clarify.respond {session_id, request_id, answer}` | response frame `{result:{answer}}` (`""` = skip) |
+| Batch clarify answer | `clarify.respond` + `question_id`, one lock at a time | `clarify.lock {request_id, question_id, answer}` → `{status:"ok"\|"expired", remaining}`; the last lock resolves the request |
+| Cancel-all | `clarify.respond` without `question_id`, `answer:""` | response frame `{result:{answer:""}}` (no `answers` key = cancel-all) |
+| Withdrawn | `clarify.expire {request_id}` (not consumed) | event `request.cancel {id, method, reason}` — the card with that id is torn down |
+| After a reconnect | not replayed to this app | `session.resume` returns `open_requests: [{id, method, params}]`; a batch's params carry the locked `answers` |
+
+Load-bearing facts, all from the 17b5df02 source:
+
+- **Nothing is asked unless the connection says it can answer.** A WebSocket client must send
+  `client.capabilities {server_requests: true}` once per connection. Until it does, an approval is
+  *withdrawn* ("the attached client cannot answer approval requests") and a clarify returns nothing —
+  silently; the phone just never sees a card. The app sends it as the first frame after
+  `gateway.ready`, before the readiness gate lets any other RPC out, because Hermes reads a socket's
+  frames in order and a session resumed before the advertisement would lose its questions. The
+  advertisement is per transport (`server_requests._answering_clients`), and a request is sent when
+  *any* live WebSocket client attached to the session advertised (`_session_client_answers_requests`);
+  with no client attached it waits in `open_requests`.
+- **Answers are resolved by id, globally.** `rpc_dispatch.dispatch` sends every frame with an `id`,
+  a `result`/`error` and no `method` to `server_requests.resolve_response`, which looks the id up in
+  one process-wide table. An answer therefore works from a different connection than the one the
+  question was sent on — which is what a notification-shade answer after a reconnect is — and an
+  answer to a request that has already ended is dropped without a reply (hence `request.cancel`).
+- **An error answer means "no handler".** For methods the phone has no card for (`sudo`, `secret`,
+  `vault.*`, `terminal.read`, `preview.*`, `window.read`, `tour`) it answers
+  `{jsonrpc, id, error:{code:-32601, …}}` at once. Upstream reads any error response as `None` —
+  `_ask` returns `""`, an approval is withdrawn — instead of waiting the request's full deadline
+  (300 s for a prompt). `contracts/liveness.py` names -32601 as exactly this signal.
+- **Newer Hermes rejects unknown params keys with 4000** (`contracts/registry.py::validate_params`,
+  base `Params` is `extra="forbid"`). `approval.respond` used to carry an `approved` flag no Hermes
+  ever read; it is gone. As of 17b5df02 two other calls still send keys that contract lacks —
+  `session.resume` `inline_images` (managed patch 020) and `image.attach_bytes` `mime_type` — and
+  `session.access` / `clarify.respond` do not exist (-32601). Adopting 17b5df02 needs those settled
+  first; see the upgrade checklist.
+
+The Gateway and Connector need no change for any of this: `tunnel.ws.frame` relays each WebSocket
+frame as opaque base64 in both directions, whatever its shape, and each phone socket gets its own
+Hermes socket (`openTunnelSocket` per `tunnel.ws.open`), so the capability advertisement is per phone
+as upstream intends. The Connector's own observer socket only polls `session.active_list` and never
+attaches to a session, so it cannot make a session look "unanswerable". The dev mock emulates the new
+protocol with `HR_MOCK_SERVER_REQUESTS=1` (`scripts/dev/mock-hermes-stream.mjs`).
 
 **`sessions.changed` is the only one of these that names no session.** It is a list-level broadcast
 — "something in the session list moved" — so its payload carries no `session_id` or
@@ -502,6 +564,12 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 7. Confirm the `messages` table still exposes `timestamp` (section 1b): `sqlite3 ~/.hermes/state.db
    ".schema messages"`. A rename silently empties every history timestamp again.
 8. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
+8a. Run "Approval and clarify against a real Hermes" in `docs/SMOKE_TEST.md`. The question protocol
+    (section 3) has no version negotiation beyond `client.capabilities`, and every way it breaks is
+    silent — the phone simply never shows the card. Also re-grep
+    `tui_gateway/contracts/server_requests.py` for new request methods: one the app should answer
+    must get a card, anything else keeps its -32601. And diff every params key the app sends against
+    `tui_gateway/contracts/` — an extra key is a 4000 there, not a warning.
 8b. Confirm whether Hermes exposes a versioned missing-capability event with a closed capability kind.
     Never substitute parsing `FeatureUnavailable` or tool-error prose for that event.
 8c. Confirm the four numbers the phone classifies on are still those conditions: `prompt.submit`

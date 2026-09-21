@@ -126,6 +126,43 @@ class FlappingConnectionBackoffTest {
     }
 
     /**
+     * Every Hermes answers the capability handshake the instant a socket opens — a newer one with
+     * its method list, an older one with -32601 — so that answer proves nothing about the socket
+     * staying useful. If it counted as "answered an RPC", HG-65's far end would reset the backoff
+     * on every round again.
+     */
+    @Test fun the_capability_answer_alone_does_not_reset_the_backoff() = runTest {
+        repeat(6) {
+            serverRule.server.enqueue(
+                MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        webSocket.send(READY)
+                    }
+
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        val id = Json.parseToJsonElement(text).let { it as kotlinx.serialization.json.JsonObject }["id"]
+                        webSocket.send("""{"jsonrpc":"2.0","id":$id,"result":{"server_requests":["approval"]}}""")
+                        webSocket.close(1000, "")
+                    }
+                }).build(),
+            )
+        }
+        val (client, okHttp) = client(wsUrl(serverRule.server))
+        try {
+            client.connect()
+            assertTrue("the first retry must happen", awaitLine("attempt=0"))
+            assertTrue(
+                "a socket that only answered the capability handshake must not reset the backoff: ${messages()}",
+                // Pinned to the generation: once the enqueued sockets run out, read timeouts
+                // escalate the backoff anyway, and would hide a reset during the rounds that count.
+                awaitLine("(gen=3, attempt=2)"),
+            )
+        } finally {
+            tearDownClient(client, okHttp)
+        }
+    }
+
+    /**
      * The diagnostic half. A far end that closes without a reason leaves the log saying only
      * `closed`, which cannot tell a normal 1000 from a 1006, a 1013 (Mac offline) or a 4403
      * (authorization revoked) — and in HG-65 that was the entire record of 197 closes.

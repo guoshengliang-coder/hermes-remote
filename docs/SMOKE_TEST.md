@@ -63,6 +63,34 @@ curl -X POST -H "X-Hermes-Session-Token: $APP_TOKEN" \
   http://127.0.0.1:8787/api/mobile/events/read
 ```
 
+### Approval and clarify against a real Hermes
+
+Automated coverage stops at a mock: the question protocol changed between Hermes f159e581 (events +
+`*.respond`) and 17b5df02 (server→client requests; `docs/HERMES_CONTRACT.md` section 3), and each
+way it can break is silent — no card appears. Run this against every Hermes the phone is about to
+talk to, on a device or emulator connected through the real Gateway and Connector:
+
+1. Open the in-app diagnostic log after connecting. On a new Hermes it must show
+   `server requests advertised (gen=…); Hermes may ask: approval,clarify,…`; on f159e581
+   `client.capabilities unsupported (…, code=-32601); questions arrive as events`. Neither may be
+   missing.
+2. Ask the agent to run a command that needs approval (e.g. `rm -rf /tmp/hr-approval-probe`). The
+   approval sheet must appear in the chat and, with the app in the background, as a notification.
+   Approve once from the **notification shade**; the command must run. Repeat and deny from the
+   sheet; the agent must report the denial.
+3. Ask for something that makes the agent use clarify with one question, answer it; then with
+   several questions (a batch), answer the first, force-stop the app, reopen the conversation: the
+   batch card must come back with the first answer already ticked. Finish it; the agent must quote
+   every answer.
+4. Leave an approval unanswered until Hermes times it out (or press stop): the card and its
+   notification must disappear by themselves (`request.cancel` on the new protocol).
+5. New Hermes only: with the phone disconnected (airplane mode) while the agent asks, reconnect and
+   open the conversation — the card must be there (`open_requests`), and answering it must work.
+
+The same flow runs locally against the dev mock with `HR_MOCK_SERVER_REQUESTS=1` (every run also asks
+one `sudo`, which the app must refuse with -32601 — the mock logs `answered with error`), and without
+the flag for the old protocol.
+
 ### Android notification and battery checks
 
 1. Enable notifications and keep **Smart** selected. While the app is open, create and complete a

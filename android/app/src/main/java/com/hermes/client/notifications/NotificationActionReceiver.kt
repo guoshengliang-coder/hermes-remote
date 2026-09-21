@@ -40,7 +40,8 @@ fun receiverActionFor(action: String?): ReceiverAction = when (action) {
 
 /**
  * Handles a notification action headlessly: Allow-once/Session/Deny → `approval.respond`; an
- * inline Reply or a choice button → `clarify.respond`. The card shows "Working…" while the RPC
+ * inline Reply or a choice button → `clarify.respond` — or, for a card raised by a server→client
+ * request (newer Hermes), the response frame / `clarify.lock` for that request id. The card shows "Working…" while the RPC
  * runs, the local session state is updated on success so the chat and the card move on together,
  * and a failure puts the buttons back with an HR-NOTIF-001 hint so a lost action is never silent.
  */
@@ -76,6 +77,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
         if ((ra is ReceiverAction.Reply || ra is ReceiverAction.Choice) && answer.isNullOrBlank()) return
         val requestId = intent.getStringExtra(Notif.EXTRA_REQUEST_ID).orEmpty()
         val questionId = intent.getStringExtra(Notif.EXTRA_QUESTION_ID)?.takeIf { it.isNotBlank() }
+        // Carried by the notification itself, not looked up: after process death the approval card
+        // is not restored from disk, and the shade must still answer the request it showed.
+        val serverRequest = intent.getBooleanExtra(Notif.EXTRA_SERVER_REQUEST, false)
 
         notifications.markActionPending(key)
         if (!deviceId.isNullOrBlank() && accountSessions.routeToDevice(deviceId)) {
@@ -87,8 +91,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 runCatching {
                     withTimeout(8_000) {
                         when (ra) {
-                            is ReceiverAction.Approval -> chat.respondApproval(sid, ra.choice)
-                            ReceiverAction.Reply, ReceiverAction.Choice -> chat.respondClarify(sid, requestId, answer!!, questionId)
+                            is ReceiverAction.Approval -> chat.respondApproval(
+                                sid, ra.choice, requestId.takeIf { serverRequest && it.isNotBlank() },
+                            )
+                            ReceiverAction.Reply, ReceiverAction.Choice ->
+                                chat.respondClarify(sid, requestId, answer!!, questionId, serverRequest)
                             else -> Unit
                         }
                     }

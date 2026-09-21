@@ -843,9 +843,13 @@ class ChatViewModel @Inject constructor(
                 com.hermes.client.data.diagnostics.DebugLog.log("session", "history($id) → ${organizedHistory.size} messages")
                 if (organizedHistory.isNotEmpty()) sessionKnownEmpty = false
                 runtimeStore.acceptHistory(key, organizedHistory, requestStartedAt)
+                // A newer Hermes hands the open approval back on resume (`open_requests`), and then
+                // the card is on screen and nothing was lost.
                 if (approvalLostNoticePending) {
                     approvalLostNoticePending = false
-                    appendSystem(approvalLostNotice(appLanguage))
+                    if (runtimeStore.runtimes.value[key]?.chat?.pendingApproval == null) {
+                        appendSystem(approvalLostNotice(appLanguage))
+                    }
                 }
                 // Do not hold the transcript behind image downloads. Show text and placeholders
                 // immediately, then merge the thumbnails in as they land.
@@ -1886,10 +1890,11 @@ class ChatViewModel @Inject constructor(
     fun clearPathItems() { _pathItems.value = emptyList() }
 
     fun respondApproval(choice: ApprovalChoice) {
+        val request = _state.value.pendingApproval
         mutateState { it.copy(pendingApproval = null) }
         viewModelScope.launch {
             val respondedAt = System.currentTimeMillis()
-            runCatching { chat.respondApproval(sessionId, choice) }
+            runCatching { chat.respondApproval(sessionId, choice, request?.serverRequestId) }
                 .onSuccess {
                     val key = runtimeKey ?: return@onSuccess
                     // approval.respond answers nothing, so "did it land" has to be inferred from
@@ -1932,7 +1937,9 @@ class ChatViewModel @Inject constructor(
             val finished = advanced.currentQuestion == null
             mutateState { it.copy(pendingClarify = if (finished) null else advanced) }
             viewModelScope.launch {
-                runCatching { chat.respondClarify(sessionId, request.requestId, answer, current.qid) }
+                runCatching {
+                    chat.respondClarify(sessionId, request.requestId, answer, current.qid, request.serverRequest)
+                }
                     .onSuccess { status ->
                         com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond status=$status")
                         if (status == "expired") {
@@ -1951,7 +1958,7 @@ class ChatViewModel @Inject constructor(
         } else {
             mutateState { it.copy(pendingClarify = null) }
             viewModelScope.launch {
-                runCatching { chat.respondClarify(sessionId, request.requestId, answer) }
+                runCatching { chat.respondClarify(sessionId, request.requestId, answer, serverRequest = request.serverRequest) }
                     .onSuccess { status ->
                         com.hermes.client.data.diagnostics.DebugLog.log("clarify", "respond status=$status")
                         if (status == "expired") onClarifyExpired()
@@ -1980,7 +1987,7 @@ class ChatViewModel @Inject constructor(
         val request = _state.value.pendingClarify ?: return
         mutateState { it.copy(pendingClarify = null) }
         viewModelScope.launch {
-            runCatching { chat.respondClarify(sessionId, request.requestId, "") }
+            runCatching { chat.respondClarify(sessionId, request.requestId, "", serverRequest = request.serverRequest) }
                 .onSuccess { runtimeKey?.let(runtimeStore::continueAfterInput) }
         }
     }
