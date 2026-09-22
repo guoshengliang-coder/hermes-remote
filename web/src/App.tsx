@@ -22,7 +22,9 @@ import {
   type LiveQuestionReport,
   type LiveSettled,
 } from "./app/inbox";
+import { clearBotNotices } from "./app/bots";
 import { clearAllDrafts } from "./app/drafts";
+import { clearLocalPrefs } from "./app/localPrefs";
 import { clearAllPins, loadPins, pinToken, savePins, togglePin } from "./app/pins";
 import { currentRoute, navigate, useRoute, type Route } from "./app/router";
 import {
@@ -35,6 +37,7 @@ import {
 } from "./app/store";
 import { appError, display, type AppError } from "./errors";
 import type { LifecycleEvent, SessionListItem } from "./hermes/types";
+import { ArchivedPage } from "./ui/ArchivedPage";
 import { ChatPage } from "./ui/ChatPage";
 import { DevicePicker } from "./ui/DevicePicker";
 import { ErrorNotice } from "./ui/ErrorNotice";
@@ -92,6 +95,8 @@ export function App() {
   const [collapsed, setCollapsed] = useState<ReadonlySet<GroupId>>(new Set());
   const [projectFilter, setProjectFilter] = useState<ProjectFilter | null>(null);
   const [listSearchSeed, setListSearchSeed] = useState<string | null>(null);
+  const [chatSearchSeed, setChatSearchSeed] = useState<string | null>(null);
+  const [listSegment, setListSegment] = useState<"chats" | "bots">("chats");
   const [flashMessage, setFlashMessage] = useState<{ id: number; text: string; error: boolean } | null>(null);
   /** Where the user was headed before sign-in / device choice (select-only, never an action). */
   const intended = useRef<Route>(currentRoute());
@@ -251,6 +256,8 @@ export function App() {
       await clearCaches();
       clearAllPins();
       clearAllDrafts();
+      clearLocalPrefs();
+      clearBotNotices();
       setCollapsed(new Set());
       setProjectFilter(null);
       writeStoredDevice(null);
@@ -342,6 +349,10 @@ export function App() {
     setProjectFilter,
     listSearchSeed,
     setListSearchSeed,
+    chatSearchSeed,
+    setChatSearchSeed,
+    listSegment,
+    setListSegment,
     flash,
     signOut,
     authLost,
@@ -414,6 +425,8 @@ export function App() {
             ) : null}
             {route.name === "chat" || route.name === "new" ? (
               <ChatPage sessionId={route.name === "chat" ? route.sessionId : null} />
+            ) : route.name === "archived" ? (
+              <ArchivedPage />
             ) : (
               <SessionList />
             )}

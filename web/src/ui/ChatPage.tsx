@@ -1,8 +1,11 @@
 import { Fragment } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
+import { botNoticeSeen, botOriginLabel, botSendNoticeBody, botSendNoticeTitle, markBotNoticeSeen } from "../app/bots";
 import { draftKey } from "../app/drafts";
+import { rememberDefaultProject } from "../app/localPrefs";
 import { basename } from "../app/projects";
 import { explicitProfile } from "../app/profile";
+import { isBotSession } from "../app/sources";
 import { navigate } from "../app/router";
 import { useApp } from "../app/store";
 import type { PendingAttachment } from "../chat/attachments";
@@ -13,6 +16,7 @@ import { appError } from "../errors";
 import type { AnswerPlan } from "../hermes/requests";
 import { Composer } from "./Composer";
 import { ErrorNotice } from "./ErrorNotice";
+import { Sheet } from "./Sheet";
 import { ChatSearchBar, PromptsSheet, searchHits, ShareSheet, SourceDialog, useSearchHighlights, UserMenuSheet } from "./ChatSheets";
 import {
   ArrowDownIcon,
@@ -58,6 +62,15 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const [userMenu, setUserMenu] = useState<ChatItem | null>(null);
   const [sourceItem, setSourceItem] = useState<ChatItem | null>(null);
   const [seed, setSeed] = useState<{ text: string; nonce: number } | null>(null);
+  const [botNotice, setBotNotice] = useState<{ text: string; attachments: PendingAttachment[] } | null>(null);
+
+  // Opened from a message-search hit: in-chat search starts pre-filled (Android initialQuery).
+  useEffect(() => {
+    if (!app.chatSearchSeed) return;
+    setSearchQuery(app.chatSearchSeed);
+    setSearchOpen(true);
+    app.setChatSearchSeed(null);
+  }, []);
   // A new chat opened from a project-filtered list is created in that project's folder; captured
   // once so changing the filter later cannot move a chat that is being created.
   const newChatProject = useRef(sessionId === null ? app.projectFilter : null);
@@ -96,6 +109,11 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         navigate({ name: "chat", sessionId: id }, { replace: true });
       },
       onAuthLost: app.authLost,
+      // A top-level create lands in Hermes' launch folder: that is the default project (Android
+      // saves the same `info.cwd` as defaultProjectPath).
+      onCreated: ({ cwd, requestedCwd }) => {
+        if (!requestedCwd) rememberDefaultProject(device.deviceId, cwd);
+      },
     });
     sessionRef.current = session;
     setStoredId(sessionId);
@@ -151,9 +169,15 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     if (stick.current !== atBottom) setAtBottom(stick.current);
   }
 
-  function send(text: string, attachments: PendingAttachment[]) {
+  function send(text: string, attachments: PendingAttachment[], confirmed = false) {
     const session = sessionRef.current;
     if (!session) return;
+    // First message into a bot conversation: say once, per channel, that it stays in Hermes (§5.16).
+    const bot = storedId ? app.sessions.find((s) => s.id === storedId) : undefined;
+    if (!confirmed && bot && isBotSession(bot) && !botNoticeSeen(bot.source!)) {
+      setBotNotice({ text, attachments });
+      return;
+    }
     const key = `l-${++localSeq}`;
     pendingFiles.current.set(key, attachments);
     stick.current = true;
@@ -177,6 +201,12 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
 
   function answer(plan: AnswerPlan) {
     void sessionRef.current?.answer(plan);
+  }
+
+  /** Cancelled: the typed text goes back into the composer instead of being lost. */
+  function cancelBotNotice() {
+    if (botNotice?.text) setSeed({ text: botNotice.text, nonce: Date.now() });
+    setBotNotice(null);
   }
 
   function regenerate() {
@@ -223,6 +253,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const workspacePath = state.workspace?.cwd ?? row?.git_repo_root ?? row?.cwd ?? null;
   const workspaceBranch = state.workspace ? state.workspace.branch : (row?.git_branch ?? null);
   const workspaceLabel = workspacePath ? basename(workspacePath.replace(/[/\\]+$/, "")) : null;
+  const botRow = row && isBotSession(row) ? row : null;
 
   const connectionLine =
     state.connection === "reconnecting"
@@ -276,6 +307,8 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
               <h1 class={`topbar-title left${title.length > 24 ? " long" : ""}`}>{emptyNew ? t("新会话", "New chat") : title}</h1>
               {connectionLine ? (
                 <span class="chat-status">{connectionLine}</span>
+              ) : botRow ? (
+                <span class="chat-workspace">{botOriginLabel(botRow, language)}</span>
               ) : workspaceLabel && !emptyNew ? (
                 <span class="chat-workspace mono">
                   <FolderIcon size={12} />
@@ -436,6 +469,28 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         />
       ) : null}
       {sourceItem ? <SourceDialog item={sourceItem} onClose={() => setSourceItem(null)} /> : null}
+      {botNotice && botRow ? (
+        <Sheet title={botSendNoticeTitle(botRow.source, language)} closeLabel={t("取消", "Cancel")} onClose={cancelBotNotice}>
+          <p class="sheet-body">{botSendNoticeBody(botRow.source, language)}</p>
+          <div class="sheet-buttons">
+            <button type="button" class="text-button subtle" onClick={cancelBotNotice}>
+              {t("取消", "Cancel")}
+            </button>
+            <button
+              type="button"
+              class="primary-button inline"
+              onClick={() => {
+                markBotNoticeSeen(botRow.source!);
+                const pending = botNotice;
+                setBotNotice(null);
+                send(pending.text, pending.attachments, true);
+              }}
+            >
+              {t("知道了，发送", "Got it, send")}
+            </button>
+          </div>
+        </Sheet>
+      ) : null}
     </div>
   );
 }

@@ -208,3 +208,23 @@ export const PinOutlineIcon = (p: IconProps) => (
     <path d="M9 3.5h6V6h-1.3l2.3 7H8l2.3-7H9zM12 13v7.5" />
   </Svg>
 );
+
+export const ArchiveIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3.5" y="4.5" width="17" height="4" rx="1" />
+    <path d="M5 8.5v9a2 2 0 002 2h10a2 2 0 002-2v-9M10 12.5h4" />
+  </Svg>
+);
+
+export const ChatIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 5.5h14a1.5 1.5 0 011.5 1.5v8.5A1.5 1.5 0 0119 17H10l-4.5 3.5V17H5a1.5 1.5 0 01-1.5-1.5V7A1.5 1.5 0 015 5.5z" />
+  </Svg>
+);
+
+export const BotIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4.5" y="8" width="15" height="11" rx="3" />
+    <path d="M12 8V4.5M9.5 13h.01M14.5 13h.01M9.5 16.5h5" />
+  </Svg>
+);

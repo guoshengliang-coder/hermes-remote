@@ -62,6 +62,24 @@ const server = createServer(async (request, response) => {
     }
     return json(response, { messages: out });
   }
+  if (p === "/api/sessions/search") {
+    // Upstream's shape: `results` rows with a snippet around the match. The mock searches the
+    // fixture titles and the one mock conversation's prompts and answer, which is enough to drive
+    // the Web search page's message section and "open with in-chat search".
+    const q = (url.searchParams.get("q") ?? "").replace(/^"|"$/g, "").toLowerCase();
+    const results = [];
+    if (q) {
+      if (promptCount > 0) {
+        const text = [...promptTexts.slice(0, promptCount), FULL_TEXT].join("\n");
+        const at = text.toLowerCase().indexOf(q);
+        if (at >= 0) results.push({ session_id: STORED_ID, title: "Mock 会话", snippet: text.slice(Math.max(0, at - 60), at + q.length + 60), last_active: nowSec(), ...storedWorkspace });
+      }
+      for (const f of fixtureSessions) {
+        if (f.title.toLowerCase().includes(q)) results.push({ session_id: f.id, title: f.title, snippet: `…${f.title}…`, last_active: nowSec() - f.ago, archived: Boolean(f.archived), cwd: f.cwd, git_repo_root: f.git_repo_root });
+      }
+    }
+    return json(response, { results });
+  }
   if (/^\/api\/sessions\/[^/]+$/.test(p)) return json(response, { session: { id: p.split("/")[3], title: "Mock" } });
   if (p === "/api/profiles/sessions") {
     // Cross-profile list with workspace facts, so the app's project sublines, Projects segment
@@ -71,7 +89,7 @@ const server = createServer(async (request, response) => {
       .filter((row) => (wantArchived ? row.archived : !row.archived));
     return json(response, { sessions: rows, total: rows.length, profile_totals: { default: rows.length }, errors: [] });
   }
-  if (p === "/api/sessions" || p === "/api/sessions/search") {
+  if (p === "/api/sessions") {
     // List the stored session once it has content, so "reopen from the list" flows are testable.
     const sessions = promptCount > 0
       ? [{ id: STORED_ID, title: "Mock 会话", message_count: promptCount * 2, last_active: Math.floor(Date.now() / 1000) }]
@@ -592,6 +610,8 @@ const fixtureSessions = [
   { id: "fx-3", title: "翻译 Android 文案", model: "claude-sonnet-5", cwd: "/Users/me/.hermes/nous-hermes-agent-playground", git_repo_root: "/Users/me/.hermes/nous-hermes-agent-playground", git_branch: "claude/l10n-pass", ago: 30 * 60 },
   { id: "fx-4", title: "调查 DERP 端口冲突", model: "claude-opus-5", cwd: "/Users/me/ops/hk", git_repo_root: "/Users/me/ops/hk", git_branch: "main", ago: 2 * 86400 },
   { id: "fx-5", title: "整理 docs/DEPLOYMENT", model: "claude-opus-5", cwd: HERMES_REMOTE, git_repo_root: HERMES_REMOTE, git_branch: "main", ago: 9 * 86400 },
+  // A DingTalk group conversation: the Web list's 机器人 segment and bot chat subtitle / notice.
+  { id: "fx-7", title: "值班提醒怎么设置", model: null, cwd: null, git_repo_root: null, git_branch: null, ago: 3 * 3600, source: "dingtalk", display_name: "运维值班群", chat_type: "group" },
   { id: "fx-6", title: "调试 debug 签名密钥缺失", model: "claude-opus-5", cwd: HERMES_REMOTE, git_repo_root: HERMES_REMOTE, git_branch: "main", ago: 5 * 86400, archived: true },
 ];
 // Workspace of the dynamically created stored session (set by session.create / workspace.move).
@@ -606,7 +626,8 @@ function mockSessions() {
   const rows = fixtureSessions.map((f) => ({
     id: f.id, title: f.title, model: f.model, message_count: 4, last_active: nowSec() - f.ago,
     profile: "default", is_default_profile: true, archived: Boolean(f.archived),
-    cwd: f.cwd, git_repo_root: f.git_repo_root, git_branch: f.git_branch, source: "tui",
+    cwd: f.cwd, git_repo_root: f.git_repo_root, git_branch: f.git_branch, source: f.source ?? "tui",
+    ...(f.display_name ? { display_name: f.display_name } : {}), ...(f.chat_type ? { chat_type: f.chat_type } : {}),
   }));
   for (let i = 0; i < extraSessions; i += 1) {
     rows.push({

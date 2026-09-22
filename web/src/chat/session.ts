@@ -39,6 +39,8 @@ export interface ChatSessionOptions {
    * history and create name it explicitly.
    */
   profile?: string | null;
+  /** A new chat was created: its info (the launch folder when no cwd was asked for). */
+  onCreated?: (info: { cwd: string | null; requestedCwd: boolean }) => void;
   dispatch: (action: ChatAction) => void;
   /** A new chat got its durable id (navigate there, replacing /app/new). */
   onStored?: (storedSessionId: string) => void;
@@ -314,6 +316,8 @@ export class ChatSession {
         this.liveId = result.session_id;
         this.storedId = result.stored_session_id || result.session_id;
         this.o.onStored?.(this.storedId);
+        const cwd = typeof result.info?.cwd === "string" ? result.info.cwd : null;
+        this.o.onCreated?.({ cwd, requestedCwd: Boolean(this.o.cwd?.trim()) });
         return this.liveId;
       } finally {
         this.creating = null;
