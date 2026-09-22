@@ -45,7 +45,8 @@ describe("paths", () => {
     expect(encodePathSegment("mac mini+1/(x)!'~*")).toBe("mac%20mini%2B1%2F%28x%29%21%27%7E*");
     expect(paths.deviceApi("dev 1", "sessions")).toBe("/v2/devices/dev%201/api/sessions");
     expect(paths.deviceApi("d", "/api/sessions/abc/messages")).toBe("/v2/devices/d/api/sessions/abc/messages");
-    expect(paths.deviceApi("d", hermesPaths.messages("20260918_204034_16def7"))).toBe("/v2/devices/d/api/sessions/20260918_204034_16def7/messages");
+    expect(paths.deviceApi("d", hermesPaths.messages("20260918_204034_16def7"))).toBe("/v2/devices/d/api/sessions/20260918_204034_16def7/messages?inline_images=false");
+    expect(hermesPaths.messages("s1", "work team")).toBe("sessions/s1/messages?inline_images=false&profile=work%20team");
   });
 
   it("builds the device WebSocket URL from the page scheme and host", () => {
@@ -148,7 +149,7 @@ describe("single-flight refresh", () => {
     expect(results.map((r) => (r as unknown as { ok: string }).ok)).toEqual([
       "/v2/devices/d/api/sessions",
       "/v2/devices/d/api/profiles/sessions",
-      "/v2/devices/d/api/sessions/s1/messages",
+      "/v2/devices/d/api/sessions/s1/messages?inline_images=false",
     ]);
     const refreshCall = calls.find((c) => c.url === paths.refresh)!;
     expect(refreshCall.method).toBe("POST");

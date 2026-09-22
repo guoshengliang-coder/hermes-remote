@@ -33,6 +33,12 @@ export interface ChatSessionOptions {
   storedSessionId: string | null;
   /** Folder a NEW chat is created in (the list's project filter); unset = Hermes' launch folder. */
   cwd?: string | null;
+  /**
+   * The session's Hermes profile when it is not the default one. The list spans every profile, and
+   * the Web app never switches the Mac's active profile (that would move the phone too), so resume,
+   * history and create name it explicitly.
+   */
+  profile?: string | null;
   dispatch: (action: ChatAction) => void;
   /** A new chat got its durable id (navigate there, replacing /app/new). */
   onStored?: (storedSessionId: string) => void;
@@ -256,7 +262,7 @@ export class ChatSession {
     const id = this.storedId;
     if (!id) return;
     try {
-      const body = await this.o.client.messages(this.o.deviceId, id);
+      const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile);
       if (this.disposed || id !== this.storedId) return;
       this.o.dispatch({ type: "history", rows: Array.isArray(body?.messages) ? body.messages : [] });
     } catch (error) {
@@ -278,7 +284,7 @@ export class ChatSession {
     if (!this.storedId) return Promise.reject(new Error("no stored session"));
     if (!force && this.liveId) return Promise.resolve(this.liveId);
     if (!force && this.resuming) return this.resuming;
-    const { method, params } = sessionResume(this.storedId);
+    const { method, params } = sessionResume(this.storedId, { profile: this.o.profile });
     const run = this.call<SessionResumeResult>(method, params, 60_000).then(
       (result) => {
         const live = typeof result?.session_id === "string" && result.session_id ? result.session_id : this.storedId!;
@@ -298,7 +304,7 @@ export class ChatSession {
 
   private create(): Promise<string> {
     this.creating ??= (async () => {
-      const { method, params } = sessionCreate({ cwd: this.o.cwd });
+      const { method, params } = sessionCreate({ cwd: this.o.cwd, profile: this.o.profile });
       try {
         const result = await this.call<SessionCreateResult>(method, params);
         this.liveId = result.session_id;

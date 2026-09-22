@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "preact/hooks";
+import { explicitProfile } from "../app/profile";
 import { navigate } from "../app/router";
 import { useApp } from "../app/store";
 import type { PendingAttachment } from "../chat/attachments";
@@ -33,9 +34,23 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   // once so changing the filter later cannot move a chat that is being created.
   const newChatProject = useRef(sessionId === null ? app.projectFilter : null);
 
+  // Opened straight from a URL before the list loaded: fetch it first, because the session's
+  // profile decides where resume and history look.
+  const [listReady, setListReady] = useState(sessionId === null || app.sessions.length > 0);
+  useEffect(() => {
+    if (listReady || !device) return;
+    let live = true;
+    loadSessions(client, device.deviceId)
+      .then((rows) => live && app.setSessions(rows), () => undefined)
+      .finally(() => live && setListReady(true));
+    return () => {
+      live = false;
+    };
+  }, [listReady, device?.deviceId]);
+
   // One ChatSession per conversation; adopting the id a new chat just got keeps the socket.
   useEffect(() => {
-    if (!device) return;
+    if (!device || !listReady) return;
     const current = sessionRef.current;
     if (current && sessionId !== null && current.storedSessionId === sessionId) return;
     current?.dispose();
@@ -46,6 +61,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
       deviceId: device.deviceId,
       storedSessionId: sessionId,
       cwd: sessionId === null ? newChatProject.current?.path : null,
+      profile: sessionId === null ? null : explicitProfile(app.sessions.find((s) => s.id === sessionId)),
       dispatch,
       onStored: (id) => {
         setStoredId(id);
@@ -56,7 +72,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     sessionRef.current = session;
     setStoredId(sessionId);
     session.start();
-  }, [sessionId, device?.deviceId]);
+  }, [sessionId, device?.deviceId, listReady]);
 
   useEffect(() => () => {
     sessionRef.current?.dispose();

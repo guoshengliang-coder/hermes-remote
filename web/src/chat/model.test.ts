@@ -42,7 +42,7 @@ describe("streaming", () => {
       e("tool.complete", { tool_id: "t1", result: "ok" }),
     );
     expect(s.items[0]!.reasoning).toBe("think");
-    expect(s.items[0]!.tools).toEqual([{ id: "t1", name: "Bash", output: "ok", done: true }]);
+    expect(s.items[0]!.tools).toMatchObject([{ id: "t1", name: "Bash", output: "ok", done: true }]);
   });
 
   it("a new user turn starts a new assistant turn", () => {
@@ -111,7 +111,7 @@ describe("history", () => {
     );
     expect(s.historyLoaded).toBe(true);
     expect(s.items.map((i) => i.text)).toEqual(["q", "a", "unsent"]);
-    expect(s.items[1]!.tools).toEqual([{ id: "c1", name: "Bash", output: "out", done: true }]);
+    expect(s.items[1]!.tools).toMatchObject([{ id: "c1", name: "Bash", output: "out", done: true }]);
   });
 
   it("does not clobber a live stream with a history page", () => {
@@ -155,5 +155,45 @@ describe("notices", () => {
     s = reduceChat(s, { type: "user-sent", key: "l", text: "x", nowMs: 1 });
     expect(s.notice?.code).toBe("HR-SESS-001");
     expect(reduceChat(s, { type: "reset" })).toEqual(initialChatState);
+  });
+});
+
+describe("history organisation (Android organizedForDisplay)", () => {
+  it("folds consecutive assistant records into one turn and keeps tools from both", () => {
+    const rows = [
+      { id: 1, role: "user", content: "go", timestamp: 1 },
+      { id: 2, role: "assistant", content: "first", timestamp: 2, tool_calls: [{ id: "c1", function: { name: "terminal", arguments: '{"command":"ls"}' } }] },
+      { id: 3, role: "tool", content: '{"output":"a","exit_code":0}', tool_call_id: "c1" },
+      { id: 4, role: "assistant", content: "second", timestamp: 4 },
+    ];
+    const s = reduceChat(initialChatState, { type: "history", rows });
+    expect(s.items.map((i) => i.role)).toEqual(["user", "assistant"]);
+    expect(s.items[1]).toMatchObject({ text: "first\n\nsecond", timestampMs: 2000 });
+    expect(s.items[1]!.tools).toMatchObject([{ id: "c1", command: "ls", output: "a", exitCode: 0 }]);
+  });
+
+  it("drops hidden rows, notes injected turns, and cuts scaffolding from real prompts", () => {
+    const rows = [
+      { id: 1, role: "user", content: "secret", display_kind: "hidden" },
+      { id: 2, role: "user", content: "Model changed to fable-5. ", display_kind: "model_switch" },
+      { id: 3, role: "user", content: "real\n[Your active task list was preserved across context compression]\n- x" },
+    ];
+    const s = reduceChat(initialChatState, { type: "history", rows });
+    expect(s.items).toHaveLength(2);
+    expect(s.items[0]!.note?.zh).toBe("已切换模型 · fable-5");
+    expect(s.items[1]).toMatchObject({ text: "real" });
+    expect(s.items[1]!.note).toBeUndefined();
+  });
+
+  it("a second message.start after tools continues the same live answer", () => {
+    let s = reduceChat(initialChatState, { type: "user-sent", key: "l-1", text: "hi", nowMs: 1 });
+    s = reduceChat(s, e("message.start", {}));
+    s = reduceChat(s, e("message.delta", { text: "part one" }));
+    s = reduceChat(s, e("message.complete", { text: "part one" }));
+    s = reduceChat(s, e("message.start", {}));
+    s = reduceChat(s, e("message.delta", { text: "part two" }));
+    s = reduceChat(s, e("message.complete", { text: "part two" }));
+    expect(s.items.filter((i) => i.role === "assistant")).toHaveLength(1);
+    expect(s.items.at(-1)!.text).toBe("part one\n\npart two");
   });
 });

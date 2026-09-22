@@ -4,6 +4,7 @@ import { toAppError } from "../app/failures";
 import { groupSessions, lastActiveMs, relativeTime, sessionSubline, type GroupId } from "../app/grouping";
 import { deriveProjects, disambiguatedLabels, inProject } from "../app/projects";
 import { navigate } from "../app/router";
+import { isListable } from "../app/sources";
 import { useApp } from "../app/store";
 import { appError, type AppError } from "../errors";
 import { buildSearchQuery } from "../hermes/search-query";
@@ -139,10 +140,10 @@ export function SessionList() {
       const entry = app.inbox.latest[id];
       extra.push({ id, title: entry?.title ?? null, last_active: entry ? entry.occurredAtMs / 1000 : null });
     }
-    return [...extra, ...app.sessions];
+    return [...extra, ...app.sessions.filter(isListable)];
   }, [app.sessions, app.needsYou, app.inbox.latest]);
 
-  const projects = useMemo(() => deriveProjects(app.sessions), [app.sessions]);
+  const projects = useMemo(() => deriveProjects(app.sessions.filter(isListable)), [app.sessions]);
   const projectLabels = useMemo(() => disambiguatedLabels(projects), [projects]);
 
   // The filter narrows everything except needs-you: a waiting question is never hidden by a filter.
@@ -337,7 +338,7 @@ export function SessionList() {
                 <span class="picker-text">
                   <span class="picker-name">{t("全部会话", "All conversations")}</span>
                 </span>
-                <span class="picker-count mono">{app.sessions.filter((s) => !s.archived).length}</span>
+                <span class="picker-count mono">{app.sessions.filter((s) => !s.archived && isListable(s)).length}</span>
                 <span class="picker-check">{filter ? null : <CheckIcon size={18} />}</span>
               </button>
               {projects.map((project) => {
