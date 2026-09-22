@@ -48,6 +48,8 @@
   <string></string>
   <key>HermesGoDesktopReleaseSigningPublicKey</key>
   <string></string>
+  <key>HermesGoDesktopReleaseSigningKeys</key>
+  <string></string>
   <key>HermesGoDesktopHermesRuntimeContract</key>
   <string></string>
   <key>NSAppTransportSecurity</key>

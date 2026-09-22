@@ -18,12 +18,10 @@ import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { applyHermesPatches, loadHermesPatches } from "./hermes-patches.mjs";
 import {
   HERMES_METADATA_FILES,
   HERMES_SOURCE_DIRECTORIES,
 } from "./managed-hermes-source.mjs";
-import { readHermesSchemaBaseline } from "./hermes-schema-baseline.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -36,10 +34,7 @@ const MAX_COMPONENT_ENTRIES = 65_536;
 const MAX_COMPONENT_BYTES = 2 * 1024 * 1024 * 1024;
 
 const COMPONENT_V2_ORDER = Object.freeze([
-  "python_runtime", "hermes_core", "node_runtime", "connector",
-]);
-const OPTIONAL_COMPONENT_V2_KINDS = Object.freeze([
-  "browser_automation", "speech_runtime", "document_tools",
+  "node_runtime", "connector",
 ]);
 
 export async function packageDesktopComponentArchives({
@@ -81,7 +76,6 @@ export async function packageDesktopComponentArchives({
       version: config.hermes.version,
       sourceCommit: config.hermes.sourceCommit,
       architecture: config.architecture,
-      patchDirectory: hermesPatchDirectory(repo),
     });
     await stageConnector({
       destination: connectorStage,
@@ -195,47 +189,14 @@ export async function packageDesktopComponentArchivesV2({
     await assertGitIdentity(repo, config.sourceCommit);
     await assertConnectorVersion(repo, config.connector.version);
 
-    const hermesRoot = await requireDirectory(config.hermesCore.sourceRoot);
-    const pythonRoot = await requireDirectory(config.pythonRuntime.root);
-    const sitePackages = await requireDirectory(config.pythonRuntime.sitePackages);
     const nodeBinary = await requireRegularFile(config.nodeRuntime.binary, 256 * 1024 * 1024);
-    await assertGitIdentity(hermesRoot, config.hermesCore.sourceCommit);
-    await assertHermesVersion(hermesRoot, config.hermesCore.version);
-
-    const pythonSeries = pythonMajorMinor(config.pythonRuntime.version);
-    const pythonBinary = await requireRegularFile(
-      path.join(pythonRoot, `bin/python${pythonSeries}`),
-      128 * 1024 * 1024,
-    );
-    await inspectArchitecture(pythonBinary, config.architecture);
     await inspectArchitecture(nodeBinary, config.architecture);
-    await inspectPortability(pythonBinary);
     await inspectPortability(nodeBinary);
-    await inspectPythonVersion(pythonBinary, config.pythonRuntime.version);
     await inspectNodeVersion(nodeBinary, config.nodeRuntime.version);
 
     temporaryRoot = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-desktop-components-v2-")));
-    const componentOrder = [
-      ...COMPONENT_V2_ORDER,
-      ...config.optionalComponents.map((component) => component.kind),
-    ];
+    const componentOrder = [...COMPONENT_V2_ORDER];
     const stages = Object.fromEntries(componentOrder.map((kind) => [kind, path.join(temporaryRoot, kind)]));
-    await stagePythonRuntimeV2({
-      destination: stages.python_runtime,
-      pythonRoot,
-      sitePackages,
-      version: config.pythonRuntime.version,
-      sourceCommit: config.hermesCore.sourceCommit,
-      architecture: config.architecture,
-    });
-    await stageHermesCoreV2({
-      destination: stages.hermes_core,
-      hermesRoot,
-      version: config.hermesCore.version,
-      sourceCommit: config.hermesCore.sourceCommit,
-      architecture: config.architecture,
-      patchDirectory: hermesPatchDirectory(repo),
-    });
     await stageNodeRuntimeV2({
       destination: stages.node_runtime,
       nodeBinary,
@@ -252,44 +213,9 @@ export async function packageDesktopComponentArchivesV2({
     });
     await verifyConnectorSessionTokenContract(stages.connector, temporaryRoot);
 
-    for (const optional of config.optionalComponents) {
-      const sourceRoot = await requireDirectory(optional.root);
-      await stageOptionalComponentV2({
-        destination: stages[optional.kind],
-        sourceRoot,
-        kind: optional.kind,
-        version: optional.version,
-        sourceCommit: config.sourceCommit,
-        architecture: config.architecture,
-      });
-      const entrypoint = path.join(stages[optional.kind], optional.entrypoint);
-      await inspectOptionalComponent({
-        kind: optional.kind,
-        root: stages[optional.kind],
-        entrypoint,
-        architecture: config.architecture,
-      });
-    }
-
     const definitions = [
-      componentV2("python_runtime", config.pythonRuntime.version, "bin/python3", []),
-      componentV2("hermes_core", config.hermesCore.version, "bin/hermes", ["python_runtime"]),
       componentV2("node_runtime", config.nodeRuntime.version, "bin/node", []),
-      componentV2("connector", config.connector.version, "bin/hermes-connector", [
-        "hermes_core", "node_runtime",
-      ]),
-      ...config.optionalComponents.map((component) => componentV2(
-        component.kind,
-        component.version,
-        component.entrypoint,
-        component.dependencies,
-        {
-          installPhase: "on_demand",
-          onDemandTrigger: component.onDemandTrigger,
-          reuseContract: component.reuseContract,
-          compatibilityIdentifier: component.compatibilityIdentifier,
-        },
-      )),
+      componentV2("connector", config.connector.version, "bin/hermes-connector", ["node_runtime"]),
     ];
     const artifacts = [];
     for (const definition of definitions) {
@@ -321,7 +247,6 @@ export async function packageDesktopComponentArchivesV2({
       });
     }
     await assertGitIdentity(repo, config.sourceCommit);
-    await assertGitIdentity(hermesRoot, config.hermesCore.sourceCommit);
     return {
       schemaVersion: 2,
       architecture: config.architecture,
@@ -348,71 +273,17 @@ export async function loadComponentConfigV2(configPath) {
   let config;
   try { config = JSON.parse(await readFile(file, "utf8")); } catch { fail("component_config_invalid"); }
   exactKeys(config, [
-    "schemaVersion", "architecture", "sourceCommit", "pythonRuntime", "nodeRuntime",
-    "hermesCore", "connector", "optionalComponents",
+    "schemaVersion", "architecture", "sourceCommit", "nodeRuntime", "connector",
   ], "component_config_fields_invalid");
   if (config.schemaVersion !== 2 || !["arm64", "x86_64"].includes(config.architecture)
       || !fullCommit(config.sourceCommit)) fail("component_config_identity_invalid");
 
-  exactKeys(config.pythonRuntime, ["version", "root", "sitePackages"], "component_config_python_invalid");
-  if (!semanticVersion(config.pythonRuntime.version)
-      || ![config.pythonRuntime.root, config.pythonRuntime.sitePackages]
-        .every((value) => typeof value === "string" && path.isAbsolute(value))) {
-    fail("component_config_python_invalid");
-  }
   exactKeys(config.nodeRuntime, ["version", "binary"], "component_config_node_invalid");
   if (!semanticVersion(config.nodeRuntime.version) || typeof config.nodeRuntime.binary !== "string"
       || !path.isAbsolute(config.nodeRuntime.binary)) fail("component_config_node_invalid");
-  exactKeys(config.hermesCore, [
-    "version", "sourceCommit", "sourceRoot",
-  ], "component_config_hermes_invalid");
-  if (!semanticVersion(config.hermesCore.version) || !fullCommit(config.hermesCore.sourceCommit)
-      || typeof config.hermesCore.sourceRoot !== "string" || !path.isAbsolute(config.hermesCore.sourceRoot)) {
-    fail("component_config_hermes_invalid");
-  }
   exactKeys(config.connector, ["version"], "component_config_connector_invalid");
   if (!semanticVersion(config.connector.version)) fail("component_config_connector_invalid");
-  if (!Array.isArray(config.optionalComponents)) fail("component_config_optional_invalid");
-  const optionalKinds = new Set();
-  for (const optional of config.optionalComponents) {
-    const baseKeys = [
-      "kind", "version", "root", "entrypoint", "onDemandTrigger", "reuseContract",
-      "dependencies",
-    ];
-    const keys = optional?.reuseContract === "verified_compatibility"
-      ? [...baseKeys, "compatibilityIdentifier"] : baseKeys;
-    exactKeys(optional, keys, "component_config_optional_invalid");
-    if (!OPTIONAL_COMPONENT_V2_KINDS.includes(optional.kind)
-        || optionalKinds.has(optional.kind)
-        || !semanticVersion(optional.version)
-        || typeof optional.root !== "string" || !path.isAbsolute(optional.root)
-        || !validRelativePath(optional.entrypoint)
-        || !validIdentifier(optional.onDemandTrigger)
-        || !["exact_content", "verified_compatibility"].includes(optional.reuseContract)
-        || !Array.isArray(optional.dependencies)
-        || optional.dependencies.some((dependency) => typeof dependency !== "string")) {
-      fail("component_config_optional_invalid");
-    }
-    if (optional.reuseContract === "verified_compatibility") {
-      if (optional.kind !== "browser_automation"
-          || !validIdentifier(optional.compatibilityIdentifier)) {
-        fail("component_config_optional_invalid");
-      }
-    }
-    const expectedDependencies = optional.kind === "browser_automation" ? [] : ["python_runtime"];
-    if (optional.dependencies.length !== expectedDependencies.length
-        || optional.dependencies.some((dependency, index) => dependency !== expectedDependencies[index])) {
-      fail("component_config_optional_invalid");
-    }
-    optionalKinds.add(optional.kind);
-  }
-  return {
-    ...config,
-    optionalComponents: [...config.optionalComponents].sort(
-      (left, right) => OPTIONAL_COMPONENT_V2_KINDS.indexOf(left.kind)
-        - OPTIONAL_COMPONENT_V2_KINDS.indexOf(right.kind),
-    ),
-  };
+  return config;
 }
 
 function componentV2(component, version, entrypoint, dependencies, extra = {}) {
@@ -437,12 +308,6 @@ async function stageOptionalComponentV2({
   await writeIdentityV2(destination, {
     component: kind, version, sourceCommit, architecture,
   });
-}
-
-function pythonMajorMinor(version) {
-  const match = /^(\d+)\.(\d+)\./.exec(version);
-  if (!match) fail("component_config_python_invalid");
-  return `${match[1]}.${match[2]}`;
 }
 
 /**
@@ -511,12 +376,7 @@ sys.stdout.write(token)
 `;
 }
 
-/** Where the patch set lives, relative to this repository — not to any Hermes checkout. */
-function hermesPatchDirectory(repositoryRoot) {
-  return path.join(repositoryRoot, "desktop/hermes-patches");
-}
-
-async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, version, sourceCommit, architecture, patchDirectory }) {
+async function stageHermes({ destination, hermesRoot, pythonRoot, sitePackages, version, sourceCommit, architecture }) {
   await mkdir(path.join(destination, "bin"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(destination, "runtime/python/bin"), { recursive: true, mode: 0o700 });
   await mkdir(path.join(destination, "runtime/python/lib"), { recursive: true, mode: 0o700 });
@@ -564,16 +424,8 @@ fi
 exec "$ROOT/runtime/python/bin/python3.11" -s -m hermes_cli.main "$@"
 `;
   await writeFile(path.join(destination, "bin/hermes-server"), launcher, { mode: 0o700 });
-  // Patches are applied to the staged copy, never to a checkout — see scripts/lib/hermes-patches.mjs.
-  // They are recorded in BUILD-IDENTITY so provenance reads "upstream at X plus patches Y" and can
-  // be checked rather than believed.
-  const patches = applyHermesPatches(await loadHermesPatches(patchDirectory), path.join(destination, "app"));
-  // Read from the staged app, so the baseline describes the tree that actually ships — patches
-  // included, in case one ever changes a table definition (it may not, but recording the source
-  // rather than the input is the version that cannot drift from what is installed).
-  const schemaBaseline = await readHermesSchemaBaseline(path.join(destination, "app"));
   await writeIdentity(destination, {
-    component: "hermes_server", version, sourceCommit, architecture, patches, schemaBaseline,
+    component: "hermes_server", version, sourceCommit, architecture,
   });
 }
 
@@ -597,92 +449,6 @@ exec "$ROOT/runtime/node" "$ROOT/app/connector/dist/index.js" "$@"
 `;
   await writeFile(path.join(destination, "bin/hermes-connector"), launcher, { mode: 0o700 });
   await writeIdentity(destination, { component: "connector", version, sourceCommit, architecture });
-}
-
-/**
- * The Python component owns both CPython and the bootstrap dependency environment. Optional feature
- * dependency trees are split in a later C4 slice after their import boundaries have executable tests.
- */
-async function stagePythonRuntimeV2({
-  destination, pythonRoot, sitePackages, version, sourceCommit, architecture,
-}) {
-  const series = pythonMajorMinor(version);
-  await mkdir(path.join(destination, "bin"), { recursive: true, mode: 0o700 });
-  await mkdir(path.join(destination, "lib"), { recursive: true, mode: 0o700 });
-  await copyStrict(path.join(pythonRoot, `bin/python${series}`), path.join(destination, `bin/python${series}`));
-  await copyStrict(path.join(pythonRoot, `lib/python${series}`), path.join(destination, `lib/python${series}`));
-  await copyStrict(sitePackages, path.join(destination, "site-packages"));
-  const interpreterSitePackages = path.join(destination, `lib/python${series}/site-packages`);
-  await mkdir(interpreterSitePackages, { recursive: true, mode: 0o755 });
-  await writeFile(
-    path.join(interpreterSitePackages, MANAGED_SITE_PATH_FILE),
-    managedComponentSitePathLine(),
-    { mode: 0o644 },
-  );
-  const launcher = `#!/bin/sh
-set -eu
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-exec "$ROOT/bin/python${series}" "$@"
-`;
-  await writeFile(path.join(destination, "bin/python3"), launcher, { mode: 0o700 });
-  await writeIdentityV2(destination, {
-    component: "python_runtime", version, sourceCommit, architecture,
-  });
-}
-
-export function managedComponentSitePathLine() {
-  return 'import os, sys; _r = os.environ.get("HERMES_COMPONENT_CORE_ROOT", ""); ' +
-    '_p = [os.path.join(sys.prefix, "site-packages")]; ' +
-    '_p += [os.path.join(_r, "app")] if _r else []; ' +
-    '[sys.path.insert(0, _v) for _v in _p if os.path.isdir(_v) and _v not in sys.path]\n';
-}
-
-async function stageHermesCoreV2({ destination, hermesRoot, version, sourceCommit, architecture, patchDirectory }) {
-  await mkdir(path.join(destination, "bin"), { recursive: true, mode: 0o700 });
-  await mkdir(path.join(destination, "app"), { recursive: true, mode: 0o700 });
-  await mkdir(path.join(destination, "runtime"), { recursive: true, mode: 0o700 });
-  for (const directory of HERMES_SOURCE_DIRECTORIES) {
-    await copyStrict(
-      path.join(hermesRoot, directory),
-      path.join(destination, "app", directory),
-      hermesSourceFilter,
-    );
-  }
-  for (const file of HERMES_METADATA_FILES) {
-    await copyStrict(path.join(hermesRoot, file), path.join(destination, "app", file));
-  }
-  for (const entry of await readdir(hermesRoot, { withFileTypes: true })) {
-    if (entry.isFile() && entry.name.endsWith(".py")) {
-      await copyStrict(path.join(hermesRoot, entry.name), path.join(destination, "app", entry.name));
-    }
-  }
-  await writeFile(
-    path.join(destination, "runtime/read-private-session-token.py"),
-    managedSessionTokenReaderSource(),
-    { mode: 0o600 },
-  );
-  const launcher = `#!/bin/sh
-set -eu
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-: "\${HERMES_PYTHON_RUNTIME_ROOT:?HERMES_PYTHON_RUNTIME_ROOT is required}"
-case "$HERMES_PYTHON_RUNTIME_ROOT" in /*) ;; *) exit 78 ;; esac
-[ -x "$HERMES_PYTHON_RUNTIME_ROOT/bin/python3" ] || exit 78
-export HERMES_COMPONENT_CORE_ROOT="$ROOT"
-export PYTHONNOUSERSITE=1
-export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="$ROOT/app:$HERMES_PYTHON_RUNTIME_ROOT/site-packages"
-if [ -n "\${HERMES_SESSION_TOKEN_FILE:-}" ]; then
-  HERMES_DASHBOARD_SESSION_TOKEN=$("$HERMES_PYTHON_RUNTIME_ROOT/bin/python3" -s "$ROOT/runtime/read-private-session-token.py")
-  export HERMES_DASHBOARD_SESSION_TOKEN
-fi
-exec "$HERMES_PYTHON_RUNTIME_ROOT/bin/python3" -s -m hermes_cli.main "$@"
-`;
-  await writeFile(path.join(destination, "bin/hermes"), launcher, { mode: 0o700 });
-  const patches = applyHermesPatches(await loadHermesPatches(patchDirectory), path.join(destination, "app"));
-  const schemaBaseline = await readHermesSchemaBaseline(path.join(destination, "app"));
-  await writeIdentityV2(destination, {
-    component: "hermes_core", version, sourceCommit, architecture, patches, schemaBaseline,
-  });
 }
 
 async function stageNodeRuntimeV2({ destination, nodeBinary, version, sourceCommit, architecture }) {

@@ -67,7 +67,7 @@ public struct DesktopInstalledComponentRelease: Equatable, Sendable {
     }
 }
 
-/// Prepares and commits the four verified schema-v2 bootstrap archives. `prepare` may download and
+/// Prepares and commits the Node and Connector schema-v2 bootstrap archives. `prepare` may download and
 /// extract into a private cache but cannot change the component store. `commit` accepts only a token
 /// issued by this installer, rechecks every staged component, writes the immutable store/reference,
 /// and returns the activation plan. Neither phase writes credentials, LaunchAgents, `current`, or
@@ -76,7 +76,7 @@ public final class DesktopComponentReleaseInstaller: @unchecked Sendable {
     public typealias HealthProbe = DesktopComponentReleaseActivationPlanner.HealthProbe
 
     private static let installOrder: [DesktopManagedComponentKind] = [
-        .pythonRuntime, .nodeRuntime, .hermesCore, .connector,
+        .nodeRuntime, .connector,
     ]
 
     private let downloader: any DesktopComponentReleaseDownloading

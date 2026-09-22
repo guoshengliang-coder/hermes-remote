@@ -287,7 +287,7 @@
   },
   "absent_upstream": {
     "session.access": {
-      "source": "managed patch 030 (desktop/hermes-patches/030-session-access.patch)",
+      "source": "optional upstream proposal #116651 / PR #116677; caller tolerates method-not-found",
       "keys": [
         "live_session_id",
         "profile",

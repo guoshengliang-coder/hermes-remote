@@ -91,8 +91,61 @@ fi
 if [ -n "${HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY:-}" ]; then
   plutil -replace HermesGoDesktopReleaseSigningPublicKey -string "$HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY" "$app/Contents/Info.plist"
 fi
+if [ -n "${HERMES_GO_DESKTOP_RELEASE_SIGNING_KEYS:-}" ]; then
+  plutil -replace HermesGoDesktopReleaseSigningKeys -string "$HERMES_GO_DESKTOP_RELEASE_SIGNING_KEYS" "$app/Contents/Info.plist"
+fi
 if [ -n "${HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT:-}" ]; then
   plutil -replace HermesGoDesktopHermesRuntimeContract -string "$HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT" "$app/Contents/Info.plist"
+fi
+
+bootstrap_enabled="$(plutil -extract HermesGoManagedBootstrapEnabled raw "$app/Contents/Info.plist")"
+component_enabled="$(plutil -extract HermesGoComponentPreflightEnabled raw "$app/Contents/Info.plist")"
+release_index_url="$(plutil -extract HermesGoDesktopReleaseManifestURL raw "$app/Contents/Info.plist")"
+component_index_url="$(plutil -extract HermesGoDesktopComponentManifestURL raw "$app/Contents/Info.plist")"
+artifact_origin="$(plutil -extract HermesGoDesktopReleaseArtifactOrigin raw "$app/Contents/Info.plist")"
+release_channel="$(plutil -extract HermesGoDesktopReleaseChannel raw "$app/Contents/Info.plist")"
+release_architecture="$(plutil -extract HermesGoDesktopReleaseArchitecture raw "$app/Contents/Info.plist")"
+legacy_key_id="$(plutil -extract HermesGoDesktopReleaseSigningKeyID raw "$app/Contents/Info.plist")"
+legacy_public_key="$(plutil -extract HermesGoDesktopReleaseSigningPublicKey raw "$app/Contents/Info.plist")"
+signing_keys="$(plutil -extract HermesGoDesktopReleaseSigningKeys raw "$app/Contents/Info.plist")"
+
+if [ "$bootstrap_enabled" = "true" ] && [ -z "$release_index_url" ]; then
+  echo "Managed bootstrap is enabled but its stable release index URL is empty." >&2
+  exit 1
+fi
+if [ "$component_enabled" = "true" ] && [ -z "$component_index_url" ]; then
+  echo "Component preflight is enabled but its stable component index URL is empty." >&2
+  exit 1
+fi
+if [ "$bootstrap_enabled" = "true" ] || [ "$component_enabled" = "true" ]; then
+  if [ -z "$artifact_origin" ] || [ -z "$release_channel" ] || [ -z "$release_architecture" ]; then
+    echo "Enabled Desktop release discovery requires origin, channel, and architecture." >&2
+    exit 1
+  fi
+  if [ -n "$signing_keys" ] && { [ -n "$legacy_key_id" ] || [ -n "$legacy_public_key" ]; }; then
+    echo "Configure either the multi-key trust set or the legacy single key, never both." >&2
+    exit 1
+  fi
+  if [ -z "$signing_keys" ] && { [ -z "$legacy_key_id" ] || [ -z "$legacy_public_key" ]; }; then
+    echo "Enabled Desktop release discovery requires a complete signing trust configuration." >&2
+    exit 1
+  fi
+fi
+
+echo "DESKTOP_RELEASE_CONFIGURATION"
+echo "MANAGED_BOOTSTRAP_ENABLED=$bootstrap_enabled"
+echo "COMPONENT_PREFLIGHT_ENABLED=$component_enabled"
+echo "RELEASE_INDEX_URL=$release_index_url"
+echo "COMPONENT_INDEX_URL=$component_index_url"
+echo "ARTIFACT_ORIGIN=$artifact_origin"
+echo "RELEASE_CHANNEL=$release_channel"
+echo "RELEASE_ARCHITECTURE=$release_architecture"
+if [ -n "$signing_keys" ]; then
+  echo "SIGNING_TRUST=multi-key"
+elif [ -n "$legacy_key_id" ]; then
+  echo "SIGNING_TRUST=legacy-single-key"
+else
+  echo "SIGNING_TRUST=disabled"
 fi
 
 iconset="$build_root/AppIcon.iconset"

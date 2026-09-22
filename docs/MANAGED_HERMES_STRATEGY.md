@@ -114,9 +114,9 @@ was verified on), and again after `main` reached `83031d0`:
    of Hermes unavailability; the bundled agent is kept as the rollback. The first attempt with
    0.2.21 left Hermes unloaded for ~3 minutes and led to the #356 fix — see
    `docs/DESKTOP_E4_TEST_RECORD.md`.
-6. Retire the bundled copy — component archive, `desktop/hermes-patches/`, schema baseline and
-   `HR-MIGRATE-006` — once install-when-missing replaces it as the fallback. Not before: it is the
-   only path for a Mac without Hermes until step 4 exists.
+6. **Done (2026-09-22):** retired the bundled copy, `desktop/hermes-patches/`, schema baseline,
+   optional first-use runtime and `HR-MIGRATE-006`. New releases contain Node + Connector and use
+   install-when-missing/local Hermes as the runtime path.
 
 Waiting for upstream PR #116677 before step 5 avoids both degradations; switching earlier is
 possible and costs exactly the two rows marked *Degraded* above.
@@ -347,10 +347,9 @@ use. B was chosen.
 
 # Operating rules
 
-> **Scope since 2026-09-21:** these rules govern the **bundled** copy only, for as long as it
-> exists as the fallback (see *Order of work* above). A Mac running in local-Hermes mode carries no
-> patches and no schema baseline, and nothing here applies to it. Do not add new patches: a problem
-> that would have needed one is now an upstream issue plus, where it matters, client-side tolerance.
+> **Historical section:** the bundled copy, patch directory, patch tooling and schema baseline were
+> removed on 2026-09-22. Do not recreate them. A problem that would have needed a patch is now an
+> upstream issue plus, where it matters, client-side tolerance.
 
 These exist because a patch set decays without them. Every rule below has a failure it prevents.
 

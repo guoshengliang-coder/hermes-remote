@@ -72,6 +72,8 @@ public final class DesktopReleaseAcquirer: @unchecked Sendable {
     private let makeArtifactVerifier: ArtifactVerifierFactory
     private let extractor: any DesktopReleaseArchiveExtracting
     private let fileManager: FileManager
+    private let indexChannel: String?
+    private let indexArchitecture: String?
 
     public init(
         downloader: any DesktopReleaseDownloading,
@@ -82,13 +84,17 @@ public final class DesktopReleaseAcquirer: @unchecked Sendable {
         extractor: any DesktopReleaseArchiveExtracting = DesktopTarArchiveExtractor(
             runner: SystemOutputCommandRunner()
         ),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        indexChannel: String? = nil,
+        indexArchitecture: String? = nil
     ) {
         self.downloader = downloader
         self.manifestVerifier = manifestVerifier
         self.makeArtifactVerifier = makeArtifactVerifier
         self.extractor = extractor
         self.fileManager = fileManager
+        self.indexChannel = indexChannel
+        self.indexArchitecture = indexArchitecture
     }
 
     public func acquire(
@@ -118,8 +124,29 @@ public final class DesktopReleaseAcquirer: @unchecked Sendable {
         }
 
         do {
-            let envelope = try await downloader.fetchManifest(from: manifestURL)
+            let envelope: Data
+            var indexReference: DesktopReleaseIndexReference?
+            if manifestURL.lastPathComponent == "index.json" {
+                guard let indexChannel, let indexArchitecture else {
+                    throw DesktopReleaseIndexError.invalidIndex
+                }
+                let index = try await downloader.fetchManifest(from: manifestURL)
+                let reference = try DesktopReleaseIndex.resolve(
+                    index,
+                    indexURL: manifestURL,
+                    expectedChannel: indexChannel,
+                    expectedArchitecture: indexArchitecture
+                )
+                envelope = try await downloader.fetchManifest(from: reference.manifestURL)
+                try DesktopReleaseIndex.verifyEnvelope(envelope, reference: reference)
+                indexReference = reference
+            } else {
+                envelope = try await downloader.fetchManifest(from: manifestURL)
+            }
             let manifest = try manifestVerifier.verify(envelope)
+            if let indexReference, indexReference.releaseVersion != manifest.releaseVersion {
+                throw DesktopReleaseIndexError.manifestIdentityMismatch
+            }
             guard manifest.artifacts.count == DesktopReleaseComponentKind.allCases.count,
                   Set(manifest.artifacts.map(\.component)) == Set(DesktopReleaseComponentKind.allCases)
             else { throw DesktopReleaseAcquisitionError.incompleteManifest }

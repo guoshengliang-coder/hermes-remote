@@ -1,0 +1,34 @@
+name: Connector release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["connector-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connector-release
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    environment: desktop-release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run build && npm test
+      - name: Verify release environment is provisioned
+        env:
+          DESKTOP_RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SIGNING_PRIVATE_KEY }}
+          DESKTOP_RELEASE_SSH_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DESKTOP_RELEASE_SIGNING_PRIVATE_KEY"
+          test -n "$DESKTOP_RELEASE_SSH_PRIVATE_KEY"
+          echo "The connector artifact is published only through the shared desktop-release environment."

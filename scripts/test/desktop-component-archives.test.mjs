@@ -21,14 +21,6 @@ import {
 } from "../lib/desktop-component-archives.mjs";
 import { DesktopManagedReleaseError } from "../lib/desktop-managed-release.mjs";
 
-const PATCH_HEADER = [
-  "Upstream-Issue: https://github.com/NousResearch/hermes-agent/issues/116510",
-  "Why-upstream-will-not: the fixture proves the managed staging boundary with a real patch",
-  "Read-side-only: yes",
-  "Added: 2026-09-20",
-  "",
-].join("\n");
-
 test("component builder creates source-pinned relocatable Hermes and Connector archives", async (t) => {
   const fixture = await makeFixture(t);
   const result = await build(fixture);
@@ -99,37 +91,6 @@ test("component builder rejects a symlink in an allowlisted runtime tree", async
   assert.deepEqual(await readdir(fixture.output), []);
 });
 
-test("component builder applies an allowlisted patch to the real staged Hermes tree", async (t) => {
-  const fixture = await makeFixture(t, {
-    hermesPatches: {
-      "010-fixture.patch": PATCH_HEADER + patchFor(
-        "hermes_cli/module.py", "# source", "# patched source",
-      ),
-    },
-  });
-  const result = await build(fixture);
-
-  const extracted = path.join(fixture.root, "patched");
-  await mkdir(extracted);
-  run("/usr/bin/tar", ["-xzf", result.artifacts[0].path, "-C", extracted]);
-  assert.equal(await readFile(path.join(extracted, "app/hermes_cli/module.py"), "utf8"), "# patched source\n");
-  const identity = JSON.parse(await readFile(path.join(extracted, "BUILD-IDENTITY.json"), "utf8"));
-  assert.deepEqual(identity.patches.map((item) => item.name), ["010-fixture.patch"]);
-});
-
-test("component builder rejects an upstream test hunk before publishing an archive", async (t) => {
-  const fixture = await makeFixture(t, {
-    hermesPatches: {
-      "010-tests.patch": PATCH_HEADER + patchFor(
-        "tests/test_runtime.py", "# upstream test", "# changed upstream test",
-      ),
-    },
-  });
-
-  await assert.rejects(build(fixture), isCause("component_archive_unexpected_failure"));
-  assert.deepEqual(await readdir(fixture.output), []);
-});
-
 test("component builder rejects a Connector archive that drops historical hex tokens", async (t) => {
   const fixture = await makeFixture(t, {
     connectorTokenSource: `import { readFileSync } from "node:fs";
@@ -151,24 +112,6 @@ test("component builder preserves an existing target and removes its earlier arc
   await assert.rejects(build(fixture), isCause("component_output_exists"));
   assert.equal(await readFile(existing, "utf8"), "owner data");
   assert.deepEqual(await readdir(fixture.output), ["Hermes-Connector-0.1.2-arm64.tar.gz"]);
-});
-
-test("the build identity records the schema baseline Desktop compares against", async (t) => {
-  // The chain is: packer reads the staged tree's SCHEMA_SQL, writes the columns into
-  // BUILD-IDENTITY.json, and Desktop compares the live state.db against them (HR-MIGRATE-006).
-  // Without this assertion the chain can break silently at its first link, which is the exact
-  // failure mode the check exists to end.
-  const fixture = await makeFixture(t);
-  await build(fixture);
-
-  const extracted = path.join(fixture.root, "unpacked");
-  await mkdir(extracted, { recursive: true });
-  const archive = path.join(fixture.output, "Hermes-Server-0.21.0-arm64.tar.gz");
-  assert.equal(spawnSync("/usr/bin/tar", ["-xzf", archive, "-C", extracted]).status, 0);
-
-  const identity = JSON.parse(await readFile(path.join(extracted, "BUILD-IDENTITY.json"), "utf8"));
-  assert.deepEqual(identity.schemaBaseline.messages, ["id", "session_id", "role", "content"]);
-  assert.deepEqual(identity.schemaBaseline.sessions, ["id", "source"]);
 });
 
 test("archives are byte-reproducible: the same inputs build to the same hash", async (t) => {
@@ -257,7 +200,7 @@ async function makeFixture(t, options = {}) {
   await mkdir(sitePackages);
   await mkdir(output);
 
-  await writeFixtureRepo(repo, options.connectorTokenSource, options.hermesPatches);
+  await writeFixtureRepo(repo, options.connectorTokenSource);
   await writeFixtureHermes(hermes);
   await writeFile(path.join(python, "bin/python3.11"), "fake mach-o", { mode: 0o700 });
   await writeFile(path.join(python, "lib/python3.11/os.py"), "# stdlib\n");
@@ -291,7 +234,7 @@ export function loadHermesSessionToken({ file }) {
   if (!/^(?:[A-Za-z0-9_-]{43}|[0-9a-f]{64})$/.test(token)) throw new Error("malformed");
   return token;
 }
-`, hermesPatches = {}) {
+`) {
   await mkdir(path.join(repo, "connector/dist"), { recursive: true });
   await mkdir(path.join(repo, "protocol/dist"), { recursive: true });
   await mkdir(path.join(repo, "node_modules/ws/lib"), { recursive: true });
@@ -312,13 +255,6 @@ export function loadHermesSessionToken({ file }) {
   }));
   await writeFile(path.join(repo, "node_modules/ws/index.js"), "module.exports = {};\n");
   await writeFile(path.join(repo, "node_modules/ws/lib/websocket.js"), "module.exports = {};\n");
-  if (Object.keys(hermesPatches).length > 0) {
-    const patchDirectory = path.join(repo, "desktop/hermes-patches");
-    await mkdir(patchDirectory, { recursive: true });
-    for (const [name, body] of Object.entries(hermesPatches)) {
-      await writeFile(path.join(patchDirectory, name), body);
-    }
-  }
 }
 
 async function writeFixtureHermes(hermes) {
@@ -332,44 +268,10 @@ async function writeFixtureHermes(hermes) {
   await writeFile(path.join(hermes, "pyproject.toml"), '[project]\nversion = "0.21.0"\n');
   await writeFile(path.join(hermes, "LICENSE"), "MIT\n");
   await writeFile(path.join(hermes, "compat_manifest.json"), "{}\n");
-  // A Hermes tree carries its schema; the packer reads it to record the column baseline Desktop
-  // later compares the live database against (HR-MIGRATE-006). Omitting it here would leave the
-  // drift check untested and the build failing on a file every real tree has.
-  await writeFile(path.join(hermes, "hermes_state_common.py"), [
-    "SCHEMA_VERSION = 30",
-    'SCHEMA_SQL = """',
-    "CREATE TABLE IF NOT EXISTS sessions (",
-    "    id TEXT PRIMARY KEY,",
-    "    source TEXT NOT NULL",
-    ");",
-    "",
-    "CREATE TABLE IF NOT EXISTS messages (",
-    "    id INTEGER PRIMARY KEY AUTOINCREMENT,",
-    "    session_id TEXT NOT NULL REFERENCES sessions(id),",
-    "    role TEXT NOT NULL,",
-    "    content TEXT",
-    ");",
-    '"""',
-    "",
-  ].join("\n"));
   await writeFile(path.join(hermes, "run_agent.py"), "# root module\n");
   await writeFile(path.join(hermes, ".env"), "SECRET=not-committed\n");
   await writeFile(path.join(hermes, "tools/.env"), "SECRET=also-not-shipped\n");
   await writeFile(path.join(hermes, "tools/private.pem"), "not-shipped\n");
-  await mkdir(path.join(hermes, "tests"));
-  await writeFile(path.join(hermes, "tests/test_runtime.py"), "# upstream test\n");
-}
-
-function patchFor(file, oldLine, newLine) {
-  return [
-    `diff --git a/${file} b/${file}`,
-    `--- a/${file}`,
-    `+++ b/${file}`,
-    "@@ -1 +1 @@",
-    `-${oldLine}`,
-    `+${newLine}`,
-    "",
-  ].join("\n");
 }
 
 function initializeGit(directory) {

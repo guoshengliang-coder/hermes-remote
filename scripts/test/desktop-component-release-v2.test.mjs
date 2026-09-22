@@ -29,12 +29,10 @@ test("v2 publisher signs component identities and independent verifier checks ev
     outputDirectory: fixture.output,
   });
   assert.equal(result.releaseVersion, "0.4.0");
-  assert.equal(result.components.length, 4);
+  assert.equal(result.components.length, 2);
   assert.deepEqual((await readdir(fixture.output)).sort(), [
-    "Hermes-Component-browser_automation-123.0.0-arm64.tar.gz",
     "Hermes-Component-connector-0.3.0-arm64.tar.gz",
-    "Hermes-Component-hermes_core-0.21.0-arm64.tar.gz",
-    "Hermes-Component-python_runtime-3.11.15-arm64.tar.gz",
+    "Hermes-Component-node_runtime-22.23.2-arm64.tar.gz",
     "Hermes-Desktop-Components-0.4.0-arm64.manifest.json",
   ]);
   const manifest = await verifyDesktopComponentReleaseV2({
@@ -48,24 +46,23 @@ test("v2 publisher signs component identities and independent verifier checks ev
     now: fixture.now,
   });
   assert.equal(manifest.schemaVersion, 2);
-  assert.deepEqual(manifest.components[2].dependencies, [
-    { kind: "hermes_core", contentSHA256: fixture.identities.hermes_core },
+  assert.deepEqual(manifest.components[1].dependencies, [
+    { kind: "node_runtime", contentSHA256: fixture.identities.node_runtime },
   ]);
-  assert.equal(manifest.components[3].compatibilityIdentifier, "chromium-cdp-1");
 });
 
 test("v2 publisher rejects dependency identity mismatch, cycles, and unsigned fields", async (t) => {
   for (const mutate of [
-    (config) => { config.components[2].dependencies[0].contentSHA256 = hash("f"); },
+    (config) => { config.components[1].dependencies[0].contentSHA256 = hash("f"); },
     (config) => {
       config.components[0].dependencies = [{
-        kind: "connector", contentSHA256: config.components[2].contentSHA256,
+        kind: "connector", contentSHA256: config.components[1].contentSHA256,
       }];
     },
     (config) => {
       config.components[1].installPhase = "on_demand";
       config.components[1].requiredForBootstrap = false;
-      config.components[1].onDemandTrigger = "hermes";
+      config.components[1].onDemandTrigger = "connector";
     },
     (config) => { config.components[0].futureAction = true; },
   ]) {
@@ -109,17 +106,13 @@ async function makeFixture(t) {
   const output = path.join(root, "output");
   await mkdir(output, { mode: 0o700 });
   const archives = {
-    python_runtime: await makeArchive(root, "python", "bin/python3"),
-    hermes_core: await makeArchive(root, "hermes", "bin/hermes"),
+    node_runtime: await makeArchive(root, "node", "bin/node"),
     connector: await makeArchive(root, "connector", "bin/hermes-connector"),
-    browser_automation: await makeArchive(root, "browser", "bin/chromium"),
   };
   const identities = {};
   for (const [kind, entrypoint] of Object.entries({
-    python_runtime: "bin/python3",
-    hermes_core: "bin/hermes",
+    node_runtime: "bin/node",
     connector: "bin/hermes-connector",
-    browser_automation: "bin/chromium",
   })) {
     identities[kind] = await desktopComponentArchiveContentIdentity({
       archivePath: archives[kind], entrypoint,
@@ -153,21 +146,10 @@ async function makeFixture(t) {
     artifactPathPrefix: "/desktop/components/0.4.0",
     signing: { keyId: "desktop-component-test-a", privateKeyFile: keyPath },
     components: [
-      component("python_runtime", "3.11.15", "bin/python3"),
-      component("hermes_core", "0.21.0", "bin/hermes", [
-        { kind: "python_runtime", contentSHA256: identities.python_runtime },
-      ]),
+      component("node_runtime", "22.23.2", "bin/node"),
       component("connector", "0.3.0", "bin/hermes-connector", [
-        { kind: "hermes_core", contentSHA256: identities.hermes_core },
+        { kind: "node_runtime", contentSHA256: identities.node_runtime },
       ]),
-      {
-        ...component("browser_automation", "123.0.0", "bin/chromium"),
-        installPhase: "on_demand",
-        requiredForBootstrap: false,
-        onDemandTrigger: "browser_automation",
-        reuseContract: "verified_compatibility",
-        compatibilityIdentifier: "chromium-cdp-1",
-      },
     ],
   };
   const configPath = path.join(root, "publisher.json");

@@ -5,7 +5,7 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopComponentReleasePreflightTests: XCTestCase {
-    func testFreshMachineDownloadsBootstrapAndDefersMissingOptionalCapability() throws {
+    func testFreshMachineDownloadsOnlyNodeAndConnector() throws {
         let fixture = try ComponentPreflightFixture()
         defer { fixture.remove() }
         let scanner = PreflightEnvironmentScanner()
@@ -18,22 +18,20 @@ final class DesktopComponentReleasePreflightTests: XCTestCase {
 
         XCTAssertEqual(result.manifest, fixture.manifest)
         XCTAssertEqual(result.plan.decisions.map(\.requirement.kind), [
-            .pythonRuntime, .nodeRuntime, .hermesCore, .connector, .browserAutomation,
+            .nodeRuntime, .connector,
         ])
         XCTAssertEqual(result.plan.decisions.map(\.action), [
-            .download, .download, .download, .download, .deferUntilNeeded,
+            .download, .download,
         ])
-        XCTAssertEqual(result.plan.bootstrapDownloadBytes, 98_057_789)
-        XCTAssertEqual(result.plan.deferredDownloadBytes, 130_000_000)
+        XCTAssertEqual(result.plan.bootstrapDownloadBytes, 36_057_789)
+        XCTAssertEqual(result.plan.deferredDownloadBytes, 0)
         XCTAssertEqual(scanner.scanCount, 1)
     }
 
     func testHealthyManagedBootstrapContentIsReusedAfterIdentityCheck() throws {
         let fixture = try ComponentPreflightFixture()
         defer { fixture.remove() }
-        for kind in [
-            DesktopManagedComponentKind.pythonRuntime, .nodeRuntime, .hermesCore, .connector,
-        ] {
+        for kind in [DesktopManagedComponentKind.nodeRuntime, .connector] {
             try fixture.commit(kind)
         }
         let coordinator = try fixture.coordinator(scanner: PreflightEnvironmentScanner())
@@ -43,73 +41,28 @@ final class DesktopComponentReleasePreflightTests: XCTestCase {
             healthProbe: executablePreflightProbe
         )
 
-        XCTAssertEqual(result.plan.decisions.dropLast().map(\.action).filter {
+        XCTAssertEqual(result.plan.decisions.map(\.action).filter {
             if case .reuse = $0 { return true }
             return false
-        }.count, 4)
-        XCTAssertEqual(result.plan.decisions.last?.action, .deferUntilNeeded)
+        }.count, 2)
         XCTAssertEqual(result.plan.bootstrapDownloadBytes, 0)
-        XCTAssertEqual(result.plan.deferredDownloadBytes, 130_000_000)
-    }
-
-    func testCompatibleExternalBrowserIsReusedButObservedPythonIsNot() throws {
-        let fixture = try ComponentPreflightFixture()
-        defer { fixture.remove() }
-        let browser = DesktopManagedComponentCandidate(
-            kind: .browserAutomation,
-            version: "126.0.6478",
-            architecture: "arm64",
-            source: .external,
-            compatibilityIdentifier: "playwright-system-chromium-v1",
-            healthProbePassed: true
-        )
-        let scan = DesktopExternalEnvironmentScan(observations: [
-            DesktopExternalEnvironmentObservation(
-                kind: .pythonRuntime,
-                executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/python3"),
-                version: "3.11.15",
-                architecture: "arm64",
-                status: .detected,
-                candidate: nil
-            ),
-            DesktopExternalEnvironmentObservation(
-                kind: .browserAutomation,
-                executableURL: URL(fileURLWithPath: "/Applications/Google Chrome.app"),
-                version: browser.version,
-                architecture: browser.architecture,
-                status: .reusable,
-                candidate: browser
-            ),
-        ])
-        let coordinator = try fixture.coordinator(
-            scanner: PreflightEnvironmentScanner(result: scan)
-        )
-
-        let result = try coordinator.scan(
-            verifiedManifest: fixture.verifiedManifest,
-            healthProbe: executablePreflightProbe
-        )
-
-        XCTAssertEqual(result.plan.decisions.first?.action, .download)
-        XCTAssertEqual(result.plan.decisions.last?.action, .reuse(browser))
         XCTAssertEqual(result.plan.deferredDownloadBytes, 0)
-        XCTAssertEqual(result.externalEnvironment, scan)
     }
 
     func testUnhealthyManagedComponentStopsBeforeExternalScan() throws {
         let fixture = try ComponentPreflightFixture()
         defer { fixture.remove() }
-        try fixture.commit(.pythonRuntime)
+        try fixture.commit(.nodeRuntime)
         let scanner = PreflightEnvironmentScanner()
         let coordinator = try fixture.coordinator(scanner: scanner)
 
         XCTAssertThrowsError(try coordinator.scan(
             verifiedManifest: fixture.verifiedManifest,
-            healthProbe: { kind, _, _ in kind != .pythonRuntime }
+            healthProbe: { kind, _, _ in kind != .nodeRuntime }
         )) { error in
             XCTAssertEqual(
                 error as? DesktopComponentReleasePreflightError,
-                .componentHealthProbeFailed(.pythonRuntime)
+                .componentHealthProbeFailed(.nodeRuntime)
             )
         }
         XCTAssertEqual(scanner.scanCount, 0)
@@ -127,16 +80,9 @@ final class DesktopComponentReleasePreflightTests: XCTestCase {
             dependencies: connector.dependencies.filter { $0.kind != .nodeRuntime }
         )
         let scanner = PreflightEnvironmentScanner()
-        let coordinator = try fixture.coordinator(scanner: scanner)
 
-        XCTAssertThrowsError(try coordinator.scan(
-            verifiedManifest: try fixture.verify(fixture.manifest(components: components)),
-            healthProbe: executablePreflightProbe
-        )) { error in
-            XCTAssertEqual(
-                error as? DesktopComponentReleasePreflightError,
-                .invalidManifest
-            )
+        XCTAssertThrowsError(try fixture.verify(fixture.manifest(components: components))) { error in
+            XCTAssertEqual(error as? DesktopComponentReleaseVerificationError, .incompatibleRelease)
         }
         XCTAssertEqual(scanner.scanCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.store.path))
@@ -181,11 +127,8 @@ private final class ComponentPreflightFixture {
         store = root.appendingPathComponent("managed", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         let entrypoints: [DesktopManagedComponentKind: String] = [
-            .pythonRuntime: "bin/python3",
             .nodeRuntime: "bin/node",
-            .hermesCore: "bin/hermes",
             .connector: "bin/hermes-connector",
-            .browserAutomation: "bin/chromium",
         ]
         var builtSources: [DesktopManagedComponentKind: URL] = [:]
         var builtHashes: [DesktopManagedComponentKind: String] = [:]
@@ -205,37 +148,15 @@ private final class ComponentPreflightFixture {
         }
         sources = builtSources
         hashes = builtHashes
-        let python = Self.makeArtifact(
-            kind: .pythonRuntime,
-            contentSHA256: builtHashes[.pythonRuntime]!,
-            dependencies: []
-        )
         let node = Self.makeArtifact(
             kind: .nodeRuntime,
             contentSHA256: builtHashes[.nodeRuntime]!,
             dependencies: []
         )
-        let hermes = Self.makeArtifact(
-            kind: .hermesCore,
-            contentSHA256: builtHashes[.hermesCore]!,
-            dependencies: [.init(
-                kind: .pythonRuntime, contentSHA256: builtHashes[.pythonRuntime]!
-            )]
-        )
         let connector = Self.makeArtifact(
             kind: .connector,
             contentSHA256: builtHashes[.connector]!,
-            dependencies: [
-                .init(kind: .hermesCore, contentSHA256: builtHashes[.hermesCore]!),
-                .init(kind: .nodeRuntime, contentSHA256: builtHashes[.nodeRuntime]!),
-            ]
-        )
-        let browser = Self.makeArtifact(
-            kind: .browserAutomation,
-            contentSHA256: builtHashes[.browserAutomation]!,
-            dependencies: [.init(
-                kind: .pythonRuntime, contentSHA256: builtHashes[.pythonRuntime]!
-            )]
+            dependencies: [.init(kind: .nodeRuntime, contentSHA256: builtHashes[.nodeRuntime]!)]
         )
         let builtManifest = DesktopComponentReleaseManifestV2(
             releaseVersion: "0.4.2",
@@ -244,7 +165,7 @@ private final class ComponentPreflightFixture {
             minimumMacOS: "14.0",
             createdAt: "2026-09-01T00:00:00Z",
             expiresAt: "2026-09-20T00:00:00Z",
-            components: [python, node, hermes, connector, browser]
+            components: [node, connector]
         )
         manifest = builtManifest
         verifiedManifest = try Self.verify(builtManifest)

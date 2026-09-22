@@ -4,6 +4,23 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedComponentGarbageCollectorTests: XCTestCase {
+    func testCollectorDeletesOnlyTheUnreferencedSnapshot() throws {
+        let fixture = try GarbageCollectionFixture()
+        defer { fixture.remove() }
+        let retained = try fixture.addComponent(kind: .nodeRuntime, contents: "node")
+        let orphan = try fixture.addComponent(kind: .connector, contents: "old connector")
+        try fixture.addReference(version: "1.2.3", identities: [retained])
+
+        let reclaimed = try DesktopManagedComponentGarbageCollector(
+            root: fixture.root,
+            currentUserID: Darwin.getuid()
+        ).collect(protectedReleaseVersions: ["1.2.3"])
+
+        XCTAssertEqual(reclaimed, Int64("old connector".utf8.count))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.container(for: retained).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.container(for: orphan).path))
+    }
+
     func testPlanRetainsEveryReferenceAndReturnsOnlyOrphansInStableOrder() throws {
         let fixture = try GarbageCollectionFixture()
         defer { fixture.remove() }

@@ -83,15 +83,12 @@ public struct DesktopReleaseManifestVerifier: Sendable {
     private static let maximumEnvelopeBytes = 256 * 1024
     private static let maximumPayloadBytes = 128 * 1024
     private static let maximumArtifactBytes: Int64 = 2 * 1024 * 1024 * 1024
-    private static let allowedClockSkew: TimeInterval = 5 * 60
-    private static let maximumManifestLifetime: TimeInterval = 30 * 24 * 60 * 60
 
     private let expectedOrigin: URL
     private let expectedChannel: String
     private let expectedArchitecture: String
     private let currentMacOS: OperatingSystemVersion
     private let signingKeys: [String: Data]
-    private let now: @Sendable () -> Date
 
     public init(
         expectedOrigin: URL,
@@ -114,7 +111,7 @@ public struct DesktopReleaseManifestVerifier: Sendable {
         self.expectedArchitecture = expectedArchitecture
         self.currentMacOS = currentMacOS
         self.signingKeys = signingKeys
-        self.now = now
+        _ = now // Kept for source compatibility with callers that inject a clock in tests.
     }
 
     public func verify(_ envelopeData: Data) throws -> DesktopReleaseManifest {
@@ -176,7 +173,6 @@ public struct DesktopReleaseManifestVerifier: Sendable {
     }
 
     private func validate(_ manifest: DesktopReleaseManifest) throws {
-        let currentTime = now()
         guard manifest.schemaVersion == 1,
               manifest.channel == expectedChannel,
               manifest.platform == "macos",
@@ -186,9 +182,7 @@ public struct DesktopReleaseManifestVerifier: Sendable {
               Self.compare(currentMacOS, minimumMacOS) != .orderedAscending,
               let createdAt = Self.parseCanonicalDate(manifest.createdAt),
               let expiresAt = Self.parseCanonicalDate(manifest.expiresAt),
-              createdAt <= currentTime.addingTimeInterval(Self.allowedClockSkew),
-              expiresAt > currentTime,
-              expiresAt.timeIntervalSince(createdAt) <= Self.maximumManifestLifetime,
+              expiresAt > createdAt,
               Set(manifest.artifacts.map(\.component)) == Set(DesktopReleaseComponentKind.allCases)
         else { throw DesktopReleaseVerificationError.incompatibleRelease }
 

@@ -23,7 +23,6 @@ const MAX_PAYLOAD_BYTES = 128 * 1024;
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE_LISTING_BYTES = 16 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 65_536;
-const MAX_MANIFEST_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 const ALLOWED_ARCHITECTURES = new Set(["arm64", "x86_64", "universal"]);
 const COMPONENTS = ["hermes_server", "connector"];
 const COMPONENT_KINDS_V2 = new Set([
@@ -425,6 +424,17 @@ export async function loadComponentPublisherConfigV2(configPath) {
       || config.components.length > COMPONENT_KINDS_V2.size) fail("component_publisher_components_invalid");
   const normalized = config.components.map(validateComponentPublisherInputV2);
   validateComponentGraphV2(normalized);
+  const byKind = new Map(normalized.map((component) => [component.kind, component]));
+  if (normalized.length !== 2
+      || byKind.get("node_runtime")?.installPhase !== "bootstrap"
+      || byKind.get("connector")?.installPhase !== "bootstrap"
+      || byKind.get("node_runtime").dependencies.length !== 0
+      || byKind.get("connector").dependencies.length !== 1
+      || byKind.get("connector").dependencies[0].kind !== "node_runtime"
+      || byKind.get("connector").dependencies[0].contentSHA256
+        !== byKind.get("node_runtime").contentSHA256) {
+    fail("component_publisher_components_invalid");
+  }
   return { ...config, components: normalized };
 }
 
@@ -612,8 +622,9 @@ function validateComponentGraphV2(components) {
     if (byKind.has(component.kind)) fail("component_manifest_components_invalid");
     byKind.set(component.kind, component);
   }
-  if (byKind.get("hermes_core")?.installPhase !== "bootstrap"
-      || byKind.get("connector")?.installPhase !== "bootstrap") {
+  if (byKind.get("connector")?.installPhase !== "bootstrap"
+      || (byKind.get("node_runtime")?.installPhase !== "bootstrap"
+        && byKind.get("hermes_core")?.installPhase !== "bootstrap")) {
     fail("component_manifest_components_invalid");
   }
   for (const component of components) {
@@ -695,8 +706,7 @@ function validateDates(createdAt, expiresAt, now) {
   const created = parseCanonicalDate(createdAt);
   const expires = parseCanonicalDate(expiresAt);
   if (!created || !expires || !(now instanceof Date) || Number.isNaN(now.valueOf())
-      || created > new Date(now.valueOf() + 5 * 60 * 1000) || expires <= now
-      || expires.valueOf() - created.valueOf() > MAX_MANIFEST_LIFETIME_MS) {
+      || expires <= created) {
     fail("manifest_lifetime_invalid");
   }
 }

@@ -17,12 +17,9 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
         XCTAssertEqual(verified, manifest)
         XCTAssertEqual(installationManifest.manifest, manifest)
         let requirements = try verified.preflightRequirements
-        XCTAssertEqual(requirements.count, 4)
+        XCTAssertEqual(requirements.count, 2)
         XCTAssertEqual(requirements[0].reusePolicy, .exactContent(sha256: hash("a")))
-        XCTAssertEqual(
-            requirements[3].reusePolicy,
-            .verifiedCompatibility(contentSHA256: hash("d"), identifier: "chromium-cdp-1")
-        )
+        XCTAssertEqual(requirements[1].reusePolicy, .exactContent(sha256: hash("c")))
     }
 
     func testUnknownFieldsAndUnknownKindsFailClosed() throws {
@@ -54,11 +51,11 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
 
         var payload = try payloadObject(fixtureManifest())
         var components = payload["components"] as! [[String: Any]]
-        var connector = components[2]
+        var connector = components[1]
         var dependencies = connector["dependencies"] as! [[String: Any]]
         dependencies[0]["contentSHA256"] = hash("f")
         connector["dependencies"] = dependencies
-        components[2] = connector
+        components[1] = connector
         payload["components"] = components
         XCTAssertThrowsError(try verifier(key).verify(try envelope(payload, signer: key))) { error in
             XCTAssertEqual(error as? DesktopComponentReleaseVerificationError, .invalidManifest)
@@ -116,18 +113,12 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
     private func fixtureManifest(
         components: [DesktopComponentReleaseArtifactV2]? = nil
     ) -> DesktopComponentReleaseManifestV2 {
-        let python = component(.pythonRuntime, hash: "a", entrypoint: "bin/python3")
-        let hermes = component(
-            .hermesCore,
-            hash: "b",
-            entrypoint: "bin/hermes",
-            dependencies: [.init(kind: .pythonRuntime, contentSHA256: hash("a"))]
-        )
+        let node = component(.nodeRuntime, hash: "a", entrypoint: "bin/node")
         let connector = component(
             .connector,
             hash: "c",
             entrypoint: "bin/hermes-connector",
-            dependencies: [.init(kind: .hermesCore, contentSHA256: hash("b"))]
+            dependencies: [.init(kind: .nodeRuntime, contentSHA256: hash("a"))]
         )
         let browser = component(
             .browserAutomation,
@@ -145,7 +136,7 @@ final class DesktopComponentReleaseManifestV2Tests: XCTestCase {
             minimumMacOS: "14.0",
             createdAt: "2026-09-01T00:00:00Z",
             expiresAt: "2026-09-20T00:00:00Z",
-            components: components ?? [python, hermes, connector, browser]
+            components: components ?? [node, connector, browser]
         )
     }
 

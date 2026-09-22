@@ -305,8 +305,9 @@ process.list     projects.tree    projects.project_sessions
 answers `client.capabilities` with -32601, which is expected and only logged. See
 "How Hermes asks the phone a question" below.
 
-`session.access*` is supplied by managed read-side patch 030 until upstream #116651 / PR #116677 lands; clients
-must tolerate method-not-found and retain the submit-time 4090 fallback.
+`session.access*` is optional until upstream #116651 / PR #116677 lands in the owner's local Hermes.
+The retired managed copy no longer supplies a patch; clients must tolerate method-not-found and retain
+the submit-time 4090 fallback.
 
 #### WebSocket RPC params: what 17b5df02 accepts (audited 2026-09-21)
 
@@ -353,7 +354,7 @@ at build time (and checks this table against) and which the dev mock enforces in
 | `projects.set_primary` | `ProjectFolderParams` | `id`, `path`, `profile` | `id`, `path` | present, unvalidated |
 | `projects.delete` | `ProjectIdParams` | `id`, `profile` | `id` | present, unvalidated |
 | `session.active_list` | `SessionActiveListParams` | `current_session_id`, `profile` | — (Connector observer, `session-observer-runner.ts`) | present, unvalidated |
-| `session.access` | — (-32601 on 17b5df02) | `live_session_id`, `profile`, `session_id` | `session_id`, `profile`?, `live_session_id`? | absent upstream; managed patch 030 adds it |
+| `session.access` | — (-32601 on 17b5df02) | `live_session_id`, `profile`, `session_id` | `session_id`, `profile`?, `live_session_id`? | absent upstream; caller fails open |
 | `clarify.respond` | — (-32601 on 17b5df02) | `answer`, `question_id`, `request_id`, `session_id` | `session_id`, `request_id`, `answer`, `question_id`? | present (old question protocol) |
 
 What the audit found and how each was fixed — every fix is one params form **both** servers accept,
@@ -364,7 +365,7 @@ so nothing here depends on guessing the version:
 | `session.resume` | `inline_images: false` (managed patch 020) | 4000 — every conversation open failed | `omit_messages: true`, identical in f159e581 and 17b5df02 (below) |
 | `image.attach_bytes` | `mime_type` | 4000 — every photo upload failed | `ext` only when the phone's own magic-byte check says what the bytes are (png/jpg/gif/webp/bmp/tiff), else omitted. In both versions `_sniff_image_ext` lets the hint **win** over its magic-byte sniff, so a hint must never be a guess; HEIC/HEIF are not in `cli._IMAGE_EXTENSIONS` in either version, and naming them would turn upstream's fallback into a 4016 |
 | `approval.respond` | `approved` | 4000 | dropped; no version ever read it |
-| `session.access` | — | method absent, -32601 | unchanged: the caller already fails open (patch 030 supplies it on the managed copy) |
+| `session.access` | — | method absent, -32601 | unchanged: the caller already fails open |
 | `clarify.respond` | — | method absent, -32601 | unchanged: only sent for an old-protocol card, which only f159e581 raises |
 
 Because no call needs a key only one side accepts, **there is no retry-without-key tolerance** — a
@@ -535,8 +536,9 @@ nor terminal: the same send succeeds once the other side lets go, which is why t
 retry and only names the cause (`HR-SESS-013`, HG-30). Note it is *not* 4009 "busy" — that is the
 session running a turn of its own.
 
-The staged managed copy additionally exposes read-only `session.access` (patch 030, upstream
-#116651 / PR #116677). It reads the cross-process lease registry without creating, pruning or rewriting it and
+Upstream #116651 / PR #116677 proposes read-only `session.access`; the retired managed copy no longer
+patches it in. Where the owner's local Hermes provides the method, it reads the cross-process lease
+registry without creating, pruning or rewriting it and
 combines that with this gateway process's live `running` bit. The result is
 `available|owned_by_requester|owned_elsewhere|unknown`, nullable `running`, nullable `writable`, and
 an optional owner surface; no pid crosses the wire. Registry uncertainty is `unknown`, not a grant.

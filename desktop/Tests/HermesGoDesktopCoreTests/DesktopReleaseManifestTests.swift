@@ -46,18 +46,25 @@ final class DesktopReleaseManifestTests: XCTestCase {
         }
     }
 
-    func testWrongOriginExpiredAndIncompatibleArtifactsFailClosed() throws {
+    func testWrongOriginAndIncompatibleArtifactsFailClosedWhilePastExpiryRemainsVerifiable() throws {
         let signingKey = Curve25519.Signing.PrivateKey()
         let verifier = try makeVerifier(signingKey: signingKey)
         let invalid = [
             fixtureManifest(downloadOrigin: "https://evil.example"),
-            fixtureManifest(expiresAt: "2026-09-05T00:00:00Z"),
             fixtureManifest(architecture: "x86_64"),
         ]
 
         for manifest in invalid {
             XCTAssertThrowsError(try verifier.verify(try envelope(manifest, signingKey: signingKey)))
         }
+        XCTAssertNoThrow(try verifier.verify(try envelope(
+            fixtureManifest(expiresAt: "2026-09-05T00:00:00Z"),
+            signingKey: signingKey
+        )))
+        XCTAssertThrowsError(try verifier.verify(try envelope(
+            fixtureManifest(expiresAt: "2026-08-31T23:59:59Z"),
+            signingKey: signingKey
+        )))
     }
 
     func testOversizedEnvelopeAndUnknownSigningKeyAreRejected() throws {

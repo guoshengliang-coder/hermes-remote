@@ -1,5 +1,11 @@
 # Desktop 组件化安装计划
 
+> **历史设计记录。** 2026-09-22 起，新 v2 发布固定为 `node_runtime` + `connector`；Hermes
+> 使用本机标准安装。捆绑 Python/Hermes、按需组件运行时、补丁集与 schema drift 检查已退役。
+> `installPhase` / `onDemandTrigger` 等字段只为严格解码和验签已发布的 0.4.0/0.4.1 清单而保留，
+> 不再驱动安装或界面。删除实现的提交为 `491f10c6c63c17d43b6447ff72d69233831c94ab`。
+> 下文 C1–C5 设计保留作历史依据，不代表当前发布拓扑。
+
 ## 目标
 
 Desktop 在安装 Hermes Server 与 Connector 前先完成环境预检。已存在且通过身份与健康验证的

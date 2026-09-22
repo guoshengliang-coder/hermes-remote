@@ -886,22 +886,6 @@ final class DesktopLocalHermesPresentationTests: XCTestCase {
         XCTAssertNil(DesktopIssue.localHermesInstallBlock(.absent(hermesDataPresent: false), freshInstall: true, localRuntimeEnabled: true))
     }
 
-    func testTheSchemaInspectorBuiltFromManagedPathsIsSilentInLocalMode() throws {
-        let home = try LocalHermesHome()
-        let paths = try DesktopManagedBootstrapPaths(homeDirectory: home.root)
-        let layout = try DesktopManagedInstallLayout(root: paths.managedRoot, launchAgentsRoot: paths.launchAgentsRoot)
-        let installer = DesktopManagedInstaller(layout: layout)
-        try installer.writeBundledAgentForTesting(layout: layout, hermesHome: paths.hermesHome)
-        let identity = layout.currentRelease.appendingPathComponent("hermes_server/BUILD-IDENTITY.json")
-        try FileManager.default.createDirectory(at: identity.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try #"{"schemaBaseline":{"messages":["id"]}}"#.write(to: identity, atomically: true, encoding: .utf8)
-        let drifted: @Sendable (String, [String]) -> String? = { _, _ in "0|id|INTEGER|0||1\n1|display_identity|BLOB|0||0\n" }
-
-        XCTAssertNotNil(DesktopManagedSchemaInspector(managedPaths: paths, runner: drifted).inspect()?.hasDrift)
-
-        _ = try installer.prepareLocalHermesRuntime(try XCTUnwrap(home.detect().installation))
-        XCTAssertNil(DesktopManagedSchemaInspector(managedPaths: paths, runner: drifted).inspect())
-    }
 }
 
 /// The app target cannot be imported into tests, so the wiring is asserted on its source — the same

@@ -55,9 +55,21 @@ final class DesktopComponentPreflightConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.artifactOrigin.absoluteString, "https://downloads.example")
         XCTAssertEqual(configuration.channel, "internal")
         XCTAssertEqual(configuration.architecture, "arm64")
-        XCTAssertEqual(configuration.signingKeyID, "desktop-release-test")
-        XCTAssertEqual(configuration.signingPublicKey, Data(repeating: 7, count: 32))
+        XCTAssertEqual(configuration.signingKeys, ["desktop-release-test": Data(repeating: 7, count: 32)])
         XCTAssertNoThrow(try configuration.makeManifestVerifier())
+    }
+
+    func testRotationTrustSetLoadsMultipleKeys() {
+        var values = validValues()
+        values.removeValue(forKey: "HERMES_GO_DESKTOP_RELEASE_SIGNING_KEY_ID")
+        values.removeValue(forKey: "HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY")
+        values["HERMES_GO_DESKTOP_RELEASE_SIGNING_KEYS"] =
+            #"{"desktop-release-next":"CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg"}"#
+
+        guard case .configured(let configuration) = load(values) else {
+            return XCTFail("expected rotation trust set")
+        }
+        XCTAssertEqual(configuration.signingKeys, ["desktop-release-next": Data(repeating: 8, count: 32)])
     }
 
     func testComponentBootstrapRequiresSeparateSchemaV2ServerCapability() {
