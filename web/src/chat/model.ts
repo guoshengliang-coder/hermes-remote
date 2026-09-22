@@ -71,6 +71,8 @@ export interface ChatState {
   stopped: boolean;
   /** Live working folder and branch from `session.info` (the top-bar subtitle). */
   workspace: { cwd: string; branch: string | null } | null;
+  /** The model `session.info` last reported for this session. */
+  liveModel: string | null;
 }
 
 export const initialChatState: ChatState = {
@@ -83,6 +85,7 @@ export const initialChatState: ChatState = {
   terminal: false,
   stopped: false,
   workspace: null,
+  liveModel: null,
 };
 
 const STREAM_EVENTS: ReadonlySet<string> = new Set([
@@ -254,7 +257,9 @@ function applyEvent(state: ChatState, event: ServerEvent): ChatState {
     }
     case "session.info": {
       const cwd = str(p, "cwd");
-      const withWorkspace = cwd && cwd.trim() ? { ...state, workspace: { cwd: cwd.trim(), branch: str(p, "branch") } } : state;
+      const model = str(p, "model");
+      const withModel = model && model.trim() && model !== state.liveModel ? { ...state, liveModel: model.trim() } : state;
+      const withWorkspace = cwd && cwd.trim() ? { ...withModel, workspace: { cwd: cwd.trim(), branch: str(p, "branch") } } : withModel;
       if (p.running === false) return finishStreaming(withWorkspace, false);
       if (p.running === true && !withWorkspace.generating) return { ...withWorkspace, generating: true };
       return withWorkspace;

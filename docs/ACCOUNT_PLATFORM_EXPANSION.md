@@ -288,9 +288,13 @@ Android app stays the primary client.
   interrupt, approvals and questions (both Hermes protocols), attachments and `MEDIA:` artefacts,
   foreground notifications from the lifecycle inbox; copy, a full-screen image viewer, pins kept in
   the browser, and a read-only project filter derived from the session list.
+- Since Web batch 4 (2026-09-22) also: rename / archive / unarchive / delete conversations (delete
+  confirmed in red), move a conversation to another project folder, switch the conversation's model
+  and reasoning effort, background-task status and the "running in another client" check — each
+  admitted by the Gateway in one parameter shape only.
 - Not in the Web app: configuration pages (environment, skills, MCP, messaging channels, scheduled
-  task editing, model management), Web Push, offline chat history, and using a Mac shared by another
-  account. The Gateway enforces the configuration boundary with a REST route allowlist and a
+  task editing, global model configuration, project management), other slash commands, Web Push,
+  offline chat history, and using a Mac shared by another account. The Gateway enforces the configuration boundary with a REST route allowlist and a
   WebSocket method allowlist (`HR-WEB-001`), see `docs/ACCOUNT_MODE_SECURITY.md` §4.
 - The privacy rule above is unchanged: prompts, output and files pass through the page transiently,
   exactly as on the phone, and are never stored in the account database, audit log or Web storage;

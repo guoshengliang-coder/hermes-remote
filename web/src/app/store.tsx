@@ -1,6 +1,6 @@
 import { createContext } from "preact";
 import { useContext } from "preact/hooks";
-import type { AccountDevice, GatewayClient, PublicAccount } from "../api/gateway";
+import type { AccountDevice, GatewayClient, PublicAccount, WebDeviceFeature } from "../api/gateway";
 import type { AppError, Language } from "../errors";
 import type { SessionListItem } from "../hermes/types";
 import type { GroupId } from "./grouping";
@@ -51,6 +51,8 @@ export interface AppContextValue {
   /** 会话 / 机器人 segment of the list, kept while the app runs. */
   listSegment: "chats" | "bots";
   setListSegment: (segment: "chats" | "bots") => void;
+  /** What this Gateway admits beyond chat (Web batch 4); empty on an older Gateway. */
+  features: ReadonlySet<WebDeviceFeature>;
   /** A short confirmation ("已复制") or a failure, shown briefly at the bottom of the screen. */
   flash: (message: string | AppError) => void;
   signOut: () => Promise<void>;

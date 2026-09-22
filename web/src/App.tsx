@@ -3,6 +3,8 @@ import {
   GatewayClient,
   GatewayHttpError,
   supportsWebDeviceAccess,
+  webDeviceFeatures,
+  type WebDeviceFeature,
   type AccountDevice,
   type PublicAccount,
   type WebSignInResponse,
@@ -97,6 +99,7 @@ export function App() {
   const [listSearchSeed, setListSearchSeed] = useState<string | null>(null);
   const [chatSearchSeed, setChatSearchSeed] = useState<string | null>(null);
   const [listSegment, setListSegment] = useState<"chats" | "bots">("chats");
+  const [features, setFeatures] = useState<ReadonlySet<WebDeviceFeature>>(new Set());
   const [flashMessage, setFlashMessage] = useState<{ id: number; text: string; error: boolean } | null>(null);
   /** Where the user was headed before sign-in / device choice (select-only, never an action). */
   const intended = useRef<Route>(currentRoute());
@@ -131,6 +134,7 @@ export function App() {
         setPhase({ name: "disabled" });
         return;
       }
+      setFeatures(webDeviceFeatures(caps));
       const web = await client.webSession();
       if (!web.session.authenticated) {
         setPhase({ name: "signed-out", reason: null });
@@ -353,6 +357,7 @@ export function App() {
     setChatSearchSeed,
     listSegment,
     setListSegment,
+    features,
     flash,
     signOut,
     authLost,

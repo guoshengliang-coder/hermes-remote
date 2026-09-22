@@ -99,7 +99,7 @@ Gateway/account DB <- outbound Connector -> localhost/private Hermes
 | Token in URL/referrer/log | Credential leak | Authorization header only; reject query tokens in account mode; central redaction | Log/trace/proxy inspection |
 | Ambiguous legacy + account credentials | Wrong-tenant routing | Reject requests containing both authentication modes | Dual-header test |
 | Cross-site request or WebSocket rides the Web session cookie | Hermes use as the victim (prompts, approvals, file reads) | `SameSite=Strict` `__Host-` cookie; cookie reads need `Sec-Fetch-Site: same-origin` or the exact Origin; writes need exact Origin + CSRF double submit; WebSocket upgrades need the exact Origin; a cookie together with a bearer header is rejected | Cross-site/foreign-Origin/missing-CSRF REST and upgrade tests |
-| Browser session drives Mac administration | Secret disclosure, config change, service restart | Browser route allowlist in the Gateway (chat client routes only); everything else answers `HR-WEB-001` before reaching the Connector | Allowlist unit tests and integration denials for env reveal / restart |
+| Browser session drives Mac administration | Secret disclosure, config change, service restart | Browser route and method allowlist in the Gateway (chat client routes; session management, model switch and reasoning in one parameter shape each); everything else answers `HR-WEB-001` before reaching the Connector | Allowlist unit tests incl. slash-command injection and `scope` escalation; integration denials for env reveal / restart / config and malformed session PATCH/DELETE |
 | Model output or Mac file runs script on the Gateway origin | Session riding from inside the origin | Web app renders Markdown with raw HTML disabled, `https:`-only links and a DOMPurify pass; CSP without `unsafe-inline`; Mac files served to browsers as `attachment` + `nosniff` + `CSP: sandbox`, only raster images keep their type | Markdown XSS regression suite; file-header integration test |
 | Browser socket outlives or is cut by credential rotation | Revoked browser keeps streaming, or every refresh drops the chat | Cookie WebSockets revalidate by session liveness (session and installation unrevoked, account active, a live refresh token) every five seconds plus the revocation bus, not by the 15-minute access token they opened with | Integration test: survives an access-token rotation, closes on session revocation |
 | Shared or public computer keeps chat content | Later user reads conversations | Service worker caches only the app shell and session-list metadata, never chat content; sign-out or revocation clears every cache; access/refresh never in Web storage; `localStorage` holds the chosen Mac id, this browser's pinned session ids, unsent composer drafts and recent search queries (owner decision 2026-09-22), the default project's folder path and which bot-channel notices were seen — all removed on sign-out | Web app unit tests; device smoke test |
@@ -187,11 +187,25 @@ the same browser session; no new credential type exists. Behind
   character set so an encoded `/` cannot reach a sibling route upstream). Configuration, secrets,
   scheduled tasks, skills, messaging and Gateway restart stay with the native apps and answer
   `HR-WEB-001`;
+- routes that change something are admitted in **one shape only** (Web batch 4, owner decision
+  2026-09-22): `PATCH /api/sessions/{id}` with a JSON body of only `title` (1–200) / `archived`
+  (bool) / `profile` — the body is read and checked before forwarding (a declared body over 4 KB is
+  refused) and the checked bytes are forwarded as sent; `DELETE /api/sessions/{id}` with no body and
+  only a `profile` query; `GET /api/model/options` with only `profile`. `GET /api/config` stays
+  closed because it returns the whole Hermes configuration. Session updates and deletes are logged
+  as `web.session.manage` with the installation id (no titles or content). The Web app confirms
+  archive and asks a red confirmation before delete;
 - the WebSocket is screened the same way: a browser tunnel forwards only the chat client's JSON-RPC
   methods (`client.capabilities`, `session.create/resume/interrupt`, `prompt.submit`,
   `image.attach`, `file.attach`, `request.answer`, `clarify.lock`, and the older
-  `approval.respond`/`clarify.respond`) plus the client's answers to server requests. Any other
-  method is answered in-band with a JSON-RPC error carrying `HR-WEB-001` and never reaches the Mac;
+  `approval.respond`/`clarify.respond`) plus the client's answers to server requests, and — each in
+  one parameter shape — `session.workspace.move` (`session_key`, an absolute `cwd` ≤ 1024 with no
+  control characters, `profile`), `slash.exec` **only** as
+  `/model <id> --provider <id> --session` (ids without whitespace, quotes or separators, so nothing
+  can be appended and the switch is never global), `config.get`/`config.set` **only** for the
+  session's `reasoning` key with one of `none/minimal/low/medium/high/xhigh/max/ultra` and no
+  `scope`, `process.list` and `session.access`. An extra key, a wrong type or any other method is
+  answered in-band with a JSON-RPC error carrying `HR-WEB-001` and never reaches the Mac;
   binary or non-JSON frames close the socket. Within those methods the browser has the phone's
   chat authority, including attaching any file path the Mac's Hermes can read;
 - responses from the Mac carry `nosniff`, `CSP: sandbox` and `Cache-Control: private, no-store`;

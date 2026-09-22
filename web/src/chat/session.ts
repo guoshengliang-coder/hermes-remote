@@ -3,14 +3,22 @@ import { toAppError } from "../app/failures";
 import { appError, RPC, type AppError } from "../errors";
 import { HermesSocket, HermesSocketError, neverSent, type ClosedInfo } from "../hermes/client";
 import {
+  configGetReasoning,
+  configSetReasoning,
   fileAttach,
   imageAttach,
+  processList,
   promptSubmit,
+  sessionAccess,
   sessionCreate,
   sessionInterrupt,
   sessionResume,
+  sessionWorkspaceMove,
+  slashExec,
+  type ReasoningValue,
 } from "../hermes/params";
 import { interpretAnswer, type AnswerPlan } from "../hermes/requests";
+import { sessionModelCommand } from "../hermes/slash";
 import type {
   FileAttachResult,
   JsonObject,
@@ -26,6 +34,14 @@ import type { ChatAction } from "./model";
 // resume/create, submit with the 4001 resume-and-retry, interrupt, question answers, and
 // reconnection with backoff while the page is visible (Android HermesGatewayClient +
 // ChatViewModel, reduced to what the Web app needs).
+
+export interface BackgroundProcess {
+  id: string;
+  command: string;
+  running: boolean;
+  exitCode: number | null;
+  outputTail: string;
+}
 
 export interface ChatSessionOptions {
   client: GatewayClient;
@@ -436,4 +452,85 @@ export class ChatSession {
   answerSessionId(): string {
     return this.liveId ?? this.storedId ?? "";
   }
+
+  // ---- Web batch 4: session tools (each admitted by the Gateway in one shape) ----
+
+  /** The live handle, resuming or creating one when needed. */
+  private async live(): Promise<string> {
+    if (this.liveId) return this.liveId;
+    return this.storedId ? this.resume() : this.create();
+  }
+
+  /** Move this conversation to another folder (Android session.workspace.move). */
+  async moveWorkspace(cwd: string): Promise<{ cwd: string | null; branch: string | null }> {
+    if (!this.storedId) throw new Error("no stored session");
+    const { method, params } = sessionWorkspaceMove(this.storedId, cwd, this.o.profile);
+    const result = await this.call<JsonObject>(method, params);
+    const text = (key: string) => (typeof result?.[key] === "string" ? (result[key] as string) : null);
+    return { cwd: text("cwd"), branch: text("branch") };
+  }
+
+  /** `/model <model> --provider <provider> --session` for this conversation only. */
+  async switchModel(provider: string, model: string): Promise<void> {
+    const command = sessionModelCommand(provider, model);
+    if (!command) throw new Error(`model id not admissible: ${provider}/${model}`);
+    const id = await this.live();
+    const { method, params } = slashExec(id, command);
+    await this.call(method, params);
+  }
+
+  async reasoning(): Promise<string | null> {
+    const id = await this.live();
+    const { method, params } = configGetReasoning(id);
+    const result = await this.call<JsonValue>(method, params);
+    if (typeof result === "string") return result;
+    if (result && typeof result === "object" && !Array.isArray(result) && typeof (result as JsonObject).value === "string") return (result as JsonObject).value as string;
+    return null;
+  }
+
+  async setReasoning(value: ReasoningValue): Promise<void> {
+    const id = await this.live();
+    const { method, params } = configSetReasoning(id, value);
+    await this.call(method, params);
+  }
+
+  /** This session's background processes (Android ChatRepository.listProcesses). */
+  async processes(): Promise<BackgroundProcess[]> {
+    if (!this.liveId) return [];
+    const { method, params } = processList(this.liveId);
+    const result = await this.call<JsonObject>(method, params, 10_000);
+    const items = Array.isArray(result?.processes) ? result.processes : [];
+    return items.flatMap((raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+      const o = raw as JsonObject;
+      const id = [o.session_id, o.process_id, o.id].find((v) => typeof v === "string") as string | undefined;
+      if (!id) return [];
+      const status = typeof o.status === "string" ? o.status : "";
+      const exitCode = typeof o.exit_code === "number" ? o.exit_code : null;
+      return [{
+        id,
+        command: typeof o.command === "string" ? o.command : "",
+        running: status.toLowerCase() === "running" || (status === "" && exitCode === null),
+        exitCode,
+        outputTail: typeof o.output_tail === "string" ? o.output_tail : "",
+      }];
+    });
+  }
+
+  /**
+   * Who owns this session right now (managed patch 030). Fails open: an older Hermes without the
+   * method (−32601) or any error reads as "unknown" and 4090 on submit stays the backstop.
+   */
+  async access(): Promise<"available" | "owned_by_requester" | "owned_elsewhere" | "unknown"> {
+    if (!this.storedId) return "unknown";
+    try {
+      const { method, params } = sessionAccess(this.storedId, this.o.profile, this.liveId);
+      const result = await this.call<JsonObject>(method, params, 10_000);
+      const state = result?.state;
+      return state === "available" || state === "owned_by_requester" || state === "owned_elsewhere" ? state : "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
 }

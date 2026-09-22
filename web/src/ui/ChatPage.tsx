@@ -10,17 +10,26 @@ import { navigate } from "../app/router";
 import { useApp } from "../app/store";
 import type { PendingAttachment } from "../chat/attachments";
 import { hasOpenQuestion, initialChatState, reduceChat, type ChatItem } from "../chat/model";
-import { ChatSession } from "../chat/session";
+import { ChatSession, type BackgroundProcess } from "../chat/session";
 import { formatTimeSeparator, greetingForHour, showsTimeSeparator } from "../chat/transcript";
 import { appError } from "../errors";
 import type { AnswerPlan } from "../hermes/requests";
 import { Composer } from "./Composer";
 import { ErrorNotice } from "./ErrorNotice";
-import { Sheet } from "./Sheet";
+import { Sheet, SheetAction } from "./Sheet";
+import { SessionActionSheet } from "./SessionActions";
+import { ModelSheet, modelChipLabel } from "./ModelSheet";
+import { copyWithFeedback } from "./Markdown";
+import { speechSupported, toggleSpeak } from "../chat/speech";
+import { readableText } from "../markdown/render";
 import { ChatSearchBar, PromptsSheet, searchHits, ShareSheet, SourceDialog, useSearchHighlights, UserMenuSheet } from "./ChatSheets";
 import {
+  ArchiveIcon,
   ArrowDownIcon,
   BackIcon,
+  ChevronDownIcon,
+  ChevronIcon,
+  TerminalIcon,
   BranchIcon,
   FolderIcon,
   ListIcon,
@@ -63,6 +72,16 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const [sourceItem, setSourceItem] = useState<ChatItem | null>(null);
   const [seed, setSeed] = useState<{ text: string; nonce: number } | null>(null);
   const [botNotice, setBotNotice] = useState<{ text: string; attachments: PendingAttachment[] } | null>(null);
+  // Web batch 4
+  const [manage, setManage] = useState<"archive" | "move" | null>(null);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [regenerateAfterSwitch, setRegenerateAfterSwitch] = useState(false);
+  const [chosenModel, setChosenModel] = useState<{ model: string; provider: string } | null>(null);
+  const [reasoning, setReasoning] = useState<string | null>(null);
+  const [answerMenu, setAnswerMenu] = useState<ChatItem | null>(null);
+  const [processes, setProcesses] = useState<BackgroundProcess[]>([]);
+  const [processesOpen, setProcessesOpen] = useState(false);
+  const [ownedElsewhere, setOwnedElsewhere] = useState(false);
 
   // Opened from a message-search hit: in-chat search starts pre-filled (Android initialQuery).
   useEffect(() => {
@@ -242,6 +261,45 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     setAtBottom(true);
   }
 
+  // Who owns this conversation (session.access, managed patch 030): checked on every (re)connect.
+  // Owned elsewhere replaces the composer (HR-SESS-013); an older Hermes fails open (Android HG-66).
+  useEffect(() => {
+    if (!app.features.has("session-access") || !storedId || state.connection !== "ready") return;
+    let live = true;
+    void sessionRef.current?.access().then((a) => live && setOwnedElsewhere(a === "owned_elsewhere"));
+    return () => {
+      live = false;
+    };
+  }, [state.connection, storedId, app.features]);
+
+  // Background processes (process.list): polled while a run is live or a process still runs.
+  useEffect(() => {
+    if (!app.features.has("process-list") || state.connection !== "ready") return;
+    if (!state.generating && !processes.some((p) => p.running)) return;
+    let live = true;
+    const poll = () =>
+      sessionRef.current?.processes().then(
+        (list) => live && setProcesses(list),
+        () => undefined,
+      );
+    void poll();
+    const timer = setInterval(() => void poll(), 4000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [state.generating, state.connection, processes.some((p) => p.running), app.features]);
+
+  // Reasoning effort, read once per conversation for the composer chip.
+  useEffect(() => {
+    if (!app.features.has("model-select") || !storedId || state.connection !== "ready") return;
+    let live = true;
+    sessionRef.current?.reasoning().then((v) => live && setReasoning(v), () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [storedId, state.connection === "ready", app.features]);
+
   const row = storedId ? app.sessions.find((s) => s.id === storedId) : undefined;
   const title = row?.title || (storedId && app.inbox.latest[storedId]?.title) || (storedId ? t("会话", "Conversation") : t("新会话", "New chat"));
   const listRow = storedId ? (row ?? { id: storedId }) : null;
@@ -254,6 +312,9 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const workspaceBranch = state.workspace ? state.workspace.branch : (row?.git_branch ?? null);
   const workspaceLabel = workspacePath ? basename(workspacePath.replace(/[/\\]+$/, "")) : null;
   const botRow = row && isBotSession(row) ? row : null;
+  const canMove = app.features.has("workspace-move") && !botRow && Boolean(storedId);
+  const currentModel = chosenModel ?? { model: state.liveModel ?? row?.model ?? null, provider: row?.provider ?? null };
+  const runningProcesses = processes.filter((p) => p.running);
 
   const connectionLine =
     state.connection === "reconnecting"
@@ -273,7 +334,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     onRetry: retry,
     onOpenImage: (images, index) => setViewer({ images, index }),
     onUserMenu: (it) => setUserMenu(it),
-    onViewSource: (it) => setSourceItem(it),
+    onViewSource: (it) => setAnswerMenu(it),
     ...(item.key === lastAssistantKey && !state.generating && !state.terminal ? { onRegenerate: regenerate } : {}),
   });
 
@@ -310,7 +371,15 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
               ) : botRow ? (
                 <span class="chat-workspace">{botOriginLabel(botRow, language)}</span>
               ) : workspaceLabel && !emptyNew ? (
-                <span class="chat-workspace mono">
+                // The subtitle is also the way to move the chat (DESIGN §5.4): muted, without the
+                // chevron, while a run is live (Hermes refuses a move then, 4009).
+                <button
+                  type="button"
+                  class={`chat-workspace mono${canMove ? " movable" : ""}`}
+                  disabled={!canMove || state.generating}
+                  aria-label={canMove ? t("所属项目，点按移动", "Project — tap to move") : undefined}
+                  onClick={() => setManage("move")}
+                >
                   <FolderIcon size={12} />
                   <span class="chat-workspace-name">{workspaceLabel}</span>
                   {workspaceBranch ? (
@@ -320,7 +389,8 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
                       <span class="chat-workspace-name">{workspaceBranch}</span>
                     </>
                   ) : null}
-                </span>
+                  {canMove && !state.generating ? <ChevronDownIcon size={12} /> : null}
+                </button>
               ) : null}
             </div>
             {emptyNew ? (
@@ -370,6 +440,12 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
                 >
                   <PinOutlineIcon size={18} />
                   {pinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
+                </button>
+              ) : null}
+              {listRow && app.features.has("session-manage") ? (
+                <button type="button" role="menuitem" class="menu-item with-icon" onClick={() => { setMenuOpen(false); setManage("archive"); }}>
+                  <ArchiveIcon size={18} />
+                  {t("归档对话", "Archive conversation")}
                 </button>
               ) : null}
             </div>
@@ -433,6 +509,23 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         {open ? (
           <QuestionSheet questions={state.questions} sessionId={sessionRef.current?.answerSessionId() ?? ""} t={t} onAnswer={answer} />
         ) : null}
+        {runningProcesses.length ? (
+          <div class="process-card">
+            <button type="button" class="process-head" aria-expanded={processesOpen} onClick={() => setProcessesOpen(!processesOpen)}>
+              <TerminalIcon size={16} />
+              <span>{t(`后台任务运行中 · ${runningProcesses.length}`, `${runningProcesses.length} background task${runningProcesses.length === 1 ? "" : "s"} running`)}</span>
+              <ChevronIcon open={processesOpen} />
+            </button>
+            {processesOpen
+              ? runningProcesses.map((p) => (
+                  <div class="process-item" key={p.id}>
+                    <code class="process-command mono">$ {p.command || p.id}</code>
+                    {p.outputTail.trim() ? <pre class="process-output mono">{p.outputTail.trimEnd()}</pre> : null}
+                  </div>
+                ))
+              : null}
+          </div>
+        ) : null}
         <Composer
           t={t}
           language={language}
@@ -442,6 +535,19 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           onInterrupt={() => void sessionRef.current?.interrupt()}
           draftKey={device ? draftKey(device.deviceId, storedId) : null}
           seed={seed}
+          chip={app.features.has("model-select") && !botRow ? { label: modelChipLabel(currentModel.model, reasoning, language), onClick: () => setModelOpen(true) } : null}
+          blocked={
+            ownedElsewhere ? (
+              <div class="owned-elsewhere">
+                <ErrorNotice
+                  error={appError("HR-SESS-013", "session.access: owned_elsewhere")}
+                  language={language}
+                  onRetry={() => void sessionRef.current?.access().then((a) => setOwnedElsewhere(a === "owned_elsewhere"))}
+                  variant="inline"
+                />
+              </div>
+            ) : null
+          }
         />
       </footer>
       {viewer ? <ImageViewer images={viewer.images} index={viewer.index} onClose={() => setViewer(null)} /> : null}
@@ -469,6 +575,91 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         />
       ) : null}
       {sourceItem ? <SourceDialog item={sourceItem} onClose={() => setSourceItem(null)} /> : null}
+      {manage && listRow ? (
+        <SessionActionSheet
+          session={row ?? listRow}
+          start={manage}
+          busy={state.generating}
+          onClose={() => setManage(null)}
+          move={async (cwd) => {
+            const moved = await sessionRef.current!.moveWorkspace(cwd);
+            dispatch({ type: "event", event: { type: "session.info", sessionId: sessionRef.current!.liveSessionId ?? "", payload: { cwd: moved.cwd ?? cwd, ...(moved.branch ? { branch: moved.branch } : {}) } } });
+          }}
+          onChanged={(change) => {
+            if (change === "archived") navigate({ name: "list" });
+          }}
+        />
+      ) : null}
+      {modelOpen && sessionRef.current ? (
+        <ModelSheet
+          current={currentModel}
+          profile={explicitProfile(row)}
+          actions={{
+            switchModel: (provider, model) => sessionRef.current!.switchModel(provider, model),
+            reasoning: () => sessionRef.current!.reasoning(),
+            setReasoning: (value) => sessionRef.current!.setReasoning(value),
+          }}
+          onSwitched={(provider, model) => {
+            setChosenModel({ provider, model });
+            app.flash(t(`已切换到 ${model}`, `Switched to ${model}`));
+            if (regenerateAfterSwitch) regenerate();
+            setRegenerateAfterSwitch(false);
+          }}
+          onReasoning={setReasoning}
+          onClose={() => {
+            setModelOpen(false);
+            setRegenerateAfterSwitch(false);
+          }}
+        />
+      ) : null}
+      {answerMenu ? (
+        <Sheet closeLabel={t("关闭", "Close")} onClose={() => setAnswerMenu(null)}>
+          <SheetAction
+            label={t("复制", "Copy")}
+            onClick={() => {
+              setAnswerMenu(null);
+              void copyWithFeedback(answerMenu.text, app.flash, t("已复制", "Copied"));
+            }}
+          />
+          {answerMenu.key === lastAssistantKey && !state.generating && !state.terminal ? (
+            <>
+              <SheetAction
+                label={t("重新生成", "Regenerate")}
+                onClick={() => {
+                  setAnswerMenu(null);
+                  regenerate();
+                }}
+              />
+              {app.features.has("model-select") && !botRow ? (
+                <SheetAction
+                  label={t("换个模型重试", "Retry with another model")}
+                  onClick={() => {
+                    setAnswerMenu(null);
+                    setRegenerateAfterSwitch(true);
+                    setModelOpen(true);
+                  }}
+                />
+              ) : null}
+            </>
+          ) : null}
+          {speechSupported() ? (
+            <SheetAction
+              label={t("朗读", "Read aloud")}
+              onClick={() => {
+                setAnswerMenu(null);
+                toggleSpeak(answerMenu.key, readableText(answerMenu.text));
+              }}
+            />
+          ) : null}
+          <SheetAction
+            label={t("查看原文 / 选择", "View source / Select")}
+            onClick={() => {
+              setSourceItem(answerMenu);
+              setAnswerMenu(null);
+            }}
+          />
+        </Sheet>
+      ) : null}
       {botNotice && botRow ? (
         <Sheet title={botSendNoticeTitle(botRow.source, language)} closeLabel={t("取消", "Cancel")} onClose={cancelBotNotice}>
           <p class="sheet-body">{botSendNoticeBody(botRow.source, language)}</p>

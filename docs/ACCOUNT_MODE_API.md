@@ -161,7 +161,9 @@ Rules:
 - `webDeviceAccess: true` is emitted only while `ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=1` (which requires
   Web sessions and binding): the Web app at `/app/` may then use §8's cookie device access. Its
   absence means the Web app must show its "not available on this Gateway" state instead of calling
-  device routes.
+  device routes. With it, `webDeviceFeatures` lists what the Gateway admits beyond chat
+  (`session-manage`, `session-delete`, `workspace-move`, `model-select`, `process-list`,
+  `session-access`); the Web app shows only listed features, so an older Gateway simply hides them.
 - `replacement=true` is advertised only when the independently gated binding surface is enabled and
   the replacement/unbind HTTP contract is available. The flag remains false in production while
   `ACCOUNT_BINDING_ENABLED=0`.
@@ -980,17 +982,36 @@ of a `browser/web` installation on:
 | --- | --- |
 | `GET/HEAD /v2/devices/{deviceId}/api/<allowlisted>` | `Sec-Fetch-Site: same-origin`, or the exact Origin when Fetch Metadata is absent |
 | `POST /v2/devices/{deviceId}/api/files/upload` | Exact Origin, same-origin Fetch Metadata when present, `X-Hermes-CSRF` matching the CSRF cookie |
+| `PATCH`/`DELETE /v2/devices/{deviceId}/api/sessions/{id}` | Write rules above, plus the one-shape checks below |
 | `GET /v2/devices/{deviceId}/ws` | Exact Origin; no query string; no legacy token |
 | `GET /api/mobile/events`, `POST /api/mobile/events/{ack,read}` | Read/write rules above |
 
 Allowlisted REST paths: `/api/status`, `/api/hermes-remote/contract`, `/api/sessions`,
 `/api/sessions/search`, `/api/sessions/stats`, `/api/sessions/{id}`, `/api/sessions/{id}/messages`,
 `/api/profiles`, `/api/profiles/sessions`, `/api/files` (GET) and `/api/files/upload` (POST);
-`{id}` matches `[A-Za-z0-9_.:-]{1,128}`. Anything else answers `403 HR-WEB-001`. On the WebSocket
-only `client.capabilities`, `session.create`, `session.resume`, `prompt.submit`,
-`session.interrupt`, `image.attach`, `file.attach`, `request.answer`, `clarify.lock`,
-`approval.respond`, `clarify.respond` and method-less answers to server requests are forwarded;
-another method is answered in-band:
+`{id}` matches `[A-Za-z0-9_.:-]{1,128}`. Web batch 4 adds, in one shape each:
+
+| Route | Admitted shape |
+| --- | --- |
+| `PATCH /api/sessions/{id}` | No query; JSON object body with only `title` (string 1–200), `archived` (bool), `profile` (profile name); at least `title` or `archived`; declared body ≤ 4 KB, forwarded byte for byte |
+| `DELETE /api/sessions/{id}` | Query only `profile`; no body |
+| `GET /api/model/options` | Query only `profile` |
+
+Anything else answers `403 HR-WEB-001`. On the WebSocket `client.capabilities`, `session.create`,
+`session.resume`, `prompt.submit`, `session.interrupt`, `image.attach`, `file.attach`,
+`request.answer`, `clarify.lock`, `approval.respond`, `clarify.respond` and method-less answers to
+server requests are forwarded, plus these in one parameter shape each:
+
+| Method | Admitted params |
+| --- | --- |
+| `session.workspace.move` | `session_key` (id charset), `cwd` (absolute, ≤ 1024, no control characters), `profile`? |
+| `slash.exec` | `session_id`, `command` matching `^/model [A-Za-z0-9._:/@+-]{1,128} --provider [A-Za-z0-9._-]{1,64} --session$`, `profile`? |
+| `config.get` | `key: "reasoning"`, `session_id`, `profile`? |
+| `config.set` | `key: "reasoning"`, `session_id`, `value` ∈ `none/minimal/low/medium/high/xhigh/max/ultra`, `profile`? |
+| `process.list` | `session_id`, `profile`? |
+| `session.access` | `session_id`, `profile`?, `live_session_id`? |
+
+Another method, or an extra key or out-of-range value, is answered in-band:
 
 ```json
 {"jsonrpc":"2.0","id":7,"error":{"code":4403,"message":"HR-WEB-001 …","data":{"code":"HR-WEB-001"}}}

@@ -5,6 +5,7 @@ import { useApp } from "../app/store";
 import type { SessionListItem } from "../hermes/types";
 import { Highlighted } from "./Highlighted";
 import { FolderIcon, PinMark } from "./icons";
+import { useLongPress } from "./useLongPress";
 
 // One session row (DESIGN §5.2, Android SessionRow): title (heavier while unread), subline
 // `[pin][草稿] [folder] project · model` (the default project shows no project part; inside a
@@ -26,6 +27,8 @@ export interface SessionRowProps {
   query?: string;
   divider?: boolean;
   onOpen: () => void;
+  /** Press and hold (or the context menu) opens the row's action sheet. */
+  onLongPress?: () => void;
 }
 
 export function projectLabelOf(session: Pick<SessionListItem, "git_repo_root" | "cwd">, defaultProject: string | null | undefined): string | null {
@@ -35,7 +38,8 @@ export function projectLabelOf(session: Pick<SessionListItem, "git_repo_root" | 
   return basename(key);
 }
 
-export function SessionRow({ session, now, view, pinned, draft, archived, inProject, bot, defaultProject, query = "", divider, onOpen }: SessionRowProps) {
+export function SessionRow({ session, now, view, pinned, draft, archived, inProject, bot, defaultProject, query = "", divider, onOpen, onLongPress }: SessionRowProps) {
+  const { guard, ...press } = useLongPress(onLongPress);
   const { t, language } = useApp();
   const project = bot || inProject ? null : projectLabelOf(session, defaultProject);
   const model = session.model?.trim() || (bot ? t("模型未知", "Model unknown") : "");
@@ -45,7 +49,12 @@ export function SessionRow({ session, now, view, pinned, draft, archived, inProj
   const status = bot ? null : view?.status ?? null;
   const title = session.title || session.display_name || t("未命名会话", "Untitled");
   return (
-    <button type="button" class={`session-row${divider ? " with-divider" : ""}${unread ? " unread" : ""}`} onClick={onOpen}>
+    <button
+      type="button"
+      class={`session-row${divider ? " with-divider" : ""}${unread ? " unread" : ""}${onLongPress ? " holdable" : ""}`}
+      onClick={guard ? guard(onOpen) : onOpen}
+      {...press}
+    >
       <span class="row-main">
         <span class="row-title">
           <Highlighted text={title} query={query} />
@@ -57,7 +66,9 @@ export function SessionRow({ session, now, view, pinned, draft, archived, inProj
             {project ? (
               <span class="row-project">
                 <FolderIcon size={12} />
-                <Highlighted text={project} query={query} />
+                <span class="row-project-name">
+                  <Highlighted text={project} query={query} />
+                </span>
               </span>
             ) : null}
             {project && parts.length ? <span aria-hidden="true">·</span> : null}
