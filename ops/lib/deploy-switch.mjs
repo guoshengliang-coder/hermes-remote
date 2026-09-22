@@ -54,7 +54,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       fail("target_must_declare_maintenance_window", "switch_authorize");
     }
     await verifyArchiveAtUse(targetManifest);
-    verifyLoadedImage(runner, targetManifest);
+    const runtimeImage = verifyLoadedImage(runner, targetManifest);
     const material = await inspectInputMaterial(config);
     const planDigest = deploymentPlanDigest(config, transition.source, transition.target, material.fingerprint);
     lock = await acquireDeploymentLock(paths.lock, runId);
@@ -78,7 +78,9 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       fail("candidate_not_verified", "switch_resume");
     }
     candidateControlled = true;
-    verifyDatabaseMigration(config, targetManifest, runner);
+    // The same image the candidate runs: on a containerd store that is the containerd ID, and the
+    // manifest's Docker image ID does not name any local image there.
+    verifyDatabaseMigration(config, targetManifest, runner, runtimeImage.imageId);
 
     if (stageIndex < switchedIndex) {
       await assertCurrentRelease(config, journal.checkpoint.currentReleaseTarget);

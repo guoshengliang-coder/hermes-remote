@@ -587,6 +587,28 @@ test("database migration is locked before candidate start and reverified before 
   assert.equal(installedDatabaseSecret.mode & 0o777, 0o440);
 });
 
+test("the pre-routing migration check runs the image the host actually loaded (containerd store)", async (t) => {
+  const fixture = await createCandidateFixture(t);
+  await enableDatabaseFixture(fixture);
+  fixture.targetManifest = {
+    ...fixture.targetManifest,
+    schemaVersion: 3,
+    containerdImageId: `sha256:${"c".repeat(64)}`,
+  };
+  const runner = createTransactionalRunner(fixture, { containerdStore: true });
+  await prepareFixtureCandidate(fixture, runner);
+  await switchCandidate(fixture.config, fixture.sourceManifest, fixture.targetManifest, {
+    ...switchOptions(runner),
+    runId: "database-switch-containerd",
+    candidateSmoke: async () => {},
+    publicSmoke: async () => {},
+  });
+  const migrationCalls = runner.calls.filter((call) => call.command === "docker"
+    && call.args.at(-1) === "gateway/dist/ops/migrate-account.mjs");
+  assert.equal(migrationCalls.length, 2);
+  assert.equal(migrationCalls.every((call) => call.args.at(-3) === fixture.targetManifest.containerdImageId), true);
+});
+
 test("database input with group or world permissions is rejected before managed state changes", async (t) => {
   const fixture = await createCandidateFixture(t);
   await enableDatabaseFixture(fixture);
@@ -1369,7 +1391,11 @@ function switchOptions(runner) {
   };
 }
 
-function createTransactionalRunner(fixture, { nginxTestFailures = 0, databaseFailureAt = null } = {}) {
+function createTransactionalRunner(fixture, {
+  nginxTestFailures = 0,
+  databaseFailureAt = null,
+  containerdStore = false,
+} = {}) {
   const loadedImages = new Set();
   const calls = [];
   const active = new Set([fixture.config.legacySource.serviceName]);
@@ -1416,8 +1442,10 @@ function createTransactionalRunner(fixture, { nginxTestFailures = 0, databaseFai
       if (command === "docker" && args[0] === "image" && args[1] === "inspect") {
         const manifest = [fixture.targetManifest, fixture.rollbackManifest]
           .find((candidate) => candidate?.imageReference === args.at(-1));
+        // A containerd image store reports the containerd ID, not the Docker config digest.
+        const reported = containerdStore ? (manifest?.containerdImageId ?? manifest?.imageId) : manifest?.imageId;
         return manifest && loadedImages.has(manifest.imageReference)
-          ? success(`${manifest.imageId}|amd64\n`)
+          ? success(`${reported}|amd64\n`)
           : failure();
       }
       if (command === "docker" && args[0] === "load") {
@@ -1429,6 +1457,7 @@ function createTransactionalRunner(fixture, { nginxTestFailures = 0, databaseFai
       if (command === "docker" && args[0] === "run"
           && args.at(-1) === "gateway/dist/ops/migrate-account.mjs") {
         databaseCalls += 1;
+        if (containerdStore && args.at(-3) !== fixture.targetManifest.containerdImageId) return failure();
         if (databaseCalls === databaseFailureAt) return failure();
         return success(`DATABASE_MIGRATION_OK ${JSON.stringify({
           schemaVersion: fixture.targetManifest.releaseContract.databaseSchemaVersion,
