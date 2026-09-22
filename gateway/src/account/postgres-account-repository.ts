@@ -1289,6 +1289,38 @@ export class PostgresAccountRepository implements AccountRepository {
     });
   }
 
+  async revokeSessionByRefreshToken(refreshTokenHash: string): Promise<"completed" | "invalid"> {
+    return this.transaction(async (client) => {
+      const found = await client.query<{
+        family_id: string;
+        session_id: string;
+        account_id: string;
+        installation_id: string;
+        session_revoked_at: Date | null;
+      }>(
+        `SELECT r.family_id, s.id AS session_id, s.account_id, s.installation_id,
+                s.revoked_at AS session_revoked_at
+           FROM refresh_tokens r
+           JOIN account_sessions s ON s.id = r.session_id
+          WHERE r.token_hash = $1
+          FOR UPDATE OF s`,
+        [refreshTokenHash],
+      );
+      const row = found.rows[0];
+      if (!row) return "invalid";
+      // Already ended (signed out elsewhere, revoked, or reuse-detected): nothing left to revoke.
+      if (row.session_revoked_at) return "completed";
+      await revokeFamily(client, row.family_id);
+      await audit(client, row.account_id, row.installation_id, "auth.sign_out", {});
+      await publishAccountAccessRevocation(client, {
+        kind: "session",
+        accountId: row.account_id,
+        sessionId: row.session_id,
+      });
+      return "completed";
+    });
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }

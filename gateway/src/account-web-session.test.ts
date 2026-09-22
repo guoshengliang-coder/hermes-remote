@@ -256,6 +256,44 @@ test("email login, refresh, account read, and sign-out keep bearer credentials i
   assert.equal(fixture.calls.at(-1)?.operation, "sign_out");
 });
 
+test("Web sign-out after the access token expired ends the session through the refresh cookie", async () => {
+  const fixture = controller(true, false, { signOutError: accountErrors.sessionExpired() });
+  const bootstrap = await call(fixture.controller, "GET", "/v2/web/session");
+  const csrf = cookieValue(bootstrap.cookies(), WEB_COOKIE_NAMES.csrf);
+  const headers = {
+    origin: ORIGIN,
+    "sec-fetch-site": "same-origin",
+    "x-hermes-csrf": csrf,
+    "idempotency-key": IDEMPOTENCY_KEY,
+  };
+  // The browser already dropped the expired access cookie; the refresh cookie remains.
+  const signOut = await call(fixture.controller, "POST", "/v2/web/auth/sign-out", {
+    ...headers,
+    cookie: `${requestCookies(bootstrap.cookies())}; ${WEB_COOKIE_NAMES.refresh}=${REFRESH}`,
+  });
+  assert.equal(signOut.status, 204);
+  assert.equal(signOut.cookies().length, 4);
+  assert.equal(signOut.cookies().every((value) => value.includes("Max-Age=0")), true);
+  assert.deepEqual(fixture.calls.map(({ operation }) => operation), ["sign_out_refresh"]);
+  assert.equal(fixture.calls[0]?.input, REFRESH);
+
+  // An expired access cookie still present: the access path fails first, then the refresh path.
+  const withExpiredAccess = await call(fixture.controller, "POST", "/v2/web/auth/sign-out", {
+    ...headers,
+    cookie: `${requestCookies(bootstrap.cookies())}; ${WEB_COOKIE_NAMES.access}=${ACCESS}; ${WEB_COOKIE_NAMES.refresh}=${REFRESH}`,
+  });
+  assert.equal(withExpiredAccess.status, 204);
+  assert.deepEqual(fixture.calls.slice(1).map(({ operation }) => operation), ["sign_out", "sign_out_refresh"]);
+
+  // Nothing left to identify a session: still a clean sign-out for the browser.
+  const bare = await call(fixture.controller, "POST", "/v2/web/auth/sign-out", {
+    ...headers,
+    cookie: requestCookies(bootstrap.cookies()),
+  });
+  assert.equal(bare.status, 204);
+  assert.equal(bare.cookies().every((value) => value.includes("Max-Age=0")), true);
+});
+
 test("Web account deletion is hidden by default and clears all session cookies after explicit confirmation", async () => {
   const hidden = controller();
   const hiddenResponse = await call(hidden.controller, "DELETE", "/v2/web/account");
@@ -697,7 +735,11 @@ test("Web security routes list installations and redacted audit events, then rev
   });
 });
 
-function controller(googleAuthEnabled = true, accountDeletionEnabled = false): {
+function controller(
+  googleAuthEnabled = true,
+  accountDeletionEnabled = false,
+  options: { signOutError?: unknown } = {},
+): {
   controller: AccountHttpController;
   calls: Array<{ operation: string; input?: unknown }>;
 } {
@@ -742,6 +784,10 @@ function controller(googleAuthEnabled = true, accountDeletionEnabled = false): {
     },
     signOut: async (authorization: string, idempotencyKey: string) => {
       calls.push({ operation: "sign_out", input: { authorization, idempotencyKey } });
+      if (options.signOutError) throw options.signOutError;
+    },
+    signOutWithRefreshToken: async (refreshToken: string) => {
+      calls.push({ operation: "sign_out_refresh", input: refreshToken });
     },
     requestAccountDeletion: async (
       authorization: string,

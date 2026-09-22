@@ -619,10 +619,18 @@ export class AccountHttpController {
       if (url.pathname === "/v2/web/auth/sign-out" && request.method === "POST") {
         const web = this.requireWebSession();
         web.requireMutation(request);
-        await this.service.signOut(
-          web.authorization(request),
-          uuid(firstHeader(request, "idempotency-key"), "Idempotency-Key"),
-        );
+        const idempotencyKey = uuid(firstHeader(request, "idempotency-key"), "Idempotency-Key");
+        try {
+          await this.service.signOut(web.authorization(request), idempotencyKey);
+        } catch (error) {
+          // The access cookie could not identify a live session (expired after an idle tab, gone,
+          // revoked, or the account is unavailable). Signing out must still end the session and
+          // clear the browser: the refresh cookie identifies the session, so end it through that,
+          // or the family (and any open browser socket) would outlive the user's sign-out.
+          if (!(error instanceof AccountModeError) || !SIGN_OUT_FALLBACK_CODES.has(error.code)) throw error;
+          const refresh = web.refreshTokenIfPresent(request);
+          if (refresh) await this.service.signOutWithRefreshToken(refresh);
+        }
         response.writeHead(204, {
           "cache-control": "no-store",
           "set-cookie": web.clearCookies(),
@@ -1209,6 +1217,14 @@ export class AccountHttpController {
     return this.options.googleAuthEnabled ?? false;
   }
 }
+
+/** Failures of the access-token sign-out that the Web sign-out retries through the refresh cookie. */
+const SIGN_OUT_FALLBACK_CODES: ReadonlySet<string> = new Set([
+  "HR-AUTH-003", // expired or missing access token
+  "HR-AUTH-004", // session already revoked
+  "HR-ACCOUNT-001", // account disabled
+  "HR-ACCOUNT-012", // account pending deletion
+]);
 
 function capabilities(
   enabled: boolean,

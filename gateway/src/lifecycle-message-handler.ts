@@ -48,7 +48,19 @@ export class LifecycleMessageHandler {
     }
     void this.accountControl.ingestLifecycleEvent(material, message).then((status) => {
       this.log.info("lifecycle.received", { ...describe(message), mode: "account", status });
-      if (status === "stored" || status === "duplicate") {
+      // A reused event ID with different content keeps the stored event and is acknowledged all
+      // the same. Refusing it used to close the whole Connector (1008); the Connector then resent
+      // the unacknowledged event on reconnect and was refused again, a loop that dropped every
+      // phone and browser tunnel on that Mac for as long as it lasted. One inconsistent lifecycle
+      // record is not worth that: the first version stands, the Connector drops its copy, and the
+      // conflict is logged for diagnosis.
+      if (status === "stored" || status === "duplicate" || status === "event_id_conflict") {
+        if (status === "event_id_conflict") {
+          this.reportFailure(
+            "Lifecycle event ID was reused for different content; kept the stored event",
+            new Error(`event_id_conflict ${message.eventId}`),
+          );
+        }
         this.send(peer.socket, {
           type: "session.lifecycle.ack",
           version: PROTOCOL_VERSION,
@@ -56,13 +68,8 @@ export class LifecycleMessageHandler {
         });
         return;
       }
-      this.send(peer.socket, errorMessage(
-        status,
-        status === "event_id_conflict"
-          ? "Lifecycle event ID was reused for different content"
-          : "Connector binding is no longer active",
-      ));
-      peer.socket.close(status === "binding_invalid" ? 4403 : 1008, status);
+      this.send(peer.socket, errorMessage(status, "Connector binding is no longer active"));
+      peer.socket.close(4403, status);
     }).catch((error) => {
       this.reportFailure("Unable to persist account lifecycle event", error);
       this.send(peer.socket, errorMessage(
