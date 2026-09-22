@@ -185,8 +185,17 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAccountSessionManager(store: AccountSessionStore, api: AccountApi): AccountSessionManager =
-        AccountSessionManager(store, api)
+    fun provideAccountSessionManager(
+        store: AccountSessionStore,
+        api: AccountApi,
+        // Lazy breaks the cycle: the push manager reads account state, and sign-out calls back
+        // into it with the bearer that is about to be revoked (HG-94).
+        push: dagger.Lazy<com.hermes.client.notifications.push.PushRegistrationManager>,
+    ): AccountSessionManager = AccountSessionManager(
+        store,
+        api,
+        beforeSignOut = { connection -> push.get().unregisterForSignOut(connection) },
+    )
 
     @Provides
     @Singleton

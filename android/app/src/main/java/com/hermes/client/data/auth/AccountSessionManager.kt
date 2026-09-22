@@ -4,11 +4,13 @@ import com.hermes.client.data.network.AccountApi
 import com.hermes.client.data.network.AccountApiException
 import com.hermes.client.data.network.AccountDeviceDto
 import com.hermes.client.data.network.AccountExchangeResponseDto
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.util.UUID
 
@@ -60,6 +62,12 @@ class AccountSessionManager(
     private val store: AccountSessionStore,
     private val api: AccountApi,
     private val now: () -> Instant = { Instant.now() },
+    /**
+     * Runs with the still-valid bearer just before the installation is revoked, so owners of
+     * installation-scoped server state (the push registration, HG-94) can remove it while the
+     * credential still works. Best effort and bounded: a failure here never blocks sign-out.
+     */
+    private val beforeSignOut: suspend (AccountControlConnection) -> Unit = {},
 ) {
     private val refreshMutex = Mutex()
     // Hilt creates networking singletons while HermesApp starts, including in pure Robolectric UI
@@ -309,6 +317,15 @@ class AccountSessionManager(
         val current = _session.value ?: return
         try {
             val bearer = accessToken() ?: current.accessToken
+            try {
+                withTimeoutOrNull(BEFORE_SIGN_OUT_TIMEOUT_MS) {
+                    beforeSignOut(AccountControlConnection(current.baseUrl, bearer))
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Best effort by contract; the revocation below matters more.
+            }
             api.signOut(current.baseUrl, bearer)
         } finally {
             clearLocal(requireReauthentication = false)
@@ -352,6 +369,7 @@ class AccountSessionManager(
 
     private companion object {
         const val REFRESH_SKEW_SECONDS = 60L
+        const val BEFORE_SIGN_OUT_TIMEOUT_MS = 5_000L
         val INVALID_SESSION_CODES = setOf("HR-AUTH-003", "HR-AUTH-004", "HR-AUTH-005")
     }
 }

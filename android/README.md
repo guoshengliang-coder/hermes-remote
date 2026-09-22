@@ -874,6 +874,24 @@ cannot silently produce an APK with an incompatible signature.
 
 See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distributing the derivative app.
 
+### Optional FCM push (HG-94)
+
+A build carries FCM wake hints only when it is given the four Firebase client values; without them
+the app never initialises Firebase and keeps its periodic inbox check. They are read at configure
+time from `local.properties` (never committed) or the environment, and no `google-services.json` or
+Google Services Gradle plugin is used:
+
+```properties
+hermes.fcm.apiKey=...      # or HERMES_FCM_API_KEY
+hermes.fcm.appId=...       # or HERMES_FCM_APP_ID
+hermes.fcm.projectId=...   # or HERMES_FCM_PROJECT_ID
+hermes.fcm.senderId=...    # or HERMES_FCM_SENDER_ID
+```
+
+Push also needs Google Play services on the phone, an account-mode sign-in, notifications turned
+on, and a Gateway that advertises `capabilities.push` (`../docs/ARCHITECTURE.md`, "Push wake
+hints"). Settings → Notifications shows which of these is missing.
+
 ## App updates
 
 The You tab links to a manual update page. It uses a credential-free HTTP client to read the internal

@@ -230,7 +230,7 @@ test("PostgreSQL identity linking and unlinking are explicit, conflict-safe, and
 
     assert.equal((await pool.query<{ version: number }>(
       "SELECT version FROM gateway_schema_state WHERE singleton = true",
-    )).rows[0].version, 15);
+    )).rows[0].version, 16);
   } finally {
     await pool.end();
     await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);

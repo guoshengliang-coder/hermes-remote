@@ -987,3 +987,33 @@ version with each result.
    Expected: iOS offers to download or preview it. It never renders inside the app's origin.
 7. **Sign out on a shared device.** Sign out, then reopen the app offline. Expected: no conversation
    content is shown from cache, only the sign-in page.
+
+## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
+
+### Automated here (L1)
+
+- Gateway: only `run.waiting`, `run.completed`, `run.interrupted` and `run.unknown` wake phones; the
+  FCM body is data-only, `HIGH` priority and never contains the session title; FCM responses map to
+  sent / token dropped / failed; a failed send never throws into the Connector ack path
+  (`gateway/src/push.test.ts`).
+- Gateway: registration routes accept only Android phone installations and advertised providers,
+  and answer 404 when no provider is configured; `capabilities.push` appears only when configured.
+- PostgreSQL 18: one registration per live phone, account isolation, a rotated token is not deleted
+  by a stale "unregistered" report, and revoking the installation deletes the registration while a
+  revoked installation cannot register again (`gateway/src/push-registration-database.integration.test.ts`).
+
+### Still needs a Firebase project, a deployed Gateway and a phone with Google Play services
+
+None of this has been run: no Firebase project exists yet, the Gateway was not deployed, and the
+attached HONOR CLK-AN00 has no Google Play services.
+
+1. Put the service-account key at the path in `ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`, restart, and check
+   `GET /v2/capabilities` shows `"push": {"providers": ["fcm"]}`.
+2. Build the APK with the four Firebase client values (`android/README.md`), sign in with an
+   account, enable notifications. Expected: one `account_push_registrations` row for that phone.
+3. Swipe the app away (do not force-stop). Start a run from Desktop and let it finish. Expected: the
+   completion card appears within seconds, not after the 15-minute job; the same for a run that
+   waits for approval.
+4. Put the phone into Doze (`adb shell dumpsys deviceidle force-idle`) and repeat. Expected: the
+   high-priority message still wakes it.
+5. Sign out on the phone. Expected: the row is gone and no further pushes arrive.

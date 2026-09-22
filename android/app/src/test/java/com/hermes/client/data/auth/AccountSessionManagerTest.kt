@@ -348,6 +348,43 @@ class AccountSessionManagerTest {
         assertNull(manager.accountReauthenticationReason())
     }
 
+    @Test fun signOutHandsTheLiveBearerToTheHookBeforeRevoking() = runTest {
+        store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
+        server.enqueue(MockResponse.Builder().code(204).build())
+        val seen = mutableListOf<String>()
+        val manager = AccountSessionManager(
+            store,
+            AccountApi(OkHttpClient(), Json { ignoreUnknownKeys = true }),
+            now = { Instant.parse("2026-09-08T00:00:00Z") },
+            beforeSignOut = { connection ->
+                seen += connection.bearer
+                assertEquals("revocation has not happened yet", 0, server.requestCount)
+            },
+        )
+
+        manager.signOut()
+
+        assertEquals(listOf("hga_old"), seen)
+        assertEquals("/v2/installations/current", server.takeRequest().target)
+        assertNull(manager.session.value)
+    }
+
+    @Test fun aFailingSignOutHookNeverBlocksSignOut() = runTest {
+        store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
+        server.enqueue(MockResponse.Builder().code(204).build())
+        val manager = AccountSessionManager(
+            store,
+            AccountApi(OkHttpClient(), Json { ignoreUnknownKeys = true }),
+            now = { Instant.parse("2026-09-08T00:00:00Z") },
+            beforeSignOut = { throw IllegalStateException("push cleanup failed") },
+        )
+
+        manager.signOut()
+
+        assertEquals("/v2/installations/current", server.takeRequest().target)
+        assertNull(manager.session.value)
+    }
+
     @Test fun aReasonIsNeverReadableOnceTheGateItselfIsReleased() {
         store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
         val manager = manager()

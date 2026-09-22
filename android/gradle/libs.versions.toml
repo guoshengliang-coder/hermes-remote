@@ -34,6 +34,12 @@ androidxTestRunner = "1.7.0"
 zxingEmbedded = "4.3.0"
 glance = "1.1.1"
 missiongoFeedback = "0.2.5"
+# FCM wake hints (HG-94). No google-services plugin: the four client values come from
+# local.properties / env at build time and Firebase is initialized manually (FcmConfig.kt).
+firebaseBom = "34.19.0"
+# GoogleApiAvailability for the "does this phone have Google Play services" check; firebase-messaging
+# only brings it in at runtime scope.
+playServicesBase = "18.11.0"
 
 [libraries]
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -81,6 +87,9 @@ androidx-test-runner = { module = "androidx.test:runner", version.ref = "android
 zxing-embedded = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxingEmbedded" }
 glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
 missiongo-feedback = { module = "io.missiongo:missiongo-feedback", version.ref = "missiongoFeedback" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+play-services-base = { module = "com.google.android.gms:play-services-base", version.ref = "playServicesBase" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

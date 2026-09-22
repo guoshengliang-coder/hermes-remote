@@ -35,6 +35,13 @@ import {
 import { WebSessionSecurity } from "./web-session-security.js";
 import { WebDeviceAccess } from "./web-device-access.js";
 import { TokenCodec } from "./token-codec.js";
+import { PushFanout, type PushFanoutMetrics } from "./push/push-fanout.js";
+import {
+  FcmPushProvider,
+  fcmAccessTokenSource,
+  parseFcmServiceAccount,
+} from "./push/push-provider.js";
+import { PostgresPushRegistrationStore } from "./push/push-registration-store.js";
 import type { AccountPrincipal } from "./model.js";
 import type { AccountDevice, BindingProofMaterial, BindingState } from "./account-control-model.js";
 import type { SessionLifecycleEvent } from "@hermes-remote/protocol";
@@ -107,6 +114,7 @@ export interface AccountRuntime {
   bindingEnabled: boolean;
   emailDeliveryMetrics?(): Promise<AccountEmailDeliveryMetrics>;
   retentionMetrics?(): AccountRetentionMetrics;
+  pushMetrics?(): PushFanoutMetrics;
   readiness(): Promise<GatewayReadiness>;
   close(): Promise<void>;
 }
@@ -344,6 +352,21 @@ export function createAccountRuntime(
     sharingRepository,
     webDeviceAccessEnabled,
   );
+  const fcmServiceAccount = optionalSecret(environment, "ACCOUNT_FCM_SERVICE_ACCOUNT");
+  if (fcmServiceAccount !== undefined && !controlEnabled) {
+    throw new Error("ACCOUNT_FCM_SERVICE_ACCOUNT requires ACCOUNT_BINDING_ENABLED=1");
+  }
+  const pushRegistrations = fcmServiceAccount !== undefined
+    ? new PostgresPushRegistrationStore(pool)
+    : undefined;
+  const pushFanout = fcmServiceAccount !== undefined && pushRegistrations
+    ? (() => {
+        const account = parseFcmServiceAccount(fcmServiceAccount);
+        return new PushFanout(pushRegistrations, [
+          new FcmPushProvider(account.projectId, fcmAccessTokenSource(account)),
+        ]);
+      })()
+    : undefined;
   const proofCoordinator = controlEnabled
     ? new ConnectorProofCoordinator(
         controlRepository,
@@ -385,6 +408,9 @@ export function createAccountRuntime(
       desktopManagedInstallEnabled,
       desktopComponentInstallEnabled,
       sharingService,
+      ...(pushRegistrations && pushFanout ? {
+        pushRegistration: { store: pushRegistrations, providers: pushFanout.providerNames },
+      } : {}),
       serverRelease: release,
     }),
     ...(resendWebhook ? { resendWebhook } : {}),
@@ -402,6 +428,7 @@ export function createAccountRuntime(
     bindingEnabled: controlEnabled,
     emailDeliveryMetrics: () => emailDeliveryMetrics.snapshot(),
     retentionMetrics: () => retention.snapshot(),
+    ...(pushFanout ? { pushMetrics: () => pushFanout.snapshot() } : {}),
     ...(proofCoordinator ? {
       gatewayControl: {
         authenticate: (authorization) => service.authenticate(authorization),
@@ -419,9 +446,13 @@ export function createAccountRuntime(
           material.generation,
           material.publicKeyFingerprint,
         ),
-        ingestLifecycleEvent: async (material, event) => (
-          await controlRepository.ingestAccountLifecycleEvent(material, event)
-        ).status,
+        ingestLifecycleEvent: async (material, event) => {
+          const { status } = await controlRepository.ingestAccountLifecycleEvent(material, event);
+          // Only a newly stored event wakes phones; a duplicate was already pushed. Not awaited:
+          // the push is a hint and must never delay or fail the Connector's ack.
+          if (status === "stored") void pushFanout?.notify(material.accountId, event);
+          return status;
+        },
         listLifecycleEvents: (principal, after, limit) => controlService.listLifecycleEvents(
           principal,
           after,
@@ -545,6 +576,12 @@ function requireSecret(
     throw new Error(`${name} must contain at least ${minimumLength} bytes`);
   }
   return value;
+}
+
+function optionalSecret(environment: NodeJS.ProcessEnv, name: string): string | undefined {
+  const file = environment[`${name}_FILE`];
+  const value = environment[name] ?? (file ? readFileSync(file, "utf8").trim() : undefined);
+  return value ? value : undefined;
 }
 
 function booleanFlag(
