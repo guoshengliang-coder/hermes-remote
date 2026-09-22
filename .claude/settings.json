@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git fetch *)",
+      "Bash(git ls-tree *)",
+      "Bash(git merge-base *)",
+      "Bash(git rev-parse *)",
+      "Bash(git worktree list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr list *)",
+      "Bash(gh run list *)",
+      "Bash(gh run view *)",
+      "Bash(node scripts/merge-when-green.mjs *)",
+      "Bash(node --test *)",
+      "Bash(npm test)",
+      "Bash(npm run build)",
+      "Bash(npm run test:scripts)",
+      "Bash(npm run desktop:test)",
+      "Bash(npm run desktop:assets:test)",
+      "Bash(./gradlew :app:testDebugUnitTest *)",
+      "Bash(./gradlew :app:assembleDebug *)",
+      "Bash(./scripts/dev/android-capabilities.sh *)"
+    ]
+  }
+}

@@ -70,6 +70,23 @@ Cloud; the contract surfaces whose change requires the other sides to be address
 branch; and the separation of the merge, version and publish gates. Read it before merging into
 `main`, before bumping any version, and before treating a remote-ahead `main` as safe to merge.
 
+## Decide without asking
+
+The project owner decided on 2026-09-22 that agents stop asking before two kinds of decisions,
+because waiting on answers was the largest cost in measured sessions (13.6 hours on questions and
+3.5 hours on plan approval over Sep 12–22, against about an hour of actual build-and-merge time per
+work item):
+
+- **Internal implementation and tests** — how to implement, how to test, how far to refactor within
+  the task, and documentation wording. Choose, then state the choice in the commit or PR.
+- **Merging a green-light PR** — a change that `docs/INTEGRATION.md` table 2 rates green and whose
+  checks all pass is merged through `scripts/merge-when-green.mjs` without asking: by the integration
+  agent, or by the task's own agent when no integration agent is orchestrating.
+
+Everything else still needs the owner: plan approval where the task asks for one, UI and design
+trade-offs, yellow- and red-light merges, the version gate, the publish gate, production deploys, and
+choices about cross-side contracts. When unsure which side a decision falls on, ask.
+
 ## Repository map and boundaries
 
 - `android/`: Kotlin and Jetpack Compose Android client.

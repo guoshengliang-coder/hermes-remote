@@ -39,6 +39,12 @@ test('no reported checks is its own state, never success', () => {
   assert.equal(classifyChecks(undefined).state, 'none');
 });
 
+test('pending checks are reported in a stable order', () => {
+  const a = classifyChecks([run('node', 'QUEUED', null, 'CI'), run('semgrep', 'QUEUED', null, 'SAST')]);
+  const b = classifyChecks([run('semgrep', 'QUEUED', null, 'SAST'), run('node', 'QUEUED', null, 'CI')]);
+  assert.deepEqual(a.pending, b.pending);
+});
+
 test('commit statuses are judged by their state', () => {
   const status = (state) => ({__typename: 'StatusContext', context: 'ext', state});
   assert.equal(classifyChecks([status('SUCCESS')]).state, 'success');
