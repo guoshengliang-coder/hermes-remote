@@ -242,6 +242,8 @@ export interface AccountRepository {
     accessTokenHash: string,
     idempotency: IdempotencyMaterial,
   ): Promise<SessionMutationResult>;
+  /** Ends the session a refresh credential belongs to (sign-out after its access token expired). */
+  revokeSessionByRefreshToken(refreshTokenHash: string): Promise<"completed" | "invalid">;
   close(): Promise<void>;
 }
 
