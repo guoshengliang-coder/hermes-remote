@@ -510,7 +510,7 @@ test("account deletion stays default-off and requires identity management plus a
   }), /ACCOUNT_DELETION_ENABLED requires/);
 });
 
-test("FCM push is optional and fails closed without binding control or a valid key", async () => {
+test("FCM push is off unless ACCOUNT_PUSH_ENABLED and fails closed without binding or a valid key", async () => {
   const base = {
     ACCOUNT_AUTH_ENABLED: "1",
     ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
@@ -519,16 +519,31 @@ test("FCM push is optional and fails closed without binding control or a valid k
   const withoutPush = createAccountRuntime(base);
   assert.equal(withoutPush.pushMetrics, undefined);
   await withoutPush.close();
+  // The production form always carries the key path; with the flag off it is never read.
+  const dormant = createAccountRuntime({
+    ...base,
+    ACCOUNT_PUSH_ENABLED: "0",
+    ACCOUNT_FCM_SERVICE_ACCOUNT_FILE: "/nonexistent/fcm-service-account",
+  });
+  assert.equal(dormant.pushMetrics, undefined);
+  await dormant.close();
   assert.throws(() => createAccountRuntime({
     ...base,
+    ACCOUNT_PUSH_ENABLED: "1",
     ACCOUNT_FCM_SERVICE_ACCOUNT: "{}",
-  }), /ACCOUNT_FCM_SERVICE_ACCOUNT requires ACCOUNT_BINDING_ENABLED=1/);
-  assert.throws(() => createAccountRuntime({
+  }), /ACCOUNT_PUSH_ENABLED requires ACCOUNT_BINDING_ENABLED=1/);
+  const binding = {
     ...base,
     ACCOUNT_BINDING_ENABLED: "1",
     ACCOUNT_GATEWAY_ORIGIN: "https://gateway.example.test",
+    ACCOUNT_PUSH_ENABLED: "1",
+  };
+  assert.throws(() => createAccountRuntime(binding), /ACCOUNT_FCM_SERVICE_ACCOUNT must contain/);
+  assert.throws(() => createAccountRuntime({
+    ...binding,
     ACCOUNT_FCM_SERVICE_ACCOUNT: "{\"type\":\"authorized_user\"}",
   }), /ACCOUNT_FCM_SERVICE_ACCOUNT must be a service-account JSON document/);
+  assert.throws(() => createAccountRuntime({ ...base, ACCOUNT_PUSH_ENABLED: "yes" }), /ACCOUNT_PUSH_ENABLED must be 0 or 1/);
 });
 
 test("multi-device runtime fails closed unless binding control is enabled", () => {

@@ -15,6 +15,7 @@ import {
   inspectProductionReleaseEnvironment,
   renderBindingRolloutEnvironment,
   renderComponentRolloutEnvironment,
+  renderPushRolloutEnvironment,
   renderWebAppRolloutEnvironment,
   renderIdentityWebRolloutEnvironment,
   renderMultiDeviceRolloutEnvironment,
@@ -176,7 +177,7 @@ test("R5-F1 upgrades the pre-F5 canonical environment with dormant Web origins",
   const config = await loadManagedBaselineConfig(fixture.configPath);
   await writeEmailEnvironment(config, "blue");
   const filePath = environmentPath(config, "blue");
-  const legacy = stripWebAppKeys(await readFile(filePath, "utf8"))
+  const legacy = stripWebAppKeys(stripPushKeys(await readFile(filePath, "utf8")))
     .replace(/^ACCOUNT_WEB_ORIGIN=.*\n/m, "")
     .replace(/^ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN=.*\n/m, "");
   await writeFile(filePath, legacy, { mode: 0o600 });
@@ -257,20 +258,79 @@ function stripWebAppKeys(content) {
     .replace(/^WEB_APP_DIR=.*\n/m, "");
 }
 
+function stripPushKeys(content) {
+  return content
+    .replace(/^ACCOUNT_PUSH_ENABLED=.*\n/m, "")
+    .replace(/^ACCOUNT_FCM_SERVICE_ACCOUNT_FILE=.*\n/m, "");
+}
+
 test("R5-F1 reads the pre-F7 environment (no Web app keys) and writes them dormant", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);
   await componentsEnvironment(config);
   const filePath = environmentPath(config, "blue");
   // Exactly what production carries before the Web app release: the 42-line form.
-  await writeFile(filePath, stripWebAppKeys(await readFile(filePath, "utf8")), { mode: 0o600 });
+  await writeFile(filePath, stripWebAppKeys(stripPushKeys(await readFile(filePath, "utf8"))), { mode: 0o600 });
   const inspected = await inspectProductionReleaseEnvironment(config, "blue");
   assert.equal(inspected.mode, "email_sharing_components");
   const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
   assert.match(candidate, /^ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=0$/m);
   assert.match(candidate, /^WEB_APP_ENABLED=0$/m);
   assert.equal(candidate.match(/^WEB_APP_DIR=(.*)$/m)?.[1], path.join(config.paths.installRoot, "web", "current"));
-  assert.equal(candidate.trimEnd().split("\n").length, 45);
+  assert.match(candidate, /^ACCOUNT_PUSH_ENABLED=0$/m);
+  assert.equal(candidate.trimEnd().split("\n").length, 47);
+});
+
+test("R5-F1 reads the pre-F9 45-line Web environment and writes the push keys dormant", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const components = await componentsEnvironment(config);
+  const web = renderWebAppRolloutEnvironment(config, "blue", components);
+  // Exactly what production carries on Gateway 0.4.17: the 45-line Web form.
+  await writeFile(environmentPath(config, "blue"), stripPushKeys(web), { mode: 0o600 });
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_sharing_components_web");
+  const candidate = renderProductionReleaseEnvironment(config, "green", inspected);
+  assert.equal(candidate.trimEnd().split("\n").length, 47);
+  assert.match(candidate, /^ACCOUNT_PUSH_ENABLED=0$/m);
+  assert.match(candidate, /^ACCOUNT_FCM_SERVICE_ACCOUNT_FILE=\/run\/hermes-go\/secrets\/fcm-service-account$/m);
+  assert.match(candidate, /^WEB_APP_ENABLED=1$/m);
+});
+
+test("R5-F9 turns push on only from the Web runtime and R5-F1 preserves it", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const components = await componentsEnvironment(config);
+  assert.throws(
+    () => renderPushRolloutEnvironment(config, "blue", components),
+    (error) => error?.technicalCause === "production_release_push_requires_web_environment",
+  );
+  const web = renderWebAppRolloutEnvironment(config, "blue", components);
+  await writeFile(environmentPath(config, "blue"), web, { mode: 0o600 });
+  const webInspected = await inspectProductionReleaseEnvironment(config, "blue");
+  const rendered = renderPushRolloutEnvironment(config, "blue", webInspected);
+  assert.equal(rendered, web.replace("ACCOUNT_PUSH_ENABLED=0", "ACCOUNT_PUSH_ENABLED=1"));
+  await writeFile(environmentPath(config, "blue"), rendered, { mode: 0o600 });
+  const enabled = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(enabled.mode, "email_sharing_components_web_push");
+  const candidate = renderProductionReleaseEnvironment(config, "green", enabled);
+  assert.match(candidate, /^PORT=18788$/m);
+  assert.match(candidate, /^ACCOUNT_PUSH_ENABLED=1$/m);
+  assert.throws(() => renderPushRolloutEnvironment(config, "blue", enabled));
+
+  // Push without the Web app, or a moved key path, are not valid states.
+  for (const drifted of [
+    rendered.replace("WEB_APP_ENABLED=1", "WEB_APP_ENABLED=0")
+      .replace("ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=1", "ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=0"),
+    rendered.replace(/^ACCOUNT_FCM_SERVICE_ACCOUNT_FILE=.*$/m, "ACCOUNT_FCM_SERVICE_ACCOUNT_FILE=/tmp/key"),
+    rendered.replace("ACCOUNT_PUSH_ENABLED=1", "ACCOUNT_PUSH_ENABLED=yes"),
+  ]) {
+    await writeFile(environmentPath(config, "blue"), drifted, { mode: 0o600 });
+    await assert.rejects(
+      () => inspectProductionReleaseEnvironment(config, "blue"),
+      (error) => error?.technicalCause === "production_release_email_environment_invalid",
+    );
+  }
 });
 
 test("R5-F7 turns the Web app on from the component runtime and R5-F1 preserves it", async (t) => {
@@ -1210,3 +1270,78 @@ function jsonResponse(value, init = {}) {
     headers: { "content-type": "application/json", ...(init.headers ?? {}) },
   });
 }
+
+test("R5-F1 leaves account-mode schema changes to R5-F8 and never rolls back below the database", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  await componentsEnvironment(config);
+  const schemaAhead = {
+    ...fixture.nextManifest,
+    releaseContract: { ...fixture.nextManifest.releaseContract, databaseSchemaVersion: 8 },
+  };
+  await assert.rejects(
+    () => verifyProductionReleaseAdmission(config, schemaAhead, releaseOptions(fixture)),
+    (error) => error?.technicalCause === "production_release_database_schema_change_requires_schema_release",
+  );
+  const admitted = await verifyProductionReleaseAdmission(config, schemaAhead, {
+    ...releaseOptions(fixture),
+    schemaMigration: true,
+  });
+  assert.equal(admitted.runtimeEnvironment.mode, "email_sharing_components");
+
+  // R5-F8 hands the database to the deployment machine only; admission above still saw null.
+  const database = { urlSource: "/secure-input/hermes-go/account-database-url", ssl: false, migrationLockId: 7 };
+  let delegatedConfig;
+  let delegatedOptions;
+  await executeProductionRelease(config, schemaAhead, {
+    ...releaseOptions(fixture),
+    schemaMigration: true,
+    migrationDatabase: database,
+    executeDeployment: async (deploymentConfig, _target, options) => {
+      delegatedConfig = deploymentConfig;
+      delegatedOptions = options;
+      return { ok: true, stage: "committed", activeSlot: "green", previousSlot: "blue" };
+    },
+  });
+  assert.equal(config.database, null);
+  assert.deepEqual(delegatedConfig.database, database);
+  assert.equal(delegatedOptions.allowDatabaseSchemaAdvance, true);
+  let routine;
+  await executeProductionRelease(config, fixture.nextManifest, {
+    ...releaseOptions(fixture),
+    executeDeployment: async (deploymentConfig, _target, options) => {
+      routine = { database: deploymentConfig.database, allow: options.allowDatabaseSchemaAdvance };
+      return { ok: true, stage: "committed", activeSlot: "green", previousSlot: "blue" };
+    },
+  });
+  assert.deepEqual(routine, { database: null, allow: undefined });
+
+  // Committed schema-8 release on green; rolling back to the schema-7 release behind previous is refused.
+  const installRoot = config.paths.installRoot;
+  const nextRelease = `releases/0.4.1-${NEXT_COMMIT.slice(0, 12)}`;
+  await mkdir(path.join(installRoot, nextRelease), { recursive: true });
+  await writeJson(path.join(installRoot, nextRelease, "bundle.manifest.json"), schemaAhead, 0o644);
+  await rm(path.join(installRoot, "current"));
+  await rm(path.join(installRoot, "previous"));
+  await symlink(nextRelease, path.join(installRoot, "current"));
+  await symlink(CURRENT_RELEASE, path.join(installRoot, "previous"));
+  await writeJson(fixture.journalPath, committedJournal({
+    activeSlot: "blue",
+    candidateSlot: "green",
+    source: identity(fixture.currentManifest),
+    target: identity(schemaAhead),
+    currentReleaseTarget: CURRENT_RELEASE,
+    previousReleaseTarget: LEGACY_RELEASE,
+  }));
+  await writeFile(config.nginx.upstreamConfigFile, renderNginxUpstream(config, "green"), { mode: 0o644 });
+  const blue = await inspectProductionReleaseEnvironment(config, "blue");
+  await writeFile(environmentPath(config, "green"), renderProductionReleaseEnvironment(config, "green", blue), { mode: 0o600 });
+  await assert.rejects(
+    () => verifyProductionReleaseAdmission(config, fixture.currentManifest, {
+      ...releaseOptions(fixture),
+      operation: "rollback",
+      runner: slotRunner({ green: true }),
+    }),
+    (error) => error?.technicalCause === "production_release_rollback_below_database_schema",
+  );
+});

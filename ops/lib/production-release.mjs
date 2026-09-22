@@ -58,8 +58,14 @@ export async function executeProductionRelease(config, targetManifest, options =
       admission.runtimeEnvironment,
       options.fetchImpl,
     );
-    result = await execute(config, targetManifest, {
+    // R5-F8 passes the database only to the deployment machine, which then migrates from the
+    // target image before the candidate starts; admission above still sees `database: null`.
+    const deploymentConfig = options.schemaMigration === true && options.migrationDatabase
+      ? { ...config, database: options.migrationDatabase }
+      : config;
+    result = await execute(deploymentConfig, targetManifest, {
       operation: admission.operation,
+      ...(options.schemaMigration === true ? { allowDatabaseSchemaAdvance: true } : {}),
       confirmation: options.confirmation,
       candidateSmoke,
       publicSmoke,
@@ -155,10 +161,21 @@ export async function verifyProductionReleaseAdmission(config, targetManifest, o
       }
     }
     const runtimeEnvironment = await verifyReleaseInputs(config, activeSlot, options.runner);
-    if (runtimeEnvironment.mode === "email_otp"
-        && sourceManifest.releaseContract?.databaseSchemaVersion
-          !== targetManifest.releaseContract?.databaseSchemaVersion) {
+    const sourceSchema = sourceManifest.releaseContract?.databaseSchemaVersion;
+    const targetSchema = targetManifest.releaseContract?.databaseSchemaVersion;
+    // After R5-F8 the database is ahead of every older image: its readiness would report
+    // `mismatch`, so name the reason instead of failing at the candidate probe.
+    if (options.operation === "rollback" && runtimeEnvironment.mode !== "disabled"
+        && Number.isSafeInteger(sourceSchema) && Number.isSafeInteger(targetSchema) && targetSchema < sourceSchema) {
+      fail("production_release_rollback_below_database_schema");
+    }
+    if (runtimeEnvironment.mode === "email_otp" && sourceSchema !== targetSchema) {
       fail("production_release_email_database_schema_change_requires_migration");
+    }
+    // A schema-changing account release is R5-F8's job (backup gate + target-image migration);
+    // the routine release must not be used to bypass it (docs/DEPLOYMENT.md).
+    if (runtimeEnvironment.mode !== "disabled" && sourceSchema !== targetSchema && options.schemaMigration !== true) {
+      fail("production_release_database_schema_change_requires_schema_release");
     }
     return { operation: options.operation, sourceManifest, activeSlot, runtimeEnvironment };
   } catch (error) {
@@ -275,6 +292,7 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   sharingEnabled = false,
   componentInstallEnabled = false,
   webDeviceAccessEnabled = false,
+  pushEnabled = false,
 } = {}) {
   const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
   if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
@@ -297,6 +315,9 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
       || auth.accountDeletion === true
       || (identityWebEnabled ? auth.webSessions !== true : auth.webSessions === true)
       || (webDeviceAccessEnabled ? auth.webDeviceAccess !== true : Object.hasOwn(auth, "webDeviceAccess"))
+      || (pushEnabled
+        ? JSON.stringify(capabilities?.push) !== JSON.stringify({ providers: ["fcm"] })
+        : Object.hasOwn(capabilities ?? {}, "push"))
       || binding?.enabled !== bindingEnabled
       || binding?.replacement !== bindingEnabled
       || binding?.maxActiveConnectorsPerAccount !== (multiDeviceEnabled ? 3 : 1)
@@ -377,16 +398,17 @@ async function verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnab
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
-  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode)) return smoke;
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(runtimeEnvironment.mode)) return smoke;
   return async (request) => {
     await smoke({ ...request, expectedRuntimeMode: runtimeEnvironment.mode });
     await verifyPreservedEmailSurface(request, fetchImpl, {
       bindingEnabled: runtimeEnvironment.mode !== "email_otp",
-      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode),
-      identityWebEnabled: new Set(["email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode),
-      sharingEnabled: new Set(["email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode),
-      componentInstallEnabled: new Set(["email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode),
-      webDeviceAccessEnabled: runtimeEnvironment.mode === "email_sharing_components_web",
+      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(runtimeEnvironment.mode),
+      identityWebEnabled: new Set(["email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(runtimeEnvironment.mode),
+      sharingEnabled: new Set(["email_sharing", "email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(runtimeEnvironment.mode),
+      componentInstallEnabled: new Set(["email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(runtimeEnvironment.mode),
+      webDeviceAccessEnabled: new Set(["email_sharing_components_web", "email_sharing_components_web_push"]).has(runtimeEnvironment.mode),
+      pushEnabled: runtimeEnvironment.mode === "email_sharing_components_web_push",
     });
   };
 }

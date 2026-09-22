@@ -48,6 +48,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
     const transition = assessReleaseTransition(sourceManifest, targetManifest, {
       operation,
       databaseEnabled: config.database !== null,
+      allowDatabaseSchemaAdvance: options.allowDatabaseSchemaAdvance === true,
     });
     if (transition.maintenanceRequired !== true) {
       fail("target_must_declare_maintenance_window", "switch_authorize");

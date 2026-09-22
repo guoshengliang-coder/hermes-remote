@@ -66,6 +66,10 @@ try {
   verifyStagedProductionSharingRolloutEntrypoint(temporaryRoot);
   verifyStagedProductionComponentRolloutEntrypoint(temporaryRoot);
   verifyStagedProductionWebAppRolloutEntrypoint(temporaryRoot);
+  verifyStagedArgumentRefusal(temporaryRoot, "scripts/production-schema-release.mjs", "HR-OPS-027",
+    "production_schema_release_arguments", "production_baseline_bundle_schema_release_entrypoint_invalid");
+  verifyStagedArgumentRefusal(temporaryRoot, "scripts/production-push-rollout.mjs", "HR-OPS-028",
+    "production_push_rollout_arguments", "production_baseline_bundle_push_rollout_entrypoint_invalid");
 
   const sourceShort = sourceCommit.slice(0, 12);
   const archiveFile = `Hermes-R5D-Ops-${sourceShort}.tar.gz`;
@@ -160,6 +164,8 @@ async function stageRuntime(root) {
     "scripts/production-sharing-rollout.mjs",
     "scripts/production-component-rollout.mjs",
     "scripts/production-web-app-rollout.mjs",
+    "scripts/production-schema-release.mjs",
+    "scripts/production-push-rollout.mjs",
     "scripts/production-monitor.mjs",
     "scripts/postgresql-recovery.mjs",
     "scripts/postgresql-automation.mjs",
@@ -185,6 +191,10 @@ async function stageRuntime(root) {
     "ops/hermes-go-production-component-rollout-config.schema.json",
     "ops/production.web-app-rollout.example.json",
     "ops/hermes-go-production-web-app-rollout-config.schema.json",
+    "ops/production.schema-release.example.json",
+    "ops/hermes-go-production-schema-release-config.schema.json",
+    "ops/production.push-rollout.example.json",
+    "ops/hermes-go-production-push-rollout-config.schema.json",
     "ops/hermesctl-production-monitor-config.schema.json",
     "ops/postgresql-backup-status.schema.json",
     "ops/postgresql.capture-schedule.example.json",
@@ -437,6 +447,27 @@ function verifyStagedProductionWebAppRolloutEntrypoint(root) {
       || diagnostic?.code !== "HR-OPS-026"
       || diagnostic?.stage !== "production_web_app_rollout_arguments") {
     fail("production_baseline_bundle_web_app_rollout_entrypoint_invalid");
+  }
+}
+
+/** A staged entrypoint run without arguments must refuse with its own code and argument stage. */
+function verifyStagedArgumentRefusal(root, entrypoint, code, stage, cause) {
+  const result = spawnSync(process.execPath, [entrypoint], {
+    cwd: root,
+    encoding: "utf8",
+    env: {},
+    maxBuffer: 64 * 1024,
+    timeout: 10_000,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(String(result.stderr ?? "").trim());
+  } catch {}
+  if (result.error || result.status !== 1 || String(result.stdout ?? "") !== ""
+      || diagnostic?.code !== code || diagnostic?.stage !== stage) {
+    fail(cause);
   }
 }
 

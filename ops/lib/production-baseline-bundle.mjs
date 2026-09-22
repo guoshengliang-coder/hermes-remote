@@ -33,6 +33,8 @@ const MANIFEST_V8_KEYS = Object.freeze([...MANIFEST_V7_KEYS, "sharingRolloutEntr
 const MANIFEST_V9_KEYS = Object.freeze([...MANIFEST_V8_KEYS, "componentRolloutEntrypoint"]);
 // Schema 10 carries the separately confirmed Web app (/app/) rollout.
 const MANIFEST_V10_KEYS = Object.freeze([...MANIFEST_V9_KEYS, "webAppRolloutEntrypoint"]);
+// Schema 11 carries the schema-changing release (R5-F8) and the FCM push rollout (R5-F9).
+const MANIFEST_V11_KEYS = Object.freeze([...MANIFEST_V10_KEYS, "schemaReleaseEntrypoint", "pushRolloutEntrypoint"]);
 const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   1: MANIFEST_V1_KEYS,
   2: MANIFEST_V2_KEYS,
@@ -44,6 +46,7 @@ const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   8: MANIFEST_V8_KEYS,
   9: MANIFEST_V9_KEYS,
   10: MANIFEST_V10_KEYS,
+  11: MANIFEST_V11_KEYS,
 });
 
 export async function loadProductionBaselineBundleManifest(filePath, {
@@ -98,6 +101,11 @@ export async function loadProductionBaselineBundleManifest(filePath, {
         && raw.webAppRolloutEntrypoint !== "scripts/production-web-app-rollout.mjs") {
       fail("bundle_web_app_rollout_entrypoint_invalid");
     }
+    if (raw.schemaVersion >= 11
+        && (raw.schemaReleaseEntrypoint !== "scripts/production-schema-release.mjs"
+          || raw.pushRolloutEntrypoint !== "scripts/production-push-rollout.mjs")) {
+      fail("bundle_schema_or_push_entrypoint_invalid");
+    }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
       const archive = await readSafeFile(archivePath, 128 * 1024 * 1024);
@@ -112,8 +120,8 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 10,
-    kind: "hermes-go-production-baseline-bundle-v10",
+    schemaVersion: 11,
+    kind: "hermes-go-production-baseline-bundle-v11",
     sourceCommit,
     createdAt,
     archiveFile,
@@ -129,6 +137,8 @@ export function createProductionBaselineBundleManifest({ sourceCommit, createdAt
     sharingRolloutEntrypoint: "scripts/production-sharing-rollout.mjs",
     componentRolloutEntrypoint: "scripts/production-component-rollout.mjs",
     webAppRolloutEntrypoint: "scripts/production-web-app-rollout.mjs",
+    schemaReleaseEntrypoint: "scripts/production-schema-release.mjs",
+    pushRolloutEntrypoint: "scripts/production-push-rollout.mjs",
   };
 }
 

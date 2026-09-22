@@ -65,6 +65,7 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
     const transition = assessReleaseTransition(sourceManifest, targetManifest, {
       operation,
       databaseEnabled: config.database !== null,
+      allowDatabaseSchemaAdvance: options.allowDatabaseSchemaAdvance === true,
     });
     verifyCurrentIdentity(await readReleaseLink(config.paths.installRoot, "current", true), sourceManifest);
     if (operation === "rollback") {

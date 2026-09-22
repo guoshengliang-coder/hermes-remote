@@ -5,6 +5,7 @@ const OPERATIONS = new Set(["deploy", "rollback"]);
 export function assessReleaseTransition(current, target, {
   operation,
   databaseEnabled = false,
+  allowDatabaseSchemaAdvance = false,
 } = {}) {
   try {
     if (!OPERATIONS.has(operation)) incompatible("operation_invalid");
@@ -46,7 +47,11 @@ export function assessReleaseTransition(current, target, {
       if (target.releaseContract.manifestVersion < 2) {
         incompatible("database_migration_contract_required");
       }
-      if (target.releaseContract.databaseSchemaVersion !== current.releaseContract.databaseSchemaVersion) {
+      const schemaDelta = target.releaseContract.databaseSchemaVersion - current.releaseContract.databaseSchemaVersion;
+      // R5-F8 alone may advance the schema, one forward-only step per deploy, after its own
+      // backup gate; every other path (and every rollback) still needs an identical schema.
+      const schemaAdvance = allowDatabaseSchemaAdvance === true && operation === "deploy" && schemaDelta === 1;
+      if (schemaDelta !== 0 && !schemaAdvance) {
         incompatible("database_schema_change_requires_compatibility_contract");
       }
     }

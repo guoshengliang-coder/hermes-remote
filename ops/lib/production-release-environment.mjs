@@ -50,12 +50,21 @@ const EMAIL_KEYS = Object.freeze([
   "ACCOUNT_WEB_DEVICE_ACCESS_ENABLED",
   "WEB_APP_ENABLED",
   "WEB_APP_DIR",
+  "ACCOUNT_PUSH_ENABLED",
+  "ACCOUNT_FCM_SERVICE_ACCOUNT_FILE",
 ]);
+
+// Added for FCM push (HG-94, R5-F9). Environments written before it carry neither key; they read as
+// "off" with the pinned key path, so a routine release rewrites them in the current form. The key
+// file itself is only read by the Gateway while ACCOUNT_PUSH_ENABLED=1.
+const PUSH_KEYS = Object.freeze(["ACCOUNT_PUSH_ENABLED", "ACCOUNT_FCM_SERVICE_ACCOUNT_FILE"]);
+const PRE_PUSH_KEYS = Object.freeze(EMAIL_KEYS.filter((key) => !PUSH_KEYS.includes(key)));
+export const FCM_SERVICE_ACCOUNT_FILE = "/run/hermes-go/secrets/fcm-service-account";
 
 // Added for the Web app (R5-F7). Environments written before it carry none of the three; they read
 // as "off" with the pinned directory, so a routine release rewrites them in the current form.
 const WEB_KEYS = Object.freeze(["ACCOUNT_WEB_DEVICE_ACCESS_ENABLED", "WEB_APP_ENABLED", "WEB_APP_DIR"]);
-const PRE_WEB_KEYS = Object.freeze(EMAIL_KEYS.filter((key) => !WEB_KEYS.includes(key)));
+const PRE_WEB_KEYS = Object.freeze(PRE_PUSH_KEYS.filter((key) => !WEB_KEYS.includes(key)));
 
 const ORIGIN_KEYS = Object.freeze([
   "ACCOUNT_WEB_ORIGIN",
@@ -103,6 +112,7 @@ const EMAIL_EXACT = Object.freeze({
   MAX_LIFECYCLE_EVENTS: "10000",
   ACCOUNT_WEB_DEVICE_ACCESS_ENABLED: "0",
   WEB_APP_ENABLED: "0",
+  ACCOUNT_FCM_SERVICE_ACCOUNT_FILE: FCM_SERVICE_ACCOUNT_FILE,
 });
 
 /**
@@ -159,16 +169,22 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     values.WEB_APP_ENABLED = "0";
     values.WEB_APP_DIR = webAppDir;
   }
+  if (values.ACCOUNT_PUSH_ENABLED === undefined) {
+    values.ACCOUNT_PUSH_ENABLED = "0";
+    values.ACCOUNT_FCM_SERVICE_ACCOUNT_FILE = FCM_SERVICE_ACCOUNT_FILE;
+  }
   const webDeviceAccessEnabled = values.ACCOUNT_WEB_DEVICE_ACCESS_ENABLED === "1";
   const webAppEnabled = values.WEB_APP_ENABLED === "1";
   const webEnabled = webDeviceAccessEnabled && webAppEnabled;
+  const pushEnabled = values.ACCOUNT_PUSH_ENABLED === "1";
   if ((!bindingEnabled && !emailOnly) || (multiDeviceEnabled && !bindingEnabled)
       || (identityWebPartiallyEnabled && !identityWebEnabled)
       || (identityWebEnabled && !multiDeviceEnabled)
       || (sharingEnabled && !identityWebEnabled)
       || (desktopComponentInstallEnabled && !bindingEnabled)
       || (webDeviceAccessEnabled !== webAppEnabled)
-      || (webEnabled && !(sharingEnabled && desktopComponentInstallEnabled))) {
+      || (webEnabled && !(sharingEnabled && desktopComponentInstallEnabled))
+      || (pushEnabled && !webEnabled)) {
     fail("production_release_email_environment_invalid");
   }
   const expected = {
@@ -190,6 +206,7 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     ACCOUNT_WEB_DEVICE_ACCESS_ENABLED: webEnabled ? "1" : "0",
     WEB_APP_ENABLED: webEnabled ? "1" : "0",
     WEB_APP_DIR: webAppDir,
+    ACCOUNT_PUSH_ENABLED: pushEnabled ? "1" : "0",
   };
   for (const key of EMAIL_KEYS) {
     if (key === "ACCOUNT_DATABASE_SSL") {
@@ -201,7 +218,9 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
   return Object.freeze({
     mode: sharingEnabled
       ? (desktopComponentInstallEnabled
-        ? (webEnabled ? "email_sharing_components_web" : "email_sharing_components")
+        ? (webEnabled
+          ? (pushEnabled ? "email_sharing_components_web_push" : "email_sharing_components_web")
+          : "email_sharing_components")
         : "email_sharing")
       : identityWebEnabled
         ? "email_identity_web"
@@ -215,7 +234,7 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
   if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot);
-  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(inspected?.mode)
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(inspected?.mode)
       || !inspected.values) {
     fail("production_release_environment_mode_invalid");
   }
@@ -338,6 +357,24 @@ export function renderWebAppRolloutEnvironment(config, slot, inspected) {
   }).join("\n") + "\n";
 }
 
+export function renderPushRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_sharing_components_web" || !inspected.values) {
+    fail("production_release_push_requires_web_environment");
+  }
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (key === "ACCOUNT_PUSH_ENABLED") value = "1";
+    if (key === "ACCOUNT_FCM_SERVICE_ACCOUNT_FILE") value = FCM_SERVICE_ACCOUNT_FILE;
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
 export function sameProductionReleaseEnvironment(left, right) {
   return left?.mode === right?.mode && left?.digest === right?.digest;
 }
@@ -349,6 +386,8 @@ function parseCanonicalEnvironment(content) {
   const lines = content.slice(0, -1).split("\n");
   const keys = lines.length === EMAIL_KEYS.length
     ? EMAIL_KEYS
+    : lines.length === PRE_PUSH_KEYS.length
+    ? PRE_PUSH_KEYS
     : lines.length === PRE_WEB_KEYS.length
     ? PRE_WEB_KEYS
     : (lines.length === PRE_COMPONENT_KEYS.length

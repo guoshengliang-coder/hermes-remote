@@ -78,7 +78,8 @@ ACCOUNT_WEB_ORIGIN=https://<gateway-domain>
 # ACCOUNT_GOOGLE_ANDROID_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-android-client-id
 # ACCOUNT_GOOGLE_MACOS_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-macos-client-id
 # ACCOUNT_GOOGLE_WEB_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-web-client-id
-# Optional push wake hints (HG-94); requires ACCOUNT_BINDING_ENABLED=1.
+# Optional push wake hints (HG-94); ACCOUNT_PUSH_ENABLED=1 requires ACCOUNT_BINDING_ENABLED=1.
+ACCOUNT_PUSH_ENABLED=0
 # ACCOUNT_FCM_SERVICE_ACCOUNT_FILE=/etc/hermes-remote/secrets/fcm-service-account.json
 ACCOUNT_DATABASE_SSL=1
 ACCOUNT_DATABASE_POOL_SIZE=10
@@ -105,14 +106,14 @@ PostgreSQL advisory lock. Gateway startup never mutates schema.
 Google proofs and Hermes GO bearer tokens must not be placed
 in these files or logs.
 
-`ACCOUNT_FCM_SERVICE_ACCOUNT_FILE` is optional and off when unset. It points at a Firebase
-service-account JSON key (mode `0600`, never in Git) whose only needed role is sending Firebase Cloud
-Messaging. With it, and with `ACCOUNT_BINDING_ENABLED=1`, the Gateway advertises
-`capabilities.push`, accepts phone push registrations and sends data-only wake hints
-(`docs/ARCHITECTURE.md`, "Push wake hints"). A malformed key stops startup; a key FCM later rejects
-only makes sends fail, logged without tokens, and phones fall back to their periodic inbox check. The
-production environment allowlist in `ops/lib/production-release-environment.mjs` does not yet carry
-this key: enabling push in production is a separate deployment change.
+`ACCOUNT_PUSH_ENABLED` (default `0`) turns push on. It requires `ACCOUNT_BINDING_ENABLED=1` and
+`ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`, a Firebase service-account JSON key (never in Git) whose only
+needed role is sending Firebase Cloud Messaging; while the flag is `0` the key path may be present and
+is never read. With push on the Gateway advertises `capabilities.push`, accepts phone push
+registrations and sends data-only wake hints (`docs/ARCHITECTURE.md`, "Push wake hints"). A missing
+or malformed key stops startup; a key FCM later rejects only makes sends fail, logged without tokens,
+and phones fall back to their periodic inbox check. In production the canonical environment always
+carries both keys (push dormant) and only the R5-F9 rollout turns push on (`docs/DEPLOYMENT.md`).
 
 `ACCOUNT_EMAIL_OTP_ENABLED` is an independent, default-off E1 flag and is effective only when
 `ACCOUNT_AUTH_ENABLED=1`. Enabling it additionally requires a separate OTP HMAC key, an exact HTTPS
