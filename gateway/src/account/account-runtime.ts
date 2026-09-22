@@ -352,10 +352,15 @@ export function createAccountRuntime(
     sharingRepository,
     webDeviceAccessEnabled,
   );
-  const fcmServiceAccount = optionalSecret(environment, "ACCOUNT_FCM_SERVICE_ACCOUNT");
-  if (fcmServiceAccount !== undefined && !controlEnabled) {
-    throw new Error("ACCOUNT_FCM_SERVICE_ACCOUNT requires ACCOUNT_BINDING_ENABLED=1");
+  // The key path may sit in the environment while push is off (the production form always carries
+  // it), so only the flag decides whether the key is read at all.
+  const pushEnabled = booleanFlag(environment, "ACCOUNT_PUSH_ENABLED", false);
+  if (pushEnabled && !controlEnabled) {
+    throw new Error("ACCOUNT_PUSH_ENABLED requires ACCOUNT_BINDING_ENABLED=1");
   }
+  const fcmServiceAccount = pushEnabled
+    ? requireSecret(environment, "ACCOUNT_FCM_SERVICE_ACCOUNT", 2)
+    : undefined;
   const pushRegistrations = fcmServiceAccount !== undefined
     ? new PostgresPushRegistrationStore(pool)
     : undefined;

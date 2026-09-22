@@ -174,6 +174,20 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_web_app_rollout_stage_and_retry",
   }),
+  productionSchemaRelease: Object.freeze({
+    code: "HR-OPS-027",
+    summaryZh: "带数据库迁移的生产发布未完成。若迁移已执行，数据库只能前进，旧版本仅作降级服务，请修复后以更新版本前进。请检查发布阶段。",
+    summaryEn: "The production release with a database migration did not complete. If the migration ran, the database cannot go back and the old release only serves degraded; fix forward with a newer release. Inspect the release stage.",
+    retryable: true,
+    recoveryAction: "inspect_schema_release_stage_and_fix_forward",
+  }),
+  productionPushRollout: Object.freeze({
+    code: "HR-OPS-028",
+    summaryZh: "生产推送开启未完成，已阻止启用或恢复为未开启推送的状态。请检查灰度阶段后重试。",
+    summaryEn: "The production push rollout did not complete. Enablement was blocked or the push-off state was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_push_rollout_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;

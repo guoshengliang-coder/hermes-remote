@@ -9,7 +9,7 @@ import { renderDeployGatewayEnvironment } from "./deploy-system.mjs";
 import { satisfiesProductionNginxContract } from "./deploy-switch.mjs";
 import { loadCurrentManifest, resolveActiveSlot } from "./deploy-command.mjs";
 import { OpsError } from "./errors.mjs";
-import { productionWebAppDir } from "./production-release-environment.mjs";
+import { FCM_SERVICE_ACCOUNT_FILE, productionWebAppDir } from "./production-release-environment.mjs";
 import { verifyLoadedImage } from "./hermesctl.mjs";
 import { loadManagedBaselineConfig } from "./managed-baseline-config.mjs";
 import { atomicWrite, createCommandRunner, ensureManagedDirectory } from "./system.mjs";
@@ -238,6 +238,8 @@ export function renderEmailRolloutEnvironment(releaseConfig, config, activeSlot)
     "ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=0",
     "WEB_APP_ENABLED=0",
     `WEB_APP_DIR=${productionWebAppDir(releaseConfig)}`,
+    "ACCOUNT_PUSH_ENABLED=0",
+    `ACCOUNT_FCM_SERVICE_ACCOUNT_FILE=${FCM_SERVICE_ACCOUNT_FILE}`,
     "",
   ].join("\n");
 }
