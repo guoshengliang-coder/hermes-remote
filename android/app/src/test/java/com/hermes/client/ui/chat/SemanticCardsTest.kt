@@ -130,6 +130,23 @@ class SemanticCardsTest {
         assertEquals(text.length, surrogateSafeCut(text, 99))
     }
 
+    @Test fun emptyStreamingSnapshotDoesNotEraseVisibleAnswer() {
+        val visible = ChatMessage(
+            id = "a1",
+            role = Role.ASSISTANT,
+            text = "已经显示的正文",
+            tools = listOf(ToolCall("t1", "read_file", ToolStatus.DONE)),
+            isStreaming = true,
+        )
+        val transientlyEmpty = visible.copy(text = "", tools = emptyList())
+
+        assertEquals(visible, retainVisibleStreamingSnapshot(visible, transientlyEmpty))
+        assertEquals(
+            transientlyEmpty.copy(isStreaming = false),
+            retainVisibleStreamingSnapshot(visible, transientlyEmpty.copy(isStreaming = false)),
+        )
+    }
+
     @Test fun diffLinesClassified() {
         val lines = parseDiffLines("--- a/f\n+++ b/f\n@@ -1 +1 @@\n context\n+added\n-removed")
         assertEquals(DiffLineKind.HUNK, lines[0].kind)

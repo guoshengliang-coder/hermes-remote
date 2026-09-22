@@ -42,6 +42,18 @@ class PresentationGateTest {
         )
     }
 
+    @Test fun `a visible live answer stays visible while completion history is loading`() {
+        assertEquals(
+            true,
+            immediatePresentationDecision(
+                alreadyPresented = true,
+                isGenerating = false,
+                historyLoading = true,
+                historyLoaded = false,
+            ),
+        )
+    }
+
     /** An error or a brand-new session: nothing is coming, so do not sit behind a skeleton. */
     @Test fun `nothing loading and nothing loaded reveals the empty ground`() {
         assertEquals(
