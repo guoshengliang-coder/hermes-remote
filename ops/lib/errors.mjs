@@ -167,6 +167,13 @@ const DEFINITIONS = Object.freeze({
     retryable: true,
     recoveryAction: "inspect_component_rollout_stage_and_retry",
   }),
+  productionWebAppRollout: Object.freeze({
+    code: "HR-OPS-026",
+    summaryZh: "生产 Web 版灰度未完成，已阻止启用或恢复为组件安装状态。请检查灰度阶段后重试。",
+    summaryEn: "The production Web app rollout did not complete. Enablement was blocked or the component-install state was restored. Inspect the rollout stage and retry.",
+    retryable: true,
+    recoveryAction: "inspect_web_app_rollout_stage_and_retry",
+  }),
 });
 
 export const OPS_ERROR_DEFINITIONS = DEFINITIONS;
