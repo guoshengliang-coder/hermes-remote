@@ -13,7 +13,6 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -79,6 +78,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -86,6 +86,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -129,8 +130,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.layout.ContentScale
@@ -1078,10 +1077,11 @@ fun ChatMessageList(
             ) { reversed, msg ->
                 val index = turnCount - 1 - reversed
                 val canRegenerate = msg.id == lastAssistantId && !isGenerating
-                // The action row is persistent only on the LATEST assistant turn; every earlier
-                // turn reaches the same actions through its long-press menu. A row under every
-                // turn put 6+ icons on screen per answer and duplicated that menu.
-                val showAssistantActions = msg.id == lastAssistantId && !isGenerating
+                // Every settled assistant turn carries its action row (HG-95): long press now
+                // selects text in place, so the row is the way to a turn's actions, earlier turns
+                // included. AssistantTurn itself withholds it while the turn is still streaming;
+                // 重新生成 stays on the latest turn only, through canRegenerate.
+                val showAssistantActions = true
                 val smoothLiveResize = index == displayMessages.lastIndex && presentingSource != null
                 val previousTs = if (index > 0) displayMessages[index - 1].timestamp else null
                 val turnAnchorKey = "${msg.id}:turn"
@@ -1384,7 +1384,6 @@ internal fun UserBubble(
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     var selectingText by remember { mutableStateOf(false) }
     // Delivery three-state (docs/DESIGN.md §5.4): the "sending" look is revealed only after
@@ -1483,10 +1482,12 @@ internal fun UserBubble(
                         if (revealSending) stateDescription = sendingLabel
                         if (failed) stateDescription = "$failedLabel $failedCode"
                     }
-                    .combinedClickable(
-                        onClick = { if (retryable) onRetrySend(msg.id) },
-                        onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true },
-                    ),
+                    // Tap opens the actions (HG-95); long press belongs to text selection. A failed
+                    // send that can be retried keeps its tap as the retry, which its label says.
+                    .clickable(
+                        onClickLabel = if (retryable) localized(language, "重试", "Retry")
+                        else localized(language, "更多操作", "More actions"),
+                    ) { if (retryable) onRetrySend(msg.id) else menuOpen = true },
             ) {
               CompositionLocalProvider(LocalContentColor provides textColor) {
                 if (msg.images.isNotEmpty()) {
@@ -1498,14 +1499,16 @@ internal fun UserBubble(
                     if (msg.text.isNotBlank()) Spacer(Modifier.height(8.dp))
                 }
                 if (msg.text.isNotBlank()) {
-                    Text(
-                        searchHighlighted(msg.text),
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontSize = 17.sp,
-                            lineHeight = 25.sp,
-                            letterSpacing = 0.sp,
-                        ),
-                    )
+                    SelectionContainer(Modifier.testTag("chat-selectable-${msg.id}")) {
+                        Text(
+                            searchHighlighted(msg.text),
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontSize = 17.sp,
+                                lineHeight = 25.sp,
+                                letterSpacing = 0.sp,
+                            ),
+                        )
+                    }
                 }
               }
             }
@@ -1520,13 +1523,13 @@ internal fun UserBubble(
                         add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                             copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                         })
-                        add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
                         add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) })
                         if (failed && sendDiagnostic != null) {
                             add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制诊断信息", "Copy diagnostics")) {
                                 copyToClipboard(sendDiagnostic, clipboard, context, localized(language, "诊断信息已复制", "Diagnostics copied"))
                             })
                         }
+                        add(MessageAction(Icons.Rounded.SelectAll, localized(language, "查看原文 / 选择", "View source / Select")) { selectingText = true })
                     },
                     onDismiss = { menuOpen = false },
                 )
@@ -1745,10 +1748,10 @@ internal fun AssistantTurn(
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     var selectingText by remember { mutableStateOf(false) }
     var feedback by remember(msg.id) { mutableStateOf(0) }
+    val selectableProse = remember { movableContentOf { body: @Composable () -> Unit -> body() } }
     // The streaming tail arrives pre-throttled: ChatMessageList publishes whole-message snapshots
     // at STREAM_RENDER_INTERVAL_MS, so text, thinking, and tools reflow together at one cadence.
     val renderedText = msg.text
@@ -1783,8 +1786,9 @@ internal fun AssistantTurn(
                     if (landingAlpha > 0f) Modifier.clip(hlShape).border(1.5.dp, accent.copy(alpha = landingAlpha), hlShape)
                     else Modifier,
                 )
-                .padding(vertical = 2.dp)
-                .combinedClickable(onClick = {}, onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }),
+                // No long-press here any more (HG-95): a long press on the prose starts a selection
+                // in place, and the turn's actions live in its action row below.
+                .padding(vertical = 2.dp),
         ) {
             if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking)
             remember(msg.tools) { groupToolsForDisplay(msg.tools) }.forEach { group ->
@@ -1803,6 +1807,7 @@ internal fun AssistantTurn(
                 if (renderedText.isNotBlank() || msg.files.isNotEmpty()) Spacer(Modifier.height(8.dp))
             }
             if (renderedText.isNotBlank()) {
+              val proseBody: @Composable () -> Unit = {
                 if (msg.isError) {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer,
@@ -1847,6 +1852,17 @@ internal fun AssistantTurn(
                         }
                     }
                 }
+              }
+              // Selectable only once the turn has settled: mid-stream the text under a selection
+              // keeps moving, so handles would jump or drop. The body is movable content so that
+              // stepping into the SelectionContainer at message.complete moves the rendered
+              // blocks instead of recreating them — a fresh Markdown() would re-parse and flash
+              // an empty frame exactly when the turn lands.
+              if (msg.isStreaming) {
+                  selectableProse(proseBody)
+              } else {
+                  SelectionContainer(Modifier.testTag("chat-selectable-${msg.id}")) { selectableProse(proseBody) }
+              }
             }
             // Attachments sit BELOW the prose (docs/DESIGN.md §5.4, decision 2026-09-05): an assistant
             // file is the artifact the prose just delivered, and a long report scrolls the card out of
@@ -1855,7 +1871,9 @@ internal fun AssistantTurn(
                 if (renderedText.isNotBlank() || msg.images.isNotEmpty()) Spacer(Modifier.height(8.dp))
                 ChatFileList(msg.files, onFileOpen, onFileShare, Modifier.testTag("chat-files-${msg.id}"))
             }
-            val showCompletedActions = showActions && !msg.isStreaming && msg.text.isNotBlank() && !msg.isError
+            // An error turn gets the row too, trimmed to 复制 + ⋯: with the long-press menu gone,
+            // the row is the only way left to its 重新生成 / 换个模型重试 (HG-95).
+            val showCompletedActions = showActions && !msg.isStreaming && msg.text.isNotBlank()
             if (msg.isStreaming || showCompletedActions) Box(Modifier.fillMaxWidth().height(48.dp)) {
                 if (msg.isStreaming) {
                     // Reserve the same footer height during and after a run. Replacing a short
@@ -1873,6 +1891,7 @@ internal fun AssistantTurn(
                     ) {
                         Icon(Icons.Rounded.ContentCopy, localized(language, "复制回复", "Copy response"), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    if (!msg.isError) {
                     IconButton(
                         onClick = { feedback = if (feedback == 1) 0 else 1 },
                         modifier = Modifier.size(40.dp),
@@ -1908,6 +1927,7 @@ internal fun AssistantTurn(
                             Icon(Icons.Rounded.Refresh, localized(language, "重新生成", "Regenerate"), Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
+                    }
                     IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Rounded.MoreHoriz, localized(language, "更多操作", "More actions"), Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -1921,9 +1941,6 @@ internal fun AssistantTurn(
                     add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                         copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                     })
-                    // Second, right after 复制: it is the same intent at a smaller grain, and the
-                    // only way to reach a selection at all. Behind 朗读 it was effectively hidden.
-                    add(MessageAction(Icons.Rounded.SelectAll, localized(language, "选择文本", "Select text")) { selectingText = true })
                     if (canRegenerate) {
                         add(MessageAction(Icons.Rounded.Refresh, localized(language, "重新生成", "Regenerate")) { onRegenerate() })
                         add(MessageAction(Icons.Rounded.SwapHoriz, localized(language, "换个模型重试", "Retry with another model")) { onRetryWithModel() })
@@ -1936,6 +1953,9 @@ internal fun AssistantTurn(
                             ) { if (isSpeaking) onStopReading() else onReadAloud(msg.text) },
                         )
                     }
+                    // Last (HG-95): selecting now happens in place, so the fullscreen page is only
+                    // for the Markdown source, or for a turn too long to drag a handle across.
+                    add(MessageAction(Icons.Rounded.SelectAll, localized(language, "查看原文 / 选择", "View source / Select")) { selectingText = true })
                 },
                 onDismiss = { menuOpen = false },
             )
@@ -2435,12 +2455,15 @@ internal fun ChatTableCard(
                     .padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    localized(language, "表格", "Table"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
+                // Card chrome, not table content: keep "表格" out of a selection across the turn.
+                DisableSelection {
+                    Text(
+                        localized(language, "表格", "Table"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 IconButton(
                     onClick = {
                         clipboard.setText(AnnotatedString(markdownTableToTsv(raw)))
@@ -2676,6 +2699,8 @@ internal fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
+        // The header is chrome, not prose: a drag across the turn must not pick up "kotlin".
+        DisableSelection {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -2705,6 +2730,7 @@ internal fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
                 )
             }
         }
+        }
         Text(
             text = code,
             style = style,
@@ -2716,9 +2742,10 @@ internal fun CodeWithCopy(code: String, language: String?, style: TextStyle) {
 }
 
 /**
- * Full-screen plain-text selection view. The markdown body is not selectable (SelectionContainer
- * and the markdown renderer's block structure do not compose well), so partial quoting runs
- * through this dialog: selectable, scrollable, nothing else.
+ * Full-screen plain-text view, reached as 「查看原文 / 选择」 at the end of a message's action menu.
+ * Selecting a passage happens in place in the transcript since HG-95; this page stays for what the
+ * transcript cannot give: the Markdown source verbatim, and one scrollable text for a turn too long
+ * to drag a selection handle across.
  *
  * It opens on the prose ([readableText]) rather than the markdown source, because the usual reason
  * to come here is to quote a sentence somewhere else and `**bold**` is not what the reader saw.
@@ -2751,7 +2778,7 @@ private fun TextSelectionDialog(text: String, onDismiss: () -> Unit) {
                         )
                     }
                     Text(
-                        localized(language, "选择文本", "Select text"),
+                        localized(language, "查看原文 / 选择", "View source / Select"),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(start = 4.dp),
                     )
