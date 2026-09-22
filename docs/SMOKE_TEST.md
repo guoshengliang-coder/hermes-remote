@@ -58,7 +58,10 @@ For an end-to-end fault injection, run the local stack and verify all three boun
 During a rolling upgrade, deploy the new Connector before relying on request cancellation. The
 additive message is safe with an old Connector, but only the new Connector consumes it.
 
-With `HERMES_MODE=live`, the Connector also opens a private observer socket. Confirm its log contains
+With `HERMES_MODE=live`, the Connector also opens a private observer socket. An account-mode
+Connector (`CONNECTOR_MODE=account`, which is what Desktop's managed LaunchAgent runs) defaults to
+`live` when `HERMES_MODE` is unset; a legacy Connector still defaults to `mock`, which echoes commands
+and never starts the observer (HG-101). Confirm its log contains
 `Hermes lifecycle observer connected`, then query the Relay inbox without exposing the token in the
 URL:
 

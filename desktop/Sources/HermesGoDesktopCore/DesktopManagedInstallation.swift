@@ -1486,6 +1486,9 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         }
         var environment = [
             "CONNECTOR_MODE": "account",
+            // Without it an older Connector falls back to mock: no lifecycle observer, so no
+            // task-completion events and no push (HG-101).
+            "HERMES_MODE": "live",
             "ACCOUNT_CONNECTOR_CREDENTIAL_FILE": credentialFile.path,
             "GATEWAY_URL": gatewayURL.absoluteString,
             "HERMES_BASE_URL": hermesBaseURL.absoluteString,

@@ -243,6 +243,8 @@ class SessionRuntimeStore(
     /** Sessions whose chat screen is currently composed (regardless of app foreground state). */
     val visibleSessions: StateFlow<Set<SessionRuntimeKey>> = _visibleSessions.asStateFlow()
     private val readPersistenceQueue = Channel<Pair<String, Boolean>>(Channel.UNLIMITED)
+    /** Read marks queued for disk but not written yet: token to unread. See [overlayPendingReadMarks]. */
+    private val pendingReadMarks = ConcurrentHashMap<String, Boolean>()
     @Volatile private var lastActiveKey: SessionRuntimeKey? = null
     // A composed chat screen stays "visible" while the phone is locked; only a visible chat in a
     // foreground app is actually being read. Completion folds use this to decide read vs unread.
@@ -274,12 +276,16 @@ class SessionRuntimeStore(
     init {
         phaseStore?.let { store -> appScope.launch { seedAndPersist(store) } }
         readStore?.let { store ->
-            appScope.launch { store.unread.collect { _unreadTokens.value = it } }
+            appScope.launch {
+                store.unread.collect { _unreadTokens.value = overlayPendingReadMarks(it, pendingReadMarks) }
+            }
             // Serialize disk mutations. Launching one coroutine per mark can let a slower older
             // markUnread finish after markRead and resurrect a badge the user already cleared.
             appScope.launch {
                 for ((token, unread) in readPersistenceQueue) {
                     if (unread) store.markUnread(token) else store.markRead(token)
+                    // Only if no newer mark for the token was queued meanwhile.
+                    pendingReadMarks.remove(token, unread)
                 }
             }
         }
@@ -1000,6 +1006,7 @@ class SessionRuntimeStore(
         if (key in _restoredKeys.value) _restoredKeys.update { it - key }
         val token = SessionReadStore.token(key.profile, key.sessionId, key.deviceId)
         _unreadTokens.update { it - token }
+        if (readStore != null) pendingReadMarks[token] = false
         _runtimes.update { map ->
             val current = map[key] ?: return@update map
             if (current.phase.isTerminalVerdict) {
@@ -1012,7 +1019,10 @@ class SessionRuntimeStore(
     private fun markUnread(key: SessionRuntimeKey) {
         val token = SessionReadStore.token(key.profile, key.sessionId, key.deviceId)
         _unreadTokens.update { it + token }
-        if (readStore != null) readPersistenceQueue.trySend(token to true)
+        if (readStore != null) {
+            pendingReadMarks[token] = true
+            readPersistenceQueue.trySend(token to true)
+        }
     }
 
     fun markHistoryLoading(key: SessionRuntimeKey, cached: List<ChatMessage>?) {
@@ -2064,6 +2074,23 @@ class SessionRuntimeStore(
  * on it; a run whose last card went away is no longer waiting on the user, and is assumed to carry
  * on (a timed-out approval or clarify does) until the probe the store sends says otherwise.
  */
+/**
+ * The unread set as the store should see it: what DataStore last emitted, with every mark that is
+ * still queued for disk applied on top (HG-103).
+ *
+ * DataStore emits the whole persisted set, and it can emit a value older than a mark this process
+ * already made — its first read in a fresh process, or any emission that lands before the queued
+ * write does. Taking that value as-is put back a session the user had just opened: a push-woken
+ * process had persisted it unread, the user opened the app and read it, and the next emission
+ * restored it, so the launcher badge went to +1 after reading instead of down.
+ */
+internal fun overlayPendingReadMarks(persisted: Set<String>, pending: Map<String, Boolean>): Set<String> {
+    if (pending.isEmpty()) return persisted
+    val result = persisted.toMutableSet()
+    pending.forEach { (token, unread) -> if (unread) result += token else result -= token }
+    return result
+}
+
 internal fun phaseAfterWithdrawal(current: SessionRunPhase, chat: ChatUiState): SessionRunPhase = when {
     chat.pendingApproval != null -> SessionRunPhase.WAITING_APPROVAL
     chat.pendingClarify != null -> SessionRunPhase.WAITING_CLARIFICATION

@@ -217,6 +217,9 @@ The current automated suite covers:
   either LaunchAgent, signed-wrapper file validation, and Connector file loading of both canonical
   43-character base64url and historical 64-character lowercase-hex values with no symlink or
   group/world-readable fallback;
+- the managed Connector LaunchAgent sets `CONNECTOR_MODE=account` and `HERMES_MODE=live`; without
+  the latter an older Connector falls back to mock, which turns the lifecycle observer off and
+  leaves every task-completion event and push unsent (HG-101);
 - committed pre-contract token migration preserving the existing 64-character local credential,
   removing both supported inline field names, writing only the canonical `0600` token file reference,
   and recording completion only after ordered service restart plus local health and an exact bound
