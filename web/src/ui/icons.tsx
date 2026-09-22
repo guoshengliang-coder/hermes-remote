@@ -93,3 +93,48 @@ export const MacIcon = (p: IconProps) => (
     <path d="M8 20h8M12 16v4" />
   </Svg>
 );
+
+export const CopyIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="8" y="8" width="12" height="12" rx="2.5" />
+    <path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" />
+  </Svg>
+);
+
+export const CheckIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 12.5l4.5 4.5L19 7.5" />
+  </Svg>
+);
+
+export const FolderIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 7.5a2 2 0 012-2h4l2 2.5h7a2 2 0 012 2v7.5a2 2 0 01-2 2h-13a2 2 0 01-2-2z" />
+  </Svg>
+);
+
+export const DownloadIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 4v11M7 10.5l5 5 5-5M5 20h14" />
+  </Svg>
+);
+
+/**
+ * The pinned-session marker (DESIGN §5.2, Android PinIcon.kt): a small filled two-tone push pin —
+ * the one exception to the outline style, like on Android. Head in the pinned blue, needle neutral.
+ */
+export const PinMark = ({ size = 13, label }: { size?: number; label?: string }) => (
+  <svg
+    class="pin-mark"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    role={label ? "img" : undefined}
+    aria-label={label}
+    aria-hidden={label ? undefined : "true"}
+    focusable="false"
+  >
+    <path class="pin-needle" d="M11.25 12h1.5L12 21z" />
+    <path class="pin-head" d="M8.5 2.5h7V5H14l2.5 7.5h-9L10 5H8.5z" />
+  </svg>
+);

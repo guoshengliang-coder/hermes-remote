@@ -16,6 +16,14 @@ test("!media appends a MEDIA tag for an absolute path and ignores relative ones"
   assert.deepEqual(mockRunOptions("!media report.png"), { form: undefined, quick: false, suffix: "" });
 });
 
+test("!media with several paths tags each one; !table ends with a Markdown table", () => {
+  const media = mockRunOptions("!media /tmp/a.png /tmp/b.png");
+  assert.match(media.suffix, /\nMEDIA:\/tmp\/a\.png\nMEDIA:\/tmp\/b\.png\n$/);
+  const table = mockRunOptions("!table ports");
+  assert.equal(table.quick, true);
+  assert.match(table.suffix, /\n\| 端口 \| 服务 \| 状态 \|\n\|---\|---\|:-:\|\n/);
+});
+
 test("ordinary prompts keep the historical rotation", () => {
   for (const text of ["hello", "", "!fail now", "!slow", "clarify-batch"]) {
     assert.deepEqual(mockRunOptions(text), { form: undefined, quick: false, suffix: "" }, text);

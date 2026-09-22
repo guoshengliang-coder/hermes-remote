@@ -83,3 +83,31 @@ describe("row text", () => {
     expect(sessionSubline({ id: "x" })).toBe("");
   });
 });
+
+describe("pinned group (DESIGN §5.2)", () => {
+  const now = at(2026, 9, 21, 15, 30);
+  const pinned = (ids: string[]) => (s: SessionListItem) => ids.includes(s.id);
+
+  it("sits between needs-you and today, newest first", () => {
+    const groups = groupSessions(
+      [row("t", at(2026, 9, 21, 9)), row("p-old", at(2026, 1, 2)), row("p-new", at(2026, 9, 21, 8)), row("w", at(2026, 9, 21, 7))],
+      new Set(["w"]),
+      now,
+      pinned(["p-old", "p-new"]),
+    );
+    expect(groups.map((g) => [g.id, g.sessions.map((s) => s.id)])).toEqual([
+      ["needs-you", ["w"]],
+      ["pinned", ["p-new", "p-old"]],
+      ["today", ["t"]],
+    ]);
+  });
+
+  it("a pinned session that needs you appears once, under needs-you", () => {
+    const groups = groupSessions([row("a", now)], new Set(["a"]), now, pinned(["a"]));
+    expect(groups.map((g) => g.id)).toEqual(["needs-you"]);
+  });
+
+  it("an archived pinned session is not listed", () => {
+    expect(groupSessions([row("a", now, { archived: true })], new Set(), now, pinned(["a"]))).toEqual([]);
+  });
+});

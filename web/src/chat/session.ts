@@ -31,6 +31,8 @@ export interface ChatSessionOptions {
   client: GatewayClient;
   deviceId: string;
   storedSessionId: string | null;
+  /** Folder a NEW chat is created in (the list's project filter); unset = Hermes' launch folder. */
+  cwd?: string | null;
   dispatch: (action: ChatAction) => void;
   /** A new chat got its durable id (navigate there, replacing /app/new). */
   onStored?: (storedSessionId: string) => void;
@@ -296,7 +298,7 @@ export class ChatSession {
 
   private create(): Promise<string> {
     this.creating ??= (async () => {
-      const { method, params } = sessionCreate();
+      const { method, params } = sessionCreate({ cwd: this.o.cwd });
       try {
         const result = await this.call<SessionCreateResult>(method, params);
         this.liveId = result.session_id;

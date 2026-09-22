@@ -3,12 +3,14 @@ import { useApp } from "../app/store";
 import { isAllowedHref } from "../markdown/render";
 import type { ChatItem, ToolItem } from "../chat/model";
 import { ErrorNotice } from "./ErrorNotice";
-import { ChevronIcon } from "./icons";
-import { Markdown } from "./Markdown";
+import { ChevronIcon, CopyIcon } from "./icons";
+import type { ViewerImage } from "./ImageViewer";
+import { copyWithFeedback, Markdown } from "./Markdown";
 import { FileCard, MacImage } from "./Media";
 
 // One turn. User: bubble (surface-variant 78%, 22/22/7/22). Assistant: no bubble — images →
-// text → files → tools (DESIGN §5.4 / §5.21). Tool output is plain text, never HTML.
+// text → files → tools → action row (DESIGN §5.4 / §5.21). Tool output is plain text, never HTML.
+// Tapping an image opens the viewer on that message's images only (DESIGN §5.4 看图器).
 
 function ToolRow({ tool }: { tool: ToolItem }) {
   const { t } = useApp();
@@ -42,21 +44,46 @@ function Reasoning({ text, streaming }: { text: string; streaming: boolean }) {
   );
 }
 
-export function MessageView({ item, onRetry }: { item: ChatItem; onRetry?: (item: ChatItem) => void }) {
-  const { language, t } = useApp();
+export function MessageView({
+  item,
+  onRetry,
+  onOpenImage,
+}: {
+  item: ChatItem;
+  onRetry?: (item: ChatItem) => void;
+  onOpenImage?: (images: ViewerImage[], index: number) => void;
+}) {
+  const { language, t, flash } = useApp();
   const images = item.attachments.filter((a) => a.kind === "image");
   const files = item.attachments.filter((a) => a.kind === "download");
   const blockImages = item.images.filter((img) => img.path);
   const blockLinks = item.images.filter((img) => !img.path && isAllowedHref(img.url));
+
+  // One list per message, in display order, so a tapped image knows its place in the viewer.
+  const gallery: ViewerImage[] = [
+    ...(item.role === "user" ? (item.localImages ?? []).map((url): ViewerImage => ({ kind: "local", url, name: "" })) : []),
+    ...images.map((a): ViewerImage => ({ kind: "mac", path: a.path, name: a.name })),
+    ...blockImages.map((img): ViewerImage => ({ kind: "mac", path: img.path!, name: "" })),
+  ];
+  const opener = (i: number) => (onOpenImage ? () => onOpenImage(gallery, i) : undefined);
+  const localCount = item.role === "user" ? (item.localImages?.length ?? 0) : 0;
 
   if (item.role === "user") {
     return (
       <div class="turn turn-user">
         {item.localImages?.length || images.length || blockImages.length ? (
           <div class="user-media">
-            {item.localImages?.map((url) => <img class="media-image" src={url} alt="" key={url} />)}
-            {images.map((a) => <MacImage key={a.path} path={a.path} name={a.name} />)}
-            {blockImages.map((img) => <MacImage key={img.path} path={img.path!} name="" />)}
+            {item.localImages?.map((url, i) =>
+              onOpenImage ? (
+                <button type="button" class="media-open" key={url} aria-label={t("查看图片", "View image")} onClick={opener(i)}>
+                  <img class="media-image" src={url} alt="" />
+                </button>
+              ) : (
+                <img class="media-image" src={url} alt="" key={url} />
+              ),
+            )}
+            {images.map((a, i) => <MacImage key={a.path} path={a.path} name={a.name} onOpen={opener(localCount + i)} />)}
+            {blockImages.map((img, i) => <MacImage key={img.path} path={img.path!} name="" onOpen={opener(localCount + images.length + i)} />)}
           </div>
         ) : null}
         {item.localFiles?.length ? (
@@ -94,8 +121,8 @@ export function MessageView({ item, onRetry }: { item: ChatItem; onRetry?: (item
       {item.reasoning.trim() ? <Reasoning text={item.reasoning} streaming={item.streaming && !item.text} /> : null}
       {images.length || blockImages.length ? (
         <div class="assistant-media">
-          {images.map((a) => <MacImage key={a.path} path={a.path} name={a.name} />)}
-          {blockImages.map((img) => <MacImage key={img.path} path={img.path!} name="" />)}
+          {images.map((a, i) => <MacImage key={a.path} path={a.path} name={a.name} onOpen={opener(i)} />)}
+          {blockImages.map((img, i) => <MacImage key={img.path} path={img.path!} name="" onOpen={opener(images.length + i)} />)}
         </div>
       ) : null}
       {item.text ? <Markdown source={item.text} streaming={item.streaming} /> : null}
@@ -112,6 +139,18 @@ export function MessageView({ item, onRetry }: { item: ChatItem; onRetry?: (item
       ) : null}
       {item.streaming && !item.text && !item.tools.length && !item.reasoning ? <span class="spinner small" aria-label={t("正在回复", "Replying")} /> : null}
       {item.interrupted ? <span class="interrupted-note">{t("已中断", "Interrupted")}</span> : null}
+      {!item.streaming && item.text.trim() ? (
+        <div class="message-actions">
+          <button
+            type="button"
+            class="icon-button action-button"
+            aria-label={t("复制回复", "Copy response")}
+            onClick={() => void copyWithFeedback(item.text, flash, t("已复制", "Copied"))}
+          >
+            <CopyIcon size={18} />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

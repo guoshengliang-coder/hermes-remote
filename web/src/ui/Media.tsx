@@ -19,7 +19,7 @@ export async function fetchFileBlob(client: GatewayClient, deviceId: string, pat
   return response.blob();
 }
 
-function cachedBlobUrl(client: GatewayClient, deviceId: string, path: string): Promise<string> {
+export function cachedBlobUrl(client: GatewayClient, deviceId: string, path: string): Promise<string> {
   const key = `${deviceId}\n${path}`;
   let hit = blobUrls.get(key);
   if (!hit) {
@@ -35,8 +35,8 @@ function cachedBlobUrl(client: GatewayClient, deviceId: string, path: string): P
   return hit;
 }
 
-export function MacImage({ path, name }: { path: string; name: string }) {
-  const { client, device, language } = useApp();
+export function MacImage({ path, name, onOpen }: { path: string; name: string; onOpen?: () => void }) {
+  const { client, device, language, t } = useApp();
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -54,7 +54,12 @@ export function MacImage({ path, name }: { path: string; name: string }) {
   }, [path, device?.deviceId, attempt]);
   if (error) return <ErrorNotice error={error} language={language} onRetry={() => setAttempt(attempt + 1)} variant="inline" />;
   if (!url) return <div class="media-placeholder" aria-label={name} />;
-  return <img class="media-image" src={url} alt={name} loading="lazy" decoding="async" />;
+  if (!onOpen) return <img class="media-image" src={url} alt={name} loading="lazy" decoding="async" />;
+  return (
+    <button type="button" class="media-open" aria-label={name ? t(`查看图片 ${name}`, `View image ${name}`) : t("查看图片", "View image")} onClick={onOpen}>
+      <img class="media-image" src={url} alt={name} loading="lazy" decoding="async" />
+    </button>
+  );
 }
 
 export function FileCard({ attachment }: { attachment: Attachment }) {

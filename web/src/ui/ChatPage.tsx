@@ -7,7 +7,8 @@ import { ChatSession } from "../chat/session";
 import type { AnswerPlan } from "../hermes/requests";
 import { Composer } from "./Composer";
 import { ErrorNotice } from "./ErrorNotice";
-import { BackIcon } from "./icons";
+import { BackIcon, FolderIcon, MoreIcon } from "./icons";
+import { ImageViewer, type ViewerImage } from "./ImageViewer";
 import { MessageView } from "./Message";
 import { QuestionSheet } from "./QuestionSheet";
 import { loadSessions } from "./SessionList";
@@ -26,6 +27,11 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const pendingFiles = useRef(new Map<string, PendingAttachment[]>());
+  const [viewer, setViewer] = useState<{ images: ViewerImage[]; index: number } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // A new chat opened from a project-filtered list is created in that project's folder; captured
+  // once so changing the filter later cannot move a chat that is being created.
+  const newChatProject = useRef(sessionId === null ? app.projectFilter : null);
 
   // One ChatSession per conversation; adopting the id a new chat just got keeps the socket.
   useEffect(() => {
@@ -34,10 +40,12 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     if (current && sessionId !== null && current.storedSessionId === sessionId) return;
     current?.dispose();
     dispatch({ type: "reset" });
+    newChatProject.current = sessionId === null ? app.projectFilter : null;
     const session = new ChatSession({
       client,
       deviceId: device.deviceId,
       storedSessionId: sessionId,
+      cwd: sessionId === null ? newChatProject.current?.path : null,
       dispatch,
       onStored: (id) => {
         setStoredId(id);
@@ -131,6 +139,9 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     (storedId && app.inbox.latest[storedId]?.title) ||
     (storedId ? t("会话", "Conversation") : t("新会话", "New chat"));
 
+  const listRow = storedId ? (app.sessions.find((s) => s.id === storedId) ?? { id: storedId }) : null;
+  const pinned = listRow ? app.isPinned(listRow) : false;
+
   const connectionLine =
     state.connection === "reconnecting"
       ? t("连接中断，正在恢复…", "Reconnecting…")
@@ -153,17 +164,50 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
             <h1 class="topbar-title left">{title}</h1>
             {connectionLine ? <span class={`chat-status${state.generating && state.connection === "ready" ? " running" : ""}`}>{connectionLine}</span> : null}
           </div>
-          <span class="topbar-spacer" />
+          {listRow ? (
+            <button type="button" class="icon-button" aria-label={t("更多", "More")} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
+              <MoreIcon />
+            </button>
+          ) : (
+            <span class="topbar-spacer" />
+          )}
         </div>
+        {menuOpen && listRow ? (
+          <>
+            <div class="menu-scrim" onClick={() => setMenuOpen(false)} />
+            <div class="menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                class="menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  app.togglePin(listRow);
+                  app.flash(pinned ? t("已取消置顶", "Unpinned") : t("已置顶（仅此设备）", "Pinned on this device"));
+                }}
+              >
+                {pinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
+              </button>
+            </div>
+          </>
+        ) : null}
       </header>
       <div class="messages" ref={scroller} onScroll={onScroll}>
         <div class="messages-inner">
           {!state.historyLoaded ? <div class="center-spinner"><span class="spinner" /></div> : null}
           {state.historyLoaded && state.items.length === 0 ? (
-            <p class="empty-chat">{t("有什么可以帮你？", "What can I help with?")}</p>
+            <div class="empty-chat">
+              <p>{t("有什么可以帮你？", "What can I help with?")}</p>
+              {newChatProject.current?.path ? (
+                <p class="empty-chat-project mono">
+                  <FolderIcon size={14} />
+                  {newChatProject.current.label}
+                </p>
+              ) : null}
+            </div>
           ) : null}
           {state.items.map((item) => (
-            <MessageView key={item.key} item={item} onRetry={retry} />
+            <MessageView key={item.key} item={item} onRetry={retry} onOpenImage={(images, index) => setViewer({ images, index })} />
           ))}
           {state.notice ? (
             <ErrorNotice
@@ -192,6 +236,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           onInterrupt={() => void sessionRef.current?.interrupt()}
         />
       </footer>
+      {viewer ? <ImageViewer images={viewer.images} index={viewer.index} onClose={() => setViewer(null)} /> : null}
     </div>
   );
 }

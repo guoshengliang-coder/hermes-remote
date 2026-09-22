@@ -142,3 +142,97 @@ export function renderMarkdownFragment(source: string): DocumentFragment {
   const env: RenderEnv = { hiddenLinks: [] };
   return sanitizeToFragment(markdown.render(source, env));
 }
+
+// ---- block headers (DESIGN §5.4 code block / table card) ----------------------------------
+// Code blocks and tables get a header row — language (or 「表格」) and a copy button — built with
+// DOM calls on the already-sanitized fragment. Nothing here parses markup, so it adds no path for
+// message content to become HTML.
+
+export interface BlockLabels {
+  table: string;
+  copyCode: string;
+  copyTable: string;
+}
+
+export type CopyKind = "code" | "table";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function copyGlyph(doc: Document): SVGSVGElement {
+  const svg = doc.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of [["width", "16"], ["height", "16"], ["viewBox", "0 0 24 24"], ["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "1.8"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"], ["aria-hidden", "true"], ["focusable", "false"]]) {
+    svg.setAttribute(k!, v!);
+  }
+  const rect = doc.createElementNS(SVG_NS, "rect");
+  for (const [k, v] of [["x", "8"], ["y", "8"], ["width", "12"], ["height", "12"], ["rx", "2.5"]]) rect.setAttribute(k!, v!);
+  const back = doc.createElementNS(SVG_NS, "path");
+  back.setAttribute("d", "M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2");
+  svg.append(rect, back);
+  return svg;
+}
+
+function blockCard(doc: Document, kind: CopyKind, label: string, copyLabel: string, body: Element): HTMLElement {
+  const card = doc.createElement("div");
+  card.className = kind === "code" ? "block-card code-card" : "block-card table-card";
+  const head = doc.createElement("div");
+  head.className = "block-head";
+  const name = doc.createElement("span");
+  name.className = "block-label";
+  name.textContent = label;
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.className = "block-copy";
+  button.dataset.copy = kind;
+  button.setAttribute("aria-label", copyLabel);
+  button.appendChild(copyGlyph(doc));
+  head.append(name, button);
+  body.replaceWith(card);
+  card.append(head, body);
+  return card;
+}
+
+/** The fenced language (`language-ts` → `ts`), lower-cased; "code" when there is none. */
+export function codeLanguage(pre: Element): string {
+  const cls = pre.querySelector("code")?.className ?? "";
+  const lang = /(?:^|\s)language-([\w+#.-]{1,40})/.exec(cls)?.[1];
+  return lang ? lang.toLowerCase() : "code";
+}
+
+/** Wrap every `pre` and `table` in `root` in a card with a header and a copy button. */
+export function decorateBlocks(root: DocumentFragment | Element, labels: BlockLabels): void {
+  const doc = root.ownerDocument ?? document;
+  for (const pre of Array.from(root.querySelectorAll("pre"))) {
+    blockCard(doc, "code", codeLanguage(pre), labels.copyCode, pre);
+  }
+  for (const table of Array.from(root.querySelectorAll("table"))) {
+    const scroller = doc.createElement("div");
+    scroller.className = "table-scroll";
+    table.replaceWith(scroller);
+    scroller.appendChild(table);
+    blockCard(doc, "table", labels.table, labels.copyTable, scroller);
+  }
+}
+
+/** Table → tab-separated rows, which spreadsheets and notes paste as cells (Android parity). */
+export function tableToTsv(table: Element): string {
+  return Array.from(table.querySelectorAll("tr"))
+    .map((row) =>
+      Array.from(row.querySelectorAll("th, td"))
+        .map((cell) => (cell.textContent ?? "").replace(/[\t\r\n]+/g, " ").trim())
+        .join("\t"),
+    )
+    .join("\n");
+}
+
+/** What a copy button inside a decorated card should put on the clipboard. */
+export function copyPayload(button: Element): { kind: CopyKind; text: string } | null {
+  const kind = button.getAttribute("data-copy");
+  const card = button.closest(".block-card");
+  if (!card || (kind !== "code" && kind !== "table")) return null;
+  if (kind === "code") {
+    const pre = card.querySelector("pre");
+    return pre ? { kind, text: (pre.textContent ?? "").replace(/\n$/, "") } : null;
+  }
+  const table = card.querySelector("table");
+  return table ? { kind, text: tableToTsv(table) } : null;
+}

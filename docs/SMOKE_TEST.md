@@ -945,7 +945,8 @@ Local reproduction: `./scripts/dev/web-stack.sh up` (Postgres, mock Hermes, TLS 
 `https://localhost:18443`, account-mode Connector), then `./scripts/dev/web-stack.sh code` prints
 the email code for `dev@example.test`. `HR_WEB_STACK_LEGACY_PROTOCOL=1` switches the mock to the
 older approval/clarify events. Mock prompt prefixes pin one run: `!clarify-single`,
-`!clarify-multi`, `!clarify-batch`, `!quick`, `!media <absolute path>`; `!owned` and `!gone` make
+`!clarify-multi`, `!clarify-batch`, `!quick`, `!media <absolute path>…` (several paths give one
+message several images), `!table` (ends with a Markdown table); `!owned` and `!gone` make
 `prompt.submit` answer 4090 and 4007. The Connector runs its lifecycle observer against the mock's
 `session.active_list`, so a run left waiting on an approval raises `run.waiting` in the inbox.
 
@@ -961,6 +962,15 @@ Retry; `!gone` shows `HR-SESS-001` once and disables the composer; the service w
 with scope `/app/`; sending immediately after a reload succeeds (it failed about half the time
 before the boot-refresh fix). The login page also renders in iOS 26.5 Simulator Safari, light and
 dark. None of this replaces the device items below.
+
+Batch 1 (branch `claude/web-batch1`, 23 checks, same harness): the project sheet lists derived
+projects; filtering keeps only that folder's sessions (needs-you excepted) with branch · model
+sublines; a new chat from a filtered list is created in that folder; code blocks carry their
+language and copy verbatim; a table copies as tab-separated cells; "copy reply" confirms; tapping
+one of two images opens the viewer at `1 / 2`, a swipe pages to `2 / 2`, double tap zooms to 2.5×
+and a drag then pans instead of paging; pinning from the chat's "more" menu puts the chat under
+「已置顶 · 仅此设备」 with a pin mark, stores `default/<id>` for that Mac, and unpinning removes the
+group; a collapsed group stays collapsed across opening a chat; sign-out removes every pin.
 
 ### Still needs a real iPhone — none of this has been verified on a device
 
@@ -987,6 +997,18 @@ version with each result.
    Expected: iOS offers to download or preview it. It never renders inside the app's origin.
 7. **Sign out on a shared device.** Sign out, then reopen the app offline. Expected: no conversation
    content is shown from cache, only the sign-in page.
+8. **Copy.** In Safari and in the Home Screen app, tap "copy reply", a code block's copy button and
+   a table's copy button, then paste into Notes. Expected: 「已复制」-style confirmation, the Markdown
+   source / exact code / cells land in Notes. If iOS refuses, the app shows `HR-WEB-007` and the text
+   can still be selected by pressing and holding.
+9. **Image viewer gestures.** Open an image from a message with several. Expected: pinch zooms
+   smoothly without Safari zooming the page, double tap toggles, a zoomed image cannot be dragged
+   off screen, a swipe at 1× pages within the message only, and "save image" offers Save to Photos
+   or Share.
+10. **Pins and project filter.** Pin a chat, force-quit the Home Screen app and reopen it. Expected:
+    the pin is still there (it is per browser, so Safari and the Home Screen app keep separate pins),
+    and it is gone after signing out. Filter by a project and start a new chat. Expected: the chat
+    appears under that project on the Android app too.
 
 ## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
 

@@ -147,4 +147,38 @@ describe("ChatSession", () => {
     expect(actions.some((a) => a.type === "user-failed")).toBe(false);
     session.dispose();
   });
+
+  describe("new chat folder (project filter)", () => {
+    async function createParams(cwd: string | null | undefined) {
+      let ws!: FakeWebSocket;
+      const client = { messages: async () => ({ messages: [] }), settled: async () => undefined } as unknown as GatewayClient;
+      const session = new ChatSession({
+        client,
+        deviceId: "dev-mac",
+        storedSessionId: null,
+        cwd,
+        dispatch: () => undefined,
+        socketFactory: (url) => new HermesSocket({ url, factory: () => (ws = new FakeWebSocket()) }),
+      });
+      session.start();
+      await tick();
+      ws.receive({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready", payload: {} } });
+      ws.receive({ jsonrpc: "2.0", id: ws.last("client.capabilities")!.id, result: { server_requests: ["approval"] } });
+      await tick();
+      void session.send("l-1", "hello", []);
+      await tick();
+      const create = ws.last("session.create") as { params?: Record<string, unknown> } | undefined;
+      session.dispose();
+      return create?.params;
+    }
+
+    it("creates the chat in the filtered project's folder", async () => {
+      expect(await createParams("/u/hermes-remote")).toEqual({ source: "hermes_remote", cwd: "/u/hermes-remote" });
+    });
+
+    it("sends no cwd without a filter, so Hermes uses its launch folder", async () => {
+      expect(await createParams(null)).toEqual({ source: "hermes_remote" });
+      expect(await createParams(undefined)).toEqual({ source: "hermes_remote" });
+    });
+  });
 });
