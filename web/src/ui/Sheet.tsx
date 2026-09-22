@@ -1,4 +1,5 @@
 import type { ComponentChildren } from "preact";
+import { useBackClose } from "../app/useBackClose";
 import { useEffect } from "preact/hooks";
 import { CloseIcon } from "./icons";
 
@@ -18,6 +19,7 @@ export function Sheet({
   children: ComponentChildren;
   wide?: boolean;
 }) {
+  useBackClose(onClose);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);

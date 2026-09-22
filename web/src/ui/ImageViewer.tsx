@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { useBackClose } from "../app/useBackClose";
 import { toAppError } from "../app/failures";
 import { useApp } from "../app/store";
 import type { AppError } from "../errors";
@@ -62,6 +63,8 @@ export function ImageViewer({ images, index: initial, onClose, pending }: { imag
     viewRef.current = next;
     setView(next);
   };
+
+  useBackClose(onClose);
 
   const image = images[index];
   const content = natural ? fitSize(natural, box) : box;

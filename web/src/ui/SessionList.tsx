@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { BackClose } from "../app/useBackClose";
 import { GatewayHttpError, hermesPaths } from "../api/gateway";
 import { botSections, botSourceLabel, botStatusLine } from "../app/bots";
 import { draftSessions } from "../app/drafts";
@@ -182,6 +183,7 @@ export function SessionList() {
   return (
     <div class="page list-page">
       <header class="topbar">
+        {searching ? <BackClose onClose={closeSearch} /> : null}
         {searching ? (
           <div class="topbar-row search-row">
             <button type="button" class="icon-button" aria-label={t("关闭搜索", "Close search")} onClick={closeSearch}>
@@ -215,6 +217,7 @@ export function SessionList() {
         )}
         {menuOpen ? (
           <>
+            <BackClose onClose={() => setMenuOpen(false)} />
             <div class="menu-scrim" onClick={() => setMenuOpen(false)} />
             <div class="menu" role="menu">
               <div class="menu-caption">

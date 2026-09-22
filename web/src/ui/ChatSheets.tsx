@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useBackClose } from "../app/useBackClose";
 import { copyText } from "../app/clipboard";
 import { useApp } from "../app/store";
 import type { ChatItem } from "../chat/model";
@@ -310,6 +311,7 @@ export function SourceDialog({ item, onClose }: { item: ChatItem; onClose: () =>
   const markdown = item.role === "assistant";
   const [source, setSource] = useState(false);
   const readable = useMemo(() => (markdown ? readableText(item.text) : item.text), [item.text, markdown]);
+  useBackClose(onClose);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);

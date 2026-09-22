@@ -2758,7 +2758,11 @@ button:disabled {
 .segments {
   display: flex;
   gap: 0.25rem;
-  margin: 0 1rem 0.5rem;
+  /* Same measure as the list below it (content column minus its 1rem gutters): on a wide or
+     unfolded screen the switch lines up with the rows instead of spanning the window. */
+  width: calc(100% - 2rem);
+  max-width: calc(var(--content-max) - 2rem);
+  margin: 0 auto 0.5rem;
   padding: 0.25rem;
   border-radius: 0.75rem;
   background: var(--surface-container);
@@ -3636,9 +3640,19 @@ button.chat-workspace:disabled {
   min-height: 3.25rem;
   display: flex;
   align-items: center;
-  justify-content: center;
+  /* Centred with auto margins, not justify-content: a centred row that overflows spills off
+     BOTH ends and the left end can never be scrolled back into view (344px foldable covers). */
+  justify-content: flex-start;
   gap: 0.375rem;
   overflow-x: auto;
+}
+
+.editor-options > :first-child {
+  margin-left: auto;
+}
+
+.editor-options > :last-child {
+  margin-right: auto;
 }
 
 .ink-dot {
@@ -3723,4 +3737,61 @@ button.chat-workspace:disabled {
 
 .editor-tool.on {
   color: #ffffff;
+}
+
+/* ---- short screens: phone landscape, or the keyboard up (DESIGN §5.21 横屏与键盘) ----
+   With interactive-widget=resizes-content Chrome shrinks the layout viewport to the space above
+   the keyboard, so this query also fires while typing; iOS ignores that key and only reaches it
+   in landscape. Everything here trades chrome for reading room: the message list must keep a
+   usable height whatever is open. */
+@media (max-height: 30rem) {
+  :root {
+    --topbar-h: 2.5rem;
+  }
+
+  .chat-title .chat-workspace {
+    display: none;
+  }
+
+  .composer-input {
+    max-height: 4.75rem; /* three lines */
+  }
+
+  .composer-wrap {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .model-chip,
+  .composer-progress {
+    display: none;
+  }
+
+  .attachment-strip {
+    padding-bottom: 0.25rem;
+  }
+
+  .attachment-chip,
+  .attachment-chip img {
+    height: 3rem;
+  }
+
+  .editor-options {
+    min-height: 2.75rem;
+  }
+
+  .editor-tools {
+    justify-content: center;
+    gap: 1.5rem;
+  }
+
+  .editor-tool {
+    min-height: 2.5rem;
+    flex-direction: row;
+    gap: 0.375rem;
+  }
+
+  .editor-bottom {
+    padding-top: 0;
+  }
 }

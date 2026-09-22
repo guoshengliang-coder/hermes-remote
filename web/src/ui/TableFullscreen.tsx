@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "preact/hooks";
+import { useBackClose } from "../app/useBackClose";
 import { useApp } from "../app/store";
 import { CloseIcon, DownloadIcon } from "./icons";
 import { saveTableImage } from "./Markdown";
@@ -9,6 +10,7 @@ import { saveTableImage } from "./Markdown";
 export function TableFullscreen({ table, onClose }: { table: HTMLTableElement; onClose: () => void }) {
   const { t, flash } = useApp();
   const host = useRef<HTMLDivElement>(null);
+  useBackClose(onClose);
   useEffect(() => {
     host.current?.replaceChildren(table.cloneNode(true));
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
