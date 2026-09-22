@@ -1366,6 +1366,10 @@ class FakeAccountRepository implements AccountRepository {
     this.signOutIdempotency = idempotency;
     return this.signOutStatus;
   }
+
+  async revokeSessionByRefreshToken(_refreshTokenHash: string): Promise<"completed" | "invalid"> {
+    return "invalid";
+  }
   async close(): Promise<void> {}
 }
 

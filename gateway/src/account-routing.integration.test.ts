@@ -497,16 +497,25 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     assert.equal((await accountLifecyclePage(origin, accessA)).events[0].readAt, undefined);
     assert.equal((await accountLifecyclePage(origin, accessA2)).events[0].readAt !== undefined, true);
 
-    const conflictError = nextMessage(accountConnector, "error");
-    accountConnector.send(encodeWireMessage({ ...lifecycleEvent, title: "Conflicting event" }));
-    assert.equal((await conflictError).code, "event_id_conflict");
-    await waitUntil(async () => {
-      const result = await setup.query<{ connector_online: boolean }>(
-        "SELECT connector_online FROM connector_bindings WHERE id = $1",
-        [bindingId],
-      );
-      return result.rows[0]?.connector_online === false;
+    // A reused event ID with different content is acknowledged and dropped, keeping the stored
+    // version; it must not cost the Connector (and every tunnel on it) its connection. Sent twice,
+    // as a Connector would on each reconnect before the fix.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const conflictAck = nextMessage(accountConnector, "session.lifecycle.ack");
+      accountConnector.send(encodeWireMessage({ ...lifecycleEvent, title: "Conflicting event" }));
+      assert.equal((await conflictAck).eventId, lifecycleEvent.eventId);
+    }
+    assert.equal(accountConnector.readyState, WebSocket.OPEN);
+    const stored = await setup.query<{ title: string }>(
+      "SELECT title FROM account_lifecycle_events WHERE event_id = $1",
+      [lifecycleEvent.eventId],
+    );
+    assert.deepEqual(stored.rows.map((row) => row.title), ["Account background task"]);
+    const stillRouting = await fetch(`${origin}/v2/devices/${sharedDeviceId}/api/status`, {
+      headers: { authorization: `Bearer ${accessA}` },
     });
+    assert.equal(stillRouting.status, 200);
+    assert.equal(await stillRouting.text(), "account:/api/status");
   } finally {
     for (const socket of sockets) socket.close();
     if (child) {

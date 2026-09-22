@@ -434,7 +434,10 @@ Every Web `POST` requires the exact configured HTTPS `Origin`, non-cross-site Fe
 present, a valid host-only CSRF cookie, and the same token in `X-Hermes-CSRF`. Duplicate/malformed or
 oversized Cookie input fails with `HR-AUTH-012`. Refresh rotates the underlying account pair with the
 existing replay-safe `Idempotency-Key` contract. Sign-out revokes the current account session and
-expires all four Web cookies. Web routes ignore caller-supplied Authorization headers; native routes
+expires all four Web cookies. When the access cookie can no longer identify the session (expired
+after an idle tab, missing, already revoked, or the account unavailable), sign-out ends the session
+through the refresh cookie instead — revoking its whole refresh family and publishing the session
+revocation, so any open socket closes — and still answers 204 with every cookie expired. Web routes ignore caller-supplied Authorization headers; native routes
 continue to ignore cookies.
 
 Committed sign-out, revoke-all, identity-session, installation, and sharing revocations emit a
@@ -945,7 +948,10 @@ visual read/unread state remains device-local in V1.
 
 Account events are persisted separately from the legacy JSON inbox. Connector acknowledgement is
 sent only after the event and its per-phone receipts commit. Duplicate identical events are safely
-acknowledged; reuse of an event ID with different content fails closed. A phone can only page or
+acknowledged. Reuse of an event ID with different content keeps the stored event, is logged as a
+failure, and is acknowledged all the same so the Connector drops its copy (2026-09-22). It used to
+close the whole Connector with 1008; the Connector then resent the unacknowledged event on every
+reconnect and was refused again, a loop that took down every phone and browser tunnel on that Mac. A phone can only page or
 update receipts for its authenticated installation and account.
 
 ## 9. Data model

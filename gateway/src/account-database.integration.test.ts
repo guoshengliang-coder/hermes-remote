@@ -103,6 +103,45 @@ test("PostgreSQL sessions survive restart and refresh reuse revokes the family a
       created.account.id,
     );
 
+    // Sign-out after the access token expired (an idle browser tab): the access path can no longer
+    // identify the session, so the refresh credential ends it, family and all.
+    const idleInstallationId = randomUUID();
+    const idleSession = await service.exchangeGoogleProof({
+      platform: "android",
+      idToken: "idle-sign-out-not-persisted-provider-proof",
+      nonce: "8899aabbccddeeff",
+      clientInstallationId: idleInstallationId,
+      displayName: "Idle test phone",
+      appVersion: "0.0.0-test",
+      idempotencyKey: randomUUID(),
+    });
+    const expirePool = new Pool({ connectionString: databaseUrl, max: 1, options: `-c search_path=${schema}` });
+    await expirePool.query(
+      "UPDATE account_sessions SET access_expires_at = now() - interval '1 minute' WHERE access_token_hash = $1",
+      [codec.hashAccessToken(idleSession.session.accessToken)],
+    );
+    await assert.rejects(
+      service.signOut(`Bearer ${idleSession.session.accessToken}`, randomUUID()),
+      (error: unknown) => (error as { code?: unknown }).code === "HR-AUTH-003",
+    );
+    await service.signOutWithRefreshToken(idleSession.session.refreshToken);
+    await service.signOutWithRefreshToken(idleSession.session.refreshToken);
+    await service.signOutWithRefreshToken("hgr_not-a-real-refresh-token-at-all-000000000000");
+    const idleState = await expirePool.query<{ revoked: boolean; live_tokens: string }>(
+      `SELECT s.revoked_at IS NOT NULL AS revoked,
+              (SELECT count(*) FROM refresh_tokens r
+                WHERE r.family_id = s.refresh_family_id AND r.revoked_at IS NULL)::text AS live_tokens
+         FROM account_sessions s WHERE s.access_token_hash = $1`,
+      [codec.hashAccessToken(idleSession.session.accessToken)],
+    );
+    await expirePool.end();
+    assert.deepEqual(idleState.rows[0], { revoked: true, live_tokens: "0" });
+    await assert.rejects(service.refresh({
+      refreshToken: idleSession.session.refreshToken,
+      clientInstallationId: idleInstallationId,
+      idempotencyKey: randomUUID(),
+    }));
+
     const retryKey = randomUUID();
     const results = await Promise.allSettled([
       service.refresh({

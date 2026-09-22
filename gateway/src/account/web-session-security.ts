@@ -59,6 +59,10 @@ export class WebSessionSecurity {
     return `Bearer ${access}`;
   }
 
+  refreshTokenIfPresent(request: IncomingMessage): string | undefined {
+    return valid(parseCookies(request.headers.cookie).get(WEB_COOKIE_NAMES.refresh), REFRESH_PATTERN);
+  }
+
   refreshToken(request: IncomingMessage): string {
     const refresh = valid(parseCookies(request.headers.cookie).get(WEB_COOKIE_NAMES.refresh), REFRESH_PATTERN);
     if (!refresh) throw accountErrors.sessionExpired();

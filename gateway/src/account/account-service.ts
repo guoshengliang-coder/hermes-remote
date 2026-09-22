@@ -206,6 +206,17 @@ export class AccountService {
     }
   }
 
+  /**
+   * Sign-out when the access token can no longer identify the session (expired, or the cookie is
+   * gone) but the refresh credential still can. Unknown credentials are ignored: the caller is
+   * signing out either way.
+   */
+  async signOutWithRefreshToken(refreshToken: string): Promise<void> {
+    const refreshTokenHash = this.tokens.hashRefreshToken(refreshToken);
+    if (!refreshTokenHash) return;
+    await this.repository.revokeSessionByRefreshToken(refreshTokenHash);
+  }
+
   async signOut(authorization: string | undefined, idempotencyKey: string): Promise<void> {
     const accessTokenHash = this.accessTokenHash(authorization);
     const result = await this.repository.revokeSession(
