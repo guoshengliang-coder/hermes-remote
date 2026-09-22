@@ -181,4 +181,32 @@ describe("ChatSession", () => {
       expect(await createParams(undefined)).toEqual({ source: "hermes_remote" });
     });
   });
+
+  it("names a non-default profile on resume and history (the list spans profiles)", async () => {
+    let ws!: FakeWebSocket;
+    const historyCalls: unknown[][] = [];
+    const client = {
+      messages: async (...args: unknown[]) => {
+        historyCalls.push(args);
+        return { messages: [] };
+      },
+      settled: async () => undefined,
+    } as unknown as GatewayClient;
+    const session = new ChatSession({
+      client,
+      deviceId: "dev-mac",
+      storedSessionId: "stored-9",
+      profile: "work",
+      dispatch: () => undefined,
+      socketFactory: (url) => new HermesSocket({ url, factory: () => (ws = new FakeWebSocket()) }),
+    });
+    session.start();
+    await tick();
+    ws.receive({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready", payload: {} } });
+    ws.receive({ jsonrpc: "2.0", id: ws.last("client.capabilities")!.id, result: { server_requests: ["approval"] } });
+    await tick();
+    expect((ws.last("session.resume") as { params?: Record<string, unknown> }).params).toMatchObject({ session_id: "stored-9", profile: "work" });
+    expect(historyCalls[0]).toEqual(["dev-mac", "stored-9", "work"]);
+    session.dispose();
+  });
 });

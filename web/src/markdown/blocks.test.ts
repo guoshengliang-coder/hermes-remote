@@ -55,3 +55,30 @@ describe("code block and table cards (DESIGN §5.4)", () => {
     expect(tableToTsv(table)).toBe("h\tv w");
   });
 });
+
+describe("diff cards", () => {
+  it("colours a unified diff line by line, summarises +/−, and copies it back exactly", () => {
+    const code = "@@ -1,3 +1,3 @@\n ctx\n-old\n+new\n\n ";
+    const root = render("```diff\n" + code + "\n```\n");
+    const card = root.querySelector(".code-card")!;
+    expect(Array.from(card.querySelectorAll(".diff-line"), (l) => l.className)).toEqual([
+      "diff-line hunk", "diff-line context", "diff-line del", "diff-line add", "diff-line context", "diff-line context",
+    ]);
+    expect(card.querySelector(".diff-summary")!.textContent).toBe("+1 −1");
+    expect(copyPayload(card.querySelector("button.block-copy")!)).toEqual({ kind: "code", text: code });
+  });
+
+  it("leaves a markdown-list-looking code block alone", () => {
+    const root = render("```\n- a\n- b\n- c\n```\n");
+    expect(root.querySelector(".diff-line")).toBeNull();
+  });
+});
+
+describe("readableText", () => {
+  it("drops marks, keeps code verbatim and list structure", async () => {
+    const { readableText } = await import("./render");
+    expect(readableText("# Title\n\nSome **bold** and [a link](https://x.test).\n\n- one\n- two\n\n1. first\n2. second\n\n```\ncode  kept\n```")).toBe(
+      "Title\n\nSome bold and a link.\n\n• one\n• two\n\n1. first\n2. second\n\ncode  kept",
+    );
+  });
+});

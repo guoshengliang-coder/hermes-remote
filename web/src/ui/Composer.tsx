@@ -7,6 +7,7 @@ import {
   prepareImage,
   type PendingAttachment,
 } from "../chat/attachments";
+import { loadDraft, saveDraft } from "../app/drafts";
 import { appError, type AppError, type Language } from "../errors";
 import { ErrorNotice } from "./ErrorNotice";
 import { AttachIcon, CloseIcon, FileIcon, SendIcon, StopIcon } from "./icons";
@@ -22,19 +23,45 @@ export interface ComposerProps {
   disabled: boolean;
   onSend: (text: string, attachments: PendingAttachment[]) => void;
   onInterrupt: () => void;
+  /** Where unsent text is kept (app/drafts.ts); null keeps it in memory only. */
+  draftKey?: string | null;
+  /** Replace the text, e.g. "edit & resend"; a new nonce applies it again. */
+  seed?: { text: string; nonce: number } | null;
 }
 
 const finePointer = () => typeof matchMedia === "function" && matchMedia("(hover: hover) and (pointer: fine)").matches;
 
 let seq = 0;
 
-export function Composer({ t, language, generating, disabled, onSend, onInterrupt }: ComposerProps) {
-  const [text, setText] = useState("");
+const DRAFT_DEBOUNCE_MS = 400;
+
+export function Composer({ t, language, generating, disabled, onSend, onInterrupt, draftKey = null, seed = null }: ComposerProps) {
+  const [text, setText] = useState(() => (draftKey ? loadDraft(draftKey) : ""));
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [problem, setProblem] = useState<AppError | null>(null);
   const [preparing, setPreparing] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+
+  // A different conversation brings its own draft.
+  const keyRef = useRef(draftKey);
+  useEffect(() => {
+    if (keyRef.current === draftKey) return;
+    keyRef.current = draftKey;
+    setText(draftKey ? loadDraft(draftKey) : "");
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey) return;
+    const timer = setTimeout(() => saveDraft(draftKey, text), DRAFT_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [text, draftKey]);
+
+  useEffect(() => {
+    if (!seed) return;
+    setText(seed.text);
+    area.current?.focus();
+  }, [seed?.nonce]);
 
   useEffect(() => {
     const el = area.current;
@@ -85,6 +112,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     if (!canSend) return;
     onSend(text.trim(), attachments);
     setText("");
+    if (draftKey) saveDraft(draftKey, "");
     setAttachments([]); // preview URLs now belong to the sent bubble
     setProblem(null);
   }

@@ -972,6 +972,19 @@ and a drag then pans instead of paging; pinning from the chat's "more" menu puts
 「已置顶 · 仅此设备」 with a pin mark, stores `default/<id>` for that Mac, and unpinning removes the
 group; a collapsed group stays collapsed across opening a chat; sign-out removes every pin.
 
+Batch 2 (branch `claude/web-batch2`, 23 checks): a non-default-profile session names its profile on
+resume and history (unit-tested; the mock has one profile); the top bar shows `project · branch`,
+＋ and ⋮ (both hidden on an empty new chat, which shows the greeting); a streaming turn shows the
+running line; three tools fold into 「3 次工具调用 · 1 次失败」 with a task-list card; embedded JSON
+leaves the prose; a diff card shows `+1 −1`; the action row has copy / thumbs / read aloud /
+regenerate / ⋯, and regenerate appears on the latest answer only and appends a new one; ⋯ opens
+readable text with a source toggle; tapping the user bubble → edit & resend fills the composer;
+in-chat search counts `5/5`, hides the composer and offers "search all chats" on no match; your
+prompts lists and jumps; jump-to-latest appears when scrolled up; refresh confirms; Markdown export
+goes to the share sheet when the browser can share files, else downloads `HermesGO-….md`, and text
+falls back to the clipboard; a draft survives a reload; after reload the history shows one turn per
+answer.
+
 ### Still needs a real iPhone — none of this has been verified on a device
 
 Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
@@ -1009,6 +1022,11 @@ version with each result.
     the pin is still there (it is per browser, so Safari and the Home Screen app keep separate pins),
     and it is gone after signing out. Filter by a project and start a new chat. Expected: the chat
     appears under that project on the Android app too.
+11. **Chat parity (batch 2).** Read aloud a reply (Safari speech voice, stop by tapping again);
+    share a transcript as text and as a Markdown file through the iOS share sheet; write half a
+    message, force-quit the Home Screen app and reopen the chat (the draft is back), then sign out
+    and in again (it is gone); search inside a long chat and step through hits (highlights need
+    iOS 17.2+, older iOS only scrolls to the turn).
 
 ## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
 

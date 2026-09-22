@@ -1,5 +1,6 @@
 import markdownIt, { type Env, type MarkdownIt, type RendererRule } from "markdown-it";
 import createDOMPurify, { type DOMPurify } from "dompurify";
+import { diffKind, looksLikeDiff } from "../chat/organize";
 
 // Assistant Markdown → sanitized HTML. Content is untrusted (it can quote any web page), so:
 // raw HTML is off, only https: links become anchors (anything else renders as its text), Markdown
@@ -202,7 +203,11 @@ export function codeLanguage(pre: Element): string {
 export function decorateBlocks(root: DocumentFragment | Element, labels: BlockLabels): void {
   const doc = root.ownerDocument ?? document;
   for (const pre of Array.from(root.querySelectorAll("pre"))) {
-    blockCard(doc, "code", codeLanguage(pre), labels.copyCode, pre);
+    const language = codeLanguage(pre);
+    const card = blockCard(doc, "code", language, labels.copyCode, pre);
+    const code = pre.querySelector("code") ?? pre;
+    const text = (code.textContent ?? "").replace(/\n$/, "");
+    if (looksLikeDiff(text, language === "code" ? null : language)) markDiff(doc, card, code, text);
   }
   for (const table of Array.from(root.querySelectorAll("table"))) {
     const scroller = doc.createElement("div");
@@ -211,6 +216,34 @@ export function decorateBlocks(root: DocumentFragment | Element, labels: BlockLa
     scroller.appendChild(table);
     blockCard(doc, "table", labels.table, labels.copyTable, scroller);
   }
+}
+
+/** Unified diff: one span per line (text nodes only) plus a `+N −M` summary in the header. */
+function markDiff(doc: Document, card: HTMLElement, code: Element, text: string): void {
+  let add = 0;
+  let del = 0;
+  const lines = text.split("\n").map((line) => {
+    const kind = diffKind(line);
+    if (kind === "add" && !line.startsWith("+++")) add++;
+    if (kind === "del" && !line.startsWith("---")) del++;
+    const span = doc.createElement("span");
+    span.className = `diff-line ${kind}`;
+    // An empty line still needs a box to keep its height; the marker keeps copy exact.
+    span.textContent = line || " ";
+    if (!line) span.dataset.blank = "1";
+    return span;
+  });
+  code.replaceChildren(...lines);
+  const summary = doc.createElement("span");
+  summary.className = "diff-summary";
+  const plus = doc.createElement("span");
+  plus.className = "add";
+  plus.textContent = `+${add}`;
+  const minus = doc.createElement("span");
+  minus.className = "del";
+  minus.textContent = ` −${del}`;
+  summary.append(plus, minus);
+  card.querySelector(".block-copy")?.before(summary);
 }
 
 /** Table → tab-separated rows, which spreadsheets and notes paste as cells (Android parity). */
@@ -231,8 +264,66 @@ export function copyPayload(button: Element): { kind: CopyKind; text: string } |
   if (!card || (kind !== "code" && kind !== "table")) return null;
   if (kind === "code") {
     const pre = card.querySelector("pre");
-    return pre ? { kind, text: (pre.textContent ?? "").replace(/\n$/, "") } : null;
+    if (!pre) return null;
+    const diff = pre.querySelectorAll(".diff-line");
+    const text = diff.length ? Array.from(diff, (line) => ((line as HTMLElement).dataset.blank ? "" : line.textContent ?? "")).join("\n") : pre.textContent ?? "";
+    return { kind, text: text.replace(/\n$/, "") };
   }
   const table = card.querySelector("table");
   return table ? { kind, text: tableToTsv(table) } : null;
+}
+
+// ---- readable text (DESIGN §5.5 查看原文 / 选择: marks removed, structure kept) ----------
+
+const BLOCKS = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "PRE", "UL", "OL", "TABLE", "HR"]);
+
+/**
+ * Markdown → readable plain text: emphasis and link syntax gone, code verbatim, list markers and
+ * indentation kept, table rows tab-separated. Used by "view source / select" and read-aloud.
+ */
+export function readableText(source: string): string {
+  const fragment = renderMarkdownFragment(source);
+  const out: string[] = [];
+  const walk = (node: Node, depth: number) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 3) {
+        // Markup whitespace between list items / table rows is not content.
+        const container = (node as Element).tagName;
+        if (container && /^(UL|OL|TABLE|THEAD|TBODY|TR)$/.test(container) && !(child.textContent ?? "").trim()) continue;
+        out.push(child.textContent ?? "");
+        continue;
+      }
+      if (child.nodeType !== 1) continue;
+      const el = child as Element;
+      const tag = el.tagName;
+      if (tag === "BR") {
+        out.push("\n");
+        continue;
+      }
+      if (tag === "PRE") {
+        out.push(`\n${(el.textContent ?? "").replace(/\n$/, "")}\n\n`);
+        continue;
+      }
+      if (tag === "LI") {
+        const parent = el.parentElement;
+        const marker = parent?.tagName === "OL" ? `${Array.from(parent.children).indexOf(el) + Number(parent.getAttribute("start") ?? 1)}. ` : "• ";
+        out.push(`${"  ".repeat(Math.max(0, depth - 1))}${marker}`);
+        walk(el, depth);
+        out.push("\n");
+        continue;
+      }
+      if (tag === "TR") {
+        out.push(Array.from(el.children).map((c) => (c.textContent ?? "").trim()).join("\t") + "\n");
+        continue;
+      }
+      if (tag === "HR") {
+        out.push("\n");
+        continue;
+      }
+      walk(el, tag === "UL" || tag === "OL" ? depth + 1 : depth);
+      if (BLOCKS.has(tag)) out.push("\n\n");
+    }
+  };
+  walk(fragment, 0);
+  return out.join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }

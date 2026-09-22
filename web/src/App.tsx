@@ -22,6 +22,7 @@ import {
   type LiveQuestionReport,
   type LiveSettled,
 } from "./app/inbox";
+import { clearAllDrafts } from "./app/drafts";
 import { clearAllPins, loadPins, pinToken, savePins, togglePin } from "./app/pins";
 import { currentRoute, navigate, useRoute, type Route } from "./app/router";
 import {
@@ -90,6 +91,7 @@ export function App() {
   const [pinVersion, setPinVersion] = useState(0);
   const [collapsed, setCollapsed] = useState<ReadonlySet<GroupId>>(new Set());
   const [projectFilter, setProjectFilter] = useState<ProjectFilter | null>(null);
+  const [listSearchSeed, setListSearchSeed] = useState<string | null>(null);
   const [flashMessage, setFlashMessage] = useState<{ id: number; text: string; error: boolean } | null>(null);
   /** Where the user was headed before sign-in / device choice (select-only, never an action). */
   const intended = useRef<Route>(currentRoute());
@@ -248,6 +250,7 @@ export function App() {
     } finally {
       await clearCaches();
       clearAllPins();
+      clearAllDrafts();
       setCollapsed(new Set());
       setProjectFilter(null);
       writeStoredDevice(null);
@@ -337,6 +340,8 @@ export function App() {
     toggleGroup,
     projectFilter,
     setProjectFilter,
+    listSearchSeed,
+    setListSearchSeed,
     flash,
     signOut,
     authLost,

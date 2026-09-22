@@ -42,6 +42,9 @@ export interface AppContextValue {
   toggleGroup: (id: GroupId) => void;
   projectFilter: ProjectFilter | null;
   setProjectFilter: (filter: ProjectFilter | null) => void;
+  /** "Search all chats" from inside a chat: the list opens its search with this query. */
+  listSearchSeed: string | null;
+  setListSearchSeed: (query: string | null) => void;
   /** A short confirmation ("已复制") or a failure, shown briefly at the bottom of the screen. */
   flash: (message: string | AppError) => void;
   signOut: () => Promise<void>;

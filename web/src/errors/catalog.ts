@@ -57,6 +57,7 @@ export const CATALOG = {
   "HR-SESS-017": { zh: "这个会话的内容太大，Mac 无法把它传过来，请开新会话继续。", en: "This conversation is too large for the Mac to send. Start a new one to continue.", retryable: false, action: "new-session" },
   "HR-CLARIFY-001": { zh: "这个提问已失效，agent 没有收到这次回答，请在输入框直接说明你的选择。", en: "The clarify question expired before the answer arrived; tell the agent your choice in the composer.", retryable: false, action: "composer" },
   "HR-APPROVAL-003": { zh: "这次审批没有送达：这条审批已不再等待回答（可能已超时、运行已停止，或已在其他设备上处理）。如仍需要，请在输入框重新说明。", en: "This approval didn't reach the agent: the request was no longer waiting (it may have timed out, the run stopped, or it was answered on another device). If you still want it, say so in the composer.", retryable: false, action: "composer" },
+  "HR-SYNC-001": { zh: "无法同步完整会话内容，请重试。", en: "Couldn't synchronize the complete conversation. Retry.", retryable: true, action: "retry" },
   "HR-SYNC-003": { zh: "Mac 上的 Hermes 返回了错误，请检查 Mac 端。", en: "Hermes on the Mac returned an error. Check the Mac.", retryable: false, action: "open-mac" },
   "HR-SYNC-004": { zh: "无法解析会话内容，请更新 App。", en: "This conversation could not be read. Update the app.", retryable: false, action: "reload" },
   "HR-FILE-001": { zh: "无法读取所选文件，请重新选择。", en: "Couldn't read the selected file. Choose it again.", retryable: true, action: "retry" },

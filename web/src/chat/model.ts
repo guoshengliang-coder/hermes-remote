@@ -8,16 +8,20 @@ import {
   type QuestionState,
 } from "../hermes/requests";
 import type { JsonObject, MessageRow, OpenRequestsSnapshot, ServerEvent, ServerRequest } from "../hermes/types";
+import {
+  completeTool,
+  organizeAssistant,
+  organizeUserText,
+  parseToolPayloadMeta,
+  timelineNoteFor,
+  type TimelineNote,
+  type ToolCard,
+} from "./organize";
 
 // Chat view model as a pure reducer. Live streaming follows android ui/chat/ChatUiState.kt
 // (`applyEvent`): message.start/delta/complete, reasoning.delta, tool.start/complete, error.
 
-export interface ToolItem {
-  id: string;
-  name: string;
-  output: string;
-  done: boolean;
-}
+export type ToolItem = ToolCard;
 
 export type SendState = "sending" | "failed";
 
@@ -42,6 +46,10 @@ export interface ChatItem {
   localFiles?: string[];
   /** Raw assistant text while streaming (attachments are parsed out on every update). */
   raw?: string;
+  /** Where the current streamed segment starts in `raw` (a reopened answer keeps what came before). */
+  segmentStart?: number;
+  /** A server-injected system turn shown as a one-line note (TimelineNote.kt). */
+  note?: TimelineNote;
 }
 
 export type ConnectionState = "connecting" | "ready" | "reconnecting" | "offline";
@@ -61,6 +69,8 @@ export interface ChatState {
    * so they do not grow a second assistant turn under the interrupted one.
    */
   stopped: boolean;
+  /** Live working folder and branch from `session.info` (the top-bar subtitle). */
+  workspace: { cwd: string; branch: string | null } | null;
 }
 
 export const initialChatState: ChatState = {
@@ -72,6 +82,7 @@ export const initialChatState: ChatState = {
   notice: null,
   terminal: false,
   stopped: false,
+  workspace: null,
 };
 
 const STREAM_EVENTS: ReadonlySet<string> = new Set([
@@ -121,8 +132,20 @@ function lastIndex(items: readonly ChatItem[], pred: (i: ChatItem) => boolean): 
 /** The streaming assistant after the last user turn, created when missing (a lost start). */
 function ensureStreaming(state: ChatState): ChatState {
   const streaming = lastIndex(state.items, (i) => i.role === "assistant" && i.streaming);
-  const lastUser = lastIndex(state.items, (i) => i.role === "user");
+  const lastUser = lastIndex(state.items, (i) => i.role === "user" && !i.note);
   if (streaming > lastUser) return state.generating ? state : { ...state, generating: true };
+  // Everything after the latest user message is ONE answer (Android latestAssistantTurnSource):
+  // a second message.start after tools reopens it instead of growing a second turn.
+  const settled = lastIndex(state.items, (i) => i.role === "assistant");
+  // Only a turn this page streamed: a history row's text is not the start of a live stream.
+  if (settled > lastUser && !state.items[settled]!.interrupted && !state.items[settled]!.key.startsWith("h-")) {
+    const items = [...state.items];
+    const prev = items[settled]!;
+    const raw = prev.raw ?? prev.text;
+    const kept = raw.trim() ? `${raw.trimEnd()}\n\n` : "";
+    items[settled] = { ...prev, streaming: true, raw: kept, segmentStart: kept.length };
+    return { ...state, items, generating: true };
+  }
   return { ...state, items: [...state.items, assistant(`a-${state.items.length}-${Date.now()}`, Date.now())], generating: true };
 }
 
@@ -147,6 +170,52 @@ function withRaw(item: ChatItem, raw: string): ChatItem {
   return { ...item, raw, text: parsed.text, attachments: parsed.attachments };
 }
 
+function dedupeAttachments(list: readonly Attachment[]): Attachment[] {
+  const seen = new Set<string>();
+  return list.filter((a) => (seen.has(a.path) ? false : (seen.add(a.path), true)));
+}
+
+/**
+ * A settled assistant turn as displayed: embedded payloads and wrappers become tool cards, and
+ * `MEDIA:` lines inside tool output join the turn's attachments (ChatMessage.organizedForDisplay).
+ */
+export function organizeAssistantItem(item: ChatItem): ChatItem {
+  const organized = organizeAssistant(item.text, item.tools);
+  const toolFiles: Attachment[] = [];
+  const tools = organized.tools.map((tool) => {
+    if (!tool.output) return tool;
+    const parsed = parseAttachments(tool.output);
+    toolFiles.push(...parsed.attachments);
+    return parsed.attachments.length ? { ...tool, output: parsed.text } : tool;
+  });
+  return { ...item, text: organized.text, tools, attachments: dedupeAttachments([...item.attachments, ...toolFiles]) };
+}
+
+function joinParts(first: string, second: string): string {
+  if (!first.trim()) return second;
+  if (!second.trim()) return first;
+  return `${first.trimEnd()}\n\n${second.trimStart()}`;
+}
+
+/** Hermes splits one answer into several records around tool activity: fold them into one turn. */
+function mergeAssistant(previous: ChatItem, next: ChatItem): ChatItem {
+  const tools = new Map<string, ToolItem>();
+  for (const t of [...previous.tools, ...next.tools]) tools.set(t.id, t);
+  const images = [...previous.images];
+  for (const img of next.images) if (!images.some((x) => x.path === img.path && x.url === img.url)) images.push(img);
+  return {
+    ...next,
+    key: previous.key,
+    text: joinParts(previous.text, next.text),
+    reasoning: joinParts(previous.reasoning, next.reasoning),
+    timestampMs: previous.timestampMs ?? next.timestampMs,
+    attachments: dedupeAttachments([...previous.attachments, ...next.attachments]),
+    images,
+    tools: [...tools.values()],
+    interrupted: previous.interrupted || next.interrupted,
+  };
+}
+
 function applyEvent(state: ChatState, event: ServerEvent): ChatState {
   const p = event.payload;
   switch (event.type) {
@@ -161,30 +230,48 @@ function applyEvent(state: ChatState, event: ServerEvent): ChatState {
       const complete = str(p, "text") ?? str(p, "rendered");
       const hasStreaming = state.items.some((i) => i.role === "assistant" && i.streaming);
       const prepared = hasStreaming || (complete !== null && complete.trim() !== "") ? ensureStreaming(state) : state;
-      const done = mutateStreaming(prepared, (item) => ({ ...withRaw(item, complete ?? item.raw ?? ""), streaming: false }));
+      const done = mutateStreaming(prepared, (item) => {
+        // A reopened answer's completion text covers only its last segment: keep the earlier ones.
+        const base = item.raw ?? "";
+        const finalRaw = complete === null ? base : base.slice(0, item.segmentStart ?? 0) + complete;
+        const { segmentStart: _s, ...rest } = item;
+        return organizeAssistantItem({ ...withRaw(rest, finalRaw), streaming: false });
+      });
       return { ...done, generating: false };
     }
     case "tool.start":
       return mutateStreaming(ensureStreaming(state), (item) => ({
         ...item,
-        tools: [...item.tools, { id: str(p, "tool_id") ?? `t-${item.tools.length}`, name: str(p, "name") ?? "tool", output: "", done: false }],
+        tools: [...item.tools, { id: str(p, "tool_id") ?? `t-${item.tools.length}`, name: str(p, "name") ?? "tool", output: "", done: false, command: commandOf(p) }],
       }));
     case "tool.complete": {
       const id = str(p, "tool_id");
-      const result = str(p, "result") ?? "";
+      const result = str(p, "result");
       return mutateLastAssistant(state, (item) => ({
         ...item,
-        tools: item.tools.map((t) => (t.id === id ? { ...t, done: true, output: result } : t)),
+        tools: item.tools.map((t) => (t.id === id ? completeTool(t, result) : t)),
       }));
     }
     case "session.info": {
-      if (p.running === false) return finishStreaming(state, false);
-      if (p.running === true && !state.generating) return { ...state, generating: true };
-      return state;
+      const cwd = str(p, "cwd");
+      const withWorkspace = cwd && cwd.trim() ? { ...state, workspace: { cwd: cwd.trim(), branch: str(p, "branch") } } : state;
+      if (p.running === false) return finishStreaming(withWorkspace, false);
+      if (p.running === true && !withWorkspace.generating) return { ...withWorkspace, generating: true };
+      return withWorkspace;
     }
     default:
       return state;
   }
+}
+
+/** A command shown while the tool still runs, when tool.start carries one (args or payload). */
+function commandOf(p: JsonObject): string | null {
+  const direct = str(p, "command");
+  if (direct) return direct;
+  const args = p.args ?? p.arguments;
+  if (typeof args === "string") return parseToolPayloadMeta(args)?.command ?? null;
+  if (args && typeof args === "object" && !Array.isArray(args)) return parseToolPayloadMeta(JSON.stringify(args))?.command ?? null;
+  return null;
 }
 
 function finishStreaming(state: ChatState, interrupted: boolean): ChatState {
@@ -196,18 +283,32 @@ function finishStreaming(state: ChatState, interrupted: boolean): ChatState {
   return { ...state, items, generating: false };
 }
 
-function historyItems(rows: MessageRow[]): ChatItem[] {
-  return parseHistory(rows).map((m) => ({
-    key: m.key,
-    role: m.role,
-    text: m.text,
-    attachments: m.attachments,
-    images: m.images,
-    reasoning: m.reasoning,
-    tools: m.tools.map((t) => ({ id: t.id, name: t.name, output: t.output, done: true })),
-    streaming: false,
-    timestampMs: m.timestampMs,
-  }));
+export function historyItems(rows: MessageRow[]): ChatItem[] {
+  const out: ChatItem[] = [];
+  for (const m of parseHistory(rows)) {
+    const note = timelineNoteFor(m);
+    if (note?.hidden) continue;
+    const base: ChatItem = {
+      key: m.key,
+      role: m.role,
+      text: m.role === "user" && !note ? organizeUserText(m.text) : m.text,
+      attachments: m.attachments,
+      images: m.images,
+      reasoning: m.reasoning,
+      tools: m.tools.map((t) => {
+        const argCommand = t.arguments ? parseToolPayloadMeta(t.arguments)?.command ?? null : null;
+        return completeTool({ id: t.id, name: t.name, output: "", done: true, command: argCommand }, t.hasResult ? t.output : null);
+      }),
+      streaming: false,
+      timestampMs: m.timestampMs,
+      ...(note ? { note } : {}),
+    };
+    const item = base.role === "assistant" ? organizeAssistantItem(base) : base;
+    const prev = out[out.length - 1];
+    if (item.role === "assistant" && prev?.role === "assistant") out[out.length - 1] = mergeAssistant(prev, item);
+    else out.push(item);
+  }
+  return out;
 }
 
 export function reduceChat(state: ChatState, action: ChatAction): ChatState {
