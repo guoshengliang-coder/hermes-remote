@@ -40,6 +40,21 @@ val missionGoSdkToken = missionGoSetting("missiongoSdkToken", "MISSIONGO_SDK_TOK
 fun javaStringLiteral(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
+// Firebase Cloud Messaging client values (HG-94). Same contract as MissionGo above: never in Git,
+// no google-services.json and no google-services plugin. Read from the gitignored
+// android/local.properties, with environment variables as the CI path. Absent is a supported
+// state — every value compiles to "" and the app keeps its periodic-sync fallback (FcmConfig.kt).
+val localPropsFile = rootProject.file("local.properties")
+val localProps = Properties().apply {
+    if (localPropsFile.exists()) localPropsFile.inputStream().use { load(it) }
+}
+fun fcmSetting(propertyName: String, environmentName: String): String =
+    (localProps.getProperty(propertyName) ?: System.getenv(environmentName) ?: "").trim()
+val fcmApiKey = fcmSetting("hermes.fcm.apiKey", "HERMES_FCM_API_KEY")
+val fcmAppId = fcmSetting("hermes.fcm.appId", "HERMES_FCM_APP_ID")
+val fcmProjectId = fcmSetting("hermes.fcm.projectId", "HERMES_FCM_PROJECT_ID")
+val fcmSenderId = fcmSetting("hermes.fcm.senderId", "HERMES_FCM_SENDER_ID")
+
 tasks.register("verifyMissionGoConfiguration") {
     group = "verification"
     description = "Fails unless both MissionGo values used by this build are configured."
@@ -94,6 +109,10 @@ android {
             "MISSIONGO_SDK_TOKEN",
             javaStringLiteral(missionGoSdkToken),
         )
+        buildConfigField("String", "FCM_API_KEY", javaStringLiteral(fcmApiKey))
+        buildConfigField("String", "FCM_APP_ID", javaStringLiteral(fcmAppId))
+        buildConfigField("String", "FCM_PROJECT_ID", javaStringLiteral(fcmProjectId))
+        buildConfigField("String", "FCM_SENDER_ID", javaStringLiteral(fcmSenderId))
     }
     signingConfigs {
         // Do not rely on AGP's environment-dependent default debug keystore lookup. CI runners
@@ -250,6 +269,9 @@ dependencies {
     implementation(libs.zxing.embedded)
     implementation(libs.glance.appwidget)
     implementation(libs.missiongo.feedback)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+    implementation(libs.play.services.base)
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

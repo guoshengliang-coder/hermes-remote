@@ -21,7 +21,7 @@ test("generated release manifest matches protocol constants and verifies every b
   assert.equal(manifest.manifestVersion, 2);
   assert.equal(manifest.protocolVersions.legacy, PROTOCOL_VERSION);
   assert.equal(manifest.protocolVersions.accountConnector, ACCOUNT_CONNECTOR_PROTOCOL_VERSION);
-  assert.equal(manifest.databaseSchemaVersion, 15);
+  assert.equal(manifest.databaseSchemaVersion, 16);
   assert.equal(manifest.minimumSourceVersion, "0.2.0");
   assert.equal(manifest.maintenanceRequired, true);
   assert.equal(manifest.rollbackSupported, true);

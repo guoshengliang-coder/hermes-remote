@@ -41,6 +41,30 @@ class AppErrorTest {
         assertTrue(photo.sanitizedDiagnostic().contains("HR-MEDIA-002"))
     }
 
+    // HR-NOTIF-002: FCM registration failed (HG-94). Retryable, bilingual, and the token never
+    // reaches diagnostics even if a cause quoted it.
+    @Test fun pushRegistrationFailureHasBilingualCopyIsRetryableAndHidesTheToken() {
+        val error = AppError(
+            AppErrorCode.PUSH_REGISTRATION_FAILED,
+            retryable = true,
+            technicalCause = "stage=register token=fcm-secret-token HTTP 500",
+            stage = "push_registration",
+        )
+        assertEquals("HR-NOTIF-002", error.code.value)
+        assertEquals(AppErrorCode.PUSH_REGISTRATION_FAILED, AppErrorCode.fromValue("HR-NOTIF-002"))
+        assertEquals("实时推送注册失败，暂用定时同步，请重试。", error.localizedSummary(AppLanguage.ZH))
+        assertEquals(
+            "Real-time push registration failed; using periodic sync for now. Retry.",
+            error.localizedSummary(AppLanguage.EN),
+        )
+        assertTrue(error.localizedMessage(AppLanguage.ZH).endsWith("(HR-NOTIF-002)"))
+        assertTrue(error.localizedMessage(AppLanguage.EN).endsWith("(HR-NOTIF-002)"))
+        assertTrue(error.retryable)
+        val diagnostic = error.sanitizedDiagnostic()
+        assertTrue(diagnostic.contains("HR-NOTIF-002"))
+        assertFalse(diagnostic.contains("fcm-secret-token"))
+    }
+
     // HR-SEARCH-001: gateway message search failed. Retryable, bilingual, code kept.
     @Test fun searchFailureHasBilingualCopyAndIsRetryable() {
         val error = AppError(AppErrorCode.SEARCH_FAILED, retryable = true, technicalCause = "HTTP 502 token=abc")

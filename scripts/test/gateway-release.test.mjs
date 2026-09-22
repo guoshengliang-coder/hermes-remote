@@ -14,7 +14,7 @@ test("Gateway release contract stays aligned with package and protocol versions"
     protocolSource,
     new RegExp(`ACCOUNT_CONNECTOR_PROTOCOL_VERSION = ${contract.protocolVersions.accountConnector}`),
   );
-  assert.equal(contract.databaseSchemaVersion, 15);
+  assert.equal(contract.databaseSchemaVersion, 16);
   assert.equal(contract.minimumSourceVersion, "0.2.0");
   assert.equal(contract.maintenanceRequired, true);
   assert.equal(contract.rollbackSupported, true);

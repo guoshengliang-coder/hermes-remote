@@ -56,7 +56,8 @@ outbound-only, and migration snapshots contain only Hermes GO/Connector-owned st
 - Add connection-level rate limiting at the Nginx edge.
 - Complete the gated migration from static MVP credentials to short-lived, installation-bound account
   sessions and possession-based Connector credentials.
-- Add replay protection, request limits, persisted sessions, and push notifications.
+- Add replay protection, request limits, and persisted sessions. Push wake hints exist for
+  account mode on phones with Google Play services; vendor push channels are still open.
 - Define Hermes-specific event normalization for assistant text, tool calls, tool results, files, and errors.
 
 ## Android compatibility facade
@@ -171,10 +172,34 @@ Users can explicitly choose **Real-time** (keep the foreground service in the ba
 screen and heads-up presentation remain subject to Android's notification permission and the
 user's channel settings.
 
-FCM is intentionally not required by this phase. A future FCM data message can be a low-power
-wakeup hint for the idle state, but the device must still fetch the durable Relay inbox by cursor;
-FCM must never be the source of truth. Adding it requires a Firebase project and per-installation
-token registration, neither of which belongs in source control.
+### Push wake hints (account mode, HG-94)
+
+In account mode an FCM data message wakes an idle phone so it does not wait for the 15-minute job.
+FCM is still never the source of truth: the push only says "a lifecycle event exists", and the phone
+fetches the durable Relay inbox by cursor exactly as the periodic job does.
+
+1. The phone registers its FCM token with `PUT /v2/installations/current/push-registration`
+   (`docs/ACCOUNT_MODE_API.md` §5). One registration per phone installation; revoking the
+   installation removes it in the same statement (a database trigger on `installations.revoked_at`).
+2. After the Relay durably stores a newly received lifecycle event, it sends a high-priority,
+   data-only message to every registered phone of that account — only for `run.waiting`,
+   `run.completed`, `run.interrupted` and `run.unknown`. Sending never delays or fails the
+   Connector's ack. A token that FCM reports as unregistered is dropped.
+3. The message carries identifiers only (`eventId`, `event`, `state`, `deviceId`,
+   `storedSessionId`, `runtimeSessionId`, `profile`, `occurredAt`): no session title, prompt,
+   output or approval payload passes through Google.
+4. On receipt the phone runs the normal inbox sync. Only if that fetch fails does it fold the hint
+   itself into `SessionRuntimeStore`, so a generic card still appears; both paths go through the one
+   reducer and projector (`docs/DESIGN.md` §5.10).
+
+The provider sits behind a `PushProvider` interface (`gateway/src/account/push/`) so a vendor
+channel for phones without Google Play services (HONOR, vivo, Xiaomi) can be added beside FCM.
+Until then those phones keep the periodic job and the foreground strategies above.
+
+Push is off unless configured on both ends, and neither configuration belongs in source control:
+the Gateway reads a Firebase service-account key from `ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`
+(`docs/ENVIRONMENT.md`), and an Android build reads the four Firebase client values from
+`local.properties` or the environment (`android/README.md`). Legacy Token mode has no push.
 
 The relay applies request-size, pending-request, WebSocket-count, and timeout limits. The edge preserves
 WebSocket upgrades and never redirects APK or Relay traffic to a non-standard public port.

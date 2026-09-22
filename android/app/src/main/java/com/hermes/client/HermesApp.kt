@@ -25,6 +25,7 @@ class HermesApp : Application() {
     @Inject lateinit var modelCatalog: com.hermes.client.data.repository.ModelCatalogStore
     @Inject lateinit var notifier: com.hermes.client.notifications.HermesNotifier
     @Inject lateinit var sessionNotifications: com.hermes.client.notifications.SessionNotificationCoordinator
+    @Inject lateinit var pushRegistration: com.hermes.client.notifications.push.PushRegistrationManager
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -65,6 +66,9 @@ class HermesApp : Application() {
         lifecycleMonitoring.start()
         // One card per session, projected from the runtime store; must start on the main thread.
         sessionNotifications.start()
+        // FCM wake hints (HG-94): initializes Firebase only when this build carries its values and
+        // the phone has Google Play services; otherwise a no-op and the periodic job stays the path.
+        pushRegistration.start()
         // Keep the model catalog warm: refresh in the background on every start/foreground so
         // the model picker opens instantly from cache instead of showing a loading state.
         modelCatalog.start()

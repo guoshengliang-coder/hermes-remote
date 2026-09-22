@@ -225,6 +225,54 @@ class AccountApiTest {
         )
     }
 
+    @Test fun pushCapabilityIsOptionalAndParsed() = runTest {
+        server.enqueue(jsonResponse("""{"version":1,"push":{"providers":["fcm"]}}"""))
+        server.enqueue(jsonResponse("""{"version":1}"""))
+
+        assertEquals(listOf("fcm"), api.capabilities(baseUrl()).push?.providers)
+        assertEquals(null, api.capabilities(baseUrl()).push)
+    }
+
+    @Test fun pushRegistrationIsAnAuthenticatedIdempotentPut() = runTest {
+        server.enqueue(MockResponse.Builder().code(204).build())
+
+        api.putPushRegistration(
+            baseUrl(),
+            bearer = "hga_secret",
+            provider = "fcm",
+            token = "fcm-token",
+            idempotencyKey = "00000000-0000-0000-0000-000000000021",
+        )
+        val request = server.takeRequest()
+
+        assertEquals("PUT", request.method)
+        assertEquals("/v2/installations/current/push-registration", request.target)
+        assertEquals("Bearer hga_secret", request.headers["Authorization"])
+        assertEquals("00000000-0000-0000-0000-000000000021", request.headers["Idempotency-Key"])
+        assertEquals("{\"provider\":\"fcm\",\"token\":\"fcm-token\"}", request.body?.utf8())
+    }
+
+    @Test fun pushUnregistrationIsAnAuthenticatedDelete() = runTest {
+        server.enqueue(MockResponse.Builder().code(204).build())
+
+        api.deletePushRegistration(baseUrl(), bearer = "hga_secret")
+        val request = server.takeRequest()
+
+        assertEquals("DELETE", request.method)
+        assertEquals("/v2/installations/current/push-registration", request.target)
+        assertEquals("Bearer hga_secret", request.headers["Authorization"])
+    }
+
+    @Test fun aGatewayWithoutThePushRouteSurfacesItsStatus() = runTest {
+        server.enqueue(jsonResponse("""{"error":{"code":"HR-ACCOUNT-001","message":"not found","retryable":false,"recoveryAction":"none"}}""", status = 404))
+
+        val error = runCatching {
+            api.putPushRegistration(baseUrl(), "hga_secret", "fcm", "fcm-token")
+        }.exceptionOrNull() as AccountApiException
+
+        assertEquals(404, error.statusCode)
+    }
+
     private fun baseUrl() = server.url("/").toString()
 
     private fun jsonResponse(body: String, status: Int = 200) = MockResponse.Builder()

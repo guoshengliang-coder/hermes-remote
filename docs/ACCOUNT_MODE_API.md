@@ -168,6 +168,9 @@ Rules:
 - Capability enablement and production deployment are separate operator actions.
 - `server` is additive release metadata. Clients continue to gate behavior on capability fields,
   never by comparing the Server version string.
+- `push: { "providers": ["fcm"] }` is emitted only while account binding is enabled and a push
+  provider is configured (`ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`). Its absence means the push
+  registration routes of §5 are not found and phones must not register.
 
 ## 4. Google proof exchange and sessions
 
@@ -621,6 +624,28 @@ the explicit-ID route and cannot revoke other installations. It requires the cur
 and an `Idempotency-Key` UUID. The exact retry returns `204` even after the first call revoked the
 calling phone's installation and all of its sessions.
 
+### `PUT /v2/installations/current/push-registration`
+
+Android phone installations only, and only while `capabilities.push` is present. Registers or
+replaces the phone's push token; the request is idempotent by nature (the latest token wins):
+
+```json
+{ "provider": "fcm", "token": "<FCM registration token>" }
+```
+
+Response `204`. The provider must be one advertised in `capabilities.push.providers`; the token is
+1–4096 characters of `[A-Za-z0-9:_.-]`. A Desktop or browser caller receives `400`
+(`HR-ACCOUNT-004`); a Gateway without a push provider answers `404` (`HR-ACCOUNT-006`). A revoked
+installation cannot register again. The Relay then sends that phone a data-only wake hint for
+`run.waiting`, `run.completed`, `run.interrupted` and `run.unknown` lifecycle events; the hint carries
+identifiers only and the phone still reads the §8 lifecycle inbox by cursor (`docs/ARCHITECTURE.md`,
+"Push wake hints"). A token FCM reports as unregistered is deleted by the Relay.
+
+### `DELETE /v2/installations/current/push-registration`
+
+Removes the calling phone's registration; `204` also when none exists. Revoking the installation by
+either route above removes it too.
+
 ## 6. Connector binding
 
 ### E3 plural device resources and routing
@@ -1071,6 +1096,14 @@ target; the existing lifecycle JSON file is not extended into an account databas
 - pagination uses the event sequence while gaps from other accounts or retention are valid;
 - phones added later do not receive historical notification receipts, and revoking one phone does
   not mutate another phone's receipts.
+
+`account_push_registrations`
+
+- at most one row per Android phone installation (`provider`, `token`), foreign-keyed to the
+  installation and cascaded on its deletion;
+- a trigger deletes the row in the same statement that sets `installations.revoked_at`, so every
+  revoke path (sign-out, managed revoke, revoke-all, account deletion) drops it atomically;
+- fan-out reads only rows whose installation is still live.
 
 `email_otp_challenges`, `device_share_invitations`, and `email_delivery_webhook_receipts`
 

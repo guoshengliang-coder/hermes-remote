@@ -38,7 +38,12 @@ private data class MonitoringDecision(
  *
  * Foreground: responsive two-second Relay inbox sync. Background with a phone-started run: the
  * existing foreground service remains alive. Background idle: no socket or app timer; Android's
- * persisted JobScheduler wakeup is the fallback until FCM is configured.
+ * persisted JobScheduler wakeup is the periodic path.
+ *
+ * FCM (HG-94, `push/`) sits beside this policy rather than inside it: on a phone with Google Play
+ * services and a push-enabled Relay, a data-only wake hint triggers the same inbox sync sooner.
+ * It changes none of the modes below, and the 15-minute job stays scheduled as the fallback for
+ * phones without Google Play services, builds without Firebase values, and lost pushes.
  */
 @Singleton
 class LifecycleMonitoringCoordinator @Inject constructor(

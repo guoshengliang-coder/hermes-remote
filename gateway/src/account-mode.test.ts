@@ -510,6 +510,27 @@ test("account deletion stays default-off and requires identity management plus a
   }), /ACCOUNT_DELETION_ENABLED requires/);
 });
 
+test("FCM push is optional and fails closed without binding control or a valid key", async () => {
+  const base = {
+    ACCOUNT_AUTH_ENABLED: "1",
+    ACCOUNT_DATABASE_URL: "postgresql://127.0.0.1:1/not-connected-by-this-test",
+    ACCOUNT_TOKEN_HASH_KEY: "account-token-test-key-with-at-least-thirty-two-bytes",
+  };
+  const withoutPush = createAccountRuntime(base);
+  assert.equal(withoutPush.pushMetrics, undefined);
+  await withoutPush.close();
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_FCM_SERVICE_ACCOUNT: "{}",
+  }), /ACCOUNT_FCM_SERVICE_ACCOUNT requires ACCOUNT_BINDING_ENABLED=1/);
+  assert.throws(() => createAccountRuntime({
+    ...base,
+    ACCOUNT_BINDING_ENABLED: "1",
+    ACCOUNT_GATEWAY_ORIGIN: "https://gateway.example.test",
+    ACCOUNT_FCM_SERVICE_ACCOUNT: "{\"type\":\"authorized_user\"}",
+  }), /ACCOUNT_FCM_SERVICE_ACCOUNT must be a service-account JSON document/);
+});
+
 test("multi-device runtime fails closed unless binding control is enabled", () => {
   assert.throws(() => createAccountRuntime({
     ACCOUNT_AUTH_ENABLED: "1",

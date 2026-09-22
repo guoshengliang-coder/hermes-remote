@@ -59,6 +59,8 @@
     "ACCOUNT_RESEND_API_KEY_FILE": { "$ref": "#/$defs/path" },
     "ACCOUNT_RESEND_WEBHOOK_SECRET": { "$ref": "#/$defs/secret16" },
     "ACCOUNT_RESEND_WEBHOOK_SECRET_FILE": { "$ref": "#/$defs/path" },
+    "ACCOUNT_FCM_SERVICE_ACCOUNT": { "type": "string", "minLength": 2 },
+    "ACCOUNT_FCM_SERVICE_ACCOUNT_FILE": { "$ref": "#/$defs/path" },
     "ACCOUNT_EMAIL_FROM": { "type": "string", "minLength": 3, "maxLength": 320 },
     "ACCOUNT_EMAIL_FROM_FILE": { "$ref": "#/$defs/path" },
     "ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN": { "type": "string", "format": "uri", "pattern": "^https://" },

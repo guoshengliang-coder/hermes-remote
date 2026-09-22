@@ -104,6 +104,10 @@ enum class AppErrorCode(val value: String) {
     // The same bytes parse the same way next time, so the app has to be updated instead.
     HISTORY_UNREADABLE("HR-SYNC-004"),
     NOTIFICATION_ACTION_FAILED("HR-NOTIF-001"),
+    // Registering this phone's FCM token with the Relay failed (HG-94). Nothing is lost: the
+    // 15-minute JobScheduler sync and the foreground socket keep running, so alerts are only
+    // slower. The token itself never enters the technical cause.
+    PUSH_REGISTRATION_FAILED("HR-NOTIF-002"),
     SEARCH_FAILED("HR-SEARCH-001"),
     FEEDBACK_UNAVAILABLE("HR-FEEDBACK-001"),
     FEEDBACK_SUBMIT_FAILED("HR-FEEDBACK-002"),

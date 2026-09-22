@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <queries>
         <intent>
@@ -96,6 +97,27 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+        <!-- FCM wake hints (HG-94). Firebase is initialized manually, and only when the build carries
+             its four client values and the phone has Google Play services (push/PushPlatform.kt):
+             no google-services.json exists, so the auto-init provider would crash without it, and
+             the token is requested explicitly instead of on first launch. -->
+        <service
+            android:name=".notifications.push.HermesMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider"
+            tools:node="remove" />
         <receiver
             android:name=".notifications.NotificationActionReceiver"
             android:exported="false" />
