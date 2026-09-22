@@ -9,6 +9,7 @@ export type Route =
   | { name: "list" }
   | { name: "chat"; sessionId: string }
   | { name: "new" }
+  | { name: "archived" }
   | { name: "login" };
 
 /** Stored session ids Hermes mints (e.g. 20260921_101500_ab12cd); anything else is not a route. */
@@ -19,6 +20,7 @@ export function matchRoute(pathname: string): Route {
   const rest = pathname.slice(BASE.length).replace(/\/+$/, "");
   if (rest === "") return { name: "list" };
   if (rest === "new") return { name: "new" };
+  if (rest === "archived") return { name: "archived" };
   if (rest === "login") return { name: "login" };
   const chat = /^s\/([^/]+)$/.exec(rest);
   if (chat) {
@@ -39,6 +41,8 @@ export function routePath(route: Route): string {
       return BASE;
     case "new":
       return `${BASE}new`;
+    case "archived":
+      return `${BASE}archived`;
     case "login":
       return `${BASE}login`;
     case "chat":

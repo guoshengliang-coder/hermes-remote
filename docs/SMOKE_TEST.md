@@ -985,6 +985,17 @@ goes to the share sheet when the browser can share files, else downloads `Hermes
 falls back to the clipboard; a draft survives a reload; after reload the history shows one turn per
 answer.
 
+Batch 3 (branch `claude/web-batch3`, 20 checks; the mock gained a DingTalk fixture and a real
+`/api/sessions/search`): the title reads 会话 and the 会话 / 机器人 segments appear; the bot
+conversation leaves 会话 and sits under 钉钉 with 模型未知 and `<time> · 4 条`, no FAB; its chat
+says 「来自钉钉 · 运维值班群」 and the first send asks once, cancel restoring the text; a waiting run
+shows under 需要你处理 with 等待你处理 and an amber dot (seen from a second tab — the mock ends a run
+when its socket closes, real Hermes does not); the default project's folder is dropped from
+sublines and named 默认项目 in the project sheet; a draft shows 草稿; the archived page lists the
+archived fixture; title matches highlight instantly, message hits arrive with centred snippets and
+open the chat with in-chat search pre-filled; recent searches remember the query; the top bar stays
+pinned while scrolling; sign-out leaves no `hermes-go.*` key behind.
+
 ### Still needs a real iPhone — none of this has been verified on a device
 
 Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
@@ -1027,6 +1038,11 @@ version with each result.
     message, force-quit the Home Screen app and reopen the chat (the draft is back), then sign out
     and in again (it is gone); search inside a long chat and step through hits (highlights need
     iOS 17.2+, older iOS only scrolls to the turn).
+12. **List parity (batch 3).** With a real DingTalk / Feishu channel: the 机器人 segment appears and a
+    bot chat asks once before the first send. Leave a run waiting on an approval and go back to the
+    list: 需要你处理 shows it with 等待你处理; a run that finishes while you are on the list shows
+    已完成 with an unread dot until opened. Scroll down, have a run start waiting, and the
+    「N 个会话需要处理」 pill appears.
 
 ## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
 

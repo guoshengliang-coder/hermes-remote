@@ -45,6 +45,12 @@ export interface AppContextValue {
   /** "Search all chats" from inside a chat: the list opens its search with this query. */
   listSearchSeed: string | null;
   setListSearchSeed: (query: string | null) => void;
+  /** A message-search hit opens its chat with in-chat search pre-filled (Android initialQuery). */
+  chatSearchSeed: string | null;
+  setChatSearchSeed: (query: string | null) => void;
+  /** 会话 / 机器人 segment of the list, kept while the app runs. */
+  listSegment: "chats" | "bots";
+  setListSegment: (segment: "chats" | "bots") => void;
   /** A short confirmation ("已复制") or a failure, shown briefly at the bottom of the screen. */
   flash: (message: string | AppError) => void;
   signOut: () => Promise<void>;
