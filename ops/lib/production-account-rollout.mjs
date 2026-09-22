@@ -9,6 +9,7 @@ import { renderDeployGatewayEnvironment } from "./deploy-system.mjs";
 import { satisfiesProductionNginxContract } from "./deploy-switch.mjs";
 import { loadCurrentManifest, resolveActiveSlot } from "./deploy-command.mjs";
 import { OpsError } from "./errors.mjs";
+import { productionWebAppDir } from "./production-release-environment.mjs";
 import { verifyLoadedImage } from "./hermesctl.mjs";
 import { loadManagedBaselineConfig } from "./managed-baseline-config.mjs";
 import { atomicWrite, createCommandRunner, ensureManagedDirectory } from "./system.mjs";
@@ -234,6 +235,9 @@ export function renderEmailRolloutEnvironment(releaseConfig, config, activeSlot)
     "ACCOUNT_LIFECYCLE_RETENTION_DAYS=30",
     "ACCOUNT_AUDIT_RETENTION_DAYS=180",
     "MAX_LIFECYCLE_EVENTS=10000",
+    "ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=0",
+    "WEB_APP_ENABLED=0",
+    `WEB_APP_DIR=${productionWebAppDir(releaseConfig)}`,
     "",
   ].join("\n");
 }

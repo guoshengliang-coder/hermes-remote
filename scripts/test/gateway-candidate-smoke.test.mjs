@@ -150,6 +150,7 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
     bindingEnabled: false,
     desktopBootstrapRuntimeContract: null,
     desktopComponentManifestSchemaVersion: null,
+    webDeviceAccess: false,
   });
   assert.deepEqual(gatewayRuntimePolicy("email_binding"), {
     runtimeMode: "email_binding",
@@ -167,6 +168,7 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
     bindingEnabled: true,
     desktopBootstrapRuntimeContract: "hermes-serve-v1",
     desktopComponentManifestSchemaVersion: null,
+    webDeviceAccess: false,
   });
   assert.deepEqual(gatewayRuntimePolicy("email_multi_device"), {
     runtimeMode: "email_multi_device",
@@ -184,6 +186,7 @@ test("candidate smoke uses the exact readiness contract for the preserved runtim
     bindingEnabled: true,
     desktopBootstrapRuntimeContract: "hermes-serve-v1",
     desktopComponentManifestSchemaVersion: null,
+    webDeviceAccess: false,
   });
   assert.throws(
     () => gatewayRuntimePolicy("binding"),
@@ -355,6 +358,16 @@ test("candidate smoke distinguishes the signed component-manifest capability", (
   assert.throws(() => verifyGatewayCapabilities(missing, policy, "0.4.16"));
   const unexpected = structuredClone(capabilities);
   assert.throws(() => verifyGatewayCapabilities(unexpected, gatewayRuntimePolicy("email_sharing"), "0.4.16"));
+  // The Web app capability belongs only to the web mode, and the web mode requires it.
+  assert.equal(policy.webDeviceAccess, false);
+  const webPolicy = gatewayRuntimePolicy("email_sharing_components_web");
+  assert.equal(webPolicy.webDeviceAccess, true);
+  assert.equal(webPolicy.desktopComponentManifestSchemaVersion, 2);
+  const withWeb = structuredClone(capabilities);
+  withWeb.accountAuth.webDeviceAccess = true;
+  assert.doesNotThrow(() => verifyGatewayCapabilities(withWeb, webPolicy, "0.4.16"));
+  assert.throws(() => verifyGatewayCapabilities(capabilities, webPolicy, "0.4.16"));
+  assert.throws(() => verifyGatewayCapabilities(withWeb, policy, "0.4.16"));
 });
 
 test("candidate forwarding readiness has a bounded stable timeout", async () => {

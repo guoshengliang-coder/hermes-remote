@@ -40,6 +40,17 @@ export function renderDeployGatewayEnvironment(config, slot) {
   ].join("\n");
 }
 
+/**
+ * Host directory holding the published Web app (`releases/<id>/` plus a `current` symlink). It is
+ * bind-mounted read-only at the same path inside the container, so `current` — a relative link —
+ * resolves identically on both sides and a Web release swaps it without touching the Gateway.
+ * Deploy creates it (empty is fine: /app/ then answers 404), because Docker refuses to start a
+ * container whose bind source is missing.
+ */
+export function deployWebAppRoot(config) {
+  return path.join(config.paths.installRoot, "web");
+}
+
 export function renderDeploySystemdUnit(config, manifest, slot, runtimeImageId = manifest.imageId) {
   assertSlot(slot);
   assertRuntimeImageId(manifest, runtimeImageId);
@@ -48,6 +59,7 @@ export function renderDeploySystemdUnit(config, manifest, slot, runtimeImageId =
   const { configRoot, stateRoot } = config.paths;
   const environmentPath = path.join(configRoot, "slots", slot, "gateway.env");
   const statePath = path.join(stateRoot, "gateway-slots", slot);
+  const webAppRoot = deployWebAppRoot(config);
   return `[Unit]
 Description=Hermes GO Gateway ${slot} (${config.environment})
 After=docker.service network-online.target
@@ -57,7 +69,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=-/usr/bin/docker rm --force ${selected.containerName}
-ExecStart=/usr/bin/docker run --name ${selected.containerName} --read-only --network host --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 ${RUNTIME_HEALTH_OPTIONS} --env-file ${environmentPath} --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${statePath},dst=/var/lib/hermes-go --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${runtimeImageId}
+ExecStart=/usr/bin/docker run --name ${selected.containerName} --read-only --network host --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000 --cap-drop=ALL --security-opt=no-new-privileges --memory=256m --cpus=1 --pids-limit=128 ${RUNTIME_HEALTH_OPTIONS} --env-file ${environmentPath} --mount type=bind,src=${configRoot}/secrets,dst=/run/hermes-go/secrets,readonly --mount type=bind,src=${statePath},dst=/var/lib/hermes-go --mount type=bind,src=${webAppRoot},dst=${webAppRoot},readonly --log-driver=local --log-opt max-size=10m --log-opt max-file=3 ${runtimeImageId}
 ExecStop=/usr/bin/docker stop --time 20 ${selected.containerName}
 Restart=always
 RestartSec=3

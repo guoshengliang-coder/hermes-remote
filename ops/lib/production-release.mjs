@@ -274,6 +274,7 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   identityWebEnabled = false,
   sharingEnabled = false,
   componentInstallEnabled = false,
+  webDeviceAccessEnabled = false,
 } = {}) {
   const capabilitiesResponse = await boundedFetch(fetchImpl, `${request.gatewayUrl}/v2/capabilities`);
   if (!capabilitiesResponse?.ok) fail("production_release_email_capabilities_unavailable");
@@ -295,6 +296,7 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
       || auth.webAccountCenter !== identityWebEnabled
       || auth.accountDeletion === true
       || (identityWebEnabled ? auth.webSessions !== true : auth.webSessions === true)
+      || (webDeviceAccessEnabled ? auth.webDeviceAccess !== true : Object.hasOwn(auth, "webDeviceAccess"))
       || binding?.enabled !== bindingEnabled
       || binding?.replacement !== bindingEnabled
       || binding?.maxActiveConnectorsPerAccount !== (multiDeviceEnabled ? 3 : 1)
@@ -322,6 +324,23 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   const expectedBindingStatus = bindingEnabled ? 401 : (request.publicRoute === true ? 404 : 503);
   if (bindingRoute?.status !== expectedBindingStatus) fail("production_release_binding_route_must_stay_absent");
   if (identityWebEnabled) await verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnabled);
+  if (webDeviceAccessEnabled) await verifyPreservedWebAppShell(request, fetchImpl);
+}
+
+/** In the Web app mode every release must still serve the /app/ shell, not only advertise it. */
+async function verifyPreservedWebAppShell(request, fetchImpl) {
+  const shell = await boundedFetch(fetchImpl, `${request.gatewayUrl}/app/`);
+  const csp = shell?.headers?.get?.("content-security-policy") ?? "";
+  if (shell?.status !== 200
+      || !(shell.headers.get("content-type") ?? "").startsWith("text/html")
+      || shell.headers.get("cache-control") !== "no-store"
+      || csp.includes(",")
+      || !csp.includes("default-src 'none'")
+      || !csp.includes("worker-src 'self'")
+      || /unsafe-inline|unsafe-eval/.test(csp)) {
+    fail("production_release_web_app_shell_invalid");
+  }
+  await shell.body?.cancel?.();
 }
 
 async function verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnabled) {
@@ -358,15 +377,16 @@ async function verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnab
 }
 
 function preserveAccountSurface(smoke, runtimeEnvironment, fetchImpl) {
-  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode)) return smoke;
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode)) return smoke;
   return async (request) => {
     await smoke({ ...request, expectedRuntimeMode: runtimeEnvironment.mode });
     await verifyPreservedEmailSurface(request, fetchImpl, {
       bindingEnabled: runtimeEnvironment.mode !== "email_otp",
-      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
-      identityWebEnabled: new Set(["email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
-      sharingEnabled: new Set(["email_sharing", "email_sharing_components"]).has(runtimeEnvironment.mode),
-      componentInstallEnabled: runtimeEnvironment.mode === "email_sharing_components",
+      multiDeviceEnabled: new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode),
+      identityWebEnabled: new Set(["email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode),
+      sharingEnabled: new Set(["email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode),
+      componentInstallEnabled: new Set(["email_sharing_components", "email_sharing_components_web"]).has(runtimeEnvironment.mode),
+      webDeviceAccessEnabled: runtimeEnvironment.mode === "email_sharing_components_web",
     });
   };
 }

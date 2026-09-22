@@ -123,7 +123,7 @@ async function createFixture(t) {
     host: { hostname: "gateway-prod", architecture: "amd64" },
     gateway: { accountAuthEnabled: false, accountBindingEnabled: false, defaultDeviceId: "production-mac" },
     database: null,
-    paths: { configRoot, stateRoot },
+    paths: { installRoot: path.join(configRoot, "..", "install"), configRoot, stateRoot },
     nginx: { listenPort: 443, serverName: "gateway.example.com" },
     slots: { blue: { serviceName: "gateway-blue", gatewayPort: 18787 } },
     secrets: { appTokenSource, internalStatusTokenSource },

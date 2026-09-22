@@ -31,6 +31,8 @@ const MANIFEST_V7_KEYS = Object.freeze([...MANIFEST_V6_KEYS, "identityWebRollout
 const MANIFEST_V8_KEYS = Object.freeze([...MANIFEST_V7_KEYS, "sharingRolloutEntrypoint"]);
 // Schema 9 carries the separately confirmed Desktop component-manifest capability rollout.
 const MANIFEST_V9_KEYS = Object.freeze([...MANIFEST_V8_KEYS, "componentRolloutEntrypoint"]);
+// Schema 10 carries the separately confirmed Web app (/app/) rollout.
+const MANIFEST_V10_KEYS = Object.freeze([...MANIFEST_V9_KEYS, "webAppRolloutEntrypoint"]);
 const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   1: MANIFEST_V1_KEYS,
   2: MANIFEST_V2_KEYS,
@@ -41,6 +43,7 @@ const MANIFEST_KEYS_BY_SCHEMA = Object.freeze({
   7: MANIFEST_V7_KEYS,
   8: MANIFEST_V8_KEYS,
   9: MANIFEST_V9_KEYS,
+  10: MANIFEST_V10_KEYS,
 });
 
 export async function loadProductionBaselineBundleManifest(filePath, {
@@ -91,6 +94,10 @@ export async function loadProductionBaselineBundleManifest(filePath, {
         && raw.componentRolloutEntrypoint !== "scripts/production-component-rollout.mjs") {
       fail("bundle_component_rollout_entrypoint_invalid");
     }
+    if (raw.schemaVersion >= 10
+        && raw.webAppRolloutEntrypoint !== "scripts/production-web-app-rollout.mjs") {
+      fail("bundle_web_app_rollout_entrypoint_invalid");
+    }
     if (verifyArchive) {
       const archivePath = path.join(path.dirname(filePath), raw.archiveFile);
       const archive = await readSafeFile(archivePath, 128 * 1024 * 1024);
@@ -105,8 +112,8 @@ export async function loadProductionBaselineBundleManifest(filePath, {
 
 export function createProductionBaselineBundleManifest({ sourceCommit, createdAt, archiveFile, archiveSha256 }) {
   return {
-    schemaVersion: 9,
-    kind: "hermes-go-production-baseline-bundle-v9",
+    schemaVersion: 10,
+    kind: "hermes-go-production-baseline-bundle-v10",
     sourceCommit,
     createdAt,
     archiveFile,
@@ -121,6 +128,7 @@ export function createProductionBaselineBundleManifest({ sourceCommit, createdAt
     identityWebRolloutEntrypoint: "scripts/production-identity-web-rollout.mjs",
     sharingRolloutEntrypoint: "scripts/production-sharing-rollout.mjs",
     componentRolloutEntrypoint: "scripts/production-component-rollout.mjs",
+    webAppRolloutEntrypoint: "scripts/production-web-app-rollout.mjs",
   };
 }
 

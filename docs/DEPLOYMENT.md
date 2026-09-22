@@ -912,6 +912,91 @@ the expected retired-Legacy `connectors: 0`, and public capabilities advertising
 `desktopBootstrap.runtimeContract: hermes-serve-v1` plus `componentManifestSchemaVersion: 2`. Physical Desktop
 download, confirmation, installation and managed-service acceptance remain a user-driven Mac gate.
 
+## Production Web app gray rollout (R5-F7; code gate only, not yet run)
+
+R5-F7 turns on the browser Web app at `/app/` (docs/ACCOUNT_MODE_API.md §8, docs/ACCOUNT_MODE_SECURITY.md §4).
+It starts only from the exact R5-F6 state (`email_sharing_components`) on a Gateway release of at least
+**0.4.17**, the first to contain the Web code. It edits only one new Nginx include and two environment flags;
+the database, bindings, identities, sharing state and Desktop are untouched. Source merge, bundle generation and
+a Web publish do not authorize production execution. The three steps below run in this order, each separately
+authorized.
+
+**1. Gateway 0.4.17 through R5-F1.** The release carries two things the rollout needs: the Gateway unit mounts
+`<installRoot>/web` read-only at the same path (deploy creates the directory; Docker would otherwise refuse to
+start the container), and the canonical environment gains `ACCOUNT_WEB_DEVICE_ACCESS_ENABLED`,
+`WEB_APP_ENABLED` and `WEB_APP_DIR=<installRoot>/web/current`. R5-F1 reads the pre-F7 42-line environment and
+writes the 45-line form with both flags `0`, so this release changes nothing a user can see. Units are written
+only for the candidate slot, so the Web mount exists only on slots redeployed by 0.4.17 or later; R5-F7 checks
+the active unit for it. The operator bundle for this release is schema 10 (`webAppRolloutEntrypoint`).
+
+**2. Publish the Web app (dark).** From a clean tree at `origin/main`:
+
+```bash
+scripts/publish-web-app.sh            # web: npm ci, typecheck, test, build → package → install → switch current
+scripts/publish-web-app.sh --rollback # point current back at the release it replaced
+```
+
+The script packages `web/dist` with `scripts/package-web-app.mjs` (a reproducible ustar of regular files plus a
+manifest of per-file SHA-256), copies it and the reviewed `deploy/publish-web-app.mjs` from this commit into a
+private temporary directory on the host, and runs the installer as root under
+`flock <root>/.publish.lock`. The installer verifies the archive hash, refuses any entry that is not a plain
+relative regular file or not in the manifest before writing, installs into `releases/<version>-<commit12>/`
+through a staging directory, and switches the relative `current` link with one `rename(2)`, recording
+`.previous`. Releases are never deleted automatically (a cached `index.html` still fetches its hashed assets).
+The Gateway reads files per request, so publishing and rollback never restart it. Before step 3 the edge does not
+route `/app/` to the Gateway, so this publish is invisible; afterwards `WEB_PUBLISH_VERIFY_PUBLIC=1` also
+compares the public `/app/` with the local build; turn it on for every publish once R5-F7 is live, since a
+broken publish otherwise goes unnoticed until a user reports it. The installer runs as root from the private
+temporary directory, so the release SSH user needs unrestricted passwordless sudo (`sudo -n`): a sudoers rule
+narrowed to one command cannot match the per-run path. Confirm this before the first run. Do not publish or roll
+back the Web app while R5-F7 is running; the rollout re-checks the published release after taking its lock and
+stops if it changed.
+
+**3. R5-F7.** Prepare a root-only `0600` configuration from `ops/production.web-app-rollout.example.json`,
+validate it against `ops/hermes-go-production-web-app-rollout-config.schema.json`, and run from the matching
+schema-10 operator bundle:
+
+```bash
+node scripts/production-web-app-rollout.mjs \
+  --config /secure-input/hermes-go/production-web-app-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission requires: the running release equal to the bundle target, schema 15/PostgreSQL 18 and at least
+0.4.17; the active unit carrying the Web mount; `web/current` a relative link into `web/releases/` with an
+`index.html`; the environment exactly `email_sharing_components`; the binding, identity-Web and sharing includes
+each once with byte-exact route files; no Web app include yet; Legacy, the Connector WebSocket, the device
+WebSocket guard and `/internal/version` healthy; and `/app/` not already served as the shell. Under the shared
+deployment lock it writes `<configRoot>/account/web-app-routes.conf` (only `location = /app` and
+`location ^~ /app/`: every API the Web app calls was already forwarded by R5-F2/F4/F5), includes it after the
+sharing include, runs `nginx -t` and reloads, writes the environment with both flags `1`, and restarts the active
+Gateway. It then verifies, twice across the observation window, the full component surface plus
+`accountAuth.webDeviceAccess`, `/app` → 308 `/app/`, `/app/` 200 HTML with `no-store` and a CSP without
+`unsafe-inline`/`unsafe-eval` that allows the service worker, `/app/sw.js` scoped to `/app/`, the cookie-less
+device API answering 401, the Connector WebSocket 101 and the device WebSocket 401. Any failure restores the
+environment and site bytes, removes the route file, reloads, restarts and re-verifies the component state.
+`HR-OPS-026` names all failures; inspect `/var/lib/hermes-go/ops/web-app-rollout.json` before retrying.
+
+Later Web releases repeat step 2 only. Later Gateway releases preserve `email_sharing_components_web` (R5-F1
+recognizes it, its candidate smoke requires the capability, and its account smoke requires the `/app/` shell).
+
+**Rollback limits and turning the Web app off.**
+
+- After Gateway 0.4.17 the active environment has 45 lines, which a schema-9 (0.4.16) operator bundle refuses to
+  parse, so `--operation rollback` and `recover` must run from the schema-10 bundle. Keep that bundle next to the
+  previous one.
+- After R5-F7, the Gateway cannot be rolled back below 0.4.17: the candidate smoke requires
+  `accountAuth.webDeviceAccess`, fails on the older release, and restores the current one.
+- R5-F7 has no reverse command. To turn the Web app off by hand, under the deployment lock:
+  1. rewrite the active `gateway.env` with `ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=0` and `WEB_APP_ENABLED=0`, keeping
+     all 45 lines;
+  2. remove the `include …/web-app-routes.conf;` line from the site file and delete the route file;
+  3. run `nginx -t`, reload nginx, and restart the active Gateway;
+  4. move `web-app-rollout.json` aside.
+
+  This returns to `email_sharing_components`. The published releases can stay: nothing routes to them. The iPhone checks in docs/SMOKE_TEST.md
+("Web app on iPhone") need a real device after step 3.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
