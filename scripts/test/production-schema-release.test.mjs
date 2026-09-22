@@ -77,6 +77,9 @@ function admissionWith(sourceSchema, mode = "email_sharing_components_web") {
   return async (_config, _target, options) => {
     assert.equal(options.schemaMigration, true);
     assert.equal(options.operation, "deploy");
+    // R5-F1 admission reads the live services through the runner; R5-F8 must always supply one.
+    assert.equal(typeof options.runner?.run, "function");
+    assert.equal(typeof options.now, "function");
     return {
       operation: "deploy",
       activeSlot: "blue",
@@ -105,6 +108,7 @@ test("R5-F8 admits one schema step behind the backup gate and hands the database
       calls.push(["backup", backup, facts.databaseSchemaVersion, facts.hostname]);
     },
     executeRelease: async (_config, target, options) => {
+      assert.equal(typeof options.runner?.run, "function");
       calls.push(["release", target.serverVersion, options.schemaMigration, options.migrationDatabase, options.operation]);
       return { ok: true, stage: "committed", command: "production-deploy" };
     },

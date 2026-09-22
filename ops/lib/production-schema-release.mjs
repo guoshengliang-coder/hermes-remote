@@ -4,6 +4,7 @@ import path from "node:path";
 import { OpsError } from "./errors.mjs";
 import { loadCurrentManifest, resolveActiveSlot } from "./deploy-command.mjs";
 import { executeProductionRelease, verifyProductionReleaseAdmission } from "./production-release.mjs";
+import { createCommandRunner } from "./system.mjs";
 
 const BACKUP_STATUS_KIND = "hermes-go-postgresql-backup-status-v1";
 
@@ -18,8 +19,10 @@ const BACKUP_STATUS_KIND = "hermes-go-postgresql-backup-status-v1";
  * before the candidate starts. The migration is forward-only: once it ran, the older image reports
  * `mismatch` readiness, so a failed switch leaves it serving degraded and the fix is a newer release.
  */
-export async function executeProductionSchemaRelease(config, targetManifest, schemaConfig, options = {}) {
-  const now = options.now ?? (() => new Date());
+export async function executeProductionSchemaRelease(config, targetManifest, schemaConfig, input = {}) {
+  // Admission is called directly here, so supply the defaults R5-F1's own entry would add first.
+  const options = { ...input, runner: input.runner ?? createCommandRunner(), now: input.now ?? (() => new Date()) };
+  const now = options.now;
   const fetchImpl = options.fetchImpl ?? fetch;
   let admission;
   try {
