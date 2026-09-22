@@ -130,6 +130,45 @@ Before an owner sends an invitation, the sheet locks the recipient and whole-dev
 sends a fresh six-digit code to the owner's signed-in email, and accepts the invitation mutation only
 after scoped verification. The code remains in view memory and clears after success or dismissal.
 
+## Installing Hermes on a Mac that has none (2026-09-22)
+
+On a fresh Mac about to be set up with no Hermes at all, a native card titled “这台 Mac 还没有 Hermes”
+sits directly above the setup-preflight card. It recommends installing upstream's official Hermes,
+says it lands in `~/.hermes` exactly as a manual install would and that Hermes GO then starts it, and
+lists — as small secondary-label rows with regular SF Symbols — the source (official HTTPS installer,
+branch `main`), destination with approximate size and time (2–4 GB, 10–20 minutes on a good
+network), the network and the proxy that will be used (the system proxy summary in the owner's
+words), that it runs as the owner without administrator rights or `sudo` and can be cancelled, and
+that model providers are configured later with `hermes setup`. Two actions: bordered “改用内置
+Hermes” and prominent “安装 Hermes…”. The prominent action never runs anything: it opens a 540 pt
+native sheet that repeats the facts, names what the installer may do on its own (download Python,
+Node.js and browser components; use an existing Homebrew; Apple's Command Line Tools dialog),
+states the trust decision in one line (HTTPS from the official origin; upstream publishes no
+checksum or signature), and only its default “开始安装” starts the install.
+
+While the owner has not decided — offer shown, install running, failed or cancelled — the setup card's
+download action is replaced by one secondary line asking to decide first, and the component card's
+action is disabled. A running install shows one row per stage from the installer's own manifest,
+with the manifest's order and Chinese titles for known stages (unknown stages keep upstream's
+title): a small spinner for the running stage, a blue check for done, a grey minus with
+“需要交互，稍后配置” for stages the installer skips non-interactively, a grey circle for pending, a
+linear progress bar by completed stages, the private log path as selectable secondary text, and a
+bordered “取消安装” (“正在取消…” while it stops). Success reads “Hermes 已安装” with the version and
+says the setup below will use this Hermes and will not install a second one. Cancellation is not an
+error: “已取消安装 Hermes”, no code, with “重试” (it resumes) and “改用内置 Hermes”. A failure keeps the
+stage list with the failed stage in red and shows the registered code inline (`HR-MIGRATE-015`
+network/proxy, `016` a stage failed, `017` installer not supported, `018` not usable afterwards)
+with “复制诊断”, the log path, “重试” only when the code is retryable, and always “改用内置 Hermes”.
+“改用内置 Hermes” asks once in a native confirmation dialog and explains that setup then installs the
+built-in Hermes as before and that `~/.hermes` is left as it is. Macs with an existing or unusual
+Hermes never see this card; the `HR-MIGRATE-008` rule below still holds — the product never implies
+that installing a second Hermes is the fix. **One narrow exception:** when a fresh setup is refused
+with `HR-MIGRATE-008` and the blocking checkout is the one Hermes GO's own install left behind
+(never a Hermes the owner installed), a small card beside the code says so (“这份 Hermes 是 Hermes GO
+之前的安装留下的”) and offers bordered “改用内置 Hermes” behind a confirmation dialog. For the owner's
+own Hermes the card instead carries secondary guidance to fix or remove that install, and offers no
+alternative.
+
 ## Shared visual tokens
 
 - Brand primary: `#0B5FD0` in light mode; blue is chrome/action color only.

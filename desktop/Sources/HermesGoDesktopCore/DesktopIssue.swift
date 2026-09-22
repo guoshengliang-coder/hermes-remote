@@ -101,6 +101,17 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     /// The managed Hermes job is not loaded and another process already listens on
     /// `127.0.0.1:9119`, so Desktop does not start it (it would only crash-loop on the port).
     case managedHermesPortInUse = "HR-MIGRATE-014"
+    /// Installing Hermes on a Mac that had none could not reach the network: the installer's
+    /// download, or a stage's own download, failed the way a blocked network or proxy fails.
+    case hermesInstallNetworkFailed = "HR-MIGRATE-015"
+    /// A stage of upstream's installer failed for a reason that does not look like the network.
+    case hermesInstallStageFailed = "HR-MIGRATE-016"
+    /// The downloaded installer is not one Desktop can drive (not a script, a different stage
+    /// protocol, a download that left the official origin), or Desktop runs as root.
+    case hermesInstallerUnsupported = "HR-MIGRATE-017"
+    /// The installer finished — or the Mac changed before it ran — but detection does not report a
+    /// usable standard Hermes. Nothing was switched.
+    case hermesInstallNotUsable = "HR-MIGRATE-018"
 }
 
 public enum DesktopManagedStartupRepairStage: String, Sendable {
@@ -289,6 +300,15 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("Hermes 服务未运行", "Hermes service isn't running", "Hermes 服务没有在运行，Hermes GO 多次尝试载入均未成功，手机暂时无法使用这台 Mac。稍后会自动重试；请查看详情。", "The Hermes service isn't running and Hermes GO couldn't load it, so the phone can't reach this Mac for now. It will retry automatically; review the details.", true, .details)
         case .managedHermesPortInUse:
             ("Hermes 端口被占用", "Hermes port in use", "Hermes 服务没有在运行，但端口 9119 已被这台 Mac 上的其他程序占用，Hermes GO 未启动它以免冲突。请关闭占用端口的程序；稍后会自动重试。", "The Hermes service isn't running, but another program on this Mac is using port 9119, so Hermes GO didn't start it to avoid a conflict. Close that program; it will retry automatically.", true, .details)
+        case .hermesInstallNetworkFailed:
+            ("无法连接 Hermes 安装源", "Couldn't reach the Hermes installer", "安装 Hermes 时无法连接 Hermes 官方安装源。请检查网络和系统代理设置后重试；也可以改用 Hermes GO 内置的 Hermes。", "Installing Hermes couldn't reach the official Hermes source. Check the network and the system proxy settings, then retry — or use the Hermes built into Hermes GO.", true, .retry)
+        case .hermesInstallStageFailed:
+            ("Hermes 安装未完成", "Hermes installation didn't finish", "Hermes 官方安装程序的某一步失败，已完成的部分保留在 ~/.hermes。请查看详情后重试；也可以改用 Hermes GO 内置的 Hermes。", "A step of the official Hermes installer failed; what was done is kept in ~/.hermes. Review the details and retry — or use the Hermes built into Hermes GO.", true, .retry)
+        case .hermesInstallerUnsupported:
+            // Not retryable: the same download or the same process would fail the same way.
+            ("无法使用 Hermes 安装程序", "Can't use the Hermes installer", "Hermes 官方安装程序与 Hermes GO 支持的方式不一致，未做任何安装。请改用 Hermes GO 内置的 Hermes，或更新 Hermes GO。", "The official Hermes installer isn't in a form Hermes GO supports, so nothing was installed. Use the Hermes built into Hermes GO, or update Hermes GO.", false, .details)
+        case .hermesInstallNotUsable:
+            ("安装后的 Hermes 无法直接使用", "The installed Hermes can't be used", "Hermes 安装已结束，但这台 Mac 上的 Hermes 不是 Hermes GO 能直接使用的标准形式，未做任何切换。请查看详情，或改用 Hermes GO 内置的 Hermes。", "Hermes finished installing, but it isn't in the standard form Hermes GO can use, so nothing was switched. Review the details, or use the Hermes built into Hermes GO.", false, .details)
         case .localHermesMissingWithoutFallback:
             ("本机 Hermes 已不存在", "This Mac's Hermes is gone", "这台 Mac 上的 Hermes 已被移除，且没有可恢复的内置 Hermes。请重新安装 Hermes 或 Hermes GO。", "This Mac's Hermes was removed and there is no built-in Hermes to return to. Reinstall Hermes or Hermes GO.", false, .details)
         }

@@ -1,8 +1,16 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.23** (build 26). One change.
+Current internal test release candidate: **0.2.24** (build 27). One change (#365).
 
-Its pinned schema-v1 manifest moves from 0.3.8 to **0.3.9**
+This Mac's own Hermes is used **by default** —
+`HermesGoLocalHermesRuntimeEnabled` now defaults to on, so a managed Mac with a usable standard
+Hermes switches to it on its next refresh, and a fresh install writes the local agent directly.
+A fresh Mac with no Hermes is offered upstream's official installer (confirmation required, system
+proxy honoured, `HR-MIGRATE-015`–`018` on failure, "改用内置 Hermes" as the way out). Opt a Mac out
+with `defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool false`. See
+`docs/DESKTOP_PHASE0.md` ("Installing Hermes when the Mac has none").
+
+0.2.23 (build 26) had one change. Its pinned schema-v1 manifest moves from 0.3.8 to **0.3.9**
 (`https://mrlgs.net/desktop/releases/0.3.9/Hermes-Desktop-0.3.9-arm64.manifest.json`), which carries
 **Connector 0.1.6** with the upstream contract check (#359): the Connector compares the local
 Hermes' `openapi.json` with the routes the app depends on and serves the verdict at
@@ -31,10 +39,10 @@ It can run this Mac's own Hermes instead of a second, pinned copy (`docs/MANAGED
 one Hermes per Mac). When the owner's standard install (`~/.hermes/hermes-agent`, 0.21.3 or newer,
 default profile only) is present and the setting is on, the `com.hermesgo.hermes-server` LaunchAgent
 starts that Hermes through a private launcher that hands over the session token, restarts it when
-the checkout's commit changes, and keeps the bundled agent as the rollback. The setting is off by
-default and turned on per Mac with
-`defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool true`; turning it off
-restores the bundled agent byte for byte. Repeated failures pause with `HR-MIGRATE-011` instead of
+the checkout's commit changes, and keeps the bundled agent as the rollback. In 0.2.21 the setting
+was off by default and turned on per Mac with
+`defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool true` (on by default
+since 2026-09-22, above); turning it off restores the bundled agent byte for byte. Repeated failures pause with `HR-MIGRATE-011` instead of
 looping. The pinned manifest stays at **0.3.8**.
 
 0.2.20 (build 23) had two changes.

@@ -45,3 +45,7 @@ b00a560e94676b67f59f3176de0262ed00022fcc:desktop/Tests/HermesGoDesktopCoreTests/
 # script now generates its keys per run and no longer carries either line.
 39be64fa3e5ff0eef763eeacba0a94b82cdf5d9c:scripts/dev/web-stack.sh:generic-api-key:155
 39be64fa3e5ff0eef763eeacba0a94b82cdf5d9c:scripts/dev/web-stack.sh:curl-auth-user:194
+
+# SecretRedactor test fixture added in d90fbcc: the API-key values are inert strings that exist only to prove the
+# installer log redacts them. Fingerprint-specific so any new finding in the same file still fails CI.
+d90fbcc4dd5caff05eb5262cf53a586b2d5e080e:desktop/Tests/HermesGoDesktopCoreTests/DesktopHermesInstallerTests.swift:generic-api-key:619

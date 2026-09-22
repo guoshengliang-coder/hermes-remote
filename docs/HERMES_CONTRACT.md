@@ -785,11 +785,14 @@ that reaches the live adapter. Until then, cron `deliver=<channel>` is the only 
 This is also why the 机器人 conversation carries a one-time dialog rather than a promise
 (`docs/DESIGN.md` §5.16).
 
-### 8. Local runtime mode: the owner's install itself (added 2026-09-21)
+### 8. Local runtime mode: the owner's install itself (added 2026-09-21; installer 2026-09-22)
 
 When Desktop runs the Mac's own Hermes instead of its bundled copy (`docs/DESKTOP_PHASE0.md`, "Local
-Hermes runtime"), it depends on the shape of the install, not only on the wire. None of these are
-versioned by upstream:
+Hermes runtime"), it depends on the shape of the install, not only on the wire. Since 2026-09-22 it
+also installs that Hermes on a Mac that has none, by driving upstream's installer and its stage
+protocol (`docs/DESKTOP_PHASE0.md`, "Installing Hermes when the Mac has none"); the last four rows
+are that surface. The protocol carries a `protocol_version`; nothing else here is versioned by
+upstream:
 
 | Surface | What Desktop relies on | If upstream changes it |
 |---|---|---|
@@ -801,6 +804,11 @@ versioned by upstream:
 | `ai.hermes.*.plist` `EnvironmentVariables.HERMES_HOME` and `ProgramArguments[0]` | how the owner actually runs Hermes | a custom home or second install could be missed |
 | `HERMES_DESKTOP=1` (§3) | the `/api/ws` loopback exemption, and a cron ticker gated per tick on the owner's gateway for one or more profiles (0.21.3; 0.21.0 gated only for more than one) | the ticker could race the owner's gateway again — check `_start_desktop_cron_ticker` |
 | `hermes update` → `_kill_stale_dashboard_processes` | restarts a launchd job via `launchctl kickstart` when `shlex.join(ProgramArguments)` contains `hermes serve`, instead of respawning a detached copy | Desktop's own staleness check still restarts the serve, one refresh later |
+| `https://hermes-agent.nousresearch.com/install.sh` (source `scripts/install.sh`), added 2026-09-22 | install-when-missing downloads it over HTTPS (every redirect hop on that host or exactly `raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh`), at most 2 MiB, starting with `#!`; upstream publishes no checksum or signature (`docs/MANAGED_HERMES_STRATEGY.md`, "Installer trust decision") | a moved URL or a redirect off the origin is `HR-MIGRATE-015`/`017`; if upstream starts publishing a checksum, verify it |
+| `install.sh --manifest` → `{"protocol_version":1,"stages":[{"name","title","category","needs_user_input"}…]}` as the last JSON line of stdout | the stage list and order Desktop runs and shows; `protocol_version` must be exactly 1; stage names `^[a-z][a-z0-9-]{0,31}$`; Chinese titles exist for `prerequisites`, `repository`, `venv`, `python-deps`, `node-deps`, `path`, `config`, `setup`, `gateway`, `complete` | any other version or shape is `HR-MIGRATE-017` and nothing runs; a new stage runs with upstream's English title |
+| `install.sh --stage <name> --non-interactive --json --dir <checkout> --hermes-home <home> --branch main` → last stdout line `{"ok":bool,"stage":name,"skipped":bool,"reason"?}` | success, skip (`needs_user_input` stages under `--non-interactive`) or failure of each stage; the stage runs in its own subshell so a failure still prints the frame | no frame is `HR-MIGRATE-017`; a changed flag name would fail every stage |
+| `$INSTALL_DIR/.hermes-bootstrap-complete` (`write_bootstrap_marker`, written only by the `complete` stage) | a Desktop-started install counts as finished — for setup, for the offer and for `freshInstallProvider` — only once it exists | a renamed or earlier-written marker would leave the install pending forever (setup blocked, the owner can choose the bundled copy) or let a half-installed Hermes through |
+| The installer's default layout for a non-root macOS user (`INSTALL_DIR=$HERMES_HOME/hermes-agent`, `venv/`, `~/.local/bin/hermes` shim naming the checkout) and its repository stage updating an existing checkout | detection accepts the result as the standard install; a retry resumes an unfinished one | detection reports it unsupported → `HR-MIGRATE-018` |
 
 ## Upgrade checklist
 
@@ -912,6 +920,18 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
     restarted. Upstream maintains the two literals separately, so a release that bumps only one
     would trip this on every local-mode Mac; if that happens, fix the comparison rather than tell
     owners to reinstall.
+8l. **Installer protocol** (install-when-missing, section 8). Read the new commit's
+    `scripts/install.sh` (`git show <commit>:scripts/install.sh`, never run it): `emit_manifest` still
+    prints `protocol_version` 1 and the stage names `DesktopHermesInstallerStage.titleChinese` knows;
+    `run_stage_protocol` still skips `needs_user_input` stages under `--non-interactive` and prints
+    `emit_stage_json`'s frame even when a stage fails; `--dir`, `--hermes-home` and `--branch` keep
+    their meaning; `resolve_install_layout` still puts a non-root macOS install at
+    `$HERMES_HOME/hermes-agent`; `write_bootstrap_marker` still writes `.hermes-bootstrap-complete`
+    in the checkout from the `complete` stage only; no macOS path added `sudo`; and upstream still publishes no checksum
+    or signature (if it does, verify it and update the trust decision). Then paste the new
+    `--manifest` line into `testTheManifestParserReadsUpstreamsRealManifestLine`. A version bump of
+    the protocol is a Desktop change before it is an adoption: until Desktop speaks it, every
+    install is `HR-MIGRATE-017` and falls back to the bundled copy.
 9. **Read the source, not the notes.** See below.
 
 ## Known hazards
