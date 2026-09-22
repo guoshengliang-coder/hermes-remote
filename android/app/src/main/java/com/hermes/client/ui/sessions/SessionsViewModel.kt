@@ -31,6 +31,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** Quiet period after the last list-affecting event before the single burst fetch (HG-104). */
+internal const val EVENT_REFRESH_DEBOUNCE_MS = 700L
+
+/** When a burst finished a turn, one more fetch this long after its last event picks up a late AI title. */
+internal const val EVENT_SETTLE_REFRESH_MS = 4_500L
+
 data class SessionsUiState(
     val sessions: List<Session> = emptyList(),
     val loading: Boolean = false,
@@ -441,7 +447,7 @@ class SessionsViewModel @Inject constructor(
                     "session.info" -> event.bool("running") == false
                     else -> false
                 }
-                if (shouldRefresh) scheduleEventRefresh()
+                if (shouldRefresh) scheduleEventRefresh(settle = event.type == "message.complete")
             }
         }
     }
@@ -598,16 +604,27 @@ class SessionsViewModel @Inject constructor(
         }
     }
 
-    private fun scheduleEventRefresh() {
+    // True while the current event burst has seen a `message.complete`; cleared by its settle pass.
+    private var burstNeedsSettle = false
+
+    /**
+     * One trailing-debounced list fetch per burst of events, plus one late settle fetch only when
+     * the burst finished a turn (HG-104). Each list fetch is a full `limit=500` page, and the old
+     * schedule fired three of them (+250 ms, +1.5 s, +4.5 s) for every event — a streaming turn
+     * restarted it constantly and a burst's tail still cost three pages. The terminal event can
+     * precede SQLite visibility by a fraction of a second, which the debounce already covers; the
+     * settle pass is for the title Hermes generates a few seconds after the first reply.
+     * In-flight fetches stay coalesced by [refresh].
+     */
+    private fun scheduleEventRefresh(settle: Boolean) {
+        if (settle) burstNeedsSettle = true
         eventRefreshJob?.cancel()
         eventRefreshJob = viewModelScope.launch {
-            // The terminal event can precede SQLite visibility by a fraction of a second. Keep the
-            // warm list on screen, then do a quick pass and one delayed authoritative pass.
-            delay(250L)
+            delay(EVENT_REFRESH_DEBOUNCE_MS)
             refresh()
-            delay(1_250L)
-            refresh()
-            delay(3_000L)
+            if (!burstNeedsSettle) return@launch
+            delay(EVENT_SETTLE_REFRESH_MS - EVENT_REFRESH_DEBOUNCE_MS)
+            burstNeedsSettle = false
             refresh()
         }
     }

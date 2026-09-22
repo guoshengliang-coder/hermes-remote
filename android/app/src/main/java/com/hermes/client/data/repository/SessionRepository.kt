@@ -2,6 +2,7 @@ package com.hermes.client.data.repository
 
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.MessageDto
+import com.hermes.client.data.network.MessageOrder
 import com.hermes.client.data.network.SearchResultDto
 import com.hermes.client.data.network.SessionStatsDto
 import com.hermes.client.domain.ChatMessage
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Mirror the desktop sidebar session list: show interactive, used sessions only. Sessions whose
@@ -27,6 +30,17 @@ import kotlinx.coroutines.launch
  */
 private fun Session.isInteractive(): Boolean =
     messageCount > 0 && (source == null || source !in SessionRepository.EXCLUDED_SOURCES)
+
+/**
+ * One older page merged into a conversation's transcript (HG-104): [messages] is the whole known
+ * transcript afterwards, [reachedStart] whether its first row is now held, [added] how many rows
+ * the page contributed.
+ */
+data class OlderHistoryPage(
+    val messages: List<ChatMessage>,
+    val reachedStart: Boolean,
+    val added: Int,
+)
 
 class SessionRepository(
     private val rest: HermesRestApi,
@@ -55,6 +69,14 @@ class SessionRepository(
      * push-woken process that never loads one (HG-103). Null until the first load.
      */
     val loadedSessionTokens: StateFlow<Set<String>?> = _loadedSessionTokens.asStateFlow()
+    /** Raw row windows behind [historyCache], same keys and size (HG-104). */
+    private val windowCache = object : LinkedHashMap<String, TranscriptWindow>(12, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TranscriptWindow>?): Boolean =
+            size > 10
+    }
+
+    /** Serializes read-merge-write of a window: a tail merge and an older page can race. */
+    private val windowLock = Mutex()
     private val historyCache = object : LinkedHashMap<String, List<ChatMessage>>(12, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<ChatMessage>>?): Boolean =
             size > 10
@@ -119,6 +141,13 @@ class SessionRepository(
         private const val BOT_LIST_KEY = "sessions:bots"
         private const val ARCHIVED_ALL_KEY = "sessions:archived"
         private const val HISTORY_KEY_PREFIX = "history:"
+        private const val OLDER_HISTORY_KEY_PREFIX = "history-older:"
+
+        /** 200 pages of 100 rows: far past any real conversation, short of looping forever. */
+        const val FULL_HISTORY_MAX_PAGES = 200
+
+        /** Full pages that add nothing tolerated per older-page request before giving up (as the Web client). */
+        const val OLDER_PAGE_MAX_ATTEMPTS = 5
     }
 
     suspend fun list(profile: String? = null, deviceId: String? = null): List<Session> {
@@ -280,15 +309,96 @@ class SessionRepository(
     ): List<ChatMessage> =
         coalesced("$HISTORY_KEY_PREFIX${historyKey(sessionId, profile, deviceId)}") {
             val key = historyKey(sessionId, profile, deviceId)
-            val raw = rest.messagesRaw(sessionId, profile, deviceId)
-            val loaded = mapHistory(rest.parseMessages(raw))
-            synchronized(historyCache) { historyCache[key] = loaded }
-            // Persisting must not sit between the caller and its transcript: gzip plus a file
-            // write is pure overhead on the path a screen is waiting on. The store's own budget
-            // and failure handling make a dropped write a non-event.
-            transcripts?.let { store -> scope.launch { store.write(key, raw) } }
-            loaded
+            // Only the newest page travels (HG-104). It is merged into what this device already
+            // holds, so older rows loaded earlier — from disk or by scrolling up — are kept and
+            // the caller still receives the whole known transcript, as it always has.
+            val raw = rest.messagesRaw(
+                sessionId, profile, deviceId,
+                limit = TranscriptWindow.HISTORY_PAGE_SIZE,
+                order = MessageOrder.LATEST,
+            )
+            val tail = TranscriptWindow.rowsOf(raw)
+            windowLock.withLock {
+                commitWindow(key, TranscriptWindow.mergeTail(knownWindow(key), tail, TranscriptWindow.HISTORY_PAGE_SIZE))
+            }.messages
         }
+
+    /**
+     * Load one page older than what is held for this conversation and merge it in front
+     * (HG-104). [OlderHistoryPage.messages] is the whole known transcript after the merge, mapped
+     * the same way [history] maps it; [OlderHistoryPage.added] is how many rows the page brought.
+     * With nothing held yet this degenerates into loading the newest page.
+     */
+    suspend fun olderHistory(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+    ): OlderHistoryPage =
+        coalesced("$OLDER_HISTORY_KEY_PREFIX${historyKey(sessionId, profile, deviceId)}") {
+            val key = historyKey(sessionId, profile, deviceId)
+            val before = windowLock.withLock { knownWindow(key) }
+            if (before != null && before.reachedStart) {
+                return@coalesced OlderHistoryPage(mapWindow(before), reachedStart = true, added = 0)
+            }
+            // A full page that adds nothing lies inside rows already held (the conversation grew
+            // by more than a page since the window loaded): skip one page further and ask again,
+            // a bounded number of times. Only a short page marks the start.
+            var skip = 0
+            var attempt = 0
+            var result: OlderHistoryPage
+            do {
+                val raw = rest.messagesRaw(
+                    sessionId, profile, deviceId,
+                    limit = TranscriptWindow.HISTORY_PAGE_SIZE,
+                    offset = (before?.serverRows ?: 0) + skip,
+                    order = MessageOrder.LATEST,
+                )
+                val page = TranscriptWindow.rowsOf(raw)
+                attempt++
+                skip += TranscriptWindow.HISTORY_PAGE_SIZE
+                result = windowLock.withLock {
+                    // Re-read: a tail merge may have landed while the page was in flight.
+                    val current = knownWindow(key) ?: TranscriptWindow(emptyList(), reachedStart = false)
+                    val merge = TranscriptWindow.mergeOlder(current, page, TranscriptWindow.HISTORY_PAGE_SIZE)
+                    val committed = commitWindow(key, merge.window)
+                    OlderHistoryPage(committed.messages, merge.window.reachedStart, merge.added)
+                }
+            } while (result.added == 0 && !result.reachedStart && attempt < OLDER_PAGE_MAX_ATTEMPTS)
+            result
+        }
+
+    /**
+     * The whole conversation, paging older until its first row (HG-104). For a caller that needs
+     * the entire transcript rather than what is on screen — attaching another conversation as a
+     * document. [maxPages] only guards against an upstream that never stops answering full pages;
+     * [TranscriptWindow.mergeOlder] already ends on a page that adds nothing.
+     */
+    suspend fun fullHistory(
+        sessionId: String,
+        profile: String? = null,
+        deviceId: String? = null,
+        maxPages: Int = FULL_HISTORY_MAX_PAGES,
+    ): List<ChatMessage> {
+        var messages = history(sessionId, profile, deviceId)
+        var pages = 0
+        while (hasOlderHistory(sessionId, profile, deviceId) != false && pages < maxPages) {
+            val page = olderHistory(sessionId, profile, deviceId)
+            messages = page.messages
+            pages++
+            // Nothing added after the bounded skips: an upstream not honouring `offset`. Stop.
+            if (page.reachedStart || page.added == 0) break
+        }
+        return messages
+    }
+
+    /**
+     * Whether rows older than those held may exist: false once the first row is loaded, null when
+     * nothing is held in memory — [olderHistory] then settles it from disk or with one request.
+     * Memory only, so it is cheap to ask on every scroll.
+     */
+    fun hasOlderHistory(sessionId: String, profile: String? = null, deviceId: String? = null): Boolean? =
+        synchronized(windowCache) { windowCache[historyKey(sessionId, profile, deviceId)] }
+            ?.let { !it.reachedStart }
 
     /**
      * The transcript a previous app run left on disk, mapped through [mapHistory] — the same
@@ -306,11 +416,39 @@ class SessionRepository(
     ): List<ChatMessage>? {
         val key = historyKey(sessionId, profile, deviceId)
         val raw = transcripts?.read(key) ?: return null
-        val loaded = runCatching { mapHistory(rest.parseMessages(raw)) }.getOrNull()
+        val window = TranscriptWindow.fromStored(raw) ?: return null
+        val loaded = runCatching { mapWindow(window) }.getOrNull()
         if (loaded.isNullOrEmpty()) return null
-        synchronized(historyCache) { historyCache[key] = loaded }
+        // The network may have answered first; a stored copy never replaces a fresher one.
+        synchronized(windowCache) { if (!windowCache.containsKey(key)) windowCache[key] = window }
+        synchronized(historyCache) { if (!historyCache.containsKey(key)) historyCache[key] = loaded }
         return loaded
     }
+
+    /** The window held for [key]: memory first, then disk. Call under [windowLock]. */
+    private suspend fun knownWindow(key: String): TranscriptWindow? {
+        synchronized(windowCache) { windowCache[key] }?.let { return it }
+        val raw = transcripts?.read(key) ?: return null
+        return TranscriptWindow.fromStored(raw)
+    }
+
+    private class Committed(val messages: List<ChatMessage>)
+
+    /** Map [window], cache both forms, and persist it. Call under [windowLock]. */
+    private fun commitWindow(key: String, window: TranscriptWindow): Committed {
+        val payload = window.payload()
+        val loaded = mapHistory(rest.parseMessages(payload))
+        synchronized(windowCache) { windowCache[key] = window }
+        synchronized(historyCache) { historyCache[key] = loaded }
+        // Persisting must not sit between the caller and its transcript: gzip plus a file
+        // write is pure overhead on the path a screen is waiting on. The store's own budget
+        // and failure handling make a dropped write a non-event.
+        transcripts?.let { store -> scope.launch { store.write(key, payload) } }
+        return Committed(loaded)
+    }
+
+    private fun mapWindow(window: TranscriptWindow): List<ChatMessage> =
+        mapHistory(rest.parseMessages(window.payload()))
 
     // Tool-result rows never become turns of their own, but they are the only place the
     // persisted outcome of a call lives: join them back onto the assistant turn's cards

@@ -617,6 +617,7 @@ fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): Chat
         displayKind = displayKind?.ifBlank { null },
         displayTaskCount = displayMetadata?.intOrNull("task_count"),
         displayFailedCount = displayMetadata?.intOrNull("failed_count"),
+        serverId = id?.toLong(),
     )
 }
 

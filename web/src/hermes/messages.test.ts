@@ -65,7 +65,7 @@ describe("parseHistory", () => {
 
   it("drops tool rows as turns and filters unrenderable rows", () => {
     expect(history.map((m) => m.rowId)).toEqual([1, 2, 5, 7]);
-    expect(history.map((m) => m.key)).toEqual(["h-0-1", "h-1-2", "h-2-5", "h-4-7"]);
+    expect(history.map((m) => m.key)).toEqual(["h-1", "h-2", "h-5", "h-7"]);
   });
 
   it("maps user text, attachments and timestamps", () => {

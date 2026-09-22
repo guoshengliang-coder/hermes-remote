@@ -56,8 +56,9 @@ From Gateway 0.4.1 on, the Gateway writes one JSON object per line (`{"ts","leve
 environment does not set it. The lines an incident needs, all at `info`: `app.tunnel.open` /
 `app.tunnel.close` (frame and byte counts both ways, whether the Connector was still online),
 `connector.online` / `connector.offline`, `lifecycle.received` (with `lagMs` behind the Mac's
-stamp), `lifecycle.served` / `lifecycle.acked`, and `http.tunnel` (method, path, status,
-duration). Credential-shaped fields are never written; relayed frames are counted, not quoted.
+stamp), `lifecycle.served` / `lifecycle.acked`, and `http.tunnel` (method, path, outcome, status,
+decoded body `bytes`, streamed `chunks`, `ttfbMs` to the Connector's first response message, and
+duration — the last four since HG-104). Credential-shaped fields are never written; relayed frames are counted, not quoted.
 The 0.4.0 image adopted by R5-D predates these lines; they appear once 0.4.1 is released through
 the R5-F1 path below.
 
@@ -1298,3 +1299,168 @@ current process-local WebSocket registration and resets after reconnect or Gatew
 with the signed-in account's `/v2/devices` `lastSeenAt` and end-to-end health; neither the public
 `/relay-health` legacy count nor this live snapshot alone proves Android REST/WebSocket traffic.
 The endpoint is read-only and does not authorize a restart, migration, or production deployment.
+
+## HG-104 payload compression and edge timing (source change; production application pending authorization)
+
+**Status: nothing in this section has been applied to production.** It records what the HG-104 code
+changes mean for the live host and how to apply them once the owner separately authorizes it. A
+source merge or a new operator bundle does not authorize any of the steps below.
+
+The 2026-09-07 edge compression covers only `location ^~ /api/` in the hand-maintained site file.
+Account-mode clients (the Web app, and Android in account mode) read the same Hermes JSON through
+`/v2/devices/<id>/api/…`, which lives in the rollout-managed `/etc/hermes-go/account/binding-routes.conf`
+and had no gzip — so the session list and every history page crossed the edge uncompressed on that
+path. HG-104 changes three things:
+
+1. **Device API gzip (edge).** `renderMultiDeviceNginxRoutes()` now puts the same five directives as
+   the `/api/` block (`gzip_types application/json; gzip_proxied any; gzip_vary on;
+   gzip_min_length 1024; gzip_comp_level 6;`) inside `location ~ ^/v2/devices/[^/]+/api(?:/|$)` and
+   nowhere else. The `/v2/devices/<id>/ws`, `/v2/connect` and binding/selection locations are
+   unchanged. The same streaming caveat as above applies: only `application/json` is listed, so a
+   streamed download (`application/octet-stream`, the only streamed type the tunnel carries today)
+   still arrives incrementally. The rendered file's SHA-256 moves from
+   `56d7ea3c24eee59176b279a939dd77ce0e908771a8171596a8812fae00158494` (live since R5-F4) to
+   `8fee179adbbb73cead70ccfaa87119645648af3d546afa0db3581129e0ff5b21`; the only difference is the
+   seven added lines (a two-line comment and the five directives).
+2. **Connector hop deflate (Gateway).** The WebSocketServers behind `/v1/connect` and `/v2/connect`
+   now negotiate `permessage-deflate` (threshold 1024 B, level 6, `memLevel` 7, both
+   no-context-takeover flags so no per-connection zlib window outlives a message). The app-facing
+   `/api/ws` and `/v2/devices/<id>/ws` explicitly do not. Tunnelled REST bodies travel base64-encoded
+   inside JSON frames, so this is the hop where the Mac's uplink pays for every history page. The
+   Connector's `ws` client offers the extension by default, so no Connector or Desktop release is
+   needed; a client that does not offer it keeps working uncompressed. `maxPayload` still bounds the
+   *inflated* size. This ships with the next Gateway image through the routine R5-F1 release and is
+   rolled back with it; it involves no Nginx change (Nginx passes `Sec-WebSocket-Extensions`
+   through).
+3. **`http.tunnel` log fields (Gateway).** Each line now carries `status` (for a stream, the status
+   of `response.start`, kept even if the stream later fails), `bytes` (decoded body bytes handed to
+   the client, before edge compression), `chunks` (0 for a buffered response), `ttfbMs` (forward to
+   the Connector's first response message) and `durationMs`; client aborts and out-of-order chunks
+   are now logged too (`outcome` `client_aborted` / `error:invalid_response_chunk_sequence`).
+
+### Why no rollout command re-applies the route file
+
+`binding-routes.conf` is written only by R5-F3 (`renderBindingNginxRoutes`) and R5-F4
+(`renderMultiDeviceNginxRoutes`), and R5-F4 admits only from the single-device `email_binding` state —
+production left it on 2026-09-13, so re-running it fails preflight by design. Every later rollout
+(R5-F5-A identity/Web, R5-F5-B sharing, R5-F7 Web app, R5-F9 push) only *checks* that the live file is
+byte-identical to `renderMultiDeviceNginxRoutes()` of its own bundle. Two consequences:
+
+- Applying gzip to production is a hand edit under the deployment lock, like the 2026-09-07 site-file
+  edit, installing exactly the renderer's output.
+- Until that edit is made, any of those rollouts run from an operator bundle built at or after this
+  change stops in preflight with its `*_previous_routes_invalid` / `*_binding_routes_invalid` code
+  (the live file still hashes `56d7ea3c…`). Routine R5-F1 releases and the R5-F8 schema release do not
+  read this file and are unaffected. `satisfiesProductionNginxContract` checks only the site file and
+  is unaffected either way.
+
+### Applying the device-API gzip (only after explicit owner authorization)
+
+From the extracted operator bundle of the commit that carries this change (the same
+`/opt/hermes-go-ops/<commit>` layout the rollouts run from), with `deploy-state.json` reporting
+`committed` and no release in flight, under the deployment lock:
+
+```bash
+cd /opt/hermes-go-ops/<commit>
+node --input-type=module -e 'import { renderMultiDeviceNginxRoutes } from "./ops/lib/production-multi-device-rollout.mjs"; process.stdout.write(renderMultiDeviceNginxRoutes());' > /root/binding-routes.conf.hg104
+sha256sum /etc/hermes-go/account/binding-routes.conf /root/binding-routes.conf.hg104
+diff -u /etc/hermes-go/account/binding-routes.conf /root/binding-routes.conf.hg104
+```
+
+Proceed only if the live file hashes `56d7ea3c…`, the new one `8fee179a…`, and the diff is exactly
+the seven added lines inside the `/api(?:/|$)` location. Then:
+
+```bash
+sudo cp -a /etc/hermes-go/account/binding-routes.conf /root/binding-routes.conf.bak-<yyyymmdd-hhmm>
+sudo install -m 0644 -o root -g root /root/binding-routes.conf.hg104 /etc/hermes-go/account/binding-routes.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Always `reload`, never `restart` (see the 2026-09-07 note on `worker_shutdown_timeout`): existing
+Connector tunnels and app sockets survive. Rollback is the same three lines with the backup as the
+source. Afterwards verify with the commands below and record the new hash here.
+
+### Recommended edge timing log (hand-maintained site file)
+
+The existing `hermes_edge` format logs `$uri` (no query string) and no timings, so page sizes
+(`limit`/`offset`), compression ratio and latency cannot be read back from it. Add a second format
+and a second `access_log` next to the existing one in `/etc/nginx/conf.d/hermes-edge.conf` (same
+backup / `nginx -t` / `reload` procedure as the 2026-09-07 edit; the existing log is unchanged):
+
+```nginx
+# Legacy clients may still put their app token in the /api/ws query string
+# (app-websocket-authorizer.ts accepts ?token=); never log such a query.
+map $request_uri $hermes_log_uri {
+    ~*[?&]token=  $uri;
+    default       $request_uri;
+}
+
+log_format hermes_edge_timing '$time_iso8601 $status $request_method $hermes_log_uri '
+                              '$body_bytes_sent $request_time $upstream_response_time $gzip_ratio';
+```
+
+```nginx
+    # inside the mrlgs.net server block, beside the existing access_log line
+    access_log /var/log/nginx/hermes-edge.timing.log hermes_edge_timing;
+```
+
+Fields are space-separated in a fixed order: 1 time, 2 status, 3 method, 4 URI with query,
+5 `body_bytes_sent`, 6 `request_time`, 7 `upstream_response_time`, 8 `gzip_ratio` (`-` when the
+response was not compressed). The device routes in `binding-routes.conf` (and the other rollout
+includes) declare no `access_log` of their own, so they inherit both server-level logs; no route file
+needs changing. If a location ever declares its own `access_log`, it stops inheriting and must repeat
+this line. The file sits under `/var/log/nginx/`; confirm the host's logrotate rule for
+`/var/log/nginx/*.log` covers it before relying on it for long windows.
+
+### Verification after applying
+
+```bash
+# JSON over the device API is compressed and varies on Accept-Encoding
+curl -sS -o /dev/null -D - -H 'Accept-Encoding: gzip' -H 'Origin: https://mrlgs.net' -H "Cookie: <web session cookie>" \
+  "https://mrlgs.net/v2/devices/<device-id>/api/sessions?limit=100" | grep -iE '^(HTTP|content-encoding|vary)'
+# expect: 200, Content-Encoding: gzip, Vary: Accept-Encoding
+
+# without Accept-Encoding: no Content-Encoding (identical decoded body)
+curl -sS -o /dev/null -D - -H 'Origin: https://mrlgs.net' -H "Cookie: <web session cookie>" \
+  "https://mrlgs.net/v2/devices/<device-id>/api/sessions?limit=100" | grep -iE '^(HTTP|content-encoding)'
+
+# the device WebSocket location is untouched: the unauthenticated upgrade still answers 401
+curl -sS -o /dev/null -w '%{http_code}\n' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  "https://mrlgs.net/v2/devices/<device-id>/ws"
+```
+
+A cookie-authenticated device read must look same-origin (`Sec-Fetch-Site: same-origin`, or an exact
+`Origin`), hence the `Origin` header. Keep the cookie out of shell history (read it from a root-only
+file). Then open a conversation in the
+Web app and send a prompt: the answer must still stream incrementally (the `/ws` path is not
+compressed), and `/relay-health` / `/internal/account-connectors` must still show the Connector online.
+For the Gateway half, after the R5-F1 release that carries it, the Connector must reconnect and stay
+online; `docs/SMOKE_TEST.md` "HG-104" lists the client-side checks, including history paging.
+
+### Measuring before and after
+
+Apply the timing log first — it changes no response — and collect a baseline window (at least one
+normal day) before the gzip edit and before the Gateway release; then collect the same window after.
+Compare per endpoint class, not per request:
+
+```bash
+LOG=/var/log/nginx/hermes-edge.timing.log
+# request count and total bytes for history pages on the device API
+sudo awk '$4 ~ /^\/v2\/devices\/[^\/]+\/api\/sessions\/[^\/?]+\/messages/ {n++; b+=$5} END {print n, b}' "$LOG"
+# P50 / P95 of request_time for the same class
+sudo awk '$4 ~ /^\/v2\/devices\/[^\/]+\/api\/sessions\/[^\/?]+\/messages/ {print $6}' "$LOG" | sort -n \
+  | awk '{a[NR]=$1} END {if (NR) print "n=" NR, "p50=" a[int((NR+1)*0.50)], "p95=" a[int((NR-1)*0.95)+1]}'
+# median compression ratio actually achieved
+sudo awk '$4 ~ /^\/v2\/devices\/.*\/api\// && $8 != "-" {print $8}' "$LOG" | sort -n | awk '{a[NR]=$1} END {print a[int((NR+1)/2)]}'
+```
+
+Repeat with `/api/sessions\?`, `/api/profiles/sessions` and the legacy `/api/sessions/<id>/messages`
+patterns. Read the numbers together with the client change: the history request count *rises* with
+paging (one request per 100 rows scrolled) while bytes per request and P95 fall, so compare bytes and
+latency to first render, not request count alone. `request_time` minus `upstream_response_time` is
+the edge-to-client transfer; the Gateway's `http.tunnel` `ttfbMs` and `durationMs` split the upstream
+part into Mac response time and tunnel transfer. For weak networks, measure in the Web app with the
+browser's network throttling (for example Chrome DevTools "Slow 4G" / "3G"): record the Network
+panel's transferred vs resource size for the history request and the time from opening a long
+conversation to the first rendered message, before and after, on the same conversation.

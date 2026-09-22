@@ -277,6 +277,72 @@ class SessionsViewModelTest {
         assertEquals("updated", vm.state.value.sessions.single().title)
     }
 
+    // HG-104: every list fetch is a full limit=500 page. The old schedule fired three of them per
+    // event (+250 ms, +1.5 s, +4.5 s) and restarted on each one, so a turn's event burst still
+    // ended in three full pages. Now: one fetch per burst once events go quiet, plus one late
+    // settle fetch only when the burst finished a turn.
+    private fun titleEvent(id: String) = com.hermes.client.data.network.ServerEvent(
+        type = "session.title", sessionId = id, payload = buildJsonObject { put("title", "t") },
+    )
+
+    private fun completeEvent(id: String) = com.hermes.client.data.network.ServerEvent(
+        type = "message.complete", sessionId = id, payload = buildJsonObject { put("session_id", id) },
+    )
+
+    @Test fun an_event_burst_costs_one_list_fetch_after_it_goes_quiet() = runTest {
+        val events = kotlinx.coroutines.flow.MutableSharedFlow<com.hermes.client.data.network.ServerEvent>(extraBufferCapacity = 32)
+        every { chatRepo.events } returns events
+        var fetches = 0
+        coEvery { sessionRepo.listAllProfiles() } coAnswers { fetches++; emptyList() }
+        buildVm()
+        advanceUntilIdle()
+        val before = fetches
+
+        repeat(5) {
+            events.emit(titleEvent("s$it"))
+            testScheduler.advanceTimeBy(300L)
+            testScheduler.runCurrent()
+        }
+        assertEquals("nothing while the burst is still going", before, fetches)
+
+        testScheduler.advanceTimeBy(EVENT_REFRESH_DEBOUNCE_MS)
+        testScheduler.runCurrent()
+        assertEquals(before + 1, fetches)
+
+        advanceUntilIdle()
+        assertEquals("no settle pass without a finished turn", before + 1, fetches)
+    }
+
+    @Test fun a_finished_turn_adds_exactly_one_settle_fetch() = runTest {
+        val events = kotlinx.coroutines.flow.MutableSharedFlow<com.hermes.client.data.network.ServerEvent>(extraBufferCapacity = 32)
+        every { chatRepo.events } returns events
+        var fetches = 0
+        coEvery { sessionRepo.listAllProfiles() } coAnswers { fetches++; emptyList() }
+        buildVm()
+        advanceUntilIdle()
+        val before = fetches
+
+        events.emit(completeEvent("s1"))
+        testScheduler.runCurrent()
+        testScheduler.advanceTimeBy(EVENT_REFRESH_DEBOUNCE_MS + 1)
+        testScheduler.runCurrent()
+        assertEquals(before + 1, fetches)
+
+        // A title that lands between the two passes restarts the burst but keeps its settle pass.
+        events.emit(titleEvent("s1"))
+        testScheduler.runCurrent()
+        testScheduler.advanceTimeBy(EVENT_REFRESH_DEBOUNCE_MS + 1)
+        testScheduler.runCurrent()
+        assertEquals(before + 2, fetches)
+
+        testScheduler.advanceTimeBy(EVENT_SETTLE_REFRESH_MS)
+        testScheduler.runCurrent()
+        assertEquals(before + 3, fetches)
+
+        advanceUntilIdle()
+        assertEquals("one settle pass, not a ladder", before + 3, fetches)
+    }
+
     // The list is scoped to the active profile (one tenant at a time, like the desktop): a session
     // from another profile is filtered out, and each shown session keeps its own true profile.
     @Test fun list_is_scoped_to_active_profile() = runTest {

@@ -79,6 +79,8 @@ export interface MessageRow {
 
 export interface MessagesResponse {
   messages: MessageRow[];
+  /** Present when upstream paged the answer (`limit`/`offset`/`order` honoured). */
+  pagination?: { limit?: number; offset?: number; order?: string; returned?: number } | null;
 }
 
 /** Relay inbox lifecycle event (ours, not upstream's): `LifecycleEventDtos.kt`. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HermesSocket, type WebSocketLike } from "../hermes/client";
-import type { GatewayClient } from "../api/gateway";
+import { GatewayHttpError, type GatewayClient } from "../api/gateway";
 import { ChatSession } from "./session";
 import type { ChatAction } from "./model";
 
@@ -208,7 +208,7 @@ describe("ChatSession", () => {
     ws.receive({ jsonrpc: "2.0", id: ws.last("client.capabilities")!.id, result: { server_requests: ["approval"] } });
     await tick();
     expect((ws.last("session.resume") as { params?: Record<string, unknown> }).params).toMatchObject({ session_id: "stored-9", profile: "work" });
-    expect(historyCalls[0]).toEqual(["dev-mac", "stored-9", "work"]);
+    expect(historyCalls[0]).toEqual(["dev-mac", "stored-9", "work", { order: "latest", limit: 100, offset: 0 }]);
     session.dispose();
   });
 
@@ -253,6 +253,72 @@ describe("ChatSession", () => {
       expect(stored).toEqual([]);
       expect(actions.some((a) => a.type === "notice" && (a as { terminal?: boolean }).terminal)).toBe(true);
       session.dispose();
+    });
+  });
+
+  describe("older history pages (HG-104)", () => {
+    const turn = (id: number) => ({ id, role: id % 2 ? "user" : "assistant", content: `m${id}`, timestamp: id });
+    const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => turn(from + i));
+
+    function make(answer: (page: { order: string; limit: number; offset: number }) => unknown) {
+      const pages: Array<{ order: string; limit: number; offset: number }> = [];
+      const actions: ChatAction[] = [];
+      const client = {
+        messages: async (_d: string, _s: string, _p: unknown, page: { order: string; limit: number; offset: number }) => {
+          pages.push(page);
+          return answer(page);
+        },
+        settled: async () => undefined,
+      } as unknown as GatewayClient;
+      const session = new ChatSession({ client, deviceId: "dev-mac", storedSessionId: "s-1", dispatch: (a) => actions.push(a) });
+      return { session, pages, actions };
+    }
+    const paged = (messages: unknown[], page: { limit: number }) => ({ messages, pagination: { ...page, returned: messages.length } });
+
+    it("opens on the newest 100 rows and reports that older ones may exist", async () => {
+      const { session, pages, actions } = make((page) => paged(range(101, 200), page));
+      expect(await session.loadHistory()).toBe(true);
+      expect(pages).toEqual([{ order: "latest", limit: 100, offset: 0 }]);
+      expect(actions).toContainEqual({ type: "history", rows: range(101, 200), hasOlder: true });
+    });
+
+    it("asks for the next page at the count of stored rows loaded", async () => {
+      const { session, pages, actions } = make((page) => paged(range(1, 60), page));
+      await session.loadOlder({ rows: range(61, 260), epoch: 3 });
+      expect(pages).toEqual([{ order: "latest", limit: 100, offset: 200 }]);
+      expect(actions).toEqual([{ type: "older-loading" }, { type: "older-loaded", rows: range(1, 60), hasMore: false, epoch: 3 }]);
+    });
+
+    it("skips ahead when a page only overlaps what is loaded (a page or more arrived since)", async () => {
+      const { session, pages, actions } = make((page) => paged(page.offset === 100 ? range(301, 400) : range(1, 100), page));
+      await session.loadOlder({ rows: range(101, 200), epoch: 1 });
+      expect(pages.map((p) => p.offset)).toEqual([100, 200]);
+      expect(actions.at(-1)).toEqual({ type: "older-loaded", rows: range(1, 100), hasMore: true, epoch: 1 });
+    });
+
+    it("one request at a time", async () => {
+      const { session, pages } = make((page) => paged(range(1, 10), page));
+      await Promise.all([session.loadOlder({ rows: range(11, 20), epoch: 1 }), session.loadOlder({ rows: range(11, 20), epoch: 1 })]);
+      expect(pages).toHaveLength(1);
+    });
+
+    it("the full transcript pages oldest-first through every row", async () => {
+      const all = range(1, 1100);
+      const { session, pages } = make((page) => paged(all.slice(page.offset, page.offset + page.limit), page));
+      expect((await session.loadFullHistory()).map((r) => r.id)).toEqual(all.map((r) => r.id));
+      expect(pages.map((p) => [p.order, p.limit, p.offset])).toEqual([["oldest", 500, 0], ["oldest", 500, 500], ["oldest", 500, 1000]]);
+    });
+
+    it("a failure becomes a retryable HR-SYNC-001 carrying the cause", async () => {
+      const { session, actions } = make(() => {
+        throw new GatewayHttpError(502, null, "x");
+      });
+      await session.loadOlder({ rows: range(101, 200), epoch: 2 });
+      const failed = actions.at(-1) as Extract<ChatAction, { type: "older-failed" }>;
+      expect(failed.type).toBe("older-failed");
+      expect(failed.epoch).toBe(2);
+      expect(failed.error).toMatchObject({ code: "HR-SYNC-001", retryable: true });
+      expect(failed.error.details).toContain("HR-SYNC-003");
     });
   });
 });

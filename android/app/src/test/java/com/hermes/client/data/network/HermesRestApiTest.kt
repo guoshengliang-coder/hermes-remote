@@ -38,6 +38,35 @@ class HermesRestApiTest {
         assertTrue(recorded.target.contains("profile=personal"))
     }
 
+    // HG-104: the chat opens on the newest page and pages backward; without these parameters
+    // upstream answers with its latest 500 rows every time.
+    @Test fun messages_pages_backward_from_the_newest_row() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"messages":[]}""").build())
+
+        api(serverRule.server).messagesRaw(
+            "session-1", "personal", limit = 100, offset = 200, order = MessageOrder.LATEST,
+        )
+
+        val url = serverRule.server.takeRequest().url
+        assertEquals("/api/sessions/session-1/messages", url.encodedPath)
+        assertEquals("false", url.queryParameter("inline_images"))
+        assertEquals("100", url.queryParameter("limit"))
+        assertEquals("200", url.queryParameter("offset"))
+        assertEquals("latest", url.queryParameter("order"))
+        assertEquals("personal", url.queryParameter("profile"))
+    }
+
+    @Test fun messages_without_paging_sends_no_paging_parameters() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"messages":[]}""").build())
+
+        api(serverRule.server).messagesRaw("session-1")
+
+        val url = serverRule.server.takeRequest().url
+        assertEquals(null, url.queryParameter("limit"))
+        assertEquals(null, url.queryParameter("offset"))
+        assertEquals(null, url.queryParameter("order"))
+    }
+
     @Test fun sessions_parses_list_and_sends_token() = runTest {
         serverRule.server.enqueue(MockResponse.Builder().code(200).body(
             """{"sessions":[{"id":"s1","title":"First","model":"opus","provider":"anthropic","message_count":3}]}"""

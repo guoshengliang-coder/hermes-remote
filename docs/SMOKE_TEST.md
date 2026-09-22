@@ -1112,3 +1112,60 @@ attached HONOR CLK-AN00 has no Google Play services.
 4. Put the phone into Doze (`adb shell dumpsys deviceidle force-idle`) and repeat. Expected: the
    high-priority message still wakes it.
 5. Sign out on the phone. Expected: the row is gone and no further pushes arrive.
+
+## HG-104 payload size: device API gzip, tunnel deflate and history paging (2026-09-23 branch claude/hg-104-payload-perf)
+
+### Automated here
+
+- Nginx: `renderMultiDeviceNginxRoutes()` puts the five JSON-only gzip directives inside the
+  `/v2/devices/<id>/api` location and nowhere else — in particular not in `/v2/devices/<id>/ws` or
+  `/v2/connect` (`scripts/test/production-multi-device-rollout.test.mjs`). The later rollouts compare
+  the live route file against the same renderer, so their fixtures follow automatically.
+- Gateway: the Connector WebSocketServers negotiate `permessage-deflate` with both
+  no-context-takeover flags, a client that does not offer it still connects, the inflated size is
+  still bounded by `maxPayload` (close `1009`), and the app WebSocketServer never negotiates it
+  (`gateway/src/gateway-server.test.ts`; with `RUN_NETWORK_TESTS=1`,
+  `legacy-routing.integration.test.ts` checks the same on a spawned Gateway).
+- Gateway: `http.tunnel` lines carry `status`, `bytes`, `chunks` and `ttfbMs` for buffered,
+  streamed, failed-mid-stream, out-of-order and client-aborted requests
+  (`gateway/src/http-tunnel-broker.test.ts`).
+
+### Still needs a deployed edge (production application is not yet authorized)
+
+Run against the edge once the regenerated `binding-routes.conf` is live (docs/DEPLOYMENT.md,
+"HG-104"). `<device-id>` is a bound device and `$COOKIE` a signed-in Web session cookie (a cookie read
+must carry the exact `Origin`); keep it out of shell history.
+
+1. **Device API is compressed.**
+
+   ```bash
+   curl -sS -o /dev/null -D - -H 'Accept-Encoding: gzip' -H 'Origin: https://<host>' -H "Cookie: $COOKIE" \
+     "https://<host>/v2/devices/<device-id>/api/sessions?limit=100"
+   ```
+
+   Expect `200`, `Content-Encoding: gzip` and `Vary: Accept-Encoding`. Repeat without the
+   `Accept-Encoding` header: no `Content-Encoding`, and the decoded body is identical. A body below
+   1 KB (for example `/api/status`) stays uncompressed.
+2. **Device WebSocket is untouched.** Open a conversation in the Web app or on the phone and send a
+   prompt: the answer still streams token by token (gzip never applies to the `/ws` location).
+   Unauthenticated, `curl -sS -o /dev/null -w '%{http_code}\n' -H 'Connection: Upgrade' -H 'Upgrade:
+   websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='
+   "https://<host>/v2/devices/<device-id>/ws"` still answers `401`, as before.
+3. **Connector hop is deflated.** After the Gateway release carrying this change, the Connector's
+   reconnect succeeds and `/relay-health` (legacy) or `/internal/account-connectors` (account) shows
+   it online; no Connector or Desktop update is needed because the `ws` client offers the extension
+   by default.
+
+### History paging (Android and Web; needs the real client against a long conversation)
+
+4. **First page is 100 rows.** Open a conversation with more than 100 stored messages. The first
+   history request (Gateway `http.tunnel` line, or the edge timing log from docs/DEPLOYMENT.md) is
+   `GET …/api/sessions/<id>/messages?order=latest&limit=100&offset=0`, and the chat shows the newest
+   turns in the normal top-to-bottom order.
+5. **Scrolling up loads the next older page.** Scroll to the top of the loaded history: exactly one
+   request with `offset=100` follows, older turns appear above without the scroll position jumping,
+   and no turn is shown twice. Continue until a page returns fewer than 100 rows: no further
+   request is made.
+6. **Session list fallback.** When a client falls back from `/api/profiles/sessions` to
+   `/api/sessions`, the request is `GET /api/sessions?limit=100` and answers `200` (a limit above 100
+   is `422` upstream — docs/HERMES_CONTRACT.md §1c).

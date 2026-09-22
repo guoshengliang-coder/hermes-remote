@@ -27,7 +27,10 @@ export interface DisplayToolCall {
 }
 
 export interface DisplayMessage {
-  /** Stable within one history load: `h-<index>-<row id>`. */
+  /**
+   * `h-<row id>`: stable across history pages, so prepending an older page neither remounts the
+   * turns already shown nor moves a search/jump anchor. Rows without an id: `h-<index>-x`.
+   */
   key: string;
   rowId: number | null;
   role: DisplayRole;
@@ -178,7 +181,7 @@ export function toDisplayMessage(row: MessageRow, index: number, toolResults: Ma
   const assistant = row.role.toLowerCase() === "assistant";
   const rowId = typeof row.id === "number" ? row.id : null;
   return {
-    key: `h-${index}-${rowId ?? "x"}`,
+    key: rowId !== null ? `h-${rowId}` : `h-${index}-x`,
     rowId,
     role: roleOf(row.role),
     text: parsed.text,

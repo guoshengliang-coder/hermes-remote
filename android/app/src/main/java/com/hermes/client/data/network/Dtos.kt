@@ -102,6 +102,13 @@ import kotlinx.serialization.json.contentOrNull
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 
+/** Which end of a transcript `GET /api/sessions/{id}/messages` pages from (upstream `order`). */
+enum class MessageOrder(val wire: String) {
+    /** Page backward from the newest row; rows within a page stay chronological. */
+    LATEST("latest"),
+    OLDEST("oldest"),
+}
+
 /**
  * Reads a message's `content` whether upstream wrote a string or a list of content blocks.
  *

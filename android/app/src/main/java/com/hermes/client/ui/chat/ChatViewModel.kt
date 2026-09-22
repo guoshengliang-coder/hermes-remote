@@ -189,6 +189,16 @@ class ChatViewModel @Inject constructor(
     private val _attachingSessions = MutableStateFlow(0)
     val attachingSessions: StateFlow<Int> = _attachingSessions.asStateFlow()
 
+    /**
+     * The older-page load at the top of the transcript (HG-104): the chat opens on the newest page
+     * only, and scrolling to the top asks for the one before it. [OlderHistoryUiState.error] holds
+     * the classified failure until the reader retries; an automatic retry on every scroll would
+     * repeat a failing request as fast as the list can be flung.
+     */
+    private val _olderHistory = MutableStateFlow(OlderHistoryUiState())
+    val olderHistory: StateFlow<OlderHistoryUiState> = _olderHistory.asStateFlow()
+    private var olderHistoryJob: Job? = null
+
     /** Emits the number of picked conversations that could not be read; see [attachSessions]. */
     private val _sessionAttachFailures = MutableSharedFlow<Int>(extraBufferCapacity = 4)
     val sessionAttachFailures: kotlinx.coroutines.flow.SharedFlow<Int> = _sessionAttachFailures
@@ -713,6 +723,8 @@ class ChatViewModel @Inject constructor(
         }
         refreshJob?.cancel()
         _refreshing.value = false
+        olderHistoryJob?.cancel()
+        _olderHistory.value = OlderHistoryUiState()
         sendJob?.cancel()
         resumeJob?.cancel()
         liveHandleGate.completeExceptionally(CancellationException("session changed"))
@@ -773,7 +785,9 @@ class ChatViewModel @Inject constructor(
         // if the network won (docs/DESIGN.md §5.4 rule 4).
         if (cachedHistory.isNullOrEmpty()) {
             viewModelScope.launch {
-                val stored = runCatching { sessions.diskHistory(id, profile) }.getOrNull()
+                // Keyed like history(): account mode writes under the device, so a read without
+                // it never found what the network path had stored.
+                val stored = runCatching { sessions.diskHistory(id, profile, currentDeviceId) }.getOrNull()
                 if (storedSessionId != id || stored.isNullOrEmpty()) return@launch
                 val organized = kotlinx.coroutines.withContext(defaultDispatcher) {
                     stored.map { it.organizedForDisplay() }
@@ -1140,6 +1154,81 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The reader reached the top of the transcript: load the page before it (HG-104). A no-op
+     * while a load runs, once the first row is held, and while a failure waits for [retryOlderHistory].
+     */
+    fun loadOlderHistory() {
+        if (olderHistoryJob?.isActive == true || _olderHistory.value.error != null) return
+        olderHistoryJob = viewModelScope.launch { loadOlderPages(untilStart = false) }
+    }
+
+    fun retryOlderHistory() {
+        if (olderHistoryJob?.isActive == true) return
+        _olderHistory.value = OlderHistoryUiState()
+        olderHistoryJob = viewModelScope.launch { loadOlderPages(untilStart = false) }
+    }
+
+    /**
+     * Page the open conversation back to its first row, for the actions that mean the whole
+     * conversation rather than what has been scrolled into view: in-chat search, 我的提问 and
+     * sharing (HG-104). Before paging they all read the transcript on screen, which was then
+     * upstream's latest 500 rows. Returns false when a page failed; the failure is also left in
+     * [olderHistory] so the top of the list offers the retry.
+     */
+    suspend fun loadEntireHistory(): Boolean {
+        olderHistoryJob?.let { running -> if (running.isActive) running.join() }
+        if (_olderHistory.value.error != null) _olderHistory.value = OlderHistoryUiState()
+        val job = viewModelScope.launch { loadOlderPages(untilStart = true) }
+        olderHistoryJob = job
+        job.join()
+        return _olderHistory.value.error == null
+    }
+
+    /** Fire-and-forget [loadEntireHistory] for surfaces that fill in as rows arrive. */
+    fun loadEntireHistoryInBackground() {
+        viewModelScope.launch { loadEntireHistory() }
+    }
+
+    private suspend fun loadOlderPages(untilStart: Boolean) {
+        val key = runtimeKey ?: return
+        val id = storedSessionId
+        val profile = currentProfile
+        val device = currentDeviceId
+        if (id.isBlank() || sessions.hasOlderHistory(id, profile, device) == false) return
+        _olderHistory.value = OlderHistoryUiState(loading = true)
+        try {
+            var pages = 0
+            while (pages < SessionRepository.FULL_HISTORY_MAX_PAGES) {
+                val page = sessions.olderHistory(id, profile, device)
+                if (runtimeKey != key) return
+                val organized = withContext(defaultDispatcher) { page.messages.map { it.organizedForDisplay() } }
+                val added = runtimeStore.prependOlderHistory(key, organized)
+                pages++
+                com.hermes.client.data.diagnostics.DebugLog.log(
+                    "history", "older($id) +${page.added} rows, +$added turns, start=${page.reachedStart}",
+                )
+                // added == 0 after the repository's bounded skips: nothing more will come.
+                if (page.reachedStart || !untilStart || page.added == 0) break
+            }
+            _olderHistory.value = OlderHistoryUiState()
+            hydrateImages(key)
+        } catch (cancelled: CancellationException) {
+            _olderHistory.value = OlderHistoryUiState()
+            throw cancelled
+        } catch (error: Exception) {
+            if (error is HermesApiException && error.code == 401) _unauthorized.value = true
+            com.hermes.client.data.diagnostics.DebugLog.log(
+                "error", "older($id) failed: ${error::class.simpleName}: ${error.message}",
+            )
+            if (runtimeKey == key) {
+                _olderHistory.value = OlderHistoryUiState(
+                    error = com.hermes.client.data.error.historyFailure(error),
+                )
+            }
+        }
+    }
+
     private fun mutateState(block: (ChatUiState) -> ChatUiState) {
         val next = block(_state.value)
         _state.value = next
@@ -1166,7 +1255,9 @@ class ChatViewModel @Inject constructor(
             var failures = 0
             picked.forEach { source ->
                 val markdown = runCatching {
-                    val history = sessions.history(source.id, source.profile, source.deviceId)
+                    // The whole conversation, not the newest page the chat screen opens on
+                    // (HG-104): a referenced record missing its beginning is not that record.
+                    val history = sessions.fullHistory(source.id, source.profile, source.deviceId)
                     transcriptMarkdownForAttachment(
                         title = source.title,
                         messages = history,
@@ -2217,3 +2308,9 @@ internal fun displaySessionTitle(raw: String?, fallback: String = "新会话"): 
             !it.equals("New chat", ignoreCase = true)
     } ?: fallback
 }
+
+/** State of the older-page load at the top of the transcript (HG-104). */
+data class OlderHistoryUiState(
+    val loading: Boolean = false,
+    val error: com.hermes.client.data.error.AppError? = null,
+)

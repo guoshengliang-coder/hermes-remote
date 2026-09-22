@@ -1080,13 +1080,18 @@ class SessionRuntimeStore(
         requestStartedAt: Long,
     ) {
         updateRuntime(key) { runtime ->
-            val liveChars = runtime.chat.messages.sumOf { it.text.length + it.thinking.length }
-            val historyChars = messages.sumOf { it.text.length + it.thinking.length }
+            // A tail page merged into the repository's window; rows on screen older than that
+            // window stay in front (HG-104). The "is the live copy ahead?" comparisons below only
+            // look at the rows the snapshot spans — held rows older than it say nothing about it.
+            val snapshot = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
+            val spanned = com.hermes.client.ui.chat.rowsFrom(runtime.chat.messages, snapshot.firstOrNull()?.serverId)
+            val liveChars = spanned.sumOf { it.text.length + it.thinking.length }
+            val historyChars = snapshot.sumOf { it.text.length + it.thinking.length }
             val keepLive = runtime.chat.messages.isNotEmpty() && (
                 runtime.phase.isActive ||
                     runtime.phase == SessionRunPhase.COMPLETED_UNREAD ||
                     runtime.lastEventAt > requestStartedAt ||
-                    runtime.chat.messages.size > messages.size ||
+                    spanned.size > snapshot.size ||
                     liveChars > historyChars
                 )
             runtime.copy(
@@ -1106,7 +1111,7 @@ class SessionRuntimeStore(
                         // how re-entering a conversation looked like it was replaying the answer.
                         sameOrAligned(
                             com.hermes.client.ui.chat.inheritStreamFields(
-                                com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                                com.hermes.client.ui.chat.alignMessageIds(snapshot, runtime.chat.messages),
                                 runtime.chat.messages,
                                 runActive = runtime.phase.isActive,
                             ),
@@ -1135,15 +1140,18 @@ class SessionRuntimeStore(
         // (HG-8). The transcript is refreshed the way a reconnect reconcile is — accepted only
         // when REST covers every locally observed turn — and the phase is left to the events.
         val active = before.phase.isActive || before.chat.isGenerating
-        if (active && !messages.covers(expectationFor(before).copy(lastAssistantText = ""))) {
+        val snapshotBefore = com.hermes.client.ui.chat.graftOlderHead(messages, previous)
+        if (active && !snapshotBefore.covers(expectationFor(before).copy(lastAssistantText = ""))) {
             return ManualHistoryResult.BUSY
         }
         updateRuntime(key, cause = "manual-refresh") { runtime ->
+            // Older pages already on screen stay (HG-104); the refresh answers for the tail.
+            val snapshot = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
             runtime.copy(
                 chat = runtime.chat.copy(
                     messages = com.hermes.client.ui.chat.inheritStreamFields(
                         com.hermes.client.ui.chat.inheritTimestamps(
-                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                            com.hermes.client.ui.chat.alignMessageIds(snapshot, runtime.chat.messages),
                             runtime.chat.messages,
                         ),
                         runtime.chat.messages,
@@ -1159,10 +1167,29 @@ class SessionRuntimeStore(
         // Inherited stream fields (reasoning, tool results, the live tail) legitimately differ
         // from the raw REST rows; compare with them normalized out, as the reconcile does.
         fun ChatMessage.comparable() = copy(timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false)
-        val accepted = committed.size == messages.size &&
-            committed.zip(messages).all { (a, b) -> a.comparable() == b.comparable() }
+        val expected = com.hermes.client.ui.chat.graftOlderHead(messages, committed)
+        val accepted = committed.size == expected.size &&
+            committed.zip(expected).all { (a, b) -> a.comparable() == b.comparable() }
         if (!accepted) return ManualHistoryResult.BUSY
         return if (previous == committed) ManualHistoryResult.UNCHANGED else ManualHistoryResult.CHANGED
+    }
+
+    /**
+     * Put the rows of an older page in front of the transcript (HG-104). [merged] is the whole
+     * known transcript after the page was merged; only rows older than the first one on screen
+     * are taken, so nothing already shown — and no id, key or anchor of it — changes. With
+     * reverseLayout the new rows land beyond the top of the list, where the reader is scrolling to.
+     * Returns how many rows were added.
+     */
+    fun prependOlderHistory(key: SessionRuntimeKey, merged: List<ChatMessage>): Int {
+        var added = 0
+        updateRuntime(key, cause = "older-page") { runtime ->
+            val older = com.hermes.client.ui.chat.olderRowsFor(merged, runtime.chat.messages)
+            added = older.size
+            if (older.isEmpty()) runtime
+            else runtime.copy(chat = runtime.chat.copy(messages = older + runtime.chat.messages))
+        }
+        return added
     }
 
     /** The transcript as committed right now — what is on screen, after any id alignment. */
@@ -1763,11 +1790,26 @@ class SessionRuntimeStore(
         val assistantTurns: Int,
         val lastUserText: String,
         val lastAssistantText: String,
-    )
+        /**
+         * Role and Hermes row id of every user/assistant turn counted above, so coverage can be
+         * judged on the rows a snapshot actually spans (HG-104). A tail page starting at row N
+         * cannot contain the turns this phone holds from before N, and must not be refused for it.
+         */
+        val turns: List<Pair<Role, Long?>> = emptyList(),
+    ) {
+        /** Turns of [role] a snapshot beginning at row [start] must contain; all of them when null. */
+        fun turnsFrom(role: Role, start: Long?): Int = when {
+            start == null || turns.isEmpty() -> if (role == Role.USER) userTurns else assistantTurns
+            else -> turns.count { (r, id) -> r == role && (id == null || id >= start) }
+        }
+    }
 
     private fun expectationFor(runtime: SessionRuntime): HistoryExpectation = HistoryExpectation(
         userTurns = runtime.chat.messages.count { it.role == Role.USER },
         assistantTurns = runtime.chat.messages.count { it.role == Role.ASSISTANT },
+        turns = runtime.chat.messages
+            .filter { it.role == Role.USER || it.role == Role.ASSISTANT }
+            .map { it.role to it.serverId },
         lastUserText = runtime.chat.messages.lastOrNull { it.role == Role.USER }?.text.orEmpty().matchText(),
         lastAssistantText = runtime.chat.messages.lastOrNull { it.role == Role.ASSISTANT }?.text.orEmpty().matchText(),
     )
@@ -1830,25 +1872,30 @@ class SessionRuntimeStore(
         expectation: HistoryExpectation,
     ): Boolean {
         DebugLog.log("history") {
+            val currentMessages = _runtimes.value[key]?.chat?.messages.orEmpty()
+            val snapshot = com.hermes.client.ui.chat.graftOlderHead(messages, currentMessages)
             val current = _runtimes.value[key]?.let(::expectationFor)
             val reason = when {
                 current == null -> null
                 current.userTurns > expectation.userTurns ||
                     (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText) ->
                     "a newer prompt started"
-                else -> messages.coverageGap(expectation)
+                else -> snapshot.coverageGap(expectation)
             }
-            if (reason == null) "reconcile s=${key.sessionId}: ${messages.size} rows cover the local turns"
+            if (reason == null) "reconcile s=${key.sessionId}: ${snapshot.size} rows cover the local turns"
             else "reconcile s=${key.sessionId} rejected: $reason"
         }
         updateRuntime(key, cause = "reconcile") { runtime ->
+            // The newest page merged into the repository's window. Older rows the screen holds
+            // beyond that window stay in front of it (HG-104).
+            val snapshot = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
             val current = expectationFor(runtime)
             val newerPromptStarted = current.userTurns > expectation.userTurns ||
                 (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText)
             // It is safe to refresh text while a run is still active as long as REST covers every
             // locally observed turn. Keep the phase unchanged; a terminal event/session.info still
             // owns the transition to idle. This also recovers deltas lost during reconnect.
-            if (newerPromptStarted || !messages.covers(expectation)) {
+            if (newerPromptStarted || !snapshot.covers(expectation)) {
                 return@updateRuntime runtime
             }
             runtime.copy(
@@ -1857,7 +1904,7 @@ class SessionRuntimeStore(
                     // timestamps inherited onto the aligned list.
                     messages = com.hermes.client.ui.chat.inheritStreamFields(
                         com.hermes.client.ui.chat.inheritTimestamps(
-                            com.hermes.client.ui.chat.alignMessageIds(messages, runtime.chat.messages),
+                            com.hermes.client.ui.chat.alignMessageIds(snapshot, runtime.chat.messages),
                             runtime.chat.messages,
                         ),
                         runtime.chat.messages,
@@ -1880,8 +1927,11 @@ class SessionRuntimeStore(
         fun ChatMessage.comparable() = copy(
             timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false,
         )
-        return committed.size == messages.size &&
-            committed.zip(messages).all { (a, b) -> a.comparable() == b.comparable() }
+        // Against the snapshot as grafted onto what was committed: the head it kept is the
+        // committed list's own, so only the part the network answered for can differ.
+        val expected = com.hermes.client.ui.chat.graftOlderHead(messages, committed)
+        return committed.size == expected.size &&
+            committed.zip(expected).all { (a, b) -> a.comparable() == b.comparable() }
     }
 
     private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean = coverageGap(expectation) == null
@@ -1890,8 +1940,12 @@ class SessionRuntimeStore(
     private fun List<ChatMessage>.coverageGap(expectation: HistoryExpectation): String? {
         val users = filter { it.role == Role.USER }
         val assistants = filter { it.role == Role.ASSISTANT }
-        if (users.size < expectation.userTurns) return "userTurns ${users.size}<${expectation.userTurns}"
-        if (assistants.size < expectation.assistantTurns) return "assistantTurns ${assistants.size}<${expectation.assistantTurns}"
+        // Counted over the rows this snapshot spans: a tail page is judged on the tail (HG-104).
+        val start = firstOrNull()?.serverId
+        val expectedUsers = expectation.turnsFrom(Role.USER, start)
+        val expectedAssistants = expectation.turnsFrom(Role.ASSISTANT, start)
+        if (users.size < expectedUsers) return "userTurns ${users.size}<$expectedUsers"
+        if (assistants.size < expectedAssistants) return "assistantTurns ${assistants.size}<$expectedAssistants"
         // Upstream staples its own attachment bookkeeping onto the persisted user row, and
         // Mappers only strips the shapes it knows, anchored to whole lines. A turn sent with
         // images therefore comes back longer than what the user typed, and an equality test

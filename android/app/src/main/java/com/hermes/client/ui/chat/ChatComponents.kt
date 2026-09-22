@@ -152,6 +152,7 @@ import com.hermes.client.ui.components.ExternalLinkIcon
 import com.hermes.client.ui.components.rememberSafeUriHandler
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedMessage
 import com.hermes.client.ui.theme.Motion
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.IconButton
@@ -473,6 +474,13 @@ fun ChatMessageList(
      * on a blank query — the floating controls stand down for the whole session of searching.
      */
     searchOpen: Boolean = false,
+    /** The older-page load at the top of the transcript (HG-104). */
+    olderHistory: OlderHistoryUiState = OlderHistoryUiState(),
+    /** The reader scrolled to the top: load the page before it. */
+    onLoadOlder: () -> Unit = {},
+    onRetryOlder: () -> Unit = {},
+    /** 我的提问 opened; it lists the whole conversation, so the rest of it is paged in. */
+    onPromptListOpened: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
     val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
@@ -697,6 +705,8 @@ fun ChatMessageList(
     }
     var promptListOpen by remember(sessionId) { mutableStateOf(false) }
     LaunchedEffect(openPromptListTick) { if (openPromptListTick > 0L) promptListOpen = true }
+    val latestPromptListOpened by androidx.compose.runtime.rememberUpdatedState(onPromptListOpened)
+    LaunchedEffect(promptListOpen) { if (promptListOpen) latestPromptListOpened() }
     if (promptListOpen) {
         val rows = remember(turnGroups, displayMessages, currentGroupIndex, language) {
             promptRows(turnGroups, displayMessages, currentGroupIndex, language) { formatTimeSeparator(it, language) }
@@ -988,6 +998,21 @@ fun ChatMessageList(
             }
         }
     }
+    // HG-104: the transcript opens on its newest page. Reaching the top edge — a few turns early,
+    // so the page is usually in before the reader arrives — asks for the page before it. Keyed on
+    // the transition into "near the top", so a page that adds nothing is not requested again
+    // until the reader scrolls away and back.
+    val latestLoadOlder by androidx.compose.runtime.rememberUpdatedState(onLoadOlder)
+    LaunchedEffect(sessionId, listState, initialPresentationReady) {
+        if (!initialPresentationReady) return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: return@snapshotFlow false
+            info.totalItemsCount > 1 && lastVisible >= info.totalItemsCount - 1 - OLDER_HISTORY_PREFETCH_ITEMS
+        }
+            .distinctUntilChanged()
+            .collect { nearTop -> if (nearTop) latestLoadOlder() }
+    }
     val transcriptAlpha by animateFloatAsState(
         targetValue = if (initialPresentationReady) 1f else 0f,
         animationSpec = tween(durationMillis = INITIAL_PRESENTATION_CROSSFADE_MS),
@@ -1134,6 +1159,13 @@ fun ChatMessageList(
                     )
                 }
             }
+            // Above the first turn (reverseLayout: the last item), so it appears where the reader
+            // is scrolling to and never moves what they are reading.
+            olderHistory.error?.let { error ->
+                item(key = OLDER_HISTORY_ERROR_KEY) {
+                    OlderHistoryFailedRow(error, onRetry = if (error.retryable) onRetryOlder else null)
+                }
+            }
         }
         // Turn-jump pill: names the group under the viewport's top edge once its prompt has left
         // the screen; a plain fade so it never shifts the transcript. The last content is held
@@ -1222,12 +1254,50 @@ fun ChatMessageList(
         // Showing a stored transcript while the authoritative one is still on its way is exactly
         // the "refresh with content already visible" row of docs/DESIGN.md §5.4's table: a 2dp
         // line that does not cover what is being read, never a skeleton over readable text.
-        if (transcriptAlpha >= 1f && state.historyLoading && state.historyLoaded) {
+        // An older page on its way is the same row of that table: 加载更多 (HG-104).
+        if (transcriptAlpha >= 1f && ((state.historyLoading && state.historyLoaded) || olderHistory.loading)) {
             com.hermes.client.ui.components.TopProgressLine(
                 Modifier.fillMaxWidth().align(Alignment.TopCenter),
             )
         }
     }
+    }
+}
+
+/** Start the older-page load this many turns before the very top (HG-104). */
+internal const val OLDER_HISTORY_PREFETCH_ITEMS = 3
+
+internal const val OLDER_HISTORY_ERROR_KEY = "older-history-error"
+
+/**
+ * The older page could not be loaded (HG-104). A quiet line above the first turn, in the time
+ * separator's register rather than an alert: everything below it is intact, only the part above is
+ * missing. The retry is offered only when the classified failure says retrying can help.
+ */
+@Composable
+private fun OlderHistoryFailedRow(
+    error: com.hermes.client.data.error.AppError,
+    onRetry: (() -> Unit)?,
+) {
+    val language = LocalAppLanguage.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = TURN_SPACING, bottom = 4.dp)
+            .testTag("older-history-error"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = error.localizedMessage(language),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        if (onRetry != null) {
+            androidx.compose.material3.TextButton(onClick = onRetry) {
+                Text(localized(language, "重试", "Retry"))
+            }
+        }
     }
 }
 
