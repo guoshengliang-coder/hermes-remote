@@ -1426,7 +1426,7 @@ curl -sS -o /dev/null -D - -H 'Origin: https://mrlgs.net' -H "Cookie: <web sessi
 
 # the device WebSocket location is untouched: the unauthenticated upgrade still answers 401
 curl -sS -o /dev/null -w '%{http_code}\n' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  -H 'Sec-WebSocket-Version: 13' -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" \
   "https://mrlgs.net/v2/devices/<device-id>/ws"
 ```
 

@@ -1149,7 +1149,7 @@ must carry the exact `Origin`); keep it out of shell history.
 2. **Device WebSocket is untouched.** Open a conversation in the Web app or on the phone and send a
    prompt: the answer still streams token by token (gzip never applies to the `/ws` location).
    Unauthenticated, `curl -sS -o /dev/null -w '%{http_code}\n' -H 'Connection: Upgrade' -H 'Upgrade:
-   websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='
+   websocket' -H 'Sec-WebSocket-Version: 13' -H "Sec-WebSocket-Key: $(openssl rand -base64 16)"
    "https://<host>/v2/devices/<device-id>/ws"` still answers `401`, as before.
 3. **Connector hop is deflated.** After the Gateway release carrying this change, the Connector's
    reconnect succeeds and `/relay-health` (legacy) or `/internal/account-connectors` (account) shows

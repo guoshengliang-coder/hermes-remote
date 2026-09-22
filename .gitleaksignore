@@ -52,3 +52,6 @@ d90fbcc4dd5caff05eb5262cf53a586b2d5e080e:desktop/Tests/HermesGoDesktopCoreTests/
 # Test-only sentinel in dd2905f (R5-F9 push rollout test): it marks where key material must never
 # appear in errors or the journal; it is not a credential. Replaced by a low-entropy value afterwards.
 dd2905f994f5fe00c80e21f8d41d847398271249:scripts/test/production-push-rollout.test.mjs:generic-api-key:34
+# HG-104 8a6ae46: RFC 6455 sample Sec-WebSocket-Key in curl examples, not a credential (replaced by a generated key in the next commit).
+8a6ae4672ce9e0e4c86fadc25575ec3e7f8485b3:docs/DEPLOYMENT.md:generic-api-key:1429
+8a6ae4672ce9e0e4c86fadc25575ec3e7f8485b3:docs/SMOKE_TEST.md:generic-api-key:1152
