@@ -65,7 +65,9 @@ describe("ChatSession", () => {
   async function readySession() {
     let ws!: FakeWebSocket;
     const actions: ChatAction[] = [];
-    const client = { messages: async () => ({ messages: [] }), settled: async () => undefined } as unknown as GatewayClient;
+    // One stored row: a conversation with history, so a reclaimed session (4007) stays terminal
+    // instead of being silently recreated (that path is covered below).
+    const client = { messages: async () => ({ messages: [{ id: 1, role: "user", content: "earlier", timestamp: 1 }] }), settled: async () => undefined } as unknown as GatewayClient;
     const session = new ChatSession({
       client,
       deviceId: "dev-mac",
@@ -208,5 +210,49 @@ describe("ChatSession", () => {
     expect((ws.last("session.resume") as { params?: Record<string, unknown> }).params).toMatchObject({ session_id: "stored-9", profile: "work" });
     expect(historyCalls[0]).toEqual(["dev-mac", "stored-9", "work"]);
     session.dispose();
+  });
+
+  describe("a session Hermes reclaimed (4007)", () => {
+    async function open(historyRows: unknown[]) {
+      let ws!: FakeWebSocket;
+      const actions: ChatAction[] = [];
+      const stored: string[] = [];
+      const client = { messages: async () => ({ messages: historyRows }), settled: async () => undefined } as unknown as GatewayClient;
+      const session = new ChatSession({
+        client,
+        deviceId: "dev-mac",
+        storedSessionId: "gone-1",
+        dispatch: (a) => actions.push(a),
+        onStored: (id) => stored.push(id),
+        socketFactory: (url) => new HermesSocket({ url, factory: () => (ws = new FakeWebSocket()) }),
+      });
+      session.start();
+      await tick();
+      ws.receive({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready", payload: {} } });
+      ws.receive({ jsonrpc: "2.0", id: ws.last("client.capabilities")!.id, result: { server_requests: ["approval"] } });
+      await tick();
+      ws.receive({ jsonrpc: "2.0", id: ws.last("session.resume")!.id, error: { code: 4007, message: "session not found" } });
+      await tick();
+      return { ws, actions, stored, session };
+    }
+
+    it("recreates an empty conversation silently and replaces its id", async () => {
+      const { ws, actions, stored, session } = await open([]);
+      const create = ws.last("session.create");
+      expect(create).toBeDefined();
+      ws.receive({ jsonrpc: "2.0", id: create!.id, result: { session_id: "live-new", stored_session_id: "fresh-1" } });
+      await tick();
+      expect(stored).toEqual(["fresh-1"]);
+      expect(actions.some((a) => a.type === "notice" && (a as { terminal?: boolean }).terminal)).toBe(false);
+      session.dispose();
+    });
+
+    it("keeps a conversation with history terminal (HR-SESS-001), never recreating it", async () => {
+      const { ws, actions, stored, session } = await open([{ id: 1, role: "user", content: "hi", timestamp: 1 }]);
+      expect(ws.last("session.create")).toBeUndefined();
+      expect(stored).toEqual([]);
+      expect(actions.some((a) => a.type === "notice" && (a as { terminal?: boolean }).terminal)).toBe(true);
+      session.dispose();
+    });
   });
 });
