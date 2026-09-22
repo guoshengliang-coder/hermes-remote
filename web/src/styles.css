@@ -2294,10 +2294,6 @@ button:disabled {
   }
 }
 
-.topbar {
-  position: relative;
-}
-
 .greeting {
   margin: 24vh 0 0;
   display: flex;
