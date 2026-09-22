@@ -12,6 +12,16 @@ is the inventory of what we consume, and the checklist to run before adopting a 
 legitimately changes one of them, update the code, that test, and the version recorded here in the
 same change.
 
+**Consumers.** Two clients now speak this contract: the Android app (the reference implementation
+cited throughout) and, since 2026-09-21, the browser Web app in `web/` (`web/src/hermes/`, ported
+from the Android DTOs, RPC framing, server-request handling, `MEDIA:` parsing and search quoting).
+The Web app uses a subset: the REST routes and RPC methods on the Gateway's browser allowlists
+(`docs/ACCOUNT_MODE_API.md` §8) — nothing outside `HERMES_REST_CONTRACT` and
+`docs/hermes-rpc-params.json`. Its unit tests check every RPC param it can emit against that params
+file. A surface change here therefore needs both clients addressed in the same change, and the Web
+app's allowlists in the Gateway (`gateway/src/account/web-device-access.ts`,
+`web-rpc-filter.ts`) when it adds a route or method.
+
 ## Adapted upstream version
 
 | Field | Value |
@@ -407,6 +417,14 @@ per card from what actually arrives, never from a version guess (`ServerRequests
 | After a reconnect | not replayed to this app | `session.resume` returns `open_requests: [{id, method, params}]` (omitted when empty); a batch's params carry the locked `answers`; server-request cards not listed are dropped |
 | Several approvals open at once | one card; the newest replaces the older | queued by id, shown oldest first |
 
+**Which clarify answer path a card takes is decided by the question id, not by how many questions
+there are.** A question that carries a non-empty `qid` is locked with `clarify.lock`, even when
+`questions[]` has a single element; only a card without a `qid` answers with
+`request.answer {answer}`. Answering a one-element batch that way would send no `answers` key, which
+upstream reads as cancel-all. Android (`ChatRepository.kt`) and the Web app (`web/src/hermes/requests.ts`)
+both follow this rule. Several open approvals are queued in arrival order, deduplicated by id; the
+`srq-` ids are random hex, so "oldest first" means arrival order, not id order.
+
 Load-bearing facts, all from the 17b5df02 source:
 
 - **Nothing is asked unless the connection says it can answer.** A WebSocket client must send
@@ -798,6 +816,8 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
 
 1. `cd android && ./gradlew :app:testDebugUnitTest --tests "*HermesContractTest*"` — the mechanical
    pins. A failure here names the exact surface that moved.
+1a. `cd web && npm test` — the Web app's parser, RPC-params and server-request tests, the browser
+   client's equivalent of the Android pins.
 1b. **Run the Connector contract check against the new Hermes before adopting it**: save its schema
    (`curl -s http://127.0.0.1:9119/openapi.json`, read-only) over
    `connector/fixtures/hermes-openapi/hermes-<version>-complete.json` (keep paths and methods only,

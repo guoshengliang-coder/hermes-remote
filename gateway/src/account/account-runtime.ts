@@ -33,6 +33,7 @@ import {
   type AccountAccessRevocationListener,
 } from "./postgres-access-revocation-bus.js";
 import { WebSessionSecurity } from "./web-session-security.js";
+import { WebDeviceAccess } from "./web-device-access.js";
 import { TokenCodec } from "./token-codec.js";
 import type { AccountPrincipal } from "./model.js";
 import type { AccountDevice, BindingProofMaterial, BindingState } from "./account-control-model.js";
@@ -85,6 +86,7 @@ export interface AccountGatewayControl {
     field: "delivered" | "read",
   ): Promise<number>;
   subscribeAccessRevocations?(listener: AccountAccessRevocationListener): () => void;
+  webDeviceAccess?: WebDeviceAccess;
 }
 
 export interface AccountRuntime {
@@ -99,6 +101,7 @@ export interface AccountRuntime {
   accountDeletionEnabled: boolean;
   webAccountCenterEnabled: boolean;
   webSessionEnabled: boolean;
+  webDeviceAccessEnabled: boolean;
   multiDeviceEnabled: boolean;
   sharingEnabled: boolean;
   bindingEnabled: boolean;
@@ -127,6 +130,7 @@ export function createAccountRuntime(
       accountDeletionEnabled: false,
       webAccountCenterEnabled: false,
       webSessionEnabled: false,
+      webDeviceAccessEnabled: false,
       multiDeviceEnabled: false,
       sharingEnabled: false,
       bindingEnabled: false,
@@ -175,6 +179,11 @@ export function createAccountRuntime(
     false,
   );
   const webSessionEnabled = booleanFlag(environment, "ACCOUNT_WEB_SESSION_ENABLED", false);
+  const webDeviceAccessEnabled = booleanFlag(
+    environment,
+    "ACCOUNT_WEB_DEVICE_ACCESS_ENABLED",
+    false,
+  );
   const sharingEnabled = booleanFlag(environment, "ACCOUNT_DEVICE_SHARING_ENABLED", false);
   const desktopManagedInstallEnabled = booleanFlag(
     environment,
@@ -202,6 +211,12 @@ export function createAccountRuntime(
     throw new Error(
       "ACCOUNT_WEB_SESSION_ENABLED requires ACCOUNT_WEB_ACCOUNT_CENTER_ENABLED=1 "
       + "and ACCOUNT_EMAIL_OTP_ENABLED=1",
+    );
+  }
+  if (webDeviceAccessEnabled && (!webSessionEnabled || !controlEnabled)) {
+    throw new Error(
+      "ACCOUNT_WEB_DEVICE_ACCESS_ENABLED requires ACCOUNT_WEB_SESSION_ENABLED=1 "
+      + "and ACCOUNT_BINDING_ENABLED=1",
     );
   }
   if (multiDeviceEnabled && !controlEnabled) {
@@ -307,6 +322,7 @@ export function createAccountRuntime(
     pool,
     positiveInteger(environment, "MAX_ACCOUNT_LIFECYCLE_EVENTS", 10_000, 1_000_000),
     maxOwnedDevices,
+    webDeviceAccessEnabled,
   );
   const sharingRepository = sharingEnabled
     ? new PostgresAccountSharingRepository(pool)
@@ -326,6 +342,7 @@ export function createAccountRuntime(
     () => new Date(),
     maxOwnedDevices,
     sharingRepository,
+    webDeviceAccessEnabled,
   );
   const proofCoordinator = controlEnabled
     ? new ConnectorProofCoordinator(
@@ -334,6 +351,16 @@ export function createAccountRuntime(
         () => new Date(),
         positiveInteger(environment, "ACCOUNT_MAX_PENDING_CONNECTOR_PROOFS", 256, 4096),
       )
+    : undefined;
+  const webSessionSecurity = webSessionEnabled
+    ? new WebSessionSecurity(requireHttpsOrigin(environment, "ACCOUNT_WEB_ORIGIN"))
+    : undefined;
+  const webDeviceAccess = webDeviceAccessEnabled && webSessionSecurity
+    ? new WebDeviceAccess({
+        security: webSessionSecurity,
+        authenticate: (authorization) => service.authenticate(authorization),
+        isSessionLive: (principal) => service.isSessionLive(principal),
+      })
     : undefined;
   retention.start();
   return {
@@ -348,11 +375,10 @@ export function createAccountRuntime(
       accountDeletionEnabled,
       webAccountCenterEnabled,
       webSessionEnabled,
+      webDeviceAccessEnabled,
       ...(webSessionEnabled ? {
         googleWebClientId: webAudience,
-        webSessionSecurity: new WebSessionSecurity(
-          requireHttpsOrigin(environment, "ACCOUNT_WEB_ORIGIN"),
-        ),
+        webSessionSecurity,
       } : {}),
       multiDeviceEnabled,
       sharingEnabled,
@@ -370,6 +396,7 @@ export function createAccountRuntime(
     accountDeletionEnabled,
     webAccountCenterEnabled,
     webSessionEnabled,
+    webDeviceAccessEnabled,
     multiDeviceEnabled,
     sharingEnabled,
     bindingEnabled: controlEnabled,
@@ -419,6 +446,7 @@ export function createAccountRuntime(
             unsubscribeDatabase();
           };
         },
+        ...(webDeviceAccess ? { webDeviceAccess } : {}),
       },
     } : {}),
     readiness: () => checkDatabaseReadiness(pool, release),

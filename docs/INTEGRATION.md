@@ -11,14 +11,20 @@
 
 ## 表 1 · 子项目基线
 
-| | Android | Desktop | Cloud |
-|---|---|---|---|
-| 路径 | `android/**` | `desktop/**` | `gateway/**` `connector/**` `protocol/**` `ops/**` `release-server/**` `deploy/**` |
-| 发布物 | 签名 APK + 公共发布索引 | `.app` / `.dmg` | HK 主机上**运行中的服务** |
-| 版本真相源 | `android/app/build.gradle.kts` 的 `appVersionName` / `appVersionCode` | `desktop/Packaging/Info.plist` 的 `CFBundleShortVersionString` / `CFBundleVersion` | `gateway` `connector` `protocol` 三个 `package.json` 的 `version`，外加 `gateway/release-contract.json` |
-| 门禁 | `scripts/package-debug-apk.sh` → `scripts/publish-android-apk.sh` | `npm run desktop:assets:test` / `desktop:test` / `desktop:app`（需 macOS） | `npm run build && npm test`；生产变更走 R4 候选 → 切换 → 回滚状态机 |
-| 可回滚 | **否** —— Android 禁止覆盖降级，只能 roll-forward | 是，装回旧包 | 是，见 `release-contract.json` 的 `rollbackSupported` |
-| 细则文档 | `docs/APP_UPDATE.md`、`docs/SIGNING.md` | `docs/DESKTOP_PHASE0.md`、`docs/DESKTOP_TEST_PLAN.md` | `docs/DEPLOYMENT.md`、`docs/CLOUD_GATEWAY_R4_PLAN.md` |
+| | Android | Desktop | Cloud | Web |
+|---|---|---|---|---|
+| 路径 | `android/**` | `desktop/**` | `gateway/**` `connector/**` `protocol/**` `ops/**` `release-server/**` `deploy/**` | `web/**`（独立 npm 包，自带 lockfile，**不是**根 workspace） |
+| 发布物 | 签名 APK + 公共发布索引 | `.app` / `.dmg` | HK 主机上**运行中的服务** | `web/dist` 静态包，放到 HK 主机的 `WEB_APP_DIR`，由 Gateway 在 `/app/` 托管；**不进 Gateway 镜像** |
+| 版本真相源 | `android/app/build.gradle.kts` 的 `appVersionName` / `appVersionCode` | `desktop/Packaging/Info.plist` 的 `CFBundleShortVersionString` / `CFBundleVersion` | `gateway` `connector` `protocol` 三个 `package.json` 的 `version`，外加 `gateway/release-contract.json` | `web/package.json` 的 `version` |
+| 门禁 | `scripts/package-debug-apk.sh` → `scripts/publish-android-apk.sh` | `npm run desktop:assets:test` / `desktop:test` / `desktop:app`（需 macOS） | `npm run build && npm test`；生产变更走 R4 候选 → 切换 → 回滚状态机 | `cd web && npm ci && npm run typecheck && npm test && npm run build`；发布脚本（打包 → 上传版本目录 → 校验哈希 → 原子切换软链接）**尚未实现**，首次上线前补 |
+| 可回滚 | **否** —— Android 禁止覆盖降级，只能 roll-forward | 是，装回旧包 | 是，见 `release-contract.json` 的 `rollbackSupported` | 是，把 `current` 软链接切回上一版本目录，不重启 Gateway；Service Worker 对页面走网络优先，回滚随下次打开生效 |
+| 细则文档 | `docs/APP_UPDATE.md`、`docs/SIGNING.md` | `docs/DESKTOP_PHASE0.md`、`docs/DESKTOP_TEST_PLAN.md` | `docs/DEPLOYMENT.md`、`docs/CLOUD_GATEWAY_R4_PLAN.md` | `docs/ACCOUNT_MODE_API.md` §8（浏览器访问与托管）、`docs/ACCOUNT_MODE_SECURITY.md` §4、`docs/DESIGN.md` Web 章节 |
+
+Web 与 Cloud **解耦发布**：只改 `web/**` 只发 Web 包，Gateway 不动；只改 Gateway 不动 Web 目录。
+两边版本可以错开，Web 靠 `/v2/capabilities` 的 `accountAuth.webDeviceAccess` 判断 Gateway 是否支持，
+不支持时提示而不是报错。改了 Web 依赖的 Gateway 接口时按兼容顺序先发 Gateway、再发 Web。
+CI 的 `web` job 由 `web/**` 触发，也由 Web 直接调用的 Gateway 文件触发（见
+`scripts/ci/changed-components.mjs` 的 `WEB_CONTRACT_FILES`）。
 
 `scripts/` 与 `docs/` **按文件归属，不按目录** —— 它们是三边工具混放：
 
@@ -36,7 +42,7 @@
 | 触发条件 | 判定 | 要求 |
 |---|---|---|
 | 改动只落在一个子项目，且未触及下方契约面 | 🟢 **绿** | 直接合。只跑该子项目的门禁基线 |
-| 触及任一**契约面** | 🟡 **黄** | 同一分支内必须交代另外两侧：要么一起改，要么在提交信息里写明为何不需要改 |
+| 触及任一**契约面** | 🟡 **黄** | 同一分支内必须交代其他各侧（Android、Desktop、Web）：要么一起改，要么在提交信息里写明为何不需要改 |
 | 改动任一**版本真相源**，或 `gateway/release-contract.json` | 🔴 **红** | 只能由集成 agent 处理，进表 3 的版本闸与发布闸 |
 
 **契约面清单**（刻意保持在 5 条以内 —— 清单一长就处处黄灯，人会学会无视它；宁可漏一两条靠事故补）：
@@ -45,7 +51,7 @@
 |---|---|
 | `protocol/src/index.ts` | 线上协议本体，含 `PROTOCOL_VERSION` / `ACCOUNT_CONNECTOR_PROTOCOL_VERSION` |
 | `gateway/release-contract.json` | `minimumClients` / `protocolVersions` / `databaseSchemaVersion` |
-| `gateway/src/gateway-http-router.ts`、`gateway/src/account/*-http-controller.ts` | Android 与 Desktop 直接调用的 REST 面 |
+| `gateway/src/gateway-http-router.ts`、`gateway/src/account/*-http-controller.ts` | Android、Desktop 与 Web 直接调用的 REST 面 |
 | `android/app/src/main/java/com/hermes/client/data/network/Dtos.kt`、`HermesRestApi.kt` | 上述协议在 Kotlin 侧的**手抄镜像** |
 | `docs/ERROR_HANDLING.md` | `HR-*` 码表；已发布的码不可复用于其他条件 |
 

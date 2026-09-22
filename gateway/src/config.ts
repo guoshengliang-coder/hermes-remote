@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { parseGatewayLogLevel, type GatewayLogLevel } from "./gateway-log.js";
 
 export interface GatewayConfig {
@@ -27,6 +27,8 @@ export interface GatewayConfig {
   maxLifecycleEvents: number;
   /** GATEWAY_LOG_LEVEL: off | error | info (default) | debug. */
   logLevel: GatewayLogLevel;
+  /** Directory of the built Web app served at /app/, present only when WEB_APP_ENABLED=1. */
+  webAppDir?: string;
 }
 
 export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
@@ -37,6 +39,7 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
   }
 
   const internalStatusToken = optionalSecret(env, "INTERNAL_STATUS_TOKEN", 16);
+  const webAppDir = webAppDirectory(env);
   const controlHeartbeatIntervalMs = positiveIntEnv(env, "CONTROL_HEARTBEAT_INTERVAL_MS", 5_000, 300_000);
   const controlHeartbeatTimeoutMs = positiveIntEnv(env, "CONTROL_HEARTBEAT_TIMEOUT_MS", 15_000, 300_000);
   if (controlHeartbeatTimeoutMs <= controlHeartbeatIntervalMs) {
@@ -81,7 +84,19 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
     ),
     maxLifecycleEvents: positiveIntEnv(env, "MAX_LIFECYCLE_EVENTS", 10_000, 1_000_000),
     logLevel: parseGatewayLogLevel(env.GATEWAY_LOG_LEVEL),
+    ...(webAppDir ? { webAppDir } : {}),
   };
+}
+
+function webAppDirectory(env: NodeJS.ProcessEnv): string | undefined {
+  const enabled = env.WEB_APP_ENABLED;
+  if (enabled === undefined || enabled === "0") return undefined;
+  if (enabled !== "1") throw new Error("WEB_APP_ENABLED must be 0 or 1");
+  const dir = env.WEB_APP_DIR;
+  if (!dir || !isAbsolute(dir)) {
+    throw new Error("WEB_APP_DIR must be an absolute directory when WEB_APP_ENABLED=1");
+  }
+  return dir;
 }
 
 function optionalSecret(env: NodeJS.ProcessEnv, name: string, minimumLength: number): string | undefined {

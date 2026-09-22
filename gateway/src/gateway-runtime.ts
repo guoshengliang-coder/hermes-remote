@@ -19,6 +19,8 @@ import { LegacyControlSessionHandler } from "./legacy-control-session.js";
 import { LifecycleEventStore } from "./lifecycle-event-store.js";
 import { LifecycleMessageHandler } from "./lifecycle-message-handler.js";
 import { WebSocketTunnelBroker } from "./websocket-tunnel-broker.js";
+import { WebAppHost } from "./web-app-host.js";
+import { screenBrowserFrame } from "./account/web-rpc-filter.js";
 import { rejectUpgrade } from "./websocket-utils.js";
 import {
   loadServerReleaseManifest,
@@ -53,6 +55,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     lifecycleEventStoreFile,
     maxLifecycleEvents,
     logLevel,
+    webAppDir,
   } = loadGatewayConfig(environment);
   const log = createGatewayLogger(logLevel);
   const lifecycleEvents = new LifecycleEventStore(lifecycleEventStoreFile, maxLifecycleEvents, log);
@@ -159,8 +162,17 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     resolveAccountConnector: (authorization, deviceId) => (
       appWebSocketAuthorizer.resolveAccountConnector(authorization, deviceId)
     ),
+    resolveAccountConnectorFor: (principal, deviceId) => (
+      appWebSocketAuthorizer.connectorFor(principal, deviceId)
+    ),
     sendAccountError: sendAccountHttpError,
     tokensEqual: safeEqual,
+    ...(webAppDir ? {
+      webApp: new WebAppHost({
+        dir: webAppDir,
+        ...(environment.ACCOUNT_WEB_ORIGIN ? { webOrigin: environment.ACCOUNT_WEB_ORIGIN } : {}),
+      }),
+    } : {}),
     serverRelease: new ServerReleaseController({
       manifest: release,
       ...(internalStatusToken ? { internalStatusToken } : {}),
@@ -217,16 +229,27 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
       if (accountConnectorSessions) accountConnectorSessions.attach(socket, sourceIp);
     },
     openAppWebSocket: (socket, request, connector) => {
-      const authorization = connector.mode === "account"
+      const access = connector.mode === "account"
+        ? appWebSocketAuthorizer.consumeAccountAccess(request)
+        : undefined;
+      const webPrincipal = access?.webPrincipal;
+      const webDeviceAccess = accountRuntime.gatewayControl?.webDeviceAccess;
+      const authorization = connector.mode === "account" && !webPrincipal
         ? firstHeader(request, "authorization")
         : undefined;
       webSocketTunnels.open(
         socket,
         connector,
-        authorization
-          ? () => appWebSocketAuthorizer.resolveAccountConnector(authorization, connector.deviceId)
-          : undefined,
-        authorization ? appWebSocketAuthorizer.consumeAccountAccess(request) : undefined,
+        webPrincipal && webDeviceAccess
+          ? async () => {
+              await webDeviceAccess.revalidate(webPrincipal);
+              return appWebSocketAuthorizer.connectorFor(webPrincipal, connector.deviceId);
+            }
+          : authorization
+            ? () => appWebSocketAuthorizer.resolveAccountConnector(authorization, connector.deviceId)
+            : undefined,
+        access,
+        webPrincipal ? screenBrowserFrame : undefined,
       );
     },
     closeDependencies: async () => {

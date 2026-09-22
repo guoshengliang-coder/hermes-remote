@@ -938,3 +938,52 @@ diagnosed from the attached diagnostic logs; the parts below are the ones no JVM
 4. **Vendor spread.** The reporting phone (HONOR MBH-AN10, API 36) is not attached to the build
    host. The devices here are vivo V2166BA (SDK 33) and HONOR CLK-AN00 (SDK 34); neither reaches
    `targetSdk` 37. Name the device in any result rather than writing "verified on device".
+
+## Web app on iPhone (2026-09-21 branch claude/web-app)
+
+Local reproduction: `./scripts/dev/web-stack.sh up` (Postgres, mock Hermes, TLS Gateway on
+`https://localhost:18443`, account-mode Connector), then `./scripts/dev/web-stack.sh code` prints
+the email code for `dev@example.test`. `HR_WEB_STACK_LEGACY_PROTOCOL=1` switches the mock to the
+older approval/clarify events. Mock prompt prefixes pin one run: `!clarify-single`,
+`!clarify-multi`, `!clarify-batch`, `!quick`, `!media <absolute path>`; `!owned` and `!gone` make
+`prompt.submit` answer 4090 and 4007. The Connector runs its lifecycle observer against the mock's
+`session.active_list`, so a run left waiting on an approval raises `run.waiting` in the inbox.
+
+### Verified locally, 2026-09-22 (Playwright WebKit, iPhone 15 Pro viewport)
+
+Both protocols, end to end: sign-in, Mac auto-selection, list and search, a new chat streaming,
+tool rows, approval, single / multi-select / three-question batch clarify, interrupt, a `MEDIA:`
+image, an uploaded attachment, reconnect after going offline, history after reload, dark mode,
+sign-out clearing every cache. Also: a run left waiting puts its session under "需要你处理" with a
+foreground toast and a title count, and answering clears it; leaving and reopening a conversation
+brings its pending approval back from `open_requests`; `!owned` shows `HR-SESS-013` once with
+Retry; `!gone` shows `HR-SESS-001` once and disables the composer; the service worker registers
+with scope `/app/`; sending immediately after a reload succeeds (it failed about half the time
+before the boot-refresh fix). The login page also renders in iOS 26.5 Simulator Safari, light and
+dark. None of this replaces the device items below.
+
+### Still needs a real iPhone — none of this has been verified on a device
+
+Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
+simulator and Playwright WebKit do not exercise them faithfully. Record the iPhone model and iOS
+version with each result.
+
+1. **Add to Home Screen from Safari.** Share → Add to Home Screen. Expected: the launcher icon and
+   name are Hermes GO, and it opens standalone (no Safari chrome) at `/app/`.
+2. **Separate sign-in state in Safari and on the Home Screen.** iOS gives a Home Screen web app its
+   own cookie jar. Sign in inside Safari, then open the Home Screen app. Expected: the Home Screen
+   app asks for its own sign-in, and signing out of one leaves the other signed in.
+3. **Background, then foreground.** Open a running conversation in the Home Screen app, lock the
+   phone for more than 20 minutes (longer than the access token plus the Gateway's 5-minute grace),
+   then unlock. Expected: the app refreshes the session, reconnects the socket and resumes the
+   conversation without asking to sign in again. It should show at most a brief "reconnecting"
+   state and no `HR-AUTH-*` error.
+4. **iOS Chrome.** Repeat 1–3 in Chrome for iOS (its Add to Home Screen needs iOS 16.4+). Expected:
+   the same results as Safari.
+5. **Safe areas.** On a notched or Dynamic Island iPhone, in portrait and landscape, light and dark.
+   Expected: nothing sits under the island, the home indicator or the rounded corners, and the
+   composer stays above the home indicator while the keyboard is open.
+6. **Download from the Mac.** Tap a `MEDIA:` file that is not an image, such as `.html` or `.pdf`.
+   Expected: iOS offers to download or preview it. It never renders inside the app's origin.
+7. **Sign out on a shared device.** Sign out, then reopen the app offline. Expected: no conversation
+   content is shown from cache, only the sign-in page.

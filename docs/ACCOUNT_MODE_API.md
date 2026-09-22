@@ -158,6 +158,10 @@ Rules:
   native and Web deletion route is not found and clients must hide the action.
 - `webSessions: true` is emitted only while the separately gated HTTPS Cookie/CSRF contract is
   enabled. Its absence means `/account` may still be a static shell and must not handle credentials.
+- `webDeviceAccess: true` is emitted only while `ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=1` (which requires
+  Web sessions and binding): the Web app at `/app/` may then use §8's cookie device access. Its
+  absence means the Web app must show its "not available on this Gateway" state instead of calling
+  device routes.
 - `replacement=true` is advertised only when the independently gated binding surface is enabled and
   the replacement/unbind HTTP contract is available. The flag remains false in production while
   `ACCOUNT_BINDING_ENABLED=0`.
@@ -932,18 +936,67 @@ If both headers are present, Gateway rejects the request as ambiguous rather tha
 ### WebSocket `/api/ws`
 
 Account mode uses the Authorization header on the WebSocket upgrade. Tokens are forbidden in query
-strings. If a future platform cannot set an upgrade header, it must mint a short-lived, single-use,
-origin/path-bound ticket through an authenticated `/v2/ws-ticket`; provider tokens are never tickets.
+strings. The browser Web app, which cannot set an upgrade header, uses its session cookie instead
+(below); the earlier plan for a single-use `/v2/ws-ticket` is superseded and not implemented,
+because a same-origin upgrade already carries the HttpOnly cookie and the exact Origin check is what
+stops cross-site use. Provider tokens are never accepted in any form.
 
 The Gateway records request/tunnel ownership by account session and installation. Connector replies
 can return only to the exact owning tunnel/request, preserving the current request-owner invariant.
 Open account WebSockets are periodically revalidated and close if the session or active binding
 changes.
 
+### Browser Web app (`/app/`) cookie device access
+
+Behind `ACCOUNT_WEB_DEVICE_ACCESS_ENABLED`, the Gateway accepts the `__Host-hermes_go_access` cookie
+of a `browser/web` installation on:
+
+| Route | Rule |
+| --- | --- |
+| `GET/HEAD /v2/devices/{deviceId}/api/<allowlisted>` | `Sec-Fetch-Site: same-origin`, or the exact Origin when Fetch Metadata is absent |
+| `POST /v2/devices/{deviceId}/api/files/upload` | Exact Origin, same-origin Fetch Metadata when present, `X-Hermes-CSRF` matching the CSRF cookie |
+| `GET /v2/devices/{deviceId}/ws` | Exact Origin; no query string; no legacy token |
+| `GET /api/mobile/events`, `POST /api/mobile/events/{ack,read}` | Read/write rules above |
+
+Allowlisted REST paths: `/api/status`, `/api/hermes-remote/contract`, `/api/sessions`,
+`/api/sessions/search`, `/api/sessions/stats`, `/api/sessions/{id}`, `/api/sessions/{id}/messages`,
+`/api/profiles`, `/api/profiles/sessions`, `/api/files` (GET) and `/api/files/upload` (POST);
+`{id}` matches `[A-Za-z0-9_.:-]{1,128}`. Anything else answers `403 HR-WEB-001`. On the WebSocket
+only `client.capabilities`, `session.create`, `session.resume`, `prompt.submit`,
+`session.interrupt`, `image.attach`, `file.attach`, `request.answer`, `clarify.lock`,
+`approval.respond`, `clarify.respond` and method-less answers to server requests are forwarded;
+another method is answered in-band:
+
+```json
+{"jsonrpc":"2.0","id":7,"error":{"code":4403,"message":"HR-WEB-001 …","data":{"code":"HR-WEB-001"}}}
+```
+
+A request carrying both the cookie and `Authorization` is rejected (`400 HR-ACCOUNT-004`); a cookie
+session of any other installation kind fails `403 HR-AUTH-012`. Browser responses from the Mac carry
+`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
+`Cache-Control: private, no-store` and `Vary: Cookie`; `/api/files` is always
+`Content-Disposition: attachment` and keeps its type only for PNG/JPEG/GIF/WebP (otherwise
+`application/octet-stream`). An open browser WebSocket is revalidated every five seconds by session
+liveness (session and installation unrevoked, account active, live refresh token, last access token
+at most five minutes expired) instead of by the access token it opened with, and is still closed at
+once by the revocation bus. The Web app therefore refreshes proactively while open.
+
+### Web app hosting
+
+With `WEB_APP_ENABLED=1` and an absolute `WEB_APP_DIR`, the Gateway serves the built Web app at
+`/app/`: `/app` redirects to `/app/`; extensionless paths return `index.html` with `no-store` and a
+CSP without inline or external sources; `/app/assets/*` (content-hashed) are
+`public, max-age=31536000, immutable`; `sw.js`, `manifest.webmanifest` and JSON revalidate
+(`no-cache`, with `Service-Worker-Allowed: /app/`); traversal, dotfiles and symlinks out of the
+directory are 404. The directory is a separate artifact from the Gateway image, so a Web release
+swaps it on the host without rebuilding or restarting the Gateway.
+
 ### Relay-owned lifecycle endpoints
 
 `/api/mobile/events`, delivery acknowledgement, and notification read state resolve the phone
-installation from the account session. Each installation has an independent delivery cursor. Local
+installation from the account session. With Web device access enabled they also serve `browser/web`
+installations that hold a live session; those receive receipts for events that arrive while they
+do. Each installation has an independent delivery cursor. Local
 visual read/unread state remains device-local in V1.
 
 Account events are persisted separately from the legacy JSON inbox. Connector acknowledgement is

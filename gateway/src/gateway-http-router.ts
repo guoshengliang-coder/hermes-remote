@@ -1,12 +1,18 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AccountGatewayControl } from "./account/account-runtime.js";
-import { accountErrors } from "./account/model.js";
+import { accountErrors, type AccountPrincipal } from "./account/model.js";
+import {
+  browserResponseHeaders,
+  browserRouteAllowed,
+  type WebDeviceAccess,
+} from "./account/web-device-access.js";
 import type { ConnectorRegistry } from "./connector-registry.js";
 import type { HttpTunnelBroker } from "./http-tunnel-broker.js";
 import { firstHeader, sendHttpError } from "./http-utils.js";
 import type { LifecycleEventStore } from "./lifecycle-event-store.js";
 import { handleAccountMobileEvents, handleLegacyMobileEvents } from "./mobile-event-handler.js";
 import type { ServerReleaseController } from "./server-release.js";
+import type { WebAppHost } from "./web-app-host.js";
 import { RESEND_WEBHOOK_PATH } from "./account/resend-webhook-controller.js";
 
 interface HttpConnector {
@@ -34,9 +40,11 @@ interface GatewayHttpRouterOptions<TConnector extends HttpConnector> {
   lifecycleEvents: LifecycleEventStore;
   httpTunnels: HttpTunnelBroker;
   resolveAccountConnector(authorization: string, deviceId?: string): Promise<TConnector>;
+  resolveAccountConnectorFor(principal: AccountPrincipal, deviceId?: string): Promise<TConnector>;
   sendAccountError(response: ServerResponse, error: unknown): void;
   tokensEqual(actual: string, expected: string): boolean;
   serverRelease: ServerReleaseController;
+  webApp?: WebAppHost;
 }
 
 export class GatewayHttpRouter<TConnector extends HttpConnector> {
@@ -45,6 +53,10 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
   async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     if (await this.options.serverRelease.handle(request, response, url)) return;
+    if (this.options.webApp?.handles(url)) {
+      await this.options.webApp.handle(request, response, url);
+      return;
+    }
     if (url.pathname === RESEND_WEBHOOK_PATH && this.options.resendWebhook) {
       await this.options.resendWebhook.handle(request, response);
       return;
@@ -54,6 +66,19 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
       deviceApiRoute = accountDeviceApiRoute(url);
     } catch (error) {
       this.options.sendAccountError(response, error);
+      return;
+    }
+    const webDeviceAccess = this.options.accountControl?.webDeviceAccess;
+    const webCookie = webDeviceAccess?.presents(request) ?? false;
+    if (webCookie && firstHeader(request, "authorization")
+        && (deviceApiRoute || url.pathname.startsWith("/api/"))) {
+      this.options.sendAccountError(response, accountErrors.invalidRequest(
+        "Account authorization and a Web session cookie cannot be used together.",
+      ));
+      return;
+    }
+    if (deviceApiRoute && webDeviceAccess && webCookie) {
+      await this.forwardBrowser(request, response, deviceApiRoute, webDeviceAccess);
       return;
     }
     if (deviceApiRoute) {
@@ -104,6 +129,19 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
 
     const authorization = firstHeader(request, "authorization");
     const legacyToken = firstHeader(request, "x-hermes-session-token");
+    if (!authorization && !legacyToken && webDeviceAccess && webCookie
+        && url.pathname.startsWith("/api/mobile/events")) {
+      await handleAccountMobileEvents(
+        request,
+        response,
+        url,
+        () => webDeviceAccess.authenticateRequest(request),
+        this.options.accountControl,
+        this.options.maxBodyBytes,
+        this.options.sendAccountError,
+      );
+      return;
+    }
     let connector: TConnector;
     if (authorization) {
       if (legacyToken) {
@@ -117,7 +155,7 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
           request,
           response,
           url,
-          authorization,
+          (control) => control.authenticate(authorization),
           this.options.accountControl,
           this.options.maxBodyBytes,
           this.options.sendAccountError,
@@ -159,6 +197,32 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
     }
 
     await this.options.httpTunnels.forward(request, response, url, connector);
+  }
+
+  private async forwardBrowser(
+    request: IncomingMessage,
+    response: ServerResponse,
+    route: { deviceId: string; targetUrl: URL },
+    webDeviceAccess: WebDeviceAccess,
+  ): Promise<void> {
+    try {
+      if (firstHeader(request, "x-hermes-session-token")) {
+        throw accountErrors.invalidRequest("Device-scoped routes require account authorization only.");
+      }
+      const principal = await webDeviceAccess.authenticateRequest(request);
+      const apiPath = route.targetUrl.pathname;
+      if (!browserRouteAllowed(request.method, apiPath)) throw accountErrors.webRouteUnavailable();
+      const connector = await this.options.resolveAccountConnectorFor(principal, route.deviceId);
+      await this.options.httpTunnels.forward(
+        request,
+        response,
+        route.targetUrl,
+        connector,
+        (headers) => browserResponseHeaders(apiPath, headers),
+      );
+    } catch (error) {
+      this.options.sendAccountError(response, error);
+    }
   }
 }
 

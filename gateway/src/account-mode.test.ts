@@ -1293,6 +1293,10 @@ class FakeAccountRepository implements AccountRepository {
     return this.rotationResult;
   }
 
+  async isSessionLive(_sessionId: string, _installationId: string): Promise<boolean> {
+    return false;
+  }
+
   async authenticateAccessToken(_accessTokenHash: string): Promise<AccessAuthenticationResult> {
     return this.accessResult;
   }

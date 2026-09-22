@@ -206,6 +206,10 @@ export class AccountService {
     }
   }
 
+  isSessionLive(principal: AccountPrincipal): Promise<boolean> {
+    return this.repository.isSessionLive(principal.sessionId, principal.installation.id);
+  }
+
   /**
    * Sign-out when the access token can no longer identify the session (expired, or the cookie is
    * gone) but the refresh credential still can. Unknown credentials are ignored: the caller is

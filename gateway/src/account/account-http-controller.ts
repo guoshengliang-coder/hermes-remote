@@ -34,6 +34,7 @@ export interface AccountCapabilities {
     accountDeletion?: true;
     webAccountCenter: boolean;
     webSessions?: true;
+    webDeviceAccess?: true;
   };
   binding: {
     enabled: boolean;
@@ -77,6 +78,7 @@ export class AccountHttpController {
       accountDeletionEnabled?: boolean;
       webAccountCenterEnabled?: boolean;
       webSessionEnabled?: boolean;
+      webDeviceAccessEnabled?: boolean;
       webSessionSecurity?: WebSessionSecurity;
       googleWebClientId?: string;
       multiDeviceEnabled?: boolean;
@@ -101,6 +103,7 @@ export class AccountHttpController {
           Boolean(this.options.accountDeletionEnabled),
           Boolean(this.options.webAccountCenterEnabled),
           Boolean(this.options.webSessionEnabled),
+          Boolean(this.options.webDeviceAccessEnabled),
           Boolean(this.options.multiDeviceEnabled),
           Boolean(this.options.sharingEnabled),
           Boolean(this.options.desktopManagedInstallEnabled),
@@ -1235,6 +1238,7 @@ function capabilities(
   accountDeletionEnabled: boolean,
   webAccountCenterEnabled: boolean,
   webSessionEnabled: boolean,
+  webDeviceAccessEnabled: boolean,
   multiDeviceEnabled: boolean,
   sharingEnabled: boolean,
   desktopManagedInstallEnabled: boolean,
@@ -1255,6 +1259,9 @@ function capabilities(
       ...(enabled && accountDeletionEnabled ? { accountDeletion: true as const } : {}),
       webAccountCenter: enabled && webAccountCenterEnabled,
       ...(enabled && webSessionEnabled ? { webSessions: true as const } : {}),
+      ...(enabled && webSessionEnabled && webDeviceAccessEnabled
+        ? { webDeviceAccess: true as const }
+        : {}),
     },
     binding: {
       enabled: enabled && controlEnabled,

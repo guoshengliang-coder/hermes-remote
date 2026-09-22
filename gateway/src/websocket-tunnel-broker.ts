@@ -34,6 +34,12 @@ type ResolveConnector<TConnector extends WebSocketConnector> = (
   routingKey: string,
 ) => TConnector | undefined;
 type RevalidateConnector<TConnector extends WebSocketConnector> = () => Promise<TConnector>;
+/** Decides per app frame whether it may reach Hermes (browser tunnels only). */
+export type ScreenAppFrame = (data: Buffer, isBinary: boolean) => {
+  forward: boolean;
+  replies: string[];
+  violation?: string;
+};
 
 export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
   private readonly tunnels = new Map<string, AppTunnel<TConnector>>();
@@ -60,6 +66,7 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
       installationId: string;
       sessionId: string;
     },
+    screenAppFrame?: ScreenAppFrame,
   ): void {
     const revalidate = revalidateConnector
       ? () => {
@@ -109,6 +116,15 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
         return;
       }
       const buffer = rawDataToBuffer(data);
+      if (screenAppFrame) {
+        const screen = screenAppFrame(buffer, isBinary);
+        if (screen.violation) {
+          socket.close(1008, screen.violation);
+          return;
+        }
+        for (const reply of screen.replies) socket.send(reply);
+        if (!screen.forward) return;
+      }
       const tunnel = this.tunnels.get(id);
       if (tunnel) {
         tunnel.framesFromApp += 1;

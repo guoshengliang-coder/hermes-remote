@@ -478,6 +478,33 @@ export class PostgresAccountRepository implements AccountRepository {
     });
   }
 
+  async isSessionLive(sessionId: string, installationId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1
+         FROM account_sessions s
+         JOIN accounts a ON a.id = s.account_id
+         JOIN installations i ON i.id = s.installation_id
+        WHERE s.id = $1
+          AND s.installation_id = $2
+          AND s.revoked_at IS NULL
+          AND i.revoked_at IS NULL
+          AND a.status = 'active'
+          -- Only a session its browser keeps refreshing: an abandoned or signed-out-while-expired
+          -- tab loses its socket within minutes of its last access token, as bearer sockets do.
+          AND s.access_expires_at > now() - interval '5 minutes'
+          AND EXISTS (
+            SELECT 1 FROM refresh_tokens r
+             WHERE r.family_id = s.refresh_family_id
+               AND r.session_id = s.id
+               AND r.used_at IS NULL
+               AND r.revoked_at IS NULL
+               AND r.expires_at > now()
+          )`,
+      [sessionId, installationId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async createReauthenticationGrant(
     accountId: string,
     installationId: string,

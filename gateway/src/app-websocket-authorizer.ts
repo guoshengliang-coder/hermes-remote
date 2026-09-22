@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import { WebSocket } from "ws";
 import type { AccountGatewayControl } from "./account/account-runtime.js";
-import { AccountModeError, accountErrors } from "./account/model.js";
+import { AccountModeError, accountErrors, type AccountPrincipal } from "./account/model.js";
 import type { ConnectorRegistry } from "./connector-registry.js";
 import type { GatewayPeer } from "./gateway-peer.js";
 import { firstHeader } from "./http-utils.js";
@@ -14,13 +14,18 @@ interface AppWebSocketAuthorizerOptions {
   tokensEqual(actual: string, expected: string): boolean;
 }
 
+export interface AccountWebSocketAccess {
+  accountId: string;
+  bindingId: string;
+  installationId: string;
+  sessionId: string;
+  // Set when the upgrade was authorized by the Web app's session cookie rather than a bearer
+  // header; the tunnel is then revalidated by session instead of by that one access token.
+  webPrincipal?: AccountPrincipal;
+}
+
 export class AppWebSocketAuthorizer {
-  private readonly accountAccess = new WeakMap<IncomingMessage, {
-    accountId: string;
-    bindingId: string;
-    installationId: string;
-    sessionId: string;
-  }>();
+  private readonly accountAccess = new WeakMap<IncomingMessage, AccountWebSocketAccess>();
 
   constructor(private readonly options: AppWebSocketAuthorizerOptions) {}
 
@@ -28,6 +33,13 @@ export class AppWebSocketAuthorizer {
     const authorization = firstHeader(request, "authorization");
     const headerLegacyToken = firstHeader(request, "x-hermes-session-token");
     const queryLegacyToken = url.searchParams.get("token");
+    const web = this.options.accountControl?.webDeviceAccess;
+    const webCookie = web?.presents(request) ?? false;
+    if (authorization && webCookie) {
+      throw accountErrors.invalidRequest(
+        "Account authorization and a Web session cookie cannot be used together.",
+      );
+    }
     if (authorization) {
       if (headerLegacyToken || queryLegacyToken || url.searchParams.has("device_id")) {
         throw accountErrors.invalidRequest(
@@ -41,7 +53,19 @@ export class AppWebSocketAuthorizer {
       );
     }
 
-    if (accountWebSocketDeviceId(url.pathname)) {
+    const accountDeviceId = accountWebSocketDeviceId(url.pathname);
+    if (accountDeviceId && web && webCookie) {
+      // The cookie is the only credential here; a query string could only carry a token that
+      // would end up in logs, so none is accepted.
+      if (headerLegacyToken || url.search) {
+        throw accountErrors.invalidRequest(
+          "Web WebSockets cannot include legacy credentials or query parameters.",
+        );
+      }
+      const principal = await web.authenticateUpgrade(request);
+      return this.connectorFor(principal, accountDeviceId, request, true);
+    }
+    if (accountDeviceId) {
       throw accountErrors.sessionExpired();
     }
 
@@ -71,6 +95,17 @@ export class AppWebSocketAuthorizer {
     const control = this.options.accountControl;
     if (!control) throw accountErrors.featureDisabled();
     const principal = await control.authenticate(authorization);
+    return this.connectorFor(principal, deviceId, request, false);
+  }
+
+  async connectorFor(
+    principal: AccountPrincipal,
+    deviceId?: string,
+    request?: IncomingMessage,
+    web = false,
+  ): Promise<GatewayPeer> {
+    const control = this.options.accountControl;
+    if (!control) throw accountErrors.featureDisabled();
     const binding = await control.resolveDevice(principal, deviceId);
     const connector = this.options.connectorRegistry.getAccount(binding.id);
     if (!connector
@@ -87,17 +122,13 @@ export class AppWebSocketAuthorizer {
         bindingId: binding.id,
         installationId: principal.installation.id,
         sessionId: principal.sessionId,
+        ...(web ? { webPrincipal: principal } : {}),
       });
     }
     return connector;
   }
 
-  consumeAccountAccess(request: IncomingMessage): {
-    accountId: string;
-    bindingId: string;
-    installationId: string;
-    sessionId: string;
-  } | undefined {
+  consumeAccountAccess(request: IncomingMessage): AccountWebSocketAccess | undefined {
     const access = this.accountAccess.get(request);
     this.accountAccess.delete(request);
     return access;

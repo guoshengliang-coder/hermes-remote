@@ -13,6 +13,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const CSRF_PATTERN = /^hgc_[A-Za-z0-9_-]{43}$/;
 const ACCESS_PATTERN = /^hga_[A-Za-z0-9_-]{43}$/;
 const REFRESH_PATTERN = /^hgr_[A-Za-z0-9_-]{43}$/;
+const ACCESS_COOKIE_PROBE = new RegExp(`(?:^|;)\\s*${WEB_COOKIE_NAMES.access}=`);
 
 export interface WebBootstrapState {
   installationId: string;
@@ -21,7 +22,7 @@ export interface WebBootstrapState {
 }
 
 export class WebSessionSecurity {
-  constructor(private readonly origin: string) {}
+  constructor(readonly origin: string) {}
 
   bootstrap(request: IncomingMessage): WebBootstrapState {
     const cookies = parseCookies(request.headers.cookie);
@@ -57,6 +58,13 @@ export class WebSessionSecurity {
     const access = valid(parseCookies(request.headers.cookie).get(WEB_COOKIE_NAMES.access), ACCESS_PATTERN);
     if (!access) throw accountErrors.sessionExpired();
     return `Bearer ${access}`;
+  }
+
+  // A loose probe by name only: a malformed header that merely contains the name still takes the
+  // Web path (where parsing rejects it), while unrelated junk cookies never divert a native request.
+  hasAccessCookie(request: IncomingMessage): boolean {
+    const raw = request.headers.cookie;
+    return typeof raw === "string" && ACCESS_COOKIE_PROBE.test(raw);
   }
 
   refreshTokenIfPresent(request: IncomingMessage): string | undefined {

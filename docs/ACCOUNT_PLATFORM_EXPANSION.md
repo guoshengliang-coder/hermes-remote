@@ -257,7 +257,8 @@ when relevant ownership, grant, session, or binding state changes.
 ## 5. Web account center
 
 The Web account center is delivered before Android adopts the expansion. It manages account-level
-state only and is not a web replacement for the Hermes client.
+state only and is not a web replacement for the Hermes client — that role now belongs to the
+separate Web app below.
 
 Initial scope:
 
@@ -273,6 +274,26 @@ Web sessions use Secure, HttpOnly, SameSite cookies, CSRF protection for mutatio
 lifetimes, rotating refresh credentials, and the same recent-authentication rules as native clients.
 No Hermes credential, provider API key, prompt, model output, or local file path is stored in the Web
 application.
+
+### 5.1 Web app (Hermes client in the browser, decided 2026-09-21)
+
+The original scope above kept every browser out of Hermes (no reason was recorded when it was
+written in `0699f14`). The owner has since decided that a light browser client should exist, mainly
+for iPhone (Safari or iOS Chrome, added to the home screen) and for desktop browsers, while the native
+Android app stays the primary client.
+
+- Delivered as a same-origin PWA at `/app/`, hosted by the Gateway from a separately shipped static
+  directory (`WEB_APP_DIR`); it uses the same browser session as the account center.
+- Main path only: sign in, choose a Mac, session list and search, chat with streaming, tool output,
+  interrupt, approvals and questions (both Hermes protocols), attachments and `MEDIA:` artefacts,
+  foreground notifications from the lifecycle inbox.
+- Not in the Web app: configuration pages (environment, skills, MCP, messaging channels, scheduled
+  task editing, model management), Web Push, offline chat history, and using a Mac shared by another
+  account. The Gateway enforces the configuration boundary with a REST route allowlist and a
+  WebSocket method allowlist (`HR-WEB-001`), see `docs/ACCOUNT_MODE_SECURITY.md` §4.
+- The privacy rule above is unchanged: prompts, output and files pass through the page transiently,
+  exactly as on the phone, and are never stored in the account database, audit log or Web storage;
+  the service worker caches only the app shell and session-list metadata.
 
 ## 6. Desktop clean-machine bootstrap
 

@@ -196,6 +196,9 @@ export interface AccountRepository {
     idempotency: IdempotencyMaterial,
   ): Promise<SessionRotationResult>;
   authenticateAccessToken(accessTokenHash: string): Promise<AccessAuthenticationResult>;
+  // Whether a session can still be used at all, independent of which access token it currently
+  // carries: long-lived browser WebSockets outlive the 15-minute access token they opened with.
+  isSessionLive(sessionId: string, installationId: string): Promise<boolean>;
   createReauthenticationGrant(
     accountId: string,
     installationId: string,
@@ -374,6 +377,13 @@ export const accountErrors = {
     "Email sign-in isn't enabled on this Gateway yet. Use another available method or the legacy connection.",
     false,
     "sign_in",
+  ),
+  webRouteUnavailable: () => new AccountModeError(
+    403,
+    "HR-WEB-001",
+    "This feature isn't available in the Hermes GO web app. Use the Android app instead.",
+    false,
+    "none",
   ),
   webRequestRejected: () => new AccountModeError(
     403,
