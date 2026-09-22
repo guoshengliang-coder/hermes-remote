@@ -46,6 +46,15 @@ The integration agent must treat successful PR checks as a manual merge gate: in
 reported for the PR, merge only after all have completed successfully, and verify the resulting
 `main` checks before handoff. Do not use auto-merge as a substitute for this gate.
 
+Run the gate with `node scripts/merge-when-green.mjs <PR>`, started as a background command, and act
+on its final line rather than polling checks yourself: it waits for every PR check, merges only the
+commit those checks ran on, waits for the resulting `main` push checks, and exits `0`
+(`MERGED_GREEN`), `1` (a PR check failed; nothing merged), `2` (merged, `main` failed), `3` (timeout)
+or `4` (refused). It refuses a red-light change from `docs/INTEGRATION.md` table 2 unless the
+integration agent passes `--allow-red`; `--no-merge` only waits and reports. Do not write
+`until gh pr checks …; sleep` loops — measured over Sep 12–22, 2026 they cost 14 agent-hours in
+1,100+ polls, each a model round-trip.
+
 This is a manual gate by circumstance, not by limitation. `main` does carry branch protection, and
 this repository is public, so required status checks and a merge queue are both available. But
 `enforce_admins` is off and every agent merges as the repository owner, so protection does not bind
