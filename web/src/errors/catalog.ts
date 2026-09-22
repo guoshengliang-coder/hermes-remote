@@ -95,6 +95,7 @@ export const CATALOG = {
   "HR-WEB-004": { zh: "服务器暂时不可用，请稍后重试。", en: "The server is temporarily unavailable. Try again shortly.", retryable: true, action: "retry" },
   "HR-WEB-005": { zh: "服务器返回了无法处理的响应，请刷新页面后重试。", en: "The server sent a response this page can't handle. Reload and try again.", retryable: false, action: "reload" },
   "HR-WEB-006": { zh: "附件不符合要求：每条消息最多 9 个，单个不超过 6 MB，且不能是空文件或可执行文件。", en: "This attachment isn't allowed: up to 9 per message, 6 MB each, and no empty or executable files.", retryable: false, action: "none" },
+  "HR-WEB-007": { zh: "无法复制到剪贴板，请长按文字手动选择复制。", en: "Couldn't copy to the clipboard. Press and hold the text to select and copy it.", retryable: false, action: "none" },
 } satisfies Record<string, CatalogEntry>;
 
 export type ErrorCode = keyof typeof CATALOG;

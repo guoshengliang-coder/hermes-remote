@@ -8,6 +8,7 @@ import {
   type WebSignInResponse,
 } from "./api/gateway";
 import { toAppError } from "./app/failures";
+import type { GroupId } from "./app/grouping";
 import { detectLanguage, translator } from "./app/i18n";
 import {
   applyLiveReport,
@@ -21,6 +22,7 @@ import {
   type LiveQuestionReport,
   type LiveSettled,
 } from "./app/inbox";
+import { clearAllPins, loadPins, pinToken, savePins, togglePin } from "./app/pins";
 import { currentRoute, navigate, useRoute, type Route } from "./app/router";
 import {
   AppContext,
@@ -28,8 +30,9 @@ import {
   readStoredDevice,
   writeStoredDevice,
   type AppContextValue,
+  type ProjectFilter,
 } from "./app/store";
-import { appError, type AppError } from "./errors";
+import { appError, display, type AppError } from "./errors";
 import type { LifecycleEvent, SessionListItem } from "./hermes/types";
 import { ChatPage } from "./ui/ChatPage";
 import { DevicePicker } from "./ui/DevicePicker";
@@ -84,6 +87,10 @@ export function App() {
     settled: new Map(),
   });
   const [toast, setToast] = useState<{ id: string; title: string; waiting: boolean } | null>(null);
+  const [pinVersion, setPinVersion] = useState(0);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<GroupId>>(new Set());
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter | null>(null);
+  const [flashMessage, setFlashMessage] = useState<{ id: number; text: string; error: boolean } | null>(null);
   /** Where the user was headed before sign-in / device choice (select-only, never an action). */
   const intended = useRef<Route>(currentRoute());
   const signingOut = useRef(false);
@@ -240,6 +247,9 @@ export function App() {
       await client.signOut().catch(() => undefined);
     } finally {
       await clearCaches();
+      clearAllPins();
+      setCollapsed(new Set());
+      setProjectFilter(null);
       writeStoredDevice(null);
       setAccount(null);
       setDevice(null);
@@ -272,8 +282,40 @@ export function App() {
     writeStoredDevice(chosen.deviceId);
     setDevice(chosen);
     setSessions([]);
+    setProjectFilter(null);
     setPhase({ name: "ready" });
   }
+
+  // Pins are read synchronously for the chosen Mac, so the list never paints a "no pins" frame first
+  // and then jumps (DESIGN §5.2, HG-11).
+  const deviceId = device?.deviceId ?? null;
+  const pins = useMemo(() => (deviceId ? loadPins(deviceId) : new Set<string>()), [deviceId, pinVersion]);
+  const isPinned = useCallback((session: SessionListItem) => pins.has(pinToken(session)), [pins]);
+  const togglePinFor = useCallback(
+    (session: SessionListItem) => {
+      if (!deviceId) return;
+      savePins(deviceId, togglePin(loadPins(deviceId), pinToken(session)));
+      setPinVersion((v) => v + 1);
+    },
+    [deviceId],
+  );
+  const toggleGroup = useCallback((id: GroupId) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+  const flashSeq = useRef(0);
+  const flash = useCallback((message: string | AppError) => {
+    const id = ++flashSeq.current;
+    setFlashMessage(typeof message === "string" ? { id, text: message, error: false } : { id, text: display(message, language), error: true });
+  }, []);
+  useEffect(() => {
+    if (!flashMessage) return;
+    const timer = setTimeout(() => setFlashMessage((m) => (m?.id === flashMessage.id ? null : m)), flashMessage.error ? 4000 : 1600);
+    return () => clearTimeout(timer);
+  }, [flashMessage]);
 
   const value: AppContextValue = {
     client,
@@ -289,6 +331,13 @@ export function App() {
     markSeen,
     sessions,
     setSessions,
+    isPinned,
+    togglePin: togglePinFor,
+    collapsed,
+    toggleGroup,
+    projectFilter,
+    setProjectFilter,
+    flash,
     signOut,
     authLost,
   };
@@ -352,6 +401,11 @@ export function App() {
                   {toast.waiting ? t(`「${toast.title}」需要你处理`, `"${toast.title}" needs you`) : t(`「${toast.title}」已完成`, `"${toast.title}" finished`)}
                 </span>
               </button>
+            ) : null}
+            {flashMessage ? (
+              <div class={`flash${flashMessage.error ? " error" : ""}`} role="status" key={flashMessage.id}>
+                {flashMessage.text}
+              </div>
             ) : null}
             {route.name === "chat" || route.name === "new" ? (
               <ChatPage sessionId={route.name === "chat" ? route.sessionId : null} />

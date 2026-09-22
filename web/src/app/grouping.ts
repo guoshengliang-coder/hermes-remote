@@ -3,12 +3,13 @@ import type { SessionListItem } from "../hermes/types";
 // Session list grouping (docs/DESIGN.md §5.2 `groupByRecency`): needs-you first, then rolling
 // windows in local time — today = [today 00:00, now]; yesterday = [yesterday 00:00, today 00:00),
 // where yesterday's midnight is a CALENDAR day (DST-safe); last 7 days = [today 00:00 − 7×24h,
-// yesterday 00:00); everything else, including rows without a timestamp, is older. The Web has no
-// pinning, so there is no pinned group.
+// yesterday 00:00); everything else, including rows without a timestamp, is older. Pinned rows
+// (this browser's pins, app/pins.ts) sit between needs-you and today; a pinned session that needs
+// you shows under needs-you, once.
 
-export type GroupId = "needs-you" | "today" | "yesterday" | "recent" | "older";
+export type GroupId = "needs-you" | "pinned" | "today" | "yesterday" | "recent" | "older";
 
-export const GROUP_ORDER: readonly GroupId[] = ["needs-you", "today", "yesterday", "recent", "older"];
+export const GROUP_ORDER: readonly GroupId[] = ["needs-you", "pinned", "today", "yesterday", "recent", "older"];
 
 export interface SessionGroup {
   id: GroupId;
@@ -36,7 +37,7 @@ export function lastActiveMs(session: Pick<SessionListItem, "last_active">): num
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? v * 1000 : null;
 }
 
-export function recencyGroup(ms: number | null, bounds: RecencyBounds): Exclude<GroupId, "needs-you"> {
+export function recencyGroup(ms: number | null, bounds: RecencyBounds): Exclude<GroupId, "needs-you" | "pinned"> {
   if (ms === null) return "older";
   if (ms >= bounds.todayStart) return "today";
   if (ms >= bounds.yesterdayStart) return "yesterday";
@@ -49,12 +50,17 @@ export function groupSessions(
   sessions: readonly SessionListItem[],
   needsYou: ReadonlySet<string>,
   nowMs: number,
+  isPinned: (session: SessionListItem) => boolean = () => false,
 ): SessionGroup[] {
   const bounds = recencyBounds(nowMs);
   const buckets = new Map<GroupId, SessionListItem[]>(GROUP_ORDER.map((id) => [id, []]));
   for (const session of sessions) {
     if (session.archived) continue;
-    const id = needsYou.has(session.id) ? "needs-you" : recencyGroup(lastActiveMs(session), bounds);
+    const id = needsYou.has(session.id)
+      ? "needs-you"
+      : isPinned(session)
+        ? "pinned"
+        : recencyGroup(lastActiveMs(session), bounds);
     buckets.get(id)!.push(session);
   }
   const byRecency = (a: SessionListItem, b: SessionListItem) => (lastActiveMs(b) ?? 0) - (lastActiveMs(a) ?? 0);

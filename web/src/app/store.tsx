@@ -1,8 +1,9 @@
 import { createContext } from "preact";
 import { useContext } from "preact/hooks";
 import type { AccountDevice, GatewayClient, PublicAccount } from "../api/gateway";
-import type { Language } from "../errors";
+import type { AppError, Language } from "../errors";
 import type { SessionListItem } from "../hermes/types";
+import type { GroupId } from "./grouping";
 import type { Translate } from "./i18n";
 import type { InboxState } from "./inbox";
 
@@ -10,6 +11,12 @@ import type { InboxState } from "./inbox";
 // the chosen Mac, the inbox view and the live "needs you" knowledge of open chats.
 
 export const DEVICE_STORAGE_KEY = "hermes-go.deviceId";
+
+/** The list narrowed to one derived project (app/projects.ts); `path: null` = sessions without a folder. */
+export interface ProjectFilter {
+  path: string | null;
+  label: string;
+}
 
 export interface AppContextValue {
   client: GatewayClient;
@@ -27,6 +34,16 @@ export interface AppContextValue {
   /** Last loaded list rows, for titles in the chat top bar. */
   sessions: SessionListItem[];
   setSessions: (rows: SessionListItem[]) => void;
+  /** This browser's pins for the chosen Mac (app/pins.ts). */
+  isPinned: (session: SessionListItem) => boolean;
+  togglePin: (session: SessionListItem) => void;
+  /** Collapsed list groups; kept while the app runs, never persisted (DESIGN §5.2). */
+  collapsed: ReadonlySet<GroupId>;
+  toggleGroup: (id: GroupId) => void;
+  projectFilter: ProjectFilter | null;
+  setProjectFilter: (filter: ProjectFilter | null) => void;
+  /** A short confirmation ("已复制") or a failure, shown briefly at the bottom of the screen. */
+  flash: (message: string | AppError) => void;
   signOut: () => Promise<void>;
   /** The socket or a request found the session revoked: go through a refresh, else sign-in. */
   authLost: () => void;

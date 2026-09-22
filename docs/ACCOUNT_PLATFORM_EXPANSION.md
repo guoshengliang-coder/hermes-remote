@@ -286,14 +286,17 @@ Android app stays the primary client.
   directory (`WEB_APP_DIR`); it uses the same browser session as the account center.
 - Main path only: sign in, choose a Mac, session list and search, chat with streaming, tool output,
   interrupt, approvals and questions (both Hermes protocols), attachments and `MEDIA:` artefacts,
-  foreground notifications from the lifecycle inbox.
+  foreground notifications from the lifecycle inbox; copy, a full-screen image viewer, pins kept in
+  the browser, and a read-only project filter derived from the session list.
 - Not in the Web app: configuration pages (environment, skills, MCP, messaging channels, scheduled
   task editing, model management), Web Push, offline chat history, and using a Mac shared by another
   account. The Gateway enforces the configuration boundary with a REST route allowlist and a
   WebSocket method allowlist (`HR-WEB-001`), see `docs/ACCOUNT_MODE_SECURITY.md` §4.
 - The privacy rule above is unchanged: prompts, output and files pass through the page transiently,
   exactly as on the phone, and are never stored in the account database, audit log or Web storage;
-  the service worker caches only the app shell and session-list metadata.
+  the service worker caches only the app shell and session-list metadata. `localStorage` keeps
+  identifiers only, never content: the chosen Mac and this browser's pinned session ids, both removed on
+  sign-out.
 
 ## 6. Desktop clean-machine bootstrap
 
