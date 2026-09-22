@@ -8,6 +8,13 @@ data class AccountCapabilitiesDto(
     val accountAuth: AccountAuthCapabilityDto = AccountAuthCapabilityDto(),
     val binding: AccountBindingCapabilityDto = AccountBindingCapabilityDto(),
     val legacy: AccountLegacyCapabilityDto = AccountLegacyCapabilityDto(),
+    /** Absent when the Gateway has no push provider configured; the phone then never registers. */
+    val push: AccountPushCapabilityDto? = null,
+)
+
+@Serializable
+data class AccountPushCapabilityDto(
+    val providers: List<String> = emptyList(),
 )
 
 @Serializable

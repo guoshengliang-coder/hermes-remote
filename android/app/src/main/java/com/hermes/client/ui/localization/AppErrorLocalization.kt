@@ -169,6 +169,12 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法解析会话内容，请更新 App。", "This conversation could not be read. Update the app.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->
             localized(language, "通知操作未能发送，请重试。", "The notification action couldn't be sent. Try again.")
+        AppErrorCode.PUSH_REGISTRATION_FAILED ->
+            localized(
+                language,
+                "实时推送注册失败，暂用定时同步，请重试。",
+                "Real-time push registration failed; using periodic sync for now. Retry.",
+            )
         AppErrorCode.FEEDBACK_UNAVAILABLE ->
             localized(language, "这个版本没有开启反馈功能。", "Feedback is not enabled in this build.")
         AppErrorCode.FEEDBACK_SUBMIT_FAILED ->

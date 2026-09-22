@@ -20,6 +20,9 @@ import {
   type ReauthenticationScope,
 } from "./model.js";
 
+import type { PushProviderName } from "./push/push-provider.js";
+import type { PushRegistrationStore } from "./push/push-registration-store.js";
+
 const MAX_ACCOUNT_BODY_BYTES = 32 * 1024;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -52,6 +55,9 @@ export interface AccountCapabilities {
   desktopBootstrap?: {
     runtimeContract: "hermes-serve-v1";
     componentManifestSchemaVersion?: 2;
+  };
+  push?: {
+    providers: PushProviderName[];
   };
   server?: {
     version: string;
@@ -86,6 +92,7 @@ export class AccountHttpController {
       desktopManagedInstallEnabled?: boolean;
       desktopComponentInstallEnabled?: boolean;
       sharingService?: AccountSharingService;
+      pushRegistration?: { store: PushRegistrationStore; providers: PushProviderName[] };
       serverRelease?: ServerReleaseManifest;
     } = {},
   ) {}
@@ -108,6 +115,7 @@ export class AccountHttpController {
           Boolean(this.options.sharingEnabled),
           Boolean(this.options.desktopManagedInstallEnabled),
           Boolean(this.options.desktopComponentInstallEnabled),
+          this.options.pushRegistration?.providers ?? [],
           this.options.serverRelease,
         ), {
           "cache-control": "public, max-age=60",
@@ -822,6 +830,39 @@ export class AccountHttpController {
         return;
       }
 
+      if (url.pathname === "/v2/installations/current/push-registration"
+          && (request.method === "PUT" || request.method === "DELETE")) {
+        this.requireControl();
+        const push = this.options.pushRegistration;
+        if (!push) throw accountErrors.resourceNotFound();
+        const principal = await this.service.authenticate(firstHeader(request, "authorization"));
+        if (principal.installation.kind !== "phone" || principal.installation.platform !== "android") {
+          throw accountErrors.invalidRequest("Push registration is available only to Android phones.");
+        }
+        if (request.method === "PUT") {
+          const body = await readJsonObject(request);
+          const provider = body.provider;
+          if (typeof provider !== "string" || !push.providers.includes(provider as PushProviderName)) {
+            throw accountErrors.invalidRequest("The push provider is not supported.");
+          }
+          const token = boundedString(body.token, "token", 1, 4096);
+          if (!/^[A-Za-z0-9:_.-]+$/.test(token)) {
+            throw accountErrors.invalidRequest("token contains unsupported characters.");
+          }
+          await push.store.upsert(
+            principal.account.id,
+            principal.installation.id,
+            provider as PushProviderName,
+            token,
+          );
+        } else {
+          await push.store.remove(principal.account.id, principal.installation.id);
+        }
+        response.writeHead(204, { "cache-control": "no-store" });
+        response.end();
+        return;
+      }
+
       const installationMatch = /^\/v2\/installations\/([0-9a-f-]{36})$/i.exec(url.pathname);
       if (installationMatch && request.method === "DELETE") {
         this.requireIdentityManagement();
@@ -1243,6 +1284,7 @@ function capabilities(
   sharingEnabled: boolean,
   desktopManagedInstallEnabled: boolean,
   desktopComponentInstallEnabled: boolean,
+  pushProviders: PushProviderName[],
   serverRelease?: ServerReleaseManifest,
 ): AccountCapabilities {
   return {
@@ -1289,6 +1331,9 @@ function capabilities(
           componentManifestSchemaVersion: 2 as const,
         } : {}),
       },
+    } : {}),
+    ...(enabled && controlEnabled && pushProviders.length > 0 ? {
+      push: { providers: pushProviders },
     } : {}),
     ...(serverRelease ? {
       server: {

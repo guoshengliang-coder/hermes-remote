@@ -78,6 +78,8 @@ ACCOUNT_WEB_ORIGIN=https://<gateway-domain>
 # ACCOUNT_GOOGLE_ANDROID_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-android-client-id
 # ACCOUNT_GOOGLE_MACOS_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-macos-client-id
 # ACCOUNT_GOOGLE_WEB_CLIENT_ID_FILE=/etc/hermes-remote/secrets/google-web-client-id
+# Optional push wake hints (HG-94); requires ACCOUNT_BINDING_ENABLED=1.
+# ACCOUNT_FCM_SERVICE_ACCOUNT_FILE=/etc/hermes-remote/secrets/fcm-service-account.json
 ACCOUNT_DATABASE_SSL=1
 ACCOUNT_DATABASE_POOL_SIZE=10
 ACCOUNT_DATABASE_CONNECT_TIMEOUT_MS=3000
@@ -96,12 +98,21 @@ SQL migrations are applied explicitly, in filename order, with
 `ACCOUNT_DATABASE_URL` or `_FILE` setting as the Gateway. Direct operator use must also provide a
 positive `ACCOUNT_DATABASE_MIGRATION_LOCK_ID`, the release's exact
 `ACCOUNT_DATABASE_SCHEMA_VERSION`, and its comma-separated `ACCOUNT_DATABASE_SUPPORTED_MAJORS`.
-The command first builds the versioned migration payload under `gateway/dist`; schema version `15`
+The command first builds the versioned migration payload under `gateway/dist`; schema version `16`
 is then recorded in `gateway_schema_state` for readiness checks. R4-F Cloud Ops supplies these values
 from the verified target release contract and executes the migrator from that immutable image under a
 PostgreSQL advisory lock. Gateway startup never mutates schema.
 Google proofs and Hermes GO bearer tokens must not be placed
 in these files or logs.
+
+`ACCOUNT_FCM_SERVICE_ACCOUNT_FILE` is optional and off when unset. It points at a Firebase
+service-account JSON key (mode `0600`, never in Git) whose only needed role is sending Firebase Cloud
+Messaging. With it, and with `ACCOUNT_BINDING_ENABLED=1`, the Gateway advertises
+`capabilities.push`, accepts phone push registrations and sends data-only wake hints
+(`docs/ARCHITECTURE.md`, "Push wake hints"). A malformed key stops startup; a key FCM later rejects
+only makes sends fail, logged without tokens, and phones fall back to their periodic inbox check. The
+production environment allowlist in `ops/lib/production-release-environment.mjs` does not yet carry
+this key: enabling push in production is a separate deployment change.
 
 `ACCOUNT_EMAIL_OTP_ENABLED` is an independent, default-off E1 flag and is effective only when
 `ACCOUNT_AUTH_ENABLED=1`. Enabling it additionally requires a separate OTP HMAC key, an exact HTTPS

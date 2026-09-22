@@ -249,6 +249,42 @@ missiongoSdkToken=<从 MissionGo 控制台取>
 整个应用任务退到桌面，而不是回到卡片页。应用进程仍在，重新点图标即恢复原状态。与本仓的调起代码无关
 （`ui/feedback/FeedbackEntry.kt` 只把宿主 Activity 交给 SDK），要修得在 SDK 侧。
 
+## 3b-2. 实时推送（FCM，HG-94）
+
+FCM 只是唤醒提示：手机收到后照旧按游标拉 Relay 收件箱，卡片仍由 `SessionRuntimeStore` 投影。
+构建是否带推送取决于 `android/local.properties`（已被忽略）里的四个值，缺任何一个都编译成空串、
+Firebase 不初始化、行为与之前完全一样：
+
+```properties
+hermes.fcm.apiKey=<Firebase 控制台 → 项目设置 → Android 应用>
+hermes.fcm.appId=<1:…:android:…>
+hermes.fcm.projectId=<项目 ID>
+hermes.fcm.senderId=<项目编号>
+```
+
+CI 走环境变量 `HERMES_FCM_API_KEY` / `HERMES_FCM_APP_ID` / `HERMES_FCM_PROJECT_ID` / `HERMES_FCM_SENDER_ID`。
+**不要提交、不要贴进聊天或日志**；不需要也不要放 `google-services.json`。
+
+**没有 Google 服务的手机（如 HONOR CLK-AN00）能验什么**：只能验回退。装包后打开「设置 → 通知」，
+「后台监控方式」下的「实时推送」行应显示「未配置」（包里没有 Firebase 值）或「本机无 Google 服务，
+使用定时同步」（有值但手机无 GMS）；不应出现 `HR-NOTIF-002`，也不应有任何崩溃。后台提醒仍由 15 分钟
+的系统定时检查和运行中的前台连接负责，按原有用例验证即可。
+
+**有 Google 服务的手机上验真实送达**（需要 Firebase 项目已建好）：
+
+1. 在 `android/local.properties` 写好上面四个值，重新构建安装（配置期读取，改完必须重建）。
+2. 服务端部署了 FCM 服务账号密钥并开启推送（配置见 `docs/ENVIRONMENT.md` 的 `ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`；生产开启是另一次部署变更），
+   `GET /v2/capabilities` 返回里有 `"push":{"providers":["fcm"]}`。
+3. 手机用账号模式登录，打开通知总开关。「实时推送」行应在几秒内变为「已启用」；
+   失败显示 `HR-NOTIF-002` + 「重试」，诊断日志 `[push]` 行给原因（永不含令牌）。
+4. 从 Mac 或另一台设备发起一次会跑一阵的任务，然后把 App 退到后台（不要划掉，也不要选「实时」
+   策略，否则前台服务的长连接会先送达，验不到推送）。
+5. 任务完成或需要审批时应在数秒内出现**同一张**会话卡，而不是等 15 分钟；诊断日志有
+   `[push] wake hint SYNCED`。飞行模式下收到的提示会走 `FOLDED_HINT`，卡片无标题、状态正确。
+6. 退出登录后再触发一次：不应再收到推送（服务端注册已删、本机令牌已作废）。
+
+每台 ROM 单独记结果：国产 ROM 的后台限制会拦截高优先级数据消息的处理，这正是需要逐台验证的地方。
+
 ## 3c. 验"杀掉 App 再冷启动"这一类
 
 有一类状态只有真的经历一次进程死亡才验得到（跨进程持久化、通知栏在进程死后剩下什么）。要点：

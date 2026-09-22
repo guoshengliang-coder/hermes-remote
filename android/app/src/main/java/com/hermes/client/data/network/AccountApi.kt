@@ -130,6 +130,42 @@ open class AccountApi(
         deleteNoContent(baseUrl, "/v2/installations/current", bearer, idempotencyKey)
     }
 
+    /**
+     * Upserts this phone installation's push token (HG-94). The token is a wake-up address only —
+     * the server sends a data-only hint and the phone still reads the durable Relay inbox.
+     * Idempotent server-side; the key is sent for parity with every other `/v2` mutation.
+     */
+    suspend fun putPushRegistration(
+        baseUrl: String,
+        bearer: String,
+        provider: String,
+        token: String,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+    ) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("provider", provider)
+            put("token", token)
+        }
+        val request = Request.Builder().url(url(baseUrl, PUSH_REGISTRATION_PATH))
+            .header("Authorization", "Bearer $bearer")
+            .header("Idempotency-Key", idempotencyKey)
+            .put(json.encodeToString(JsonObject.serializer(), body).toRequestBody(JSON_MEDIA))
+            .build()
+        call(request).execute().use { response ->
+            val responseBody = response.body.string()
+            if (!response.isSuccessful) throw accountError(response.code, responseBody)
+        }
+    }
+
+    /** Removes this installation's push registration. Idempotent: an absent one is still 204. */
+    suspend fun deletePushRegistration(
+        baseUrl: String,
+        bearer: String,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+    ) {
+        deleteNoContent(baseUrl, PUSH_REGISTRATION_PATH, bearer, idempotencyKey)
+    }
+
     suspend fun requestEmailReauthenticationChallenge(
         baseUrl: String,
         email: String,
@@ -257,5 +293,6 @@ open class AccountApi(
     private companion object {
         val JSON_MEDIA = "application/json".toMediaType()
         const val ACCOUNT_TIMEOUT_SECONDS = 20L
+        const val PUSH_REGISTRATION_PATH = "/v2/installations/current/push-registration"
     }
 }

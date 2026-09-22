@@ -42,12 +42,22 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedMessage
+import com.hermes.client.ui.theme.StatusTone
+import com.hermes.client.ui.theme.statusColor
+import com.hermes.client.notifications.push.PushRegistrationManager
+import com.hermes.client.notifications.push.PushStatus
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.heightIn
 
 @HiltViewModel
 class NotificationsViewModel @Inject constructor(
     private val settings: NotificationSettings,
     private val strategyStore: NotificationMonitoringStrategyStore,
+    private val push: PushRegistrationManager,
 ) : ViewModel() {
+    val pushStatus: StateFlow<PushStatus> = push.status
+
     val prefs: StateFlow<NotificationPrefs> =
         settings.prefs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotificationPrefs())
     val strategy: StateFlow<NotificationMonitoringStrategy> = strategyStore.strategy.stateIn(
@@ -62,6 +72,7 @@ class NotificationsViewModel @Inject constructor(
     fun setRunFailed(v: Boolean) = viewModelScope.launch { settings.setRunFailed(v) }
     fun setRunProgress(v: Boolean) = viewModelScope.launch { settings.setRunProgress(v) }
     fun setStrategy(v: NotificationMonitoringStrategy) = viewModelScope.launch { strategyStore.set(v) }
+    fun retryPush() = push.retry()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,6 +80,7 @@ class NotificationsViewModel @Inject constructor(
 fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltViewModel()) {
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val strategy by vm.strategy.collectAsStateWithLifecycle()
+    val pushStatus by vm.pushStatus.collectAsStateWithLifecycle()
     val language = LocalAppLanguage.current
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -175,6 +187,9 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                 selected = strategy == NotificationMonitoringStrategy.POWER_SAVING,
                 enabled = true,
             ) { vm.setStrategy(NotificationMonitoringStrategy.POWER_SAVING) }
+            // Read-only: push is not a fourth strategy, it only makes the chosen one react sooner
+            // (docs/DESIGN.md §5.10, HG-94).
+            PushStatusRow(pushStatus, onRetry = vm::retryPush)
             HorizontalDivider()
             ToggleRow(
                 localized(language, "审批与回答", "Approvals and questions"),
@@ -203,6 +218,48 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                 prefs.runProgress,
                 enabled = prefs.enabled,
             ) { vm.setRunProgress(it) }
+        }
+    }
+}
+
+/**
+ * The 实时推送 status row (docs/DESIGN.md §5.10). One value line, coloured only when it is good
+ * news or a failure; the failure carries HR-NOTIF-002 and the only action on the row, Retry.
+ */
+@Composable
+fun PushStatusRow(status: PushStatus, onRetry: () -> Unit) {
+    val language = LocalAppLanguage.current
+    val (value, tone) = when (status) {
+        PushStatus.Enabled -> localized(language, "已启用", "Enabled") to StatusTone.GOOD
+        PushStatus.NotConfigured, PushStatus.ServerUnsupported ->
+            localized(language, "未配置", "Not configured") to null
+        PushStatus.NoGooglePlayServices ->
+            localized(
+                language,
+                "本机无 Google 服务，使用定时同步",
+                "No Google Play services — using periodic sync",
+            ) to null
+        PushStatus.Inactive ->
+            localized(language, "未开启（需开启通知并登录账号）", "Off — needs notifications and an account sign-in") to null
+        PushStatus.Registering -> localized(language, "正在注册…", "Registering…") to null
+        is PushStatus.Failed -> status.error.localizedMessage(language) to StatusTone.BAD
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(localized(language, "实时推送", "Real-time push"), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                value,
+                style = MaterialTheme.typography.bodySmall,
+                color = tone?.let { statusColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (status is PushStatus.Failed && status.error.retryable) {
+            TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(localized(language, "重试", "Retry"))
+            }
         }
     }
 }

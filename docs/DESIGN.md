@@ -1927,6 +1927,19 @@ grant/挑战并要求重新获取验证码，不得清除仍有效的账号会�
   完全失去控制权——恰恰是最需要这个开关的那批人。其下四个按渠道的开关仍然跟随总开关禁用，
   因为它们确实只影响通知。
 
+- **「实时推送」状态行**（决策 2026-09-22，HG-94）：通知设置页「后台监控方式」三个选项之后、
+  按渠道开关之前放一行**只读**状态行（`PushStatusRow`，`ui/settings/NotificationsScreen.kt`）。
+  标题「实时推送 / Real-time push」，副行是一个状态值，不是开关，也不是第四种监控方式——推送
+  只让已选的方式更快地醒来，三种方式的语义和 15 分钟后台检查都不变。取值与颜色：
+  「已启用 / Enabled」（`StatusTone.GOOD`）；「未配置 / Not configured」（这个版本不带 Firebase
+  参数，或服务端未声明推送能力，`onSurfaceVariant`）；「本机无 Google 服务，使用定时同步 /
+  No Google Play services — using periodic sync」（如 HONOR/华为，`onSurfaceVariant`）；
+  「未开启（需开启通知并登录账号）/ Off — needs notifications and an account sign-in」（通知总开关
+  关闭或非账号模式）；「正在注册… / Registering…」；注册失败时副行是 `HR-NOTIF-002` 的本地化
+  文案（`StatusTone.BAD`），行尾一个「重试 / Retry」文字按钮——这是这一行**唯一**的可操作项。
+  「未配置」「无 Google 服务」都不是错误：不着红色、不出错误码、不给重试。FCM 令牌永不显示。
+  截图用例 `push-status-row-zh` / `-dark-zh` / `-en` 把五种状态叠在一帧里。
+
 - **后台连接卡的出现条件**（决策 2026-09-04，修正 2026-09-02 的隐含规则）：`service` 渠道那张
   MIN 静默卡跟随前台服务，而前台服务的开启条件是「这台手机负责的任务还在跑」——手机自己发起的，
   或当前正打开着其聊天页的。**它不再受通知总开关约束**：通知开关回答的是「能不能打扰我」，

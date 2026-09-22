@@ -103,6 +103,7 @@ test("Gateway config schema identifies the complete R2 environment contract", as
     "ACCOUNT_RESEND_API_KEY_FILE",
     "ACCOUNT_RESEND_WEBHOOK_SECRET_FILE",
     "ACCOUNT_EMAIL_FROM_FILE",
+    "ACCOUNT_FCM_SERVICE_ACCOUNT_FILE",
     "ACCOUNT_DATABASE_CONNECT_TIMEOUT_MS",
   ]) {
     assert.equal(name in schema.properties, true, `${name} is absent from config schema`);
