@@ -3,7 +3,18 @@
 Release discovery, two-component topology, signing-key rotation, and protected-environment setup
 are documented in [`../docs/DESKTOP_RELEASE_CHANNEL.md`](../docs/DESKTOP_RELEASE_CHANNEL.md).
 
-Current internal test release candidate: **0.2.25** (build 28). One change.
+Current internal test release candidate: **0.2.26** (build 29). Three changes (HG-97, HG-98,
+HG-99).
+
+Desktop release discovery now starts from stable, cache-disabled indexes while retaining strict
+Ed25519 verification of the immutable manifest they reference. Signed manifests no longer stop being
+usable merely because wall-clock time passed; their creation and expiry fields remain authenticated
+compatibility metadata. Release signing and upload are isolated behind the protected Desktop release
+environment, with paired release/component pointer switching and rollback. New component releases
+contain only the Node runtime and Connector; Desktop uses this Mac's standard Hermes installation and
+does not package Python, Hermes core, optional tools, patches, or a schema baseline.
+
+0.2.25 (build 28) had one change.
 
 Its pinned schema-v1 manifest moves from 0.3.9 to **0.3.10**
 (`https://mrlgs.net/desktop/releases/0.3.10/Hermes-Desktop-0.3.10-arm64.manifest.json`), which carries
