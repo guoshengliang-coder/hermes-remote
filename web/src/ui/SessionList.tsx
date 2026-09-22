@@ -16,6 +16,7 @@ import { ErrorNotice } from "./ErrorNotice";
 import { HealthStrip } from "./HealthStrip";
 import { ArchiveIcon, BotIcon, ChatIcon, CheckIcon, ChevronIcon, ChevronUpIcon, CloseIcon, FolderIcon, MoreIcon, PlusIcon, SearchIcon } from "./icons";
 import { SearchView } from "./SearchView";
+import { SessionActionSheet } from "./SessionActions";
 import { SessionRow } from "./SessionRow";
 
 // Session list (DESIGN §5.2 / §5.16 / §5.21, Android SessionsScreen): segments 会话 / 机器人 (only
@@ -74,6 +75,7 @@ export function SessionList() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [botFolded, setBotFolded] = useState<ReadonlySet<string>>(new Set());
   const [reveal, setReveal] = useState(0);
+  const [actionFor, setActionFor] = useState<SessionListItem | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const deviceId = device?.deviceId ?? null;
   const offline = device ? device.connector?.online === false : false;
@@ -297,7 +299,7 @@ export function SessionList() {
                   {folded
                     ? null
                     : section.sessions.map((s) => (
-                        <SessionRow key={s.id} session={s} now={now} pinned={app.isPinned(s)} bot={{ statusLine: botStatusLine(s, now, language) }} onOpen={() => open(s.id)} />
+                        <SessionRow key={s.id} session={s} now={now} pinned={app.isPinned(s)} bot={{ statusLine: botStatusLine(s, now, language) }} onOpen={() => open(s.id)} onLongPress={() => setActionFor(s)} />
                       ))}
                 </section>
               );
@@ -333,6 +335,7 @@ export function SessionList() {
                           inProject={Boolean(filter)}
                           defaultProject={defaultProject}
                           onOpen={() => open(session.id)}
+                          onLongPress={app.needsYou.has(session.id) && !app.sessions.some((s) => s.id === session.id) ? undefined : () => setActionFor(session)}
                         />
                       ))}
                 </section>
@@ -363,6 +366,13 @@ export function SessionList() {
         >
           <PlusIcon size={24} />
         </button>
+      ) : null}
+      {actionFor ? (
+        <SessionActionSheet
+          session={actionFor}
+          busy={rowView(actionFor.id, app.inbox, app.needsYou).trailing === "spinner"}
+          onClose={() => setActionFor(null)}
+        />
       ) : null}
       {projectsOpen ? (
         <>

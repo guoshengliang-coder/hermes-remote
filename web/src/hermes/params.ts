@@ -23,6 +23,14 @@ export const WEB_TUNNEL_METHODS: ReadonlySet<string> = new Set([
   "clarify.lock",
   "approval.respond",
   "clarify.respond",
+  // Web batch 4: admitted by the Gateway in one shape each (web-rpc-filter.ts), and only when
+  // /v2/capabilities lists the feature.
+  "session.workspace.move",
+  "slash.exec",
+  "config.get",
+  "config.set",
+  "process.list",
+  "session.access",
 ]);
 
 export interface RpcCall {
@@ -98,4 +106,41 @@ export function clarifyRespond(
   const params: JsonObject = { session_id: sessionId, request_id: requestId, answer };
   if (questionId) params.question_id = questionId;
   return { method: "clarify.respond", params };
+}
+
+// ---- Web batch 4 ---------------------------------------------------------------------------
+
+function withProfile(params: JsonObject, profile: string | null | undefined): JsonObject {
+  if (nonBlank(profile)) params.profile = profile;
+  return params;
+}
+
+export function sessionWorkspaceMove(storedSessionId: string, cwd: string, profile?: string | null): RpcCall {
+  return { method: "session.workspace.move", params: withProfile({ session_key: storedSessionId, cwd }, profile) };
+}
+
+export function slashExec(sessionId: string, command: string): RpcCall {
+  return { method: "slash.exec", params: { session_id: sessionId, command } };
+}
+
+/** Android ui/models/ReasoningEffort.kt: REASONING_OFF plus REASONING_LEVELS. */
+export const REASONING_VALUES = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
+export type ReasoningValue = (typeof REASONING_VALUES)[number];
+
+export function configGetReasoning(sessionId: string): RpcCall {
+  return { method: "config.get", params: { key: "reasoning", session_id: sessionId } };
+}
+
+export function configSetReasoning(sessionId: string, value: ReasoningValue): RpcCall {
+  return { method: "config.set", params: { key: "reasoning", session_id: sessionId, value } };
+}
+
+export function processList(sessionId: string): RpcCall {
+  return { method: "process.list", params: { session_id: sessionId } };
+}
+
+export function sessionAccess(storedSessionId: string, profile?: string | null, liveSessionId?: string | null): RpcCall {
+  const params = withProfile({ session_id: storedSessionId }, profile);
+  if (nonBlank(liveSessionId)) params.live_session_id = liveSessionId;
+  return { method: "session.access", params };
 }

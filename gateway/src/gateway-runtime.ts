@@ -167,6 +167,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     ),
     sendAccountError: sendAccountHttpError,
     tokensEqual: safeEqual,
+    log,
     ...(webAppDir ? {
       webApp: new WebAppHost({
         dir: webAppDir,

@@ -185,7 +185,7 @@ describe("HermesSocket RPC", () => {
     const { socket, ws } = setup();
     readyAdvertised(ws());
     const sentBefore = ws().sent.length;
-    await expect(socket.call("config.set", { key: "x" })).rejects.toMatchObject({ kind: "rpc", code: 4403, data: { code: "HR-WEB-001" } });
+    await expect(socket.call("projects.create", { name: "x" })).rejects.toMatchObject({ kind: "rpc", code: 4403, data: { code: "HR-WEB-001" } });
     expect(ws().sent.length).toBe(sentBefore);
     const open = new HermesSocket({ url: "wss://x", factory: () => new FakeWebSocket("wss://x"), allowedMethods: null });
     open.connect();

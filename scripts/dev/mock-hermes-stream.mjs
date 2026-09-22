@@ -44,6 +44,30 @@ const server = createServer(async (request, response) => {
     return;
   }
   const p = url.pathname;
+  // Web batch 4: rename / archive / unarchive and delete, applied to the fixtures and the one mock
+  // conversation so the lists move the way they do against a real Hermes.
+  const managed = /^\/api\/sessions\/([^/]+)$/.exec(p);
+  if (managed && (request.method === "PATCH" || request.method === "DELETE")) {
+    const id = decodeURIComponent(managed[1]);
+    const body = request.method === "PATCH" ? JSON.parse((await readBody(request)).toString("utf8") || "{}") : {};
+    const fixture = fixtureSessions.find((row) => row.id === id);
+    if (request.method === "DELETE") {
+      if (fixture) fixtureSessions.splice(fixtureSessions.indexOf(fixture), 1);
+      if (id === STORED_ID) mockStoredDeleted = true;
+      return json(response, { ok: true });
+    }
+    if (fixture) {
+      if (typeof body.title === "string") fixture.title = body.title;
+      if (typeof body.archived === "boolean") fixture.archived = body.archived;
+    } else if (id === STORED_ID) {
+      if (typeof body.title === "string") mockStoredTitle = body.title;
+      if (typeof body.archived === "boolean") mockStoredArchived = body.archived;
+    } else {
+      response.writeHead(404, { "content-type": "application/json" });
+      return response.end(JSON.stringify({ detail: "session not found" }));
+    }
+    return json(response, { ok: true });
+  }
   if (p === "/api/status") return json(response, { status: "ok", version: "mock-hermes-stream" });
   if (p === "/api/sessions/stats") return json(response, { total: 0 });
   if (/^\/api\/sessions\/[^/]+\/messages$/.test(p)) {
@@ -98,7 +122,14 @@ const server = createServer(async (request, response) => {
   }
   if (p === "/api/profiles") return json(response, { profiles: [{ name: "default", is_default: true }, { name: "Work" }, { name: "Personal" }] });
   if (p === "/api/profiles/active") return json(response, { active: "default" });
-  if (p === "/api/model/options") return json(response, { providers: [] });
+  if (p === "/api/model/options") {
+    return json(response, {
+      providers: [
+        { slug: "anthropic", name: "Anthropic", is_current: true, models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"] },
+        { slug: "openai", name: "OpenAI", is_current: false, models: ["gpt-5.6-sol", "o5-mini"] },
+      ],
+    });
+  }
   if (p === "/api/config") return json(response, {});
   if (p === "/api/skills") return json(response, { skills: [] });
   if (p === "/api/tools/toolsets") return json(response, { toolsets: [] });
@@ -385,6 +416,14 @@ function broadcastEvent(type, payload) {
 }
 
 let mockRunActive = false;
+/** Web batch 4 mock state: the mock conversation's model, reasoning, name and archive flag. */
+let mockModel = "claude-opus-5";
+let mockReasoning = "medium";
+let mockStoredTitle = "Mock 会话";
+let mockStoredArchived = false;
+let mockStoredDeleted = false;
+/** Set by a `!proc` prompt: process.list reports one running background task during that run. */
+let mockRunProcess = false;
 /** Set while a run is blocked on an approval or a question, so session.active_list reports "waiting". */
 let mockRunWaiting = false;
 /** Once the mock conversation has run, session.active_list keeps listing it (idle between runs). */
@@ -637,10 +676,10 @@ function mockSessions() {
       cwd: LAUNCH_DIR, git_repo_root: LAUNCH_DIR, git_branch: "main",
     });
   }
-  if (promptCount > 0) {
+  if (promptCount > 0 && !mockStoredDeleted) {
     rows.unshift({
-      id: STORED_ID, title: "Mock 会话", model: "claude-opus-5", message_count: promptCount * 2, last_active: nowSec(),
-      profile: "default", is_default_profile: true, archived: false, source: "tui", ...storedWorkspace,
+      id: STORED_ID, title: mockStoredTitle, model: mockModel, message_count: promptCount * 2, last_active: nowSec(),
+      profile: "default", is_default_profile: true, archived: mockStoredArchived, source: "tui", ...storedWorkspace,
     });
   }
   return rows;
@@ -904,7 +943,8 @@ wss.on("connection", (socket) => {
           promptTexts.push(submitted);
           reply({ ok: true });
           mockRunActive = true;
-          void streamRun(socket, mockRunOptions(submitted)).finally(() => { mockRunActive = false; });
+          mockRunProcess = submitted.startsWith("!proc");
+          void streamRun(socket, mockRunOptions(submitted)).finally(() => { mockRunActive = false; mockRunProcess = false; });
         };
         if (submitted.startsWith("!slow")) setTimeout(ack, 6000); else ack();
         break;
@@ -930,7 +970,27 @@ wss.on("connection", (socket) => {
         reply({ items: [] });
         break;
       case "process.list":
-        reply({ processes: [] });
+        reply({
+          processes: mockRunActive && mockRunProcess
+            ? [{ process_id: "proc-1", command: "npm run build -- --watch", status: "running", output_tail: "vite v8 building for production…\n✓ 65 modules transformed." }]
+            : [],
+        });
+        break;
+      case "slash.exec": {
+        const command = String(request.params?.command ?? "");
+        const switched = /^\/model (\S+) --provider (\S+) --session$/.exec(command);
+        if (!switched) { reply({ output: `mock: ${command}` }); break; }
+        mockModel = switched[1];
+        reply({ output: `Model changed to ${mockModel} for this session.` });
+        emit("session.info", LIVE_ID, { running: mockRunActive, model: mockModel });
+        break;
+      }
+      case "config.get":
+        reply(request.params?.key === "reasoning" ? { value: mockReasoning } : {});
+        break;
+      case "config.set":
+        if (request.params?.key === "reasoning") mockReasoning = String(request.params?.value ?? mockReasoning);
+        reply({ ok: true });
         break;
       default:
         reply({ ok: true, method: request.method });

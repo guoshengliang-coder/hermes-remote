@@ -7,6 +7,7 @@ test("mock run prefixes pin the clarify form or skip the questions", () => {
   assert.deepEqual(mockRunOptions("!clarify-multi"), { form: 1, quick: false, suffix: "" });
   assert.deepEqual(mockRunOptions("  !clarify-batch go"), { form: 2, quick: false, suffix: "" });
   assert.deepEqual(mockRunOptions("!quick hello"), { form: undefined, quick: true, suffix: "" });
+  assert.deepEqual(mockRunOptions("!proc build"), { form: undefined, quick: true, suffix: "" });
 });
 
 test("!media appends a MEDIA tag for an absolute path and ignores relative ones", () => {

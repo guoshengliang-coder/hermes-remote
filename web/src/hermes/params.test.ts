@@ -33,6 +33,12 @@ const widest: P.RpcCall[] = [
   P.clarifyLock("srq-1", "q1", "yes"),
   P.approvalRespond("s", "deny"),
   P.clarifyRespond("s", "r", "a", "q1"),
+  P.sessionWorkspaceMove("s", "/Users/x/p", "work"),
+  P.slashExec("live-1", "/model m --provider p --session"),
+  P.configGetReasoning("live-1"),
+  P.configSetReasoning("live-1", "high"),
+  P.processList("live-1"),
+  P.sessionAccess("s", "work", "live-1"),
 ];
 
 describe("params whitelist (docs/hermes-rpc-params.json)", () => {

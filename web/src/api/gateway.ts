@@ -102,6 +102,8 @@ export interface GatewayCapabilities {
     webSessions?: true;
     /** ACCOUNT_WEB_DEVICE_ACCESS_ENABLED: the cookie device routes this app needs are served. */
     webDeviceAccess?: true;
+    /** Web batch 4: what the Gateway admits beyond chat; absent on older Gateways. */
+    webDeviceFeatures?: string[];
   };
   binding: {
     enabled: boolean;
@@ -119,6 +121,19 @@ export interface GatewayCapabilities {
 
 export function supportsWebDeviceAccess(caps: GatewayCapabilities): boolean {
   return caps.accountAuth?.webDeviceAccess === true;
+}
+
+export type WebDeviceFeature = "session-manage" | "session-delete" | "workspace-move" | "model-select" | "process-list" | "session-access";
+
+/** Features this Gateway admits for the Web app; an older Gateway lists none, so nothing extra shows. */
+export function webDeviceFeatures(caps: GatewayCapabilities): ReadonlySet<WebDeviceFeature> {
+  const list = caps.accountAuth?.webDeviceFeatures;
+  return new Set(Array.isArray(list) ? (list.filter((f) => typeof f === "string") as WebDeviceFeature[]) : []);
+}
+
+/** `GET /api/model/options` (Android ModelOptionsDto): providers each with model-name strings. */
+export interface ModelOptionsResponse {
+  providers?: { slug: string; name?: string | null; is_current?: boolean; models?: string[] }[];
 }
 
 /** POST /api/mobile/events/{ack,read} → 200. */
@@ -497,6 +512,23 @@ export class GatewayClient {
       body,
       headers: { "content-type": contentType || "application/octet-stream" },
     });
+  }
+
+  // ---- Session management (Web batch 4) ----
+
+  /** Rename (title), archive / unarchive (archived). `profile` rides in the body, as on Android. */
+  updateSession(deviceId: string, sessionId: string, change: { title?: string; archived?: boolean }, profile?: string | null): Promise<unknown> {
+    return this.deviceApi(deviceId, "PATCH", `sessions/${encodePathSegment(sessionId)}`, {
+      body: { ...change, ...(profile ? { profile } : {}) },
+    });
+  }
+
+  deleteSession(deviceId: string, sessionId: string, profile?: string | null): Promise<unknown> {
+    return this.deviceApi(deviceId, "DELETE", `sessions/${encodePathSegment(sessionId)}${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`);
+  }
+
+  modelOptions(deviceId: string, profile?: string | null): Promise<ModelOptionsResponse> {
+    return this.deviceApi(deviceId, "GET", `model/options${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`);
   }
 
   // ---- Lifecycle inbox ----

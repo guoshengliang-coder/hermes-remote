@@ -228,3 +228,16 @@ export const BotIcon = (p: IconProps) => (
     <path d="M12 8V4.5M9.5 13h.01M14.5 13h.01M9.5 16.5h5" />
   </Svg>
 );
+
+export const StarIcon = ({ size = 20, filled = false }: IconProps & { filled?: boolean }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <path d="M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8z" />
+  </svg>
+);
+
+export const TerminalIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <path d="M7.5 9.5l3 2.5-3 2.5M12.5 15h4" />
+  </Svg>
+);

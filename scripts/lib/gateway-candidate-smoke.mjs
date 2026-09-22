@@ -81,7 +81,8 @@ export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedV
     && capabilities?.accountAuth?.accountDeletion !== true
     && (webDeviceAccess
       ? capabilities?.accountAuth?.webDeviceAccess === true
-      : !Object.hasOwn(capabilities?.accountAuth ?? {}, "webDeviceAccess"))
+      : (!Object.hasOwn(capabilities?.accountAuth ?? {}, "webDeviceAccess")
+        && !Object.hasOwn(capabilities?.accountAuth ?? {}, "webDeviceFeatures")))
     && (runtimePolicy.push === true
       ? JSON.stringify(capabilities?.push) === JSON.stringify({ providers: ["fcm"] })
       : !Object.hasOwn(capabilities ?? {}, "push"))

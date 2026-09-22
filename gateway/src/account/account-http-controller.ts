@@ -1,3 +1,4 @@
+import { WEB_DEVICE_FEATURES } from "./web-device-access.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isIP } from "node:net";
@@ -38,6 +39,8 @@ export interface AccountCapabilities {
     webAccountCenter: boolean;
     webSessions?: true;
     webDeviceAccess?: true;
+    /** What the Web app may offer beyond chat (Web batch 4); present only with webDeviceAccess. */
+    webDeviceFeatures?: string[];
   };
   binding: {
     enabled: boolean;
@@ -1302,7 +1305,7 @@ function capabilities(
       webAccountCenter: enabled && webAccountCenterEnabled,
       ...(enabled && webSessionEnabled ? { webSessions: true as const } : {}),
       ...(enabled && webSessionEnabled && webDeviceAccessEnabled
-        ? { webDeviceAccess: true as const }
+        ? { webDeviceAccess: true as const, webDeviceFeatures: [...WEB_DEVICE_FEATURES] }
         : {}),
     },
     binding: {

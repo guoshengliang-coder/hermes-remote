@@ -55,3 +55,60 @@ test("binary, non-JSON and non-object frames close the tunnel", () => {
   assert.ok(screenBrowserFrame(Buffer.from("[1,2]"), false).violation);
   assert.ok(screenBrowserFrame(Buffer.from("null"), false).violation);
 });
+
+// ---- Web batch 4: methods admitted in one shape only ------------------------------------------
+
+const forwarded = (method: string, params: unknown): boolean =>
+  screenBrowserFrame(frame({ jsonrpc: "2.0", id: 9, method, params }), false).forward;
+
+test("slash.exec only switches the current session's model", () => {
+  const ok = { session_id: "live-1", command: "/model claude-opus-5 --provider anthropic --session" };
+  assert.equal(forwarded("slash.exec", ok), true);
+  assert.equal(forwarded("slash.exec", { ...ok, command: "/model openrouter/anthropic/claude-3.5 --provider openrouter --session", profile: "work" }), true);
+  assert.equal(forwarded("slash.exec", { ...ok, command: "/model qwen2.5:7b --provider ollama --session" }), true);
+  for (const command of [
+    "/model claude-opus-5 --provider anthropic", // global switch
+    "/model claude-opus-5 --session", // no provider
+    "/model x --provider p --session; /reset",
+    "/model x --provider p --session\n/reset",
+    "/model x --provider p --session /reset",
+    "/model x　--provider p --session", // ideographic space
+    "/model \"x y\" --provider p --session",
+    "/reset",
+    "/config set model x",
+    " /model x --provider p --session",
+  ]) {
+    assert.equal(forwarded("slash.exec", { ...ok, command }), false, command);
+  }
+  assert.equal(forwarded("slash.exec", { command: ok.command }), false, "session_id is required");
+  assert.equal(forwarded("slash.exec", { ...ok, extra: 1 }), false, "no extra keys");
+  assert.equal(forwarded("slash.exec", "not an object"), false);
+});
+
+test("config.get / config.set only touch the current session's reasoning effort", () => {
+  assert.equal(forwarded("config.get", { key: "reasoning", session_id: "live-1" }), true);
+  for (const value of ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]) {
+    assert.equal(forwarded("config.set", { key: "reasoning", session_id: "live-1", value }), true, value);
+  }
+  assert.equal(forwarded("config.set", { key: "reasoning", session_id: "live-1", value: "turbo" }), false);
+  assert.equal(forwarded("config.set", { key: "reasoning", session_id: "live-1", value: "high", scope: "global" }), false);
+  assert.equal(forwarded("config.set", { key: "reasoning", session_id: "live-1", value: "high", confirm_expensive_model: true }), false);
+  assert.equal(forwarded("config.set", { key: "model", session_id: "live-1", value: "x" }), false);
+  assert.equal(forwarded("config.set", { key: "reasoning", value: "high" }), false, "session_id is required");
+  assert.equal(forwarded("config.get", { key: "api_key", session_id: "live-1" }), false);
+  assert.equal(forwarded("config.get", { key: "reasoning", session_id: "live-1", cwd: "/" }), false);
+});
+
+test("workspace move, process list and session access are admitted with their own keys only", () => {
+  assert.equal(forwarded("session.workspace.move", { session_key: "20260922_101500_ab12cd", cwd: "/Users/me/proj", profile: "工作" }), true);
+  assert.equal(forwarded("session.workspace.move", { session_key: "s", cwd: "relative/dir" }), false);
+  assert.equal(forwarded("session.workspace.move", { session_key: "s", cwd: "/a\nb" }), false);
+  assert.equal(forwarded("session.workspace.move", { session_key: "s", cwd: `/${"a".repeat(1100)}` }), false);
+  assert.equal(forwarded("session.workspace.move", { session_key: "../x", cwd: "/a" }), false);
+  assert.equal(forwarded("session.workspace.move", { session_key: "s", cwd: "/a", create: true }), false);
+  assert.equal(forwarded("process.list", { session_id: "live-1" }), true);
+  assert.equal(forwarded("process.list", { session_id: "live-1", kill: "all" }), false);
+  assert.equal(forwarded("session.access", { session_id: "s", profile: "work", live_session_id: "live-1" }), true);
+  assert.equal(forwarded("session.access", { session_id: "s", acquire: true }), false);
+  assert.equal(forwarded("session.access", { session_id: "s", profile: "a/b" }), false);
+});

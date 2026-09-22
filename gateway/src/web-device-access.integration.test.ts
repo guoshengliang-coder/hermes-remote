@@ -179,9 +179,12 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
 
     // Capability and the served shell.
     const capabilities = await (await fetch(`${origin}/v2/capabilities`)).json() as {
-      accountAuth: { webDeviceAccess?: boolean };
+      accountAuth: { webDeviceAccess?: boolean; webDeviceFeatures?: string[] };
     };
     assert.equal(capabilities.accountAuth.webDeviceAccess, true);
+    assert.deepEqual(capabilities.accountAuth.webDeviceFeatures, [
+      "session-manage", "session-delete", "workspace-move", "model-select", "process-list", "session-access",
+    ]);
     const shell = await fetch(`${origin}/app/sessions/abc`);
     assert.equal(shell.status, 200);
     assert.match(await shell.text(), /Hermes GO Web/);
@@ -212,6 +215,48 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     await expectError(read("/env", browserAccess), 403, "HR-WEB-001");
     await expectError(write("/env/reveal", browserAccess), 403, "HR-WEB-001");
     await expectError(write("/gateway/restart", browserAccess), 403, "HR-WEB-001");
+
+    // Web batch 4: session management in one shape only; the checked bytes are forwarded as sent.
+    const manage = (method: string, path: string, body?: string) => fetch(
+      `${origin}/v2/devices/${deviceId}/api${path}`,
+      {
+        method,
+        headers: {
+          cookie: cookie(browserAccess),
+          origin: WEB_ORIGIN,
+          "sec-fetch-site": "same-origin",
+          "x-hermes-csrf": CSRF,
+          ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        },
+        ...(body !== undefined ? { body } : {}),
+      },
+    );
+    const rename = await manage("PATCH", "/sessions/abc", '{"title":"新名字","profile":"work"}');
+    assert.equal(rename.status, 200);
+    assert.equal(await rename.text(), 'account:PATCH /api/sessions/abc {"title":"新名字","profile":"work"}');
+    const archive = await manage("PATCH", "/sessions/abc", '{"archived":true}');
+    assert.equal(await archive.text(), 'account:PATCH /api/sessions/abc {"archived":true}');
+    await expectError(manage("PATCH", "/sessions/abc", '{"title":"x","model":"y"}'), 403, "HR-WEB-001");
+    await expectError(manage("PATCH", "/sessions/abc", "not json"), 403, "HR-WEB-001");
+    await expectError(manage("PATCH", "/sessions/abc", JSON.stringify({ title: "x".repeat(5000) })), 403, "HR-WEB-001");
+    await expectError(manage("PATCH", "/sessions/abc?profile=work", '{"archived":true}'), 403, "HR-WEB-001");
+    const remove = await manage("DELETE", "/sessions/abc?profile=work");
+    assert.equal(remove.status, 200);
+    assert.equal(await remove.text(), "account:DELETE /api/sessions/abc?profile=work ");
+    await expectError(manage("DELETE", "/sessions/abc?cascade=1"), 403, "HR-WEB-001");
+    await expectError(manage("DELETE", "/sessions/abc", '{"x":1}'), 403, "HR-WEB-001");
+    await expectError(
+      fetch(`${origin}/v2/devices/${deviceId}/api/sessions/abc`, {
+        method: "DELETE",
+        headers: { cookie: cookie(browserAccess), origin: WEB_ORIGIN, "sec-fetch-site": "same-origin" },
+      }),
+      403,
+      "HR-AUTH-012",
+    );
+    const models = await read("/model/options?profile=work", browserAccess);
+    assert.equal(models.status, 200);
+    await models.body?.cancel();
+    await expectError(read("/config", browserAccess), 403, "HR-WEB-001");
 
     // Mac files are never rendered on the Gateway origin.
     const html = await read(`/files?path=${encodeURIComponent("/Users/test/page.html")}`, browserAccess);
@@ -415,7 +460,12 @@ function attachMockConnector(socket: WebSocket): void {
               "content-disposition": `inline; filename="${name}"`,
             }
           : { "content-type": "text/plain" },
-        bodyBase64: Buffer.from(`account:${message.path}`).toString("base64"),
+        // Session-management writes echo the method and the exact body the Gateway forwarded.
+        bodyBase64: Buffer.from(
+          message.method === "PATCH" || message.method === "DELETE"
+            ? `account:${message.method} ${message.path} ${message.bodyBase64 ? Buffer.from(message.bodyBase64, "base64").toString() : ""}`
+            : `account:${message.path}`,
+        ).toString("base64"),
       }));
     } else if (message.type === "tunnel.ws.frame") {
       socket.send(encodeWireMessage({

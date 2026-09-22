@@ -8,6 +8,7 @@ import type { AppError } from "../errors";
 import type { ProfileSessionsResponse, SessionListItem } from "../hermes/types";
 import { ErrorNotice } from "./ErrorNotice";
 import { BackIcon } from "./icons";
+import { SessionActionSheet } from "./SessionActions";
 import { SessionRow } from "./SessionRow";
 
 // Archived conversations (DESIGN §5.3, Android ArchivedScreen): a full page from the list's "more"
@@ -20,6 +21,7 @@ export function ArchivedPage() {
   const [rows, setRows] = useState<SessionListItem[] | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [actionFor, setActionFor] = useState<SessionListItem | null>(null);
 
   useEffect(() => {
     if (!deviceId) return;
@@ -58,9 +60,25 @@ export function ArchivedPage() {
           </div>
         ) : null}
         {rows?.map((s) => (
-          <SessionRow key={s.id} session={s} now={now} defaultProject={defaultProject} onOpen={() => navigate({ name: "chat", sessionId: s.id })} />
+          <SessionRow
+            key={s.id}
+            session={s}
+            now={now}
+            defaultProject={defaultProject}
+            onOpen={() => navigate({ name: "chat", sessionId: s.id })}
+            onLongPress={() => setActionFor(s)}
+          />
         ))}
+        {rows?.length ? <p class="list-hint">{t("长按会话可取消归档或删除。", "Press and hold a conversation to unarchive or delete it.")}</p> : null}
       </main>
+      {actionFor ? (
+        <SessionActionSheet
+          session={actionFor}
+          archived
+          onClose={() => setActionFor(null)}
+          onChanged={() => setRows((current) => current?.filter((r) => r.id !== actionFor.id) ?? null)}
+        />
+      ) : null}
     </div>
   );
 }

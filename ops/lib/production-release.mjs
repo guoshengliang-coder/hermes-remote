@@ -316,7 +316,9 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
       || auth.webAccountCenter !== identityWebEnabled
       || auth.accountDeletion === true
       || (identityWebEnabled ? auth.webSessions !== true : auth.webSessions === true)
-      || (webDeviceAccessEnabled ? auth.webDeviceAccess !== true : Object.hasOwn(auth, "webDeviceAccess"))
+      || (webDeviceAccessEnabled
+        ? auth.webDeviceAccess !== true
+        : Object.hasOwn(auth, "webDeviceAccess") || Object.hasOwn(auth, "webDeviceFeatures"))
       || (pushEnabled
         ? JSON.stringify(capabilities?.push) !== JSON.stringify({ providers: ["fcm"] })
         : Object.hasOwn(capabilities ?? {}, "push"))

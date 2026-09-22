@@ -27,6 +27,10 @@ export interface ComposerProps {
   draftKey?: string | null;
   /** Replace the text, e.g. "edit & resend"; a new nonce applies it again. */
   seed?: { text: string; nonce: number } | null;
+  /** The model chip (`model · effort`), shown when the Gateway admits model selection. */
+  chip?: { label: string; onClick: () => void } | null;
+  /** Replaces the input: this conversation is running in another client (HR-SESS-013). */
+  blocked?: preact.ComponentChildren;
 }
 
 const finePointer = () => typeof matchMedia === "function" && matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -35,7 +39,7 @@ let seq = 0;
 
 const DRAFT_DEBOUNCE_MS = 400;
 
-export function Composer({ t, language, generating, disabled, onSend, onInterrupt, draftKey = null, seed = null }: ComposerProps) {
+export function Composer({ t, language, generating, disabled, onSend, onInterrupt, draftKey = null, seed = null, chip = null, blocked = null }: ComposerProps) {
   const [text, setText] = useState(() => (draftKey ? loadDraft(draftKey) : ""));
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [problem, setProblem] = useState<AppError | null>(null);
@@ -117,8 +121,15 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     setProblem(null);
   }
 
+  if (blocked) return <div class="composer-wrap">{blocked}</div>;
+
   return (
     <div class="composer-wrap">
+      {chip ? (
+        <button type="button" class="model-chip mono" onClick={chip.onClick} aria-label={t(`模型：${chip.label}`, `Model: ${chip.label}`)}>
+          {chip.label}
+        </button>
+      ) : null}
       {problem ? <ErrorNotice error={problem} language={language} onDismiss={() => setProblem(null)} variant="inline" /> : null}
       {attachments.length ? (
         <div class="attachment-strip">

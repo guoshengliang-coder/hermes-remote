@@ -3,12 +3,13 @@ import type { AccountGatewayControl } from "./account/account-runtime.js";
 import { accountErrors, type AccountPrincipal } from "./account/model.js";
 import {
   browserResponseHeaders,
-  browserRouteAllowed,
+  browserRouteFor,
   type WebDeviceAccess,
 } from "./account/web-device-access.js";
 import type { ConnectorRegistry } from "./connector-registry.js";
 import type { HttpTunnelBroker } from "./http-tunnel-broker.js";
-import { firstHeader, sendHttpError } from "./http-utils.js";
+import type { GatewayLogger } from "./gateway-log.js";
+import { firstHeader, readRequestBody, sendHttpError } from "./http-utils.js";
 import type { LifecycleEventStore } from "./lifecycle-event-store.js";
 import { handleAccountMobileEvents, handleLegacyMobileEvents } from "./mobile-event-handler.js";
 import type { ServerReleaseController } from "./server-release.js";
@@ -45,7 +46,11 @@ interface GatewayHttpRouterOptions<TConnector extends HttpConnector> {
   tokensEqual(actual: string, expected: string): boolean;
   serverRelease: ServerReleaseController;
   webApp?: WebAppHost;
+  log?: GatewayLogger;
 }
+
+/** A browser's session-management body is a few fields; anything bigger is not one. */
+const BROWSER_BODY_LIMIT = 4 * 1024;
 
 export class GatewayHttpRouter<TConnector extends HttpConnector> {
   constructor(private readonly options: GatewayHttpRouterOptions<TConnector>) {}
@@ -211,14 +216,44 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
       }
       const principal = await webDeviceAccess.authenticateRequest(request);
       const apiPath = route.targetUrl.pathname;
-      if (!browserRouteAllowed(request.method, apiPath)) throw accountErrors.webRouteUnavailable();
+      const allowed = browserRouteFor(request.method, route.targetUrl);
+      if (!allowed) throw accountErrors.webRouteUnavailable();
+      let body: Buffer | undefined;
+      if (allowed.body) {
+        // Read and check the body here; the exact bytes that passed are what gets forwarded. A
+        // declared oversize body is refused with a coded answer before anything is read.
+        if (Number(firstHeader(request, "content-length") ?? 0) > BROWSER_BODY_LIMIT) throw accountErrors.webRouteUnavailable();
+        try {
+          body = await readRequestBody(request, BROWSER_BODY_LIMIT);
+        } catch {
+          throw accountErrors.webRouteUnavailable();
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body.toString("utf8"));
+        } catch {
+          throw accountErrors.webRouteUnavailable();
+        }
+        if (!allowed.body(parsed)) throw accountErrors.webRouteUnavailable();
+      } else if (request.method === "DELETE" && Number(firstHeader(request, "content-length") ?? 0) > 0) {
+        throw accountErrors.webRouteUnavailable();
+      }
       const connector = await this.options.resolveAccountConnectorFor(principal, route.deviceId);
+      if (allowed.audit) {
+        this.options.log?.info("web.session.manage", {
+          action: allowed.audit,
+          installationId: principal.installation.id,
+          device: route.deviceId,
+          path: apiPath,
+        });
+      }
       await this.options.httpTunnels.forward(
         request,
         response,
         route.targetUrl,
         connector,
         (headers) => browserResponseHeaders(apiPath, headers),
+        body,
       );
     } catch (error) {
       this.options.sendAccountError(response, error);

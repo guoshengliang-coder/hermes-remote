@@ -996,6 +996,17 @@ archived fixture; title matches highlight instantly, message hits arrive with ce
 open the chat with in-chat search pre-filled; recent searches remember the query; the top bar stays
 pinned while scrolling; sign-out leaves no `hermes-go.*` key behind.
 
+Batch 4 (branch `claude/web-batch4`, Gateway + Web, 22 checks; the mock gained PATCH/DELETE,
+a model list, `/model` switching, reasoning and a `!proc` background task): the composer chip reads
+`claude-opus-5 · 中`; the model sheet reads the session's reasoning, a change to 高 updates the chip,
+switching to `gpt-5.6-sol` confirms; "retry with another model" switches then regenerates; `!proc`
+shows 「后台任务运行中 · 1」 with the command and output tail; tapping the project subtitle moves the
+chat to `hermes-remote`; ⋮ → 归档对话 asks (not red), returns to the list with 「已归档」 and the row
+leaves; on the archived page press-and-hold → 取消归档 restores it; press-and-hold on a list row
+opens pin / rename / move / archive / delete without opening the chat; rename shows in the list;
+delete asks in red naming the conversation and removes the row; no request the UI sent was refused
+by the Gateway. Gateway unit and integration tests cover every refused shape.
+
 ### Still needs a real iPhone — none of this has been verified on a device
 
 Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
@@ -1043,6 +1054,12 @@ version with each result.
     list: 需要你处理 shows it with 等待你处理; a run that finishes while you are on the list shows
     已完成 with an unread dot until opened. Scroll down, have a run start waiting, and the
     「N 个会话需要处理」 pill appears.
+13. **Session management and model (batch 4).** On the iPhone: press and hold a row (the sheet opens,
+    iOS shows no callout and the chat does not open); rename, archive (confirmation not red), restore
+    from Archived, delete (red confirmation). Open a chat, switch the model from the chip and change
+    the reasoning effort; confirm on Android that the same conversation shows the new model. Move a
+    chat via its project subtitle. While Android runs a turn in the same conversation, open it on the
+    Web: the composer is replaced by `HR-SESS-013` with Retry.
 
 ## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
 

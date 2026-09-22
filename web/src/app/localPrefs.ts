@@ -5,6 +5,8 @@
 const RECENT = "hermes-go.recentSearches.";
 const DEFAULT_PROJECT = "hermes-go.defaultProject.";
 const MAX_RECENT = 8;
+const MODELS = "hermes-go.models.";
+const MAX_MODEL_RECENTS = 5;
 
 function readList(key: string): string[] {
   try {
@@ -65,10 +67,64 @@ export function clearLocalPrefs(): void {
     const doomed: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && (k.startsWith(RECENT) || k.startsWith(DEFAULT_PROJECT))) doomed.push(k);
+      if (k && (k.startsWith(RECENT) || k.startsWith(DEFAULT_PROJECT) || k.startsWith(MODELS))) doomed.push(k);
     }
     for (const k of doomed) localStorage.removeItem(k);
   } catch {
     /* nothing stored */
   }
+}
+
+// Model sheet (Android ModelRecentsStore / favourites / reasoning presets): device-local, per Mac.
+// Keys are `provider/model`.
+
+export function modelKey(provider: string, model: string): string {
+  return `${provider}/${model}`;
+}
+
+interface ModelPrefs {
+  recents: string[];
+  favorites: string[];
+  presets: Record<string, string>;
+}
+
+function readModels(deviceId: string): ModelPrefs {
+  try {
+    const v = JSON.parse(localStorage.getItem(MODELS + deviceId) ?? "{}") as Partial<ModelPrefs>;
+    return {
+      recents: Array.isArray(v.recents) ? v.recents.filter((x) => typeof x === "string") : [],
+      favorites: Array.isArray(v.favorites) ? v.favorites.filter((x) => typeof x === "string") : [],
+      presets: v.presets && typeof v.presets === "object" ? Object.fromEntries(Object.entries(v.presets).filter(([, x]) => typeof x === "string")) : {},
+    };
+  } catch {
+    return { recents: [], favorites: [], presets: {} };
+  }
+}
+
+function writeModels(deviceId: string, prefs: ModelPrefs): void {
+  write(MODELS + deviceId, JSON.stringify(prefs));
+}
+
+export function modelPrefs(deviceId: string): ModelPrefs {
+  return readModels(deviceId);
+}
+
+export function recordModelUse(deviceId: string, key: string): void {
+  const prefs = readModels(deviceId);
+  prefs.recents = [key, ...prefs.recents.filter((k) => k !== key)].slice(0, MAX_MODEL_RECENTS);
+  writeModels(deviceId, prefs);
+}
+
+export function toggleFavoriteModel(deviceId: string, key: string): string[] {
+  const prefs = readModels(deviceId);
+  prefs.favorites = prefs.favorites.includes(key) ? prefs.favorites.filter((k) => k !== key) : [...prefs.favorites, key];
+  writeModels(deviceId, prefs);
+  return prefs.favorites;
+}
+
+/** The reasoning effort last chosen for a model, re-applied after switching to it. */
+export function rememberReasoning(deviceId: string, key: string, value: string): void {
+  const prefs = readModels(deviceId);
+  prefs.presets[key] = value;
+  writeModels(deviceId, prefs);
 }

@@ -20,7 +20,12 @@ The Web app uses a subset: the REST routes and RPC methods on the Gateway's brow
 `docs/hermes-rpc-params.json`. Its unit tests check every RPC param it can emit against that params
 file. A surface change here therefore needs both clients addressed in the same change, and the Web
 app's allowlists in the Gateway (`gateway/src/account/web-device-access.ts`,
-`web-rpc-filter.ts`) when it adds a route or method.
+`web-rpc-filter.ts`) when it adds a route or method. Since Web batch 4 (2026-09-22) the Web app also
+calls `PATCH`/`DELETE /api/sessions/{id}`, `GET /api/model/options`, `session.workspace.move`,
+`slash.exec` (only `/model <id> --provider <id> --session`), `config.get`/`config.set` (only the
+session's `reasoning`), `process.list` and `session.access`. The Gateway admits those **by parameter
+shape**, so an upstream change to their params (a renamed key, a new required key, new reasoning
+values) must update the Gateway validators as well as both clients, or the Web app gets `HR-WEB-001`.
 
 ## Adapted upstream version
 
