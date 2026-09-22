@@ -53,6 +53,16 @@ downgrade is not supported.”
 > **A version number allocated on a feature branch is a version number that can be lost.** See
 > *Incident: 0.1.97 was allocated twice and published never* below before bumping anything.
 
+The steps below are chained by `scripts/android-release-train.mjs`; run it rather than the steps by
+hand. `prepare --notes-file <notes> --summary "<README entry>"`, from a fresh worktree at
+`origin/main` (copy `android/local.properties` in first), runs the bump, the package gate, opens the
+release PR and merges it through `scripts/merge-when-green.mjs --allow-red`, then stops and prints the
+local APK for an owner test install. `publish <version>` is the publish gate and runs only on the
+owner's authorization: it refuses unless `origin/main` carries exactly that version and release file
+and no `android-v<version>` tag exists yet, then pushes the tag and waits for the automatic workflow
+below. Publish each version through one path only — android-v0.1.139 failed with `version conflict`
+because its tag was pushed after the same version had already been uploaded another way.
+
 1. The integration agent bumps `appVersionName` and `appVersionCode`, updates `android/README.md`, and
    adds `android/releases/<version>.json` containing only channel and release notes. Do this with
    `node scripts/bump-android-release.mjs --notes-file <notes> --summary "<README entry>"`, which

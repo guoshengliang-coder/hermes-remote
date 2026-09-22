@@ -149,7 +149,9 @@ The Android version source of truth is at the top of `android/app/build.gradle.k
 - `appVersionName`: user-facing semantic version, currently advanced by patch releases.
 - `appVersionCode`: strictly increasing Android update number.
 
-For every APK actually handed to a tester or user:
+For every APK actually handed to a tester or user — chained end to end by
+`node scripts/android-release-train.mjs prepare …` and, on the owner's authorization,
+`… publish <version>` (`docs/APP_UPDATE.md` "Publishing"):
 
 1. The integration agent allocates the next version with
 
@@ -203,7 +205,9 @@ missing or different. Never bypass that check, generate a replacement debug keys
 private key to another host without the project owner's explicit authorization.
 
 Do not bump the Android version for documentation-only or server-only work when no new APK is being
-distributed. With concurrent agents, only the integration agent performs the bump after all Android
+distributed. The owner's cadence (decided 2026-09-22) is one test package per dispatched batch: once
+every item of a batch is merged, the integration agent proposes the release and runs `prepare`, so
+merged work does not sit unverifiable waiting for an APK. With concurrent agents, only the integration agent performs the bump after all Android
 changes for that package have been integrated.
 
 ## Verification
