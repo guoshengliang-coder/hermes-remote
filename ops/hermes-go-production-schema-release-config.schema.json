@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mrlgs.net/schemas/hermes-go-production-schema-release-config.schema.json",
+  "title": "Hermes GO R5-F8 schema-changing production release",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "productionReleaseConfig", "database", "backup"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "productionReleaseConfig": { "$ref": "#/$defs/path" },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urlSource", "ssl", "migrationLockId"],
+      "properties": {
+        "urlSource": { "$ref": "#/$defs/path" },
+        "ssl": { "type": "boolean" },
+        "migrationLockId": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["activeStatusFile", "maximumAgeMinutes"],
+      "properties": {
+        "activeStatusFile": { "$ref": "#/$defs/path" },
+        "maximumAgeMinutes": { "type": "integer", "minimum": 5, "maximum": 720 }
+      }
+    }
+  },
+  "$defs": {
+    "path": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]+$" }
+  }
+}

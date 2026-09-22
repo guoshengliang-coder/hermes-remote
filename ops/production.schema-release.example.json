@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "operator": "replace-with-operator",
+  "productionReleaseConfig": "/secure-input/hermes-go/production-release.json",
+  "database": {
+    "urlSource": "/secure-input/hermes-go/account-database-url",
+    "ssl": false,
+    "migrationLockId": 48203175
+  },
+  "backup": {
+    "activeStatusFile": "/var/lib/hermes-go-monitor/latest-status.json",
+    "maximumAgeMinutes": 120
+  }
+}

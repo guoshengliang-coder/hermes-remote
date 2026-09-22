@@ -58,8 +58,14 @@ export async function executeProductionRelease(config, targetManifest, options =
       admission.runtimeEnvironment,
       options.fetchImpl,
     );
-    result = await execute(config, targetManifest, {
+    // R5-F8 passes the database only to the deployment machine, which then migrates from the
+    // target image before the candidate starts; admission above still sees `database: null`.
+    const deploymentConfig = options.schemaMigration === true && options.migrationDatabase
+      ? { ...config, database: options.migrationDatabase }
+      : config;
+    result = await execute(deploymentConfig, targetManifest, {
       operation: admission.operation,
+      ...(options.schemaMigration === true ? { allowDatabaseSchemaAdvance: true } : {}),
       confirmation: options.confirmation,
       candidateSmoke,
       publicSmoke,
@@ -155,10 +161,21 @@ export async function verifyProductionReleaseAdmission(config, targetManifest, o
       }
     }
     const runtimeEnvironment = await verifyReleaseInputs(config, activeSlot, options.runner);
-    if (runtimeEnvironment.mode === "email_otp"
-        && sourceManifest.releaseContract?.databaseSchemaVersion
-          !== targetManifest.releaseContract?.databaseSchemaVersion) {
+    const sourceSchema = sourceManifest.releaseContract?.databaseSchemaVersion;
+    const targetSchema = targetManifest.releaseContract?.databaseSchemaVersion;
+    // After R5-F8 the database is ahead of every older image: its readiness would report
+    // `mismatch`, so name the reason instead of failing at the candidate probe.
+    if (options.operation === "rollback" && runtimeEnvironment.mode !== "disabled"
+        && Number.isSafeInteger(sourceSchema) && Number.isSafeInteger(targetSchema) && targetSchema < sourceSchema) {
+      fail("production_release_rollback_below_database_schema");
+    }
+    if (runtimeEnvironment.mode === "email_otp" && sourceSchema !== targetSchema) {
       fail("production_release_email_database_schema_change_requires_migration");
+    }
+    // A schema-changing account release is R5-F8's job (backup gate + target-image migration);
+    // the routine release must not be used to bypass it (docs/DEPLOYMENT.md).
+    if (runtimeEnvironment.mode !== "disabled" && sourceSchema !== targetSchema && options.schemaMigration !== true) {
+      fail("production_release_database_schema_change_requires_schema_release");
     }
     return { operation: options.operation, sourceManifest, activeSlot, runtimeEnvironment };
   } catch (error) {

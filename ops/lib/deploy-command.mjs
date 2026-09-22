@@ -51,6 +51,7 @@ export async function executeDeployment(config, targetManifest, options = {}) {
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     ...(options.sleep ? { sleep: options.sleep } : {}),
     ...(options.candidateEnvironment ? { candidateEnvironment: options.candidateEnvironment } : {}),
+    ...(options.allowDatabaseSchemaAdvance === true ? { allowDatabaseSchemaAdvance: true } : {}),
     now,
   };
   const startedAt = now().toISOString();

@@ -17,6 +17,8 @@ try {
     accountRolloutEntrypoint: manifest.accountRolloutEntrypoint ?? null,
     componentRolloutEntrypoint: manifest.componentRolloutEntrypoint ?? null,
     webAppRolloutEntrypoint: manifest.webAppRolloutEntrypoint ?? null,
+    schemaReleaseEntrypoint: manifest.schemaReleaseEntrypoint ?? null,
+    pushRolloutEntrypoint: manifest.pushRolloutEntrypoint ?? null,
   }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${JSON.stringify(errorPayload(error, "managedBaseline", "production_baseline_bundle_verify"))}\n`);

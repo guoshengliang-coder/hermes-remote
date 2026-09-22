@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mrlgs.net/schemas/hermes-go-production-push-rollout-config.schema.json",
+  "title": "Hermes GO production push (FCM) rollout configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "environment", "operator", "productionReleaseConfig", "host", "gateway", "secrets", "push", "deployment"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "environment": { "const": "production" },
+    "operator": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "productionReleaseConfig": { "$ref": "#/$defs/absolutePath" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "architecture"],
+      "properties": {
+        "hostname": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" },
+        "architecture": { "const": "amd64" }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "runtimeContract"],
+      "properties": {
+        "origin": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "runtimeContract": { "const": "hermes-serve-v1" }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fcmServiceAccountSource"],
+      "properties": {
+        "fcmServiceAccountSource": {
+          "$ref": "#/$defs/absolutePath",
+          "description": "Root-owned 0600 Firebase service-account JSON outside every managed root. Copied, never logged."
+        }
+      }
+    },
+    "push": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["firebaseProjectId"],
+      "properties": {
+        "firebaseProjectId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{4,29}$" }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observationSeconds"],
+      "properties": {
+        "observationSeconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+      }
+    }
+  },
+  "$defs": {
+    "absolutePath": { "type": "string", "pattern": "^/[A-Za-z0-9._/-]+$" }
+  }
+}

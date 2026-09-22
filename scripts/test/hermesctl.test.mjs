@@ -222,6 +222,44 @@ test("release transition matrix rejects unsafe deploy and rollback paths", () =>
     isOpsCode("HR-OPS-006"),
   );
   assert.equal(assessReleaseTransition(r4, next, { operation: "deploy", databaseEnabled: true }).compatible, true);
+
+  // R5-F8: a database-enabled deploy may advance the schema by exactly one, and only when asked.
+  const schema15 = releaseManifest("0.4.17", 2, { manifestVersion: 2, databaseSchemaVersion: 15 });
+  const schema16 = releaseManifest("0.4.18", 2, { manifestVersion: 2, databaseSchemaVersion: 16 });
+  const schema17 = releaseManifest("0.4.19", 2, { manifestVersion: 2, databaseSchemaVersion: 17 });
+  assert.throws(
+    () => assessReleaseTransition(schema15, schema16, { operation: "deploy", databaseEnabled: true }),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.equal(assessReleaseTransition(schema15, schema16, {
+    operation: "deploy",
+    databaseEnabled: true,
+    allowDatabaseSchemaAdvance: true,
+  }).compatible, true);
+  assert.throws(
+    () => assessReleaseTransition(schema15, schema17, {
+      operation: "deploy",
+      databaseEnabled: true,
+      allowDatabaseSchemaAdvance: true,
+    }),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.throws(
+    () => assessReleaseTransition(schema16, schema15, {
+      operation: "rollback",
+      databaseEnabled: true,
+      allowDatabaseSchemaAdvance: true,
+    }),
+    isOpsCode("HR-OPS-006"),
+  );
+  assert.throws(
+    () => assessReleaseTransition(schema16, releaseManifest("0.4.19", 2, { manifestVersion: 2, databaseSchemaVersion: 15 }), {
+      operation: "deploy",
+      databaseEnabled: true,
+      allowDatabaseSchemaAdvance: true,
+    }),
+    isOpsCode("HR-OPS-006"),
+  );
   assert.throws(
     () => assessReleaseTransition(next, r4, { operation: "rollback", databaseEnabled: true }),
     isOpsCode("HR-OPS-006"),
@@ -472,7 +510,7 @@ test("status is layered and doctor writes an exclusive allowlist-only private bu
 
 test("Cloud Ops failures keep stable bilingual codes and redact diagnostic values", async () => {
   const codes = Object.values(OPS_ERROR_DEFINITIONS).map((definition) => definition.code);
-  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009", "HR-OPS-010", "HR-OPS-011", "HR-OPS-012", "HR-OPS-013", "HR-OPS-014", "HR-OPS-015", "HR-OPS-016", "HR-OPS-017", "HR-OPS-018", "HR-OPS-020", "HR-OPS-021", "HR-OPS-022", "HR-OPS-023", "HR-OPS-024", "HR-OPS-025", "HR-OPS-026"]);
+  assert.deepEqual(codes, ["HR-OPS-001", "HR-OPS-002", "HR-OPS-003", "HR-OPS-004", "HR-OPS-005", "HR-OPS-006", "HR-OPS-007", "HR-OPS-008", "HR-OPS-009", "HR-OPS-010", "HR-OPS-011", "HR-OPS-012", "HR-OPS-013", "HR-OPS-014", "HR-OPS-015", "HR-OPS-016", "HR-OPS-017", "HR-OPS-018", "HR-OPS-020", "HR-OPS-021", "HR-OPS-022", "HR-OPS-023", "HR-OPS-024", "HR-OPS-025", "HR-OPS-026", "HR-OPS-027", "HR-OPS-028"]);
   for (const definition of Object.values(OPS_ERROR_DEFINITIONS)) {
     assert.match(definition.summaryZh, /[\u3400-\u9fff]/);
     assert.match(definition.summaryEn, /^[A-Z]/);
