@@ -45,6 +45,14 @@ export class HermesSocketError extends Error {
     super(message);
     this.name = "HermesSocketError";
   }
+
+  /** The request never left this socket (it was still waiting for readiness when it closed). */
+  unsent = false;
+}
+
+/** Nothing reached Hermes: safe to send again on the next connection. */
+export function neverSent(error: unknown): boolean {
+  return error instanceof HermesSocketError && (error.kind === "not-connected" || (error.kind === "closed" && error.unsent));
 }
 
 export type ServerRequestsState = "pending" | "advertised" | "unsupported";
@@ -61,6 +69,12 @@ export interface HermesSocketEvents {
   event: (event: ServerEvent) => void;
   "server-request": (request: ServerRequest) => void;
   "open-requests": (snapshot: OpenRequestsSnapshot) => void;
+  /**
+   * A `session.resume` answered with this live handle. Emitted before the replayed open requests
+   * and the snapshot, so a listener that filters by session can recognise them: they carry the new
+   * live handle, which the caller's own promise only learns after they have been delivered.
+   */
+  resumed: (liveSessionId: string) => void;
   capabilities: (state: ServerRequestsState) => void;
   closed: (info: ClosedInfo) => void;
 }
@@ -120,6 +134,7 @@ export class HermesSocket {
     event: new Set(),
     "server-request": new Set(),
     "open-requests": new Set(),
+    resumed: new Set(),
     capabilities: new Set(),
     closed: new Set(),
   };
@@ -347,8 +362,9 @@ export class HermesSocket {
    * (listed ones plus those received during the resume). Absent `open_requests` means none.
    */
   private onResumeAnswered(result: JsonValue, arrivedDuringResume: Set<string>): void {
-    if (this._serverRequests !== "advertised") return;
     if (typeof result !== "object" || result === null || Array.isArray(result)) return;
+    if (typeof result.session_id === "string" && result.session_id) this.emit("resumed", result.session_id);
+    if (this._serverRequests !== "advertised") return;
     const entries = Array.isArray(result.open_requests) ? result.open_requests : [];
     const listed: string[] = [];
     for (const entry of entries) {
@@ -384,6 +400,7 @@ export class HermesSocket {
       this.ws.onerror = null;
     }
     const failure = new HermesSocketError("closed", reason || "closed");
+    failure.unsent = true;
     const waiters = this.readyWaiters;
     this.readyWaiters = [];
     for (const w of waiters) w.reject(failure);

@@ -303,6 +303,11 @@ export class GatewayClient {
    * Single flight: concurrent 401s share one `POST /v2/web/auth/refresh`. When the Gateway refuses
    * it (a 4xx other than 429) 'signed-out' fires once; a network failure or 5xx does not sign out.
    */
+  /** Resolves once no refresh is in flight (whatever its outcome): the access cookie is settled. */
+  settled(): Promise<void> {
+    return this.refreshing ? this.refreshing.then(() => undefined, () => undefined) : Promise.resolve();
+  }
+
   refresh(): Promise<void> {
     this.refreshing ??= (async () => {
       try {
@@ -418,9 +423,12 @@ export class GatewayClient {
   async webSession(): Promise<WebSessionResponse> {
     const result = await this.request<WebSessionResponse>("GET", paths.webSession, { refreshOn401: false });
     if (result?.csrfToken) this.csrfFallback = result.csrfToken;
-    // This answer carries no expiry: refresh once now to learn it (and keep the session alive).
+    // This answer carries no expiry: refresh once now to learn it (and keep the session alive), and
+    // finish that refresh before answering. Refresh rotates the access cookie; a WebSocket upgraded
+    // while it is in flight still carries the old one, which the Gateway refuses — the first socket
+    // after every reload failed that way about half the time, taking a message sent early with it.
     if (result?.session?.authenticated) {
-      if (!this.keepAliveTimer) this.keepAlive(null);
+      if (!this.keepAliveTimer && !this.refreshing) await this.refresh().catch(() => undefined);
     } else {
       this.stopKeepAlive();
     }

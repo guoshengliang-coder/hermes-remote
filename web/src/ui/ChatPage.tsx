@@ -71,12 +71,19 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     return () => clearTimeout(timer);
   }, [storedId, device?.deviceId]);
 
+  // Only a card this page saw close counts as settled; a page that opens with no card yet (before
+  // the resume replays open requests) or that is left with one open reports nothing of the kind.
   const open = hasOpenQuestion(state);
+  const wasOpen = useRef(false);
   useEffect(() => {
-    if (storedId) app.reportLiveQuestion(storedId, open);
+    if (!storedId) return;
+    if (open) app.reportLiveQuestion(storedId, "open");
+    else if (wasOpen.current) app.reportLiveQuestion(storedId, "settled");
+    wasOpen.current = open;
   }, [storedId, open]);
   useEffect(() => () => {
-    if (storedId) app.reportLiveQuestion(storedId, false);
+    if (storedId) app.reportLiveQuestion(storedId, "left");
+    wasOpen.current = false;
   }, [storedId]);
 
   // Follow the stream while the reader is at the bottom.

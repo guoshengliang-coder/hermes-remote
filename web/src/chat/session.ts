@@ -1,7 +1,7 @@
 import { GatewayHttpError, paths, type GatewayClient } from "../api/gateway";
 import { toAppError } from "../app/failures";
 import { appError, RPC, type AppError } from "../errors";
-import { HermesSocket, HermesSocketError, type ClosedInfo } from "../hermes/client";
+import { HermesSocket, HermesSocketError, neverSent, type ClosedInfo } from "../hermes/client";
 import {
   fileAttach,
   imageAttach,
@@ -40,6 +40,8 @@ export interface ChatSessionOptions {
 }
 
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
+/** How long a request that never left waits for the next connection before failing after all. */
+const RECONNECT_WAIT_MS = 15_000;
 
 export class ChatSession {
   private socket: HermesSocket | null = null;
@@ -92,20 +94,38 @@ export class ChatSession {
 
   private connect(): void {
     if (this.disposed) return;
+    // Never upgrade while the access cookie is being rotated: the upgrade would carry the old one.
+    void this.o.client.settled().then(() => this.open());
+  }
+
+  private open(): void {
+    if (this.disposed) return;
     const url = paths.deviceWs(this.o.deviceId);
     const socket = this.o.socketFactory ? this.o.socketFactory(url) : new HermesSocket({ url });
     this.socket = socket;
     this.liveId = null;
-    this.resuming = null;
+    // A resume still in flight is not dropped: if it never left the old socket it is sent again on
+    // this one (call() retries requests that never left), and the ready handler below joins it.
     this.socketWasReady = false;
     socket.on("event", (event) => this.onEvent(event));
     socket.on("server-request", (request) => {
       if (this.mine(request.sessionId)) this.o.dispatch({ type: "server-request", request });
     });
+    // The replayed open requests of a resume carry its new live handle before our resume() promise
+    // has recorded it; without this they failed mine() and a pending approval never came back after
+    // leaving and reopening the conversation.
+    socket.on("resumed", (live) => {
+      if (this.resuming) this.liveId = live;
+    });
     socket.on("open-requests", (snapshot) => {
       if (this.mine(snapshot.sessionId)) this.o.dispatch({ type: "open-requests", snapshot });
     });
     socket.on("ready", () => {
+      const waiting = this.readyWaiters;
+      this.readyWaiters = [];
+      // After our own resume below has been queued: a retried request then runs on the new handle
+      // (or resumes on the 4001 it gets with the old one).
+      queueMicrotask(() => waiting.forEach((w) => w()));
       this.attempt = 0;
       this.droppedBeforeReady = 0;
       this.socketWasReady = true;
@@ -188,10 +208,44 @@ export class ChatSession {
     }
   }
 
+  /**
+   * One RPC. A request that never left (the socket closed while it waited for readiness, or none
+   * was open) is sent once more on the next connection instead of failing: to the user it is still
+   * the same message, and nothing reached Hermes. Anything that did leave fails as it did.
+   */
   private async call<T>(method: string, params: JsonObject, timeoutMs?: number): Promise<T> {
+    try {
+      return await this.callOnce<T>(method, params, timeoutMs);
+    } catch (error) {
+      if (!neverSent(error) || this.disposed) throw error;
+      await this.nextReady(error as HermesSocketError);
+      return this.callOnce<T>(method, params, timeoutMs);
+    }
+  }
+
+  private callOnce<T>(method: string, params: JsonObject, timeoutMs?: number): Promise<T> {
     const socket = this.socket;
-    if (!socket) throw new HermesSocketError("not-connected", "not connected", method);
+    if (!socket || socket.isClosed) {
+      return Promise.reject(new HermesSocketError("not-connected", "not connected", method));
+    }
     return socket.call<T>(method, params, timeoutMs !== undefined ? { timeoutMs } : {});
+  }
+
+  private readyWaiters: Array<() => void> = [];
+
+  /** The next connection's readiness, or the original failure after RECONNECT_WAIT_MS. */
+  private nextReady(failure: HermesSocketError): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        this.readyWaiters = this.readyWaiters.filter((w) => w !== done);
+        reject(failure);
+      }, RECONNECT_WAIT_MS);
+      this.readyWaiters.push(done);
+    });
   }
 
   // ---- history ----
@@ -227,6 +281,7 @@ export class ChatSession {
       (result) => {
         const live = typeof result?.session_id === "string" && result.session_id ? result.session_id : this.storedId!;
         this.liveId = live;
+        this.resuming = null;
         return live;
       },
       (error: unknown) => {
@@ -310,9 +365,14 @@ export class ChatSession {
       await this.onLive((live) => promptSubmit(live, prompt));
       this.o.dispatch({ type: "user-delivered", key });
     } catch (error) {
-      this.o.dispatch({ type: "user-failed", key, error: this.submitError(error) });
-      if (error instanceof HermesSocketError && error.kind === "rpc" && (error.code === RPC.SESSION_NOT_FOUND || error.code === RPC.OWNED_ELSEWHERE)) {
+      // One place per failure. A session that no longer exists (4007) is terminal for the whole page,
+      // so its page notice explains the disabled composer and the bubble is only marked failed. Every
+      // other failure, including "owned elsewhere" (4090), stays on the bubble, whose Retry resends it.
+      if (error instanceof HermesSocketError && error.kind === "rpc" && error.code === RPC.SESSION_NOT_FOUND) {
+        this.o.dispatch({ type: "user-failed", key });
         this.o.dispatch(this.noticeFor(error, "submit"));
+      } else {
+        this.o.dispatch({ type: "user-failed", key, error: this.submitError(error) });
       }
     }
   }

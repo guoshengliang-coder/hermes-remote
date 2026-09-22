@@ -9,7 +9,18 @@ import {
 } from "./api/gateway";
 import { toAppError } from "./app/failures";
 import { detectLanguage, translator } from "./app/i18n";
-import { deriveNeedsYou, initialInbox, noticeCount, reduceInbox, undeliveredIds, type InboxAction } from "./app/inbox";
+import {
+  applyLiveReport,
+  deriveNeedsYou,
+  initialInbox,
+  noticeCount,
+  reduceInbox,
+  settledMark,
+  undeliveredIds,
+  type InboxAction,
+  type LiveQuestionReport,
+  type LiveSettled,
+} from "./app/inbox";
 import { currentRoute, navigate, useRoute, type Route } from "./app/router";
 import {
   AppContext,
@@ -68,8 +79,10 @@ export function App() {
   const [device, setDevice] = useState<AccountDevice | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [inbox, dispatchInbox] = useReducer(reduceInbox, initialInbox);
-  const [liveOpen, setLiveOpen] = useState<ReadonlySet<string>>(new Set());
-  const [liveSettled, setLiveSettled] = useState<ReadonlySet<string>>(new Set());
+  const [live, setLive] = useState<{ open: ReadonlySet<string>; settled: LiveSettled }>({
+    open: new Set(),
+    settled: new Map(),
+  });
   const [toast, setToast] = useState<{ id: string; title: string; waiting: boolean } | null>(null);
   /** Where the user was headed before sign-in / device choice (select-only, never an action). */
   const intended = useRef<Route>(currentRoute());
@@ -201,7 +214,7 @@ export function App() {
 
   // ---- foreground notices: title + app badge ----
 
-  const needsYou = useMemo(() => deriveNeedsYou(inbox, liveOpen, liveSettled), [inbox, liveOpen, liveSettled]);
+  const needsYou = useMemo(() => deriveNeedsYou(inbox, live.open, live.settled), [inbox, live]);
   const count = noticeCount(inbox, currentSessionId);
   useEffect(() => {
     document.title = count > 0 ? `(${count}) ${BASE_TITLE}` : BASE_TITLE;
@@ -243,22 +256,9 @@ export function App() {
     client.refresh().catch(() => undefined);
   }, []);
 
-  const reportLiveQuestion = useCallback((id: string, open: boolean) => {
-    setLiveOpen((prev) => {
-      if (prev.has(id) === open) return prev;
-      const next = new Set(prev);
-      if (open) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-    // A chat that saw its question settle knows better than a stale inbox entry.
-    setLiveSettled((prev) => {
-      if (open ? !prev.has(id) : prev.has(id)) return prev;
-      const next = new Set(prev);
-      if (open) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  // A chat that saw its question settle knows better than the inbox entry it has already outlived.
+  const reportLiveQuestion = useCallback((id: string, report: LiveQuestionReport) => {
+    setLive((prev) => applyLiveReport(prev, id, report, settledMark(inboxRef.current, id)));
   }, []);
 
   const markSeen = useCallback((id: string) => dispatchInbox({ type: "seen", storedSessionId: id }), []);

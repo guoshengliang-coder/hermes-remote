@@ -220,8 +220,32 @@ describe("proactive refresh (keep-alive)", () => {
       ? json(200, { session: { authenticated: true, account: { id: "a" }, installation: {} }, csrfToken: CSRF, authentication: { google: null }, features: { accountDeletion: false } })
       : refreshBody(15 * 60_000)));
     await client.webSession();
-    await vi.advanceTimersByTimeAsync(0);
+    // Already refreshed when webSession() resolves: nothing may upgrade a socket with the old cookie.
     expect(calls.map((c) => c.url)).toEqual([paths.webSession, paths.refresh]);
+    expect(client.accessExpiresAt).not.toBeNull();
+    client.stopKeepAlive();
+  });
+
+  it("settled() waits for an in-flight refresh and never rejects", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { client } = fake(async (c) => {
+      if (c.url === paths.refresh) {
+        await gate;
+        return json(503, {});
+      }
+      return json(200, {});
+    });
+    await client.settled();
+    const refreshing = client.refresh().catch(() => undefined);
+    let done = false;
+    const settled = client.settled().then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done).toBe(false);
+    release();
+    await refreshing;
+    await settled;
+    expect(done).toBe(true);
     client.stopKeepAlive();
   });
 

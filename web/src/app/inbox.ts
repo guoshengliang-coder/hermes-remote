@@ -78,18 +78,57 @@ export function needsYouFromInbox(state: InboxState): Set<string> {
 }
 
 /**
+ * Per session, the inbox sequence that was the latest when a live chat saw its question settle
+ * (-1 when the inbox had nothing for it yet). A waiting event at or before that point is stale; a
+ * later one is a new question and shows again.
+ */
+export type LiveSettled = ReadonlyMap<string, number>;
+
+export function settledMark(inbox: InboxState, storedSessionId: string): number {
+  return inbox.latest[storedSessionId]?.sequence ?? -1;
+}
+
+/**
  * Union of the inbox view and what live sockets know (an open approval/clarify card), minus
- * sessions a live socket has seen settle since.
+ * waiting entries a live socket has seen settle since.
  */
 export function deriveNeedsYou(
   inbox: InboxState,
   liveOpen: ReadonlySet<string>,
-  liveSettled: ReadonlySet<string> = new Set(),
+  liveSettled: LiveSettled = new Map(),
 ): Set<string> {
-  const out = needsYouFromInbox(inbox);
-  for (const id of liveSettled) out.delete(id);
+  const out = new Set<string>();
+  for (const entry of Object.values(inbox.latest)) {
+    if (entry.event !== "run.waiting") continue;
+    if ((liveSettled.get(entry.storedSessionId) ?? -Infinity) >= entry.sequence) continue;
+    out.add(entry.storedSessionId);
+  }
   for (const id of liveOpen) out.add(id);
   return out;
+}
+
+/**
+ * How a chat page reports its question state. "left" only withdraws what the page itself knew:
+ * leaving a conversation with a card still open must not read as having answered it.
+ */
+export type LiveQuestionReport = "open" | "settled" | "left";
+
+export function applyLiveReport(
+  state: { open: ReadonlySet<string>; settled: LiveSettled },
+  storedSessionId: string,
+  report: LiveQuestionReport,
+  mark: number,
+): { open: ReadonlySet<string>; settled: LiveSettled } {
+  const open = new Set(state.open);
+  const settled = new Map(state.settled);
+  if (report === "open") {
+    open.add(storedSessionId);
+    settled.delete(storedSessionId);
+  } else {
+    open.delete(storedSessionId);
+    if (report === "settled") settled.set(storedSessionId, mark);
+  }
+  return { open, settled };
 }
 
 /** Foreground badge count: unseen notices for sessions other than the one on screen. */

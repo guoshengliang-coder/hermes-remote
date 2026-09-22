@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoredLifecycleEvent } from "../hermes/types";
-import { deriveNeedsYou, initialInbox, needsYouFromInbox, noticeCount, reduceInbox, undeliveredIds, type InboxState } from "./inbox";
+import { applyLiveReport, deriveNeedsYou, initialInbox, settledMark, needsYouFromInbox, noticeCount, reduceInbox, undeliveredIds, type InboxState } from "./inbox";
 
 let seq = 0;
 function ev(storedSessionId: string, event: string, extra: Partial<StoredLifecycleEvent> = {}, deviceId = "mac"): StoredLifecycleEvent {
@@ -47,8 +47,25 @@ describe("needs-you from the inbox", () => {
 
   it("merges live socket knowledge: an open card adds, a settled card removes", () => {
     const s = page(initialInbox, [ev("a", "run.waiting"), ev("b", "run.waiting")]);
-    const set = deriveNeedsYou(s, new Set(["c"]), new Set(["b"]));
+    const set = deriveNeedsYou(s, new Set(["c"]), new Map([["b", settledMark(s, "b")]]));
     expect([...set].sort()).toEqual(["a", "c"]);
+  });
+
+  it("a later waiting event outranks an earlier settle", () => {
+    let s = page(initialInbox, [ev("b", "run.waiting")]);
+    const settled = new Map([["b", settledMark(s, "b")]]);
+    expect(deriveNeedsYou(s, new Set(), settled).has("b")).toBe(false);
+    s = page(s, [ev("b", "run.started"), ev("b", "run.waiting")]);
+    expect(deriveNeedsYou(s, new Set(), settled).has("b")).toBe(true);
+  });
+
+  it("leaving a chat with its card still open keeps the session in needs-you", () => {
+    const s = page(initialInbox, [ev("a", "run.waiting")]);
+    let live = applyLiveReport({ open: new Set(), settled: new Map() }, "a", "open", settledMark(s, "a"));
+    live = applyLiveReport(live, "a", "left", settledMark(s, "a"));
+    expect(deriveNeedsYou(s, live.open, live.settled).has("a")).toBe(true);
+    live = applyLiveReport(live, "a", "settled", settledMark(s, "a"));
+    expect(deriveNeedsYou(s, live.open, live.settled).has("a")).toBe(false);
   });
 });
 

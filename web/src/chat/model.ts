@@ -93,7 +93,8 @@ export type ChatAction =
   | { type: "questions"; action: QuestionAction }
   | { type: "user-sent"; key: string; text: string; localImages?: string[]; localFiles?: string[]; nowMs: number }
   | { type: "user-delivered"; key: string }
-  | { type: "user-failed"; key: string; error: AppError }
+  /** Without an error the bubble is only marked failed: a page-level notice explains it. */
+  | { type: "user-failed"; key: string; error?: AppError }
   | { type: "user-retry"; key: string }
   | { type: "interrupted" }
   | { type: "running"; running: boolean }
