@@ -912,7 +912,7 @@ the expected retired-Legacy `connectors: 0`, and public capabilities advertising
 `desktopBootstrap.runtimeContract: hermes-serve-v1` plus `componentManifestSchemaVersion: 2`. Physical Desktop
 download, confirmation, installation and managed-service acceptance remain a user-driven Mac gate.
 
-## Production Web app gray rollout (R5-F7; code gate only, not yet run)
+## Production Web app gray rollout (R5-F7; production complete 2026-09-22, iPhone device checks pending)
 
 R5-F7 turns on the browser Web app at `/app/` (docs/ACCOUNT_MODE_API.md §8, docs/ACCOUNT_MODE_SECURITY.md §4).
 It starts only from the exact R5-F6 state (`email_sharing_components`) on a Gateway release of at least
@@ -996,6 +996,43 @@ recognizes it, its candidate smoke requires the capability, and its account smok
 
   This returns to `email_sharing_components`. The published releases can stay: nothing routes to them. The iPhone checks in docs/SMOKE_TEST.md
 ("Web app on iPhone") need a real device after step 3.
+
+### 2026-09-22 authorized production result
+
+Owner-authorized merge and deployment. Artifacts from `Gateway OCI` run 35689066912 on `main 86fc250b78a5`
+(PR #371, the 0.4.17 bump on top of #363/#368/#369): Gateway `0.4.17-86fc250b78a5` (archive SHA-256
+`a8601e6db47d489992454bfea79540f2794df1f1047ab5a0b9109501a8bafe6d`, containerd image
+`sha256:5467d23be13c89ee3e79d86fc56dc5ced55443820e95daf69c907e6a3364bdf3`) and schema-10 operator bundle
+`Hermes-R5D-Ops-86fc250b78a5` (archive SHA-256 `6f605ce338ed204950dc6d749029095fcee98b9480597c0c9cc18fe996554cb3`),
+verified locally and again on the host, extracted at `/opt/hermes-go-ops/86fc250b78a5`.
+
+1. **Gateway 0.4.17 (R5-F1), operator `codex-r5f2`.** Run `90b91434-eb8e-4c39-a358-4e7316946cb9` committed at
+   about 05:23Z: blue active, green inactive as the rollback point, `current` → `releases/0.4.17-86fc250b78a5`,
+   `previous` → `releases/0.4.16-0adccd7b834f`. The blue environment was written in the 45-line form with both Web
+   flags `0` and `WEB_APP_DIR=/opt/hermes-go/web/current`; the blue unit carries
+   `--mount type=bind,src=/opt/hermes-go/web,dst=/opt/hermes-go/web,readonly`; deploy created
+   `/opt/hermes-go/web/releases`. Public `/v2/capabilities` reported 0.4.17 without `webDeviceAccess`.
+2. **Web publish.** `scripts/publish-web-app.sh` from a clean `main c2ab2f79aacf` (Web gate: 338 tests, build)
+   installed `releases/0.1.0-c2ab2f79aacf` (8 files, directories 0755, files 0644, root) and pointed `current`
+   at it; public `/app/` still answered 404 from the edge.
+3. **R5-F7.** From the extracted bundle, with `/secure-input/hermes-go/production-web-app-rollout.json` (root
+   `0600`, same shape as the sharing configuration: origin `https://mrlgs.net`, host `test`, observation 30 s),
+   run `42997f02-ae40-42d9-8531-6d3e7e4b21f4` committed on blue between 08:22:43Z and 08:23:19Z. Independent
+   checks afterwards: capabilities `webDeviceAccess: true`; `/app` 308 → `/app/`; `/app/` 200 HTML, `no-store`,
+   CSP `default-src 'none'; script-src 'self'; … connect-src 'self' wss://mrlgs.net; … worker-src 'self'; …
+   frame-ancestors 'none'`, `X-Frame-Options: DENY`, bytes identical to the published `index.html`; hashed asset
+   200 with `immutable`; `sw.js` `no-cache` + `Service-Worker-Allowed: /app/`; manifest
+   `application/manifest+json`; cookie-less device API 401; `/account` 200; legacy `/api/status` without a
+   token 401. Blue container healthy, zero restarts, no warning-or-worse log lines in the first two minutes; the
+   site file gained only `include /etc/hermes-go/account/web-app-routes.conf;`; DERP, Nginx and the release server
+   stayed active.
+
+Unrelated to this rollout and already failing before it: `hermes-go-production-monitor.service` reports
+`HR-OPS-012` (`disk_capacity:warning` at about 15 GiB free, `database_backup:critical` because the off-host status
+is about 11 days stale). The Mac-side `com.hermesgo.postgresql-offhost` LaunchAgent has failed hourly since about
+2026-09-10 with `postgresql_automation_restore_container_start_failed`: Docker Desktop is not running on the Mac
+mini, so the disposable restore container cannot start. HK captures continue daily. The iPhone checks in
+docs/SMOKE_TEST.md ("Web app on iPhone") remain to be done on a device.
 
 ## Edge JSON compression (2026-09-07, authorized)
 
