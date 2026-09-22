@@ -27,17 +27,9 @@ public struct DesktopResolvedManagedComponent: Equatable, Sendable {
     }
 }
 
-/// A read-only, content-addressed launch plan. Creating it revalidates every bootstrap component
-/// through the managed-store inspector and never consults PATH, Homebrew, or a mutable user venv.
-///
-/// That still holds for everything resolved here. One bounded exception lives elsewhere: since
-/// HG-58 the agent this plan is written into carries a `PATH`
-/// (`DesktopHermesRuntimeContract.searchPath`) so that *optional external* binaries the user
-/// installed — a PDF rasteriser, say — are reachable at all. launchd's bare
-/// `/usr/bin:/bin:/usr/sbin:/sbin` made an installed poppler invisible and Hermes reported it as
-/// "not installed". No managed component is resolved that way, and none may be: the cost of the
-/// exception is that a capability riding on it depends on what the user's Homebrew contains, which
-/// is exactly the dependency this type refuses to take for the components it owns.
+/// A read-only, content-addressed launch plan. Creating it revalidates the Node and Connector
+/// bootstrap components through the managed-store inspector. Hermes itself is the owner's standard
+/// local installation and is deliberately outside this release graph.
 public struct DesktopComponentReleaseActivationPlan: Equatable, Sendable {
     public let releaseVersion: String
     public let components: [DesktopResolvedManagedComponent]
@@ -147,15 +139,11 @@ public struct DesktopComponentReleaseActivationPlanner: @unchecked Sendable {
         _ artifacts: [DesktopManagedComponentKind: DesktopComponentReleaseArtifactV2],
         manifestArchitecture: String
     ) -> Bool {
-        let baseKinds: Set<DesktopManagedComponentKind> = [
-            .pythonRuntime, .hermesCore, .nodeRuntime, .connector,
-        ]
-        guard let python = artifacts[.pythonRuntime],
-              let hermes = artifacts[.hermesCore],
-              let node = artifacts[.nodeRuntime],
+        let baseKinds: Set<DesktopManagedComponentKind> = [.nodeRuntime, .connector]
+        guard let node = artifacts[.nodeRuntime],
               let connector = artifacts[.connector],
               Set(artifacts.values.filter({ $0.installPhase == .bootstrap }).map(\.kind)) == baseKinds,
-              [python, hermes, node, connector].allSatisfy({
+              [node, connector].allSatisfy({
                 Self.validBootstrapArtifact($0, manifestArchitecture: manifestArchitecture)
               })
         else { return false }
@@ -165,19 +153,8 @@ public struct DesktopComponentReleaseActivationPlanner: @unchecked Sendable {
         ) -> Set<DesktopComponentReleaseDependency> {
             Set(artifacts[kind]?.dependencies ?? [])
         }
-        guard dependencies(.pythonRuntime).isEmpty,
-              dependencies(.nodeRuntime).isEmpty,
-              dependencies(.hermesCore) == Set([
-                DesktopComponentReleaseDependency(
-                    kind: .pythonRuntime,
-                    contentSHA256: python.contentSHA256
-                ),
-              ]),
+        guard dependencies(.nodeRuntime).isEmpty,
               dependencies(.connector) == Set([
-                DesktopComponentReleaseDependency(
-                    kind: .hermesCore,
-                    contentSHA256: hermes.contentSHA256
-                ),
                 DesktopComponentReleaseDependency(
                     kind: .nodeRuntime,
                     contentSHA256: node.contentSHA256

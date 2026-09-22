@@ -139,7 +139,7 @@ extension DesktopManagedInstaller {
         return object["ProgramArguments"] as? [String]
     }
 
-    /// A bundled agent: the v1 `current/hermes_server` release, or a v2 component-store `hermes_core`.
+    /// A bundled agent from the historical v1 `current/hermes_server` layout.
     private func loadBundledHermesLaunchAgent(at url: URL) throws -> ManagedLaunchAgentPropertyList {
         if let bundled = try? loadManagedLaunchAgent(
             url,
@@ -203,6 +203,36 @@ extension DesktopManagedInstaller {
             standardOutput: hermesLog,
             standardError: hermesErrorLog
         )
+    }
+
+    /// Create the initial Hermes service from the owner's standard local installation. Component
+    /// releases no longer carry a bundled Hermes fallback, so this is the only valid fresh-install
+    /// path for their Hermes LaunchAgent.
+    public func writeLocalHermesLaunchAgent(
+        _ installation: DesktopLocalHermesInstallation
+    ) throws -> URL {
+        _ = try validatedSessionTokenIfPresent(required: true)
+        let configuration = localHermesLaunchAgent(for: installation)
+        let replacement: Data
+        let script: Data
+        do {
+            replacement = try configuration.encodedPropertyList()
+            script = try DesktopLocalHermesLauncher.script(executable: installation.executable)
+        } catch { throw DesktopManagedInstallError.invalidInput }
+        guard replacement.count <= 64 * 1024 else { throw DesktopManagedInstallError.invalidInput }
+
+        try ensureOwnedDirectory(layout.launchAgentsRoot)
+        try ensurePrivateDirectory(layout.logsRoot)
+        try ensurePrivateDirectory(layout.localHermesLauncher.deletingLastPathComponent())
+        let originalLauncher = try existingOwnedFile(layout.localHermesLauncher)
+        try atomicWrite(script, to: layout.localHermesLauncher, permissions: 0o700)
+        do {
+            try atomicWrite(replacement, to: layout.hermesLaunchAgent, permissions: 0o600)
+        } catch {
+            try? restoreLauncher(originalLauncher)
+            throw error
+        }
+        return layout.hermesLaunchAgent
     }
 
     /// Point the Hermes agent at this Mac's own Hermes. Only the files change; the caller restarts

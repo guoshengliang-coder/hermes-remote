@@ -44,13 +44,17 @@ public actor DesktopComponentReleasePreflightRuntime {
     private let downloader: any DesktopComponentManifestDownloading
     private let verifier: DesktopComponentReleaseManifestV2Verifier
     private let scanner: any DesktopComponentReleasePreflightScanning
+    private let indexChannel: String?
+    private let indexArchitecture: String?
     private var running = false
 
     public init(
         manifestURL: URL,
         downloader: any DesktopComponentManifestDownloading = DesktopReleaseDownloader(),
         verifier: DesktopComponentReleaseManifestV2Verifier,
-        scanner: any DesktopComponentReleasePreflightScanning
+        scanner: any DesktopComponentReleasePreflightScanning,
+        indexChannel: String? = nil,
+        indexArchitecture: String? = nil
     ) throws {
         guard Self.validManifestURL(manifestURL) else {
             throw DesktopComponentReleasePreflightRuntimeError.invalidConfiguration
@@ -59,6 +63,8 @@ public actor DesktopComponentReleasePreflightRuntime {
         self.downloader = downloader
         self.verifier = verifier
         self.scanner = scanner
+        self.indexChannel = indexChannel
+        self.indexArchitecture = indexArchitecture
     }
 
     public func load(
@@ -76,8 +82,30 @@ public actor DesktopComponentReleasePreflightRuntime {
         running = true
         defer { running = false }
 
-        let envelope = try await downloader.fetchManifest(from: manifestURL)
+        let envelope: Data
+        var indexReference: DesktopReleaseIndexReference?
+        if manifestURL.lastPathComponent == "index.json" {
+            guard let indexChannel, let indexArchitecture else {
+                throw DesktopComponentReleasePreflightRuntimeError.invalidConfiguration
+            }
+            let index = try await downloader.fetchManifest(from: manifestURL)
+            let reference = try DesktopReleaseIndex.resolve(
+                index,
+                indexURL: manifestURL,
+                expectedChannel: indexChannel,
+                expectedArchitecture: indexArchitecture
+            )
+            envelope = try await downloader.fetchManifest(from: reference.manifestURL)
+            try DesktopReleaseIndex.verifyEnvelope(envelope, reference: reference)
+            indexReference = reference
+        } else {
+            envelope = try await downloader.fetchManifest(from: manifestURL)
+        }
         let verifiedManifest = try verifier.verifyForInstallation(envelope)
+        if let indexReference,
+           indexReference.releaseVersion != verifiedManifest.manifest.releaseVersion {
+            throw DesktopReleaseIndexError.manifestIdentityMismatch
+        }
         let result = try scanner.scan(
             verifiedManifest: verifiedManifest,
             healthProbe: healthProbe

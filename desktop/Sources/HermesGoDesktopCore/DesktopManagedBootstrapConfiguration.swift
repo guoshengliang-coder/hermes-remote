@@ -84,8 +84,7 @@ public struct DesktopManagedBootstrapConfiguration: Equatable, Sendable {
     public let artifactOrigin: URL
     public let channel: String
     public let architecture: String
-    public let signingKeyID: String
-    public let signingPublicKey: Data
+    public let signingKeys: [String: Data]
     public let runtimeContract: DesktopHermesRuntimeContract
 
     /// A display/preflight hint extracted from the canonical release URL. The signed manifest is
@@ -110,20 +109,36 @@ public struct DesktopManagedBootstrapConfiguration: Equatable, Sendable {
         signingPublicKey: Data,
         runtimeContract: DesktopHermesRuntimeContract
     ) throws {
+        try self.init(
+            manifestURL: manifestURL,
+            artifactOrigin: artifactOrigin,
+            channel: channel,
+            architecture: architecture,
+            signingKeys: [signingKeyID: signingPublicKey],
+            runtimeContract: runtimeContract
+        )
+    }
+
+    public init(
+        manifestURL: URL,
+        artifactOrigin: URL,
+        channel: String,
+        architecture: String,
+        signingKeys: [String: Data],
+        runtimeContract: DesktopHermesRuntimeContract
+    ) throws {
         guard Self.validHTTPSURL(manifestURL, requirePath: true),
               Self.validHTTPSURL(artifactOrigin, requirePath: false),
               artifactOrigin.path.isEmpty || artifactOrigin.path == "/",
               Self.validIdentifier(channel, maximum: 32),
               ["arm64", "x86_64", "universal"].contains(architecture),
-              Self.validIdentifier(signingKeyID, maximum: 64),
-              signingPublicKey.count == 32
+              DesktopReleaseSigningKeys.valid(signingKeys)
         else { throw DesktopReleaseVerificationError.invalidConfiguration }
         self.manifestURL = manifestURL
         self.artifactOrigin = artifactOrigin
         self.channel = channel
         self.architecture = architecture
-        self.signingKeyID = signingKeyID
-        self.signingPublicKey = signingPublicKey
+        self.signingKeys = signingKeys
         self.runtimeContract = runtimeContract
     }
 
@@ -136,7 +151,7 @@ public struct DesktopManagedBootstrapConfiguration: Equatable, Sendable {
             expectedChannel: channel,
             expectedArchitecture: architecture,
             currentMacOS: currentMacOS,
-            signingKeys: [signingKeyID: signingPublicKey],
+            signingKeys: signingKeys,
             now: now
         )
     }
@@ -178,9 +193,11 @@ public enum DesktopManagedBootstrapConfigurationState: Equatable, Sendable {
               let artifactOrigin = values.artifactOrigin.flatMap(URL.init(string:)),
               let channel = values.channel,
               let architecture = values.architecture,
-              let signingKeyID = values.signingKeyID,
-              let encodedKey = values.signingPublicKey,
-              let signingPublicKey = Data(canonicalBase64URL: encodedKey),
+              let signingKeys = DesktopReleaseSigningKeys.parse(
+                  json: values.signingKeys,
+                  legacyKeyID: values.signingKeyID,
+                  legacyPublicKey: values.signingPublicKey
+              ),
               let contractValue = values.runtimeContract,
               let runtimeContract = DesktopHermesRuntimeContract(rawValue: contractValue)
         else { return .invalid }
@@ -190,8 +207,7 @@ public enum DesktopManagedBootstrapConfigurationState: Equatable, Sendable {
                 artifactOrigin: artifactOrigin,
                 channel: channel,
                 architecture: architecture,
-                signingKeyID: signingKeyID,
-                signingPublicKey: signingPublicKey,
+                signingKeys: signingKeys,
                 runtimeContract: runtimeContract
             ))
         } catch {
@@ -234,6 +250,7 @@ private struct DesktopManagedBootstrapConfigurationValues {
     let architecture: String?
     let signingKeyID: String?
     let signingPublicKey: String?
+    let signingKeys: String?
     let runtimeContract: String?
 
     init(bundle: Bundle, environment: [String: String]) {
@@ -255,28 +272,13 @@ private struct DesktopManagedBootstrapConfigurationValues {
             "HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY",
             "HermesGoDesktopReleaseSigningPublicKey"
         )
+        signingKeys = value(
+            "HERMES_GO_DESKTOP_RELEASE_SIGNING_KEYS",
+            "HermesGoDesktopReleaseSigningKeys"
+        )
         runtimeContract = value(
             "HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT",
             "HermesGoDesktopHermesRuntimeContract"
         )
-    }
-}
-
-private extension Data {
-    init?(canonicalBase64URL value: String) {
-        guard !value.isEmpty,
-              value.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil
-        else { return nil }
-        let padding = String(repeating: "=", count: (4 - value.count % 4) % 4)
-        let standard = value
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/") + padding
-        guard let decoded = Data(base64Encoded: standard),
-              decoded.base64EncodedString()
-                .replacingOccurrences(of: "+", with: "-")
-                .replacingOccurrences(of: "/", with: "_")
-                .replacingOccurrences(of: "=", with: "") == value
-        else { return nil }
-        self = decoded
     }
 }

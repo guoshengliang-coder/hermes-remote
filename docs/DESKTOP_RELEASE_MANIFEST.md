@@ -190,21 +190,24 @@ The payload has exactly these fields:
 }
 ```
 
-The manifest lifetime is at most 30 days. Platform, channel, architecture, minimum macOS, artifact
-origin, semantic versions, filenames, entrypoints, sizes, and the exact two required components are
-validated before use. Artifact URLs must remain on the configured origin and have no credentials,
-query, fragment, encoded slash, or traversal segment.
+`createdAt` and `expiresAt` remain signed compatibility fields, and `expiresAt` must be later than
+`createdAt`; Desktop no longer rejects an otherwise valid manifest because wall-clock time passed.
+Stable, cache-disabled indexes provide discovery while Ed25519 remains the authorization boundary.
+Platform, channel, architecture, minimum macOS, artifact origin, semantic versions, filenames,
+entrypoints, sizes, and the exact required components are validated before use. Artifact URLs must
+remain on the configured origin and have no credentials, query, fragment, encoded slash, or traversal
+segment.
 
 ## Key custody and rotation
 
 - Release private keys never ship in the repository, Desktop bundle, Gateway host, artifact host, or
-  logs. They belong in an access-controlled signing system used only by the release publisher.
+  logs. They exist only as secrets of the protected `desktop-release` GitHub environment and are
+  exposed only to its approved tag-triggered publishing step.
 - Desktop bundles only raw 32-byte Ed25519 public keys indexed by key ID.
 - Rotation ships a Desktop version containing both old and new public keys before the publisher
   starts signing with the new key. After an observation window, a later Desktop version removes the
   retired key.
-- Unknown keys, invalid signatures, expired manifests, incompatible releases, and any unknown JSON
-  field fail closed.
+- Unknown keys, invalid signatures, incompatible releases, and any unknown JSON field fail closed.
 - Developer ID signing/notarization of the Desktop app and Ed25519 signing of component manifests are
   independent checks; a public release requires both.
 
@@ -317,28 +320,20 @@ npm run desktop:components-v2:package -- \
   --output /absolute/empty/component-output
 ```
 
-It produces independent `python_runtime`, `hermes_core`, `node_runtime`, and `connector` archives and
-can include prepared `browser_automation`, `speech_runtime`, and `document_tools` roots. Optional roots
-must already be normalized, secret-free component trees with an executable health entrypoint; the
-builder copies them through the same bounded, no-link filter and runs the type-specific validation
-before creating any archive. Success prints each archive's size, byte SHA-256, normalized
-extracted-content SHA-256, entrypoint, install phase, and dependency kinds plus separate bootstrap and
-deferred download totals. `hermes_core` requires `python_runtime`; Connector
-requires both `hermes_core` and `node_runtime`. During activation Desktop supplies
-`HERMES_PYTHON_RUNTIME_ROOT` to Hermes and `HERMES_NODE_RUNTIME_ROOT` to Connector. These values point
-to already verified content-store roots and are never baked into or written back to a shared component.
-Speech and document components require `python_runtime`; browser automation has no archive dependency
-and is the only component allowed to declare compatible system reuse. The output identities can be
-copied directly into the schema-v2 publisher input.
+It produces exactly two archives: `node_runtime` and `connector`. Connector depends on the exact Node
+content identity, and Desktop supplies `HERMES_NODE_RUNTIME_ROOT` during activation. Hermes itself is
+the owner's standard local installation and is never packaged in a new release. Success prints each
+archive's size, byte SHA-256, normalized extracted-content SHA-256, entrypoint and dependencies. The
+output identities can be copied directly into the schema-v2 publisher input.
 
 Schema v2 uses separate commands and cannot enter the schema-v1 acquisition/install types. Start
 from `desktop/Packaging/component-release-v2.example.json`. Each component input supplies the content
 identity produced by the component builder; the publisher safely extracts the archive, normalizes the
 declared entrypoint to owner-executable, and recomputes relative paths, file bytes and executable bits
-before signing. A dependency names both its component kind and exact content identity. Bootstrap
-Hermes and Connector components cannot depend on an on-demand component. Only browser automation may
-declare `verified_compatibility`, and that declaration still carries the exact managed fallback
-content identity.
+before signing. A dependency names both its component kind and exact content identity. New manifests
+are accepted for installation only when their bootstrap graph is exactly Node plus Connector.
+Historical 0.4.0/0.4.1 fields and component kinds remain strictly decodable so their signed bytes can
+still be inspected and verified, but the retired on-demand runtime is never activated.
 
 ```bash
 npm run desktop:component-release:package -- \

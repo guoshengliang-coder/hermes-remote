@@ -90,7 +90,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testComponentCandidateCommitsWithoutBundledReleaseActivation() async throws {
-        let fixture = try Fixture(legacyRunning: true)
+        let fixture = try Fixture(legacyRunning: true, provideLocalHermes: true)
         defer { fixture.cleanup() }
         let component = try fixture.componentRelease()
 
@@ -118,11 +118,17 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             DesktopManagedInstallLayout.connectorLabel,
             DesktopManagedInstallLayout.hermesLabel,
         ])
-        XCTAssertEqual(
+        XCTAssertNil(
             try fixture.environment(at: fixture.layout.hermesLaunchAgent)[
                 "HERMES_PYTHON_RUNTIME_ROOT"
-            ],
-            component.plan.component(.pythonRuntime)?.root.path
+            ]
+        )
+        XCTAssertEqual(
+            Array(try fixture.programArguments(at: fixture.layout.hermesLaunchAgent).prefix(2)),
+            [
+                fixture.layout.localHermesLauncher.path,
+                fixture.root.appendingPathComponent("local-hermes/venv/bin/hermes").path,
+            ]
         )
         XCTAssertEqual(
             try fixture.environment(at: fixture.layout.connectorLaunchAgent)[
@@ -140,7 +146,11 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testComponentCandidateFailureRestoresLegacyWithoutChangingCurrentRelease() async throws {
-        let fixture = try Fixture(legacyRunning: true, failAccountStart: true)
+        let fixture = try Fixture(
+            legacyRunning: true,
+            failAccountStart: true,
+            provideLocalHermes: true
+        )
         defer { fixture.cleanup() }
         let component = try fixture.componentRelease()
         let bundledVersion = fixture.manifest.releaseVersion
@@ -982,7 +992,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertTrue(issue.technicalCause?.contains("recovery=DesktopMigrationCoordinatorError.hermesStopTimedOut") == true)
     }
 
-    func testManagedUpgradeCanMoveFromBundledReleaseToComponentStore() async throws {
+    func testManagedUpgradeRequiresAnExplicitTransitionBetweenReleaseLayouts() async throws {
         let fixture = try Fixture(
             legacyRunning: false,
             resumeBoundBinding: true,
@@ -996,7 +1006,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         try fixture.installCommittedManagedServices(inlineToken: nil)
         let component = try fixture.componentRelease(releaseVersion: "2.0.0")
 
-        let outcome = try await fixture.coordinator.upgradeComponentRelease(
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.upgradeComponentRelease(
             manifest: component.manifest,
             activationPlan: component.plan,
             hermesLaunchAgentConfiguration: component.agents.hermes,
@@ -1004,10 +1014,11 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             runID: "10000000-0000-4000-8000-000000000010",
             confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
                 .confirmationText(releaseVersion: "2.0.0")
-        )
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .releaseNotNewer)
+        }
 
-        XCTAssertEqual(outcome.releaseVersion, "2.0.0")
-        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .componentStore)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .bundledRelease)
         XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
         let beginCount = await fixture.account.beginCount()
         let confirmCount = await fixture.account.confirmCount()
@@ -1562,9 +1573,7 @@ final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
         XCTAssertFalse(fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel))
     }
 
-    /// Item 3: an upgrade in local mode makes the kept bundled agent name the new release, and a
-    /// failed upgrade puts the old kept agent back with everything else.
-    func testAnUpgradeInLocalModeRefreshesTheKeptBundledAgent() async throws {
+    func testLocalModeAlsoRejectsAnOrdinaryCrossLayoutUpgrade() async throws {
         let fixture = try Fixture(
             legacyRunning: false,
             resumeBoundBinding: true,
@@ -1577,48 +1586,20 @@ final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
         }
         let component = try fixture.componentRelease(releaseVersion: "2.0.0")
 
-        _ = try await fixture.coordinator.upgradeComponentRelease(
+        let keptBefore = try Data(contentsOf: fixture.layout.bundledHermesLaunchAgentBackup)
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.upgradeComponentRelease(
             manifest: component.manifest,
             activationPlan: component.plan,
             hermesLaunchAgentConfiguration: component.agents.hermes,
             launchAgentConfiguration: component.agents.connector,
             runID: "10000000-0000-4000-8000-000000000010",
             confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(releaseVersion: "2.0.0")
-        )
-
-        XCTAssertTrue(try fixture.installer.currentHermesRuntimeMode().isLocal)
-        XCTAssertEqual(
-            try fixture.programArguments(at: fixture.layout.bundledHermesLaunchAgentBackup).first,
-            component.agents.hermes.hermesExecutable.path
-        )
-        XCTAssertTrue(fixture.installer.bundledHermesFallbackAvailable)
-    }
-
-    func testAFailedUpgradeInLocalModeRestoresTheOldKeptAgent() async throws {
-        let fixture = try Fixture(
-            legacyRunning: false,
-            resumeBoundBinding: true,
-            hermesReadinessResponses: [true, false, true],
-            healthCheckedAtSequence: ["2026-09-07T00:00:00.000Z", "2026-09-07T00:00:00.000Z", "2026-09-07T00:00:00.000Z", "2026-09-07T00:00:01.000Z"]
-        )
-        defer { fixture.cleanup() }
-        try fixture.installCommittedManagedServices(inlineToken: nil, releaseVersion: "1.2.2")
-        _ = try await fixture.coordinator.reconcileHermesRuntime {
-            try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .releaseNotNewer)
         }
-        let keptBefore = try Data(contentsOf: fixture.layout.bundledHermesLaunchAgentBackup)
-        let component = try fixture.componentRelease(releaseVersion: "2.0.0")
-
-        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.upgradeComponentRelease(
-            manifest: component.manifest,
-            activationPlan: component.plan,
-            hermesLaunchAgentConfiguration: component.agents.hermes,
-            launchAgentConfiguration: component.agents.connector,
-            runID: "10000000-0000-4000-8000-000000000011",
-            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(releaseVersion: "2.0.0")
-        ))
 
         XCTAssertEqual(try Data(contentsOf: fixture.layout.bundledHermesLaunchAgentBackup), keptBefore)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .bundledRelease)
     }
 
     /// Item 3: a kept agent whose program is gone (garbage-collected component) is no fallback.
@@ -1944,7 +1925,8 @@ private final class Fixture {
         hermesReadinessResponses: [Bool]? = nil,
         healthCheckedAtSequence: [String?]? = nil,
         manifestVersion: String = "1.2.3",
-        localHermesForFreshInstall: DesktopLocalHermesInstallation? = nil
+        localHermesForFreshInstall: DesktopLocalHermesInstallation? = nil,
+        provideLocalHermes: Bool = false
     ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-migration-coordinator-\(UUID().uuidString)", isDirectory: true)
@@ -1973,6 +1955,31 @@ private final class Fixture {
             responses: hermesReadinessResponses ?? [hermesHealthy]
         )
         shutdown = MigrationHermesShutdown()
+        let providedLocalHermes = localHermesForFreshInstall ?? (provideLocalHermes
+            ? DesktopLocalHermesInstallation(
+                executable: root.appendingPathComponent("local-hermes/venv/bin/hermes"),
+                checkoutRoot: root.appendingPathComponent("local-hermes"),
+                hermesHome: root.appendingPathComponent("hermes-home"),
+                commit: String(repeating: "a", count: 40),
+                version: "0.21.3",
+                identityChangedAt: Date(timeIntervalSince1970: 1_788_710_400)
+            )
+            : nil)
+        if let providedLocalHermes, provideLocalHermes {
+            try FileManager.default.createDirectory(
+                at: providedLocalHermes.executable.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: providedLocalHermes.executable)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: providedLocalHermes.executable.path
+            )
+            try FileManager.default.createDirectory(
+                at: providedLocalHermes.hermesHome,
+                withIntermediateDirectories: true
+            )
+        }
         coordinator = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,
@@ -1984,7 +1991,7 @@ private final class Fixture {
             healthPollDelayNanoseconds: 0,
             serviceReloadDelayNanoseconds: 0,
             operationLog: operationLog,
-            localHermesForFreshInstall: { localHermesForFreshInstall }
+            localHermesForFreshInstall: { providedLocalHermes }
         )
         manifest = Self.manifest(releaseVersion: manifestVersion)
         sources = try Self.sources(root: root)
@@ -2084,15 +2091,11 @@ private final class Fixture {
             currentUserID: Darwin.getuid()
         )
         let entrypoints: [DesktopManagedComponentKind: String] = [
-            .pythonRuntime: "bin/python3",
-            .hermesCore: "bin/hermes",
             .nodeRuntime: "bin/node",
             .connector: "bin/hermes-connector",
         ]
         var hashes: [DesktopManagedComponentKind: String] = [:]
-        for kind in [
-            DesktopManagedComponentKind.pythonRuntime, .hermesCore, .nodeRuntime, .connector,
-        ] {
+        for kind in [DesktopManagedComponentKind.nodeRuntime, .connector] {
             let source = root.appendingPathComponent(
                 "component-source-\(kind.rawValue)", isDirectory: true
             )
@@ -2121,20 +2124,6 @@ private final class Fixture {
                 healthProbe: { _ in true }
             )
         }
-        let python = Self.componentArtifact(
-            kind: .pythonRuntime,
-            entrypoint: entrypoints[.pythonRuntime]!,
-            contentSHA256: hashes[.pythonRuntime]!,
-            dependencies: []
-        )
-        let hermes = Self.componentArtifact(
-            kind: .hermesCore,
-            entrypoint: entrypoints[.hermesCore]!,
-            contentSHA256: hashes[.hermesCore]!,
-            dependencies: [
-                .init(kind: .pythonRuntime, contentSHA256: hashes[.pythonRuntime]!),
-            ]
-        )
         let node = Self.componentArtifact(
             kind: .nodeRuntime,
             entrypoint: entrypoints[.nodeRuntime]!,
@@ -2145,10 +2134,7 @@ private final class Fixture {
             kind: .connector,
             entrypoint: entrypoints[.connector]!,
             contentSHA256: hashes[.connector]!,
-            dependencies: [
-                .init(kind: .hermesCore, contentSHA256: hashes[.hermesCore]!),
-                .init(kind: .nodeRuntime, contentSHA256: hashes[.nodeRuntime]!),
-            ]
+            dependencies: [.init(kind: .nodeRuntime, contentSHA256: hashes[.nodeRuntime]!)]
         )
         let manifest = DesktopComponentReleaseManifestV2(
             releaseVersion: releaseVersion,
@@ -2157,7 +2143,7 @@ private final class Fixture {
             minimumMacOS: "14.0",
             createdAt: "2026-09-01T00:00:00Z",
             expiresAt: "2026-09-20T00:00:00Z",
-            components: [python, hermes, node, connector]
+            components: [node, connector]
         )
         let plan = try DesktopComponentReleaseActivationPlanner(
             storeRoot: layout.root,

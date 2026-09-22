@@ -131,7 +131,11 @@ public struct DesktopComponentReleaseManifestV2: Codable, Equatable, Sendable {
     }
 
     public var preflightRequirements: [DesktopManagedComponentRequirement] {
-        get throws { try components.map { try $0.preflightRequirement } }
+        get throws {
+            try components
+                .filter { $0.installPhase == .bootstrap }
+                .map { try $0.preflightRequirement }
+        }
     }
 }
 
@@ -161,15 +165,12 @@ public struct DesktopComponentReleaseManifestV2Verifier: Sendable {
     private static let maximumEnvelopeBytes = 256 * 1024
     private static let maximumPayloadBytes = 128 * 1024
     private static let maximumArtifactBytes: Int64 = 2 * 1024 * 1024 * 1024
-    private static let allowedClockSkew: TimeInterval = 5 * 60
-    private static let maximumManifestLifetime: TimeInterval = 30 * 24 * 60 * 60
 
     private let expectedOrigin: URL
     private let expectedChannel: String
     private let expectedArchitecture: String
     private let currentMacOS: OperatingSystemVersion
     private let signingKeys: [String: Data]
-    private let now: @Sendable () -> Date
 
     public init(
         expectedOrigin: URL,
@@ -192,7 +193,7 @@ public struct DesktopComponentReleaseManifestV2Verifier: Sendable {
         self.expectedArchitecture = expectedArchitecture
         self.currentMacOS = currentMacOS
         self.signingKeys = signingKeys
-        self.now = now
+        _ = now // Kept for source compatibility with callers that inject a clock in tests.
     }
 
     public func verify(_ envelopeData: Data) throws -> DesktopComponentReleaseManifestV2 {
@@ -262,11 +263,14 @@ public struct DesktopComponentReleaseManifestV2Verifier: Sendable {
     public func verifyForInstallation(
         _ envelopeData: Data
     ) throws -> VerifiedDesktopComponentReleaseManifestV2 {
-        VerifiedDesktopComponentReleaseManifestV2(manifest: try verify(envelopeData))
+        let manifest = try verify(envelopeData)
+        guard DesktopComponentReleaseActivationPlanner.validBootstrapManifest(manifest) else {
+            throw DesktopComponentReleaseVerificationError.incompatibleRelease
+        }
+        return VerifiedDesktopComponentReleaseManifestV2(manifest: manifest)
     }
 
     private func validate(_ manifest: DesktopComponentReleaseManifestV2) throws {
-        let currentTime = now()
         guard manifest.schemaVersion == 2,
               manifest.channel == expectedChannel,
               manifest.platform == "macos",
@@ -276,17 +280,16 @@ public struct DesktopComponentReleaseManifestV2Verifier: Sendable {
               Self.compare(currentMacOS, minimumMacOS) != .orderedAscending,
               let createdAt = Self.parseCanonicalDate(manifest.createdAt),
               let expiresAt = Self.parseCanonicalDate(manifest.expiresAt),
-              createdAt <= currentTime.addingTimeInterval(Self.allowedClockSkew),
-              expiresAt > currentTime,
-              expiresAt.timeIntervalSince(createdAt) <= Self.maximumManifestLifetime
+              expiresAt > createdAt
         else { throw DesktopComponentReleaseVerificationError.incompatibleRelease }
 
         guard Set(manifest.components.map(\.kind)).count == manifest.components.count else {
             throw DesktopComponentReleaseVerificationError.invalidManifest
         }
         let byKind = Dictionary(uniqueKeysWithValues: manifest.components.map { ($0.kind, $0) })
-        guard byKind[.hermesCore]?.installPhase == .bootstrap,
-              byKind[.connector]?.installPhase == .bootstrap
+        guard byKind[.connector]?.installPhase == .bootstrap,
+              byKind[.nodeRuntime]?.installPhase == .bootstrap
+                || byKind[.hermesCore]?.installPhase == .bootstrap
         else { throw DesktopComponentReleaseVerificationError.invalidManifest }
 
         for component in manifest.components {

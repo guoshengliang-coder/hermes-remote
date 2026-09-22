@@ -356,9 +356,6 @@ struct AccountDevicesView: View {
         } else if model.isFreshInstallBlockedByOwnersHermes {
             ownersHermesGuidanceCard
         }
-        if let issue = model.managedSchemaIssue {
-            accountIssueCard(issue)
-        }
         if let issue = model.localHermesIssue {
             accountIssueCard(issue)
         }

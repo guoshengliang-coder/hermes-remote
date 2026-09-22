@@ -56,7 +56,9 @@ public final class DesktopComponentBootstrapRuntime: @unchecked Sendable {
         preflight = try DesktopComponentReleasePreflightRuntime(
             manifestURL: releaseConfiguration.manifestURL,
             verifier: verifier,
-            scanner: scanner
+            scanner: scanner,
+            indexChannel: releaseConfiguration.channel,
+            indexArchitecture: releaseConfiguration.architecture
         )
         workspaceRoot = paths.workspaceRoot
         executor = DesktopComponentBootstrapExecutor(

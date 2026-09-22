@@ -918,9 +918,9 @@ diagnosed from the attached diagnostic logs; the parts below are the ones no JVM
   writes a verdict — `SessionsChangedProbeTest`.
 - The run-wait label: silent under five seconds, `已运行 4分28秒` at the duration HG-56 actually sat
   through, and nothing at all without a start time — `SessionRunIndicatorTest`.
-- Desktop: the written LaunchAgent carries the search path, an agent written without one still
-  validates and is repaired by the next optional-component activation, and a malformed `PATH` is
-  refused — `DesktopManagedBootstrapConfigurationTests`, `DesktopOnDemandRuntimeActivatorTests`.
+- Desktop: the written bundled-layout LaunchAgent carries the search path, an agent written without
+  one is repaired by startup reconciliation, and a malformed `PATH` is refused —
+  `DesktopManagedBootstrapConfigurationTests`, `DesktopMigrationCoordinatorTests`.
 
 ### Still needs a device or a real Mac
 

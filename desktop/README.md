@@ -1,5 +1,8 @@
 # Hermes Go Desktop
 
+Release discovery, two-component topology, signing-key rotation, and protected-environment setup
+are documented in [`../docs/DESKTOP_RELEASE_CHANNEL.md`](../docs/DESKTOP_RELEASE_CHANNEL.md).
+
 Current internal test release candidate: **0.2.25** (build 28). One change.
 
 Its pinned schema-v1 manifest moves from 0.3.9 to **0.3.10**

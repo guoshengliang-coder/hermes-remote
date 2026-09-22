@@ -5,8 +5,7 @@ public struct DesktopComponentPreflightConfiguration: Equatable, Sendable {
     public let artifactOrigin: URL
     public let channel: String
     public let architecture: String
-    public let signingKeyID: String
-    public let signingPublicKey: Data
+    public let signingKeys: [String: Data]
 
     public init(
         manifestURL: URL,
@@ -16,20 +15,34 @@ public struct DesktopComponentPreflightConfiguration: Equatable, Sendable {
         signingKeyID: String,
         signingPublicKey: Data
     ) throws {
+        try self.init(
+            manifestURL: manifestURL,
+            artifactOrigin: artifactOrigin,
+            channel: channel,
+            architecture: architecture,
+            signingKeys: [signingKeyID: signingPublicKey]
+        )
+    }
+
+    public init(
+        manifestURL: URL,
+        artifactOrigin: URL,
+        channel: String,
+        architecture: String,
+        signingKeys: [String: Data]
+    ) throws {
         guard Self.validHTTPSURL(manifestURL, requirePath: true),
               Self.validHTTPSURL(artifactOrigin, requirePath: false),
               artifactOrigin.path.isEmpty || artifactOrigin.path == "/",
               Self.validIdentifier(channel, maximum: 32),
               ["arm64", "x86_64", "universal"].contains(architecture),
-              Self.validIdentifier(signingKeyID, maximum: 64),
-              signingPublicKey.count == 32
+              DesktopReleaseSigningKeys.valid(signingKeys)
         else { throw DesktopComponentReleaseVerificationError.invalidConfiguration }
         self.manifestURL = manifestURL
         self.artifactOrigin = artifactOrigin
         self.channel = channel
         self.architecture = architecture
-        self.signingKeyID = signingKeyID
-        self.signingPublicKey = signingPublicKey
+        self.signingKeys = signingKeys
     }
 
     public func makeManifestVerifier(
@@ -41,7 +54,7 @@ public struct DesktopComponentPreflightConfiguration: Equatable, Sendable {
             expectedChannel: channel,
             expectedArchitecture: architecture,
             currentMacOS: currentMacOS,
-            signingKeys: [signingKeyID: signingPublicKey],
+            signingKeys: signingKeys,
             now: now
         )
     }
@@ -86,9 +99,11 @@ public enum DesktopComponentPreflightConfigurationState: Equatable, Sendable {
               let artifactOrigin = values.artifactOrigin.flatMap(URL.init(string:)),
               let channel = values.channel,
               let architecture = values.architecture,
-              let signingKeyID = values.signingKeyID,
-              let encodedKey = values.signingPublicKey,
-              let signingPublicKey = Data(componentPreflightBase64URL: encodedKey)
+              let signingKeys = DesktopReleaseSigningKeys.parse(
+                  json: values.signingKeys,
+                  legacyKeyID: values.signingKeyID,
+                  legacyPublicKey: values.signingPublicKey
+              )
         else { return .invalid }
         do {
             return .configured(try DesktopComponentPreflightConfiguration(
@@ -96,8 +111,7 @@ public enum DesktopComponentPreflightConfigurationState: Equatable, Sendable {
                 artifactOrigin: artifactOrigin,
                 channel: channel,
                 architecture: architecture,
-                signingKeyID: signingKeyID,
-                signingPublicKey: signingPublicKey
+                signingKeys: signingKeys
             ))
         } catch {
             return .invalid
@@ -144,6 +158,7 @@ private struct DesktopComponentPreflightConfigurationValues {
     let architecture: String?
     let signingKeyID: String?
     let signingPublicKey: String?
+    let signingKeys: String?
 
     init(bundle: Bundle, environment: [String: String]) {
         func value(_ environmentKey: String, _ bundleKey: String) -> String? {
@@ -182,24 +197,9 @@ private struct DesktopComponentPreflightConfigurationValues {
             "HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY",
             "HermesGoDesktopReleaseSigningPublicKey"
         )
-    }
-}
-
-private extension Data {
-    init?(componentPreflightBase64URL value: String) {
-        guard !value.isEmpty,
-              value.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil
-        else { return nil }
-        let padding = String(repeating: "=", count: (4 - value.count % 4) % 4)
-        let standard = value
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/") + padding
-        guard let decoded = Data(base64Encoded: standard),
-              decoded.base64EncodedString()
-                .replacingOccurrences(of: "+", with: "-")
-                .replacingOccurrences(of: "/", with: "_")
-                .replacingOccurrences(of: "=", with: "") == value
-        else { return nil }
-        self = decoded
+        signingKeys = value(
+            "HERMES_GO_DESKTOP_RELEASE_SIGNING_KEYS",
+            "HermesGoDesktopReleaseSigningKeys"
+        )
     }
 }

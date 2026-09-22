@@ -19,9 +19,7 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: prepared.workspaceDirectory.path))
         let requested = await downloader.requestedKinds()
-        XCTAssertEqual(requested, [
-            .pythonRuntime, .nodeRuntime, .hermesCore, .connector,
-        ])
+        XCTAssertEqual(requested, [.nodeRuntime, .connector])
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
         for artifact in fixture.manifest.components {
             XCTAssertFalse(FileManager.default.fileExists(
@@ -31,7 +29,7 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
 
         let installed = try installer.commit(prepared, healthProbe: executableProbe)
         XCTAssertTrue(FileManager.default.fileExists(atPath: installed.referenceURL.path))
-        XCTAssertEqual(installed.activationPlan.components.count, 4)
+        XCTAssertEqual(installed.activationPlan.components.count, 2)
         try installer.discard(installed)
     }
 
@@ -88,12 +86,12 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: fixture.managedContent(fixture.artifact(.pythonRuntime)).path
+            atPath: fixture.managedContent(fixture.artifact(.nodeRuntime)).path
         ))
         XCTAssertFalse(FileManager.default.fileExists(atPath: prepared.workspaceDirectory.path))
     }
 
-    func testInstallCommitsFourComponentsRecordsReferenceAndReturnsActivationPlan() async throws {
+    func testInstallCommitsTwoComponentsRecordsReferenceAndReturnsActivationPlan() async throws {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }
         let downloader = FixtureComponentDownloader()
@@ -107,10 +105,8 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
         )
 
         let requested = await downloader.requestedKinds()
-        XCTAssertEqual(requested, [
-            .pythonRuntime, .nodeRuntime, .hermesCore, .connector,
-        ])
-        XCTAssertEqual(installed.activationPlan.components.count, 4)
+        XCTAssertEqual(requested, [.nodeRuntime, .connector])
+        XCTAssertEqual(installed.activationPlan.components.count, 2)
         for artifact in fixture.manifest.components {
             let component = fixture.managedContent(artifact)
             XCTAssertTrue(FileManager.default.fileExists(atPath: component.path))
@@ -124,9 +120,7 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
             from: Data(contentsOf: installed.referenceURL)
         )
         XCTAssertEqual(reference.releaseVersion, fixture.manifest.releaseVersion)
-        XCTAssertEqual(Set(reference.components.map(\.kind)), Set([
-            .pythonRuntime, .nodeRuntime, .hermesCore, .connector,
-        ]))
+        XCTAssertEqual(Set(reference.components.map(\.kind)), Set([.nodeRuntime, .connector]))
 
         try installer.discard(installed)
         XCTAssertFalse(FileManager.default.fileExists(atPath: installed.workspaceDirectory.path))
@@ -168,7 +162,7 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
         let downloader = FixtureComponentDownloader()
         let installer = try fixture.installer(
             downloader: downloader,
-            failExtractionFor: .hermesCore
+            failExtractionFor: .connector
         )
         let runID = "40000000-0000-4000-8000-000000000004"
 
@@ -182,15 +176,13 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
         }
 
         let requested = await downloader.requestedKinds()
-        XCTAssertEqual(requested, [
-            .pythonRuntime, .nodeRuntime, .hermesCore,
-        ])
+        XCTAssertEqual(requested, [.nodeRuntime, .connector])
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: fixture.workspace.appendingPathComponent(runID).path
         ))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: fixture.managedContent(fixture.artifact(.pythonRuntime)).path
+            atPath: fixture.managedContent(fixture.artifact(.nodeRuntime)).path
         ))
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: fixture.managedContent(fixture.artifact(.nodeRuntime)).path
@@ -238,7 +230,6 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }
         let downloader = FixtureComponentDownloader()
-        let installer = try fixture.installer(downloader: downloader)
         var components = fixture.manifest.components
         let connectorIndex = try XCTUnwrap(components.firstIndex(where: { $0.kind == .connector }))
         let connector = components[connectorIndex]
@@ -248,16 +239,8 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
             dependencies: connector.dependencies.filter { $0.kind != .nodeRuntime }
         )
         let invalid = fixture.manifest(with: components)
-        let verifiedInvalid = try fixture.verify(invalid)
-        let runID = "70000000-0000-4000-8000-000000000007"
-
-        await XCTAssertThrowsErrorAsync(try await installer.install(
-            verifiedManifest: verifiedInvalid,
-            workspaceRoot: fixture.workspace,
-            runID: runID,
-            healthProbe: executableProbe
-        )) { error in
-            XCTAssertEqual(error as? DesktopComponentReleaseInstallError, .invalidManifest)
+        XCTAssertThrowsError(try fixture.verify(invalid)) { error in
+            XCTAssertEqual(error as? DesktopComponentReleaseVerificationError, .incompatibleRelease)
         }
 
         let requests = await downloader.requestedKinds()
@@ -268,7 +251,7 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
     func testTransportInterruptionKeepsManifestBoundWorkspaceAndResumesSameRun() async throws {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }
-        let downloader = FixtureComponentDownloader(failOnceFor: .hermesCore)
+        let downloader = FixtureComponentDownloader(failOnceFor: .connector)
         let installer = try fixture.installer(downloader: downloader)
         let runID = "80000000-0000-4000-8000-000000000008"
         let runRoot = fixture.workspace.appendingPathComponent(runID)
@@ -286,12 +269,12 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
         ))
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: runRoot.appendingPathComponent(
-                "downloads/.Hermes-Component-hermes_core-1.2.3-arm64.tar.gz.partial"
+                "downloads/.Hermes-Component-connector-1.2.3-arm64.tar.gz.partial"
             ).path
         ))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: fixture.managedContent(fixture.artifact(.pythonRuntime)).path
+            atPath: fixture.managedContent(fixture.artifact(.nodeRuntime)).path
         ))
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: fixture.managedContent(fixture.artifact(.nodeRuntime)).path
@@ -321,10 +304,7 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
             healthProbe: executableProbe
         )
         let requests = await downloader.requestedKinds()
-        XCTAssertEqual(requests, [
-            .pythonRuntime, .nodeRuntime, .hermesCore,
-            .pythonRuntime, .nodeRuntime, .hermesCore, .connector,
-        ])
+        XCTAssertEqual(requests, [.nodeRuntime, .connector, .nodeRuntime, .connector])
         XCTAssertTrue(FileManager.default.fileExists(atPath: installed.referenceURL.path))
         try installer.discard(installed)
         XCTAssertFalse(FileManager.default.fileExists(atPath: runRoot.path))
@@ -334,7 +314,7 @@ final class DesktopComponentReleaseInstallerTests: XCTestCase {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }
         let installer = try fixture.installer(
-            downloader: FixtureComponentDownloader(failOnceFor: .pythonRuntime)
+            downloader: FixtureComponentDownloader(failOnceFor: .nodeRuntime)
         )
         let runID = "90000000-0000-4000-8000-000000000009"
         let runRoot = fixture.workspace.appendingPathComponent(runID)
@@ -491,10 +471,7 @@ extension DesktopComponentReleaseInstallerTests {
         XCTAssertEqual(call.activationPlan, outcome.activationPlan)
         XCTAssertEqual(call.runID, runID)
         XCTAssertEqual(call.confirmation, preparation.confirmationText)
-        XCTAssertEqual(
-            call.hermes.pythonRuntimeRoot,
-            outcome.activationPlan.component(.pythonRuntime)?.root
-        )
+        XCTAssertEqual(call.hermes.hermesExecutable.lastPathComponent, "hermes-local-serve")
         XCTAssertEqual(
             call.connector.nodeRuntimeRoot,
             outcome.activationPlan.component(.nodeRuntime)?.root
@@ -515,6 +492,7 @@ extension DesktopComponentReleaseInstallerTests {
             runID: "a0000000-0000-4000-8000-000000000009",
             installation: .active(
                 releaseVersion: "0.4.0",
+                releaseLayout: .componentStore,
                 bindingID: "70000000-0000-4000-8000-000000000007",
                 bindingGeneration: 1
             ),
@@ -606,7 +584,7 @@ extension DesktopComponentReleaseInstallerTests {
         let runID = "c0000000-0000-4000-8000-000000000002"
         let executor = DesktopComponentBootstrapExecutor(
             installer: try fixture.installer(
-                downloader: FixtureComponentDownloader(failOnceFor: .pythonRuntime)
+                downloader: FixtureComponentDownloader(failOnceFor: .nodeRuntime)
             ),
             migration: RecordingComponentBootstrapMigration()
         )
@@ -845,16 +823,12 @@ private final class ComponentInstallFixture {
         store = base.appendingPathComponent("managed", isDirectory: true)
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: false)
         let paths: [DesktopManagedComponentKind: String] = [
-            .pythonRuntime: "bin/python3",
             .nodeRuntime: "bin/node",
-            .hermesCore: "bin/hermes",
             .connector: "bin/hermes-connector",
         ]
         var sourceByKind: [DesktopManagedComponentKind: URL] = [:]
         var hashes: [DesktopManagedComponentKind: String] = [:]
-        for kind in [
-            DesktopManagedComponentKind.pythonRuntime, .nodeRuntime, .hermesCore, .connector,
-        ] {
+        for kind in [DesktopManagedComponentKind.nodeRuntime, .connector] {
             let source = base.appendingPathComponent("source-\(kind.rawValue)", isDirectory: true)
             let entrypoint = source.appendingPathComponent(paths[kind]!)
             try FileManager.default.createDirectory(
@@ -869,30 +843,15 @@ private final class ComponentInstallFixture {
                 .identify(directory: source).sha256
         }
         sources = sourceByKind
-        let python = Self.artifact(
-            kind: .pythonRuntime,
-            contentSHA256: hashes[.pythonRuntime]!,
-            dependencies: []
-        )
         let node = Self.artifact(
             kind: .nodeRuntime,
             contentSHA256: hashes[.nodeRuntime]!,
             dependencies: []
         )
-        let hermes = Self.artifact(
-            kind: .hermesCore,
-            contentSHA256: hashes[.hermesCore]!,
-            dependencies: [.init(
-                kind: .pythonRuntime, contentSHA256: hashes[.pythonRuntime]!
-            )]
-        )
         let connector = Self.artifact(
             kind: .connector,
             contentSHA256: hashes[.connector]!,
-            dependencies: [
-                .init(kind: .hermesCore, contentSHA256: hashes[.hermesCore]!),
-                .init(kind: .nodeRuntime, contentSHA256: hashes[.nodeRuntime]!),
-            ]
+            dependencies: [.init(kind: .nodeRuntime, contentSHA256: hashes[.nodeRuntime]!)]
         )
         let builtManifest = DesktopComponentReleaseManifestV2(
             releaseVersion: "0.4.1",
@@ -901,7 +860,7 @@ private final class ComponentInstallFixture {
             minimumMacOS: "14.0",
             createdAt: "2026-09-01T00:00:00Z",
             expiresAt: "2026-09-20T00:00:00Z",
-            components: [connector, hermes, node, python]
+            components: [connector, node]
         )
         manifest = builtManifest
         verifiedManifest = try Self.verify(builtManifest)
@@ -1020,9 +979,7 @@ private final class ComponentInstallFixture {
         dependencies: [DesktopComponentReleaseDependency]
     ) -> DesktopComponentReleaseArtifactV2 {
         let paths: [DesktopManagedComponentKind: String] = [
-            .pythonRuntime: "bin/python3",
             .nodeRuntime: "bin/node",
-            .hermesCore: "bin/hermes",
             .connector: "bin/hermes-connector",
         ]
         let fileName = "Hermes-Component-\(kind.rawValue)-1.2.3-arm64.tar.gz"

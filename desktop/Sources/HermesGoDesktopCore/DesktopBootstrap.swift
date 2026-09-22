@@ -67,7 +67,7 @@ public enum DesktopBootstrapPlanner {
         targetReleaseVersion: String? = nil
     ) -> DesktopBootstrapPlan {
         switch managedInstallation {
-        case .active(let releaseVersion, _, _):
+        case .active(let releaseVersion, _, _, _):
             if managedInstallAvailability == .ready,
                let targetReleaseVersion,
                isNewer(targetReleaseVersion, than: releaseVersion) {

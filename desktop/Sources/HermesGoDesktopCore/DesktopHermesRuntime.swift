@@ -10,7 +10,7 @@ import Foundation
 public enum DesktopHermesRuntimeMode: Equatable, Sendable {
     /// No Hermes LaunchAgent on disk.
     case absent
-    /// The bundled `hermes_server` release or a component-store `hermes_core`.
+    /// The historical bundled `hermes_server` release.
     case bundled
     /// This Mac's own Hermes, started through Desktop's launcher.
     case localHermes(executable: URL)

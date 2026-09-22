@@ -224,9 +224,7 @@ private struct RuntimeManifestFixture {
 
     init() throws {
         let signer = Curve25519.Signing.PrivateKey()
-        let pythonHash = Self.hash("a")
         let nodeHash = Self.hash("b")
-        let hermesHash = Self.hash("c")
         manifest = DesktopComponentReleaseManifestV2(
             releaseVersion: "0.4.0",
             channel: "internal",
@@ -235,22 +233,12 @@ private struct RuntimeManifestFixture {
             createdAt: "2026-09-01T00:00:00Z",
             expiresAt: "2026-09-20T00:00:00Z",
             components: [
-                Self.component(.pythonRuntime, hash: pythonHash, entrypoint: "bin/python3"),
                 Self.component(.nodeRuntime, hash: nodeHash, entrypoint: "bin/node"),
-                Self.component(
-                    .hermesCore,
-                    hash: hermesHash,
-                    entrypoint: "bin/hermes",
-                    dependencies: [.init(kind: .pythonRuntime, contentSHA256: pythonHash)]
-                ),
                 Self.component(
                     .connector,
                     hash: Self.hash("d"),
                     entrypoint: "bin/hermes-connector",
-                    dependencies: [
-                        .init(kind: .hermesCore, contentSHA256: hermesHash),
-                        .init(kind: .nodeRuntime, contentSHA256: nodeHash),
-                    ]
+                    dependencies: [.init(kind: .nodeRuntime, contentSHA256: nodeHash)]
                 ),
             ]
         )

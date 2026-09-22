@@ -79,11 +79,11 @@ test("publisher refuses symlinked inputs and cleans an earlier copied artifact",
   assert.deepEqual(await readdir(fixture.output), []);
 });
 
-test("publisher rejects unknown fields, unsafe origin, and overlong lifetime", async (t) => {
+test("publisher rejects unknown fields, unsafe origin, and reversed release dates", async (t) => {
   const mutations = [
     (config) => { config.futureUnsafeAction = true; },
     (config) => { config.artifactOrigin = "http://mrlgs.net"; },
-    (config) => { config.expiresAt = iso(new Date(Date.parse(config.createdAt) + 31 * 24 * 60 * 60 * 1000)); },
+    (config) => { config.expiresAt = iso(new Date(Date.parse(config.createdAt) - 1_000)); },
   ];
   for (const mutate of mutations) {
     const fixture = await makeFixture(t);
@@ -142,6 +142,21 @@ test("CLI reports HR-RELEASE-004 without disclosing the signing-key path", async
   assert.equal(diagnostic.stage, "desktop_managed_release_package");
   assert.equal(result.stderr.includes(fixture.keyPath), false);
   assert.equal(diagnostic.technicalCause, "signing_key_permissions_invalid");
+});
+
+test("release channel publisher keeps verification, full readback, rollback, and managed tags", async () => {
+  const source = await readFile("scripts/publish-desktop-release.sh", "utf8");
+  assert.match(source, /verify-desktop-managed-release\.mjs/);
+  assert.match(source, /verify-desktop-component-release-v2\.mjs/);
+  assert.match(source, /manifest_files/);
+  assert.match(source, /cmp -s \"\$source\"/);
+  assert.match(source, /--rollback/);
+  assert.match(source, /desktop-managed-v\$\{DESKTOP_RELEASE_VERSION\}/);
+  const help = spawnSync("scripts/publish-desktop-release.sh", ["--help"], {
+    cwd: process.cwd(), encoding: "utf8", shell: false,
+  });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /Usage:/);
 });
 
 async function makeFixture(t) {

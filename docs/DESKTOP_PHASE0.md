@@ -466,18 +466,9 @@ schema 2, a trust or scan failure cannot expose the schema-v1 download action as
 Production capability/configuration stays
 off, so this slice performs no deployment, installation, running-service change, or release.
 
-Beside those migration failures, Desktop carries one advisory that is not about installing anything:
-`HR-MIGRATE-006`, shown when the live `state.db` has grown columns the running managed release was
-not built to read. It is drawn in its own card, independent of the managed-installation state,
-because the bootstrap state machine clears its own issue on nearly every transition and because a
-Mac that also runs its own hermes-agent reports `inconsistent` permanently — gating the advisory on
-`active` would hide it on exactly the machines that have drift. It is not retryable: nothing on the
-Mac makes a pinned copy understand a newer database, so the copy says to update the managed Hermes.
-It reports only columns nobody has examined yet: the three already looked at on 2026-09-20 are
-subtracted on recorded terms — the patch that neutralises them must be present in the release and
-their types unchanged — so the card is not permanently lit.
-See `docs/MANAGED_HERMES_STRATEGY.md` rule 7 for why the check is compared against the recorded
-`schemaBaseline` rather than `schema_version`, and why its call site is asserted by a test.
+`HR-MIGRATE-006` and the managed schema-baseline inspection were retired with the bundled Hermes
+runtime. New component releases run the owner's local Hermes, so Desktop no longer compares one
+Hermes checkout's database against a separately packaged reader.
 
 This closes the offline tooling gap only. No real signing identity, artifact upload, release endpoint,
 packaged enablement, Gateway capability, LaunchAgent, or running Connector is changed by E4-E.
@@ -1012,11 +1003,8 @@ now mandatory, not a precaution.
   `/Users/<name>` to `/Users/<user>` in every diagnostic.
 - **Startup repairs**: the token-file and search-path reconcilers recognise the local agent. The
   search-path repair has nothing to do there; the token contract validates it like the bundled one.
-- **Schema drift (`HR-MIGRATE-006`)** is silent in local mode: the same checkout writes and reads
-  `state.db`, and the bundled release's baseline describes a program that is not running.
-- **Optional on-demand components** (`replaceHermesLaunchAgent`) still expect the bundled agent and
-  refuse a local one. That path is not wired into the app; the owner's Hermes installs its own
-  optional dependencies.
+- **Schema drift and optional on-demand components** were removed with bundled Hermes. The same
+  local checkout writes and reads `state.db`, and Hermes owns its optional dependencies.
 
 #### Proving the old listener is gone, and what is logged (2026-09-21 incident)
 

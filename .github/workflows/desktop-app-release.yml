@@ -1,0 +1,36 @@
+name: Desktop app release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: macos-15
+    environment: desktop-release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run desktop:assets:test && npm run desktop:test && npm run desktop:app
+      - name: Verify release environment is provisioned
+        env:
+          DESKTOP_RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SIGNING_PRIVATE_KEY }}
+          DESKTOP_RELEASE_SSH_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SSH_PRIVATE_KEY }}
+          DESKTOP_RELEASE_SSH_KNOWN_HOSTS: ${{ secrets.DESKTOP_RELEASE_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DESKTOP_RELEASE_SIGNING_PRIVATE_KEY"
+          test -n "$DESKTOP_RELEASE_SSH_PRIVATE_KEY"
+          test -n "$DESKTOP_RELEASE_SSH_KNOWN_HOSTS"
+          echo "Packaging/publishing is intentionally delegated to scripts/publish-desktop-release.sh after immutable manifests are produced."

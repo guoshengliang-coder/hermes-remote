@@ -39,7 +39,7 @@ public struct DesktopAgentPresentation: Equatable, Sendable {
         accountVerification: DesktopManagedAccountVerification,
         checkedAt: Date
     ) -> DesktopAgentPresentation {
-        if case .active(let releaseVersion, _, _) = managed {
+        if case .active(let releaseVersion, _, _, _) = managed {
             switch accountVerification {
             case .verified:
                 return DesktopAgentPresentation(

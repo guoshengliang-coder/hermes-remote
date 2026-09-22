@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 public struct DesktopManagedComponentIdentity: Equatable, Hashable, Sendable {
@@ -45,6 +46,60 @@ public enum DesktopManagedComponentGarbageCollectionError: Error, Equatable, Sen
     case invalidComponent
     case missingProtectedReference
     case missingReferencedComponent
+    case storeChanged
+}
+
+/// Deletes only candidates proven by two identical fail-closed snapshots. The caller must hold the
+/// installation operation lease so another Desktop operation cannot add a reference between the
+/// second snapshot and removal.
+public struct DesktopManagedComponentGarbageCollector: @unchecked Sendable {
+    private let root: URL
+    private let currentUserID: UInt32
+    private let fileManager: FileManager
+
+    public init(
+        root: URL,
+        currentUserID: UInt32,
+        fileManager: FileManager = .default
+    ) throws {
+        let normalized = root.standardizedFileURL
+        guard normalized.isFileURL, normalized.path.hasPrefix("/"), normalized.path != "/" else {
+            throw DesktopManagedComponentGarbageCollectionError.invalidRoot
+        }
+        self.root = normalized
+        self.currentUserID = currentUserID
+        self.fileManager = fileManager
+    }
+
+    @discardableResult
+    public func collect(protectedReleaseVersions: Set<String>) throws -> Int64 {
+        let planner = try DesktopManagedComponentGarbageCollectionPlanner(
+            root: root,
+            currentUserID: currentUserID,
+            fileManager: fileManager
+        )
+        let first = try planner.plan(protectedReleaseVersions: protectedReleaseVersions)
+        let second = try planner.plan(protectedReleaseVersions: protectedReleaseVersions)
+        guard first == second else {
+            throw DesktopManagedComponentGarbageCollectionError.storeChanged
+        }
+        for candidate in second.candidates {
+            try fileManager.removeItem(at: candidate.containerURL)
+        }
+        return second.reclaimableFileBytes
+    }
+}
+
+extension DesktopManagedInstaller {
+    @discardableResult
+    func collectUnreferencedComponents(
+        protecting releaseVersion: String
+    ) throws -> Int64 {
+        try DesktopManagedComponentGarbageCollector(
+            root: layout.root,
+            currentUserID: Darwin.getuid()
+        ).collect(protectedReleaseVersions: [releaseVersion])
+    }
 }
 
 /// Produces a read-only, fail-closed snapshot of the shared component store. A later deleter must

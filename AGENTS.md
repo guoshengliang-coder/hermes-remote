@@ -316,6 +316,13 @@ npm run desktop:test
 npm run desktop:app
 ```
 
+Desktop managed/component publication runs only from a clean isolated worktree at current
+`origin/main`, through the protected `desktop-release` GitHub environment and
+`scripts/publish-desktop-release.sh`. The publisher must locally verify each Ed25519 envelope,
+upload immutable versioned files, compare every public readback byte-for-byte, and then switch the
+stable indexes. Do not put a private release key on a developer Mac or bypass the environment review.
+Key rotation ships an app trusting both keys before CI starts signing with the new key.
+
 An ad-hoc local app is not a distributable release. Do not claim Developer ID signing or notarization
 unless the exact artifact has passed codesign verification, notary submission, stapling, and a clean
 machine launch check.

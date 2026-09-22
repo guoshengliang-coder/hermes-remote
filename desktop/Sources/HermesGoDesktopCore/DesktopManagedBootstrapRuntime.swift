@@ -37,10 +37,30 @@ public struct DesktopManagedBootstrapPaths: Equatable, Sendable {
 
 public enum DesktopManagedBootstrapInstallationStatus: Equatable, Sendable {
     case absent
-    case active(releaseVersion: String, bindingID: String, bindingGeneration: Int)
+    case active(
+        releaseVersion: String,
+        releaseLayout: DesktopManagedReleaseLayoutKind,
+        bindingID: String,
+        bindingGeneration: Int
+    )
     case interrupted(runID: String, state: DesktopMigrationState)
     case attentionRequired
     case inconsistent
+
+    /// Source-compatible constructor for callers that predate release-layout persistence. Those
+    /// installations were all the original bundled layout.
+    public static func active(
+        releaseVersion: String,
+        bindingID: String,
+        bindingGeneration: Int
+    ) -> Self {
+        .active(
+            releaseVersion: releaseVersion,
+            releaseLayout: .bundledRelease,
+            bindingID: bindingID,
+            bindingGeneration: bindingGeneration
+        )
+    }
 
     public static func reduce(
         journal: DesktopMigrationJournal?,
@@ -61,6 +81,7 @@ public enum DesktopManagedBootstrapInstallationStatus: Equatable, Sendable {
             }
             return .active(
                 releaseVersion: journal.releaseVersion,
+                releaseLayout: journal.releaseLayout,
                 bindingID: bindingID,
                 bindingGeneration: bindingGeneration
             )
@@ -78,7 +99,7 @@ public enum DesktopManagedBootstrapInstallationStatus: Equatable, Sendable {
         bindingID: String?,
         bindingGeneration: Int?
     ) -> DesktopManagedBootstrapInstallationStatus {
-        guard case .active(_, let installedBindingID, let installedGeneration) = self else {
+        guard case .active(_, _, let installedBindingID, let installedGeneration) = self else {
             return self
         }
         guard bindingID == installedBindingID, bindingGeneration == installedGeneration else {
@@ -273,7 +294,9 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
         let verifier = try releaseConfiguration.makeManifestVerifier()
         let acquisition = DesktopReleaseAcquirer(
             downloader: DesktopReleaseDownloader(),
-            manifestVerifier: verifier
+            manifestVerifier: verifier,
+            indexChannel: releaseConfiguration.channel,
+            indexArchitecture: releaseConfiguration.architecture
         )
         let journal = try DesktopMigrationJournalStore(root: paths.migrationJournalRoot)
         let operationLog = DesktopServiceOperationLog(layout: layout)

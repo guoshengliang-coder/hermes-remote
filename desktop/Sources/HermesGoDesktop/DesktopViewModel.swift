@@ -67,14 +67,9 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var managedBootstrapPreparation: DesktopManagedBootstrapPreparation?
     @Published private(set) var managedBootstrapIssue: DesktopIssue?
     /// Kept apart from `managedBootstrapIssue` on purpose: drift is orthogonal to the bootstrap
-    /// state machine, and that machine clears its issue on almost every transition. On a Mac whose
-    /// managed installation reads `inconsistent` — which is the permanent state of any Mac that
-    /// also runs its own hermes-agent — sharing one slot would mean the drift is never the thing
-    /// shown.
-    @Published private(set) var managedSchemaIssue: DesktopIssue?
     /// Which Hermes the managed service runs is reconciled on every refresh (local runtime mode,
-    /// `docs/DESKTOP_PHASE0.md`). Its own slot for the same reason as `managedSchemaIssue`: it is
-    /// orthogonal to the bootstrap state machine, which clears its issue on most transitions.
+    /// `docs/DESKTOP_PHASE0.md`). Its own slot because it is orthogonal to the bootstrap state
+    /// machine, which clears its issue on most transitions.
     @Published private(set) var localHermesIssue: DesktopIssue?
     @Published private(set) var hermesInstallPhase: DesktopHermesInstallPhase = .hidden
     @Published var isHermesInstallConfirmationPresented = false
@@ -95,7 +90,6 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var componentBootstrapIssue: DesktopIssue?
 
     private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
-    private let managedSchemaInspector: DesktopManagedSchemaInspector?
     private let prober = HTTPHealthProber()
     private let profileStore: any ConnectionProfileStoring
     private let accountController: DesktopAccountController
@@ -146,9 +140,6 @@ final class DesktopViewModel: ObservableObject {
         self.managedPaths = managedPaths
         localHermesDetector = (try? DesktopLocalHermesPaths.currentUser())
             .map { DesktopLocalHermesDetector(paths: $0) }
-        managedSchemaInspector = managedPaths.map {
-            DesktopManagedSchemaInspector(managedPaths: $0)
-        }
         if let managedPaths {
             managedRecoveryRuntime = try? DesktopManagedRecoveryRuntime(
                 account: controller,
@@ -749,7 +740,6 @@ final class DesktopViewModel: ObservableObject {
         )
         applyManagedBootstrapInstallation(scopedManagedInstallation)
         await refreshHermesInstallOffer(scopedManagedInstallation)
-        await refreshManagedSchemaIssue()
         await refreshHermesRuntime()
     }
 
@@ -1017,22 +1007,6 @@ final class DesktopViewModel: ObservableObject {
             freshInstall: fresh,
             localRuntimeEnabled: DesktopLocalHermesRuntimeSetting.isEnabled()
         )
-    }
-
-    /// Runs on every refresh and is not gated on the installation status.
-    ///
-    /// The inspector is silent when there is no managed release or no readable database, so the
-    /// gate is the installation's own existence. Gating on `.active` instead would have hidden the
-    /// finding on exactly the Mac that has it. Measured cost: ~12 ms per pass, off the main actor.
-    private func refreshManagedSchemaIssue() async {
-        guard let managedSchemaInspector else {
-            managedSchemaIssue = nil
-            return
-        }
-        let drift = await Task.detached(priority: .utility) {
-            managedSchemaInspector.inspect()
-        }.value
-        managedSchemaIssue = DesktopIssue.managedSchemaDrift(drift)
     }
 
     func prepareManagedBootstrap() async {
@@ -1509,7 +1483,7 @@ final class DesktopViewModel: ObservableObject {
     private func managedAccountVerification(
         for installation: DesktopManagedBootstrapInstallationStatus
     ) -> DesktopManagedAccountVerification {
-        guard case .active(_, let bindingID, let bindingGeneration) = installation,
+        guard case .active(_, _, let bindingID, let bindingGeneration) = installation,
               case .signedIn(let dashboard) = accountState
         else { return .unavailable }
         return dashboard.binding.binding?.id == bindingID
@@ -1523,7 +1497,7 @@ final class DesktopViewModel: ObservableObject {
     ) {
         guard managedBootstrapPreparation == nil else { return }
         switch installation {
-        case .active(let releaseVersion, _, _):
+        case .active(let releaseVersion, _, _, _):
             if bootstrapPlan.canBegin {
                 if case .completed = managedBootstrapOperation {
                     managedBootstrapOperation = .idle

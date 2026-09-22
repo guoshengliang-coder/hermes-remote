@@ -155,27 +155,22 @@ public struct DesktopManagedBootstrapCommitConfiguration: Equatable, Sendable {
     }
 
     public func componentLaunchAgents(
-        for plan: DesktopComponentReleaseActivationPlan,
-        optionalRuntime: DesktopOptionalComponentRuntimeEnvironment? = nil
+        for plan: DesktopComponentReleaseActivationPlan
     ) throws -> (
         hermes: DesktopHermesServerLaunchAgent,
         connector: DesktopAccountConnectorLaunchAgent
     ) {
-        guard let python = plan.component(.pythonRuntime),
-              let hermes = plan.component(.hermesCore),
-              let node = plan.component(.nodeRuntime),
+        guard let node = plan.component(.nodeRuntime),
               let connector = plan.component(.connector)
         else { throw DesktopManagedBootstrapCommitConfigurationError.invalidManifest }
         return (
             DesktopHermesServerLaunchAgent(
-                hermesExecutable: hermes.entrypoint,
+                hermesExecutable: layout.localHermesLauncher,
                 hermesHome: hermesHome,
                 runtimeContract: runtimeContract,
                 sessionTokenFile: layout.hermesSessionToken,
                 standardOutput: layout.logsRoot.appendingPathComponent("hermes-server.log"),
-                standardError: layout.logsRoot.appendingPathComponent("hermes-server.error.log"),
-                pythonRuntimeRoot: python.root,
-                optionalRuntime: optionalRuntime
+                standardError: layout.logsRoot.appendingPathComponent("hermes-server.error.log")
             ),
             DesktopAccountConnectorLaunchAgent(
                 connectorExecutable: connector.entrypoint,
@@ -291,7 +286,13 @@ public actor DesktopManagedBootstrapExecutor {
         switch installation {
         case .absent:
             intent = .install
-        case .active(let installed, _, _):
+        case .active(let installed, let layout, _, _):
+            guard layout == .bundledRelease else {
+                state = .idle
+                do { try acquisition.discard(acquired) }
+                catch { throw DesktopManagedBootstrapExecutorError.cleanupFailed }
+                throw DesktopManagedBootstrapExecutorError.releaseNotNewer
+            }
             guard Self.version(acquired.manifest.releaseVersion, isNewerThan: installed) else {
                 state = .idle
                 do { try acquisition.discard(acquired) }

@@ -117,7 +117,7 @@ final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
         }
         XCTAssertEqual(configuration.manifestURL.absoluteString, "https://updates.example/releases/manifest.json")
         XCTAssertEqual(configuration.artifactOrigin.absoluteString, "https://downloads.example")
-        XCTAssertEqual(configuration.signingPublicKey, Data(repeating: 7, count: 32))
+        XCTAssertEqual(configuration.signingKeys, ["desktop-release-test": Data(repeating: 7, count: 32)])
         XCTAssertNoThrow(try configuration.makeManifestVerifier())
 
         XCTAssertEqual(
@@ -141,6 +141,27 @@ final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
             ),
             .ready
         )
+    }
+
+    func testRotationTrustSetLoadsMultipleKeysAndCannotMixLegacyConfiguration() {
+        var values = validValues()
+        values.removeValue(forKey: "HERMES_GO_DESKTOP_RELEASE_SIGNING_KEY_ID")
+        values.removeValue(forKey: "HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY")
+        let key = Data(repeating: 8, count: 32).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        values["HERMES_GO_DESKTOP_RELEASE_SIGNING_KEYS"] =
+            #"{"desktop-release-next":"\#(key)","desktop-release-test":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"}"#
+
+        guard case .configured(let configuration) = load(values) else {
+            return XCTFail("expected rotation trust set")
+        }
+        XCTAssertEqual(Set(configuration.signingKeys.keys), ["desktop-release-test", "desktop-release-next"])
+
+        values["HERMES_GO_DESKTOP_RELEASE_SIGNING_KEY_ID"] = "legacy"
+        values["HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY"] = key
+        XCTAssertEqual(load(values), .invalid)
     }
 
     func testCanonicalManifestURLExposesPinnedReleaseOnlyAsPreflightHint() throws {

@@ -264,6 +264,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               installed.lastKnownGoodMode == .account,
               let bindingID = installed.bindingID,
               let bindingGeneration = installed.bindingGeneration,
+              installed.releaseLayout == candidate.releaseLayout,
               Self.version(candidate.releaseVersion, isNewerThan: installed.releaseVersion),
               launchAgentConfiguration.hermesBaseURL
                 == hermesLaunchAgentConfiguration.runtimeContract.baseURL
@@ -324,12 +325,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     manifest: manifest
                 )
             case .components(_, let activationPlan):
-                let written = try installer.writeHermesLaunchAgent(
-                    hermesLaunchAgentConfiguration,
-                    activationPlan: activationPlan,
-                    to: keepLocalHermes ? installer.bundledHermesLaunchAgentBackupURL : nil
-                )
-                hermesLaunchAgentURL = keepLocalHermes ? installer.managedHermesLaunchAgentURL : written
+                guard let localHermes = localHermesForFreshInstall() else {
+                    throw DesktopMigrationCoordinatorError.invalidStartingState
+                }
+                hermesLaunchAgentURL = try installer.writeLocalHermesLaunchAgent(localHermes)
                 accountLaunchAgentURL = try installer.writeLaunchAgent(
                     launchAgentConfiguration,
                     activationPlan: activationPlan
@@ -376,6 +375,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 try installer.commitHermesSessionTokenFileMigration()
             case .components(_, let activationPlan):
                 try installer.commitHermesSessionTokenFileMigration(activationPlan: activationPlan)
+                _ = try? installer.collectUnreferencedComponents(
+                    protecting: candidate.releaseVersion
+                )
             }
             _ = try journal.transition(runID: runID, to: .accountActive)
             try? installer.discardManagedUpgradeSnapshot(snapshot)
@@ -465,10 +467,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     manifest: manifest
                 )
             case .components(_, let activationPlan):
-                hermesLaunchAgentURL = try installer.writeHermesLaunchAgent(
-                    hermesLaunchAgentConfiguration,
-                    activationPlan: activationPlan
-                )
+                guard let localHermes = localHermesForFreshInstall() else {
+                    throw DesktopMigrationCoordinatorError.invalidStartingState
+                }
+                hermesLaunchAgentURL = try installer.writeLocalHermesLaunchAgent(localHermes)
                 accountLaunchAgentURL = try installer.writeLaunchAgent(
                     launchAgentConfiguration,
                     activationPlan: activationPlan
@@ -486,7 +488,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     runID: runID
                 )
             }
-            if let localHermes {
+            if case .bundled = candidate, let localHermes {
                 _ = try installer.prepareLocalHermesRuntime(localHermes)
             }
             let hermesCheckpoint = try hermesReadiness.checkpoint(
@@ -558,6 +560,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             case .components(_, let activationPlan):
                 try installer.commitHermesSessionTokenFileMigration(
                     activationPlan: activationPlan
+                )
+                _ = try? installer.collectUnreferencedComponents(
+                    protecting: candidate.releaseVersion
                 )
             }
             return DesktopMigrationOutcome(
@@ -716,6 +721,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               let previewBindingID = preview.bindingID,
               let previewGeneration = preview.bindingGeneration
         else { return false }
+        guard preview.releaseLayout == .bundledRelease else { return false }
         guard Self.supportsSessionTokenFile(releaseVersion: preview.releaseVersion) else {
             return false
         }
@@ -790,8 +796,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     /// launchd reads a LaunchAgent's environment at bootstrap, so the agent this rewrites has no
     /// effect until the job is started again — which is why the restart is part of the operation and
     /// not left to the next reboot. Only Hermes is restarted: the Connector's own agent is untouched
-    /// here, unlike the token-file contract where both files changed. That follows
-    /// `DesktopOnDemandRuntimeActivator`, which restarts Hermes alone after rewriting the same agent.
+    /// here, unlike the token-file contract where both files changed.
     ///
     /// Idempotent without a marker: [DesktopManagedInstaller.prepareHermesSearchPathRepair] answers
     /// nil once the key is present, so this returns false and touches no service. A machine therefore
@@ -808,6 +813,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               let previewBindingID = preview.bindingID,
               let previewGeneration = preview.bindingGeneration
         else { return false }
+        guard preview.releaseLayout == .bundledRelease else { return false }
         let operationLease = try journal.acquireOperationLease()
         defer { withExtendedLifetime(operationLease) {} }
         guard let recorded = try journal.load(),

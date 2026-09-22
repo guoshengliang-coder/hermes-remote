@@ -163,7 +163,10 @@ public actor DesktopComponentBootstrapExecutor {
         switch installation {
         case .absent:
             intent = .install
-        case .active(let installed, _, _):
+        case .active(let installed, let layout, _, _):
+            guard layout == .componentStore else {
+                throw DesktopComponentBootstrapExecutorError.releaseNotNewer
+            }
             guard Self.version(
                 trustedPreflight.result.manifest.releaseVersion,
                 isNewerThan: installed
