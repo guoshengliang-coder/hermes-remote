@@ -28,7 +28,7 @@ CI 的 `web` job 由 `web/**` 触发，也由 Web 直接调用的 Gateway 文件
 
 `scripts/` 与 `docs/` **按文件归属，不按目录** —— 它们是三边工具混放：
 
-- **android**：`scripts/package-debug-apk.sh`、`scripts/publish-android-apk.sh`、
+- **android**：`scripts/android-release-train.mjs`、`scripts/package-debug-apk.sh`、`scripts/publish-android-apk.sh`、
   `scripts/bump-android-release.mjs`、`scripts/import-android-release-history.sh`、
   `scripts/lib/release_metadata.py`、`docs/DESIGN.md`
 - **cloud**：`scripts/hermesctl.mjs`、`scripts/production-monitor.mjs`、`scripts/deploy-*.sh`、
