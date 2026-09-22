@@ -1036,7 +1036,7 @@ is about 11 days stale). The Mac-side `com.hermesgo.postgresql-offhost` LaunchAg
 mini, so the disposable restore container cannot start. HK captures continue daily. The iPhone checks in
 docs/SMOKE_TEST.md ("Web app on iPhone") remain to be done on a device.
 
-## Production schema-changing release (R5-F8; code gate only)
+## Production schema-changing release (R5-F8; production complete 2026-09-22)
 
 R5-F8 is the dedicated path for a Gateway release whose `releaseContract.databaseSchemaVersion` is higher than the
 running one. It exists because R5-F1 must not change the schema and the older image's readiness requires an exact
@@ -1081,7 +1081,44 @@ Not rehearsed: the disposable-host R5-D workflow has no account-mode database pa
 (admission, backup gate, delegation, failure classification, the transition allowance) and by the step-by-step
 verification of the production run only.
 
-## Production FCM push rollout (R5-F9; code gate only)
+### 2026-09-22 authorized production result (Gateway 0.4.18, schema 15 → 16)
+
+Owner-authorized (HG-94: version gate 0.4.18, no rollback below 0.4.18, the compatibility-check allowance).
+Operator `claude-hg94`. Final artifacts from `Gateway OCI` run 35720662485 on `main 1d6322f51558`: Gateway
+`0.4.18-1d6322f51558` (archive SHA-256 `e73cc053938ebfdfa72f378c73577ae9718b8f91b4559f48d01664f36084b122`) and
+schema-11 operator bundle `Hermes-R5D-Ops-1d6322f51558` (SHA-256
+`8d2946676bba1a91b575abe8359f185e072af7a1334573c41121157f5051f2f5`), verified locally and on the host, gateway
+bundle at `/secure-input/hermes-go/gateway-0.4.18-1d6322f`, operator bundle extracted at
+`/opt/hermes-go-ops/1d6322f51558`; `production-release.json` retargeted (previous copy
+`production-release-86fc250b78a5.json`).
+
+1. **Backup.** The Mac off-host cycle had failed hourly since 2026-09-10 (Docker Desktop not running); with Docker
+   started it activated generation `20260921T192839006Z`, then a fresh HK capture `20260922T102335821Z` (schema 15)
+   was exported, restore-smoked and activated at 10:24:46Z.
+2. **Run 1 (bundle 5bf63b2b8d4a), 11:02Z** — stopped at admission, `schema_release_admission_failed:
+   production_release_runner_required`; nothing changed. R5-F8 called the R5-F1 admission without the default
+   command runner (fixed in #380).
+3. **Run 2 (bundle 194115c43b60), 11:12Z** — migrated the database to 16 and verified the 0.4.18 candidate on green,
+   then the switch's pre-routing migration re-check failed (`database_migration_container_failed`): it ran the
+   manifest's Docker image ID, which names no image on this containerd store. The candidate stopped before the
+   source; 0.4.17 kept serving with `migrations: mismatch` readiness (degraded, no user-facing outage) from 11:12Z
+   to 11:25Z. HR-OPS-027 classified it `schema_release_migrated_degraded`. Fixed in #381 (re-check with the loaded
+   image; `recover` accepts `candidate_verified`).
+4. **Recover + run 3 (bundle 1d6322f51558), 11:24Z** — R5-F1 `--operation recover` restored the committed 0.4.17
+   journal (recovered run `488eaa10`, stage `candidate_verified`); R5-F8 run `27c7e115-20bb-43fb-a137-090d546ea24b`
+   (migrator a no-op at 16) committed: green active, `current` → `releases/0.4.18-1d6322f51558`, `previous` →
+   `releases/0.4.17-86fc250b78a5`. Green readiness `ready` (migrations ok), Docker healthy, no warn-or-worse lines;
+   public capabilities 0.4.18 without `push`, `/app/` 200. The stopped blue unit shows `failed` (0.4.17 exited 1
+   on SIGTERM); it is disabled and only the rollback point, which schema 16 now forbids anyway.
+5. **Backup pins moved to 16.** HK `postgresql-capture-schedule.json` and `production-monitor.json`
+   (`.pre-schema16` copies kept); Mac `postgresql-offhost.json` to schema 16 with the 0.4.18 gateway manifest from
+   `~/.hermes-go/recovery/r5e7/operator-1d6322f51558`, and the LaunchAgent to that operator's
+   `postgresql-automation.mjs` (`.pre-schema16` copies kept). The restore smoke needs the target image loaded in
+   the Mac's Docker (`docker load` of the 0.4.18 archive; its ID is the manifest's containerd ID). Capture
+   `20260922T112754252Z` (schema 16) was restore-smoked and activated at 11:40:44Z; the production monitor then
+   passed every check, clearing the long-standing `database_backup:critical`.
+
+## Production FCM push rollout (R5-F9; production complete 2026-09-22, device delivery pending)
 
 R5-F9 turns on FCM wake hints (docs/ARCHITECTURE.md, "Push wake hints"). It requires Gateway ≥ 0.4.18 (schema 16,
 so R5-F8 first) running in `email_sharing_components_web`. From 0.4.18 on, R5-F1 writes the 47-line environment:
@@ -1116,6 +1153,21 @@ candidate smoke require the capability).
 To turn push off by hand: under the deployment lock set `ACCOUNT_PUSH_ENABLED=0` (keep 47 lines), remove the push
 include line and route file, run `nginx -t`, reload, restart, then delete the key file and move `push-rollout.json`
 aside. That returns to `email_sharing_components_web`; phones fall back to their periodic inbox check.
+
+### 2026-09-22 authorized production result
+
+Owner-authorized. The service-account key (project `hermesgo-94bbc`) was copied by the owner to the host and
+installed as `/secure-input/hermes-go/fcm-service-account.json` (root `0600`); configuration
+`/secure-input/hermes-go/production-push-rollout.json` (origin `https://mrlgs.net`, host `test`, observation 30 s).
+From `/opt/hermes-go-ops/1d6322f51558`, run `1956d7a7-4a94-4d47-9536-1a4509d551b1` committed on green between
+11:49:56Z and 11:50:30Z. Independent checks afterwards: public capabilities `push: {"providers":["fcm"]}` on 0.4.18
+with `webDeviceAccess` still true; unauthenticated PUT and DELETE on `/v2/installations/current/push-registration`
+401; `/app/` 200; green readiness ready, Docker healthy, no warn-or-worse lines; the 47-line environment with
+`ACCOUNT_PUSH_ENABLED=1`; the key installed `0440` for the container group. Known: this key was exposed in a
+screenshot during setup and the owner chose to keep it for now; rotate it (new key → re-run the key install by
+hand under the lock, restart) before relying on push long-term. Delivery to a real phone is not yet verified: it
+needs an APK built with the Firebase client values and a phone with Google Play services (docs/SMOKE_TEST.md,
+"HG-94").
 
 ## Edge JSON compression (2026-09-07, authorized)
 
