@@ -138,3 +138,73 @@ export const PinMark = ({ size = 13, label }: { size?: number; label?: string })
     <path class="pin-head" d="M8.5 2.5h7V5H14l2.5 7.5h-9L10 5H8.5z" />
   </svg>
 );
+
+export const RefreshIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M19.5 12a7.5 7.5 0 11-2.2-5.3M19.5 4.5v4h-4" />
+  </Svg>
+);
+
+export const SpeakerIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" />
+    <path d="M15.5 9a4 4 0 010 6M18 6.5a7.5 7.5 0 010 11" />
+  </Svg>
+);
+
+export const ThumbUpIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M7.5 10.5v9H4.5v-9zM7.5 10.5l3.5-6.5a2 2 0 012 2.2l-.5 3.3h5a2 2 0 012 2.3l-1.2 6.5a2 2 0 01-2 1.7H7.5" />
+  </Svg>
+);
+
+export const ThumbDownIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M7.5 13.5v-9H4.5v9zM7.5 13.5l3.5 6.5a2 2 0 002-2.2l-.5-3.3h5a2 2 0 002-2.3l-1.2-6.5a2 2 0 00-2-1.7H7.5" />
+  </Svg>
+);
+
+export const ShareIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M6 12.5v5.5a2 2 0 002 2h8a2 2 0 002-2v-5.5" />
+  </Svg>
+);
+
+export const ListIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01" />
+  </Svg>
+);
+
+export const ArrowDownIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 5v14M6 13l6 6 6-6" />
+  </Svg>
+);
+
+export const ChevronUpIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 15l6-6 6 6" />
+  </Svg>
+);
+
+export const ChevronDownIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 9l6 6 6-6" />
+  </Svg>
+);
+
+export const BranchIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="6.5" cy="5.5" r="2" />
+    <circle cx="6.5" cy="18.5" r="2" />
+    <circle cx="17.5" cy="7.5" r="2" />
+    <path d="M6.5 7.5v9M17.5 9.5c0 4-5.5 3.5-10 7" />
+  </Svg>
+);
+
+export const PinOutlineIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 3.5h6V6h-1.3l2.3 7H8l2.3-7H9zM12 13v7.5" />
+  </Svg>
+);

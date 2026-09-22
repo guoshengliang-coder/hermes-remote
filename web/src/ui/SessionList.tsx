@@ -101,6 +101,14 @@ export function SessionList() {
     if (searching) searchRef.current?.focus();
   }, [searching]);
 
+  // Arrived from a chat's "search all chats": open the search with that query.
+  useEffect(() => {
+    if (app.listSearchSeed === null) return;
+    setQuery(app.listSearchSeed);
+    setSearching(true);
+    app.setListSearchSeed(null);
+  }, [app.listSearchSeed]);
+
   useEffect(() => {
     if (!searching || !deviceId) return;
     const q = buildSearchQuery(query);

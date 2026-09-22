@@ -69,6 +69,8 @@ export interface ChatState {
    * so they do not grow a second assistant turn under the interrupted one.
    */
   stopped: boolean;
+  /** Live working folder and branch from `session.info` (the top-bar subtitle). */
+  workspace: { cwd: string; branch: string | null } | null;
 }
 
 export const initialChatState: ChatState = {
@@ -80,6 +82,7 @@ export const initialChatState: ChatState = {
   notice: null,
   terminal: false,
   stopped: false,
+  workspace: null,
 };
 
 const STREAM_EVENTS: ReadonlySet<string> = new Set([
@@ -250,9 +253,11 @@ function applyEvent(state: ChatState, event: ServerEvent): ChatState {
       }));
     }
     case "session.info": {
-      if (p.running === false) return finishStreaming(state, false);
-      if (p.running === true && !state.generating) return { ...state, generating: true };
-      return state;
+      const cwd = str(p, "cwd");
+      const withWorkspace = cwd && cwd.trim() ? { ...state, workspace: { cwd: cwd.trim(), branch: str(p, "branch") } } : state;
+      if (p.running === false) return finishStreaming(withWorkspace, false);
+      if (p.running === true && !withWorkspace.generating) return { ...withWorkspace, generating: true };
+      return withWorkspace;
     }
     default:
       return state;
