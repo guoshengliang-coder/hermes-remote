@@ -36,6 +36,7 @@ import { displayVersion } from "./hermes-contract.js";
 import { HermesAuth, boundedResponseBody, fetchHermesOpenApi } from "./hermes-auth.js";
 import { contractReportResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
+import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
 // reconnect-churn investigation impossible to correlate with server-side events.
@@ -56,7 +57,7 @@ const accountAuthenticator = accountCredential
   ? new AccountConnectorAuthenticator(accountCredential, gatewayUrl)
   : undefined;
 let deviceId = process.env.DEVICE_ID ?? "mac-mini";
-const hermesMode = process.env.HERMES_MODE ?? "mock";
+const hermesMode = resolveHermesMode(process.env, connectorMode);
 const hermesBaseUrl = (process.env.HERMES_BASE_URL ?? "http://127.0.0.1:9119").replace(/\/$/, "");
 const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`;
 const filesRoot = resolve(process.env.FILES_ROOT ?? homedir());
@@ -1048,7 +1049,7 @@ function requireEnvironment(name: string): string {
   return value;
 }
 
-function connectorModeFromEnvironment(): "legacy" | "account" {
+function connectorModeFromEnvironment(): ConnectorMode {
   const value = process.env.CONNECTOR_MODE ?? "legacy";
   if (value !== "legacy" && value !== "account") {
     throw new Error("HR-MIGRATE-001 CONNECTOR_MODE must be legacy or account");

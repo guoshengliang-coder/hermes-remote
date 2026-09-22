@@ -14,6 +14,9 @@ import com.hermes.client.domain.isRenderable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -44,6 +47,14 @@ class SessionRepository(
     @Volatile private var allSessionsCache: List<Session> = emptyList()
     @Volatile private var allProfilesLoaded: Boolean = false
     @Volatile private var allProfilesCacheRoute: String? = null
+    private val _loadedSessionTokens = MutableStateFlow<Set<String>?>(null)
+
+    /**
+     * [cachedSessionTokens] as of the last [listAllProfiles], published so the notification
+     * coordinator recounts the launcher badge the moment a list lands and can persist it for a
+     * push-woken process that never loads one (HG-103). Null until the first load.
+     */
+    val loadedSessionTokens: StateFlow<Set<String>?> = _loadedSessionTokens.asStateFlow()
     private val historyCache = object : LinkedHashMap<String, List<ChatMessage>>(12, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<ChatMessage>>?): Boolean =
             size > 10
@@ -144,6 +155,7 @@ class SessionRepository(
             // Only this method sets the loaded flag: it is the Chats list's "finished loading"
             // gate, and botSessions() populating the same cache must not satisfy it.
             allProfilesLoaded = true
+            _loadedSessionTokens.value = all.sessionTokens()
             all.filter { it.isInteractive() }
         }
     }
@@ -203,10 +215,11 @@ class SessionRepository(
      */
     fun cachedSessionTokens(): Set<String>? {
         if (!hasLoadedAllProfiles()) return null
-        return allSessionsCache.mapTo(HashSet()) {
-            SessionReadStore.token(it.profile, it.id, it.deviceId)
-        }
+        return allSessionsCache.sessionTokens()
     }
+
+    private fun List<Session>.sessionTokens(): Set<String> =
+        mapTo(HashSet()) { SessionReadStore.token(it.profile, it.id, it.deviceId) }
 
     fun cachedSession(sessionId: String, profile: String? = null, deviceId: String? = null): Session? =
         allSessionsCache.firstOrNull {

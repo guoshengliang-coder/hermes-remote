@@ -192,6 +192,7 @@ final class DesktopManagedInstallationTests: XCTestCase {
         )
         let environment = try XCTUnwrap(decoded["EnvironmentVariables"] as? [String: String])
         XCTAssertEqual(environment["CONNECTOR_MODE"], "account")
+        XCTAssertEqual(environment["HERMES_MODE"], "live")
         XCTAssertEqual(environment["GATEWAY_URL"], "wss://gateway.example/v2/connect")
         XCTAssertEqual(environment["HERMES_SESSION_TOKEN_FILE"], layout.hermesSessionToken.path)
         XCTAssertNil(environment["HERMES_SESSION_TOKEN"])

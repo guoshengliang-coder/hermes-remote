@@ -4,7 +4,9 @@ import com.hermes.client.data.auth.AccountControlConnection
 import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.data.network.AccountApiException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -188,6 +190,51 @@ class PushRegistrationManagerTest {
         manager.start()
         runCurrent()
         assertEquals(AppErrorCode.PUSH_REGISTRATION_FAILED, (manager.status.value as PushStatus.Failed).error.code)
+    }
+
+    @Test fun aHangingTokenFetchTimesOutToHrNotif002AndReleasesTheLock() = runTest {
+        // HG-102: with the app outside the VPN, getToken never completes. The row must not stay on
+        // Registering, and Retry must not queue behind a lock the hung call still holds.
+        var hang = true
+        val hanging = object : PushPlatform by platform {
+            override suspend fun fetchToken(): String {
+                if (hang) awaitCancellation()
+                return platform.fetchToken()
+            }
+        }
+        val manager = PushRegistrationManager(hanging, accounts, api, record, enabled, backgroundScope)
+        manager.start()
+        runCurrent()
+        assertEquals(PushStatus.Registering, manager.status.value)
+
+        advanceTimeBy(FCM_TOKEN_TIMEOUT_MS + 1)
+        runCurrent()
+        val failed = manager.status.value as PushStatus.Failed
+        assertEquals(AppErrorCode.PUSH_REGISTRATION_FAILED, failed.error.code)
+        assertTrue(failed.error.retryable)
+        assertTrue(failed.error.sanitizedDiagnostic().contains("stage=fcm_token"))
+        assertFalse(failed.error.sanitizedDiagnostic().contains(platform.token))
+
+        hang = false
+        manager.retry()
+        runCurrent()
+        assertEquals(PushStatus.Enabled, manager.status.value)
+        assertEquals(listOf(platform.token), api.registered)
+    }
+
+    @Test fun aHangingTokenDeleteDoesNotBlockSignOut() = runTest {
+        val hanging = object : PushPlatform by platform {
+            override suspend fun deleteToken() = awaitCancellation()
+        }
+        val hangingManager = PushRegistrationManager(hanging, accounts, api, record, enabled, backgroundScope)
+        hangingManager.start()
+        runCurrent()
+        assertEquals(PushStatus.Enabled, hangingManager.status.value)
+
+        hangingManager.unregisterForSignOut(connection)
+        assertNull(record.value)
+        assertEquals(1, api.unregisters)
+        assertEquals(PushStatus.Inactive, hangingManager.status.value)
     }
 
     @Test fun signOutRemovesTheServerRecordAndTheToken() = runTest {

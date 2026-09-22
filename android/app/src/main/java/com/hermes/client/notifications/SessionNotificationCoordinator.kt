@@ -8,6 +8,7 @@ import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.NotificationSettings
 import com.hermes.client.data.repository.ProfileManager
+import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.ui.localization.AppLanguageProvider
 import java.util.concurrent.ConcurrentHashMap
@@ -17,6 +18,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
@@ -40,6 +42,7 @@ class SessionNotificationCoordinator @Inject constructor(
     private val profiles: ProfileManager,
     private val sessions: SessionRepository,
     private val badge: LauncherBadge,
+    private val readStore: SessionReadStore,
     private val appScope: CoroutineScope,
 ) {
     private val started = AtomicBoolean(false)
@@ -48,6 +51,8 @@ class SessionNotificationCoordinator @Inject constructor(
     private val dismissed = ConcurrentHashMap<SessionRuntimeKey, NotificationKind>()
     @Volatile private var prefs = NotificationPrefs()
     @Volatile private var prefsLoaded = false
+    @Volatile private var persistedKnownSessions: Set<String>? = null
+    @Volatile private var persistedKnownLoaded = false
 
     private val lock = Any()
     private val posted = HashMap<SessionRuntimeKey, NotificationSpec>()
@@ -70,6 +75,14 @@ class SessionNotificationCoordinator @Inject constructor(
         // stay: they do not need updating, they need to be tappable, and the shade is the only
         // place an approval survives a swipe-away at all (HG-31, see cancelSessionCards).
         runCatching { notifier.cancelSessionCards() }
+        // Persist every list load so a later push-woken process, which never loads one, can still
+        // count the badge (HG-103).
+        appScope.launch {
+            sessions.loadedSessionTokens.filterNotNull().collect { tokens ->
+                runCatching { readStore.saveKnownSessions(tokens) }
+                    .onFailure { DebugLog.log("badge", "saving known sessions failed: ${it.javaClass.simpleName}") }
+            }
+        }
         appScope.launch {
             merge(
                 runtimes.runtimes,
@@ -81,6 +94,10 @@ class SessionNotificationCoordinator @Inject constructor(
                 // The badge counts unread sessions, and markRead can clear one without moving any
                 // phase — without this the icon would keep a count the session list has dropped.
                 runtimes.unreadTokens,
+                // A list landing is when the badge can first be counted in this process, and until
+                // then the persisted set arriving from disk is — both have to recount it (HG-103).
+                sessions.loadedSessionTokens,
+                readStore.knownSessions.onEach { persistedKnownSessions = it; persistedKnownLoaded = true },
                 foreground,
                 settings.prefs.onEach { prefs = it; prefsLoaded = true },
                 actionStates,
@@ -98,6 +115,12 @@ class SessionNotificationCoordinator @Inject constructor(
         if (!prefsLoaded) {
             prefs = settings.prefs.first()
             prefsLoaded = true
+        }
+        // The push path runs this right after waking the process; without the persisted set it
+        // would skip the badge for exactly the notification it is posting (HG-103).
+        if (!persistedKnownLoaded) {
+            persistedKnownSessions = readStore.knownSessions.first()
+            persistedKnownLoaded = true
         }
         refresh()
     }
@@ -139,8 +162,12 @@ class SessionNotificationCoordinator @Inject constructor(
         }
         // Counted from the plan rather than the shade: a card suppressed because the user is
         // looking at that very chat is not something the icon should still be asking about.
-        // Null until a session list has loaded — see [badgeCount].
-        val badgeNumber = badgeCount(runtimes.unreadTokens.value, plan.cards, sessions.cachedSessionTokens())
+        // Null until a session list has ever loaded — see [badgeCount] and [knownSessionsForBadge].
+        val badgeNumber = badgeCount(
+            runtimes.unreadTokens.value,
+            plan.cards,
+            knownSessionsForBadge(sessions.cachedSessionTokens(), persistedKnownSessions),
+        )
         run {
             val ops = diffPlan(posted, postedSummary, plan)
             ops.forEach { op ->

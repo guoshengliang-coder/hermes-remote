@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -58,6 +59,27 @@ class SessionRepositoryTest {
             repo.listAllProfiles().map { it.id },
         )
         assertTrue(repo.hasLoadedAllProfiles())
+    }
+
+    /**
+     * HG-103: the notification coordinator recounts the launcher badge, and persists the set for
+     * push-woken processes, off this flow — so it must carry every listed session, bots included,
+     * and only after a real list load.
+     */
+    @Test fun a_list_load_publishes_the_read_tokens_of_every_listed_session() = runTest {
+        assertNull(repo.loadedSessionTokens.value)
+        coEvery { rest.profileSessions(any(), false) } returns ProfileSessionsDto(
+            sessions = listOf(dto("chat", "tui", 3), dto("bot", "telegram", 2), dto("empty", "tui", 0)),
+        )
+        repo.botSessions()
+        assertNull(repo.loadedSessionTokens.value)
+
+        repo.listAllProfiles()
+        assertEquals(
+            setOf(SessionReadStore.token("personal", "chat"), SessionReadStore.token("personal", "bot")),
+            repo.loadedSessionTokens.value,
+        )
+        assertEquals(repo.cachedSessionTokens(), repo.loadedSessionTokens.value)
     }
 
     /**

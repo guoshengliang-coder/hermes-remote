@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** What the notification settings row shows for real-time push (docs/DESIGN.md §5.10). */
 sealed interface PushStatus {
@@ -109,6 +110,18 @@ internal fun pushFailureCause(stage: String, error: Throwable, token: String?): 
 internal const val PROVIDER_FCM = "fcm"
 
 /**
+ * How long one FCM token call may take (HG-102). `getToken` needs this process itself to reach
+ * firebaseinstallations.googleapis.com; with the app excluded from a VPN in mainland China the
+ * Task retries forever and never completes, which used to leave the row on "Registering…" with the
+ * lock held. The Gateway calls around it already carry a 20 s OkHttp call timeout.
+ */
+internal const val FCM_TOKEN_TIMEOUT_MS = 30_000L
+
+/** The FCM token call did not complete within [FCM_TOKEN_TIMEOUT_MS]. Not a cancellation. */
+internal class PushTokenTimeoutException(operation: String) :
+    Exception("$operation did not complete within ${FCM_TOKEN_TIMEOUT_MS / 1000}s")
+
+/**
  * Keeps this phone's FCM token registered with the Relay exactly while it is useful (HG-94):
  * FCM configured and available, account mode signed in, and notifications enabled. It never
  * changes the monitoring policy — the 15-minute job and foreground socket keep running whether
@@ -174,7 +187,7 @@ class PushRegistrationManager(
             runCatchingNonCancel { api.unregister(connection) }
         }
         record.write(null)
-        runCatchingNonCancel { platform.deleteToken() }
+        runCatchingNonCancel { deleteTokenBounded() }
         _status.value = PushStatus.Inactive
     }
 
@@ -192,7 +205,7 @@ class PushRegistrationManager(
             // went with the installation; drop the local token so FCM stops addressing us.
             if (record.read() != null) {
                 record.write(null)
-                runCatchingNonCancel { platform.deleteToken() }
+                runCatchingNonCancel { deleteTokenBounded() }
             }
             _status.value = PushStatus.Inactive
             return@withLock
@@ -209,6 +222,7 @@ class PushRegistrationManager(
         }
         _status.value = PushStatus.Registering
         var token: String? = tokenOverride
+        var stage = "register"
         try {
             val connection = accounts.controlConnection()
             if (connection == null) {
@@ -220,7 +234,10 @@ class PushRegistrationManager(
                 _status.value = PushStatus.ServerUnsupported
                 return@withLock
             }
-            val current = token ?: platform.fetchToken()
+            val current = token ?: run {
+                stage = "fcm_token"
+                fetchTokenBounded().also { stage = "register" }
+            }
             token = current
             val fingerprint = pushRegistrationFingerprint(identity, current)
             if (!force && record.read() == fingerprint) {
@@ -239,15 +256,26 @@ class PushRegistrationManager(
                 record.write(null)
                 _status.value = PushStatus.ServerUnsupported
             } else {
-                fail(error, token)
+                fail(stage, error, token)
             }
         } catch (error: Exception) {
-            fail(error, token)
+            fail(stage, error, token)
         }
     }
 
-    private fun fail(error: Throwable, token: String?) {
-        val cause = pushFailureCause("register", error, token)
+    // withTimeoutOrNull rather than withTimeout: its TimeoutCancellationException is a
+    // CancellationException, which reconcile rethrows, and the row would stay on Registering.
+    private suspend fun fetchTokenBounded(): String =
+        withTimeoutOrNull(FCM_TOKEN_TIMEOUT_MS) { platform.fetchToken() }
+            ?: throw PushTokenTimeoutException("FCM getToken")
+
+    private suspend fun deleteTokenBounded() {
+        withTimeoutOrNull(FCM_TOKEN_TIMEOUT_MS) { platform.deleteToken() }
+            ?: throw PushTokenTimeoutException("FCM deleteToken")
+    }
+
+    private fun fail(stage: String, error: Throwable, token: String?) {
+        val cause = pushFailureCause(stage, error, token)
         DebugLog.log("push", "registration failed: $cause")
         _status.value = PushStatus.Failed(
             AppError(
