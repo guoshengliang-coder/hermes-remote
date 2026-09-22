@@ -108,21 +108,54 @@ test("tampered, mismatched or unsafe archives are refused before anything is ins
     { path: "extra.html", data: Buffer.from("x") },
   ]));
   await attempt(extra, withArchive(extra), /archive_entries_do_not_match_manifest/);
+  // Each unsafe archive has as many entries as the manifest, so only the tar reader's own check can
+  // refuse it: the count and manifest comparisons would otherwise catch it for the wrong reason.
+  const valid = [
+    { path: "assets/index-one.js", data: Buffer.from('console.log("one")') },
+    { path: "sw.js", data: Buffer.from("self.addEventListener('fetch', () => {});") },
+  ];
+  const withBadEntry = (badHeader) => gzipSync(Buffer.concat([badHeader.subarray(0, badHeader.length - 1024), writeTar(valid)]));
   for (const name of ["../escape.html", "/etc/passwd", ".env", "assets/../../x"]) {
-    const unsafe = gzipSync(rawTar(name, "0", "x"));
-    await attempt(unsafe, withArchive(unsafe), /tar_entry_path_invalid|archive_entries/);
+    const unsafe = withBadEntry(rawTar(name, "0", "x"));
+    await attempt(unsafe, withArchive(unsafe), /^tar_entry_path_invalid/);
   }
-  const link = gzipSync(rawTar("index.html", "2", ""));
-  await attempt(link, withArchive(link), /tar_entry_not_regular_file|archive_entries/);
+  const link = withBadEntry(rawTar("index.html", "2", ""));
+  await attempt(link, withArchive(link), /^tar_entry_not_regular_file$/);
   const corrupt = rawTar("index.html", "0", "x");
   corrupt[150] ^= 1;
-  const corruptArchive = gzipSync(corrupt);
-  await attempt(corruptArchive, withArchive(corruptArchive), /tar_checksum_invalid|archive_entries/);
+  const corruptArchive = withBadEntry(corrupt);
+  await attempt(corruptArchive, withArchive(corruptArchive), /^tar_(?:checksum_invalid|numeric_field_invalid)$/);
+  const badSize = rawTar("index.html", "0", "x");
+  badSize.write("0000000001x\0", 124, 12, "ascii");
+  let sum = 0;
+  badSize.fill(0x20, 148, 156);
+  for (let index = 0; index < 512; index += 1) sum += badSize[index];
+  badSize.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
+  const badSizeArchive = withBadEntry(badSize);
+  await attempt(badSizeArchive, withArchive(badSizeArchive), /^tar_numeric_field_invalid$/);
   await attempt(archive, { ...manifest, releaseId: "0.1.0-bbbbbbbbbbbb" }, /manifest_release_id_invalid/);
   await attempt(archive, { ...manifest, files: manifest.files.filter((file) => file.path !== "index.html") }, /manifest_index_html_missing/);
 
   assert.deepEqual(await readdir(path.join(fx.root, "releases")), []);
   assert.equal(await lstat(path.join(fx.root, "current")).catch(() => null), null);
+});
+
+test("installed directories are readable by the Gateway's uid whatever the publisher's umask", async (t) => {
+  const fx = await fixture(t);
+  const a = await packaged(fx, "one", COMMIT_A);
+  const previous = process.umask(0o077);
+  try {
+    await publishWebApp({ root: fx.root, archivePath: a.archivePath, manifestPath: a.manifestPath });
+  } finally {
+    process.umask(previous);
+  }
+  const release = path.join(fx.root, "releases", a.releaseId);
+  for (const directory of [release, path.join(release, "assets")]) {
+    assert.equal((await lstat(directory)).mode & 0o777, 0o755, directory);
+  }
+  for (const file of ["index.html", "sw.js", "assets/index-one.js"]) {
+    assert.equal((await lstat(path.join(release, file))).mode & 0o777, 0o644, file);
+  }
 });
 
 test("an installed release that was changed on disk, or a hand-made current, is refused", async (t) => {

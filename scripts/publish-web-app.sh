@@ -35,7 +35,9 @@ cleanup() {
   rm -rf "$OUT"
   if [[ -n "$REMOTE_TMP" ]]; then ssh "$USER@$HOST" "rm -rf -- '$REMOTE_TMP'" >/dev/null 2>&1 || true; fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# An interrupt must stop the script, not resume it after cleaning up; EXIT then runs cleanup once.
+trap 'exit 130' INT TERM
 
 dirty() { git -C "$ROOT" status --porcelain; }
 [[ -z "$(dirty)" ]] || { echo "Publishing requires a clean worktree; these paths are not clean:" >&2; dirty >&2; exit 1; }

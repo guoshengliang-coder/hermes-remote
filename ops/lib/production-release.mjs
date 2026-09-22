@@ -324,6 +324,23 @@ export async function verifyPreservedEmailSurface(request, fetchImpl = fetch, {
   const expectedBindingStatus = bindingEnabled ? 401 : (request.publicRoute === true ? 404 : 503);
   if (bindingRoute?.status !== expectedBindingStatus) fail("production_release_binding_route_must_stay_absent");
   if (identityWebEnabled) await verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnabled);
+  if (webDeviceAccessEnabled) await verifyPreservedWebAppShell(request, fetchImpl);
+}
+
+/** In the Web app mode every release must still serve the /app/ shell, not only advertise it. */
+async function verifyPreservedWebAppShell(request, fetchImpl) {
+  const shell = await boundedFetch(fetchImpl, `${request.gatewayUrl}/app/`);
+  const csp = shell?.headers?.get?.("content-security-policy") ?? "";
+  if (shell?.status !== 200
+      || !(shell.headers.get("content-type") ?? "").startsWith("text/html")
+      || shell.headers.get("cache-control") !== "no-store"
+      || csp.includes(",")
+      || !csp.includes("default-src 'none'")
+      || !csp.includes("worker-src 'self'")
+      || /unsafe-inline|unsafe-eval/.test(csp)) {
+    fail("production_release_web_app_shell_invalid");
+  }
+  await shell.body?.cancel?.();
 }
 
 async function verifyPreservedIdentityWebSurface(request, fetchImpl, sharingEnabled) {

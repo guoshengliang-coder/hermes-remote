@@ -13,7 +13,7 @@
 // caller (scripts/publish-web-app.sh takes flock on <root>/.publish.lock).
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, readlink, rename, rm, symlink } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readlink, rename, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -68,6 +68,9 @@ export async function publishWebApp({ root, archivePath, manifestPath }) {
         await mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
         await writeDurably(destination, entry.data, 0o644);
       }
+      // mkdir modes are filtered by the caller's umask (sudo keeps a hardened 027/077); the Gateway
+      // reads these as uid 1000, so every directory is set to 0755 explicitly, as files are to 0644.
+      await chmodDirectories(staging);
       await syncDirectory(staging);
       await rename(staging, target);
       await syncDirectory(releasesRoot);
@@ -109,14 +112,16 @@ async function switchCurrent(root, releaseId) {
     before = match[1];
   }
   if (before === releaseId) return before;
-  const next = path.join(root, `.current-${randomUUID()}`);
-  await symlink(`releases/${releaseId}`, next);
-  await rename(next, current);
+  // `.previous` first: a crash after it and before the switch leaves `.previous` naming the release
+  // still in `current`, so a rollback is a harmless no-op instead of a jump to an older release.
   if (before) {
     const previousTemp = path.join(root, `.previous-${randomUUID()}`);
     await writeDurably(previousTemp, `${before}\n`, 0o644);
     await rename(previousTemp, path.join(root, ".previous"));
   }
+  const next = path.join(root, `.current-${randomUUID()}`);
+  await symlink(`releases/${releaseId}`, next);
+  await rename(next, current);
   await syncDirectory(root);
   return before;
 }
@@ -159,19 +164,33 @@ export function readTar(buffer) {
     if (header.toString("ascii", 257, 262) !== "ustar") fail("tar_not_ustar");
     let checksum = 0;
     for (let index = 0; index < 512; index += 1) checksum += index >= 148 && index < 156 ? 0x20 : header[index];
-    if (parseInt(header.toString("ascii", 148, 156).replace(/\0.*$/, "").trim(), 8) !== checksum) fail("tar_checksum_invalid");
+    if (octal(header.toString("ascii", 148, 156)) !== checksum) fail("tar_checksum_invalid");
     const type = header.toString("ascii", 156, 157);
     if (type !== "0" && type !== "\0") fail("tar_entry_not_regular_file");
     const name = header.toString("utf8", 0, 100).replace(/\0.*$/s, "");
     const prefix = header.toString("utf8", 345, 500).replace(/\0.*$/s, "");
     if (prefix || !FILE_PATH.test(name)) fail(`tar_entry_path_invalid:${name}`);
-    const size = parseInt(header.toString("ascii", 124, 136).replace(/\0.*$/, "").trim(), 8);
+    const size = octal(header.toString("ascii", 124, 136));
     if (!Number.isSafeInteger(size) || size < 0 || offset + 512 + size > buffer.length) fail("tar_entry_size_invalid");
     entries.push({ path: name, data: Buffer.from(buffer.subarray(offset + 512, offset + 512 + size)) });
     if (entries.length > MAX_FILES) fail("tar_too_many_entries");
     offset += 512 + Math.ceil(size / 512) * 512;
   }
   fail("tar_truncated");
+}
+
+async function chmodDirectories(directory) {
+  await chmod(directory, 0o755);
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) await chmodDirectories(path.join(directory, entry.name));
+  }
+}
+
+/** Strict octal: the whole field (before its NUL/space terminator) must be octal digits. */
+function octal(field) {
+  const digits = field.replace(/[\0 ]+$/, "").replace(/^ +/, "");
+  if (!/^[0-7]{1,12}$/.test(digits)) fail("tar_numeric_field_invalid");
+  return parseInt(digits, 8);
 }
 
 async function verifyInstalled(target, manifest) {

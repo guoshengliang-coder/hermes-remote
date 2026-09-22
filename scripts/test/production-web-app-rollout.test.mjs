@@ -164,13 +164,39 @@ test("live verification pins the Web app shell and guards before and after enabl
     if (new URL(url).pathname === "/v2/capabilities") return jsonResponse(capabilities(true));
     return fetchImpl(url, init);
   } }));
+  await assert.rejects(() => verifyPreviousComponentSurface({ ...request, fetchImpl: async (url, init) => {
+    if (new URL(url).pathname === "/app/") {
+      return new Response("<!doctype html>", { status: 200, headers: shellHeaders("default-src 'none'") });
+    }
+    return fetchImpl(url, init);
+  } }), (error) => isCode(error) && error.technicalCause === "web_app_rollout_app_exposed_before_enablement");
   webEnabled = true;
   await assert.rejects(() => verifyWebAppSurface({ ...request, fetchImpl: async (url, init) => {
     if (new URL(url).pathname === "/app/") {
       return new Response("<!doctype html>", { status: 200, headers: shellHeaders("default-src 'none'; script-src 'self' 'unsafe-inline'; worker-src 'self'; frame-ancestors 'none'") });
     }
     return fetchImpl(url, init);
-  } }), isCode);
+  } }), (error) => [
+    // The shared release smoke refuses it first; the rollout's own shell check is the second line.
+    "production_release_web_app_shell_invalid",
+    "web_app_rollout_app_shell_invalid",
+  ].includes(error?.technicalCause));
+});
+
+test("the Web app include is anchored on the real sharing include, never on a commented copy", async (t) => {
+  const fixture = await createFixture(t);
+  const commented = fixture.nginxConfig.replace(
+    `    include ${fixture.identityWebRoutesPath};\n`,
+    `    include ${fixture.identityWebRoutesPath};\n    # include ${fixture.sharingRoutesPath};\n`,
+  );
+  await writeFile(fixture.nginxConfigPath, commented, { mode: 0o644 });
+  await executeProductionWebAppRollout(fixture.config, {
+    ...fixture.dependencies, runner: runner([]), verifyPrevious: async () => {}, verifyEnabled: async () => {},
+  });
+  const site = (await readFile(fixture.nginxConfigPath, "utf8")).split("\n");
+  const real = site.indexOf(`    include ${fixture.sharingRoutesPath};`);
+  assert.equal(site[real + 1], `    include ${fixture.webAppRoutesPath};`);
+  assert.equal(site.filter((line) => line.includes("web-app-routes.conf")).length, 1);
 });
 
 test("a failed verification restores the exact component environment, site and routes", async (t) => {
@@ -219,6 +245,20 @@ test("Web app rollout refuses an old Gateway, a wrong state, a missing mount or 
   await expectCause(attempt(), /web_app_not_published/);
   await unlink(current);
   await symlink("releases/0.1.0-abcdef012345", current);
+  // Published but unreadable for the Gateway's uid (a publisher under a hardened umask).
+  const index = path.join(fixture.webRoot, "releases", "0.1.0-abcdef012345", "index.html");
+  await chmod(index, 0o600);
+  await expectCause(attempt(), /web_app_not_published:.*release_file_not_readable/);
+  await chmod(index, 0o644);
+
+  // Admitted state changed by someone else between admission and the lock.
+  await expectCause(attempt({
+    verifyPrevious: async () => {
+      await writeFile(fixture.environmentPath, `${fixture.componentsEnvironment}`.replace("GATEWAY_LOG_LEVEL=info", "GATEWAY_LOG_LEVEL=debug"), { mode: 0o600 });
+    },
+  }), /state_changed_before_lock/);
+  await writeFile(fixture.environmentPath, fixture.componentsEnvironment, { mode: 0o600 });
+  await assert.rejects(() => readFile(fixture.journalPath), (error) => error?.code === "ENOENT");
 
   await writeFile(fixture.environmentPath, fixture.sharingEnvironment, { mode: 0o600 });
   await expectCause(attempt(), /requires_components_state/);
@@ -390,6 +430,7 @@ async function createFixture(t) {
     componentsEnvironment,
     sharingEnvironment,
     sharingRoutesPath,
+    identityWebRoutesPath,
     webAppRoutesPath: path.join(configRoot, "account", "web-app-routes.conf"),
     journalPath: path.join(stateRoot, "ops", "web-app-rollout.json"),
     webRoot,

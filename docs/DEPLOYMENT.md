@@ -945,8 +945,12 @@ through a staging directory, and switches the relative `current` link with one `
 `.previous`. Releases are never deleted automatically (a cached `index.html` still fetches its hashed assets).
 The Gateway reads files per request, so publishing and rollback never restart it. Before step 3 the edge does not
 route `/app/` to the Gateway, so this publish is invisible; afterwards `WEB_PUBLISH_VERIFY_PUBLIC=1` also
-compares the public `/app/` with the local build. The script assumes the release SSH user may run
-`sudo -n flock … node` on the host — confirm this before the first run.
+compares the public `/app/` with the local build; turn it on for every publish once R5-F7 is live, since a
+broken publish otherwise goes unnoticed until a user reports it. The installer runs as root from the private
+temporary directory, so the release SSH user needs unrestricted passwordless sudo (`sudo -n`): a sudoers rule
+narrowed to one command cannot match the per-run path. Confirm this before the first run. Do not publish or roll
+back the Web app while R5-F7 is running; the rollout re-checks the published release after taking its lock and
+stops if it changed.
 
 **3. R5-F7.** Prepare a root-only `0600` configuration from `ops/production.web-app-rollout.example.json`,
 validate it against `ops/hermes-go-production-web-app-rollout-config.schema.json`, and run from the matching
@@ -974,7 +978,23 @@ environment and site bytes, removes the route file, reloads, restarts and re-ver
 `HR-OPS-026` names all failures; inspect `/var/lib/hermes-go/ops/web-app-rollout.json` before retrying.
 
 Later Web releases repeat step 2 only. Later Gateway releases preserve `email_sharing_components_web` (R5-F1
-recognizes it and its candidate smoke requires the capability). The iPhone checks in docs/SMOKE_TEST.md
+recognizes it, its candidate smoke requires the capability, and its account smoke requires the `/app/` shell).
+
+**Rollback limits and turning the Web app off.**
+
+- After Gateway 0.4.17 the active environment has 45 lines, which a schema-9 (0.4.16) operator bundle refuses to
+  parse, so `--operation rollback` and `recover` must run from the schema-10 bundle. Keep that bundle next to the
+  previous one.
+- After R5-F7, the Gateway cannot be rolled back below 0.4.17: the candidate smoke requires
+  `accountAuth.webDeviceAccess`, fails on the older release, and restores the current one.
+- R5-F7 has no reverse command. To turn the Web app off by hand, under the deployment lock:
+  1. rewrite the active `gateway.env` with `ACCOUNT_WEB_DEVICE_ACCESS_ENABLED=0` and `WEB_APP_ENABLED=0`, keeping
+     all 45 lines;
+  2. remove the `include …/web-app-routes.conf;` line from the site file and delete the route file;
+  3. run `nginx -t`, reload nginx, and restart the active Gateway;
+  4. move `web-app-rollout.json` aside.
+
+  This returns to `email_sharing_components`. The published releases can stay: nothing routes to them. The iPhone checks in docs/SMOKE_TEST.md
 ("Web app on iPhone") need a real device after step 3.
 
 ## Edge JSON compression (2026-09-07, authorized)

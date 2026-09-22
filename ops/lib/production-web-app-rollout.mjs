@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readlink, realpath, unlink } from "node:fs/promises";
+import { lstat, open, readdir, readlink, realpath, unlink } from "node:fs/promises";
 import https from "node:https";
 import { hostname as systemHostname } from "node:os";
 import path from "node:path";
@@ -74,7 +74,7 @@ export async function executeProductionWebAppRollout(config, options = {}) {
     fail("web_app_rollout_active_service_invalid", "production_web_app_rollout_preflight");
   }
   await requireWebAppMount(releaseConfig, selected);
-  await requirePublishedWebApp(releaseConfig);
+  const publishedRelease = await requirePublishedWebApp(releaseConfig);
 
   let inspected;
   try {
@@ -135,6 +135,13 @@ export async function executeProductionWebAppRollout(config, options = {}) {
     fail(`web_app_rollout_lock_unavailable:${technical(error)}`, "production_web_app_rollout_preflight");
   }
   try {
+  // Everything admitted above was read before the lock; a concurrent operator (another rollout, or
+  // a Web publish/rollback) must not have changed it since.
+  if (!(await safeManagedFile(environmentPath, 64 * 1024)).equals(previousEnvironment)
+      || (await safeManagedFile(releaseConfig.nginx.configFile, 1024 * 1024)).toString("utf8") !== previousNginxText
+      || await requirePublishedWebApp(releaseConfig) !== publishedRelease) {
+    fail("web_app_rollout_state_changed_before_lock", "production_web_app_rollout_preflight");
+  }
   await requireAbsent(targets.journal, "web_app_rollout_journal_exists");
   await ensureManagedDirectory(path.dirname(targets.journal), 0o700, ownership.host);
   await atomicWrite(targets.journal, journal({ runId, stage: "checkpointed", activeSlot, currentManifest, now }), 0o600, ownership.host);
@@ -266,7 +273,10 @@ export async function verifyWebAppSurface(request) {
   }
   const shell = await fetchResponseRetry(request.fetchImpl, `${origin}/app/`, {}, request.sleep);
   const csp = shell?.headers.get("content-security-policy") ?? "";
+  // headers.get() joins repeated headers with ", ": a second CSP (an edge add_header) or an appended
+  // Cache-Control would otherwise pass as a substring match.
   if (shell?.status !== 200
+      || csp.includes(",")
       || !(shell.headers.get("content-type") ?? "").startsWith("text/html")
       || shell.headers.get("cache-control") !== "no-store"
       || !csp.includes("default-src 'none'")
@@ -406,9 +416,28 @@ async function requirePublishedWebApp(releaseConfig) {
     if (path.dirname(target) !== releasesRoot) throw new Error("current_outside_releases");
     const index = await lstat(path.join(target, "index.html"));
     if (!index.isFile() || index.size < 1) throw new Error("index_missing");
+    // The Gateway reads the release as uid 1000 through the mount: world-readable files, world-
+    // searchable directories, and nothing but those two kinds.
+    await requireReadableTree(target);
+    return path.basename(target);
   } catch (error) {
     if (error instanceof OpsError) throw error;
     fail(`web_app_rollout_web_app_not_published:${technical(error)}`, "production_web_app_rollout_preflight");
+  }
+}
+
+async function requireReadableTree(directory, budget = { entries: 0 }) {
+  const info = await lstat(directory);
+  if (!info.isDirectory() || (info.mode & 0o005) !== 0o005) throw new Error("release_directory_not_readable");
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (++budget.entries > 5000) throw new Error("release_too_large");
+    const child = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      await requireReadableTree(child, budget);
+    } else {
+      const file = await lstat(child);
+      if (!file.isFile() || (file.mode & 0o004) === 0) throw new Error("release_file_not_readable");
+    }
   }
 }
 
@@ -451,11 +480,13 @@ function installInclude(content, sharingRoutes, webAppRoutes) {
   if (content.split("\n").some((line) => line.trim() === webAppDirective)) {
     fail("web_app_rollout_include_already_exists", "production_web_app_rollout_preflight");
   }
-  const installed = content.replace(sharingDirective, `${sharingDirective}\n    ${webAppDirective}`);
-  if (installed === content) {
-    fail("web_app_rollout_sharing_include_invalid", "production_web_app_rollout_preflight");
-  }
-  return installed;
+  // By whole line, not substring, so a commented-out copy of the directive can never be the anchor.
+  const lines = content.split("\n");
+  const index = lines.findIndex((line) => line.trim() === sharingDirective);
+  if (index < 0) fail("web_app_rollout_sharing_include_invalid", "production_web_app_rollout_preflight");
+  const indent = /^\s*/.exec(lines[index])[0];
+  lines.splice(index + 1, 0, `${indent}${webAppDirective}`);
+  return lines.join("\n");
 }
 
 function journal({ runId, stage, activeSlot, currentManifest, now }) {

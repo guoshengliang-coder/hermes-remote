@@ -340,8 +340,16 @@ test("R5-F1 email smoke pins the Web app capability to the Web app mode", async 
     if (pathname === "/v2/capabilities") return jsonResponse(capabilities);
     if (pathname === "/v2/account") return new Response("{}", { status: 401 });
     if (pathname === "/v2/connector-binding") return new Response("not found", { status: 404 });
+    if (pathname === "/app/") {
+      return new Response("<!doctype html>", { status: 200, headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "content-security-policy": shellCsp,
+      } });
+    }
     assert.fail(`unexpected URL ${url}`);
   };
+  let shellCsp = "default-src 'none'; script-src 'self'; worker-src 'self'; frame-ancestors 'none'";
   const withWeb = emailCapabilities();
   withWeb.accountAuth.webDeviceAccess = true;
   const request = { gatewayUrl: "https://gateway.example.com", publicRoute: true };
@@ -350,6 +358,12 @@ test("R5-F1 email smoke pins the Web app capability to the Web app mode", async 
     (error) => error?.technicalCause === "production_release_email_capabilities_invalid",
   );
   await verifyPreservedEmailSurface(request, fetchWith(withWeb), { webDeviceAccessEnabled: true });
+  // Advertising the Web app is not enough: the release must still serve a strict /app/ shell.
+  shellCsp = "default-src 'none'; script-src 'self' 'unsafe-inline'; worker-src 'self'";
+  await assert.rejects(
+    () => verifyPreservedEmailSurface(request, fetchWith(withWeb), { webDeviceAccessEnabled: true }),
+    (error) => error?.technicalCause === "production_release_web_app_shell_invalid",
+  );
   await assert.rejects(
     () => verifyPreservedEmailSurface(request, fetchWith(emailCapabilities()), { webDeviceAccessEnabled: true }),
     (error) => error?.technicalCause === "production_release_email_capabilities_invalid",
