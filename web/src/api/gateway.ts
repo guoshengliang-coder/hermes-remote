@@ -186,13 +186,25 @@ export const paths = {
   capabilities: "/v2/capabilities",
 } as const;
 
+/**
+ * One page of `GET /api/sessions/{id}/messages` (upstream: `limit` ≤ 500, `offset`, `order`).
+ * `latest` pages backwards from the newest row but still returns each page in chronological order.
+ */
+export interface MessagesPage {
+  order: "latest" | "oldest";
+  limit: number;
+  offset: number;
+}
+
 /** Hermes session-scoped REST paths (relative to `/api/`). */
 export const hermesPaths = {
   sessions: "sessions",
   profileSessions: "profiles/sessions",
   /** `inline_images=false` keeps base64 images out of the page (Android does the same). */
-  messages: (sessionId: string, profile?: string | null) =>
-    `sessions/${encodePathSegment(sessionId)}/messages?inline_images=false${profile ? `&profile=${encodeURIComponent(profile)}` : ""}`,
+  messages: (sessionId: string, profile?: string | null, page?: MessagesPage) =>
+    `sessions/${encodePathSegment(sessionId)}/messages?inline_images=false${profile ? `&profile=${encodeURIComponent(profile)}` : ""}${
+      page ? `&order=${page.order}&limit=${page.limit}&offset=${page.offset}` : ""
+    }`,
   /** Message search, with the non-conversation sources excluded like Android does. */
   search: (query: string, excludeSources: readonly string[] = []) =>
     `sessions/search?q=${encodeURIComponent(query)}${excludeSources.length ? `&exclude_sources=${encodeURIComponent(excludeSources.join(","))}` : ""}`,
@@ -502,8 +514,8 @@ export class GatewayClient {
     return this.deviceApi(deviceId, "GET", hermesPaths.profileSessions);
   }
 
-  messages(deviceId: string, sessionId: string, profile?: string | null): Promise<MessagesResponse> {
-    return this.deviceApi(deviceId, "GET", hermesPaths.messages(sessionId, profile));
+  messages(deviceId: string, sessionId: string, profile?: string | null, page?: MessagesPage): Promise<MessagesResponse> {
+    return this.deviceApi(deviceId, "GET", hermesPaths.messages(sessionId, profile, page));
   }
 
   /** Raw-body upload into the Mac's files root (Connector-served). Answers `{path, name, size}`. */

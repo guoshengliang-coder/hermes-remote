@@ -24,6 +24,13 @@ interface PendingHttp {
   started: boolean;
   nextSequence: number;
   startedAt: number;
+  /** Response status from `tunnel.http.response` or `.start`, once known. */
+  status?: number;
+  /** Decoded body bytes handed to the client response so far. */
+  bytesWritten: number;
+  chunkCount: number;
+  /** Milliseconds from forwarding the request to the first response message. */
+  ttfbMs?: number;
   method: string;
   path: string;
   device: string;
@@ -79,13 +86,15 @@ export class HttpTunnelBroker {
       started: false,
       nextSequence: 0,
       startedAt: Date.now(),
+      bytesWritten: 0,
+      chunkCount: 0,
       method: request.method ?? "GET",
       path: `${url.pathname}${url.search}`,
       device: connector.deviceId,
       responseHeaders,
     });
-    request.on("aborted", () => this.cancel(id, "client_aborted"));
-    response.on("close", () => this.cancel(id, "client_aborted"));
+    request.on("aborted", () => this.abort(id));
+    response.on("close", () => this.abort(id));
 
     this.send(connector.socket, {
       type: "tunnel.http.request",
@@ -109,7 +118,10 @@ export class HttpTunnelBroker {
         return true;
       }
       const body = message.bodyBase64 ? Buffer.from(message.bodyBase64, "base64") : Buffer.alloc(0);
-      this.logOutcome(pending, "response", message.status, body.length);
+      markFirstByte(pending);
+      pending.status = message.status;
+      pending.bytesWritten = body.length;
+      this.logOutcome(pending, "response");
       pending.response.writeHead(
         message.status,
         pending.responseHeaders(selectResponseHeaders(message.headers)),
@@ -122,6 +134,8 @@ export class HttpTunnelBroker {
       const pending = this.pending.get(message.requestId);
       if (!pending || pending.routingKey !== connector.routingKey || pending.started) return true;
       pending.started = true;
+      markFirstByte(pending);
+      pending.status = message.status;
       this.refreshTimeout(message.requestId, pending);
       pending.response.writeHead(
         message.status,
@@ -135,12 +149,15 @@ export class HttpTunnelBroker {
       if (!pending || pending.routingKey !== connector.routingKey || !pending.started) return true;
       if (message.sequence !== pending.nextSequence) {
         this.cancel(message.requestId, "gateway_rejected");
+        this.logOutcome(pending, "error:invalid_response_chunk_sequence");
         pending.response.destroy(new Error("invalid_response_chunk_sequence"));
         return true;
       }
       pending.nextSequence += 1;
       this.refreshTimeout(message.requestId, pending);
       const chunk = Buffer.from(message.dataBase64, "base64");
+      pending.chunkCount += 1;
+      pending.bytesWritten += chunk.length;
       pending.response.write(chunk, () => {
         const current = this.pending.get(message.requestId);
         if (current !== pending) return;
@@ -158,12 +175,15 @@ export class HttpTunnelBroker {
       const pending = this.pending.get(message.requestId);
       if (!pending || pending.routingKey !== connector.routingKey) return true;
       this.clear(message.requestId);
+      markFirstByte(pending);
       if (message.error) {
-        this.logOutcome(pending, `error:${message.error}`, pending.started ? undefined : 502);
+        if (!pending.started) pending.status = 502;
+        this.logOutcome(pending, `error:${message.error}`);
         if (!pending.started) sendHttpError(pending.response, 502, message.error);
         else pending.response.destroy(new Error(message.error));
       } else {
-        this.logOutcome(pending, pending.started ? "streamed" : "empty", pending.started ? undefined : 204);
+        if (!pending.started) pending.status = 204;
+        this.logOutcome(pending, pending.started ? "streamed" : "empty");
         if (!pending.started) pending.response.writeHead(204);
         pending.response.end();
       }
@@ -177,21 +197,38 @@ export class HttpTunnelBroker {
     for (const [id, pending] of this.pending) {
       if (pending.routingKey !== routingKey) continue;
       this.clear(id);
-      this.logOutcome(pending, "connector_disconnected", 502);
+      if (!pending.started) pending.status = 502;
+      this.logOutcome(pending, "connector_disconnected");
       sendHttpError(pending.response, 502, "connector_disconnected");
     }
   }
 
-  private logOutcome(pending: PendingHttp, outcome: string, status?: number, bytes?: number): void {
+  /**
+   * One line per tunnelled request. `status` is what the client received (for a stream, the status
+   * of `response.start`, even if it later failed); `bytes` counts decoded body bytes handed to the
+   * client response, before any edge compression; `chunks` is the number of streamed chunks (0 for
+   * a buffered response); `ttfbMs` is the time from forwarding to the Connector's first response
+   * message, absent when none arrived.
+   */
+  private logOutcome(pending: PendingHttp, outcome: string): void {
     this.log.info("http.tunnel", {
       method: pending.method,
       path: pending.path,
       device: pending.device,
       outcome,
-      status,
-      bytes,
+      status: pending.status,
+      bytes: pending.bytesWritten,
+      chunks: pending.chunkCount,
+      ttfbMs: pending.ttfbMs,
       durationMs: Date.now() - pending.startedAt,
     });
+  }
+
+  private abort(id: string): void {
+    const pending = this.pending.get(id);
+    if (!pending) return;
+    this.cancel(id, "client_aborted");
+    this.logOutcome(pending, "client_aborted");
   }
 
   private clear(id: string): void {
@@ -225,8 +262,13 @@ export class HttpTunnelBroker {
     const pending = this.pending.get(id);
     if (!pending) return;
     this.cancel(id, "gateway_timeout");
-    this.logOutcome(pending, "connector_timeout", pending.response.headersSent ? undefined : 504);
+    if (!pending.response.headersSent) pending.status = 504;
+    this.logOutcome(pending, "connector_timeout");
     if (pending.response.headersSent) pending.response.destroy(new Error("connector_timeout"));
     else sendHttpError(pending.response, 504, "connector_timeout");
   }
+}
+
+function markFirstByte(pending: PendingHttp): void {
+  pending.ttfbMs ??= Date.now() - pending.startedAt;
 }

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer, type ServerOptions } from "ws";
 import type { AccountConnectorAdmission } from "./account-connector-admission.js";
 import { ControlHeartbeat } from "./control-heartbeat.js";
 import type { GatewayLogger } from "./gateway-log.js";
@@ -37,6 +37,50 @@ interface GatewayServerOptions<TConnector> {
   log: GatewayLogger;
 }
 
+/**
+ * Minimum message size, in bytes, before a tunnel WebSocket message is deflated. Smaller frames
+ * (hello, acks, heartbeats, short tunnel frames) cost more CPU than they save.
+ */
+export const TUNNEL_DEFLATE_THRESHOLD_BYTES = 1024;
+
+/**
+ * Options for the WebSocketServers Connectors dial (`/v1/connect`, `/v2/connect`).
+ *
+ * HG-104: tunnelled REST bodies travel base64-encoded inside JSON wire frames, so the Mac's uplink
+ * carries ~4/3 of every session list and message history page. permessage-deflate recovers that
+ * (and more) on the Connector hop; ws enforces `maxPayload` on the inflated size, so compression does
+ * not widen the payload bound. Both no-context-takeover flags reset the zlib window after every
+ * message: a Connector connection is long-lived, and a per-connection sliding window would pin
+ * deflate + inflate state for its whole life. Resetting keeps the steady-state cost to the transient
+ * buffers of the message being processed; the ratio loss is small because the payloads that matter
+ * are individual multi-kilobyte JSON bodies, not streams of similar small frames. `memLevel: 7`
+ * (instead of zlib's 8) halves the deflate hash memory for a negligible ratio change. The negotiation
+ * only succeeds when the client offers the extension — ws clients (the Connector) do by default;
+ * clients that do not offer it keep working uncompressed.
+ */
+export function connectorWebSocketServerOptions(maxPayload: number): ServerOptions {
+  return {
+    noServer: true,
+    maxPayload,
+    perMessageDeflate: {
+      threshold: TUNNEL_DEFLATE_THRESHOLD_BYTES,
+      serverNoContextTakeover: true,
+      clientNoContextTakeover: true,
+      zlibDeflateOptions: { level: 6, memLevel: 7 },
+    },
+  };
+}
+
+/**
+ * Options for the app-facing WebSocketServer (`/api/ws`, `/v2/devices/<id>/ws`). No compression:
+ * they are mostly small streaming events relayed to and from Hermes, and enabling it here would add
+ * per-socket zlib state for every open phone and browser tab. Kept explicit so a ws default change
+ * cannot turn it on silently.
+ */
+export function appWebSocketServerOptions(maxPayload: number): ServerOptions {
+  return { noServer: true, maxPayload, perMessageDeflate: false };
+}
+
 export class GatewayServer<TConnector> {
   private readonly controlWss: WebSocketServer;
   private readonly accountControlWss: WebSocketServer;
@@ -66,18 +110,9 @@ export class GatewayServer<TConnector> {
     this.server.keepAliveTimeout = 5_000;
     this.server.maxHeadersCount = 64;
 
-    this.controlWss = new WebSocketServer({
-      noServer: true,
-      maxPayload: options.maxWirePayloadBytes,
-    });
-    this.accountControlWss = new WebSocketServer({
-      noServer: true,
-      maxPayload: options.maxWirePayloadBytes,
-    });
-    this.appWss = new WebSocketServer({
-      noServer: true,
-      maxPayload: options.maxAppPayloadBytes,
-    });
+    this.controlWss = new WebSocketServer(connectorWebSocketServerOptions(options.maxWirePayloadBytes));
+    this.accountControlWss = new WebSocketServer(connectorWebSocketServerOptions(options.maxWirePayloadBytes));
+    this.appWss = new WebSocketServer(appWebSocketServerOptions(options.maxAppPayloadBytes));
     this.controlHeartbeat = new ControlHeartbeat(
       options.controlHeartbeatIntervalMs,
       options.controlHeartbeatTimeoutMs,

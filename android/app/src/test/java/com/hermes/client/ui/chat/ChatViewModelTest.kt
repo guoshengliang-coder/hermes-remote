@@ -293,8 +293,8 @@ class ChatViewModelTest {
     )
 
     @Test fun picked_conversations_become_one_markdown_attachment_each() = runTest {
-        coEvery { sessionRepo.history("a", any(), any()) } returns sourceHistory("甲会话的内容")
-        coEvery { sessionRepo.history("b", any(), any()) } returns sourceHistory("乙会话的内容")
+        coEvery { sessionRepo.fullHistory("a", any(), any(), any()) } returns sourceHistory("甲会话的内容")
+        coEvery { sessionRepo.fullHistory("b", any(), any(), any()) } returns sourceHistory("乙会话的内容")
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -314,8 +314,8 @@ class ChatViewModelTest {
     }
 
     @Test fun a_conversation_that_cannot_be_read_does_not_take_the_others_with_it() = runTest {
-        coEvery { sessionRepo.history("a", any(), any()) } returns sourceHistory("甲会话的内容")
-        coEvery { sessionRepo.history("b", any(), any()) } throws IllegalStateException("boom")
+        coEvery { sessionRepo.fullHistory("a", any(), any(), any()) } returns sourceHistory("甲会话的内容")
+        coEvery { sessionRepo.fullHistory("b", any(), any(), any()) } throws IllegalStateException("boom")
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -335,7 +335,7 @@ class ChatViewModelTest {
     }
 
     @Test fun an_empty_conversation_produces_no_attachment_and_counts_as_a_failure() = runTest {
-        coEvery { sessionRepo.history("a", any(), any()) } returns emptyList()
+        coEvery { sessionRepo.fullHistory("a", any(), any(), any()) } returns emptyList()
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -364,7 +364,7 @@ class ChatViewModelTest {
     }
 
     @Test fun identical_titles_do_not_produce_identical_file_names() = runTest {
-        coEvery { sessionRepo.history(any(), any(), any()) } returns sourceHistory("内容")
+        coEvery { sessionRepo.fullHistory(any(), any(), any(), any()) } returns sourceHistory("内容")
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()

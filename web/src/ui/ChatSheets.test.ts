@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
-import type { ChatItem } from "../chat/model";
-import { searchHits } from "./ChatSheets";
+import { h, render } from "preact";
+import { act } from "preact/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { initialChatState, reduceChat, type ChatItem, type ChatState } from "../chat/model";
+import type { MessageRow } from "../hermes/types";
+import { searchHits, useShareTranscript, type ShareTranscript } from "./ChatSheets";
 
 const item = (key: string, role: ChatItem["role"], text: string, extra: Partial<ChatItem> = {}): ChatItem => ({
   key, role, text, attachments: [], images: [], reasoning: "", tools: [], streaming: false, timestampMs: null, ...extra,
@@ -24,5 +27,71 @@ describe("in-chat search (HG-45: visible body text only)", () => {
     expect(hits).toEqual([{ key: "a", nth: 0 }]);
     expect(searchHits([item("a", "assistant", "x")], "  ")).toEqual([]);
     expect(searchHits([item("a", "assistant", "a **b** c")], "**")).toEqual([]);
+  });
+});
+
+describe("share transcript (HG-104: the whole conversation, not only the loaded pages)", () => {
+  const turn = (id: number) => ({ id, role: id % 2 ? "user" : "assistant", content: `m${id}`, timestamp: id });
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => turn(from + i));
+  let root: HTMLDivElement;
+  let latest: ShareTranscript;
+
+  function Probe({ open, state, loadFull }: { open: boolean; state: ChatState; loadFull: (() => Promise<MessageRow[]>) | null }) {
+    latest = useShareTranscript(open, state, loadFull);
+    return null;
+  }
+  function mount(open: boolean, state: ChatState, loadFull: (() => Promise<MessageRow[]>) | null) {
+    act(() => render(h(Probe, { open, state, loadFull }), root));
+  }
+  const settle = () => act(async () => {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  });
+
+  beforeEach(() => {
+    root = document.createElement("div");
+    document.body.appendChild(root);
+  });
+  afterEach(() => {
+    render(null, root);
+    root.remove();
+  });
+
+  it("uses the items on screen when nothing older exists, without fetching", () => {
+    const state = reduceChat(initialChatState, { type: "history", rows: range(1, 40), hasOlder: false });
+    const loadFull = vi.fn(async () => [] as MessageRow[]);
+    mount(true, state, loadFull);
+    expect(latest.items).toBe(state.items);
+    expect(loadFull).not.toHaveBeenCalled();
+  });
+
+  it("fetches the whole conversation while older pages exist", async () => {
+    const state = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    const loadFull = vi.fn(async () => range(1, 200) as MessageRow[]);
+    mount(true, state, loadFull);
+    expect(latest.items).toBeNull();
+    expect(latest.loading).toBe(true);
+    await settle();
+    expect(loadFull).toHaveBeenCalledTimes(1);
+    expect(latest.loading).toBe(false);
+    expect(latest.items).toHaveLength(200);
+  });
+
+  it("a failed fetch is a retryable HR-SYNC-001; Retry fetches again", async () => {
+    const state = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    let fail = true;
+    const loadFull = vi.fn(async () => {
+      if (fail) throw new Error("offline");
+      return range(1, 200) as MessageRow[];
+    });
+    mount(true, state, loadFull);
+    await settle();
+    expect(latest.items).toBeNull();
+    expect(latest.error).toMatchObject({ code: "HR-SYNC-001", retryable: true });
+    fail = false;
+    act(() => latest.retry());
+    await settle();
+    expect(loadFull).toHaveBeenCalledTimes(2);
+    expect(latest.error).toBeNull();
+    expect(latest.items).toHaveLength(200);
   });
 });

@@ -138,6 +138,51 @@ see the design note referenced from `docs/INTEGRATION.md`. Either way the rule i
 may change what is read or rendered, never what is written or the schema**, because the owner's own
 Hermes reads the same database and must keep understanding it.
 
+### 1c. History and session-list paging (HG-104, verified 2026-09-23)
+
+Verified against `hermes_cli/web_routers/sessions.py` and `hermes_cli/web_routers/profiles.py` at
+both `f159e581c7` and `17b5df02f2`; the shapes below are identical in the two.
+
+**History.** Clients no longer read a whole transcript in one call. They open a conversation with
+`GET /api/sessions/{id}/messages?order=latest&limit=100&offset=0` and load each older page with the
+same request and `offset=K`, where `K` is the number of rows already loaded (the sum of `returned`).
+What upstream does with these parameters:
+
+- `order=latest` pages **backwards from the newest row**, so `offset` counts rows skipped from the
+  end, but each page is still returned in **chronological (ascending) order** —
+  `hermes_state_messages.py` `get_messages(latest=True)` re-sorts ascending. A client prepends the
+  page; it must not reverse it.
+- The response carries `pagination: {limit, offset, order, returned}`. `returned` is the row count
+  after `_project_for_display`; `returned < limit` means there is no older page. `limit` is capped at
+  500 server-side (`min(limit, 500)`) and echoed as applied.
+- **`order` must be sent explicitly.** With a `limit` and no `order`, upstream answers the *oldest*
+  page (`order` defaults to `"oldest"` whenever `limit` is present); only a request with neither
+  defaults to the latest 500. Any `order` other than `oldest`/`latest` is `400`.
+- Offsets shift when a row is appended between two page reads (a turn finishing while the person
+  scrolls up), so the boundary row can arrive twice; a client must de-duplicate by message `id`.
+- `include_compacted` stays at its default (`false`); the paging above is over active rows.
+
+**Session list.** `GET /api/sessions` declares `limit: Query(20, ge=0, le=100)`: a limit above 100
+is **rejected with `422`, not clamped**. The clients' fallback read of this endpoint (instead of
+the cross-profile `/api/profiles/sessions`) therefore now asks for `limit=100`. `/api/profiles/sessions` allows up
+to 500 (`le=500`) and is unchanged.
+
+Neither change adds or removes a route, so `HERMES_REST_CONTRACT` and the §2 table are unchanged;
+the parameters are not part of that contract (see §2) and are covered by checklist item 8m instead.
+
+**Client assumptions the Android merge rests on** (`data/repository/TranscriptWindow.kt`, HG-104),
+to re-check on every upgrade alongside 8m:
+
+- **Message `id`s increase monotonically with time** within a conversation (SQLite `INTEGER PRIMARY
+  KEY` on `messages`). The client decides which of two pages is older, whether a refreshed newest
+  page overlaps what it already holds, and which rows of an older page to prepend by comparing ids
+  numerically — not only by equality.
+- **`offset` counts every row the endpoint returns, tool/function rows included.** The client
+  keeps the raw rows as returned (tool rows are only dropped later, when rows are mapped to turns)
+  and sends `offset` = the number of raw rows it holds. If upstream ever counted `offset` over a
+  different set than it returns, older pages would overlap (harmless, de-duplicated) or skip rows
+  (a silent gap).
+
 ### 2. REST paths
 
 Every upstream REST call the app makes. **The source of truth is `HERMES_REST_CONTRACT` in
@@ -939,6 +984,21 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
     `--manifest` line into `testTheManifestParserReadsUpstreamsRealManifestLine`. A version bump of
     the protocol is a Desktop change before it is an adoption: until Desktop speaks it, every
     install is `HR-MIGRATE-017` and falls back to the bundled copy.
+8m. **Paging parameters** (section 1c). In the new commit's `hermes_cli/web_routers/sessions.py`,
+    confirm `get_session_messages` still accepts `order=latest` with `limit`/`offset`, still returns
+    `pagination` with `limit`, `offset`, `order` and `returned`, and that `get_messages(latest=True)`
+    still returns the page in ascending order; and read the `le=` bound on `/api/sessions`'
+    `limit` and `/api/profiles/sessions`' `limit`. A lowered bound is a `422` on every list load, and
+    a latest page that comes back newest-first renders each page of history upside down. Cheapest
+    live proof, read-only on the Mac:
+
+    ```bash
+    curl -s -H "Authorization: Bearer $(cat "<token file>")" \
+      "http://127.0.0.1:9119/api/sessions/<id>/messages?order=latest&limit=3&offset=0" \
+      | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['pagination'],[m['id'] for m in d['messages']])"
+    ```
+
+    The ids must be ascending and `pagination.order` must be `latest`.
 9. **Read the source, not the notes.** See below.
 
 ## Known hazards

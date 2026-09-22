@@ -428,15 +428,31 @@ class HermesRestApi(
         deviceId: String? = null,
     ): List<MessageDto> = parseMessages(messagesRaw(sessionId, profile, deviceId))
 
-    /** The transcript payload as it came off the wire, for [TranscriptStore] to keep. */
+    /**
+     * The transcript payload as it came off the wire, for [TranscriptStore] to keep.
+     *
+     * Without [limit] upstream answers with its own cap, the latest 500 rows — every chat open and
+     * every reconciliation used to move all of them (HG-104). With `order=latest`, [limit] and
+     * [offset] page BACKWARD from the newest row (offset 0 is the newest page); the rows inside a
+     * page still come back oldest-first.
+     */
     suspend fun messagesRaw(
         sessionId: String,
         profile: String? = null,
         deviceId: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+        order: MessageOrder? = null,
     ): String = getRaw(
         // Stored rows remain unchanged. This read projection replaces only inline data-image
         // payloads, keeping old image-heavy conversations below the relay response ceiling.
-        "/api/sessions/$sessionId/messages?inline_images=false${profileParam(profile)}",
+        buildString {
+            append("/api/sessions/$sessionId/messages?inline_images=false")
+            limit?.let { append("&limit=$it") }
+            offset?.let { append("&offset=$it") }
+            order?.let { append("&order=${it.wire}") }
+            append(profileParam(profile))
+        },
         deviceId,
     )
 

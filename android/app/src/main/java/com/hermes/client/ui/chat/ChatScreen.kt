@@ -217,6 +217,7 @@ fun ChatScreen(
     val currentProvider by vm.currentProvider.collectAsStateWithLifecycle()
     val modelSheet by vm.modelSheet.collectAsStateWithLifecycle()
     val refreshingConversation by vm.refreshing.collectAsStateWithLifecycle()
+    val olderHistory by vm.olderHistory.collectAsStateWithLifecycle()
     var modelSheetOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
     // "Retry with another model": the model sheet doubles as the picker; when this flag is set,
     // a successful switch immediately re-submits the last prompt on the new model.
@@ -332,6 +333,9 @@ fun ChatScreen(
             }
         }
     }
+    // In-chat search looks through the whole conversation, not only the pages scrolled into view
+    // (HG-104). Matches fill in as the older pages land.
+    LaunchedEffect(searchOpen) { if (searchOpen) vm.loadEntireHistoryInBackground() }
     // Search the same merged turns rendered by ChatMessageList so highlight indices stay aligned.
     val conversationTurns = remember(state.messages, searchOpen) {
         if (searchOpen) state.messages.organizedConversationTurns() else emptyList()
@@ -878,7 +882,20 @@ fun ChatScreen(
                     if (state.messages.none { it.text.isNotBlank() }) {
                         android.widget.Toast.makeText(context, localized(language, "暂无可导出的内容", "Nothing to export yet"), android.widget.Toast.LENGTH_SHORT).show()
                     } else {
-                        shareFormatSheet = true
+                        // A shared transcript is the whole conversation, not the pages scrolled
+                        // into view (HG-104): page the rest in first — the top progress line shows
+                        // it — and only then ask for a format. A failed page shares nothing.
+                        exportScope.launch {
+                            if (vm.loadEntireHistory()) {
+                                shareFormatSheet = true
+                            } else {
+                                vm.olderHistory.value.error?.let { error ->
+                                    android.widget.Toast.makeText(
+                                        context, error.localizedMessage(language), android.widget.Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            }
+                        }
                     }
                 },
                 onArchive = { confirmArchive = true },
@@ -1311,6 +1328,10 @@ fun ChatScreen(
                         highlightIndex = highlightIndex,
                         searchContext = chatSearchContext,
                         searchOpen = searchOpen,
+                        olderHistory = olderHistory,
+                        onLoadOlder = { vm.loadOlderHistory() },
+                        onRetryOlder = { vm.retryOlderHistory() },
+                        onPromptListOpened = { vm.loadEntireHistoryInBackground() },
                         scrollToBottomTick = sendToBottomTick,
                         openPromptListTick = promptListTick,
                         viewportController = viewportController,

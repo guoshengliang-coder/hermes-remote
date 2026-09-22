@@ -43,6 +43,36 @@ test("multi-device Nginx routes expose selection and explicit traffic without sh
   }
 });
 
+test("multi-device Nginx routes gzip JSON only on the device API location", () => {
+  const routes = renderMultiDeviceNginxRoutes();
+  const locations = new Map();
+  for (const match of routes.matchAll(/^location ([^{]+) \{\n([\s\S]*?)^\}/gm)) {
+    locations.set(match[1].trim(), match[2]);
+  }
+  const directives = [
+    "gzip_types application/json;",
+    "gzip_proxied any;",
+    "gzip_vary on;",
+    "gzip_min_length 1024;",
+    "gzip_comp_level 6;",
+  ];
+  const api = locations.get("~ ^/v2/devices/[^/]+/api(?:/|$)");
+  assert.ok(api, "device API location is rendered");
+  for (const directive of directives) {
+    assert.ok(api.includes(`    ${directive}\n`), `device API location carries ${directive}`);
+  }
+  assert.doesNotMatch(api, /text\/event-stream/);
+  const ws = locations.get("~ ^/v2/devices/[^/]+/ws$");
+  assert.ok(ws, "device WebSocket location is rendered");
+  assert.doesNotMatch(ws, /gzip/);
+  for (const [name, body] of locations) {
+    if (name !== "~ ^/v2/devices/[^/]+/api(?:/|$)") {
+      assert.doesNotMatch(body, /gzip/, `${name} must not enable gzip`);
+    }
+  }
+  assert.equal(routes.match(/gzip_types/g).length, 1);
+});
+
 test("production multi-device rollout advances only the plural-device capability", async (t) => {
   const fixture = await createFixture(t);
   const calls = [];

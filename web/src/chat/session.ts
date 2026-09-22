@@ -25,8 +25,10 @@ import type {
   JsonValue,
   ServerEvent,
   SessionCreateResult,
+  MessageRow,
   SessionResumeResult,
 } from "../hermes/types";
+import { fetchFullHistory, HISTORY_PAGE_SIZE, historySyncError, latestPage, olderRowsIn, pageHasMore, rowsOf } from "./history";
 import type { PendingAttachment } from "./attachments";
 import type { ChatAction } from "./model";
 
@@ -68,6 +70,11 @@ export interface ChatSessionOptions {
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 /** How long a request that never left waits for the next connection before failing after all. */
 const RECONNECT_WAIT_MS = 15_000;
+/**
+ * Older-page requests one scroll may spend skipping pages that only overlap what is loaded (a
+ * long run added a page or more of rows since the newest page was read).
+ */
+const OLDER_PAGE_MAX_SKIPS = 5;
 
 export class ChatSession {
   private socket: HermesSocket | null = null;
@@ -288,16 +295,19 @@ export class ChatSession {
 
   // ---- history ----
 
-  /** Load the stored transcript; true when it arrived (or legitimately does not exist yet). */
+  /**
+   * Load the newest page of the stored transcript (merged as the tail: older pages already on
+   * screen stay); true when it arrived (or legitimately does not exist yet).
+   */
   async loadHistory(options: { quiet?: boolean } = {}): Promise<boolean> {
     const id = this.storedId;
     if (!id) return true;
     try {
-      const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile);
+      const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile, latestPage());
       if (this.disposed || id !== this.storedId) return false;
-      const rows = Array.isArray(body?.messages) ? body.messages : [];
+      const rows = rowsOf(body);
       this.storedRowCount = rows.length;
-      this.o.dispatch({ type: "history", rows });
+      this.o.dispatch({ type: "history", rows, hasOlder: pageHasMore(body, HISTORY_PAGE_SIZE) });
       return true;
     } catch (error) {
       if (this.disposed) return false;
@@ -312,6 +322,52 @@ export class ChatSession {
       if (!options.quiet) this.o.dispatch({ type: "notice", error: toAppError(error, "history") });
       return false;
     }
+  }
+
+  private loadingOlder = false;
+
+  /**
+   * The next older page (the reader scrolled to the top). `offset` is the number of stored rows
+   * already loaded: rows that arrived since then shift it forward, so the answer can overlap what
+   * is loaded (merged away by id) but never leaves a gap. A page that brings nothing older skips
+   * ahead by its own length. One request at a time.
+   */
+  async loadOlder(loaded: { rows: readonly MessageRow[]; epoch: number }): Promise<void> {
+    const id = this.storedId;
+    if (!id || this.loadingOlder || this.disposed) return;
+    this.loadingOlder = true;
+    this.o.dispatch({ type: "older-loading" });
+    try {
+      let offset = loaded.rows.length;
+      for (let skips = 0; ; skips++) {
+        const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile, latestPage(offset));
+        if (this.disposed) return;
+        if (id !== this.storedId) {
+          // The conversation was replaced meanwhile: a stale epoch only clears the loader.
+          this.o.dispatch({ type: "older-loaded", rows: [], hasMore: false, epoch: -1 });
+          return;
+        }
+        const rows = rowsOf(body);
+        const hasMore = pageHasMore(body, HISTORY_PAGE_SIZE);
+        if (!hasMore || olderRowsIn(loaded.rows, rows) > 0 || skips >= OLDER_PAGE_MAX_SKIPS) {
+          this.o.dispatch({ type: "older-loaded", rows, hasMore, epoch: loaded.epoch });
+          return;
+        }
+        offset += rows.length;
+      }
+    } catch (error) {
+      if (this.disposed) return;
+      this.o.dispatch({ type: "older-failed", error: historySyncError(error, "older history page"), epoch: loaded.epoch });
+    } finally {
+      this.loadingOlder = false;
+    }
+  }
+
+  /** Every stored row of this conversation, oldest first (sharing the whole transcript). */
+  loadFullHistory(): Promise<MessageRow[]> {
+    const id = this.storedId;
+    if (!id) return Promise.resolve([]);
+    return fetchFullHistory((page) => this.o.client.messages(this.o.deviceId, id, this.o.profile, page));
   }
 
   // ---- resume / create ----

@@ -47,6 +47,10 @@ describe("paths", () => {
     expect(paths.deviceApi("d", "/api/sessions/abc/messages")).toBe("/v2/devices/d/api/sessions/abc/messages");
     expect(paths.deviceApi("d", hermesPaths.messages("20260918_204034_16def7"))).toBe("/v2/devices/d/api/sessions/20260918_204034_16def7/messages?inline_images=false");
     expect(hermesPaths.messages("s1", "work team")).toBe("sessions/s1/messages?inline_images=false&profile=work%20team");
+    expect(hermesPaths.messages("s1", "work", { order: "latest", limit: 100, offset: 200 })).toBe(
+      "sessions/s1/messages?inline_images=false&profile=work&order=latest&limit=100&offset=200",
+    );
+    expect(hermesPaths.messages("s1", null, { order: "oldest", limit: 500, offset: 0 })).toBe("sessions/s1/messages?inline_images=false&order=oldest&limit=500&offset=0");
   });
 
   it("builds the device WebSocket URL from the page scheme and host", () => {

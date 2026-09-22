@@ -234,9 +234,9 @@ internal data class TurnJumpRequest(val listIndex: Int, val anchorIndex: Int)
 /** Reversed LazyColumn index of a message: slot 0 is the permanent bottom edge, newest turn is 1. */
 internal fun messageListIndex(messageCount: Int, messageIndex: Int): Int = messageCount - messageIndex
 
-/** Inverse of [messageListIndex]; null for the bottom-edge slot. */
+/** Inverse of [messageListIndex]; null for the bottom-edge slot and the older-history row above the first turn. */
 internal fun listMessageIndex(messageCount: Int, listIndex: Int): Int? =
-    if (listIndex <= 0) null else messageCount - listIndex
+    if (listIndex <= 0 || listIndex > messageCount) null else messageCount - listIndex
 
 /** Frame budget for a jump to settle while asynchronously rendered Markdown around the target grows. */
 internal const val TURN_JUMP_SETTLE_FRAMES = 120

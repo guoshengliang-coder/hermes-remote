@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appError } from "../errors";
 import type { JsonObject, ServerEvent } from "../hermes/types";
-import { hasOpenQuestion, initialChatState, reduceChat, type ChatAction, type ChatState } from "./model";
+import { hasOpenQuestion, initialChatState, itemsWithFullHistory, reduceChat, type ChatAction, type ChatState } from "./model";
 
 const e = (type: string, payload: JsonObject = {}): ChatAction => ({ type: "event", event: { type, sessionId: "s", payload } as ServerEvent });
 const run = (state: ChatState, ...actions: ChatAction[]) => actions.reduce(reduceChat, state);
@@ -195,5 +195,90 @@ describe("history organisation (Android organizedForDisplay)", () => {
     s = reduceChat(s, e("message.complete", { text: "part two" }));
     expect(s.items.filter((i) => i.role === "assistant")).toHaveLength(1);
     expect(s.items.at(-1)!.text).toBe("part one\n\npart two");
+  });
+});
+
+describe("paged history (HG-104)", () => {
+  const turn = (id: number) => ({ id, role: id % 2 ? "user" : "assistant", content: `m${id}`, timestamp: id });
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => turn(from + i));
+  const texts = (s: ChatState) => s.items.map((i) => i.text);
+
+  it("the first page opens the transcript and says whether older rows may exist", () => {
+    const s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    expect(s.historyRows).toHaveLength(100);
+    expect(s.older).toEqual({ hasMore: true, loading: false, error: null });
+    expect(s.items[0]!.key).toBe("h-101");
+  });
+
+  it("an older page is prepended, de-duplicated by id, and keeps the keys already on screen", () => {
+    let s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    s = reduceChat(s, { type: "older-loading" });
+    expect(s.older.loading).toBe(true);
+    s = reduceChat(s, { type: "older-loaded", rows: range(21, 120), hasMore: true, epoch: s.historyEpoch });
+    expect(s.historyRows.map((r) => r.id)).toEqual(range(21, 200).map((r) => r.id));
+    expect(texts(s)).toEqual(range(21, 200).map((r) => r.content));
+    expect(new Set(s.items.map((i) => i.key)).size).toBe(s.items.length);
+    s = reduceChat(s, { type: "older-loaded", rows: range(1, 20), hasMore: false, epoch: s.historyEpoch });
+    expect(s.items).toHaveLength(200);
+    expect(s.older).toEqual({ hasMore: false, loading: false, error: null });
+  });
+
+  it("an older page keeps unsent and live turns after the stored ones", () => {
+    let s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    s = run(s, { type: "user-sent", key: "l-1", text: "new", nowMs: 1 }, { type: "user-delivered", key: "l-1" }, e("message.delta", { text: "streaming" }));
+    s = reduceChat(s, { type: "older-loaded", rows: range(1, 100), hasMore: false, epoch: s.historyEpoch });
+    expect(texts(s).slice(-2)).toEqual(["new", "streaming"]);
+    expect(s.items).toHaveLength(202);
+    expect(s.generating).toBe(true);
+  });
+
+  it("a reconnect's newest page merges as the tail and keeps the older pages loaded", () => {
+    let s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    s = reduceChat(s, { type: "older-loaded", rows: range(1, 100), hasMore: false, epoch: s.historyEpoch });
+    // A turn sent from here, now stored by the server.
+    s = run(s, { type: "user-sent", key: "l-1", text: "m201", nowMs: 1 }, { type: "user-delivered", key: "l-1" }, e("message.complete", { text: "m202" }));
+    const epoch = s.historyEpoch;
+    s = reduceChat(s, { type: "history", rows: range(103, 202), hasOlder: true });
+    expect(texts(s)).toEqual(range(1, 202).map((r) => r.content));
+    expect(s.items.some((i) => i.key === "l-1")).toBe(false);
+    expect(s.older.hasMore).toBe(false);
+    expect(s.historyEpoch).toBe(epoch);
+  });
+
+  it("a newest page that cannot join the loaded rows starts over, and a late older page is dropped", () => {
+    let s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    const staleEpoch = s.historyEpoch;
+    s = reduceChat(s, { type: "older-loading" });
+    s = reduceChat(s, { type: "history", rows: range(401, 500), hasOlder: true });
+    expect(s.historyRows.map((r) => r.id)).toEqual(range(401, 500).map((r) => r.id));
+    expect(s.older).toEqual({ hasMore: true, loading: false, error: null });
+    s = reduceChat(s, { type: "older-loading" });
+    s = reduceChat(s, { type: "older-loaded", rows: range(1, 100), hasMore: true, epoch: staleEpoch });
+    expect(s.items).toHaveLength(100);
+    expect(s.older.loading).toBe(false);
+  });
+
+  it("a failed older page keeps the transcript and records the error until the retry", () => {
+    let s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    s = reduceChat(s, { type: "older-loading" });
+    s = reduceChat(s, { type: "older-failed", error: appError("HR-SYNC-001"), epoch: s.historyEpoch });
+    expect(s.items).toHaveLength(100);
+    expect(s.older).toMatchObject({ hasMore: true, loading: false, error: { code: "HR-SYNC-001", retryable: true } });
+    s = reduceChat(s, { type: "older-loading" });
+    expect(s.older.error).toBeNull();
+  });
+});
+
+describe("share transcript over the whole conversation (HG-104)", () => {
+  const turn = (id: number) => ({ id, role: id % 2 ? "user" : "assistant", content: `m${id}`, timestamp: id });
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => turn(from + i));
+
+  it("adds the older rows before what is on screen and keeps local turns as shown", () => {
+    let s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    s = run(s, { type: "user-sent", key: "l-1", text: "unsent", nowMs: 1 }, { type: "user-failed", key: "l-1", error: appError("HR-SESS-007") });
+    // The full fetch may already include rows newer than the loaded tail: they are not duplicated.
+    const items = itemsWithFullHistory(s, range(1, 203));
+    expect(items.map((i) => i.text)).toEqual([...range(1, 200).map((r) => r.content), "unsent"]);
+    expect(s.items).toHaveLength(101);
   });
 });

@@ -242,6 +242,13 @@ location ~ ^/v2/devices/[^/]+/api(?:/|$) {
     proxy_connect_timeout 5s;
     proxy_read_timeout 75s;
     proxy_send_timeout 75s;
+    # HG-104: same JSON-only gzip as the edge /api/ location. Never list a streaming type here:
+    # gzip buffers a chunked response until it ends.
+    gzip_types application/json;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_comp_level 6;
 }
 
 location ~ ^/v2/devices/[^/]+/ws$ {

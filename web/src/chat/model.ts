@@ -17,6 +17,7 @@ import {
   type TimelineNote,
   type ToolCard,
 } from "./organize";
+import { mergeOlder, mergeTail } from "./history";
 
 // Chat view model as a pure reducer. Live streaming follows android ui/chat/ChatUiState.kt
 // (`applyEvent`): message.start/delta/complete, reasoning.delta, tool.start/complete, error.
@@ -54,10 +55,26 @@ export interface ChatItem {
 
 export type ConnectionState = "connecting" | "ready" | "reconnecting" | "offline";
 
+/** Paging of the stored transcript towards older rows (HG-104). */
+export interface OlderHistoryState {
+  /** The last page reached back as far as it could: an older one may exist. */
+  hasMore: boolean;
+  loading: boolean;
+  error: AppError | null;
+}
+
 export interface ChatState {
   items: ChatItem[];
   generating: boolean;
   historyLoaded: boolean;
+  /** Every stored row loaded so far, oldest first: the history part of `items` is built from it. */
+  historyRows: MessageRow[];
+  older: OlderHistoryState;
+  /**
+   * Bumped whenever `historyRows` starts over; an older page requested before that belongs to a
+   * transcript that is no longer on screen and is dropped.
+   */
+  historyEpoch: number;
   questions: QuestionState;
   connection: ConnectionState;
   /** A page-level notice (terminal session, owned elsewhere, expired answer…). */
@@ -79,6 +96,9 @@ export const initialChatState: ChatState = {
   items: [],
   generating: false,
   historyLoaded: false,
+  historyRows: [],
+  older: { hasMore: false, loading: false, error: null },
+  historyEpoch: 0,
   questions: initialQuestionState,
   connection: "connecting",
   notice: null,
@@ -99,7 +119,11 @@ const STREAM_EVENTS: ReadonlySet<string> = new Set([
 ]);
 
 export type ChatAction =
-  | { type: "history"; rows: MessageRow[] }
+  /** The newest page (the whole transcript when `hasOlder` is false or absent). */
+  | { type: "history"; rows: MessageRow[]; hasOlder?: boolean }
+  | { type: "older-loading" }
+  | { type: "older-loaded"; rows: MessageRow[]; hasMore: boolean; epoch: number }
+  | { type: "older-failed"; error: AppError; epoch: number }
   | { type: "history-missing" }
   | { type: "event"; event: ServerEvent }
   | { type: "server-request"; request: ServerRequest }
@@ -316,6 +340,23 @@ export function historyItems(rows: MessageRow[]): ChatItem[] {
   return out;
 }
 
+/**
+ * The page's items rebuilt on `rows` (loaded rows plus older ones): everything not built from
+ * stored rows (sending/failed/streamed/delivered turns) keeps its place after them.
+ */
+function itemsWithRows(state: ChatState, rows: readonly MessageRow[]): ChatItem[] {
+  return [...historyItems([...rows]), ...state.items.filter((i) => !i.key.startsWith("h-"))];
+}
+
+/**
+ * The whole conversation as the page would show it with every older page loaded (sharing):
+ * `fullRows` contributes only rows older than those loaded, so the loaded tail and local turns
+ * appear exactly as on screen.
+ */
+export function itemsWithFullHistory(state: ChatState, fullRows: readonly MessageRow[]): ChatItem[] {
+  return itemsWithRows(state, mergeOlder(state.historyRows, fullRows));
+}
+
 export function reduceChat(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "history": {
@@ -323,8 +364,30 @@ export function reduceChat(state: ChatState, action: ChatAction): ChatState {
       if (state.generating && state.historyLoaded) return state;
       const failed = state.items.filter((i) => i.send === "failed" || i.send === "sending");
       const live = state.generating ? state.items.filter((i) => i.streaming) : [];
-      return { ...state, items: [...historyItems(action.rows), ...failed, ...live], historyLoaded: true };
+      // The page replaces the tail; older pages already loaded stay (unless the page cannot be
+      // joined to them, see mergeTail). Turns this page streamed are dropped as before: the server
+      // rows now carry them.
+      const hasOlder = action.hasOlder ?? false;
+      const merged = state.historyLoaded ? mergeTail(state.historyRows, action.rows, hasOlder) : { rows: [...action.rows], reset: true };
+      return {
+        ...state,
+        items: [...historyItems(merged.rows), ...failed, ...live],
+        historyLoaded: true,
+        historyRows: merged.rows,
+        older: merged.reset ? { hasMore: hasOlder, loading: false, error: null } : state.older,
+        historyEpoch: merged.reset ? state.historyEpoch + 1 : state.historyEpoch,
+      };
     }
+    case "older-loading":
+      return { ...state, older: { ...state.older, loading: true, error: null } };
+    case "older-loaded": {
+      if (action.epoch !== state.historyEpoch) return { ...state, older: { ...state.older, loading: false } };
+      const rows = mergeOlder(state.historyRows, action.rows);
+      return { ...state, historyRows: rows, items: itemsWithRows(state, rows), older: { hasMore: action.hasMore, loading: false, error: null } };
+    }
+    case "older-failed":
+      if (action.epoch !== state.historyEpoch) return { ...state, older: { ...state.older, loading: false } };
+      return { ...state, older: { ...state.older, loading: false, error: action.error } };
     case "history-missing":
       return { ...state, historyLoaded: true };
     case "event": {

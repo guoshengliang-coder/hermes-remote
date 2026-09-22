@@ -213,7 +213,7 @@ sudo docker logs --since 2026-09-05T10:20:00Z hermes-go-gateway-blue 2>&1 | grep
 | `app.tunnel.open` / `app.tunnel.close` | 手机 socket 何时开、何时关、关时连接器是否在线、双向各跑了多少帧——"终止事件发出时有没有人在听"就看这两行 |
 | `lifecycle.received`（`lagMs`） | 连接器→网关的延迟（实测恒 ≤1s） |
 | `lifecycle.served` / `lifecycle.acked` | 手机何时来取、取到了哪几条、何时确认——`received` 到 `served` 的间隔就是手机没来取的时间 |
-| `http.tunnel` | 每次 REST 隧道：路径、状态、耗时；同一秒多次 `/messages` = 对账阶梯 |
+| `http.tunnel` | 每次 REST 隧道：路径、结果、状态、解码后字节数 `bytes`、流式分块数 `chunks`、首字节 `ttfbMs`、耗时；同一秒多次 `/messages` = 对账阶梯 |
 | `connector.online` / `connector.offline` | Mac 侧连接器上下线 |
 
 连接器侧（Mac，`~/Library/Application Support/Hermes Remote/connector.log`，`CONNECTOR_LOG_LEVEL`）

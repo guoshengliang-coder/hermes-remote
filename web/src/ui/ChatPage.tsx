@@ -23,7 +23,7 @@ import { ModelSheet, modelChipLabel } from "./ModelSheet";
 import { copyWithFeedback } from "./Markdown";
 import { speechSupported, toggleSpeak } from "../chat/speech";
 import { readableText } from "../markdown/render";
-import { ChatSearchBar, PromptsSheet, searchHits, ShareSheet, SourceDialog, useSearchHighlights, UserMenuSheet } from "./ChatSheets";
+import { ChatSearchBar, PromptsSheet, searchHits, ShareSheet, SourceDialog, useSearchHighlights, useShareTranscript, UserMenuSheet } from "./ChatSheets";
 import {
   ArchiveIcon,
   ArrowDownIcon,
@@ -53,10 +53,39 @@ import { loadSessions } from "./SessionList";
 
 let localSeq = 0;
 
+/** Within this distance of the top the next older history page is fetched (HG-104). */
+const OLDER_TRIGGER_PX = 320;
+
+/** The first turn on screen and where it sits: kept in place when content above it changes. */
+interface ScrollAnchor {
+  key: string;
+  offset: number;
+}
+
+function readAnchor(el: HTMLElement): ScrollAnchor | null {
+  const top = el.getBoundingClientRect().top;
+  for (const node of el.querySelectorAll<HTMLElement>(".turn[data-key]")) {
+    const box = node.getBoundingClientRect();
+    if (box.bottom > top) return { key: node.dataset.key ?? "", offset: box.top - top };
+  }
+  return null;
+}
+
+function restoreAnchor(el: HTMLElement, anchor: ScrollAnchor | null) {
+  if (!anchor?.key) return;
+  const node = el.querySelector<HTMLElement>(`.turn[data-key="${CSS.escape(anchor.key)}"]`);
+  if (!node) return;
+  const delta = node.getBoundingClientRect().top - el.getBoundingClientRect().top - anchor.offset;
+  if (Math.abs(delta) >= 1) el.scrollTop += delta;
+}
+
 export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const app = useApp();
   const { t, language, device, client } = app;
   const [state, dispatch] = useReducer(reduceChat, initialChatState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const anchor = useRef<ScrollAnchor | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
   const [storedId, setStoredId] = useState<string | null>(sessionId);
   const scroller = useRef<HTMLDivElement>(null);
@@ -180,19 +209,44 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     wasOpen.current = false;
   }, [storedId]);
 
-  // Follow the stream while the reader is at the bottom.
+  // Follow the stream while the reader is at the bottom; otherwise keep the turn they are reading
+  // where it was when an older page (or its loader) appears above it.
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [state.items, open]);
+    if (!el) return;
+    if (stick.current) el.scrollTop = el.scrollHeight;
+    else restoreAnchor(el, anchor.current);
+    anchor.current = readAnchor(el);
+  }, [state.items, open, state.older.loading, state.older.error]);
 
   function onScroll() {
     const el = scroller.current;
     if (!el) return;
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     if (stick.current !== atBottom) setAtBottom(stick.current);
+    anchor.current = readAnchor(el);
     updatePill(el);
+    maybeLoadOlder(el);
   }
+
+  /** Earlier messages, fetched page by page as the reader reaches the top (HG-104). */
+  function loadOlder() {
+    const s = stateRef.current;
+    void sessionRef.current?.loadOlder({ rows: s.historyRows, epoch: s.historyEpoch });
+  }
+
+  function maybeLoadOlder(el: HTMLElement) {
+    const s = stateRef.current;
+    if (!s.historyLoaded || !s.older.hasMore || s.older.loading || s.older.error) return;
+    if (el.scrollTop > OLDER_TRIGGER_PX) return;
+    loadOlder();
+  }
+
+  // A page too short to scroll (or still near the top after a prepend) keeps reaching back.
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) maybeLoadOlder(el);
+  }, [state.historyRows, state.older.hasMore, state.older.loading]);
 
   // "Back to this prompt" pill (DESIGN §5.4, Android TurnJump): shown while the list moves, gone
   // 1.5 s after it stops; hidden when the group's own prompt is on screen or the reader is at the
@@ -357,6 +411,8 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         : state.connection === "connecting" && state.historyLoaded
           ? t("正在连接…", "Connecting…")
           : "";
+
+  const shareTranscript = useShareTranscript(shareOpen, state, storedId ? () => sessionRef.current?.loadFullHistory() ?? Promise.resolve([]) : null);
 
   const hits = useMemo(() => (searchOpen ? searchHits(state.items, searchQuery) : []), [searchOpen, searchQuery, state.items]);
   useEffect(() => setSearchFocus(hits.length ? hits.length - 1 : 0), [searchQuery]);
@@ -523,6 +579,14 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         ) : null}
         <div class="messages-inner">
           {!state.historyLoaded ? <div class="center-spinner"><span class="spinner" /></div> : null}
+          {state.older.loading ? (
+            <div class="older-history" role="status">
+              <span class="spinner tiny" aria-hidden="true" />
+              {t("正在加载更早的消息…", "Loading earlier messages…")}
+            </div>
+          ) : state.older.error ? (
+            <ErrorNotice error={state.older.error} language={language} onRetry={loadOlder} variant="inline" />
+          ) : null}
           {state.historyLoaded && state.items.length === 0 ? (
             sessionId === null ? (
               <div class="greeting">
@@ -658,7 +722,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           onClose={() => setPromptsOpen(false)}
         />
       ) : null}
-      {shareOpen ? <ShareSheet title={storedId ? title : null} items={state.items} onClose={() => setShareOpen(false)} /> : null}
+      {shareOpen ? <ShareSheet title={storedId ? title : null} transcript={shareTranscript} onClose={() => setShareOpen(false)} /> : null}
       {userMenu ? (
         <UserMenuSheet
           item={userMenu}

@@ -1620,6 +1620,17 @@ button:disabled {
   user-select: text;
 }
 
+/* Loader above the transcript while an older history page arrives (HG-104). */
+.older-history {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  font-size: 0.75rem;
+  color: var(--on-surface-variant);
+}
+
 .time-separator {
   margin: 1rem 0 0.25rem;
   text-align: center;

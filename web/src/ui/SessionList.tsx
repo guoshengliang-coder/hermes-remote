@@ -4,6 +4,7 @@ import { botSections, botSourceLabel, botStatusLine } from "../app/bots";
 import { draftSessions } from "../app/drafts";
 import { toAppError } from "../app/failures";
 import { groupSessions, type GroupId } from "../app/grouping";
+import { createListRefresher, type ListRefresher } from "../app/listRefresh";
 import { defaultProjectPath } from "../app/localPrefs";
 import { deriveProjects, disambiguatedLabels, inProject } from "../app/projects";
 import { navigate } from "../app/router";
@@ -41,7 +42,8 @@ export async function loadSessions(client: ReturnType<typeof useApp>["client"], 
   } catch (error) {
     // Older Hermes without the cross-profile list: fall back to the default profile's.
     if (error instanceof GatewayHttpError && error.status === 404) {
-      const body = await client.deviceApi<SessionListResponse>(deviceId, "GET", `${hermesPaths.sessions}?limit=200&offset=0&order=recent`);
+      // Upstream `/api/sessions` rejects limit > 100 (422).
+      const body = await client.deviceApi<SessionListResponse>(deviceId, "GET", `${hermesPaths.sessions}?limit=100&offset=0&order=recent`);
       return Array.isArray(body?.sessions) ? body.sessions : [];
     }
     throw error;
@@ -98,22 +100,32 @@ export function SessionList() {
     }
   }
 
+  // Every list request goes through one single-flight refresher (HG-104, app/listRefresh.ts).
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const refresher = useRef<ListRefresher | null>(null);
+
   useEffect(() => {
-    void refresh();
+    const scheduler = createListRefresher(() => refreshRef.current());
+    refresher.current = scheduler;
+    scheduler.now();
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") scheduler.now();
     };
     document.addEventListener("visibilitychange", onVisible);
     const tick = setInterval(() => setNow(Date.now()), 60_000);
     return () => {
+      scheduler.dispose();
+      if (refresher.current === scheduler) refresher.current = null;
       document.removeEventListener("visibilitychange", onVisible);
       clearInterval(tick);
     };
   }, [deviceId]);
 
-  // A lifecycle event usually means the list moved (new title, new activity): refetch.
+  // A lifecycle event usually means the list moved (new title, new activity): refetch, debounced —
+  // the cursor can move on every inbox poll.
   useEffect(() => {
-    if (app.inbox.primed) void refresh();
+    if (app.inbox.primed) refresher.current?.soon();
   }, [app.inbox.cursor]);
 
   useEffect(() => {
@@ -265,7 +277,7 @@ export function SessionList() {
       </header>
       <main class="content">
         {!searching ? <HealthStrip /> : null}
-        {offline ? <ErrorNotice error={appError("HR-CONN-005")} language={language} onRetry={() => void refresh()} variant="banner" /> : null}
+        {offline ? <ErrorNotice error={appError("HR-CONN-005")} language={language} onRetry={() => refresher.current?.now()} variant="banner" /> : null}
         {searching ? (
           <SearchView
             query={query}
@@ -307,7 +319,7 @@ export function SessionList() {
           </>
         ) : (
           <>
-            {error && !app.sessions.length ? <ErrorNotice error={error} language={language} onRetry={() => void refresh()} /> : null}
+            {error && !app.sessions.length ? <ErrorNotice error={error} language={language} onRetry={() => refresher.current?.now()} /> : null}
             {loading && !error ? <div class="center-spinner"><span class="spinner" /></div> : null}
             {!loading && !error && groups.length === 0 ? (
               <div class="empty-state">

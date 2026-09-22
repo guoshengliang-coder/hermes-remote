@@ -13,6 +13,7 @@ import { ErrorNotice } from "./ErrorNotice";
 import { useApp } from "../app/store";
 import { explicitProfile } from "../app/profile";
 import { historyItems } from "../chat/model";
+import { fetchFullHistory } from "../chat/history";
 import { transcriptAttachmentName, transcriptMarkdownForAttachment } from "../chat/transcript";
 import type { SessionListItem } from "../hermes/types";
 import { CameraIcon, ChatIcon, CloseIcon, FileIcon, ImageIcon, ListIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
@@ -133,8 +134,9 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     for (const session of picked) {
       const title = session.title || session.display_name || null;
       try {
-        const body = await app.client.messages(device.deviceId, session.id, explicitProfile(session));
-        const markdown = transcriptMarkdownForAttachment(title, historyItems(Array.isArray(body?.messages) ? body.messages : []), language, now, MAX_TRANSCRIPT_BYTES);
+        // The whole transcript, not just the newest page the chat itself opens on (HG-104).
+        const rows = await fetchFullHistory((page) => app.client.messages(device.deviceId, session.id, explicitProfile(session), page));
+        const markdown = transcriptMarkdownForAttachment(title, historyItems(rows), language, now, MAX_TRANSCRIPT_BYTES);
         if (!markdown) throw new Error("nothing to attach");
         const name = transcriptAttachmentName(title, now);
         made.push({ id: `att-${++seq}`, file: new Blob([markdown], { type: "text/markdown" }), name, mimeType: "text/markdown", kind: "file" });

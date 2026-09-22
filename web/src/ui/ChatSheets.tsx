@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { copyText } from "../app/clipboard";
 import { useApp } from "../app/store";
-import type { ChatItem } from "../chat/model";
+import { historySyncError } from "../chat/history";
+import { itemsWithFullHistory, type ChatItem, type ChatState } from "../chat/model";
 import { formatTimeSeparator, transcriptFileBaseName, transcriptMarkdown, transcriptText } from "../chat/transcript";
-import { appError, diagnostics } from "../errors";
+import { appError, diagnostics, type AppError } from "../errors";
+import type { MessageRow } from "../hermes/types";
+import { ErrorNotice } from "./ErrorNotice";
 import { readableText } from "../markdown/render";
 import { ArrowDownIcon, BackIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, SearchIcon } from "./icons";
 import { copyWithFeedback } from "./Markdown";
@@ -207,8 +210,58 @@ function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-export function ShareSheet({ title, items, onClose }: { title: string | null; items: readonly ChatItem[]; onClose: () => void }) {
+export interface ShareTranscript {
+  /** null until the whole conversation is known. */
+  items: readonly ChatItem[] | null;
+  loading: boolean;
+  error: AppError | null;
+  retry: () => void;
+}
+
+/**
+ * What "share transcript" exports: the whole conversation (HG-104). The chat shows only the pages
+ * read so far; while older ones exist, opening the sheet fetches every stored row and rebuilds
+ * the items the way the page would show them, with local turns kept as on screen.
+ */
+export function useShareTranscript(open: boolean, state: ChatState, loadFull: (() => Promise<MessageRow[]>) | null): ShareTranscript {
+  const needFull = open && state.older.hasMore && loadFull !== null;
+  const [rows, setRows] = useState<MessageRow[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<AppError | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!open) {
+      setRows(null);
+      setError(null);
+      setLoading(false);
+    }
+    if (!needFull || rows) return;
+    let live = true;
+    setLoading(true);
+    setError(null);
+    loadFull!().then(
+      (all) => {
+        if (!live) return;
+        setRows(all);
+        setLoading(false);
+      },
+      (e: unknown) => {
+        if (!live) return;
+        setError(historySyncError(e, "full transcript for sharing"));
+        setLoading(false);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, needFull, attempt]);
+  const items = useMemo(() => (!needFull ? state.items : rows ? itemsWithFullHistory(state, rows) : null), [needFull, rows, state]);
+  return { items, loading: needFull && !rows && loading, error: needFull && !rows ? error : null, retry: () => setAttempt((n) => n + 1) };
+}
+
+export function ShareSheet({ title, transcript, onClose }: { title: string | null; transcript: ShareTranscript; onClose: () => void }) {
   const { t, language, flash } = useApp();
+  const items = transcript.items ?? [];
 
   async function shareText() {
     const text = transcriptText(items, language);
@@ -253,8 +306,15 @@ export function ShareSheet({ title, items, onClose }: { title: string | null; it
 
   return (
     <Sheet title={t("分享对话", "Share transcript")} closeLabel={t("关闭", "Close")} onClose={onClose}>
-      <SheetAction label={t("文字", "Plain text")} hint={t("系统分享，或复制到剪贴板", "System share, or copy to the clipboard")} onClick={() => void shareText()} />
-      <SheetAction label={t("Markdown 文件", "Markdown file")} hint={t("保留代码块、表格和列表", "Keeps code blocks, tables and lists")} onClick={() => void shareMarkdown()} />
+      {transcript.loading ? (
+        <div class="older-history" role="status">
+          <span class="spinner tiny" aria-hidden="true" />
+          {t("正在读取完整对话…", "Loading the whole conversation…")}
+        </div>
+      ) : null}
+      {transcript.error ? <ErrorNotice error={transcript.error} language={language} onRetry={transcript.retry} variant="inline" /> : null}
+      <SheetAction label={t("文字", "Plain text")} hint={t("系统分享，或复制到剪贴板", "System share, or copy to the clipboard")} disabled={!transcript.items} onClick={() => void shareText()} />
+      <SheetAction label={t("Markdown 文件", "Markdown file")} hint={t("保留代码块、表格和列表", "Keeps code blocks, tables and lists")} disabled={!transcript.items} onClick={() => void shareMarkdown()} />
     </Sheet>
   );
 }

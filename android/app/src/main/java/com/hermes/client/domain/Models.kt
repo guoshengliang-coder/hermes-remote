@@ -112,6 +112,12 @@ data class ChatMessage(
     // From display_metadata of async_delegation_complete: how many subtasks ran / failed.
     val displayTaskCount: Int? = null,
     val displayFailedCount: Int? = null,
+    /**
+     * The Hermes row id this turn was read from (`messages.id`), null for a turn that exists only
+     * locally so far. Unlike [id] it is never rewritten by id alignment, which is what lets a
+     * transcript held in pages (HG-104) tell which of two windows is older and where they overlap.
+     */
+    val serverId: Long? = null,
 )
 
 /** A server-authoritative project (explicit user project or an auto git-repo/discovered project). */

@@ -149,6 +149,9 @@ test("legacy WebSocket routing preserves frames and Connector close details", ne
       "x-hermes-session-token": gateway.appToken,
     });
     sockets.push(app);
+    // HG-104: only the Connector hop negotiates permessage-deflate; the app hop never does.
+    assert.match(connector.extensions, /^permessage-deflate\b/);
+    assert.equal(app.extensions, "");
     const opened = await openMessage;
     assert.equal(opened.targetDeviceId, gateway.deviceId);
     assert.equal(opened.path, "/api/ws");

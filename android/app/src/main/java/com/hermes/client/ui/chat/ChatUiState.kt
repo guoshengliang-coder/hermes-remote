@@ -417,16 +417,43 @@ internal fun showsTimeSeparator(previousTs: Long?, ts: Long?, gapMinutes: Long =
 }
 
 /**
+ * How many leading rows of each list lie outside the other's window: `(history, current)`.
+ *
+ * Before HG-104 a history snapshot and the transcript on screen always began at the same row, so
+ * position and per-role ordinal identified the same turn on both sides. A transcript held in pages
+ * breaks that: the phone may hold older pages the snapshot does not carry, or (after a gap) the
+ * snapshot may start with rows the phone never had. Both ends are measured by [ChatMessage.serverId];
+ * rows without one (live, unpersisted turns, or a gateway that sends no ids) never count as outside,
+ * so lists that start at the same row get `(0, 0)` and the old behaviour exactly.
+ */
+internal fun windowSkips(history: List<ChatMessage>, current: List<ChatMessage>): Pair<Int, Int> {
+    val historyStart = history.firstOrNull()?.serverId
+    val currentStart = current.firstOrNull()?.serverId
+    val skipCurrent = if (historyStart == null) 0 else current.takeWhile { message ->
+        val id = message.serverId
+        id != null && id < historyStart
+    }.size
+    val skipHistory = if (currentStart == null) 0 else history.takeWhile { message ->
+        val id = message.serverId
+        id != null && id < currentStart
+    }.size
+    return skipHistory to skipCurrent
+}
+
+/**
  * History reconciliation replaces the live transcript wholesale. When the gateway's history rows
  * carry no created_at, inherit the live message's local stamp by position+role so time separators
- * survive the swap; a position mismatch simply yields no stamp, never a wrong one.
+ * survive the swap; a position mismatch simply yields no stamp, never a wrong one. Positions are
+ * counted from where the two windows meet ([windowSkips]).
  */
-internal fun inheritTimestamps(history: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> =
-    history.mapIndexed { index, message ->
-        if (message.timestamp != null) return@mapIndexed message
-        val live = current.getOrNull(index)
+internal fun inheritTimestamps(history: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> {
+    val (skipHistory, skipCurrent) = windowSkips(history, current)
+    return history.mapIndexed { index, message ->
+        if (message.timestamp != null || index < skipHistory) return@mapIndexed message
+        val live = current.getOrNull(index - skipHistory + skipCurrent)
         if (live != null && live.role == message.role) message.copy(timestamp = live.timestamp) else message
     }
+}
 
 /**
  * Reuse existing message IDENTITY across a history swap. Reconciliation replaces locally
@@ -436,12 +463,63 @@ internal fun inheritTimestamps(history: List<ChatMessage>, current: List<ChatMes
  * [current], and likewise per role. Acceptance already guarantees [history] covers every
  * locally observed turn, so matched prefixes are the same logical messages; genuinely new
  * tail messages keep their fresh history ids.
+ *
+ * Ordinals start where the two windows meet ([windowSkips], HG-104): rows only one side holds
+ * are older than everything the other side has and keep their own ids. Counting them would hand
+ * every turn the id of an older one — and [inheritStreamFields] matches by id.
  */
 internal fun alignMessageIds(history: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> {
-    val idsByRole = current.groupBy { it.role }.mapValues { (_, msgs) -> msgs.map { it.id }.iterator() }
-    return history.map { message ->
+    val (skipHistory, skipCurrent) = windowSkips(history, current)
+    val idsByRole = current.drop(skipCurrent).groupBy { it.role }
+        .mapValues { (_, msgs) -> msgs.map { it.id }.iterator() }
+    return history.mapIndexed { index, message ->
+        if (index < skipHistory) return@mapIndexed message
         val ids = idsByRole[message.role]
         if (ids != null && ids.hasNext()) message.copy(id = ids.next()) else message
+    }
+}
+
+/**
+ * [incoming] with the older rows of [current] it does not carry kept in front of it (HG-104).
+ *
+ * History arrives as the newest page merged into what the repository holds, which is normally the
+ * same window the screen shows. When it is shorter — the repository's copy was evicted, or the
+ * snapshot is a bare tail — the rows the reader already has, and may be looking at, must not
+ * vanish. They are only grafted when [current] reaches into [incoming]; if every row on screen is
+ * older than the snapshot there is an unknown gap between them, and the snapshot stands alone.
+ */
+internal fun graftOlderHead(incoming: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> {
+    val start = incoming.firstOrNull()?.serverId ?: return incoming
+    val overlaps = current.any { message -> message.serverId?.let { it >= start } == true }
+    if (!overlaps) return incoming
+    val head = current.takeWhile { message ->
+        val id = message.serverId
+        id != null && id < start
+    }
+    return if (head.isEmpty()) incoming else head + incoming
+}
+
+/**
+ * The rows of [current] a snapshot starting at [snapshotStart] can speak for: everything except
+ * held rows older than it. A null start (no ids) means all of them, as before paging.
+ */
+internal fun rowsFrom(current: List<ChatMessage>, snapshotStart: Long?): List<ChatMessage> =
+    if (snapshotStart == null) current else current.filter { message ->
+        message.serverId?.let { it >= snapshotStart } ?: true
+    }
+
+/**
+ * Older rows to put in front of [current] from [merged], the whole transcript after an older page
+ * was merged (HG-104): exactly those older than the first row [current] holds, and not already
+ * on screen. With no server row on screen at all there is nothing to anchor them to, so nothing
+ * is taken — the next history reconcile brings the transcript in whole.
+ */
+internal fun olderRowsFor(merged: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> {
+    val first = current.firstOrNull()?.serverId ?: return emptyList()
+    val ids = current.mapTo(HashSet()) { it.id }
+    return merged.filter { message ->
+        val id = message.serverId
+        id != null && id < first && message.id !in ids
     }
 }
 
