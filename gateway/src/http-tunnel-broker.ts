@@ -49,6 +49,8 @@ export class HttpTunnelBroker {
     url: URL,
     connector: HttpConnector,
     responseHeaders: (headers: Record<string, string>) => Record<string, string> = (headers) => headers,
+    /** A body the caller already read (and checked); otherwise it is read here. */
+    preReadBody?: Buffer,
   ): Promise<void> {
     if (this.pending.size >= this.maxPendingRequests) {
       sendHttpError(response, 503, "relay_capacity_reached");
@@ -56,11 +58,15 @@ export class HttpTunnelBroker {
     }
 
     let body: Buffer;
-    try {
-      body = await readRequestBody(request, this.maxBodyBytes);
-    } catch {
-      sendHttpError(response, 413, "request_too_large");
-      return;
+    if (preReadBody) {
+      body = preReadBody;
+    } else {
+      try {
+        body = await readRequestBody(request, this.maxBodyBytes);
+      } catch {
+        sendHttpError(response, 413, "request_too_large");
+        return;
+      }
     }
 
     const id = randomUUID();

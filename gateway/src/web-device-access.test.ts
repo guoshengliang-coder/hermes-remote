@@ -5,6 +5,7 @@ import type { AccountPrincipal } from "./account/model.js";
 import {
   browserResponseHeaders,
   browserRouteAllowed,
+  browserRouteFor,
   WebDeviceAccess,
 } from "./account/web-device-access.js";
 import { WebSessionSecurity } from "./account/web-session-security.js";
@@ -61,6 +62,11 @@ test("browser route allowlist covers the chat client and nothing that administer
     ["GET", "/api/profiles/sessions"],
     ["GET", "/api/files"],
     ["POST", "/api/files/upload"],
+    // Web batch 4: session management and the model list.
+    ["PATCH", "/api/sessions/abc"],
+    ["DELETE", "/api/sessions/abc"],
+    ["DELETE", "/api/sessions/abc?profile=work"],
+    ["GET", "/api/model/options?profile=work"],
   ] as const) {
     assert.equal(browserRouteAllowed(method, path), true, `${method} ${path}`);
   }
@@ -71,9 +77,14 @@ test("browser route allowlist covers the chat client and nothing that administer
     ["POST", "/api/gateway/restart"],
     ["GET", "/api/config"],
     ["GET", "/api/cron/jobs"],
-    ["DELETE", "/api/sessions/abc"],
-    ["PATCH", "/api/sessions/abc"],
     ["POST", "/api/sessions"],
+    ["DELETE", "/api/sessions/abc?force=1"],
+    ["DELETE", "/api/sessions/abc?profile=a%2Fb"],
+    ["PATCH", "/api/sessions/abc?profile=work"],
+    ["PATCH", "/api/sessions/abc/messages"],
+    ["DELETE", "/api/sessions"],
+    ["GET", "/api/model/options?include_keys=1"],
+    ["PUT", "/api/model/options"],
     ["GET", "/api/sessions/abc/messages/extra"],
     ["GET", "/api/skills"],
     ["POST", "/api/files"],
@@ -195,4 +206,23 @@ test("presence of the access cookie decides whether the Web path applies", () =>
   assert.equal(web.presents(request("GET", { cookie: "x__Host-hermes_go_access=1" })), false);
   // …while a malformed header that does carry the access cookie takes it and is rejected there.
   assert.equal(web.presents(request("GET", { cookie: `junk; __Host-hermes_go_access=${ACCESS}` })), true);
+});
+
+test("a session PATCH body may only rename, archive or unarchive", () => {
+  const route = browserRouteFor("PATCH", new URL("http://d/api/sessions/abc"))!;
+  const ok = (body: unknown) => route.body!(body);
+  assert.equal(route.audit, "session.update");
+  assert.equal(ok({ title: "New name", profile: "work" }), true);
+  assert.equal(ok({ archived: true }), true);
+  assert.equal(ok({ archived: false, profile: "工作" }), true);
+  assert.equal(ok({}), false);
+  assert.equal(ok({ profile: "work" }), false, "profile alone changes nothing");
+  assert.equal(ok({ title: "   " }), false);
+  assert.equal(ok({ title: "x".repeat(201) }), false);
+  assert.equal(ok({ archived: "true" }), false);
+  assert.equal(ok({ title: "t", model: "x" }), false);
+  assert.equal(ok({ title: "t", profile: "../x" }), false);
+  assert.equal(ok([{ title: "t" }]), false);
+  assert.equal(ok("title"), false);
+  assert.equal(browserRouteFor("DELETE", new URL("http://d/api/sessions/abc?profile=work"))!.audit, "session.delete");
 });

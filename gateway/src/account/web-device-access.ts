@@ -63,10 +63,36 @@ export class WebDeviceAccess {
 // Session ids are Hermes' own (`20260918_204034_16def7`, UUIDs). A strict charset keeps an encoded
 // separator (`abc%2Fexport`) from matching here and then being decoded into a sibling route upstream.
 const SESSION_ID = "[A-Za-z0-9_.:-]{1,128}";
+const PROFILE = /^[\p{L}\p{N}_. -]{1,64}$/u;
+
+/** What the Gateway does with one allowed browser route. */
+export interface BrowserRoute {
+  method: string;
+  path: RegExp;
+  /** When set, the only query keys allowed; anything else refuses the request. */
+  query?: readonly string[];
+  /** When set, the JSON body is read first and must pass this check before it is forwarded. */
+  body?: (value: unknown) => boolean;
+  /** Logged as a session-management action (audit): who did what to which session. */
+  audit?: "session.update" | "session.delete";
+}
+
+/** PATCH /api/sessions/{id}: title, archived and profile only (rename / archive / unarchive). */
+function sessionPatch(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  const keys = Object.keys(body);
+  if (keys.length === 0 || !keys.every((key) => key === "title" || key === "archived" || key === "profile")) return false;
+  if ("title" in body && (typeof body.title !== "string" || body.title.trim() === "" || body.title.length > 200)) return false;
+  if ("archived" in body && typeof body.archived !== "boolean") return false;
+  if ("profile" in body && (typeof body.profile !== "string" || !PROFILE.test(body.profile))) return false;
+  return "title" in body || "archived" in body;
+}
+
 // The Web app is a chat client, not a Mac administration console: it reaches only the routes it
 // renders. Everything else (env, config, cron, skills, messaging, gateway restart, …) stays with the
-// Android and Desktop apps.
-const BROWSER_ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
+// Android and Desktop apps. Routes that change something are admitted in one shape only.
+const BROWSER_ROUTES: ReadonlyArray<BrowserRoute> = [
   { method: "GET", path: /^\/api\/status$/ },
   { method: "GET", path: /^\/api\/hermes-remote\/contract$/ },
   { method: "GET", path: /^\/api\/sessions$/ },
@@ -78,12 +104,39 @@ const BROWSER_ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "GET", path: /^\/api\/profiles\/sessions$/ },
   { method: "GET", path: /^\/api\/files$/ },
   { method: "POST", path: /^\/api\/files\/upload$/ },
+  // Web batch 4 (docs/ACCOUNT_MODE_SECURITY.md §4): session management and the model list.
+  { method: "PATCH", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: [], body: sessionPatch, audit: "session.update" },
+  { method: "DELETE", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: ["profile"], audit: "session.delete" },
+  { method: "GET", path: /^\/api\/model\/options$/, query: ["profile"] },
 ];
 
-export function browserRouteAllowed(method: string | undefined, apiPath: string): boolean {
+/** The allowed route for this request, or undefined (refuse with HR-WEB-001). */
+export function browserRouteFor(method: string | undefined, url: URL): BrowserRoute | undefined {
   const normalized = method === "HEAD" ? "GET" : method ?? "GET";
-  return BROWSER_ROUTES.some((route) => route.method === normalized && route.path.test(apiPath));
+  const route = BROWSER_ROUTES.find((candidate) => candidate.method === normalized && candidate.path.test(url.pathname));
+  if (!route) return undefined;
+  if (route.query) {
+    for (const [key, value] of url.searchParams) {
+      if (!route.query.includes(key)) return undefined;
+      if (key === "profile" && !PROFILE.test(value)) return undefined;
+    }
+  }
+  return route;
 }
+
+export function browserRouteAllowed(method: string | undefined, apiPath: string): boolean {
+  return browserRouteFor(method, new URL(apiPath, "http://device.invalid")) !== undefined;
+}
+
+/** Features the Web app may show, advertised in /v2/capabilities (Web batch 4). */
+export const WEB_DEVICE_FEATURES = [
+  "session-manage",
+  "session-delete",
+  "workspace-move",
+  "model-select",
+  "process-list",
+  "session-access",
+] as const;
 
 const INLINE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
