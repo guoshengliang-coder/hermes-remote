@@ -667,6 +667,78 @@ test("R5-F1 recovery restores the archived committed journal only while the fail
   );
 });
 
+test("R5-F1 recovery also accepts a candidate that failed after verification, before the source stopped", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const opsRoot = path.join(config.paths.stateRoot, "ops");
+  const historyRoot = path.join(opsRoot, "history");
+  await mkdir(historyRoot, { mode: 0o700 });
+  const committed = await readDeploymentJournal(fixture.journalPath);
+  await writeDeploymentJournal(
+    path.join(historyRoot, `deploy-state.committed.${committed.runId}.json`),
+    committed,
+    currentOwnership().host,
+  );
+  const checkpoint = {
+    currentReleaseTarget: CURRENT_RELEASE,
+    previousReleaseTarget: LEGACY_RELEASE,
+    nginxConfigSha256: createHash("sha256").update(await readFile(config.nginx.configFile)).digest("hex"),
+    upstreamSha256: createHash("sha256").update(await readFile(config.nginx.upstreamConfigFile)).digest("hex"),
+  };
+  const failed = {
+    schemaVersion: 2,
+    operation: "deploy",
+    planDigest: "9".repeat(64),
+    runId: "failed-verified-candidate",
+    stage: "candidate_verified",
+    activeSlot: "blue",
+    candidateSlot: "green",
+    source: identity(fixture.currentManifest),
+    target: identity(fixture.nextManifest),
+    checkpoint,
+    startedAt: "2026-09-09T02:00:00.000Z",
+    updatedAt: "2026-09-09T02:00:05.000Z",
+  };
+  await writeDeploymentJournal(fixture.journalPath, failed, currentOwnership().host);
+  await writeFile(path.join(opsRoot, "operations.jsonl"), `${JSON.stringify({
+    runId: failed.runId,
+    operation: "deploy",
+    stage: "failed",
+    result: "failed",
+    errorCode: "HR-OPS-007",
+    finishedAt: "2026-09-09T02:00:06.000Z",
+  })}\n`, { mode: 0o600 });
+  const runner = recoveryRunner({ blue: true });
+  const result = await recoverFailedProductionRelease(config, fixture.nextManifest, {
+    confirmation: "production:prod-host",
+    platform: "linux",
+    architecture: "x64",
+    hostname: "prod-host",
+    getUid: () => 0,
+    runner,
+    owner: currentOwnership().host,
+    runId: "journal-recovery",
+  });
+  assert.equal(result.command, "production-recover");
+  assert.equal(result.recoveredRunId, failed.runId);
+  assert.deepEqual(await readDeploymentJournal(fixture.journalPath), committed);
+
+  await writeDeploymentJournal(fixture.journalPath, failed, currentOwnership().host);
+  await assert.rejects(
+    () => recoverFailedProductionRelease(config, fixture.nextManifest, {
+      confirmation: "production:prod-host",
+      platform: "linux",
+      architecture: "x64",
+      hostname: "prod-host",
+      getUid: () => 0,
+      runner: recoveryRunner({ blue: true, green: true }),
+      owner: currentOwnership().host,
+      runId: "blocked-recovery",
+    }),
+    (error) => error?.technicalCause === "production_release_failed_candidate_still_active",
+  );
+});
+
 test("R5-F1 recovery restores the committed journal after a post-switch smoke failure was fully reversed", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);

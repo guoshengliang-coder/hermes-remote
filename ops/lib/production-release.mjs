@@ -20,7 +20,9 @@ import { OpsError } from "./errors.mjs";
 import { createCommandRunner } from "./system.mjs";
 
 const OPERATIONS = new Set(["deploy", "rollback"]);
-const RECOVERABLE_FAILED_STAGES = new Set(["candidate_started", "route_switched", "draining"]);
+// candidate_verified is recoverable like candidate_started: a failure there (for example the
+// pre-routing checks) stops the candidate before the source is ever stopped.
+const RECOVERABLE_FAILED_STAGES = new Set(["candidate_started", "candidate_verified", "route_switched", "draining"]);
 const RELEASE_TARGET = /^releases\/(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-[0-9a-f]{12}$/;
 const FILE_LIMIT = 1024 * 1024;
 
