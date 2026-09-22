@@ -49,6 +49,9 @@ export function classifyChecks(rollup) {
     if (check.status !== 'COMPLETED') pending.push(name);
     else if (!OK_CONCLUSIONS.has(check.conclusion)) failed.push(`${name} (${check.conclusion})`);
   }
+  // Sorted so the progress log prints a state once, not again whenever gh reorders the same checks.
+  pending.sort();
+  failed.sort();
   if (failed.length) return {state: 'failure', pending, failed};
   if (!(rollup ?? []).length) return {state: 'none', pending, failed};
   return {state: pending.length ? 'pending' : 'success', pending, failed};

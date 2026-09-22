@@ -30,3 +30,7 @@ __pycache__/
 
 # Private machine/deployment context supplied by the project owner.
 environment.md
+
+# Claude Code: per-machine settings and agent worktrees stay local; .claude/settings.json is shared.
+.claude/settings.local.json
+.claude/worktrees/
