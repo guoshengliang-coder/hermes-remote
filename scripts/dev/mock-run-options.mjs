@@ -8,6 +8,9 @@
  *   !quick …            stream only: no sudo, approval or clarify
  *   !media <abs path>   stream only, ending with `MEDIA:<abs path>` (a file the Connector serves)
  *
+ * Handled before a run starts (in the mock's prompt.submit): !fail (5000), !slow (acknowledged after
+ * 6 s), !owned (4090, another surface owns the session), !gone (4007, the session no longer exists).
+ *
  * Anything else keeps the historical behaviour: the next form in the rotation.
  */
 const FORMS = { "!clarify-single": 0, "!clarify-multi": 1, "!clarify-batch": 2 };

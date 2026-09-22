@@ -283,7 +283,19 @@ const answeringSockets = new WeakSet();
 /** Open server requests by id; answerable from any socket, as upstream resolves them globally. */
 const openRequests = new Map();
 
-function serverRequest(socket, method, params, { qids } = {}) {
+/**
+ * The client a run should talk to now. A run keeps the socket that submitted it, but when that
+ * client has gone (the page was left and reopened, the phone reconnected) upstream carries on with
+ * whichever client is attached; so does the mock, picking the most recent live one.
+ */
+function currentSocket(socket, { answering = false } = {}) {
+  const usable = (s) => s.readyState === 1 && (!answering || answeringSockets.has(s));
+  if (usable(socket)) return socket;
+  return [...liveSockets].reverse().find(usable) ?? socket;
+}
+
+function serverRequest(originalSocket, method, params, { qids } = {}) {
+  const socket = currentSocket(originalSocket, { answering: true });
   if (!answeringSockets.has(socket)) {
     console.log(`[mock] ${method} not sent: this socket never advertised server_requests`);
     return Promise.resolve(null);
@@ -355,11 +367,24 @@ function broadcastEvent(type, payload) {
 }
 
 let mockRunActive = false;
+/** Set while a run is blocked on an approval or a question, so session.active_list reports "waiting". */
+let mockRunWaiting = false;
+/** Once the mock conversation has run, session.active_list keeps listing it (idle between runs). */
+let mockSessionListed = false;
 const LIVE_ID = "live-mock-1";
 const STORED_ID = "stored-mock-1";
 
 /** The same approval + rotating clarify exercise as the event path, through server requests. */
 async function askThroughServerRequests(socket, options = {}) {
+  mockRunWaiting = true;
+  try {
+    await askThroughServerRequestsInner(socket, options);
+  } finally {
+    mockRunWaiting = false;
+  }
+}
+
+async function askThroughServerRequestsInner(socket, options) {
   // A request this client has no card for: it must answer -32601 at once, not leave us waiting.
   const sudo = await serverRequest(socket, "sudo", { command: "apt-get install -y jq" });
   console.log(`[mock] sudo answered: ${JSON.stringify(sudo)}`);
@@ -388,8 +413,9 @@ async function askThroughServerRequests(socket, options = {}) {
   if (clarify) pendingClarifyAnswers.push(clarify);
 }
 
-async function streamRun(socket, options = {}) {
+async function streamRun(originalSocket, options = {}) {
   const send = (type, payload) => {
+    const socket = currentSocket(originalSocket);
     if (socket.readyState !== 1) return false;
     socket.send(JSON.stringify({
       jsonrpc: "2.0",
@@ -434,8 +460,9 @@ async function streamRun(socket, options = {}) {
     if (options.quick) {
       // !quick / !media: stream only.
     } else if (i === Math.floor(parts.length / 2) && SERVER_REQUESTS) {
-      await askThroughServerRequests(socket, options);
+      await askThroughServerRequests(originalSocket, options);
     } else if (i === Math.floor(parts.length / 2)) {
+      mockRunWaiting = true;
       // Approval window: phase -> WAITING_APPROVAL for ~6s so Home's "needs you" row is observable.
       send("approval.request", { command: "systemctl restart hermes-gateway", description: "重启网关服务以应用配置", allow_permanent: true });
       await sleep(2000);
@@ -469,6 +496,7 @@ async function streamRun(socket, options = {}) {
       const needed = form === 2 ? 3 : 1;
       const before = pendingClarifyAnswers.length;
       for (let w = 0; w < 120 && pendingClarifyAnswers.length - before < needed; w++) await sleep(500);
+      mockRunWaiting = false;
     }
   }
   send("message.complete", { text: fullText });
@@ -777,6 +805,26 @@ wss.on("connection", (socket) => {
         emit("session.info", target, { running: false, cwd: moved.cwd, branch: moved.branch });
         break;
       }
+      case "session.active_list": {
+        // What the Connector's lifecycle observer polls (connector/src/session-observer.ts): the one
+        // mock conversation, "waiting" while blocked on the user, and still listed as "idle" between
+        // runs the way a live upstream session is. Dropping it when idle made the observer restart
+        // its per-session sequence, so the next run re-sent the same event ids with new content and
+        // the Gateway refused the whole Connector (event_id_conflict), dropping every app tunnel.
+        if (mockRunActive) mockSessionListed = true;
+        reply({
+          sessions: mockSessionListed
+            ? [{
+                id: LIVE_ID,
+                session_key: STORED_ID,
+                status: !mockRunActive ? "idle" : mockRunWaiting ? "waiting" : "working",
+                last_active: Date.now() / 1000,
+                title: "Mock 会话",
+              }]
+            : [],
+        });
+        break;
+      }
       case "client.capabilities": {
         if (!SERVER_REQUESTS) { replyError(-32601, "unknown method: client.capabilities"); break; }
         if (request.params?.server_requests) answeringSockets.add(socket); else answeringSockets.delete(socket);
@@ -826,6 +874,10 @@ wss.on("connection", (socket) => {
         // Delivery-state fixtures: "!fail…" is refused, "!slow…" is acknowledged after 6 s.
         const submitted = String(request.params?.text ?? request.params?.prompt ?? "t");
         if (submitted.startsWith("!fail")) { replyError(5000, "mock: submit refused"); break; }
+        // Session-state fixtures: "!owned…" as if another surface held the session, "!gone…" as if
+        // the durable session had been deleted.
+        if (submitted.startsWith("!owned")) { replyError(4090, "session is owned by another surface"); break; }
+        if (submitted.startsWith("!gone")) { replyError(4007, "session not found"); break; }
         const ack = () => {
           promptCount += 1;
           promptTexts.push(submitted);

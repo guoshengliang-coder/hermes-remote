@@ -945,7 +945,22 @@ Local reproduction: `./scripts/dev/web-stack.sh up` (Postgres, mock Hermes, TLS 
 `https://localhost:18443`, account-mode Connector), then `./scripts/dev/web-stack.sh code` prints
 the email code for `dev@example.test`. `HR_WEB_STACK_LEGACY_PROTOCOL=1` switches the mock to the
 older approval/clarify events. Mock prompt prefixes pin one run: `!clarify-single`,
-`!clarify-multi`, `!clarify-batch`, `!quick`, `!media <absolute path>`.
+`!clarify-multi`, `!clarify-batch`, `!quick`, `!media <absolute path>`; `!owned` and `!gone` make
+`prompt.submit` answer 4090 and 4007. The Connector runs its lifecycle observer against the mock's
+`session.active_list`, so a run left waiting on an approval raises `run.waiting` in the inbox.
+
+### Verified locally, 2026-09-22 (Playwright WebKit, iPhone 15 Pro viewport)
+
+Both protocols, end to end: sign-in, Mac auto-selection, list and search, a new chat streaming,
+tool rows, approval, single / multi-select / three-question batch clarify, interrupt, a `MEDIA:`
+image, an uploaded attachment, reconnect after going offline, history after reload, dark mode,
+sign-out clearing every cache. Also: a run left waiting puts its session under "需要你处理" with a
+foreground toast and a title count, and answering clears it; leaving and reopening a conversation
+brings its pending approval back from `open_requests`; `!owned` shows `HR-SESS-013` once with
+Retry; `!gone` shows `HR-SESS-001` once and disables the composer; the service worker registers
+with scope `/app/`; sending immediately after a reload succeeds (it failed about half the time
+before the boot-refresh fix). The login page also renders in iOS 26.5 Simulator Safari, light and
+dark. None of this replaces the device items below.
 
 ### Still needs a real iPhone — none of this has been verified on a device
 

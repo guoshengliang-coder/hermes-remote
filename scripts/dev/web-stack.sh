@@ -115,7 +115,7 @@ start_postgres() {
       -o "-p $PG_PORT -k $STATE -c listen_addresses=127.0.0.1" start >/dev/null
   fi
   PGOPTIONS="-c client_min_messages=warning" "$PG_BIN/psql" -q -h 127.0.0.1 -p "$PG_PORT" -U hermes_web -d postgres \
-    -c "DROP DATABASE IF EXISTS hermes_web" -c "CREATE DATABASE hermes_web"
+    -c "DROP DATABASE IF EXISTS hermes_web WITH (FORCE)" -c "CREATE DATABASE hermes_web"
   local migration
   for migration in "$ROOT"/gateway/migrations/[0-9][0-9][0-9]_*.sql; do
     PGOPTIONS="-c client_min_messages=warning" "$PG_BIN/psql" -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$PG_PORT" -U hermes_web -d hermes_web \
@@ -183,6 +183,9 @@ start_stack() {
   require_port "$MOCK_PORT" "mock hermes"
   make_tls
   start_postgres
+  # Every run is a fresh world (new database, fresh mock): the observer's persisted per-session
+  # sequences must go too, or its first events reuse ids the new run then contradicts.
+  rm -f "$STATE/observer-state.json"
   : > "$STATE/login-codes.jsonl"
   chmod 600 "$STATE/login-codes.jsonl"
   mkdir -p "$STATE/files/uploads"
@@ -217,7 +220,8 @@ start_stack() {
     DEVICE_ID="$DEVICE_ID" HERMES_BASE_URL="$hermes_url" \
     HERMES_BASIC_AUTH_USERNAME=demo HERMES_BASIC_AUTH_PASSWORD=secret \
     FILES_ROOT="$STATE/files" UPLOAD_ROOT="$STATE/files/uploads" \
-    SESSION_OBSERVER_ENABLED=0 OBSERVER_STATE_FILE="$STATE/observer-state.json" \
+    HERMES_MODE=hermes SESSION_OBSERVER_ENABLED=1 OBSERVER_STATE_FILE="$STATE/observer-state.json" \
+    OBSERVER_IDLE_POLL_MS=2000 OBSERVER_ACTIVE_POLL_MS=1000 \
     node "$CONNECTOR_MARKER"
   sleep 2
   status_stack
