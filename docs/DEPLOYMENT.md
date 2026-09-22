@@ -630,7 +630,9 @@ exact prior state, while multi-device, sharing, identity management, Web session
 remain absent or disabled. Any extra field, permission drift, changed value, schema change or wider advertised
 surface aborts before traffic movement. A
 schema-changing account release still requires the dedicated migration/restore workflow; the routine release must
-not be used to bypass it.
+not be used to bypass it. That workflow is R5-F8 below; R5-F1 now names the refusal
+(`production_release_database_schema_change_requires_schema_release`) in every account mode, and refuses a rollback
+to a release whose schema is below the database's (`production_release_rollback_below_database_schema`).
 
 ## Production single-Mac binding gray rollout (R5-F3; code gate only)
 
@@ -1033,6 +1035,87 @@ is about 11 days stale). The Mac-side `com.hermesgo.postgresql-offhost` LaunchAg
 2026-09-10 with `postgresql_automation_restore_container_start_failed`: Docker Desktop is not running on the Mac
 mini, so the disposable restore container cannot start. HK captures continue daily. The iPhone checks in
 docs/SMOKE_TEST.md ("Web app on iPhone") remain to be done on a device.
+
+## Production schema-changing release (R5-F8; code gate only)
+
+R5-F8 is the dedicated path for a Gateway release whose `releaseContract.databaseSchemaVersion` is higher than the
+running one. It exists because R5-F1 must not change the schema and the older image's readiness requires an exact
+schema: after a migration the older image answers `/readyz` with `migrations: "mismatch"` (it keeps serving; nothing
+routes on readiness, see the 0.4.9 precedent above), so the migration is forward-only and every failure after it is
+fixed forward with a newer release. Source merge and bundle generation do not authorize production execution.
+
+1. **Fresh backup, verified off-host.** Run a capture on the host (the scheduled capture service, or
+   `scripts/postgresql-automation.mjs capture` from the operator bundle) and let the Mac off-host cycle export,
+   restore-smoke and activate it. The monitor's active status file then names that generation.
+2. **Configuration.** Prepare a root-only `0600` file from `ops/production.schema-release.example.json`, validated
+   against `ops/hermes-go-production-schema-release-config.schema.json`: the R5-F1 configuration (whose
+   `targetArtifactManifest` names the schema-changing bundle), the database URL source (root `0600`) with the
+   production `ssl` and `migrationLockId` values used by R5-F2, and the backup gate (`activeStatusFile`,
+   `maximumAgeMinutes` 5–720).
+3. **Run** from the schema-11 operator bundle built from the same commit as the Gateway bundle:
+
+   ```bash
+   node scripts/production-schema-release.mjs \
+     --config /secure-input/hermes-go/production-schema-release.json \
+     --confirm production:<configured-hostname>
+   ```
+
+Admission is R5-F1's admission (with the schema check deferred to R5-F8), an account runtime, a target exactly one
+schema step ahead, and an active backup status for this host and the current schema whose off-host hash matches and
+whose `backupCompletedAt` is within the bound. Execution is the unchanged R5-F1 machine with the database handed only
+to the deployment step: under the deployment lock, after the checkpoint, the target image's migrator runs
+(`DATABASE_MIGRATION_OK`, advisory lock, 120 s bound), then the candidate starts and must report schema-matched
+readiness, and the switch, observation window and commit proceed as for R5-F1. `assessReleaseTransition` admits the
+step only for this entrypoint (`allowDatabaseSchemaAdvance`, deploy, exactly +1); every rollback still needs an
+identical schema. `HR-OPS-027` names all failures and its technical cause says what happened:
+`schema_release_failed_before_migration` (nothing changed; retry), `schema_release_migrated_degraded` (the database
+is ahead and the older release is serving without readiness; fix forward), or `schema_release_migration_state_unknown`
+(look before doing anything).
+
+After a successful run, before closing the window: move the three backup pins to the new schema and artifact (the
+HK capture-schedule configuration, the Mac off-host configuration including its `targetArtifactManifest`, and the
+production monitor's `backup.expectedDatabaseSchemaVersion`), then run a fresh capture → off-host restore → activate
+cycle and a monitor pass. Until then the next capture fails `postgresql_database_subject_mismatch` by design.
+
+Not rehearsed: the disposable-host R5-D workflow has no account-mode database path, so R5-F8 is covered by unit tests
+(admission, backup gate, delegation, failure classification, the transition allowance) and by the step-by-step
+verification of the production run only.
+
+## Production FCM push rollout (R5-F9; code gate only)
+
+R5-F9 turns on FCM wake hints (docs/ARCHITECTURE.md, "Push wake hints"). It requires Gateway ≥ 0.4.18 (schema 16,
+so R5-F8 first) running in `email_sharing_components_web`. From 0.4.18 on, R5-F1 writes the 47-line environment:
+the 45-line form plus `ACCOUNT_PUSH_ENABLED=0` and `ACCOUNT_FCM_SERVICE_ACCOUNT_FILE=/run/hermes-go/secrets/fcm-service-account`;
+the Gateway reads the key only while the flag is `1`.
+
+Place the Firebase service-account JSON for project `hermesgo-94bbc` at a root-owned `0600` path outside `/opt`,
+`/etc` and `/var/lib/hermes-go` (e.g. `/secure-input/hermes-go/fcm-service-account.json`, ≤ 16 KiB). Prepare a
+root-only `0600` config from `ops/production.push-rollout.example.json`, validate it against
+`ops/hermes-go-production-push-rollout-config.schema.json`, and run from the schema-11 operator bundle:
+
+```bash
+node scripts/production-push-rollout.mjs \
+  --config /secure-input/hermes-go/production-push-rollout.json \
+  --confirm production:<configured-hostname>
+```
+
+Admission refuses any other mode, an older or schema-15 release, drifted binding/identity-Web/sharing/web-app
+routes, an existing `account/push-routes.conf` or `secrets/fcm-service-account`, and a key that is not a
+service-account JSON of the configured project. It verifies the Web state (no `capabilities.push`; the public
+push-registration route is not forwarded; the Gateway answers 404 on loopback). Under the deployment lock it installs
+the key as `secrets/fcm-service-account` (`0440 root:1000`), adds `location = /v2/installations/current/push-registration`
+(8k body) right after the web-app include, runs `nginx -t`, reloads, writes the 47-line environment with
+`ACCOUNT_PUSH_ENABLED=1`, and restarts the active slot. It then verifies twice across `observationSeconds`:
+`capabilities.push` is exactly `{providers:["fcm"]}` publicly and on loopback, unauthenticated PUT/DELETE on the
+route return 401, and `/app/`, Legacy status, version identity and both WebSockets are unchanged. Any failure
+restores the environment and site bytes, removes the route file and the key, reloads, restarts and re-verifies the
+Web state. `HR-OPS-028` names all failures; inspect `/var/lib/hermes-go/ops/push-rollout.json` (it holds no key
+material) before retrying. After R5-F9 routine releases preserve `email_sharing_components_web_push` (R5-F1 and the
+candidate smoke require the capability).
+
+To turn push off by hand: under the deployment lock set `ACCOUNT_PUSH_ENABLED=0` (keep 47 lines), remove the push
+include line and route file, run `nginx -t`, reload, restart, then delete the key file and move `push-rollout.json`
+aside. That returns to `email_sharing_components_web`; phones fall back to their periodic inbox check.
 
 ## Edge JSON compression (2026-09-07, authorized)
 

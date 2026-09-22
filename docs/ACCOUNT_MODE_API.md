@@ -169,7 +169,7 @@ Rules:
 - `server` is additive release metadata. Clients continue to gate behavior on capability fields,
   never by comparing the Server version string.
 - `push: { "providers": ["fcm"] }` is emitted only while account binding is enabled and a push
-  provider is configured (`ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`). Its absence means the push
+  provider is enabled (`ACCOUNT_PUSH_ENABLED=1` with `ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`). Its absence means the push
   registration routes of §5 are not found and phones must not register.
 
 ## 4. Google proof exchange and sessions

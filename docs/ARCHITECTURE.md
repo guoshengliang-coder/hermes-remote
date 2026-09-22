@@ -197,8 +197,8 @@ channel for phones without Google Play services (HONOR, vivo, Xiaomi) can be add
 Until then those phones keep the periodic job and the foreground strategies above.
 
 Push is off unless configured on both ends, and neither configuration belongs in source control:
-the Gateway reads a Firebase service-account key from `ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`
-(`docs/ENVIRONMENT.md`), and an Android build reads the four Firebase client values from
+the Gateway needs `ACCOUNT_PUSH_ENABLED=1` and a Firebase service-account key at
+`ACCOUNT_FCM_SERVICE_ACCOUNT_FILE` (`docs/ENVIRONMENT.md`; production: R5-F9 in `docs/DEPLOYMENT.md`), and an Android build reads the four Firebase client values from
 `local.properties` or the environment (`android/README.md`). Legacy Token mode has no push.
 
 The relay applies request-size, pending-request, WebSocket-count, and timeout limits. The edge preserves
