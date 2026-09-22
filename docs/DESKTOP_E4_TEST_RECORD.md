@@ -1282,3 +1282,31 @@ evidence HG-68 was waiting for.
 workflow: 31,995,744 bytes, SHA-256 `211695aa8cb33cc1acae73dbe33d7eaf38f960babae68a42b1babba374f003d5`,
 certificate `06c18dfc…`; the public file and index entry were re-downloaded and matched. Installed
 on HONOR CLK-AN00 as an upgrade with data kept; the vivo was not attached.
+
+## 2026-09-22 Desktop 0.2.24 publication (install-when-missing, local Hermes by default)
+
+Desktop **0.2.24/build 27** (#366 at `bffe87c`) ships #365: a Mac with no Hermes is offered upstream's
+official installer, and this Mac's own Hermes is used by default. The pinned managed manifest stays
+0.3.9. Version and publish gates were authorised by the owner.
+
+Built from a clean detached worktree at the merge commit after `desktop:assets:test` and all 522
+Desktop tests passed. `desktop:dmg` rebuilds the app itself through `build-app.sh`, so the packaged
+configuration has to be **exported** for that run rather than prefixed to `desktop:app` — otherwise
+the DMG carries an unconfigured app. The DMG was mounted and its app's `Info.plist` compared key by
+key with the installed 0.2.23: only the version and build differ; strict codesign passed (ad-hoc,
+`com.hermesgo.desktop`).
+
+The 3,032,940-byte DMG has SHA-256
+`a6be473abba272543e0b9279e6e8ba936b4870e9c11e4e587404541ef6c776d5` and is published at
+`https://mrlgs.net/desktop/apps/0.2.24/Hermes-Go-Desktop-0.2.24-dev.dmg` the same way as earlier
+DMGs: owner-only staging, re-hashed on the host, root-owned 0644 under a new 0755 directory, the
+route appended to `/etc/hermes-go/desktop-release-routes.conf` only after its hash matched
+`0715c3a3…` (new `48393691…`, backup `/root/desktop-release-routes.conf.before-dmg-0.2.24`),
+`nginx -t` then reload. The public re-download reproduced size and hash and passed `hdiutil verify`;
+the directory URL returns 404, POST 403, the 0.2.20 DMG, the 0.3.9 manifest and Relay `/health` 200.
+
+Installed over 0.2.23 on the Mac mini with only the GUI restarted: Hermes and Connector kept their
+PIDs, the job stayed in local mode (this Mac already had the setting on), and Desktop performed no
+service operation. The install-when-missing path and default-on switching of a Mac that never opted
+in remain physically unverified (`docs/DESKTOP_TEST_PLAN.md`). This is an internal ad-hoc build: not
+Developer ID signed, notarized or stapled.
