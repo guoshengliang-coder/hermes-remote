@@ -34,6 +34,7 @@ CI 的 `web` job 由 `web/**` 触发，也由 Web 直接调用的 Gateway 文件
 - **cloud**：`scripts/hermesctl.mjs`、`scripts/production-monitor.mjs`、`scripts/deploy-*.sh`、
   `scripts/bootstrap-release-server.sh`、
   `scripts/test/**`、`docs/CLOUD_*`、`docs/DEPLOYMENT.md`
+- **集成**：`scripts/merge-when-green.mjs`（合并闸，见表 3）
 - **共用**：`scripts/dev/**`、`scripts/mock-hermes*.mjs`（本地联调工具；不阻断合并，但改动要在提交
   信息里说明，因为三边都可能依赖它复现问题）
 
@@ -65,7 +66,7 @@ CI 的 `web` job 由 `web/**` 触发，也由 Web 直接调用的 Gateway 文件
 
 | 闸 | 回答的问题 | 谁决定 | 前置条件 |
 |---|---|---|---|
-| **合并闸** | 能不能进 `main` | 集成 agent | PR 检查全绿；表 2 判定为绿，或黄灯已按要求交代 |
+| **合并闸** | 能不能进 `main` | 集成 agent | PR 检查全绿；表 2 判定为绿，或黄灯已按要求交代。用 `scripts/merge-when-green.mjs <PR>` 执行：等全部检查、合并、再等 `main` 检查；红灯改动须加 `--allow-red` |
 | **版本闸** | 要不要升版、升哪个子项目、升哪一位 | 集成 agent 提议，**用户确认** | 该子项目确实要交付新发布物。纯文档或纯服务端改动不升 Android 版 |
 | **发布闸** | 要不要发布、发到哪 | **必须用户明确授权** | Android 走 `docs/APP_UPDATE.md`；Cloud 走 `docs/DEPLOYMENT.md` 与 R4 状态机；Desktop 需签名 + 公证 + 干净机器启动全部通过才算发布 |
 
