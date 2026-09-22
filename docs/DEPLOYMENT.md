@@ -1169,6 +1169,41 @@ hand under the lock, restart) before relying on push long-term. Delivery to a re
 needs an APK built with the Firebase client values and a phone with Google Play services (docs/SMOKE_TEST.md,
 "HG-94").
 
+## Routine release: Gateway 0.4.19 with Web batch 4 (R5-F1; production complete 2026-09-22)
+
+Owner-authorized (merge and deployment, 2026-09-22). Operator `claude-webapp`. The release carries Web batch 4
+(#385): the browser allowlist admits session rename / archive / delete, workspace move, the session-scoped
+`/model … --session` switch, the session's reasoning effort, `process.list` and `session.access`, each in one
+parameter shape, and `/v2/capabilities` adds `accountAuth.webDeviceFeatures`. Database schema 16 unchanged, no
+migration, mode `email_sharing_components_web_push` preserved, so this is a routine R5-F1 release; rollback to
+0.4.18 stays possible (same schema). The HG-94 session was told before the run and held its own production work.
+
+Artifacts from `Gateway OCI` run 35729541374 on `main 81d7d5de9524` (the version bump, #386): Gateway
+`0.4.19-81d7d5de9524` (archive SHA-256 `a2bb97e30f4df2ac86e9374d3a40a4a84b8952b8af79b224cdbe6d4f37c42e4d`, containerd
+image `sha256:57c8464a8b10…`) and operator bundle `Hermes-R5D-Ops-81d7d5de9524` (SHA-256
+`d7ed9efcc1cf188a04446b06067c80919936eb4e34c1e8e4c8a9ab3db5e2427e`), both verified locally, re-hashed on the host,
+and the operator bundle verified again from its extracted copy at `/opt/hermes-go-ops/81d7d5de9524`. Bundles and
+the operator archive live in `/secure-input/hermes-go/gateway-0.4.19-81d7d5d/` (root `0600`).
+`production-release.json` was retargeted and its operator set to `claude-webapp` (previous copy
+`production-release-1d6322f51558.json`).
+
+Run `7a44374f-3af6-438e-a9ef-83db5ed75414` (`production-deploy`) committed: `activeSlot: blue`, `previousSlot: green`,
+`preparedStage: candidate_verified`, `current` → `releases/0.4.19-81d7d5de9524`, `previous` →
+`releases/0.4.18-1d6322f51558`. Independent checks afterwards: public capabilities `server.version` 0.4.19,
+`push: {"providers":["fcm"]}` unchanged, `webDeviceAccess: true` and `webDeviceFeatures` listing
+`session-manage`, `session-delete`, `workspace-move`, `model-select`, `process-list`, `session-access`; `/app/` and
+`/account` 200; a cookie-less device API call 401; blue readiness `ready` (migrations ok), Docker healthy, zero
+restarts, no warn-or-worse lines; green inactive (rollback slot); nginx and DERP active. `xray.service` has been
+inactive since 2026-08-30 and was not touched. Backup pins (schema 16) and the Mac off-host configuration are
+unchanged — the restore smoke's 0.4.18 image still matches the schema.
+
+Web package `0.1.0-81d7d5de9524` was published right after the switch (`scripts/publish-web-app.sh`, previous
+`0.1.0-5bf315338d4b`); the public shell's assets are byte-identical to the local build. Real-iPhone checks for
+batches 2–4 remain open (`docs/SMOKE_TEST.md` items 11–13). Rollback: `--operation rollback` with the 0.4.18
+bundle (`/secure-input/hermes-go/gateway-0.4.18-1d6322f/`) as `targetArtifactManifest`; the Web package hides the
+batch-4 features by itself once `webDeviceFeatures` is gone, and `scripts/publish-web-app.sh --rollback` returns
+the previous Web package.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
