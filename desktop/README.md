@@ -1,8 +1,8 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.23** (build 26). One change.
+Current internal test release candidate: **0.2.24** (build 27). One change (#365).
 
-**On `main`, not yet in a release (2026-09-22):** this Mac's own Hermes is used **by default** —
+This Mac's own Hermes is used **by default** —
 `HermesGoLocalHermesRuntimeEnabled` now defaults to on, so a managed Mac with a usable standard
 Hermes switches to it on its next refresh, and a fresh install writes the local agent directly.
 A fresh Mac with no Hermes is offered upstream's official installer (confirmation required, system
@@ -10,7 +10,7 @@ proxy honoured, `HR-MIGRATE-015`–`018` on failure, "改用内置 Hermes" as th
 with `defaults write com.hermesgo.desktop HermesGoLocalHermesRuntimeEnabled -bool false`. See
 `docs/DESKTOP_PHASE0.md` ("Installing Hermes when the Mac has none").
 
-Its pinned schema-v1 manifest moves from 0.3.8 to **0.3.9**
+0.2.23 (build 26) had one change. Its pinned schema-v1 manifest moves from 0.3.8 to **0.3.9**
 (`https://mrlgs.net/desktop/releases/0.3.9/Hermes-Desktop-0.3.9-arm64.manifest.json`), which carries
 **Connector 0.1.6** with the upstream contract check (#359): the Connector compares the local
 Hermes' `openapi.json` with the routes the app depends on and serves the verdict at
