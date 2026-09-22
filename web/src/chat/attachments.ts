@@ -23,7 +23,15 @@ export function attachmentKind(mimeType: string): "image" | "file" {
   return IMAGE_TYPES.has(mimeType.toLowerCase()) ? "image" : "file";
 }
 
-export type AttachmentProblem = "too-many" | "too-large" | "empty";
+export type AttachmentProblem = "too-many" | "too-large" | "empty" | "executable";
+
+/** Refused outright, as on Android (AttachmentInput.kt): installers and native code. */
+const EXECUTABLE_EXTENSIONS: ReadonlySet<string> = new Set(["apk", "exe", "msi", "dmg", "pkg", "app", "dex", "so", "dylib"]);
+
+function isExecutable(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && EXECUTABLE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+}
 
 export interface AttachmentCheck {
   accepted: File[];
@@ -41,6 +49,10 @@ export function checkAttachments(existing: number, picked: readonly File[]): Att
   for (const file of picked) {
     if (existing + accepted.length >= MAX_ATTACHMENTS) {
       rejected.push({ name: file.name, problem: "too-many" });
+      continue;
+    }
+    if (isExecutable(file.name)) {
+      rejected.push({ name: file.name, problem: "executable" });
       continue;
     }
     if (file.size === 0) {

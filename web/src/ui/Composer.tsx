@@ -48,7 +48,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     const { accepted, rejected } = checkAttachments(attachments.length, [...list]);
     if (rejected.length) {
       const why = rejected.map((r) => `${r.name}: ${r.problem}`).join("; ");
-      setProblem(appError("HR-FILE-001", `${why} (max ${MAX_ATTACHMENTS} files, 6 MB each)`, { retryable: false, action: "none" }));
+      setProblem(appError("HR-WEB-006", `${why} (max ${MAX_ATTACHMENTS} files, 6 MB each)`));
     } else {
       setProblem(null);
     }
@@ -59,7 +59,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
       if (kind === "image") {
         const image = await prepareImage(file);
         if (image.blob.size > 6 * 1024 * 1024) {
-          setProblem(appError("HR-FILE-001", `${file.name}: too-large after re-encoding`, { retryable: false, action: "none" }));
+          setProblem(appError("HR-WEB-006", `${file.name}: too-large after re-encoding`));
           continue;
         }
         prepared.push({ id: `att-${++seq}`, file: image.blob, name: image.name, mimeType: image.mimeType, kind, previewUrl: URL.createObjectURL(image.blob) });

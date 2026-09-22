@@ -31,6 +31,19 @@ describe("attachment validation", () => {
     ]);
   });
 
+  it("refuses installers and native code like Android, whatever their type claims", () => {
+    const picked = ["setup.EXE", "app.apk", "lib.dylib", "x.so", "report.pdf", "notes.exe.txt", "exe"]
+      .map((name) => file(name, 10, "application/octet-stream"));
+    const { accepted, rejected } = checkAttachments(0, picked);
+    expect(rejected.map((r) => [r.name, r.problem])).toEqual([
+      ["setup.EXE", "executable"],
+      ["app.apk", "executable"],
+      ["lib.dylib", "executable"],
+      ["x.so", "executable"],
+    ]);
+    expect(accepted.map((f) => f.name)).toEqual(["report.pdf", "notes.exe.txt", "exe"]);
+  });
+
   it("routes images to image.attach and the rest to file.attach", () => {
     expect(attachmentKind("image/png")).toBe("image");
     expect(attachmentKind("IMAGE/JPEG")).toBe("image");
