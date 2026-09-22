@@ -79,6 +79,12 @@ export class ChatSession {
   private resuming: Promise<string> | null = null;
   private creating: Promise<string> | null = null;
   private droppedBeforeReady = 0;
+  /**
+   * Stored rows the last history load found: 0 means the conversation is known to be empty, which
+   * is the only case where a session Hermes reclaimed (4007) is silently recreated (Android).
+   * null = unknown or not empty (anything was sent from here).
+   */
+  private storedRowCount: number | null = null;
   private socketWasReady = false;
   private everReady = false;
   private readonly onVisible = () => {
@@ -227,6 +233,12 @@ export class ChatSession {
   private onEvent(event: ServerEvent): void {
     if (event.type === "gateway.ready") return;
     if (event.sessionId === null || !this.mine(event.sessionId)) return;
+    // Hermes took this live handle back: the next call resumes, and an empty conversation whose
+    // stored session is gone too is then recreated (reclaimedWhileEmpty).
+    if (event.type === "session.reclaimed") {
+      this.liveId = null;
+      return;
+    }
     this.o.dispatch({ type: "event", event });
     if (event.type === "error") {
       const message = typeof event.payload.message === "string" ? event.payload.message : "error event";
@@ -283,12 +295,15 @@ export class ChatSession {
     try {
       const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile);
       if (this.disposed || id !== this.storedId) return false;
-      this.o.dispatch({ type: "history", rows: Array.isArray(body?.messages) ? body.messages : [] });
+      const rows = Array.isArray(body?.messages) ? body.messages : [];
+      this.storedRowCount = rows.length;
+      this.o.dispatch({ type: "history", rows });
       return true;
     } catch (error) {
       if (this.disposed) return false;
       // A brand-new session has no stored rows yet: 404 is normal, not an error.
       if (error instanceof GatewayHttpError && error.status === 404) {
+        this.storedRowCount = 0;
         this.o.dispatch({ type: "history-missing" });
         return true;
       }
@@ -316,12 +331,29 @@ export class ChatSession {
       },
       (error: unknown) => {
         this.resuming = null;
+        if (this.reclaimedWhileEmpty(error)) return this.recreate();
         this.o.dispatch(this.noticeFor(error, "resume"));
         throw error;
       },
     );
     this.resuming = run;
     return run;
+  }
+
+  /** Hermes reclaimed the session (4007) and nothing was ever said in it. */
+  private reclaimedWhileEmpty(error: unknown): boolean {
+    return error instanceof HermesSocketError && error.kind === "rpc" && error.code === RPC.SESSION_NOT_FOUND && this.storedRowCount === 0;
+  }
+
+  /**
+   * An empty conversation Hermes reclaimed is replaced by a fresh one without a word (Android
+   * recreatedSessionId): the page adopts the new id and replaces the URL, it does not stack.
+   */
+  private recreate(): Promise<string> {
+    this.storedId = null;
+    this.liveId = null;
+    this.storedRowCount = null;
+    return this.create();
   }
 
   private create(): Promise<string> {
@@ -360,6 +392,11 @@ export class ChatSession {
         const { method, params } = build(fresh);
         return await this.call<T>(method, params);
       }
+      if (this.reclaimedWhileEmpty(error)) {
+        const fresh = await this.recreate();
+        const { method, params } = build(fresh);
+        return await this.call<T>(method, params);
+      }
       throw error;
     }
   }
@@ -395,6 +432,7 @@ export class ChatSession {
         }
       }
       await this.onLive((live) => promptSubmit(live, prompt));
+      this.storedRowCount = null;
       this.o.dispatch({ type: "user-delivered", key });
     } catch (error) {
       // One place per failure. A session that no longer exists (4007) is terminal for the whole page,

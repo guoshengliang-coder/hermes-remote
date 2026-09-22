@@ -82,3 +82,20 @@ describe("readableText", () => {
     );
   });
 });
+
+describe("table card extras (batch 5: 保存为图片 / 全屏查看)", () => {
+  it("adds save-image and fullscreen buttons only when labelled, never to code cards", () => {
+    const md = "| a | b |\n|---|---|\n| 1 | 2 |\n\n```\ncode\n```\n";
+    const plain = render(md);
+    expect(plain.querySelectorAll("[data-action]").length).toBe(0);
+    const div = document.createElement("div");
+    const fragment = renderMarkdownFragment(md);
+    decorateBlocks(fragment, { ...labels, saveTable: "保存为图片", fullTable: "全屏查看" });
+    div.replaceChildren(fragment);
+    const actions = [...div.querySelectorAll(".table-card [data-action]")].map((b) => `${b.getAttribute("data-action")}:${b.getAttribute("aria-label")}`);
+    expect(actions).toEqual(["table-image:保存为图片", "table-full:全屏查看"]);
+    expect(div.querySelector(".code-card [data-action]")).toBeNull();
+    // The copy button still yields the cells, not the extra buttons.
+    expect(copyPayload(div.querySelector(".table-card [data-copy]")!)?.kind).toBe("table");
+  });
+});

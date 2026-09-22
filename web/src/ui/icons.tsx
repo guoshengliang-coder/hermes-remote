@@ -241,3 +241,76 @@ export const TerminalIcon = (p: IconProps) => (
     <path d="M7.5 9.5l3 2.5-3 2.5M12.5 15h4" />
   </Svg>
 );
+
+export const ArrowUpIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Svg>
+);
+
+export const CameraIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 8.5a2 2 0 012-2h2l1.5-2h5L16 6.5h2a2 2 0 012 2V17a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
+    <circle cx="12" cy="12.5" r="3.5" />
+  </Svg>
+);
+
+export const ImageIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="5" width="16" height="14" rx="2" />
+    <circle cx="9" cy="10" r="1.5" />
+    <path d="M20 16l-4.5-4.5L8 19" />
+  </Svg>
+);
+
+export const PenIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 013 3L8 18.5 4 20z" />
+    <path d="M13.5 7l3 3" />
+  </Svg>
+);
+
+export const MosaicIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="4" width="16" height="16" rx="2" />
+    <path d="M4 12h16M12 4v16" />
+    <path d="M8 4v4H4M16 12v4h4M12 8h4V4M8 20v-4H4" />
+  </Svg>
+);
+
+export const CropIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M7 3v14h14" />
+    <path d="M3 7h14v14" />
+  </Svg>
+);
+
+export const RotateIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20 11a8 8 0 10-2.3 5.7" />
+    <path d="M20 4v7h-7" />
+  </Svg>
+);
+
+export const UndoIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 14L4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 010 11H11" />
+  </Svg>
+);
+
+export const RedoIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15 14l5-5-5-5" />
+    <path d="M20 9H9.5a5.5 5.5 0 000 11H13" />
+  </Svg>
+);
+
+export const EditIcon = PenIcon;
+
+export const TrashIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 7h16M10 11v6M14 11v6" />
+    <path d="M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12M9 7V4h6v3" />
+  </Svg>
+);

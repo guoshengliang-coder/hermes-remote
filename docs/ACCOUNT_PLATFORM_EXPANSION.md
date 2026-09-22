@@ -300,8 +300,8 @@ Android app stays the primary client.
   exactly as on the phone, and are never stored in the account database, audit log or Web storage;
   the service worker caches only the app shell and session-list metadata. `localStorage` keeps the
   chosen Mac, this browser's pinned session ids, the default project's folder, which bot-channel
-  notices were seen and — by the owner's decision of 2026-09-22 — unsent composer drafts and recent
-  search queries, so a half-written message survives closing the app. All of it is removed on
+  notices were seen and — by the owner's decision of 2026-09-22 — unsent composer drafts, recent
+  search queries and saved prompts, so a half-written message survives closing the app. All of it is removed on
   sign-out. Chat transcripts are still never stored in the browser.
 
 ## 6. Desktop clean-machine bootstrap

@@ -153,11 +153,37 @@ export interface BlockLabels {
   table: string;
   copyCode: string;
   copyTable: string;
+  /** Table card extras (Android: 保存为图片, 全屏查看); omitted = not shown. */
+  saveTable?: string;
+  fullTable?: string;
 }
 
 export type CopyKind = "code" | "table";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+function glyph(doc: Document, paths: string[]): SVGSVGElement {
+  const svg = doc.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of [["width", "16"], ["height", "16"], ["viewBox", "0 0 24 24"], ["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "1.8"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"], ["aria-hidden", "true"], ["focusable", "false"]]) {
+    svg.setAttribute(k!, v!);
+  }
+  for (const d of paths) {
+    const path = doc.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+function actionButton(doc: Document, action: string, label: string, icon: SVGSVGElement): HTMLButtonElement {
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.className = "block-copy";
+  button.dataset.action = action;
+  button.setAttribute("aria-label", label);
+  button.appendChild(icon);
+  return button;
+}
 
 function copyGlyph(doc: Document): SVGSVGElement {
   const svg = doc.createElementNS(SVG_NS, "svg");
@@ -214,7 +240,10 @@ export function decorateBlocks(root: DocumentFragment | Element, labels: BlockLa
     scroller.className = "table-scroll";
     table.replaceWith(scroller);
     scroller.appendChild(table);
-    blockCard(doc, "table", labels.table, labels.copyTable, scroller);
+    const card = blockCard(doc, "table", labels.table, labels.copyTable, scroller);
+    const head = card.querySelector(".block-head")!;
+    if (labels.saveTable) head.appendChild(actionButton(doc, "table-image", labels.saveTable, glyph(doc, ["M12 4v11", "M7 10.5l5 5 5-5", "M5 20h14"])));
+    if (labels.fullTable) head.appendChild(actionButton(doc, "table-full", labels.fullTable, glyph(doc, ["M4 9V4h5", "M20 9V4h-5", "M4 15v5h5", "M20 15v5h-5"])));
   }
 }
 

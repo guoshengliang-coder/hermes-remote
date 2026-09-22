@@ -11,6 +11,7 @@ import { useApp } from "../app/store";
 import type { PendingAttachment } from "../chat/attachments";
 import { hasOpenQuestion, initialChatState, reduceChat, type ChatItem } from "../chat/model";
 import { ChatSession, type BackgroundProcess } from "../chat/session";
+import { pillGroup, turnGroups, TURN_PILL_IDLE_HIDE_MS, TURN_PILL_LIST_MIN_GROUPS, type TurnGroup } from "../chat/turns";
 import { formatTimeSeparator, greetingForHour, showsTimeSeparator } from "../chat/transcript";
 import { appError } from "../errors";
 import type { AnswerPlan } from "../hermes/requests";
@@ -26,6 +27,7 @@ import { ChatSearchBar, PromptsSheet, searchHits, ShareSheet, SourceDialog, useS
 import {
   ArchiveIcon,
   ArrowDownIcon,
+  ArrowUpIcon,
   BackIcon,
   ChevronDownIcon,
   ChevronIcon,
@@ -40,6 +42,7 @@ import {
   SearchIcon,
   ShareIcon,
 } from "./icons";
+import { ImageEditor } from "./ImageEditor";
 import { ImageViewer, type ViewerImage } from "./ImageViewer";
 import { MessageView, type MessageActions } from "./Message";
 import { QuestionSheet } from "./QuestionSheet";
@@ -60,6 +63,8 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const stick = useRef(true);
   const pendingFiles = useRef(new Map<string, PendingAttachment[]>());
   const [viewer, setViewer] = useState<{ images: ViewerImage[]; index: number } | null>(null);
+  // A pending image opened from the composer strip: preview first, 编辑 leads to the editor.
+  const [pendingImage, setPendingImage] = useState<{ attachment: PendingAttachment; replace: (next: PendingAttachment) => void; remove: () => void; editing: boolean } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -186,7 +191,33 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     if (!el) return;
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     if (stick.current !== atBottom) setAtBottom(stick.current);
+    updatePill(el);
   }
+
+  // "Back to this prompt" pill (DESIGN §5.4, Android TurnJump): shown while the list moves, gone
+  // 1.5 s after it stops; hidden when the group's own prompt is on screen or the reader is at the
+  // bottom following the stream.
+  const [pill, setPill] = useState<TurnGroup | null>(null);
+  const pillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function updatePill(el: HTMLDivElement) {
+    const groups = turnGroups(state.items);
+    const tops = new Map<string, { top: number; bottom: number }>();
+    const base = el.getBoundingClientRect().top - el.scrollTop;
+    for (const g of groups) {
+      if (!g.key) continue;
+      const node = el.querySelector<HTMLElement>(`.turn[data-key="${CSS.escape(g.key)}"]`);
+      if (!node) continue;
+      const box = node.getBoundingClientRect();
+      tops.set(g.key, { top: box.top - base, bottom: box.bottom - base });
+    }
+    const group = stick.current || searchOpen ? null : pillGroup(groups, tops, el.scrollTop);
+    setPill(group);
+    if (pillTimer.current) clearTimeout(pillTimer.current);
+    if (group) pillTimer.current = setTimeout(() => setPill(null), TURN_PILL_IDLE_HIDE_MS);
+  }
+  useEffect(() => () => {
+    if (pillTimer.current) clearTimeout(pillTimer.current);
+  }, []);
 
   function send(text: string, attachments: PendingAttachment[], confirmed = false) {
     const session = sessionRef.current;
@@ -248,9 +279,11 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     if (!el) return;
     stick.current = false;
     el.scrollIntoView({ block: "start" });
-    el.classList.remove("landing");
-    void el.offsetWidth;
-    el.classList.add("landing");
+    // The outline goes on the prompt bubble itself (1.5px brand colour, then a fade).
+    const target = el.querySelector<HTMLElement>(".bubble") ?? el;
+    target.classList.remove("landing");
+    void target.offsetWidth;
+    target.classList.add("landing");
   }
 
   function toLatest() {
@@ -454,6 +487,40 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         {refreshing ? <div class="top-progress" aria-hidden="true" /> : null}
       </header>
       <div class="messages" ref={scroller} onScroll={onScroll}>
+        {pill ? (
+          <div class="turn-pill-slot">
+            <div class="turn-pill">
+              <button
+                type="button"
+                class="turn-pill-main"
+                aria-label={t(`回到这条提问：${pill.summary.zh}`, `Back to this prompt: ${pill.summary.en}`)}
+                onClick={() => {
+                  setPill(null);
+                  if (pill.key) jumpTo(pill.key);
+                  else if (scroller.current) scroller.current.scrollTop = 0;
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setPill(null);
+                  setPromptsOpen(true);
+                }}
+              >
+                <span class="turn-pill-chip" aria-hidden="true">
+                  <ArrowUpIcon size={14} />
+                </span>
+                <span class="turn-pill-label">{language === "en" ? pill.summary.en : pill.summary.zh}</span>
+              </button>
+              {turnGroups(state.items).length >= TURN_PILL_LIST_MIN_GROUPS ? (
+                <>
+                  <span class="turn-pill-divider" aria-hidden="true" />
+                  <button type="button" class="turn-pill-list" aria-label={t("我的提问", "Your prompts")} onClick={() => { setPill(null); setPromptsOpen(true); }}>
+                    <ListIcon size={16} />
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <div class="messages-inner">
           {!state.historyLoaded ? <div class="center-spinner"><span class="spinner" /></div> : null}
           {state.historyLoaded && state.items.length === 0 ? (
@@ -534,6 +601,8 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           onSend={send}
           onInterrupt={() => void sessionRef.current?.interrupt()}
           draftKey={device ? draftKey(device.deviceId, storedId) : null}
+          sessionId={storedId}
+          onOpenAttachment={(attachment, replace, remove) => setPendingImage({ attachment, replace, remove, editing: false })}
           seed={seed}
           chip={app.features.has("model-select") && !botRow ? { label: modelChipLabel(currentModel.model, reasoning, language), onClick: () => setModelOpen(true) } : null}
           blocked={
@@ -551,6 +620,30 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         />
       </footer>
       {viewer ? <ImageViewer images={viewer.images} index={viewer.index} onClose={() => setViewer(null)} /> : null}
+      {pendingImage && !pendingImage.editing && pendingImage.attachment.previewUrl ? (
+        <ImageViewer
+          images={[{ kind: "local", url: pendingImage.attachment.previewUrl, name: pendingImage.attachment.name }]}
+          index={0}
+          onClose={() => setPendingImage(null)}
+          pending={{
+            onEdit: () => setPendingImage({ ...pendingImage, editing: true }),
+            onRemove: () => {
+              pendingImage.remove();
+              setPendingImage(null);
+            },
+          }}
+        />
+      ) : null}
+      {pendingImage?.editing ? (
+        <ImageEditor
+          attachment={pendingImage.attachment}
+          onClose={() => setPendingImage({ ...pendingImage, editing: false })}
+          onDone={(next) => {
+            pendingImage.replace(next);
+            setPendingImage(null);
+          }}
+        />
+      ) : null}
       {promptsOpen ? (
         <PromptsSheet
           items={state.items}

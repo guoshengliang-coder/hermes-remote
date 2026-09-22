@@ -92,3 +92,46 @@ export function transcriptFileBaseName(title: string | null, exportedAtMs: numbe
   const when = stamp(exportedAtMs, true);
   return cleaned ? `HermesGO-${cleaned}-${when}` : `HermesGO-${when}`;
 }
+
+/**
+ * transcriptMarkdown shrunk to `maxBytes` of UTF-8 (docs/SESSION_EXCHANGE_REQUIREMENTS.md §4.2):
+ * the EARLIEST turns are dropped and the document says so on its own line; "" when not even one
+ * turn fits (nothing to attach). Binary search: the size only shrinks as more turns go.
+ */
+export function transcriptMarkdownForAttachment(title: string | null, items: readonly ChatItem[], language: Language, exportedAtMs: number, maxBytes: number): string {
+  const size = (s: string) => new TextEncoder().encode(s).length;
+  // A turn opens at each real prompt; dropping k turns starts the document at the (k+1)-th prompt.
+  const starts = items.flatMap((item, i) => (item.role === "user" && !item.note ? [i] : []));
+  const render = (dropped: number) => {
+    const doc = transcriptMarkdown(title, items.slice(dropped ? starts[dropped]! : 0), language, exportedAtMs);
+    if (!doc || dropped === 0) return doc;
+    const note = language === "en" ? `> Earliest ${dropped} turns omitted; the original has ${starts.length}\n` : `> 已省略最早 ${dropped} 轮，原对话共 ${starts.length} 轮\n`;
+    const cut = doc.indexOf("\n", doc.indexOf("\n> ") + 1);
+    return cut < 0 ? doc + note : doc.slice(0, cut + 1) + note + doc.slice(cut + 1);
+  };
+  const whole = render(0);
+  if (!whole || size(whole) <= maxBytes) return whole;
+  // Keep at least the last turn; binary search the fewest dropped turns that fit.
+  let lo = 1;
+  let hi = starts.length - 1;
+  if (hi < lo) return "";
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (size(render(mid)) <= maxBytes) hi = mid;
+    else lo = mid + 1;
+  }
+  const doc = render(lo);
+  return doc && size(doc) <= maxBytes ? doc : "";
+}
+
+/** A conversation attached to a message is named by its own title (Android transcriptAttachmentName). */
+export function transcriptAttachmentName(title: string | null, exportedAtMs: number): string {
+  const cleaned = (title ?? "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\.+$/, "")
+    .slice(0, 40)
+    .trim();
+  return cleaned ? `${cleaned}.md` : `${transcriptFileBaseName(title, exportedAtMs)}.md`;
+}
