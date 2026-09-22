@@ -57,6 +57,12 @@ test("R4 blue/green templates isolate candidate process, state, and private port
   assert.equal(green.includes("http://127.0.0.1:8787/readyz"), false);
   assert.equal(green.includes("--publish"), false);
   assert.match(green, /gateway-slots\/green/);
+  // The published Web app is mounted read-only at the same path in both slots, so its relative
+  // `current` symlink resolves inside the container and a Web release never restarts the Gateway.
+  const webRoot = `${config.paths.installRoot}/web`;
+  for (const unit of [blue, green]) {
+    assert.equal(unit.includes(`--mount type=bind,src=${webRoot},dst=${webRoot},readonly`), true);
+  }
   assert.match(blueEnvironment, /ACCOUNT_AUTH_ENABLED=0/);
   assert.match(blueEnvironment, /^PORT=8787$/m);
   assert.match(blueEnvironment, /^HOST=127\.0\.0\.1$/m);

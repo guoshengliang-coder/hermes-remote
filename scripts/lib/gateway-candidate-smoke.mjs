@@ -38,7 +38,7 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       desktopBootstrapRuntimeContract: null,
     };
   }
-  if (new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimeMode)) {
+  if (new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimeMode)) {
     const bindingEnabled = runtimeMode !== "email_otp";
     return {
       runtimeMode,
@@ -55,7 +55,8 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
       accountProviders: ["email_otp"],
       bindingEnabled,
       desktopBootstrapRuntimeContract: bindingEnabled ? "hermes-serve-v1" : null,
-      desktopComponentManifestSchemaVersion: runtimeMode === "email_sharing_components" ? 2 : null,
+      desktopComponentManifestSchemaVersion: new Set(["email_sharing_components", "email_sharing_components_web"]).has(runtimeMode) ? 2 : null,
+      webDeviceAccess: runtimeMode === "email_sharing_components_web",
     };
   }
   throw new GatewayCandidateSmokeError("configuration");
@@ -64,9 +65,10 @@ export function gatewayRuntimePolicy(runtimeMode = "disabled") {
 export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedVersion) {
   const binding = capabilities?.binding;
   const desktopBootstrap = capabilities?.desktopBootstrap;
-  const multiDeviceEnabled = new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimePolicy.runtimeMode);
-  const identityWebEnabled = new Set(["email_identity_web", "email_sharing", "email_sharing_components"]).has(runtimePolicy.runtimeMode);
-  const sharingEnabled = new Set(["email_sharing", "email_sharing_components"]).has(runtimePolicy.runtimeMode);
+  const multiDeviceEnabled = new Set(["email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimePolicy.runtimeMode);
+  const identityWebEnabled = new Set(["email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimePolicy.runtimeMode);
+  const sharingEnabled = new Set(["email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(runtimePolicy.runtimeMode);
+  const webDeviceAccess = runtimePolicy.webDeviceAccess === true;
   const valid = capabilities?.accountAuth?.enabled === runtimePolicy.accountAuthEnabled
     && (runtimePolicy.accountProviders === null
       || JSON.stringify(capabilities.accountAuth?.providers) === JSON.stringify(runtimePolicy.accountProviders))
@@ -76,6 +78,9 @@ export function verifyGatewayCapabilities(capabilities, runtimePolicy, expectedV
       ? capabilities?.accountAuth?.webSessions === true
       : capabilities?.accountAuth?.webSessions !== true)
     && capabilities?.accountAuth?.accountDeletion !== true
+    && (webDeviceAccess
+      ? capabilities?.accountAuth?.webDeviceAccess === true
+      : !Object.hasOwn(capabilities?.accountAuth ?? {}, "webDeviceAccess"))
     && binding?.enabled === runtimePolicy.bindingEnabled
     && binding?.replacement === runtimePolicy.bindingEnabled
     && binding?.maxActiveConnectorsPerAccount === (multiDeviceEnabled ? 3 : 1)

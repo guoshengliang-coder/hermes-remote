@@ -15,6 +15,7 @@ import {
   writeDeploymentJournal,
 } from "./deploy-state.mjs";
 import {
+  deployWebAppRoot,
   otherSlot,
   renderDeployGatewayEnvironment,
   renderDeploySystemdUnit,
@@ -219,6 +220,8 @@ async function prepareDeploymentDirectories(config, paths, candidateSlot, owners
   await ensureManagedDirectory(config.paths.installRoot, 0o755, ownership.host);
   await ensureManagedDirectory(path.join(config.paths.installRoot, "releases"), 0o755, ownership.host);
   await ensureManagedDirectory(paths.releaseDir, 0o755, ownership.host);
+  await ensureManagedDirectory(deployWebAppRoot(config), 0o755, ownership.host);
+  await ensureManagedDirectory(path.join(deployWebAppRoot(config), "releases"), 0o755, ownership.host);
   await ensureManagedDirectory(config.paths.configRoot, 0o750, ownership.host);
   await ensureManagedDirectory(path.join(config.paths.configRoot, "secrets"), 0o750, ownership.secret);
   await ensureManagedDirectory(path.join(config.paths.configRoot, "database-secrets"), 0o750, ownership.secret);

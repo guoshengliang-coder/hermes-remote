@@ -47,14 +47,22 @@ const EMAIL_KEYS = Object.freeze([
   "ACCOUNT_LIFECYCLE_RETENTION_DAYS",
   "ACCOUNT_AUDIT_RETENTION_DAYS",
   "MAX_LIFECYCLE_EVENTS",
+  "ACCOUNT_WEB_DEVICE_ACCESS_ENABLED",
+  "WEB_APP_ENABLED",
+  "WEB_APP_DIR",
 ]);
+
+// Added for the Web app (R5-F7). Environments written before it carry none of the three; they read
+// as "off" with the pinned directory, so a routine release rewrites them in the current form.
+const WEB_KEYS = Object.freeze(["ACCOUNT_WEB_DEVICE_ACCESS_ENABLED", "WEB_APP_ENABLED", "WEB_APP_DIR"]);
+const PRE_WEB_KEYS = Object.freeze(EMAIL_KEYS.filter((key) => !WEB_KEYS.includes(key)));
 
 const ORIGIN_KEYS = Object.freeze([
   "ACCOUNT_WEB_ORIGIN",
   "ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN",
 ]);
-const PRE_COMPONENT_KEYS = Object.freeze(EMAIL_KEYS.filter((key) => key !== "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED"));
-const PRE_ORIGIN_KEYS = Object.freeze(EMAIL_KEYS.filter((key) => !ORIGIN_KEYS.includes(key)));
+const PRE_COMPONENT_KEYS = Object.freeze(PRE_WEB_KEYS.filter((key) => key !== "ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED"));
+const PRE_ORIGIN_KEYS = Object.freeze(PRE_WEB_KEYS.filter((key) => !ORIGIN_KEYS.includes(key)));
 const LEGACY_EMAIL_KEYS = Object.freeze(PRE_COMPONENT_KEYS.filter((key) => !ORIGIN_KEYS.includes(key)));
 
 const EMAIL_EXACT = Object.freeze({
@@ -93,7 +101,21 @@ const EMAIL_EXACT = Object.freeze({
   ACCOUNT_LIFECYCLE_RETENTION_DAYS: "30",
   ACCOUNT_AUDIT_RETENTION_DAYS: "180",
   MAX_LIFECYCLE_EVENTS: "10000",
+  ACCOUNT_WEB_DEVICE_ACCESS_ENABLED: "0",
+  WEB_APP_ENABLED: "0",
 });
+
+/**
+ * WEB_APP_DIR as the Gateway sees it: the `current` link under the Web app root that deploy
+ * bind-mounts read-only at the same path (deploy-system.mjs deployWebAppRoot).
+ */
+export function productionWebAppDir(config) {
+  const installRoot = config?.paths?.installRoot;
+  if (typeof installRoot !== "string" || !path.isAbsolute(installRoot)) {
+    fail("production_release_install_root_invalid");
+  }
+  return path.join(installRoot, "web", "current");
+}
 
 export async function inspectProductionReleaseEnvironment(config, activeSlot) {
   const selected = config.slots[activeSlot];
@@ -131,11 +153,22 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
   if (originKeysMissing) {
     for (const key of ORIGIN_KEYS) values[key] = origin;
   }
+  const webAppDir = productionWebAppDir(config);
+  if (values.WEB_APP_DIR === undefined) {
+    values.ACCOUNT_WEB_DEVICE_ACCESS_ENABLED = "0";
+    values.WEB_APP_ENABLED = "0";
+    values.WEB_APP_DIR = webAppDir;
+  }
+  const webDeviceAccessEnabled = values.ACCOUNT_WEB_DEVICE_ACCESS_ENABLED === "1";
+  const webAppEnabled = values.WEB_APP_ENABLED === "1";
+  const webEnabled = webDeviceAccessEnabled && webAppEnabled;
   if ((!bindingEnabled && !emailOnly) || (multiDeviceEnabled && !bindingEnabled)
       || (identityWebPartiallyEnabled && !identityWebEnabled)
       || (identityWebEnabled && !multiDeviceEnabled)
       || (sharingEnabled && !identityWebEnabled)
-      || (desktopComponentInstallEnabled && !bindingEnabled)) {
+      || (desktopComponentInstallEnabled && !bindingEnabled)
+      || (webDeviceAccessEnabled !== webAppEnabled)
+      || (webEnabled && !(sharingEnabled && desktopComponentInstallEnabled))) {
     fail("production_release_email_environment_invalid");
   }
   const expected = {
@@ -154,6 +187,9 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
     ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED: desktopComponentInstallEnabled ? "1" : "0",
     ACCOUNT_WEB_ORIGIN: origin,
     ACCOUNT_SHARING_ACCOUNT_CENTER_ORIGIN: origin,
+    ACCOUNT_WEB_DEVICE_ACCESS_ENABLED: webEnabled ? "1" : "0",
+    WEB_APP_ENABLED: webEnabled ? "1" : "0",
+    WEB_APP_DIR: webAppDir,
   };
   for (const key of EMAIL_KEYS) {
     if (key === "ACCOUNT_DATABASE_SSL") {
@@ -164,7 +200,9 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
   }
   return Object.freeze({
     mode: sharingEnabled
-      ? (desktopComponentInstallEnabled ? "email_sharing_components" : "email_sharing")
+      ? (desktopComponentInstallEnabled
+        ? (webEnabled ? "email_sharing_components_web" : "email_sharing_components")
+        : "email_sharing")
       : identityWebEnabled
         ? "email_identity_web"
         : (multiDeviceEnabled ? "email_multi_device" : (bindingEnabled ? "email_binding" : "email_otp")),
@@ -177,7 +215,7 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
   if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot);
-  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components"]).has(inspected?.mode)
+  if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web"]).has(inspected?.mode)
       || !inspected.values) {
     fail("production_release_environment_mode_invalid");
   }
@@ -281,6 +319,25 @@ export function renderComponentRolloutEnvironment(config, slot, inspected) {
   }).join("\n") + "\n";
 }
 
+export function renderWebAppRolloutEnvironment(config, slot, inspected) {
+  const selected = config.slots[slot];
+  if (!selected) fail("production_release_candidate_slot_unknown");
+  if (inspected?.mode !== "email_sharing_components" || !inspected.values) {
+    fail("production_release_web_app_requires_components_environment");
+  }
+  const webAppDir = productionWebAppDir(config);
+  return EMAIL_KEYS.map((key) => {
+    let value = inspected.values[key];
+    if (key === "PORT") value = String(selected.gatewayPort);
+    if (key === "ACCOUNT_WEB_DEVICE_ACCESS_ENABLED" || key === "WEB_APP_ENABLED") value = "1";
+    if (key === "WEB_APP_DIR") value = webAppDir;
+    if (typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      fail("production_release_email_environment_invalid");
+    }
+    return `${key}=${value}`;
+  }).join("\n") + "\n";
+}
+
 export function sameProductionReleaseEnvironment(left, right) {
   return left?.mode === right?.mode && left?.digest === right?.digest;
 }
@@ -292,6 +349,8 @@ function parseCanonicalEnvironment(content) {
   const lines = content.slice(0, -1).split("\n");
   const keys = lines.length === EMAIL_KEYS.length
     ? EMAIL_KEYS
+    : lines.length === PRE_WEB_KEYS.length
+    ? PRE_WEB_KEYS
     : (lines.length === PRE_COMPONENT_KEYS.length
       ? PRE_COMPONENT_KEYS
       : (lines.length === PRE_ORIGIN_KEYS.length
