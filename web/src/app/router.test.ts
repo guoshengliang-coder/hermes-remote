@@ -38,3 +38,24 @@ describe("router", () => {
     expect(Object.keys(matchRoute("/app/new"))).toEqual(["name"]);
   });
 });
+
+describe("navigate() from an open overlay", () => {
+  it("takes the overlay's history entry instead of stacking on it", async () => {
+    const { vi } = await import("vitest");
+    const { navigate } = await import("./router");
+    const { pushOverlay, resetOverlays } = await import("./overlayHistory");
+    resetOverlays();
+    history.replaceState(null, "", "/app/s/one");
+    const push = vi.spyOn(history, "pushState");
+    const replace = vi.spyOn(history, "replaceState");
+    const release = pushOverlay(() => undefined);
+    expect(push).toHaveBeenCalledTimes(1); // the overlay's entry
+    navigate({ name: "list" });
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenLastCalledWith(null, "", "/app/");
+    const go = vi.spyOn(history, "go");
+    release(); // the overlay unmounts with the old page: nothing left to rewind
+    expect(go).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+});

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { useBackClose } from "../app/useBackClose";
 import type { PendingAttachment } from "../chat/attachments";
 import { JPEG_QUALITY, MAX_ATTACHMENT_BYTES } from "../chat/attachments";
 import {
@@ -332,6 +333,13 @@ export function ImageEditor({ attachment, onDone, onClose }: { attachment: Pendi
     if (edited) setConfirmDiscard(true);
     else onClose();
   }
+  // Back asks the same question as 取消 and stays open until it is answered.
+  useBackClose(() => {
+    if (saving) return false;
+    if (!edited) return void onClose();
+    setConfirmDiscard(true);
+    return false;
+  });
 
   const long = Math.max(W, H);
   const transform = `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`;

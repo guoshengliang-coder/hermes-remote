@@ -1023,6 +1023,32 @@ stroke enables undo; 取消 with edits asks 放弃这些修改？; ink, mosaic a
 完成 with no edits leaves it alone; the edited image is sent with no error notice. The 4007
 recreate of an empty conversation is covered by `session.test.ts` (the mock cannot reclaim).
 
+Batch 6 (branch `claude/web-batch6`, Web only: rotation, foldables, keyboard, system back). Local
+drive against `scripts/dev/web-stack.sh`, 29 checks in Chromium (Android Chrome profile) and WebKit
+(iPhone profile), plus the batch 5 drive re-run as a regression (23/23):
+- Back (browser back = the system back gesture): closes the ＋ sheet and stays in the chat; unwinds
+  prompt form → library → saved-prompts sheet → chat one level at a time; closes the ⋮ menu, the
+  image viewer, the fullscreen table and in-chat search. With edits in the image editor it asks
+  放弃这些修改？ and stays open; back on that question closes only the question; 放弃 returns to
+  the preview, back from the preview to the chat with the chip kept. After all of that, one back
+  goes to the list — closing overlays with ✕ left no dead history steps.
+- Short screens (915×412 landscape, 412×360 standing in for the keyboard, 852×393 iPhone
+  landscape): the input stops at three lines (76px), the model chip and project line hide, the top
+  bar is 40px and the message list keeps 55–67% of the height. A normal portrait input still grows
+  to 200px.
+- 344px foldable cover: the crop preset row starts 8px from the left edge and scrolls to its last
+  control. Unfolded (829px): the 会话 / 机器人 switch is 688px, the list column's width. Rotating
+  with the turn pill showing re-measures it to the group now at the top.
+
+Real Chrome 145 on the Android emulator (Pixel 9 image, API 37; Playwright `_android`), 2026-09-23:
+the system back key with the ＋ sheet or the image viewer open closes only that and stays in the
+chat; with the keyboard up in portrait the layout viewport shrinks to the space above it (792 →
+456px) and the top bar stays on screen; Chrome reports the manifest installable with no errors;
+switching the display to an unfolded size (690×680) and back keeps the chat and its input; the page
+follows system dark mode. Landscape with the keyboard up leaves the page about 30px on this
+emulator (status bar, Chrome's toolbar and the keyboard take the rest): only the caret line of the
+input shows. That is the browser's limit, not something the page can reclaim.
+
 ### Still needs a real iPhone — none of this has been verified on a device
 
 Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
@@ -1082,6 +1108,15 @@ version with each result.
     the crop handles are easy to grab, 完成 replaces the chip and the sent image is the edited one.
     Add a conversation and confirm Hermes on the Mac receives a readable `.md`. Scroll a long chat:
     the turn pill appears, fades 1.5 s after scrolling stops, and a tap lands on the prompt.
+15. **Rotation, keyboard and back (batch 6).** On the iPhone: rotate a chat to landscape (compact top
+    bar, three-line input, messages still readable) and back; swipe back from the left edge in the
+    Home Screen app with a sheet or the image viewer open (only that closes). On an Android phone in
+    **Chrome** (the only Android browser in scope): the system back gesture closes sheets, the
+    viewer, the editor (asking first when there are edits) and in-chat search one at a time; the
+    keyboard keeps the top bar visible in portrait; Add to Home Screen gives a full-bleed icon (the
+    maskable one, not a small icon in a white frame). On a foldable, open and close it on a chat and
+    in the image editor. None of this has been checked on a physical phone: Chrome is not installed
+    on the HONOR test phone, so Android results so far come from the emulator only.
 
 ## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
 

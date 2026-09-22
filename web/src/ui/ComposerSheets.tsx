@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
+import { BackClose, useBackClose } from "../app/useBackClose";
 import { hermesPaths } from "../api/gateway";
 import { deletePrompt, loadPrompts, newPromptId, upsertPrompt, type SavedPrompt } from "../app/prompts";
 import { isBotSession, isListable } from "../app/sources";
@@ -45,12 +46,14 @@ export function PromptLibrary({ onClose }: { onClose: () => void }) {
   const [prompts, setPrompts] = useState<SavedPrompt[]>(loadPrompts);
   const [editing, setEditing] = useState<SavedPrompt | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<SavedPrompt | null>(null);
+  useBackClose(onClose);
 
   if (editing) {
     const isNew = !prompts.some((p) => p.id === editing.id);
     const valid = editing.body.trim() !== "";
     return (
       <div class="source-dialog" role="dialog" aria-modal="true" aria-label={isNew ? t("新建提示词", "New prompt") : t("编辑提示词", "Edit prompt")}>
+        <BackClose onClose={() => setEditing(null)} />
         <header class="topbar">
           <div class="topbar-row">
             <button type="button" class="icon-button" aria-label={t("取消", "Cancel")} onClick={() => setEditing(null)}>
@@ -159,6 +162,7 @@ export function SessionPicker({
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState<SessionListItem[] | null>(null);
   const [selected, setSelected] = useState<SessionListItem[]>([]);
+  useBackClose(onClose);
 
   const q = query.trim().toLowerCase();
   useEffect(() => {

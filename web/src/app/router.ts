@@ -1,4 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
+import { yieldTopEntry } from "./overlayHistory";
 
 // A tiny History-API router under /app/. URLs only ever SELECT what to show: nothing reachable
 // from a path, query or hash performs a mutation (docs/ACCOUNT_MODE_SECURITY.md, Web app).
@@ -55,7 +56,9 @@ const CHANGE = "hermes-go:navigate";
 export function navigate(route: Route, options: { replace?: boolean } = {}): void {
   const path = routePath(route);
   if (path === location.pathname && !location.search && !location.hash) return;
-  if (options.replace) history.replaceState(null, "", path);
+  // Leaving from an open sheet or viewer takes its history entry's place, so back from the new
+  // page does not land on a dead "overlay open" step (app/overlayHistory.ts).
+  if (yieldTopEntry() || options.replace) history.replaceState(null, "", path);
   else history.pushState(null, "", path);
   window.dispatchEvent(new Event(CHANGE));
 }
@@ -67,7 +70,11 @@ export function currentRoute(): Route {
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(currentRoute);
   useEffect(() => {
-    const update = () => setRoute(currentRoute());
+    // Overlay back steps fire popstate on the same URL: keep the same route object then.
+    const update = () => setRoute((prev) => {
+      const next = currentRoute();
+      return sameRoute(prev, next) ? prev : next;
+    });
     window.addEventListener("popstate", update);
     window.addEventListener(CHANGE, update);
     return () => {

@@ -1,4 +1,5 @@
 import { Fragment } from "preact";
+import { BackClose } from "../app/useBackClose";
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 import { botNoticeSeen, botOriginLabel, botSendNoticeBody, botSendNoticeTitle, markBotNoticeSeen } from "../app/bots";
 import { draftKey } from "../app/drafts";
@@ -272,6 +273,21 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   useEffect(() => () => {
     if (pillTimer.current) clearTimeout(pillTimer.current);
   }, []);
+  // Rotation, a foldable opening or the keyboard re-flow the list without a scroll event: a pill
+  // that is showing is re-measured so it names the group now at the top (it never pops up anew).
+  const pillShown = useRef(false);
+  pillShown.current = pill !== null;
+  const remeasure = useRef(() => {});
+  remeasure.current = () => {
+    if (pillShown.current && scroller.current) updatePill(scroller.current);
+  };
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => remeasure.current());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   function send(text: string, attachments: PendingAttachment[], confirmed = false) {
     const session = sessionRef.current;
@@ -432,6 +448,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   return (
     <div class="page chat-page">
       <header class="topbar">
+        {searchOpen ? <BackClose onClose={() => { setSearchOpen(false); setSearchQuery(""); }} /> : null}
         {searchOpen ? (
           <ChatSearchBar
             query={searchQuery}
@@ -498,6 +515,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         )}
         {menuOpen && !searchOpen ? (
           <>
+            <BackClose onClose={() => setMenuOpen(false)} />
             <div class="menu-scrim" onClick={() => setMenuOpen(false)} />
             <div class="menu" role="menu">
               <button type="button" role="menuitem" class="menu-item with-icon" onClick={() => { setMenuOpen(false); setSearchOpen(true); }}>
@@ -684,7 +702,8 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         />
       </footer>
       {viewer ? <ImageViewer images={viewer.images} index={viewer.index} onClose={() => setViewer(null)} /> : null}
-      {pendingImage && !pendingImage.editing && pendingImage.attachment.previewUrl ? (
+      {/* The preview stays mounted under the editor: 取消 / back from the editor returns to it. */}
+      {pendingImage && pendingImage.attachment.previewUrl ? (
         <ImageViewer
           images={[{ kind: "local", url: pendingImage.attachment.previewUrl, name: pendingImage.attachment.name }]}
           index={0}
