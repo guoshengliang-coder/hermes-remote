@@ -373,6 +373,38 @@ internal fun List<ChatMessage>.organizedConversationTurns(): List<ChatMessage> {
     return turns
 }
 
+/**
+ * Raw Hermes history can split one answer into several assistant records around tool activity.
+ * The streaming renderer needs one stable source for that whole answer: following only the last
+ * raw record changes the source id and briefly replaces an already visible answer with its empty
+ * typewriter placeholder. Everything after the latest user message belongs to the same response
+ * turn; non-assistant rows remain available to the normal transcript organizer.
+ */
+internal fun List<ChatMessage>.latestAssistantTurnSource(): ChatMessage? {
+    val latestUser = indexOfLast { it.role == Role.USER }
+    return asSequence()
+        .drop(latestUser + 1)
+        .filter { it.role == Role.ASSISTANT }
+        .reduceOrNull(::mergeAssistantTurns)
+}
+
+/**
+ * A partial Markdown/tool payload may sanitize to an empty display snapshot for one tick. Once a
+ * stream has painted useful content, keep that content until the next non-empty snapshot (or the
+ * authoritative completion) instead of collapsing the whole assistant turn for a frame.
+ */
+internal fun retainVisibleStreamingSnapshot(
+    previous: ChatMessage?,
+    candidate: ChatMessage,
+): ChatMessage {
+    if (!candidate.isStreaming || previous == null || previous.id != candidate.id) return candidate
+    val previousVisible = previous.text.isNotBlank() || previous.thinking.isNotBlank() ||
+        previous.tools.isNotEmpty() || previous.images.isNotEmpty() || previous.files.isNotEmpty()
+    val candidateVisible = candidate.text.isNotBlank() || candidate.thinking.isNotBlank() ||
+        candidate.tools.isNotEmpty() || candidate.images.isNotEmpty() || candidate.files.isNotEmpty()
+    return if (previousVisible && !candidateVisible) previous.copy(isStreaming = true) else candidate
+}
+
 
 /**
  * A turn shows a time separator above it when it is the first stamped turn or when more than

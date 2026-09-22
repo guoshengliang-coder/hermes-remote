@@ -503,7 +503,7 @@ fun ChatMessageList(
     // already-rendered lines between snapshots. Full sanitization stays deferred to
     // message.complete — per-token regex passes would approach O(n²).
     val toolDataPlaceholder = localized(language, "工具数据接收中…", "Receiving tool data…")
-    val latestLastMessage by rememberUpdatedState(state.messages.lastOrNull())
+    val latestAssistantSource by rememberUpdatedState(state.messages.latestAssistantTurnSource())
     val latestPlaceholder by rememberUpdatedState(toolDataPlaceholder)
     var activeStreamId by androidx.compose.runtime.saveable.rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     var revealedCount by androidx.compose.runtime.saveable.rememberSaveable(sessionId) { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -516,7 +516,7 @@ fun ChatMessageList(
         // tail before rewinding to a short prefix. Completion also bypassed the reveal buffer and
         // replaced it with the full answer in one frame. Both paths looked like screen flashing.
         while (isActive) {
-            val newest = latestLastMessage?.takeIf { it.role == Role.ASSISTANT }
+            val newest = latestAssistantSource
             if (newest?.isStreaming == true && activeStreamId != newest.id) {
                 activeStreamId = newest.id
                 revealedCount = 0
@@ -529,16 +529,17 @@ fun ChatMessageList(
                 // legal backwards move; ordinary streaming prefixes are strictly monotone.
                 if (target < revealedCount) revealedCount = target
                 val paced = nextRevealCount(revealedCount, target)
-                if (newest !== renderedSource || paced != revealedCount) {
+                if (newest != renderedSource || paced != revealedCount) {
                     renderedSource = newest
                     revealedCount = paced
                     val cut = surrogateSafeCut(newest.text, revealedCount)
                     val visible = if (cut >= target) newest else newest.copy(text = newest.text.take(cut))
                     // Regex-based organization of a long tail is a few milliseconds — enough to
                     // steal from a 16ms frame, so snapshot off the main thread.
-                    renderedTail = withContext(Dispatchers.Default) {
+                    val candidate = withContext(Dispatchers.Default) {
                         visible.stabilizedForStreaming(latestPlaceholder)
                     }
+                    renderedTail = retainVisibleStreamingSnapshot(renderedTail, candidate)
                 }
                 if (!newest.isStreaming && revealedCount >= target) {
                     // Publish the exact final presentation first, then release the visual buffer
@@ -549,7 +550,7 @@ fun ChatMessageList(
                     // exact final Markdown measurement. Releasing after one frame disabled that
                     // animation mid-flight and reintroduced a small completion snap.
                     delay(STREAM_SIZE_ANIMATION_MS.toLong())
-                    if (latestLastMessage?.id == newest.id && latestLastMessage?.isStreaming == false) {
+                    if (latestAssistantSource?.id == newest.id && latestAssistantSource?.isStreaming == false) {
                         activeStreamId = null
                         renderedTail = null
                         renderedSource = null
@@ -562,10 +563,15 @@ fun ChatMessageList(
     // Keep the authoritative final record out of the settled prefix while its visual buffer drains.
     // A newly observed streaming record starts as an empty indicator instead of flashing a burst
     // of text and then rewinding when the reveal executor gets its first frame.
-    val presentingSource = state.messages.lastOrNull()?.takeIf { last ->
-        last.role == Role.ASSISTANT && (last.isStreaming || last.id == activeStreamId)
+    val presentingSource = state.messages.latestAssistantTurnSource()?.takeIf { source ->
+        source.isStreaming || source.id == activeStreamId
     }
-    val settledMessages = if (presentingSource != null) state.messages.dropLast(1) else state.messages
+    val latestUserIndex = state.messages.indexOfLast { it.role == Role.USER }
+    val settledMessages = if (presentingSource != null) {
+        state.messages.filterIndexed { index, message ->
+            index <= latestUserIndex || message.role != Role.ASSISTANT
+        }
+    } else state.messages
     val settledTurns = remember(sessionId, settledMessages) { settledMessages.organizedConversationTurns() }
     val effectiveTail = presentingSource?.let { source ->
         renderedTail?.takeIf { it.id == source.id }
@@ -950,8 +956,9 @@ fun ChatMessageList(
         state.isGenerating,
         displayMessages.size,
     ) {
-        if (initialPresentationReady && !state.historyLoading) return@LaunchedEffect
+        if (initialPresentationReady) return@LaunchedEffect
         val immediate = immediatePresentationDecision(
+            alreadyPresented = initialPresentationReady,
             isGenerating = state.isGenerating,
             historyLoading = state.historyLoading,
             historyLoaded = state.historyLoaded,
@@ -1240,10 +1247,14 @@ fun ChatMessageList(
  * "is a request running" but "is there anything to show".
  */
 internal fun immediatePresentationDecision(
+    alreadyPresented: Boolean = false,
     isGenerating: Boolean,
     historyLoading: Boolean,
     historyLoaded: Boolean,
 ): Boolean? = when {
+    // Presentation is monotone for a composed session: refresh/completion may update content but
+    // must never put an already readable transcript back behind the cold-open skeleton.
+    alreadyPresented -> true
     // A live run paints itself; never mask an answer that is arriving.
     isGenerating -> true
     // Cold open: nothing to draw yet, so the skeleton owns the screen.

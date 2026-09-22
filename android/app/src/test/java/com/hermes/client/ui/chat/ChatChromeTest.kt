@@ -105,6 +105,23 @@ class ChatChromeTest {
         assertEquals(true, turns[3].isStreaming)
     }
 
+    @Test fun latestAssistantSource_keepsTheTurnIdentityAcrossSplitStreamingRecords() {
+        val first = listOf(
+            ChatMessage("u1", Role.USER, "查一下"),
+            ChatMessage("a1", Role.ASSISTANT, "第一段", isStreaming = true),
+        ).latestAssistantTurnSource()
+        val split = listOf(
+            ChatMessage("u1", Role.USER, "查一下"),
+            ChatMessage("a1", Role.ASSISTANT, "第一段"),
+            ChatMessage("a2", Role.ASSISTANT, "第二段", isStreaming = true),
+        ).latestAssistantTurnSource()
+
+        assertEquals("a1", first?.id)
+        assertEquals("a1", split?.id)
+        assertEquals("第一段\n\n第二段", split?.text)
+        assertEquals(true, split?.isStreaming)
+    }
+
     @Test fun renderKeys_surviveLiveToHistoryReconciliation() {
         val live = listOf(
             ChatMessage("local-user-id", Role.USER, "同一个问题"),
