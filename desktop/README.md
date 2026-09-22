@@ -1,6 +1,16 @@
 # Hermes Go Desktop
 
-Current internal test release candidate: **0.2.24** (build 27). One change (#365).
+Current internal test release candidate: **0.2.25** (build 28). One change.
+
+Its pinned schema-v1 manifest moves from 0.3.9 to **0.3.10**
+(`https://mrlgs.net/desktop/releases/0.3.10/Hermes-Desktop-0.3.10-arm64.manifest.json`), which carries
+Connector **0.1.7** and the HG-90 request-cancellation path. When Android abandons or times out a
+tunnel request, the Gateway can now stop its matching local fetch, response read, and chunk-ACK wait
+instead of leaving stale work behind the next reconnect. The Hermes Server artifact is reused byte for
+byte from 0.3.9; no Android, Gateway, protocol, or Hermes runtime contract changes are part of this
+Desktop release.
+
+0.2.24 (build 27) had one change (#365).
 
 This Mac's own Hermes is used **by default** —
 `HermesGoLocalHermesRuntimeEnabled` now defaults to on, so a managed Mac with a usable standard
