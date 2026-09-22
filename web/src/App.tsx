@@ -26,6 +26,7 @@ import {
 } from "./app/inbox";
 import { clearBotNotices } from "./app/bots";
 import { clearAllDrafts } from "./app/drafts";
+import { clearPrompts } from "./app/prompts";
 import { clearLocalPrefs } from "./app/localPrefs";
 import { clearAllPins, loadPins, pinToken, savePins, togglePin } from "./app/pins";
 import { currentRoute, navigate, useRoute, type Route } from "./app/router";
@@ -260,6 +261,7 @@ export function App() {
       await clearCaches();
       clearAllPins();
       clearAllDrafts();
+      clearPrompts();
       clearLocalPrefs();
       clearBotNotices();
       setCollapsed(new Set());

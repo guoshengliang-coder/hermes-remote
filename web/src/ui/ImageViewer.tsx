@@ -3,7 +3,7 @@ import { toAppError } from "../app/failures";
 import { useApp } from "../app/store";
 import type { AppError } from "../errors";
 import { ErrorNotice } from "./ErrorNotice";
-import { CloseIcon, DownloadIcon } from "./icons";
+import { CloseIcon, DownloadIcon, EditIcon, TrashIcon } from "./icons";
 import { cachedBlobUrl } from "./Media";
 import {
   clampView,
@@ -35,7 +35,13 @@ type Gesture =
   | { mode: "pan"; start: Point; startView: View }
   | { mode: "swipe"; start: Point; at: number; moved: boolean };
 
-export function ImageViewer({ images, index: initial, onClose }: { images: ViewerImage[]; index: number; onClose: () => void }) {
+/** A pending (not yet sent) attachment: the viewer offers 编辑 / 移除 instead of saving. */
+export interface PendingImageActions {
+  onEdit: () => void;
+  onRemove: () => void;
+}
+
+export function ImageViewer({ images, index: initial, onClose, pending }: { images: ViewerImage[]; index: number; onClose: () => void; pending?: PendingImageActions }) {
   const { client, device, language, t } = useApp();
   const [index, setIndex] = useState(Math.min(Math.max(0, initial), images.length - 1));
   const [view, setView] = useState<View>(IDENTITY);
@@ -237,9 +243,20 @@ export function ImageViewer({ images, index: initial, onClose }: { images: Viewe
           <CloseIcon />
         </button>
         {images.length > 1 ? <span class="viewer-count mono">{`${index + 1} / ${images.length}`}</span> : <span />}
-        <button type="button" class="icon-button viewer-button" aria-label={t("保存图片", "Save image")} disabled={!url} onClick={download}>
-          <DownloadIcon />
-        </button>
+        {pending ? (
+          <span class="viewer-actions">
+            <button type="button" class="icon-button viewer-button" aria-label={t("移除附件", "Remove attachment")} onClick={pending.onRemove}>
+              <TrashIcon />
+            </button>
+            <button type="button" class="icon-button viewer-button" aria-label={t("编辑图片", "Edit image")} disabled={!url} onClick={pending.onEdit}>
+              <EditIcon />
+            </button>
+          </span>
+        ) : (
+          <button type="button" class="icon-button viewer-button" aria-label={t("保存图片", "Save image")} disabled={!url} onClick={download}>
+            <DownloadIcon />
+          </button>
+        )}
       </div>
     </div>
   );

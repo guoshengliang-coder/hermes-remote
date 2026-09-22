@@ -67,6 +67,9 @@ export const CATALOG = {
   "HR-COMPAT-002": { zh: "这台 Mac 上的 Hermes 缺少部分接口，定时任务、技能等部分功能可能无法使用；聊天不受影响。", en: "The Hermes on this Mac is missing some interfaces, so features such as scheduled tasks or skills may not work. Chat is unaffected.", retryable: false, action: "none" },
   "HR-COMPAT-003": { zh: "这台 Mac 上的 Hermes 版本低于 Hermes GO 已验证的最低版本，部分功能可能异常。请更新 Hermes。", en: "The Hermes on this Mac is older than the oldest version Hermes GO was verified with, so some features may misbehave. Update Hermes.", retryable: false, action: "none" },
   "HR-SEARCH-001": { zh: "消息搜索失败，请重试。", en: "Message search failed. Retry.", retryable: true, action: "retry" },
+  "HR-MEDIA-004": { zh: "无法打开这张图片，可能已损坏或过大。请换一张再试。", en: "Couldn't open this image — it may be damaged or too large. Try a different one.", retryable: true, action: "retry" },
+  "HR-MEDIA-005": { zh: "编辑结果保存失败，请重试；你的修改仍在屏幕上。", en: "Couldn't save the edited image. Retry — your edits are still on screen.", retryable: true, action: "retry" },
+  "HR-SESS-014": { zh: "无法读取所选会话的内容，请重试。", en: "Couldn't read the selected conversation. Retry.", retryable: true, action: "retry" },
   "HR-SYNC-001": { zh: "无法同步完整会话内容，请重试。", en: "Couldn't synchronize the complete conversation. Retry.", retryable: true, action: "retry" },
   "HR-SYNC-003": { zh: "Mac 上的 Hermes 返回了错误，请检查 Mac 端。", en: "Hermes on the Mac returned an error. Check the Mac.", retryable: false, action: "open-mac" },
   "HR-SYNC-004": { zh: "无法解析会话内容，请更新 App。", en: "This conversation could not be read. Update the app.", retryable: false, action: "reload" },
@@ -107,6 +110,7 @@ export const CATALOG = {
   "HR-WEB-005": { zh: "服务器返回了无法处理的响应，请刷新页面后重试。", en: "The server sent a response this page can't handle. Reload and try again.", retryable: false, action: "reload" },
   "HR-WEB-006": { zh: "附件不符合要求：每条消息最多 9 个，单个不超过 6 MB，且不能是空文件或可执行文件。", en: "This attachment isn't allowed: up to 9 per message, 6 MB each, and no empty or executable files.", retryable: false, action: "none" },
   "HR-WEB-007": { zh: "无法复制到剪贴板，请长按文字手动选择复制。", en: "Couldn't copy to the clipboard. Press and hold the text to select and copy it.", retryable: false, action: "none" },
+  "HR-WEB-008": { zh: "无法生成表格图片，请重试或改用复制表格。", en: "Couldn't create the table image. Retry, or copy the table instead.", retryable: true, action: "retry" },
 } satisfies Record<string, CatalogEntry>;
 
 export type ErrorCode = keyof typeof CATALOG;

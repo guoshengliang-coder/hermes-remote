@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./model";
-import { formatTimeSeparator, greetingForHour, showsTimeSeparator, transcriptFileBaseName, transcriptMarkdown, transcriptText } from "./transcript";
+import { formatTimeSeparator, greetingForHour, showsTimeSeparator, transcriptAttachmentName, transcriptFileBaseName, transcriptMarkdown, transcriptMarkdownForAttachment, transcriptText } from "./transcript";
 
 const at = (y: number, m: number, d: number, h = 12, min = 0) => new Date(y, m - 1, d, h, min).getTime();
 const item = (role: ChatItem["role"], text: string, extra: Partial<ChatItem> = {}): ChatItem => ({
@@ -60,5 +60,35 @@ describe("transcript export (MessageActions.transcriptText / TranscriptExport.kt
   it("file names are filesystem-safe and stamped", () => {
     expect(transcriptFileBaseName('a/b: "c"?', at(2026, 9, 22, 8, 7, ))).toBe("HermesGO-a b c-20260922-080700");
     expect(transcriptFileBaseName("  ", at(2026, 9, 22, 8, 7))).toBe("HermesGO-20260922-080700");
+  });
+});
+
+describe("conversation as an attachment (SESSION_EXCHANGE §4.2)", () => {
+  const turns = Array.from({ length: 10 }, (_, i) => [item("user", `question ${i} ${"x".repeat(200)}`), item("assistant", `answer ${i} ${"y".repeat(200)}`)]).flat();
+  const now = at(2026, 9, 22, 15);
+
+  it("returns the whole document when it fits", () => {
+    const doc = transcriptMarkdownForAttachment("T", turns, "zh", now, 1_000_000);
+    expect(doc).toBe(transcriptMarkdown("T", turns, "zh", now));
+    expect(doc).not.toContain("已省略");
+  });
+
+  it("drops the earliest turns, says how many, and fits the cap", () => {
+    const doc = transcriptMarkdownForAttachment("T", turns, "zh", now, 2_000);
+    expect(new TextEncoder().encode(doc).length).toBeLessThanOrEqual(2_000);
+    const dropped = Number(/已省略最早 (\d+) 轮，原对话共 10 轮/.exec(doc)?.[1]);
+    expect(dropped).toBeGreaterThan(0);
+    expect(doc).toContain(`question ${dropped} `);
+    expect(doc).not.toContain(`question ${dropped - 1} `);
+    expect(doc).toContain("question 9 ");
+  });
+
+  it("is empty when not even the last turn fits", () => {
+    expect(transcriptMarkdownForAttachment("T", turns, "en", now, 200)).toBe("");
+  });
+
+  it("names the file by the conversation title", () => {
+    expect(transcriptAttachmentName("部署 / 回滚", now)).toBe("部署 回滚.md");
+    expect(transcriptAttachmentName(null, now)).toBe("HermesGO-20260922-150000.md");
   });
 });

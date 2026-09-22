@@ -1007,6 +1007,19 @@ opens pin / rename / move / archive / delete without opening the chat; rename sh
 delete asks in red naming the conversation and removes the row; no request the UI sent was refused
 by the Gateway. Gateway unit and integration tests cover every refused shape.
 
+Batch 5 (branch `claude/web-batch5`, Web only, 23 checks, `/tmp` drive script against
+`scripts/dev/web-stack.sh`; the share sheet is stubbed away so the download fallback is what runs):
+the table card head offers 保存为图片 and 全屏查看; fullscreen shows the whole table; saving
+downloads `HermesGO-Table-<stamp>.png` (light palette, 170px columns) and flashes 已保存表格图片.
+Scrolling past a prompt shows the turn pill with its summary and the ≡ list; tapping it lands on
+the bubble with the outline. ＋ opens 拍照 / 照片 / 文件 + 常用提示 / 添加会话; a prompt created in
+the library is inserted and kept in `hermes-go.prompts`; picking a conversation counts down
+「最多再选 8 个」 and attaches `<title>.md`. A picked PNG opens in the preview with 移除 / 编辑; a
+stroke enables undo; 取消 with edits asks 放弃这些修改？; ink, mosaic and a corner-dragged crop
+(1:1 squares it, undo restores) bake to `batch5-shot-edited.jpg` in the same strip position;
+完成 with no edits leaves it alone; the edited image is sent with no error notice. The 4007
+recreate of an empty conversation is covered by `session.test.ts` (the mock cannot reclaim).
+
 ### Still needs a real iPhone — none of this has been verified on a device
 
 Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
@@ -1060,6 +1073,12 @@ version with each result.
     the reasoning effort; confirm on Android that the same conversation shows the new model. Move a
     chat via its project subtitle. While Android runs a turn in the same conversation, open it on the
     Web: the composer is replaced by `HR-SESS-013` with Retry.
+14. **Composer and chat extras (batch 5).** Save a table as an image: the iOS share sheet opens and
+    Save Image puts it in Photos (legible, light background even in dark mode). ＋ → 拍照 opens the
+    camera. Edit a photo: two fingers zoom without drawing or zooming the page, one finger draws,
+    the crop handles are easy to grab, 完成 replaces the chip and the sent image is the edited one.
+    Add a conversation and confirm Hermes on the Mac receives a readable `.md`. Scroll a long chat:
+    the turn pill appears, fades 1.5 s after scrolling stops, and a tap lands on the prompt.
 
 ## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
 
