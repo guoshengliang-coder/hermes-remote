@@ -12,6 +12,7 @@ import { useApp } from "../app/store";
 import type { PendingAttachment } from "../chat/attachments";
 import { hasOpenQuestion, initialChatState, reduceChat, type ChatItem } from "../chat/model";
 import { ChatSession, type BackgroundProcess } from "../chat/session";
+import { followAfterScroll } from "../chat/followBottom";
 import { pillGroup, turnGroups, TURN_PILL_IDLE_HIDE_MS, TURN_PILL_LIST_MIN_GROUPS, type TurnGroup } from "../chat/turns";
 import { formatTimeSeparator, greetingForHour, showsTimeSeparator } from "../chat/transcript";
 import { appError } from "../errors";
@@ -215,7 +216,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    if (stick.current) el.scrollTop = el.scrollHeight;
+    if (stick.current) pinToBottom(el);
     else restoreAnchor(el, anchor.current);
     anchor.current = readAnchor(el);
   }, [state.items, open, state.older.loading, state.older.error]);
@@ -223,12 +224,53 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   function onScroll() {
     const el = scroller.current;
     if (!el) return;
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const decision = followAfterScroll({
+      distanceFromBottom: el.scrollHeight - el.scrollTop - el.clientHeight,
+      following: stick.current,
+      now: performance.now(),
+      userAt: userAt.current,
+      searching: searchOpenRef.current,
+      contentGrew: el.scrollHeight !== pinnedHeight.current,
+    });
+    if (decision === "follow") stick.current = true;
+    else if (decision === "release") stick.current = false;
+    // Nobody touched the list: content grew under a scroll we set ourselves. Stay pinned.
+    else if (decision === "repin") pinToBottom(el);
     if (stick.current !== atBottom) setAtBottom(stick.current);
     anchor.current = readAnchor(el);
     updatePill(el);
     maybeLoadOlder(el);
   }
+
+  /** The last time the reader touched, wheeled or keyed the message list. */
+  // -Infinity, not 0: performance.now() counts from page load, so 0 reads as "just now" for the
+  // first second after a load — exactly when the conversation is being pinned to its bottom.
+  const userAt = useRef(Number.NEGATIVE_INFINITY);
+  const markUser = () => {
+    userAt.current = performance.now();
+  };
+  /** scrollHeight at our last pin to the bottom: a different height means content settled since. */
+  const pinnedHeight = useRef(-1);
+  const pinToBottom = (el: HTMLElement) => {
+    el.scrollTop = el.scrollHeight;
+    pinnedHeight.current = el.scrollHeight;
+  };
+  const searchOpenRef = useRef(false);
+  searchOpenRef.current = searchOpen;
+
+  // Keep the newest turn in view while its content settles: Markdown, code highlighting, tables and
+  // images change a turn's height after the render that scrolled to the bottom. Only while
+  // following the bottom, and never during in-chat search (its hits scroll the list themselves).
+  useEffect(() => {
+    const el = scroller.current;
+    const inner = el?.querySelector(".messages-inner");
+    if (!el || !inner || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => {
+      if (stick.current && !searchOpenRef.current) pinToBottom(el);
+    });
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, []);
 
   /** Earlier messages, fetched page by page as the reader reaches the top (HG-104). */
   function loadOlder() {
@@ -360,7 +402,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     const el = scroller.current;
     if (!el) return;
     stick.current = true;
-    el.scrollTop = el.scrollHeight;
+    pinToBottom(el);
     setAtBottom(true);
   }
 
@@ -560,7 +602,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         ) : null}
         {refreshing ? <div class="top-progress" aria-hidden="true" /> : null}
       </header>
-      <div class="messages" ref={scroller} onScroll={onScroll}>
+      <div class="messages" ref={scroller} onScroll={onScroll} onPointerDown={markUser} onTouchStart={markUser} onWheel={markUser} onKeyDown={markUser}>
         {pill ? (
           <div class="turn-pill-slot">
             <div class="turn-pill">
@@ -571,7 +613,10 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
                 onClick={() => {
                   setPill(null);
                   if (pill.key) jumpTo(pill.key);
-                  else if (scroller.current) scroller.current.scrollTop = 0;
+                  else if (scroller.current) {
+                    stick.current = false;
+                    scroller.current.scrollTop = 0;
+                  }
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
