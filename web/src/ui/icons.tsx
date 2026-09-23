@@ -94,6 +94,13 @@ export const MacIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const SettingsIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M10 2.8h4l.6 2.1 1.8 1 2.1-.5 2 3.5-1.5 1.6v2.1l1.5 1.6-2 3.5-2.1-.5-1.8 1-.6 2.1h-4l-.6-2.1-1.8-1-2.1.5-2-3.5 1.5-1.6v-2.1L3.5 8.9l2-3.5 2.1.5 1.8-1z" />
+  </Svg>
+);
+
 export const CopyIcon = (p: IconProps) => (
   <Svg {...p}>
     <rect x="8" y="8" width="12" height="12" rx="2.5" />

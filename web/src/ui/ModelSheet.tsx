@@ -8,7 +8,7 @@ import { HermesSocketError } from "../hermes/client";
 import { REASONING_VALUES, type ReasoningValue } from "../hermes/params";
 import { sessionModelCommand } from "../hermes/slash";
 import { ErrorNotice } from "./ErrorNotice";
-import { CheckIcon, ChevronIcon, RefreshIcon, StarIcon } from "./icons";
+import { ChevronIcon, RefreshIcon, StarIcon } from "./icons";
 import { Sheet } from "./Sheet";
 
 // Model selector (DESIGN §5.17, Android ModelSelector.kt / ModelsViewModel): the current model, a
@@ -83,7 +83,8 @@ export function ModelSheet({
         if (!live) return;
         const list = Array.isArray(body?.providers) ? body.providers : [];
         setProviders(list);
-        const expanded = list.find((p) => p.is_current || p.models?.includes(current.model ?? ""))?.slug;
+        const expanded = list.find((p) => p.slug === current.provider || p.models?.includes(current.model ?? ""))?.slug
+          ?? list.find((p) => p.is_current)?.slug;
         if (expanded) setOpen(new Set([expanded]));
       },
       (e: unknown) => live && setListError({ ...appError("HR-RPC-003", toAppError(e, "device").details ?? null) }),
@@ -141,17 +142,19 @@ export function ModelSheet({
     }
   }
 
-  const row = (o: { provider: string; model: string; key: string }, showProvider = false) => {
+  const row = (o: { provider: string; model: string; key: string }) => {
     const selected = o.key === currentKey || (!currentKey && o.model === current.model);
     const admissible = sessionModelCommand(o.provider, o.model) !== null;
     const fav = prefs.favorites.includes(o.key);
     return (
-      <div class={`model-row${selected ? " selected" : ""}`} key={`${showProvider ? "q" : ""}${o.key}`}>
+      <div class={`model-row${selected ? " selected" : ""}`} key={o.key}>
         <button type="button" class="model-pick" disabled={!admissible || pending !== null} onClick={() => void choose(o.provider, o.model)}>
-          <span class="model-name mono">{o.model}</span>
-          {showProvider ? <span class="model-provider">{byKey.get(o.key)?.providerName ?? o.provider}</span> : null}
+          <span class="model-row-copy">
+            <span class="model-name mono">{o.model}</span>
+            <span class="model-provider">{byKey.get(o.key)?.providerName ?? o.provider}</span>
+          </span>
           <span class="model-state">
-            {pending === o.key ? t("切换中…", "Switching…") : selected ? <CheckIcon size={16} /> : null}
+            {pending === o.key ? t("切换中…", "Switching…") : null}
           </span>
         </button>
         <button
@@ -171,48 +174,43 @@ export function ModelSheet({
   const favorites = prefs.favorites.map((k) => byKey.get(k)).filter((o): o is NonNullable<typeof o> => Boolean(o));
 
   return (
-    <Sheet title={t("选择模型", "Select model")} closeLabel={t("关闭", "Close")} onClose={onClose} wide>
+    <Sheet title={t("选择模型", "Select model")} closeLabel={t("关闭", "Close")} onClose={onClose} wide
+      headerAction={<button type="button" class="icon-button" aria-label={t("刷新列表", "Refresh list")} onClick={() => setAttempt((n) => n + 1)}><RefreshIcon size={18} /></button>}>
       <div class="model-status">
-        <span class="model-status-label">{t("当前使用", "In use")}</span>
-        <span class="model-status-name mono">{current.model || t("默认模型", "Default model")}</span>
-        <p class="model-status-note">{t("只影响这个对话。", "This conversation only.")}</p>
+        <span class="model-status-content">
+          <span class="model-status-title">
+            <span class="model-status-name mono">{current.model || t("默认模型", "Default model")}</span>
+            <span class="model-status-label">{t("当前使用", "In use")}</span>
+          </span>
+          <span class="model-status-note">{current.provider ? `${current.provider} · ` : ""}{t("仅此对话", "This conversation")}</span>
+          <span class="reasoning-row">
+            <label class="reasoning-label" for="reasoning-select">{t("推理强度", "Reasoning effort")}</label>
+            <select id="reasoning-select" class="reasoning-select" value={isReasoning(reasoning) ? reasoning : ""}
+              onChange={(e) => { const value = (e.target as HTMLSelectElement).value; if (isReasoning(value)) void pickReasoning(value); }}>
+              {!isReasoning(reasoning) ? <option value="">{t("默认", "Default")}</option> : null}
+              {REASONING_VALUES.map((v) => <option value={v} key={v}>{REASONING_LABEL[v][language === "en" ? 1 : 0]}</option>)}
+            </select>
+          </span>
+        </span>
       </div>
-      <div class="reasoning-row">
-        <label class="reasoning-label" for="reasoning-select">
-          {t("推理强度", "Reasoning effort")}
-        </label>
-        <select
-          id="reasoning-select"
-          class="reasoning-select"
-          value={isReasoning(reasoning) ? reasoning : ""}
-          onChange={(e) => {
-            const value = (e.target as HTMLSelectElement).value;
-            if (isReasoning(value)) void pickReasoning(value);
-          }}
-        >
-          {!isReasoning(reasoning) ? <option value="">{t("默认", "Default")}</option> : null}
-          {REASONING_VALUES.map((v) => (
-            <option value={v} key={v}>
-              {REASONING_LABEL[v][language === "en" ? 1 : 0]}
-            </option>
-          ))}
-        </select>
-      </div>
-      <p class="picker-note">{t("仅当前对话；该模型的选择会被记住。", "This chat only; remembered for this model.")}</p>
       {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
       {listError ? <ErrorNotice error={listError} language={language} onRetry={() => setAttempt(attempt + 1)} /> : null}
       {!providers && !listError ? <div class="center-spinner"><span class="spinner" /></div> : null}
+      {providers && all.length === 0 ? <p class="picker-note">{t("暂无可选模型", "No models available")}</p> : null}
       {recents.length ? (
-        <>
+        <section class="model-recents">
           <div class="search-section-head">{t("快捷切换", "Quick switch")}</div>
-          {recents.map((o) => row(o, true))}
-        </>
+          <div class="model-recents-scroll">{recents.slice(0, 5).map((o) => (
+            <button type="button" class="model-recent-chip mono" key={o.key} disabled={pending !== null || sessionModelCommand(o.provider, o.model) === null}
+              onClick={() => void choose(o.provider, o.model)}>{o.model}</button>
+          ))}</div>
+        </section>
       ) : null}
       {favorites.length ? (
-        <>
-          <div class="search-section-head">{t("收藏模型", "Favorites")}</div>
-          {favorites.map((o) => row(o, true))}
-        </>
+        <section class="model-provider-group model-favorites">
+          <div class="model-provider-head"><StarIcon size={17} filled />{t(`收藏模型 (${favorites.length})`, `Favorites (${favorites.length})`)}</div>
+          {favorites.map((o) => row(o))}
+        </section>
       ) : null}
       {providers?.map((p) => {
         const expanded = open.has(p.slug);
@@ -231,20 +229,13 @@ export function ModelSheet({
               }
             >
               <span>{p.name || p.slug}</span>
-              <span class="group-count mono">{p.models?.length ?? 0}</span>
+              <span class="group-count mono">{t(`${p.models?.length ?? 0} 项`, `${p.models?.length ?? 0} items`)}</span>
               <ChevronIcon open={expanded} />
             </button>
             {expanded ? (p.models ?? []).map((m) => row({ provider: p.slug, model: m, key: modelKey(p.slug, m) })) : null}
           </section>
         );
       })}
-      {providers ? (
-        <button type="button" class="sheet-action" onClick={() => setAttempt(attempt + 1)}>
-          <span class="sheet-action-label">
-            <RefreshIcon size={16} /> {t("刷新列表", "Refresh list")}
-          </span>
-        </button>
-      ) : null}
     </Sheet>
   );
 }
