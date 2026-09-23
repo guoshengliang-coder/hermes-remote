@@ -1049,6 +1049,16 @@ follows system dark mode. Landscape with the keyboard up leaves the page about 3
 emulator (status bar, Chrome's toolbar and the keyboard take the rest): only the caret line of the
 input shows. That is the browser's limit, not something the page can reclaim.
 
+HG-109 (branch `claude/hg-109-open-latest`, Web only): the mock now pages
+`GET /api/sessions/{id}/messages` the way upstream does (`order=latest` counts back from the newest
+row, each page ascending) and lists a 260-row fixture, 「长会话 · 260 条历史」. Before the fix, opening
+it from the list landed 1,032px short of the bottom in 3 of 8 Chromium runs and **8 of 8 WebKit runs**
+(8,600px short); after it, 8/8 in both, and reload, "scrolled up stays up", 「回到最新」 and an older
+page loading while reading all hold. Batch 5 (23/23) and batch 6 (29/29) drives re-ran green.
+Still open and pre-existing on `main`: in WebKit, the page of older turns that loads while scrolling
+up leaves the reader 9,000px further down than the prompt they were on (Chromium keeps it through
+native scroll anchoring, which Safari lacks).
+
 ### Still needs a real iPhone — none of this has been verified on a device
 
 Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS

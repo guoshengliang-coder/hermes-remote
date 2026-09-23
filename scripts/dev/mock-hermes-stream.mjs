@@ -78,13 +78,15 @@ const server = createServer(async (request, response) => {
     // times in 我的提问. Mirroring it here is what makes HG-4 reproducible locally; a mock that
     // omitted it looked identical to the bug. Spread the rows a few minutes apart so the list has
     // something to show.
+    const id = decodeURIComponent(p.split("/")[3]);
+    if (id === LONG_HISTORY_ID) return json(response, pageMessages(longHistoryRows(), url));
     const base = Math.floor(Date.now() / 1000) - promptCount * 300;
     const out = [];
     for (let i = 0; i < promptCount; i++) {
       out.push({ id: i * 2 + 1, role: "user", content: promptTexts[i] ?? "t", timestamp: base + i * 300 });
       out.push({ id: i * 2 + 2, role: "assistant", content: FULL_TEXT, timestamp: base + i * 300 + 60 });
     }
-    return json(response, { messages: out });
+    return json(response, pageMessages(out, url));
   }
   if (p === "/api/sessions/search") {
     // Upstream's shape: `results` rows with a snippet around the match. The mock searches the
@@ -643,7 +645,52 @@ function projectTreeNodes() {
 
 const HERMES_REMOTE = "/Users/me/CodeX project/hermes-remote";
 const nowSec = () => Math.floor(Date.now() / 1000);
+// HG-109: a conversation long enough that the Web only loads its newest page on entry and pages
+// older rows in as the reader scrolls up — the situation a short mock never reaches.
+const LONG_HISTORY_ID = "fx-long";
+const LONG_HISTORY_TURNS = 130;
+let longHistoryCache = null;
+function longHistoryRows() {
+  if (longHistoryCache) return longHistoryCache;
+  const base = nowSec() - LONG_HISTORY_TURNS * 600 - 300;
+  const rows = [];
+  for (let i = 0; i < LONG_HISTORY_TURNS; i++) {
+    rows.push({ id: i * 2 + 1, role: "user", content: `第 ${i + 1} 问：这一轮想确认什么？`, timestamp: base + i * 600 });
+    rows.push({
+      id: i * 2 + 2,
+      role: "assistant",
+      content: `第 ${i + 1} 答。\n\n先看结论：这一段只是为了把会话撑长，好让首屏只装得下最新的一页。\n\n- 要点一\n- 要点二\n- 要点三`,
+      timestamp: base + i * 600 + 60,
+    });
+  }
+  longHistoryCache = rows;
+  return rows;
+}
+
+/**
+ * GET /api/sessions/{id}/messages paging, as upstream answers it (docs/HERMES_CONTRACT.md):
+ * `order=latest` pages backwards from the newest row, `offset` counting rows skipped from the end,
+ * and every page is still returned in ascending order. With a `limit` and no `order` upstream
+ * answers the OLDEST page; with neither it returns the latest 500.
+ */
+function pageMessages(all, url) {
+  const limitParam = url.searchParams.get("limit");
+  if (limitParam === null) return { messages: all.slice(-500) };
+  const limit = Math.min(500, Math.max(1, Number(limitParam) || 1));
+  const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0) || 0);
+  const order = url.searchParams.get("order") ?? "oldest";
+  let rows;
+  if (order === "latest") {
+    const end = Math.max(0, all.length - offset);
+    rows = all.slice(Math.max(0, end - limit), end);
+  } else {
+    rows = all.slice(offset, offset + limit);
+  }
+  return { messages: rows, pagination: { limit, offset, order, returned: rows.length } };
+}
+
 const fixtureSessions = [
+  { id: LONG_HISTORY_ID, title: "长会话 · 260 条历史", model: "claude-opus-5", cwd: HERMES_REMOTE, git_repo_root: HERMES_REMOTE, git_branch: "main", ago: 5 * 60 },
   { id: "fx-1", title: "重构 gateway 路由中间件", model: "claude-opus-5", cwd: HERMES_REMOTE, git_repo_root: HERMES_REMOTE, git_branch: "codex/gateway-router", ago: 10 * 60 },
   { id: "fx-2", title: "周报汇总 · 上周提交记录", model: "claude-sonnet-5", cwd: null, git_repo_root: null, git_branch: null, ago: 60 * 60 },
   { id: "fx-3", title: "翻译 Android 文案", model: "claude-sonnet-5", cwd: "/Users/me/.hermes/nous-hermes-agent-playground", git_repo_root: "/Users/me/.hermes/nous-hermes-agent-playground", git_branch: "claude/l10n-pass", ago: 30 * 60 },
