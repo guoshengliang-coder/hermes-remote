@@ -38,7 +38,7 @@ Email-only account and Web sessions require no Google client IDs.
 | Google ID token | Desktop/Android/Web briefly | One-time identity proof exchange | Provider-defined, accepted only while valid | Never persisted by Hermes GO |
 | Email OTP | Recipient briefly | One-time mailbox proof | 10 minutes, five attempts, single use | Keyed challenge hash only; plaintext sent through transactional provider |
 | Hermes GO access token (`hga_…`) | One Desktop, phone, or browser session | Native `/v2/*`, account-mode `/api/*`, or Web account access | 15 minutes | Hash server-side; Keychain/encrypted native storage or Secure HttpOnly Web cookie |
-| Hermes GO refresh token (`hgr_…`) | One client session | Rotate an access/refresh pair | 30 days absolute, rotated on every use | Hash server-side; Keychain/encrypted native storage or Secure HttpOnly Web cookie |
+| Hermes GO refresh token (`hgr_…`) | One client session | Rotate an access/refresh pair | 180 days, **rolling**: every rotation restarts the window (owner decision 2026-09-23, raised from 30 days) | Hash server-side; Keychain/encrypted native storage or Secure HttpOnly Web cookie |
 | Connector private key | One Desktop installation/Connector | Sign server challenges for `/v2/connect` | Until rotated, revoked, or replaced | Mac Keychain or protected Connector credential store only |
 | Connector public key | Gateway | Verify Connector challenge responses | Same binding generation | Account database |
 | Reauthentication grant (`hgg_…`) | Current Desktop/phone session | Confirm one scoped destructive operation | 10 minutes, single use | Hash server-side; memory/Keychain only while active |

@@ -227,7 +227,7 @@ test("AccountService exchanges a proof without persisting raw bearer values", as
   assert.equal(response.account.id, "account-1");
   assert.equal(response.installation.kind, "phone");
   assert.equal(response.session.accessExpiresAt, "2026-09-02T04:15:00.000Z");
-  assert.equal(response.session.refreshExpiresAt, "2026-10-02T04:00:00.000Z");
+  assert.equal(response.session.refreshExpiresAt, "2027-03-01T04:00:00.000Z"); // 180 days
   assert.match(response.session.accessToken, /^hga_/);
   assert.match(response.session.refreshToken, /^hgr_/);
   assert.match(repository.createdMaterial?.accessTokenHash ?? "", /^[a-f0-9]{64}$/);
@@ -236,6 +236,39 @@ test("AccountService exchanges a proof without persisting raw bearer values", as
 
   repository.sessionCreationMode = "replayed";
   assert.deepEqual(await service.exchangeGoogleProof(input), response);
+});
+
+test("a refresh restarts the 180-day window instead of counting from the sign-in", async () => {
+  const repository = new FakeAccountRepository();
+  const codec = new TokenCodec(HASH_KEY);
+  let now = new Date("2026-09-02T04:00:00.000Z");
+  const service = new AccountService(
+    { verify: async () => verifiedIdentity() },
+    repository,
+    codec,
+    () => now,
+  );
+  const signIn = await service.exchangeGoogleProof({
+    platform: "android",
+    idToken: "google-id-token",
+    nonce: "1234567890abcdef",
+    clientInstallationId: INSTALLATION_ID,
+    displayName: "Pixel",
+    appVersion: "0.2.0",
+    idempotencyKey: "6f2b1a48-2f39-4d58-9df6-6a4bcb0d2f10",
+  });
+  assert.equal(signIn.session.refreshExpiresAt, "2027-03-01T04:00:00.000Z");
+
+  // Five months later the client is still inside the window and refreshes: the new token is good
+  // for another 180 days, so a client used at least twice a year never signs in again.
+  now = new Date("2027-02-01T04:00:00.000Z");
+  const rotated = await service.refresh({
+    refreshToken: codec.issueRefreshToken(),
+    clientInstallationId: INSTALLATION_ID,
+    idempotencyKey: "0c5f4cbb-6b0e-4d5c-9f2c-7f1df0f2a2f3",
+  });
+  assert.equal(rotated.refreshExpiresAt, "2027-07-31T04:00:00.000Z");
+  assert.equal(rotated.accessExpiresAt, "2027-02-01T04:15:00.000Z");
 });
 
 test("AccountService maps refresh reuse and revoked access to stable errors", async () => {

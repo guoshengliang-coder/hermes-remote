@@ -19,7 +19,10 @@ import { TokenCodec } from "./token-codec.js";
 import { ProtectedResponseCodec } from "./protected-response-codec.js";
 
 const ACCESS_LIFETIME_MS = 15 * 60 * 1_000;
-const REFRESH_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
+// Rolling, not absolute: every rotation restarts the window, so a client used at least this often
+// never has to sign in again (owner decision 2026-09-23, raised from 30 days). A lost device still
+// loses access on its own once it goes this long unused; "never expires" was refused for that.
+const REFRESH_LIFETIME_MS = 180 * 24 * 60 * 60 * 1_000;
 const REAUTHENTICATION_LIFETIME_MS = 10 * 60 * 1_000;
 const MUTATION_IDEMPOTENCY_LIFETIME_MS = 24 * 60 * 60 * 1_000;
 const ACCOUNT_DELETION_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
