@@ -7,6 +7,7 @@
 > `docs/ERROR_HANDLING.md` 登记。视觉约束以 `docs/DESKTOP_DESIGN.md` 为准，行为约束以
 > `docs/DESKTOP_PHASE0.md` 为准；本文与两者冲突时，以它们和代码为准。
 > Android 侧的对应需求是 `docs/LOGIN_REQUIREMENTS.md`，本文沿用它「从未登录 / 登录失效」的分界。
+> 设计稿：`docs/design/desktop-onboarding/`（16 个画面，索引见该目录 `README.md`）。
 
 ## 1. 问题
 
