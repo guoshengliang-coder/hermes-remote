@@ -44,6 +44,32 @@ class MappersTest {
         assertEquals("/tmp/screenshot.png", parsed.images.single().remotePath)
     }
 
+    @Test fun image_attached_at_history_marker_restores_its_own_image_without_showing_the_mac_path() {
+        val initial = MessageDto(
+            id = 1,
+            role = "user",
+            content = "这是初始图片\n[Image attached at: /Users/me/.hermes-remote/uploads/initial.jpg]",
+        ).toDomain()
+        val later = MessageDto(
+            id = 2,
+            role = "user",
+            content = "这是另一张\n@image:/Users/me/.hermes-remote/uploads/later.jpg",
+        ).toDomain()
+
+        assertEquals("这是初始图片", initial.text)
+        assertEquals("/Users/me/.hermes-remote/uploads/initial.jpg", initial.images.single().remotePath)
+        assertEquals("这是另一张", later.text)
+        assertEquals("/Users/me/.hermes-remote/uploads/later.jpg", later.images.single().remotePath)
+        assertTrue(initial.images.single().id != later.images.single().id)
+    }
+
+    @Test fun a_quoted_history_image_marker_remains_text() {
+        val example = "```\n[Image attached at: /Users/me/uploads/example.jpg]\n```"
+        val message = MessageDto(id = 3, role = "user", content = example).toDomain()
+        assertEquals(example, message.text)
+        assertTrue(message.images.isEmpty())
+    }
+
     @Test fun file_directives_become_hidden_downloadable_references() {
         val parsed = parseMessageContent(
             "报告已生成\n@file:`/Users/me/report final.pdf`\n[User attached file: report final.pdf]",

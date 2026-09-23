@@ -824,6 +824,88 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
+    @Test fun a_path_sent_immediately_after_stop_is_a_prompt_not_a_slash_command() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.commandsCatalog() } returns listOf("/help" to "Show help")
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.stop()
+        runCurrent()
+        val message = "/Users/me/Documents/notes.md\n请参考这个文件"
+        vm.send(message)
+        runCurrent()
+
+        coVerify(exactly = 1) { chatRepo.interrupt("s1-live") }
+        coVerify(exactly = 1) { chatRepo.submit("s1-live", message) }
+        coVerify(exactly = 0) { chatRepo.slashExec(any(), any()) }
+        assertEquals(
+            com.hermes.client.domain.DeliveryState.SENT,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    @Test fun a_catalogued_slash_command_still_uses_slash_exec() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.commandsCatalog() } returns listOf("/help" to "Show help")
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.send("/help")
+        runCurrent()
+
+        coVerify(exactly = 1) { chatRepo.slashExec("s1-live", "/help") }
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
+    @Test fun a_slash_command_waits_for_the_catalog_when_it_was_not_loaded_at_open() = runTest {
+        val catalog = kotlinx.coroutines.CompletableDeferred<List<Pair<String, String>>>()
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.commandsCatalog() } coAnswers { catalog.await() }
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.send("/help")
+        runCurrent()
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+        coVerify(exactly = 0) { chatRepo.slashExec(any(), any()) }
+
+        catalog.complete(listOf("/help" to "Show help"))
+        runCurrent()
+        coVerify(exactly = 1) { chatRepo.slashExec("s1-live", "/help") }
+    }
+
+    @Test fun an_unknown_slash_token_is_regular_message_text() {
+        val commands = listOf("/help" to "Show help")
+        assertFalse(isKnownSlashCommand("/unknown hello", commands))
+        assertFalse(isKnownSlashCommand("/Users/me/file.md", commands))
+        assertTrue(isKnownSlashCommand("/help topic", commands))
+    }
+
+    @Test fun an_unknown_slash_token_is_submitted_as_a_prompt() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.commandsCatalog() } returns listOf("/help" to "Show help")
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+
+        vm.send("/unknown hello")
+        runCurrent()
+
+        coVerify(exactly = 1) { chatRepo.submit("s1-live", "/unknown hello") }
+        coVerify(exactly = 0) { chatRepo.slashExec(any(), any()) }
+        events.emit(event("message.complete", "s1-live", "done"))
+        advanceUntilIdle()
+    }
+
     @Test fun failed_submit_marks_the_bubble_not_sent_without_an_error_row_and_retry_resends() = runTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.submit("s1-live", "hello") } throws

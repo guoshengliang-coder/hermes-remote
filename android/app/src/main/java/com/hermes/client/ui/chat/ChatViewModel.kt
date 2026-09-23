@@ -1516,7 +1516,6 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun dispatch(text: String, atts: List<PendingAttachment>) {
-        val isSlash = text.trimStart().startsWith("/")
         val messageId = "u-${java.util.UUID.randomUUID()}"
         val expectedStoredId = storedSessionId
         val expectedProfile = currentProfile
@@ -1587,6 +1586,7 @@ class ChatViewModel @Inject constructor(
                     ?.let { runtimeStore.runtimes.value[it]?.liveHandle }
                     ?.takeIf { it.isNotBlank() }
                     ?: initialHandle
+                val isSlash = isKnownSlashCommand(text, commandsForSend(text))
                 submitTurnWithRecovery(
                     initialHandle = currentHandle,
                     storedId = expectedStoredId,
@@ -1687,6 +1687,22 @@ class ChatViewModel @Inject constructor(
                     _recreatedSessionId.value = recreated
                 }
             }
+        }
+    }
+
+    private suspend fun commandsForSend(text: String): List<Pair<String, String>> {
+        val token = text.trimStart().takeWhile { !it.isWhitespace() }
+        // A Mac path such as /Users/me/file.md is never a slash command. Do not delay its send
+        // behind a catalog request that might itself be waiting for the interrupted run.
+        if (!token.startsWith('/') || '/' in token.drop(1)) return emptyList()
+        _commands.value.takeIf { it.isNotEmpty() }?.let { return it }
+        return try {
+            withTimeoutOrNull(3_000L) { chat.commandsCatalog() }?.also { _commands.value = it }
+                ?: emptyList()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
@@ -2317,6 +2333,16 @@ class ChatViewModel @Inject constructor(
 
     fun selectProfile(name: String) {
         viewModelScope.launch { runCatching { profileRepo.setActive(name) } }
+    }
+}
+
+/** A leading slash is only a command when its first token names a catalogued command. */
+internal fun isKnownSlashCommand(text: String, commands: List<Pair<String, String>>): Boolean {
+    val token = text.trimStart().takeWhile { !it.isWhitespace() }
+    if (!token.startsWith('/') || '/' in token.drop(1)) return false
+    return commands.any { (name, _) ->
+        val catalogName = if (name.startsWith('/')) name else "/$name"
+        token == catalogName
     }
 }
 
