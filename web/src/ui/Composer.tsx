@@ -64,7 +64,9 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [problem, setProblem] = useState<AppError | null>(null);
   const [preparing, setPreparing] = useState(false);
+  const [focused, setFocused] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
+  const composer = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
 
   // A different conversation brings its own draft.
@@ -91,7 +93,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     const el = area.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
   }, [text]);
 
   async function addFiles(list: FileList | null) {
@@ -177,6 +179,18 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   if (blocked) return <div class="composer-wrap">{blocked}</div>;
 
   const full = attachments.length >= MAX_ATTACHMENTS;
+  const addButton = () => (
+    <button type="button" class="icon-button composer-add" aria-label={t("添加内容", "Add content")} disabled={disabled} onClick={() => { setFocused(false); setSheet("add"); }}>
+      <PlusIcon />
+    </button>
+  );
+  const sendOrStop = () => generating ? (
+    <button type="button" class="send-button stop" aria-label={t("停止", "Stop")} onClick={onInterrupt}><StopIcon /></button>
+  ) : (
+    <button type="button" class="send-button" aria-label={t("发送", "Send")} disabled={!canSend} onClick={send}>
+      {preparing ? <span class="spinner tiny" aria-hidden="true" /> : <SendIcon />}
+    </button>
+  );
   const sheets = (
     <>
       {sheet === "add" ? (
@@ -229,11 +243,6 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   return (
     <div class="composer-wrap">
       {sheets}
-      {chip ? (
-        <button type="button" class="model-chip mono" onClick={chip.onClick} aria-label={t(`模型：${chip.label}`, `Model: ${chip.label}`)}>
-          {chip.label}
-        </button>
-      ) : null}
       {problem ? <ErrorNotice error={problem} language={language} onDismiss={() => setProblem(null)} variant="inline" /> : null}
       {attachments.length ? (
         <div class="attachment-strip">
@@ -274,16 +283,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
           {t(`正在生成 ${generatingCount} 份对话记录…`, `Preparing ${generatingCount} transcript${generatingCount === 1 ? "" : "s"}…`)}
         </p>
       ) : null}
-      <div class="composer">
-        <button
-          type="button"
-          class="icon-button"
-          aria-label={t("添加内容", "Add content")}
-          disabled={disabled}
-          onClick={() => setSheet("add")}
-        >
-          <PlusIcon />
-        </button>
+      <div ref={composer} class={`composer${focused ? " expanded" : ""}`}>
         {[
           { ref: camera, accept: "image/*", capture: "environment" as const, multiple: false },
           { ref: photos, accept: "image/*", capture: undefined, multiple: true },
@@ -311,8 +311,10 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
           rows={1}
           value={text}
           disabled={disabled}
-          placeholder={t("给 Hermes 发消息", "Message Hermes")}
+          placeholder={focused ? t("输入消息…", "Type a message…") : t("发消息", "Message")}
           enterkeyhint="send"
+          onFocus={() => setFocused(true)}
+          onBlur={(e) => { if (!composer.current?.contains(e.relatedTarget as Node | null)) setFocused(false); }}
           onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
           onKeyDown={(e) => {
             if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
@@ -321,16 +323,19 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
             send();
           }}
         />
-        {generating && !canSend ? (
-          <button type="button" class="send-button stop" aria-label={t("停止", "Stop")} onClick={onInterrupt}>
-            <StopIcon />
-          </button>
-        ) : (
-          <button type="button" class="send-button" aria-label={t("发送", "Send")} disabled={!canSend} onClick={send}>
-            {preparing ? <span class="spinner tiny" aria-hidden="true" /> : <SendIcon />}
-          </button>
-        )}
+        {focused ? (
+          <div class="composer-actions">
+            {chip ? (
+              <button type="button" class="model-chip mono" onClick={() => { setFocused(false); chip.onClick(); }} aria-label={t(`模型：${chip.label}`, `Model: ${chip.label}`)}>
+                {chip.label}<span aria-hidden="true">⌄</span>
+              </button>
+            ) : <span class="composer-action-spacer" />}
+            {addButton()}
+            {sendOrStop()}
+          </div>
+        ) : generating || canSend || text.trim() || attachments.length ? sendOrStop() : addButton()}
       </div>
+      <p class="composer-disclaimer">{t("内容由 AI 生成", "Content generated by AI")}</p>
     </div>
   );
 }

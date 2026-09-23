@@ -15,6 +15,7 @@ import { useApp } from "../app/store";
 import { appError, type AppError } from "../errors";
 import type { ProfileSessionsResponse, SessionListItem, SessionListResponse } from "../hermes/types";
 import { ErrorNotice } from "./ErrorNotice";
+import { AccountDrawer } from "./AccountDrawer";
 import { HealthStrip } from "./HealthStrip";
 import { ArchiveIcon, BotIcon, ChatIcon, CheckIcon, ChevronIcon, ChevronUpIcon, CloseIcon, FolderIcon, MoreIcon, PlusIcon, SearchIcon } from "./icons";
 import { SearchView } from "./SearchView";
@@ -71,6 +72,7 @@ export function SessionList() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [submitNonce, setSubmitNonce] = useState(0);
@@ -216,7 +218,9 @@ export function SessionList() {
           </div>
         ) : (
           <div class="topbar-row">
-            <span class="topbar-spacer" />
+            <button type="button" class="icon-button avatar-trigger" aria-label={t("打开侧边栏", "Open sidebar")} aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
+              <span class="avatar-circle">{(app.account?.displayName?.trim()[0] || app.account?.email?.[0] || "H").toUpperCase()}</span>
+            </button>
             <span class="topbar-spacer" />
             <h1 class="topbar-title">{t("会话", "Chats")}</h1>
             <button type="button" class="icon-button" aria-label={t("搜索", "Search")} onClick={() => setSearching(true)}>
@@ -232,10 +236,6 @@ export function SessionList() {
             <BackClose onClose={() => setMenuOpen(false)} />
             <div class="menu-scrim" onClick={() => setMenuOpen(false)} />
             <div class="menu" role="menu">
-              <div class="menu-caption">
-                {app.account?.email ?? app.account?.displayName ?? ""}
-                {device ? <span class="menu-caption-sub">{device.desktopDisplayName || device.deviceId}</span> : null}
-              </div>
               <button type="button" role="menuitem" class="menu-item with-icon" onClick={() => { setMenuOpen(false); setProjectsOpen(true); }}>
                 <FolderIcon size={18} />
                 {t("按项目查看", "View by project")}
@@ -244,15 +244,10 @@ export function SessionList() {
                 <ArchiveIcon size={18} />
                 {t("已归档", "Archived")}
               </button>
-              <button type="button" role="menuitem" class="menu-item" onClick={() => { setMenuOpen(false); app.chooseDevice(); }}>
-                {t("切换 Mac", "Switch Mac")}
-              </button>
-              <button type="button" role="menuitem" class="menu-item danger" onClick={() => { setMenuOpen(false); void app.signOut(); }}>
-                {t("退出登录", "Sign out")}
-              </button>
             </div>
           </>
         ) : null}
+        {drawerOpen ? <AccountDrawer onClose={() => setDrawerOpen(false)} /> : null}
         {!searching && showBots ? (
           <div class="segments" role="tablist">
             <button type="button" role="tab" class={`segment${segment === "chats" ? " selected" : ""}`} aria-selected={segment === "chats"} onClick={() => app.setListSegment("chats")}>

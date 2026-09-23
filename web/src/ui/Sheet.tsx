@@ -12,12 +12,14 @@ export function Sheet({
   onClose,
   children,
   wide,
+  headerAction,
 }: {
   title?: string;
   closeLabel: string;
   onClose: () => void;
   children: ComponentChildren;
   wide?: boolean;
+  headerAction?: ComponentChildren;
 }) {
   useBackClose(onClose);
   useEffect(() => {
@@ -33,6 +35,7 @@ export function Sheet({
         {title ? (
           <div class="picker-head">
             <h2 class="picker-title">{title}</h2>
+            {headerAction}
             <button type="button" class="icon-button" aria-label={closeLabel} onClick={onClose}>
               <CloseIcon />
             </button>

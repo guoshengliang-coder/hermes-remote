@@ -162,6 +162,7 @@ export function SearchView({
       {titleHits.length ? <div class="search-section-head">{t("会话", "Conversations")}</div> : null}
       {titleHits.map((s) => (
         <SessionRow
+          showTime
           key={`t-${s.id}`}
           session={s}
           now={now}

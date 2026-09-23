@@ -34,7 +34,7 @@ import { decideOversizedFrame } from "./oversized-frame.js";
 import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
 import { displayVersion } from "./hermes-contract.js";
 import { HermesAuth, boundedResponseBody, fetchHermesOpenApi } from "./hermes-auth.js";
-import { contractReportResponse, tunnelHttpRoute } from "./tunnel-routes.js";
+import { contractReportResponse, defaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import {
@@ -290,6 +290,9 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
       case "contract":
         await handleContractRequest(socket, request, controller.signal);
         return;
+      case "default-model":
+        await handleDefaultModelRequest(socket, request, controller.signal);
+        return;
       case "files":
         await handleFileRequest(socket, request, controller.signal);
         return;
@@ -401,6 +404,24 @@ async function handleContractRequest(
   );
   signal.throwIfAborted();
   sendJsonResponse(socket, request.id, response.status, response.body, response.headers);
+}
+
+async function handleDefaultModelRequest(
+  socket: WebSocket,
+  request: TunnelHttpRequest,
+  signal: AbortSignal,
+): Promise<void> {
+  signal.throwIfAborted();
+  const hasBody = request.bodyBase64 !== undefined || Object.entries(request.headers).some(([name, value]) =>
+    (name.toLowerCase() === "content-length" && Number(value) > 0) || name.toLowerCase() === "transfer-encoding");
+  const response = await defaultModelResponse(
+    request.method,
+    request.path,
+    hasBody,
+    (path) => hermesAuth.request(path, { method: "GET", signal }),
+  );
+  signal.throwIfAborted();
+  sendJsonResponse(socket, request.id, response.status, response.body, response.headers, request.method === "HEAD");
 }
 
 async function handleFileRequest(
@@ -764,6 +785,7 @@ function sendJsonResponse(
   status: number,
   value: Record<string, unknown>,
   extraHeaders: Record<string, string> = {},
+  head = false,
 ): void {
   const body = Buffer.from(JSON.stringify(value));
   sendControl(socket, {
@@ -776,7 +798,7 @@ function sendJsonResponse(
       "content-length": String(body.length),
       ...extraHeaders,
     },
-    bodyBase64: body.toString("base64"),
+    ...(head ? {} : { bodyBase64: body.toString("base64") }),
   });
 }
 

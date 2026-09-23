@@ -1,4 +1,4 @@
-import type { IncomingMessage } from "node:http";
+import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
 import type { AccountPrincipal } from "./model.js";
 import { accountErrors } from "./model.js";
 import type { WebSessionSecurity } from "./web-session-security.js";
@@ -73,6 +73,8 @@ export interface BrowserRoute {
   query?: readonly string[];
   /** When set, the JSON body is read first and must pass this check before it is forwarded. */
   body?: (value: unknown) => boolean;
+  /** This read carries no request body, including chunked transfer. */
+  noBody?: true;
   /** Logged as a session-management action (audit): who did what to which session. */
   audit?: "session.update" | "session.delete";
 }
@@ -108,6 +110,7 @@ const BROWSER_ROUTES: ReadonlyArray<BrowserRoute> = [
   { method: "PATCH", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: [], body: sessionPatch, audit: "session.update" },
   { method: "DELETE", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: ["profile"], audit: "session.delete" },
   { method: "GET", path: /^\/api\/model\/options$/, query: ["profile"] },
+  { method: "GET", path: /^\/api\/hermes-remote\/default-model$/, query: ["profile"], noBody: true },
 ];
 
 /** The allowed route for this request, or undefined (refuse with HR-WEB-001). */
@@ -115,6 +118,7 @@ export function browserRouteFor(method: string | undefined, url: URL): BrowserRo
   const normalized = method === "HEAD" ? "GET" : method ?? "GET";
   const route = BROWSER_ROUTES.find((candidate) => candidate.method === normalized && candidate.path.test(url.pathname));
   if (!route) return undefined;
+  if (route.noBody && url.searchParams.getAll("profile").length > 1) return undefined;
   if (route.query) {
     for (const [key, value] of url.searchParams) {
       if (!route.query.includes(key)) return undefined;
@@ -128,12 +132,19 @@ export function browserRouteAllowed(method: string | undefined, apiPath: string)
   return browserRouteFor(method, new URL(apiPath, "http://device.invalid")) !== undefined;
 }
 
+export function browserRouteBodyAllowed(route: BrowserRoute, headers: IncomingHttpHeaders): boolean {
+  if (!route.noBody) return true;
+  return headers["transfer-encoding"] === undefined
+    && (headers["content-length"] === undefined || headers["content-length"] === "0");
+}
+
 /** Features the Web app may show, advertised in /v2/capabilities (Web batch 4). */
 export const WEB_DEVICE_FEATURES = [
   "session-manage",
   "session-delete",
   "workspace-move",
   "model-select",
+  "default-model",
   "process-list",
   "session-access",
 ] as const;

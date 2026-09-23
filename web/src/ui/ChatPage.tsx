@@ -113,6 +113,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const [modelOpen, setModelOpen] = useState(false);
   const [regenerateAfterSwitch, setRegenerateAfterSwitch] = useState(false);
   const [chosenModel, setChosenModel] = useState<{ model: string; provider: string } | null>(null);
+  const [explicitModelOverride, setExplicitModelOverride] = useState(false);
   const [reasoning, setReasoning] = useState<string | null>(null);
   const [answerMenu, setAnswerMenu] = useState<ChatItem | null>(null);
   const [processes, setProcesses] = useState<BackgroundProcess[]>([]);
@@ -151,6 +152,9 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     if (current && sessionId !== null && current.storedSessionId === sessionId) return;
     current?.dispose();
     dispatch({ type: "reset" });
+    setChosenModel(null);
+    setExplicitModelOverride(false);
+    setReasoning(null);
     newChatProject.current = sessionId === null ? app.projectFilter : null;
     const session = new ChatSession({
       client,
@@ -815,14 +819,16 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         <ModelSheet
           current={currentModel}
           profile={explicitProfile(row)}
+          explicitOverride={explicitModelOverride}
           actions={{
             switchModel: (provider, model) => sessionRef.current!.switchModel(provider, model),
             reasoning: () => sessionRef.current!.reasoning(),
             setReasoning: (value) => sessionRef.current!.setReasoning(value),
           }}
-          onSwitched={(provider, model) => {
+          onSwitched={(provider, model, restored) => {
             setChosenModel({ provider, model });
-            app.flash(t(`已切换到 ${model}`, `Switched to ${model}`));
+            setExplicitModelOverride(!restored);
+            app.flash(restored ? t(`已恢复默认模型 ${model}`, `Restored default model ${model}`) : t(`已切换到 ${model}`, `Switched to ${model}`));
             if (regenerateAfterSwitch) regenerate();
             setRegenerateAfterSwitch(false);
           }}

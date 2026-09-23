@@ -61,6 +61,7 @@ export function ArchivedPage() {
         ) : null}
         {rows?.map((s) => (
           <SessionRow
+            showTime
             key={s.id}
             session={s}
             now={now}

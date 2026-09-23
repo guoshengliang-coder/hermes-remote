@@ -4,6 +4,7 @@ import test from "node:test";
 import type { AccountPrincipal } from "./account/model.js";
 import {
   browserResponseHeaders,
+  browserRouteBodyAllowed,
   browserRouteAllowed,
   browserRouteFor,
   WebDeviceAccess,
@@ -67,6 +68,8 @@ test("browser route allowlist covers the chat client and nothing that administer
     ["DELETE", "/api/sessions/abc"],
     ["DELETE", "/api/sessions/abc?profile=work"],
     ["GET", "/api/model/options?profile=work"],
+    ["GET", "/api/hermes-remote/default-model"],
+    ["HEAD", "/api/hermes-remote/default-model?profile=work"],
   ] as const) {
     assert.equal(browserRouteAllowed(method, path), true, `${method} ${path}`);
   }
@@ -85,6 +88,12 @@ test("browser route allowlist covers the chat client and nothing that administer
     ["DELETE", "/api/sessions"],
     ["GET", "/api/model/options?include_keys=1"],
     ["PUT", "/api/model/options"],
+    ["GET", "/api/hermes-remote/default-model?profile=a&profile=b"],
+    ["GET", "/api/hermes-remote/default-model?include_keys=1"],
+    ["GET", "/api/hermes-remote/default-model?profile=a%2Fb"],
+    ["GET", "/api/hermes-remote/default-model%2Fconfig"],
+    ["GET", "/api/hermes-remote/default-model/extra"],
+    ["POST", "/api/hermes-remote/default-model"],
     ["GET", "/api/sessions/abc/messages/extra"],
     ["GET", "/api/skills"],
     ["POST", "/api/files"],
@@ -96,6 +105,16 @@ test("browser route allowlist covers the chat client and nothing that administer
   ] as const) {
     assert.equal(browserRouteAllowed(method, path), false, `${method} ${path}`);
   }
+});
+
+test("the default-model read rejects request bodies before forwarding", () => {
+  const route = browserRouteFor("GET", new URL("http://d/api/hermes-remote/default-model"))!;
+  assert.equal(route.noBody, true);
+  assert.equal(browserRouteBodyAllowed(route, {}), true);
+  assert.equal(browserRouteBodyAllowed(route, { "content-length": "0" }), true);
+  assert.equal(browserRouteBodyAllowed(route, { "content-length": "1" }), false);
+  assert.equal(browserRouteBodyAllowed(route, { "content-length": "invalid" }), false);
+  assert.equal(browserRouteBodyAllowed(route, { "transfer-encoding": "chunked" }), false);
 });
 
 test("files from the Mac are always downloads, and only raster images keep their type", () => {

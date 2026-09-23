@@ -12,6 +12,7 @@ import {
 import { toAppError } from "./app/failures";
 import type { GroupId } from "./app/grouping";
 import { detectLanguage, translator } from "./app/i18n";
+import { applyTheme, effectiveLanguage, readLanguagePreference, readThemeMode, saveLanguagePreference, saveThemeMode, type LanguagePreference, type ThemeMode } from "./app/appearance";
 import {
   applyLiveReport,
   deriveNeedsYou,
@@ -59,9 +60,7 @@ type Phase =
   | { name: "ready" };
 
 const client = new GatewayClient();
-const language = detectLanguage();
-const t = translator(language);
-document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+applyTheme(readThemeMode());
 
 const INBOX_POLL_MS = 5000;
 const BASE_TITLE = "Hermes GO";
@@ -89,6 +88,12 @@ async function clearCaches(): Promise<void> {
 
 export function App() {
   const route = useRoute();
+  const [languagePreference, setLanguagePreference] = useState<LanguagePreference>(readLanguagePreference);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode);
+  const [systemLanguage, setSystemLanguage] = useState(detectLanguage);
+  const [gatewayVersion, setGatewayVersion] = useState<string | null>(null);
+  const language = languagePreference === "system" ? systemLanguage : effectiveLanguage(languagePreference);
+  const t = translator(language);
   const [phase, setPhase] = useState<Phase>({ name: "boot" });
   const [account, setAccount] = useState<PublicAccount | null>(null);
   const [devices, setDevices] = useState<AccountDevice[]>([]);
@@ -111,6 +116,25 @@ export function App() {
   /** Where the user was headed before sign-in / device choice (select-only, never an action). */
   const intended = useRef<Route>(currentRoute());
   const signingOut = useRef(false);
+
+  useEffect(() => {
+    document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+  }, [language]);
+  useEffect(() => {
+    applyTheme(themeMode);
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const update = () => applyTheme(themeMode, media?.matches ?? false);
+    media?.addEventListener?.("change", update);
+    return () => media?.removeEventListener?.("change", update);
+  }, [themeMode]);
+  useEffect(() => {
+    const update = () => setSystemLanguage(detectLanguage());
+    window.addEventListener("languagechange", update);
+    return () => window.removeEventListener("languagechange", update);
+  }, []);
+
+  function chooseTheme(mode: ThemeMode) { saveThemeMode(mode); setThemeMode(mode); }
+  function chooseLanguage(choice: LanguagePreference) { saveLanguagePreference(choice); setLanguagePreference(choice); }
 
   const currentSessionId = route.name === "chat" ? route.sessionId : null;
 
@@ -137,6 +161,7 @@ export function App() {
     setPhase({ name: "boot" });
     try {
       const caps = await client.capabilities();
+      setGatewayVersion(caps.server?.version ?? null);
       if (!supportsWebDeviceAccess(caps)) {
         setPhase({ name: "disabled" });
         return;
@@ -169,7 +194,7 @@ export function App() {
       setSessions([]);
       setPhase({ name: "signed-out", reason: reasonFor(error) });
     });
-  }, []);
+  }, [boot]);
 
   // Route guard: /app/login is only meaningful while signed out; once ready, go where intended.
   useEffect(() => {
@@ -338,7 +363,7 @@ export function App() {
   const flash = useCallback((message: string | AppError) => {
     const id = ++flashSeq.current;
     setFlashMessage(typeof message === "string" ? { id, text: message, error: false } : { id, text: display(message, language), error: true });
-  }, []);
+  }, [language]);
   useEffect(() => {
     if (!flashMessage) return;
     const timer = setTimeout(() => setFlashMessage((m) => (m?.id === flashMessage.id ? null : m)), flashMessage.error ? 4000 : 1600);
@@ -348,6 +373,11 @@ export function App() {
   const value: AppContextValue = {
     client,
     language,
+    languagePreference,
+    setLanguagePreference: chooseLanguage,
+    themeMode,
+    setThemeMode: chooseTheme,
+    gatewayVersion,
     t,
     account,
     devices,
