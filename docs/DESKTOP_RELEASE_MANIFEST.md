@@ -272,6 +272,20 @@ npm run desktop:components:package -- \
   --output /absolute/empty/component-output
 ```
 
+When only Connector changes, first verify the immutable Hermes Server archive against its current
+signed manifest, then reuse that exact archive. Build the new bundled Connector alone from a clean
+Hermes GO source with `desktop/Packaging/connector-only.example.json`:
+
+```bash
+npm run desktop:connector:package -- \
+  --config /absolute/protected/path/connector-only.json \
+  --output /absolute/empty/component-output
+```
+
+The signing input names both the verified existing Hermes Server archive and the new Connector
+archive. The Connector-only command applies the same source, architecture, token, archive-safety,
+and deterministic packaging gates as the two-component command.
+
 The component gate refuses dirty or mismatched Git identities, mismatched semantic versions or Mach-O
 architectures, symlink/special-file inputs, more than 65,536 staged entries, more than 2 GiB of staged
 bytes, and existing targets. `BUILD-IDENTITY.json` inside each archive records only public component,

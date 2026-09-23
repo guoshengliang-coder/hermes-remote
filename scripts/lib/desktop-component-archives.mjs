@@ -136,6 +136,79 @@ export async function packageDesktopComponentArchives({
   }
 }
 
+/** Build only the bundled Connector when a previously signed Hermes Server archive is reused. */
+export async function packageDesktopConnectorArchive({
+  configPath,
+  outputDirectory,
+  repositoryRoot = defaultRepositoryRoot,
+  prepareConnector = defaultPrepareConnector,
+  inspectArchitecture = defaultInspectArchitecture,
+}) {
+  let temporaryRoot;
+  let partial;
+  let created;
+  try {
+    const config = await loadConnectorOnlyConfig(configPath);
+    const repo = await requireDirectory(repositoryRoot);
+    const output = await requireDirectory(outputDirectory, true);
+    await assertGitIdentity(repo, config.sourceCommit);
+    await prepareConnector(repo);
+    await assertGitIdentity(repo, config.sourceCommit);
+    await assertConnectorVersion(repo, config.connector.version);
+
+    const nodeBinary = await requireRegularFile(config.nodeBinary, 256 * 1024 * 1024);
+    await inspectArchitecture(nodeBinary, config.architecture);
+    temporaryRoot = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-desktop-connector-")));
+    const stage = path.join(temporaryRoot, "connector");
+    await stageConnector({
+      destination: stage, repo, nodeBinary, version: config.connector.version,
+      sourceCommit: config.sourceCommit, architecture: config.architecture,
+    });
+    await verifyConnectorSessionTokenContract(stage, temporaryRoot);
+    await inspectTree(stage);
+
+    const fileName = `Hermes-Connector-${config.connector.version}-${config.architecture}.tar.gz`;
+    const destination = path.join(output, fileName);
+    const partialPath = `${destination}.partial`;
+    await requireAbsent(destination);
+    await requireAbsent(partialPath);
+    partial = partialPath;
+    await normalizeTreeTimestamps(stage);
+    await packDeterministicArchive(partial, stage, 15 * 60_000);
+    await chmod(partial, 0o644);
+    await rename(partial, destination);
+    partial = null;
+    created = destination;
+    await assertGitIdentity(repo, config.sourceCommit);
+    return {
+      architecture: config.architecture,
+      artifact: { component: "connector", version: config.connector.version,
+        path: destination, entrypoint: "bin/hermes-connector" },
+    };
+  } catch (error) {
+    if (partial) await rm(partial, { force: true }).catch(() => {});
+    if (created) await rm(created, { force: true }).catch(() => {});
+    if (error instanceof DesktopManagedReleaseError) throw error;
+    fail("component_archive_unexpected_failure");
+  } finally {
+    if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export async function loadConnectorOnlyConfig(configPath) {
+  const file = await requireRegularFile(configPath, 128 * 1024);
+  let config;
+  try { config = JSON.parse(await readFile(file, "utf8")); } catch { fail("component_config_invalid"); }
+  exactKeys(config, ["schemaVersion", "architecture", "sourceCommit", "nodeBinary", "connector"],
+    "component_config_fields_invalid");
+  if (config.schemaVersion !== 1 || !["arm64", "x86_64"].includes(config.architecture)
+      || !fullCommit(config.sourceCommit) || typeof config.nodeBinary !== "string"
+      || !path.isAbsolute(config.nodeBinary)) fail("component_config_identity_invalid");
+  exactKeys(config.connector, ["version"], "component_config_connector_invalid");
+  if (!semanticVersion(config.connector.version)) fail("component_config_connector_invalid");
+  return config;
+}
+
 export async function loadComponentConfig(configPath) {
   const file = await requireRegularFile(configPath, 128 * 1024);
   let config;
