@@ -18,6 +18,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   packageDesktopComponentArchives,
+  packageDesktopConnectorArchive,
 } from "../lib/desktop-component-archives.mjs";
 import { DesktopManagedReleaseError } from "../lib/desktop-managed-release.mjs";
 
@@ -75,6 +76,41 @@ test("component builder creates source-pinned relocatable Hermes and Connector a
   assert.match(hermesLauncher, /HERMES_DASHBOARD_SESSION_TOKEN/);
   assert.match(tokenReader, /O_NOFOLLOW/);
   assert.match(tokenReader, /st_mode & 0o077/);
+});
+
+test("Connector-only builder packages a pinned bundled Connector without rebuilding Hermes", async (t) => {
+  const fixture = await makeFixture(t);
+  const full = JSON.parse(await readFile(fixture.configPath, "utf8"));
+  const configPath = path.join(fixture.root, "connector-only.json");
+  await writeFile(configPath, `${JSON.stringify({
+    schemaVersion: 1, architecture: full.architecture, sourceCommit: full.sourceCommit,
+    nodeBinary: full.nodeBinary, connector: full.connector,
+  })}\n`, { mode: 0o600 });
+
+  const buildConnector = () => packageDesktopConnectorArchive({
+    configPath, outputDirectory: fixture.output, repositoryRoot: fixture.repo,
+    prepareConnector: async () => {}, inspectArchitecture: async () => {},
+  });
+  const result = await buildConnector();
+  assert.equal(result.artifact.component, "connector");
+  assert.deepEqual(await readdir(fixture.output), ["Hermes-Connector-0.1.2-arm64.tar.gz"]);
+  const extracted = path.join(fixture.root, "connector-extracted");
+  await mkdir(extracted);
+  run("/usr/bin/tar", ["-xzf", result.artifact.path, "-C", extracted]);
+  const identity = JSON.parse(await readFile(path.join(extracted, "BUILD-IDENTITY.json"), "utf8"));
+  assert.deepEqual(identity, {
+    schemaVersion: 1, component: "connector", version: "0.1.2",
+    sourceCommit: full.sourceCommit, architecture: "arm64",
+  });
+  assert.match(await readFile(path.join(extracted, "bin/hermes-connector"), "utf8"),
+    /runtime\/node/);
+  await assert.rejects(buildConnector(), isCause("component_output_exists"));
+  assert.deepEqual(await readdir(fixture.output), ["Hermes-Connector-0.1.2-arm64.tar.gz"]);
+  await rm(result.artifact.path);
+  const existingPartial = `${result.artifact.path}.partial`;
+  await writeFile(existingPartial, "another writer's data");
+  await assert.rejects(buildConnector(), isCause("component_output_exists"));
+  assert.equal(await readFile(existingPartial, "utf8"), "another writer's data");
 });
 
 test("component builder rejects dirty source identities before staging", async (t) => {
