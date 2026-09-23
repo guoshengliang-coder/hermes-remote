@@ -315,3 +315,34 @@ describe("raw uploads and expiry tracking", () => {
     client.stopKeepAlive();
   });
 });
+
+describe("resume() on a cold start", () => {
+  it("brings the session back from the refresh cookie without a sign-in", async () => {
+    const { client, calls } = fake((c) => (c.url === paths.refresh
+      ? json(200, { session: { authenticated: true, accessExpiresAt: future(900_000), refreshExpiresAt: future(9e8) }, csrfToken: CSRF })
+      : json(200, {})));
+    const signedOut = vi.fn();
+    client.onSignedOut(signedOut);
+    expect(await client.resume()).toBe(true);
+    expect(calls.map((c) => c.url)).toEqual([paths.refresh]);
+    expect(signedOut).not.toHaveBeenCalled();
+    client.stopKeepAlive();
+  });
+
+  it("answers false without announcing a sign-out: a browser that was never signed in is not thrown out", async () => {
+    const { client } = fake(() => json(401, { error: { code: "HR-AUTH-005" } }));
+    const signedOut = vi.fn();
+    client.onSignedOut(signedOut);
+    expect(await client.resume()).toBe(false);
+    expect(signedOut).not.toHaveBeenCalled();
+  });
+
+  it("still signs out when a later refresh is refused", async () => {
+    const { client } = fake(() => json(401, { error: { code: "HR-AUTH-005" } }));
+    const signedOut = vi.fn();
+    client.onSignedOut(signedOut);
+    expect(await client.resume()).toBe(false);
+    await expect(client.refresh()).rejects.toMatchObject({ status: 401 });
+    expect(signedOut).toHaveBeenCalledTimes(1);
+  });
+});

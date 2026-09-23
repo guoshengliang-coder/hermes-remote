@@ -1108,7 +1108,11 @@ version with each result.
     the crop handles are easy to grab, 完成 replaces the chip and the sent image is the edited one.
     Add a conversation and confirm Hermes on the Mac receives a readable `.md`. Scroll a long chat:
     the turn pill appears, fades 1.5 s after scrolling stops, and a tap lands on the prompt.
-15. **Rotation, keyboard and back (batch 6).** On the iPhone: rotate a chat to landscape (compact top
+15. **Staying signed in.** Use the app, close it, wait more than 15 minutes (the access cookie's
+    life), and open it again — from the Home Screen app and from a browser tab. Expected: the
+    conversation list, no email code. Repeat after a day and after a week (the refresh cookie lasts
+    30 days). Sign out explicitly and reopen: the login page, and it stays.
+16. **Rotation, keyboard and back (batch 6).** On the iPhone: rotate a chat to landscape (compact top
     bar, three-line input, messages still readable) and back; swipe back from the left edge in the
     Home Screen app with a sheet or the image viewer open (only that closes). On an Android phone in
     **Chrome** (the only Android browser in scope): the system back gesture closes sheets, the

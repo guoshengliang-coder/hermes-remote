@@ -136,7 +136,13 @@ export function App() {
         return;
       }
       setFeatures(webDeviceFeatures(caps));
-      const web = await client.webSession();
+      let web = await client.webSession();
+      // Not authenticated at boot usually means only that the 15-minute access cookie lapsed
+      // while the app was closed. The refresh cookie is good for 30 days: use it before asking
+      // anyone to sign in again.
+      if (!web.session.authenticated && (await client.resume())) {
+        web = await client.webSession();
+      }
       if (!web.session.authenticated) {
         setPhase({ name: "signed-out", reason: null });
         return;
