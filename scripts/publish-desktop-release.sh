@@ -20,20 +20,37 @@ case "${1:-}" in
 esac
 [[ $# -le 1 ]] || { usage >&2; exit 64; }
 
-common_required=(
-  DESKTOP_RELEASE_SSH_TARGET DESKTOP_RELEASE_REMOTE_ROOT DESKTOP_RELEASE_PUBLIC_ORIGIN
-)
+common_required=(DESKTOP_RELEASE_SSH_TARGET DESKTOP_RELEASE_PUBLIC_ORIGIN)
 for name in "${common_required[@]}"; do
   [[ -n "${!name:-}" ]] || { echo "Missing $name" >&2; exit 64; }
 done
 [[ "$DESKTOP_RELEASE_SSH_TARGET" =~ ^[A-Za-z0-9._@:-]+$ ]] || exit 64
-[[ "$DESKTOP_RELEASE_REMOTE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 64
 [[ "$DESKTOP_RELEASE_PUBLIC_ORIGIN" =~ ^https://[A-Za-z0-9._:-]+$ ]] || exit 64
+protected="${DESKTOP_RELEASE_PRESTAGED_PROTECTED:-0}"
+[[ "$protected" == 0 || "$protected" == 1 ]] || exit 64
+if [[ "$protected" == 1 ]]; then
+  : "${DESKTOP_RELEASE_REMOTE_RELEASE_ROOT:?Missing Desktop release root}"
+  : "${DESKTOP_RELEASE_REMOTE_COMPONENT_ROOT:?Missing Desktop component root}"
+  remote_release="$DESKTOP_RELEASE_REMOTE_RELEASE_ROOT"
+  remote_components="$DESKTOP_RELEASE_REMOTE_COMPONENT_ROOT"
+else
+  : "${DESKTOP_RELEASE_REMOTE_ROOT:?Missing Desktop remote root}"
+  remote_release="$DESKTOP_RELEASE_REMOTE_ROOT/desktop/releases"
+  remote_components="$DESKTOP_RELEASE_REMOTE_ROOT/desktop/components"
+fi
+[[ "$remote_release" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 64
+[[ "$remote_components" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 64
+
+remote_exec() {
+  if [[ "$protected" == 1 ]]; then
+    printf '%s\n' "$1" | ssh "$DESKTOP_RELEASE_SSH_TARGET" sudo -n bash -s
+  else
+    ssh "$DESKTOP_RELEASE_SSH_TARGET" "$1"
+  fi
+}
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$repo_root"
-remote_release="$DESKTOP_RELEASE_REMOTE_ROOT/desktop/releases"
-remote_components="$DESKTOP_RELEASE_REMOTE_ROOT/desktop/components"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -45,7 +62,7 @@ readback_indexes() {
 }
 
 if [[ "$mode" == rollback ]]; then
-  ssh "$DESKTOP_RELEASE_SSH_TARGET" \
+  remote_exec \
     "set -eu; test -f '$remote_release/index.previous.json'; test -f '$remote_components/index.previous.json'; cp '$remote_release/index.json' '$remote_release/index.rollback-next.json'; cp '$remote_components/index.json' '$remote_components/index.rollback-next.json'; mv -f '$remote_release/index.previous.json' '$remote_release/index.json'; mv -f '$remote_components/index.previous.json' '$remote_components/index.json'; mv -f '$remote_release/index.rollback-next.json' '$remote_release/index.previous.json'; mv -f '$remote_components/index.rollback-next.json' '$remote_components/index.previous.json'"
   readback_indexes
   printf 'DESKTOP_RELEASE_ROLLBACK_OK\nRELEASE_INDEX=%s\nCOMPONENT_INDEX=%s\n' \
@@ -132,12 +149,19 @@ fs.writeFileSync(out, `${JSON.stringify({
 })}\n`, { mode: 0o600 });
 NODE
 
-ssh "$DESKTOP_RELEASE_SSH_TARGET" \
-  "mkdir -p '$remote_release/$DESKTOP_RELEASE_VERSION' '$remote_components/$DESKTOP_RELEASE_VERSION'"
+if [[ "$protected" == 1 ]]; then
+  remote_exec "set -eu; test -d '$remote_release/$DESKTOP_RELEASE_VERSION'; test -d '$remote_components/$DESKTOP_RELEASE_VERSION'; test -f '$remote_release/index.json'; test -f '$remote_components/index.json'"
+else
+  remote_exec "mkdir -p '$remote_release/$DESKTOP_RELEASE_VERSION' '$remote_components/$DESKTOP_RELEASE_VERSION'"
+fi
 for name in "$release_name" $release_files; do
   source="$release_dir/$name"
   [[ -f "$source" && ! -L "$source" ]] || exit 66
-  scp "$source" "$DESKTOP_RELEASE_SSH_TARGET:$remote_release/$DESKTOP_RELEASE_VERSION/$name"
+  if [[ "$protected" == 1 ]]; then
+    remote_exec "test -f '$remote_release/$DESKTOP_RELEASE_VERSION/$name'"
+  else
+    scp "$source" "$DESKTOP_RELEASE_SSH_TARGET:$remote_release/$DESKTOP_RELEASE_VERSION/$name"
+  fi
   curl -fsS "$DESKTOP_RELEASE_PUBLIC_ORIGIN/desktop/releases/$DESKTOP_RELEASE_VERSION/$name" \
     -o "$work/release-$name"
   cmp -s "$source" "$work/release-$name"
@@ -145,28 +169,40 @@ done
 for name in "$component_name" $component_files; do
   source="$component_dir/$name"
   [[ -f "$source" && ! -L "$source" ]] || exit 66
-  scp "$source" "$DESKTOP_RELEASE_SSH_TARGET:$remote_components/$DESKTOP_RELEASE_VERSION/$name"
+  if [[ "$protected" == 1 ]]; then
+    remote_exec "test -f '$remote_components/$DESKTOP_RELEASE_VERSION/$name'"
+  else
+    scp "$source" "$DESKTOP_RELEASE_SSH_TARGET:$remote_components/$DESKTOP_RELEASE_VERSION/$name"
+  fi
   curl -fsS "$DESKTOP_RELEASE_PUBLIC_ORIGIN/desktop/components/$DESKTOP_RELEASE_VERSION/$name" \
     -o "$work/component-$name"
   cmp -s "$source" "$work/component-$name"
 done
 
-ssh "$DESKTOP_RELEASE_SSH_TARGET" \
-  "cp '$remote_release/index.json' '$remote_release/index.rollback.json' 2>/dev/null || true; cp '$remote_components/index.json' '$remote_components/index.rollback.json' 2>/dev/null || true"
+remote_exec \
+  "set -eu; test -f '$remote_release/index.json'; test -f '$remote_components/index.json'; cp '$remote_release/index.json' '$remote_release/index.rollback.json'; cp '$remote_components/index.json' '$remote_components/index.rollback.json'"
 rollback_failed_publish() {
-  ssh "$DESKTOP_RELEASE_SSH_TARGET" \
+  remote_exec \
     "test ! -f '$remote_release/index.rollback.json' || mv -f '$remote_release/index.rollback.json' '$remote_release/index.json'; test ! -f '$remote_components/index.rollback.json' || mv -f '$remote_components/index.rollback.json' '$remote_components/index.json'" || true
 }
 trap 'rollback_failed_publish; rm -rf "$work"' ERR
-scp "$work/release-index.json" "$DESKTOP_RELEASE_SSH_TARGET:$remote_release/index.json.next"
-scp "$work/component-index.json" "$DESKTOP_RELEASE_SSH_TARGET:$remote_components/index.json.next"
-ssh "$DESKTOP_RELEASE_SSH_TARGET" \
+if [[ "$protected" == 1 ]]; then
+  remote_stage="$(ssh "$DESKTOP_RELEASE_SSH_TARGET" mktemp -d /tmp/hermes-desktop-publish.XXXXXXXX)"
+  [[ "$remote_stage" =~ ^/tmp/hermes-desktop-publish\.[A-Za-z0-9]+$ ]] || exit 65
+  scp "$work/release-index.json" "$DESKTOP_RELEASE_SSH_TARGET:$remote_stage/release-index.json"
+  scp "$work/component-index.json" "$DESKTOP_RELEASE_SSH_TARGET:$remote_stage/component-index.json"
+  remote_exec "set -eu; install -m 0644 '$remote_stage/release-index.json' '$remote_release/index.json.next'; install -m 0644 '$remote_stage/component-index.json' '$remote_components/index.json.next'; rm -rf '$remote_stage'"
+else
+  scp "$work/release-index.json" "$DESKTOP_RELEASE_SSH_TARGET:$remote_release/index.json.next"
+  scp "$work/component-index.json" "$DESKTOP_RELEASE_SSH_TARGET:$remote_components/index.json.next"
+fi
+remote_exec \
   "mv -f '$remote_release/index.json.next' '$remote_release/index.json'; mv -f '$remote_components/index.json.next' '$remote_components/index.json'"
 readback_indexes
 cmp -s "$work/release-index.json" "$work/release-index-readback"
 cmp -s "$work/component-index.json" "$work/component-index-readback"
 trap 'rm -rf "$work"' ERR
-ssh "$DESKTOP_RELEASE_SSH_TARGET" \
+remote_exec \
   "test ! -f '$remote_release/index.rollback.json' || mv -f '$remote_release/index.rollback.json' '$remote_release/index.previous.json'; test ! -f '$remote_components/index.rollback.json' || mv -f '$remote_components/index.rollback.json' '$remote_components/index.previous.json'"
 
 git tag -a "$release_tag" -m "Desktop managed release $DESKTOP_RELEASE_VERSION"

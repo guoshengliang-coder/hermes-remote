@@ -67,3 +67,13 @@ paths, `DESKTOP_RELEASE_SIGNING_KEY_ID`, `DESKTOP_RELEASE_SIGNING_PUBLIC_KEY`, t
 and the public HTTPS origin. The public key is used for local verification; the private key is never
 passed to this upload step. Do not bypass the readback or use the script from a shared development
 worktree.
+
+For an existing root-owned static store with exact Nginx routes, stage the signed files as root-owned
+mode-0644 files in new version directories and add only their exact GET/HEAD routes first. Check
+`nginx -t`, reload, and verify the routes before switching the indexes. Set
+`DESKTOP_RELEASE_PRESTAGED_PROTECTED=1` with `DESKTOP_RELEASE_REMOTE_RELEASE_ROOT` and
+`DESKTOP_RELEASE_REMOTE_COMPONENT_ROOT` to the two existing absolute store roots. In this mode the
+publisher uses passwordless `sudo` for index operations, verifies every pre-staged file by full
+public download and byte comparison, then performs the same two-index transaction and tag gate.
+It never uploads into the root-owned store or changes Nginx routes itself. If verification fails,
+leave the old indexes in place; the new immutable files may remain unreferenced for inspection.
