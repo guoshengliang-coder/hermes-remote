@@ -6,7 +6,8 @@
 
 - `onboarding.html`：全部画面的唯一源文件，`?s=<id>` 只显示一个画面。
 - `render.sh`：用本机 Chrome 无头模式把每个画面渲染成 2x PNG（macOS）。
-- `download-qr.png`：用 CoreImage 生成、可以真实扫码的二维码，内容为 `https://mrlgs.net/`，已解码校验。
+- `download-qr.png` / `webapp-qr.png`：用 CoreImage 生成、可以真实扫码的二维码，内容分别为
+  `https://mrlgs.net/`（Android 下载）和 `https://mrlgs.net/app/`（iPhone / iPad Web App），均已解码校验。
 
 | 文件 | 画面 | 需求章节 |
 |---|---|---|
@@ -22,10 +23,11 @@
 | `10-onboard-hermes-found.png` | 引导第 2 步 · 已有 Hermes | §6.2 |
 | `11-onboard-hermes-missing.png` | 引导第 2 步 · 没有 Hermes | §6.2 |
 | `12-onboard-connect.png` | 引导第 3 步 · 连接中 | §6.2 |
-| `13-onboard-phone.png` | 引导第 4 步 · 等待手机（下载二维码） | §6.2 |
-| `14-onboard-phone-done.png` | 引导第 4 步 · 手机已连上 | §6.2 |
-| `15-manage-only-overview.png` | 只管理模式的主界面 | §7.1、§9 |
-| `16-menubar.png` | 菜单栏：未登录 / 未装机 / 只管理 | §9 |
+| `13-onboard-phone.png` | 引导第 4 步 · Android（扫码下载 App） | §6.4 |
+| `14-onboard-phone-ios.png` | 引导第 4 步 · iPhone / iPad（Web App 添加到主屏幕） | §6.4 |
+| `15-onboard-phone-done.png` | 引导第 4 步 · 已连上 | §6.2 |
+| `16-manage-only-overview.png` | 只管理模式的主界面 | §7.1、§9 |
+| `17-menubar.png` | 菜单栏：未登录 / 未装机 / 只管理 | §9 |
 
 这些是方向稿，不是像素规格。设备名、邮箱、代理地址和验证码都是示例值。「改用内置 Hermes」和
 第 3 步开始前的确认 sheet 沿用现有设计，本组没有重画。

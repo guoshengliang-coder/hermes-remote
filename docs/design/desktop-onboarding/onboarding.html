@@ -235,6 +235,14 @@
   .pop .cta { margin: 10px 12px; height: 34px; border-radius: 8px; background: #0B5FD0; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
   .pop .note { padding: 0 14px 12px; font-size: 11.5px; color: #6B7280; line-height: 1.45; }
 
+
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: color-mix(in srgb, var(--secondary) 12%, transparent); gap: 2px; }
+  .seg span { height: 30px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--secondary); }
+  .seg span.on { background: var(--card-strong); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .seg svg { width: 15px; height: 15px; }
+  .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--blue); font-size: 12px; font-weight: 700; flex: none; }
+  .ios-share { display: inline-flex; vertical-align: -3px; width: 16px; height: 16px; color: var(--blue); }
+
   svg { stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 </style>
 </head>
@@ -660,7 +668,7 @@
 
 <!-- ===================================================================== -->
 <section class="board" id="onboard-phone">
-  <p class="caption"><b>13 引导第 4 步 · 等待手机</b> · 二维码固定指向 https://mrlgs.net/（自动跳转最新 APK），不随发版变化；可「稍后再说」（§6.2）</p>
+  <p class="caption"><b>13 引导第 4 步 · Android</b> · 先选手机类型；Android 扫码下载 App，二维码固定指向 https://mrlgs.net/（自动跳转最新 APK）；可「稍后再说」（§6.4）</p>
   <div class="window">
     <div class="titlebar"><i></i><i></i><i></i></div>
     <div class="gate">
@@ -672,8 +680,11 @@
       </div>
       <div class="center">
         <div class="column wide" style="width:800px">
-          <h1 style="margin-top:0">最后一步：连上你的手机</h1>
-          <p class="lede">这台 Mac 已经准备好了。在手机上装好 Hermes GO，用同一个邮箱登录即可。</p>
+          <div class="row" style="justify-content:space-between;align-items:flex-end">
+            <div><h1 style="margin-top:0">最后一步：连上你的手机</h1>
+            <p class="lede">这台 Mac 已经准备好了。选择你的手机类型，按步骤用同一个邮箱登录即可。</p></div>
+            <div class="seg"><span class="on"><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></svg>Android</span><span><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 5h3"/></svg>iPhone / iPad</span></div>
+          </div>
           <div class="row mt24" style="align-items:stretch;gap:20px">
             <div class="card" style="width:300px;flex:none;text-align:center;padding:24px">
               <img src="download-qr.png" alt="" style="width:188px;height:188px;image-rendering:pixelated;border-radius:6px;background:#fff;padding:6px">
@@ -682,7 +693,7 @@
                 <span>https://mrlgs.net/</span>
                 <svg viewBox="0 0 24 24" style="color:var(--blue)"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
               </div>
-              <div class="small muted mt8">目前提供 Android 版</div>
+              <div class="small muted mt8">下载 Android App</div>
             </div>
             <div class="card" style="flex:1;padding:24px 26px">
               <div class="plist" style="margin-top:0">
@@ -706,8 +717,60 @@
 </section>
 
 <!-- ===================================================================== -->
+<section class="board" id="onboard-phone-ios">
+  <p class="caption"><b>14 引导第 4 步 · iPhone / iPad</b> · 没有 iOS App：扫码在 Safari 打开 Web App（https://mrlgs.net/app/），添加到主屏幕后全屏使用（§6.4）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step done"><span class="dot">✓</span>登录</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>准备 Hermes</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>连接这台 Mac</div><div class="step-line done"></div>
+        <div class="step current"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column wide" style="width:800px">
+          <div class="row" style="justify-content:space-between;align-items:flex-end">
+            <div><h1 style="margin-top:0">最后一步：连上你的手机</h1>
+            <p class="lede">这台 Mac 已经准备好了。选择你的手机类型，按步骤用同一个邮箱登录即可。</p></div>
+            <div class="seg"><span><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></svg>Android</span><span class="on"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 5h3"/></svg>iPhone / iPad</span></div>
+          </div>
+          <div class="row mt24" style="align-items:stretch;gap:20px">
+            <div class="card" style="width:300px;flex:none;text-align:center;padding:24px">
+              <img src="webapp-qr.png" alt="" style="width:188px;height:188px;image-rendering:pixelated;border-radius:6px;background:#fff;padding:6px">
+              <div style="font-weight:600;font-size:14px" class="mt12">用相机扫码，在 Safari 打开</div>
+              <div class="field mt12" style="height:32px;font-size:12.5px;justify-content:space-between">
+                <span>https://mrlgs.net/app/</span>
+                <svg viewBox="0 0 24 24" style="color:var(--blue)"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+              </div>
+              <div class="small muted mt8">网页版 · 无需从 App Store 安装</div>
+            </div>
+            <div class="card" style="flex:1;padding:24px 26px">
+              <div class="plist" style="margin-top:0">
+                <div class="pitem" style="align-items:flex-start;padding:7px 0"><span class="num">1</span><div><div style="font-weight:600">用相机扫码，在 Safari 中打开</div></div></div>
+                <div class="pitem" style="align-items:flex-start;padding:7px 0"><span class="num">2</span><div><div style="font-weight:600">点「分享」<svg class="ios-share" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11H5v10h14V11h-1"/></svg></div><div class="small muted" style="margin-top:3px">iPhone 在屏幕底部，iPad 在地址栏右侧</div></div></div>
+                <div class="pitem" style="align-items:flex-start;padding:7px 0"><span class="num">3</span><div><div style="font-weight:600">选「添加到主屏幕」，再点「添加」</div></div></div>
+                <div class="pitem" style="align-items:flex-start;padding:7px 0"><span class="num">4</span><div><div style="font-weight:600">从主屏幕的 Hermes GO 图标打开</div><div class="small muted" style="margin-top:3px">用 you@example.com 登录，选择「MacBook Pro」</div></div></div>
+              </div>
+              <div class="hint mt12"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>也可以直接在 Safari 标签页里用，但会显示浏览器的地址栏和工具栏。</div>
+              <div class="row mt16" style="padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--blue) 6%,transparent);font-size:13px">
+                <span class="spin"></span><span>正在等待 Web App 登录…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn">稍后再说</span></div>
+        <span class="btn lg primary disabled">进入 Hermes GO</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
 <section class="board" id="onboard-phone-done">
-  <p class="caption"><b>14 引导第 4 步 · 手机已连上</b> · 账号下出现新的已授权手机时自动打勾，主按钮变为可用</p>
+  <p class="caption"><b>15 引导第 4 步 · 已连上</b> · 账号下出现新的已授权手机时自动打勾，主按钮变为可用</p>
   <div class="window">
     <div class="titlebar"><i></i><i></i><i></i></div>
     <div class="gate">
@@ -738,7 +801,7 @@
 
 <!-- ===================================================================== -->
 <section class="board" id="manage-only-overview">
-  <p class="caption"><b>15 只管理模式的主界面</b> · 概览显示所选 Mac 的状态；顶部入口「把这台 Mac 也连上」随时可以回到引导（§7.1、§9）</p>
+  <p class="caption"><b>16 只管理模式的主界面</b> · 概览显示所选 Mac 的状态；顶部入口「把这台 Mac 也连上」随时可以回到引导（§7.1、§9）</p>
   <div class="window">
     <div class="titlebar"><i></i><i></i><i></i></div>
     <div class="shell">
@@ -772,7 +835,7 @@
 
 <!-- ===================================================================== -->
 <section class="board" id="menubar">
-  <p class="caption"><b>16 菜单栏</b> · 保留菜单栏。未登录：直接给「登录」；未装机：「完成设置」回到引导；只管理：显示所选 Mac 的状态（§9）</p>
+  <p class="caption"><b>17 菜单栏</b> · 保留菜单栏。未登录：直接给「登录」；未装机：「完成设置」回到引导；只管理：显示所选 Mac 的状态（§9）</p>
   <div class="desk">
     <div class="menubar"><b></b><span style="font-weight:600">Finder</span><span>文件</span><span>编辑</span><span>显示</span>
       <div class="r">

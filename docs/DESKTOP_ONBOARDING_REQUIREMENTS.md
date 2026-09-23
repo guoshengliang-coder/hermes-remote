@@ -7,7 +7,7 @@
 > `docs/ERROR_HANDLING.md` 登记。视觉约束以 `docs/DESKTOP_DESIGN.md` 为准，行为约束以
 > `docs/DESKTOP_PHASE0.md` 为准；本文与两者冲突时，以它们和代码为准。
 > Android 侧的对应需求是 `docs/LOGIN_REQUIREMENTS.md`，本文沿用它「从未登录 / 登录失效」的分界。
-> 设计稿：`docs/design/desktop-onboarding/`（16 个画面，索引见该目录 `README.md`）。
+> 设计稿：`docs/design/desktop-onboarding/`（17 个画面，索引见该目录 `README.md`）。
 
 ## 1. 问题
 
@@ -139,17 +139,13 @@
 | 1 登录 | 邮箱验证码（即 §5.2） | `accountController.signIn` / 邮箱交换 | `accountState == .signedIn` |
 | 2 准备 Hermes | 「检测到你已安装 Hermes，将直接使用」或「这台 Mac 还没有 Hermes，一键安装」 | `hermesInstallPhase`（`HermesInstallCard` 的全部分支，包括本机 Hermes 损坏时的指引 `isFreshInstallBlockedByOwnersHermes`，以及 `bundledHermesChoiceCard`） | 本机 Hermes 可达，或安装成功 |
 | 3 连接这台 Mac | 一个进度条：安装后台服务 → 绑定账号 → 开机自启 → 验证连通 | `inspectExisting` → `verifySignedRelease` → `installHermes`/`configureLocalProvider` → `installConnector` → `bindAccount` → `enableAutomaticStartup` → `verifyEndToEnd`，由现有的准备 → 确认 sheet → 提交流程执行 | `bootstrapPlan.readiness == .managedInstallActive` |
-| 4 连上手机 | 下载二维码 +「在手机上用同一个邮箱登录 Hermes GO」；检测到新手机后自动打勾 | `AccountDashboard.phones` | `phones` 中出现 `active` 的手机，或用户点「稍后再说」 |
+| 4 连上手机 | 先选手机类型：**Android** 扫码下载 App；**iPhone / iPad** 扫码打开 Web App 并添加到主屏幕（§6.4）。两者都用同一个邮箱登录，检测到后自动打勾 | `AccountDashboard.installations` | 进入第 4 步之后出现新的 `active` 设备，类型为 `phone` 或 `browser`（§6.4）；或用户点「稍后再说」 |
 
 说明：
 
 - 第 2 步遵守 `docs/MANAGED_HERMES_STRATEGY.md` 的「一台 Mac 只有一个 Hermes」：本机已有 Hermes 就用
   它，只有没有时才按上游的标准方式安装；引导不提供「另装一份」的选项。
-- 第 4 步的下载二维码内容是公开发布服务的根地址（目前为 `https://mrlgs.net/`）。`release-server`
-  把 `/` 302 跳转到当前最新的带版本号 APK（`docs/APP_UPDATE.md`；2026-09-23 线上核对：跳转到
-  `/releases/Hermes-Remote-0.1.141-debug.apk`），所以二维码是固定的，不随每次发版变化，Desktop 也
-  不需要为此请求 `index.json`。二维码在本机离线生成，不经过 Gateway 鉴权客户端。二维码下方附一行
-  文字：「用手机相机扫码下载并安装，然后用同一个邮箱登录」，以及可复制的地址。
+- 第 4 步分 Android 与 iPhone / iPad 两种情况，见 §6.4。
 - 整个引导里用户唯一需要输入的是邮箱和验证码。`configureLocalProvider` 只是「使用本机 Hermes
   配置目录」，不要求填写 API Key。
 - 第 3 步中会改变机器的操作，仍然先弹出现有的确认 sheet（`managedBootstrapConfirmationSheet` /
@@ -175,6 +171,51 @@
 - 其余 → 主界面
 
 「第 4 步已完成或跳过」是引导唯一需要本地记住的标记，按账号 ID 存，换账号登录后重新判断。
+
+### 6.4 第 4 步：按手机类型分两条路
+
+第 4 步顶部是一个分段控件「Android ｜ iPhone / iPad」，默认选中 Android。Desktop 无法预知用户
+拿的是哪种手机，所以由用户选；切换只改变本页的说明和二维码，不影响完成判据。两个二维码都在本机
+离线生成（与现有 `PairingQRCodeGenerator` 同一方式），不经过 Gateway 鉴权客户端，下方都附可复制的
+地址。
+
+**Android：下载 App**
+
+- 二维码内容：公开发布服务的根地址 `https://mrlgs.net/`。`release-server` 把 `/` 302 跳转到当前最新
+  的带版本号 APK（`docs/APP_UPDATE.md`；2026-09-23 线上核对：跳转到
+  `/releases/Hermes-Remote-0.1.141-debug.apk`），所以二维码固定，不随发版变化，Desktop 也不需要
+  请求 `index.json`。
+- 步骤：① 用相机扫码下载并安装（可能提示允许安装未知来源应用）② 用同一个邮箱登录 ③ 选择这台 Mac。
+
+**iPhone / iPad：添加 Web App 到主屏幕**
+
+目前没有 iOS App。iPhone 与 iPad 使用 Gateway 托管的 Web App（`https://mrlgs.net/app/`，2026-09-23
+线上核对：`/app` 308 跳转到 `/app/`，页面声明了 `manifest.webmanifest`、`apple-touch-icon` 与
+`apple-mobile-web-app-capable`），添加到主屏幕后以独立窗口全屏运行。
+
+- 二维码内容：`https://mrlgs.net/app/`。
+- 步骤：
+  1. 用相机扫码，在 **Safari** 中打开。
+  2. 点「分享」按钮：iPhone 在屏幕底部，iPad 在地址栏右侧。
+  3. 在菜单中选「添加到主屏幕」，点「添加」。
+  4. 从主屏幕上的 Hermes GO 图标打开，用同一个邮箱登录，选择这台 Mac。
+- 提示一行：「请从主屏幕图标打开。直接在 Safari 标签页里用也可以，但会显示浏览器的地址栏和工具栏。」
+- 文案只写 Safari。其他 iOS 浏览器的菜单名称各不相同，本页不逐一说明。
+
+**完成判据与展示**
+
+- Android App 登录后，设备列表（`AccountDashboard.installations`）出现 `kind == "phone"` 的记录；
+  Web App 登录后出现的是 `kind == "browser"`、`platform == "web"` 的记录。今天 Desktop 的
+  `AccountDashboard.phones` 只筛选 `phone`，**必须把 `browser` 也纳入第 4 步的完成判据**，否则
+  iPhone 用户登录后第 4 步永远不会打勾。这只改 Desktop 的筛选，Gateway 已经返回 `browser` 记录，
+  `ManagedAccountInstallation.kind` 也按字符串解码，不需要改契约。
+- 只认进入第 4 步**之后**新出现的设备，避免把账号里早已存在的设备误判为「刚连上」。实现时以进入
+  第 4 步时的设备 ID 集合为基线，出现不在基线中的 `phone` / `browser` 即完成。
+- Web App 登录时不上报设备名，Gateway 默认记为 `Web browser`，无法区分 iPhone 还是电脑上的浏览器。
+  Desktop 把 `browser` 类设备显示为「网页版 Hermes GO」，不写成「iPhone」。在电脑浏览器里登录 Web App
+  也会让第 4 步打勾，这是可以接受的：它同样是一个能访问这台 Mac 的远程入口。
+- 后续可选（不在本需求内，属于 Web 包的改动）：Web App 登录时根据 UA 上报「iPhone · Safari」这类
+  设备名，Desktop 就能显示得更具体。
 
 ## 7. 老账号、新 Mac（状态 5）
 
@@ -264,7 +305,7 @@
 
 - 老账号、新 Mac 时先问「把这台 Mac 也连上 / 只在这台 Mac 上管理」（§7.1）。
 - 未满额直接添加，不做替换；满额时先移除一台（§7.2、§7.3）。
-- 第 4 步用下载二维码（§6.2）。
+- 第 4 步分 Android（二维码下载 App）与 iPhone / iPad（二维码打开 Web App 并添加到主屏幕）两种情况（§6.4）。
 - 「只管理」模式下菜单栏显示所选 Mac 的状态（§9）。
 
 实现时核对：`DELETE /v2/devices/{id}` 的 `not_found` / `reauthentication_failed` 等结果在 Gateway 上
@@ -282,6 +323,7 @@
 - 会话失效时 `startMonitoring()` 循环继续运行，`refreshHermesRuntime()` 仍被调用（§4.2）。
 - 断点续装：§6.3 的每个反推分支。
 - 名额满 / 未满时，§7.1 两个选项的可用性。
+- 第 4 步完成判据：基线之后新出现的 `phone` 与 `browser` 设备都判定为完成；基线中已有的设备不判定。
 - `.existingServiceNeedsAttention` 不会进入引导（§8）。
 
 干净 Mac 上的完整首装流程无法自动化，需要加入 `docs/DESKTOP_TEST_PLAN.md` 的人工步骤。

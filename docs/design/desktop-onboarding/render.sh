@@ -7,7 +7,7 @@ chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 page="file://$(pwd)/onboarding.html"
 screens="launch-checking launch-error signin-email signin-code signin-expired signin-email-dark
 choice-new-mac choice-full remove-mac-sheet onboard-hermes-found onboard-hermes-missing
-onboard-connect onboard-phone onboard-phone-done manage-only-overview menubar"
+onboard-connect onboard-phone onboard-phone-ios onboard-phone-done manage-only-overview menubar"
 n=0
 for s in $screens; do
   n=$((n + 1))
