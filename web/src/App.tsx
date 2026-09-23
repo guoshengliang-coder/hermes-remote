@@ -28,6 +28,7 @@ import { clearBotNotices } from "./app/bots";
 import { clearAllDrafts } from "./app/drafts";
 import { clearPrompts } from "./app/prompts";
 import { clearLocalPrefs } from "./app/localPrefs";
+import { clearMediaCache } from "./app/mediaCache";
 import { clearAllPins, loadPins, pinToken, savePins, togglePin } from "./app/pins";
 import { currentRoute, navigate, useRoute, type Route } from "./app/router";
 import {
@@ -65,7 +66,11 @@ document.documentElement.lang = language === "en" ? "en" : "zh-CN";
 const INBOX_POLL_MS = 5000;
 const BASE_TITLE = "Hermes GO";
 
-/** Drop every Cache Storage entry and tell the service worker to do the same. */
+/**
+ * Drop every Cache Storage entry, the persisted chat images, and tell the service worker to do the
+ * same. The images are in IndexedDB rather than any HTTP cache (HG-108), so they have to be cleared
+ * by name here — that on-disk copy is the cost of the cache and sign-out is where it is paid back.
+ */
 async function clearCaches(): Promise<void> {
   try {
     if (typeof caches !== "undefined") {
@@ -74,6 +79,7 @@ async function clearCaches(): Promise<void> {
   } catch {
     /* no Cache Storage */
   }
+  await clearMediaCache();
   try {
     navigator.serviceWorker?.controller?.postMessage({ type: "clear" });
   } catch {

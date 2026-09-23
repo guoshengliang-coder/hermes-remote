@@ -182,6 +182,13 @@ class ColdStartPhaseRestoreTest {
         assertEquals("等待你的确认", sessionStatusLine(runtime, AppLanguage.ZH))
     }
 
+    /**
+     * The run-really-is-still-going branch. This fixture injects no `SessionRepository`, so the
+     * transcript self-heal is unreachable from here by construction — which is why resuming to
+     * STREAMING is the right expectation in this class and not a contradiction of HG-100. The
+     * other branch, where the turn finished while the process was dead, is
+     * [KilledMidRunColdStartTest].
+     */
     @Test fun aRunningPhaseComesBackAsReconnectingAndResumesOnConnect() = runTest(timeout = 20.seconds) {
         val phases = FakePhaseStore(listOf(record("s5", SessionRunPhase.STREAMING)))
         val (store, _, connection, chat, _) = fixture(phases, connected = false)

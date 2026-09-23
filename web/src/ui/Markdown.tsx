@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { copyText } from "../app/clipboard";
 import { useApp } from "../app/store";
 import { appError, type AppError } from "../errors";
+import { withCjkEmphasisRepaired } from "../markdown/cjkEmphasis";
 import { copyPayload, decorateBlocks, renderMarkdownFragment } from "../markdown/render";
 import { renderTableImage, tableImageName } from "../markdown/tableImage";
 import { saveOrShareFile } from "../app/files";
@@ -11,6 +12,10 @@ import { TableFullscreen } from "./TableFullscreen";
 // renderMarkdownFragment, attached with replaceChildren — no innerHTML anywhere. While a reply
 // streams, re-rendering is throttled so a long answer does not re-parse on every delta. Code
 // blocks and tables carry a header with a copy button (decorateBlocks), handled here by delegation.
+//
+// withCjkEmphasisRepaired runs HERE and not inside render.ts (HG-106, mirroring where Android puts
+// it): readableText goes through the same renderer and feeds copy, read-aloud and the search hit
+// count, and the zero-width spaces this inserts must never reach the clipboard or a file.
 
 const STREAM_THROTTLE_MS = 90;
 
@@ -27,7 +32,7 @@ export function Markdown({ source, streaming }: { source: string; streaming?: bo
       state.at = Date.now();
       if (state.source === source || !ref.current) return;
       state.source = source;
-      const fragment = renderMarkdownFragment(source);
+      const fragment = renderMarkdownFragment(withCjkEmphasisRepaired(source));
       decorateBlocks(fragment, {
         table: t("表格", "Table"),
         copyCode: t("复制代码", "Copy code"),
