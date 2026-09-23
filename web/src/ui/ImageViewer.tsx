@@ -82,6 +82,8 @@ export function ImageViewer({ images, index: initial, onClose, pending }: { imag
     setUrl(null);
     if (!device) return;
     let live = true;
+    // No thumb width: this is the viewer, and a preview here is the whole point of the feature
+    // going wrong — the bubble is what gets the downscaled copy (HG-115).
     cachedBlobUrl(client, device.deviceId, image.path).then(
       (u) => live && setUrl(u),
       (e: unknown) => live && setError(toAppError(e, "download")),

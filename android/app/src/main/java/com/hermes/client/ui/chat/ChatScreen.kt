@@ -1596,6 +1596,15 @@ fun ChatScreen(
         // closes itself instead of showing an empty pager.
         if (viewerOwner != null && viewerItems.isEmpty()) closeViewer()
     }
+    LaunchedEffect(viewerOwner, viewerImageId) {
+        // The bubble holds a downscaled preview (HG-115); fullscreen owes the real picture. Asked
+        // for on open and on every page turn, so only the images actually looked at are fetched.
+        // The preview stays on screen until the original lands — a picture that sharpens beats a
+        // spinner over one we already have.
+        if (viewerOwner != null && viewerOwner != PENDING_VIEWER_OWNER) {
+            viewerImageId?.let(vm::ensureFullSizeImage)
+        }
+    }
     // The editor only ever works on a staged attachment: a sent image has been uploaded and has
     // nowhere to go back to, and "annotate and resend" is a separate feature.
     val editTarget = remember(editAttachmentId, state.pendingAttachments) {

@@ -539,7 +539,38 @@ class ChatViewModel @Inject constructor(
         image: com.hermes.client.domain.ChatImage,
         onResult: (Result<java.io.File>) -> Unit,
     ) {
-        viewModelScope.launch { onResult(runCatching { mediaRepository.requireLocalImage(image) }) }
+        // Sharing the preview would send a downscaled copy under the original's name (HG-115).
+        viewModelScope.launch {
+            onResult(runCatching { mediaRepository.requireLocalImage(mediaRepository.requiredOriginal(image)) })
+        }
+    }
+
+    /**
+     * Fetch the full-size copy of an image the bubble is showing a preview of, and merge it back
+     * into the transcript so the fullscreen viewer sharpens in place (HG-115).
+     *
+     * Called when the viewer opens and on every page change. A no-op for an image that is already
+     * the original, and silent on failure: the viewer keeps showing the preview, which is a softer
+     * picture rather than no picture.
+     */
+    fun ensureFullSizeImage(imageId: String) {
+        val key = runtimeKey ?: return
+        val image = runtimeStore.messagesFor(key)
+            .flatMap { it.images }
+            .firstOrNull { it.id == imageId }
+            ?: return
+        if (image.originalPath == null) return
+        viewModelScope.launch {
+            val full = mediaRepository.original(image)
+            // acceptHydratedImages merges by image id across every message, so the carrier message
+            // it is handed only has to hold the image.
+            if (full.originalPath == null) {
+                runtimeStore.acceptHydratedImages(
+                    key,
+                    listOf(com.hermes.client.domain.ChatMessage(imageId, com.hermes.client.domain.Role.ASSISTANT, "", images = listOf(full))),
+                )
+            }
+        }
     }
 
     fun imageExportName(image: com.hermes.client.domain.ChatImage): String =

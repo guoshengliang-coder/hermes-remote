@@ -67,6 +67,14 @@ data class ChatImage(
     val width: Int? = null,
     val height: Int? = null,
     val state: ImageTransferState = ImageTransferState.READY,
+    /**
+     * Where the full-size copy lives, or would live once fetched — set only while [localPath] holds
+     * a downscaled preview (HG-115). So the invariant is short: **non-null means [localPath] is a
+     * preview**, and everything that owes the user the real picture — the viewer, save, save-as,
+     * share — resolves this first. It is computed during hydration, while the profile the cache is
+     * keyed by is still in hand, so none of those callers has to know about profiles.
+     */
+    val originalPath: String? = null,
 )
 
 /** A non-image artifact. Bytes are fetched only when the user opens or downloads it. */

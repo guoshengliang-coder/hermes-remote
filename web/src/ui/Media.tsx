@@ -15,29 +15,52 @@ import { FileIcon } from "./icons";
 // Three tiers (HG-108): this page's blob: URLs, then IndexedDB, then the network. The middle tier
 // is what survives a reload — before it, refreshing an image-heavy conversation re-downloaded every
 // image at full size. See mediaCache.ts for why the bytes go there rather than into any HTTP cache.
+//
+// Two sizes (HG-115): a bubble asks for THUMBNAIL_WIDTH, the fullscreen viewer asks for the
+// original. They are separate cache entries — serving the preview to the viewer is how a
+// thumbnail feature turns into "the picture got blurry when I opened it".
 
 const blobUrls = new Map<string, Promise<string>>();
 const MAX_CACHED = 60;
 
-export async function fetchFileBlob(client: GatewayClient, deviceId: string, path: string): Promise<Blob> {
-  const response = await client.deviceApi<Response>(deviceId, "GET", hermesPaths.file(path), { raw: true });
+/** Matches the Connector's tier; asking for anything else just snaps back to it. */
+export const THUMBNAIL_WIDTH = 1080;
+
+export async function fetchFileBlob(
+  client: GatewayClient,
+  deviceId: string,
+  path: string,
+  thumbWidth?: number,
+): Promise<Blob> {
+  const response = await client.deviceApi<Response>(deviceId, "GET", hermesPaths.file(path, thumbWidth), { raw: true });
   return response.blob();
 }
 
 /** The persisted blob if there is one, otherwise the network — and then persist it. */
-async function loadBlob(client: GatewayClient, deviceId: string, path: string): Promise<Blob> {
-  const cached = await readCachedMedia(deviceId, path);
+async function loadBlob(
+  client: GatewayClient,
+  deviceId: string,
+  path: string,
+  thumbWidth: number | undefined,
+  key: string,
+): Promise<Blob> {
+  const cached = await readCachedMedia(key);
   if (cached) return cached;
-  const blob = await fetchFileBlob(client, deviceId, path);
-  void writeCachedMedia(deviceId, path, blob);
+  const blob = await fetchFileBlob(client, deviceId, path, thumbWidth);
+  void writeCachedMedia(key, blob);
   return blob;
 }
 
-export function cachedBlobUrl(client: GatewayClient, deviceId: string, path: string): Promise<string> {
-  const key = mediaKey(deviceId, path);
+export function cachedBlobUrl(
+  client: GatewayClient,
+  deviceId: string,
+  path: string,
+  thumbWidth?: number,
+): Promise<string> {
+  const key = mediaKey(deviceId, path, thumbWidth);
   let hit = blobUrls.get(key);
   if (!hit) {
-    hit = loadBlob(client, deviceId, path).then((blob) => URL.createObjectURL(blob));
+    hit = loadBlob(client, deviceId, path, thumbWidth, key).then((blob) => URL.createObjectURL(blob));
     hit.catch(() => blobUrls.delete(key));
     blobUrls.set(key, hit);
     if (blobUrls.size > MAX_CACHED) {
@@ -49,6 +72,11 @@ export function cachedBlobUrl(client: GatewayClient, deviceId: string, path: str
   return hit;
 }
 
+/**
+ * An image inside a bubble, which is always the preview (HG-115). The fullscreen viewer fetches
+ * the original through `cachedBlobUrl` itself, and `FileCard` below downloads the real file — this
+ * component is the only place a downscaled copy is the right answer.
+ */
 export function MacImage({ path, name, onOpen }: { path: string; name: string; onOpen?: () => void }) {
   const { client, device, language, t } = useApp();
   const [url, setUrl] = useState<string | null>(null);
@@ -58,7 +86,7 @@ export function MacImage({ path, name, onOpen }: { path: string; name: string; o
     if (!device) return;
     let live = true;
     setError(null);
-    cachedBlobUrl(client, device.deviceId, path).then(
+    cachedBlobUrl(client, device.deviceId, path, THUMBNAIL_WIDTH).then(
       (u) => live && setUrl(u),
       (e: unknown) => live && setError(toAppError(e, "download")),
     );

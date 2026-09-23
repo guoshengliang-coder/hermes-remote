@@ -64,6 +64,15 @@ describe("paths", () => {
     expect(hermesPaths.search('"部署" x')).toBe("sessions/search?q=%22%E9%83%A8%E7%BD%B2%22%20x");
   });
 
+  // HG-115. The width rides on the existing route rather than a new one, which is why the
+  // Gateway's browser allowlist needs no change: its /api/files entry declares no query keys.
+  it("asks for a preview only when a width is given", () => {
+    expect(hermesPaths.file("/Users/x/图 1.png")).toBe("files?path=%2FUsers%2Fx%2F%E5%9B%BE%201.png");
+    expect(hermesPaths.file("/Users/x/a.png", 1080)).toBe("files?path=%2FUsers%2Fx%2Fa.png&thumb=1080");
+    // A falsy width must not become `&thumb=0`, which is not a tier.
+    expect(hermesPaths.file("/Users/x/a.png", 0)).toBe("files?path=%2FUsers%2Fx%2Fa.png");
+  });
+
   it("detects webDeviceAccess under accountAuth, where the Gateway advertises it", () => {
     const base = { version: 1, accountAuth: {}, binding: {}, legacy: { appTokenAccepted: true, connectorTokenAccepted: true } } as unknown as GatewayCapabilities;
     expect(supportsWebDeviceAccess(base)).toBe(false);
