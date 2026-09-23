@@ -323,6 +323,37 @@ class SessionNotificationProjectorTest {
         assertTrue(spec.body.endsWith("…"))
     }
 
+    /**
+     * HG-105. The reply reaches the bar as the model wrote it, Markdown and all, so the card showed
+     * `**结论：…**` verbatim (reported 2026-09-22 on a HONOR MBH-AN10). The stripping is the same one
+     * read-aloud uses, so these expectations are speechText's, not a second set of rules.
+     */
+    @Test fun completed_card_strips_markdown_from_the_reply() {
+        fun body(text: String) =
+            projectSessionNotification(input(SessionRunPhase.COMPLETED_UNREAD, lastAssistantText = text), on)!!.body
+
+        assertEquals("结论：已入职满 6 年 5 个月。", body("**结论：已入职满 6 年 5 个月。**"))
+        assertEquals("小结 一切正常", body("## 小结\n\n一切正常"))
+        assertEquals("用 npm test 跑", body("用 `npm test` 跑"))
+        assertEquals("见 部署文档 第 3 节", body("见 [部署文档](https://example.test/deploy) 第 3 节"))
+        assertEquals("改完了，结果如下：", body("改完了，结果如下：\n\n```kotlin\nval x = 1\n```"))
+        for (marker in listOf("**", "##", "`")) {
+            assertTrue(marker, !body("## 标题\n\n**重点**：见 `code`").contains(marker))
+        }
+    }
+
+    /** The budget is spent on content: markers that get stripped must not eat into the 140. */
+    @Test fun the_140_cap_applies_after_the_markdown_is_stripped() {
+        val words = "这是一段正常的中文说明文字。"
+        val plain = words.repeat(9) // 126 characters, comfortably under the cap
+        val decorated = words.map { "**$it**" }.joinToString("").repeat(9)
+        assertTrue(decorated.length > 140)
+
+        val spec = projectSessionNotification(input(SessionRunPhase.COMPLETED_UNREAD, lastAssistantText = decorated), on)!!
+        assertEquals(plain, spec.body)
+        assertTrue(!spec.body.endsWith("…"))
+    }
+
     @Test fun failed_card_keeps_the_error_code_out_of_the_body() {
         val spec = projectSessionNotification(input(SessionRunPhase.FAILED), on)!!
         assertEquals(NotificationKind.FAILED, spec.kind)

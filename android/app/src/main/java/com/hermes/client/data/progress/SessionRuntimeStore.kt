@@ -742,8 +742,13 @@ class SessionRuntimeStore(
                     probeFailures.remove(key)
                     bindLiveHandle(key, handle)
                     if (!handle.isNullOrBlank()) inspectAccess(key, handle)
-                    if (believedActive && now - runtime.lastEventAt > STALE_RUN_MS) {
-                        settleSilentRunFromHistory(key, runtime)
+                    // A phase restored from disk and never confirmed since gets a much shorter
+                    // leash than a run this process watched start — see [RESTORED_CLAIM_SETTLE_MS].
+                    val unconfirmed = key in _restoredKeys.value
+                    val silentLongEnough =
+                        now - runtime.lastEventAt > (if (unconfirmed) RESTORED_CLAIM_SETTLE_MS else STALE_RUN_MS)
+                    if (believedActive && silentLongEnough) {
+                        settleSilentRunFromHistory(key, runtime, unconfirmed)
                     }
                     ProbeResult.PROBED
                 },
@@ -785,8 +790,23 @@ class SessionRuntimeStore(
      * count because `message.start` already left an empty assistant placeholder locally. A bare
      * silence timeout would retire a long tool call -- precisely the run that legitimately goes
      * quiet for minutes -- so the transcript, not the clock, casts the deciding vote.
+     *
+     * [unconfirmedClaim] marks the cold-start case (HG-100), where two things are different. The
+     * run is reached sooner ([RESTORED_CLAIM_SETTLE_MS]), because a phase that only a disk snapshot
+     * vouches for has earned no benefit of the doubt. And the body check above is worth nothing
+     * here: the local message list was itself loaded from REST moments earlier, so the "persisted
+     * answer" it is compared against is the same bytes, and the comparison passes no matter what
+     * the run is doing. The replacement evidence is the shape of the tail -- upstream persists the
+     * user turn when the prompt is submitted and the assistant turn only when it completes, so a
+     * transcript ending in a user turn is a run still in flight, and this must leave it alone.
+     * (Tool rows cannot appear at the tail: `SessionRepository.mapHistory` folds them onto the
+     * assistant turn they answer and drops the rows themselves.)
      */
-    private suspend fun settleSilentRunFromHistory(key: SessionRuntimeKey, observed: SessionRuntime) {
+    private suspend fun settleSilentRunFromHistory(
+        key: SessionRuntimeKey,
+        observed: SessionRuntime,
+        unconfirmedClaim: Boolean = false,
+    ) {
         val repository = sessionRepository ?: return
         delay(SESSION_INFO_GRACE_MS)
         val waited = _runtimes.value[key] ?: return
@@ -803,6 +823,14 @@ class SessionRuntimeStore(
             return
         }
         if (!history.covers(expectation)) return
+        // The cold-start evidence, standing in for a body check that cannot discriminate here.
+        if (unconfirmedClaim) {
+            val tail = history.lastOrNull { it.role == Role.USER || it.role == Role.ASSISTANT }
+            if (tail?.role != Role.ASSISTANT) {
+                DebugLog.log("session", "settle s=${key.sessionId}: transcript ends on a ${tail?.role ?: "-"} turn -- still running")
+                return
+            }
+        }
         // `message.start` already put an empty assistant placeholder in the local list, so a turn
         // count cannot tell "answered" from "still going" -- the body is what distinguishes them.
         val persisted = history.lastOrNull { it.role == Role.ASSISTANT }?.text.orEmpty().trim()
@@ -836,12 +864,18 @@ class SessionRuntimeStore(
         }
     }
 
-    /** Probe every active runtime; [staleOnly] restricts it to runs silent past [STALE_RUN_MS]. */
+    /**
+     * Probe every active runtime; [staleOnly] restricts it to runs silent past [STALE_RUN_MS] —
+     * or past the shorter [RESTORED_CLAIM_SETTLE_MS] for a phase still vouched for by nothing but
+     * the disk snapshot, so the watchdog reaches a ghost run on the same leash [probe] uses.
+     */
     fun probeActiveRuntimes(reason: String, staleOnly: Boolean) {
         val now = clock()
         val candidates = _runtimes.value.values.filter { runtime ->
+            val silentPast =
+                if (runtime.key in _restoredKeys.value) RESTORED_CLAIM_SETTLE_MS else STALE_RUN_MS
             runtime.phase.isActive && runtime.phase != SessionRunPhase.RECONNECTING &&
-                (!staleOnly || now - runtime.lastEventAt > STALE_RUN_MS)
+                (!staleOnly || now - runtime.lastEventAt > silentPast)
         }
         if (candidates.isEmpty()) return
         DebugLog.log("session", "probing ${candidates.size} active run(s): $reason")
@@ -1522,7 +1556,12 @@ class SessionRuntimeStore(
         // Before the disk snapshot lands, remember that this key already carries live knowledge.
         if (!seeded && cause != "restore") touchedBeforeSeed += key
         // Any live event about a restored runtime confirms it; it may drive notifications again.
-        if (cause != "restore" && key in _restoredKeys.value) _restoredKeys.update { it - key }
+        // `reconnect` is NOT that: it re-asserts the disk snapshot because `session.access` could
+        // not be read, so it carries exactly as much evidence as `restore` did — none. Counting it
+        // used to clear the suppression and publish an ongoing, non-dismissable 「运行中」 card for a
+        // run that had already finished while the process was dead, and hold the keep-alive policy
+        // at its highest tier behind it (HG-100).
+        if (cause !in UNCONFIRMED_CAUSES && key in _restoredKeys.value) _restoredKeys.update { it - key }
         val before = if (DebugLog.isEnabled()) _runtimes.value[key] else null
         _runtimes.update { map ->
             map + (key to transform(map[key] ?: SessionRuntime(key)).normalized())
@@ -1654,6 +1693,23 @@ class SessionRuntimeStore(
         else -> false
     }
 
+    /**
+     * Whether this event asserts anything at all about the run it is attributed to. Everything
+     * Hermes emits about a turn does; a `session.info` carrying no `running` bit does not, and
+     * neither does an event type this build has no fold for. Used to decide whether the arrival is
+     * worth a fresh `lastEventAt` — see the call site in [applyEvent] for why that matters (HG-100).
+     */
+    private fun ServerEvent.saysSomethingAboutTheRun(): Boolean = when (type) {
+        "session.info" -> bool("running") != null
+        "message.start", "message.delta", "message.complete",
+        "reasoning.delta", "reasoning.available",
+        "tool.start", "tool.complete", "agent.terminal.output",
+        "approval.request", "clarify.request", "error",
+        ServerRequests.CANCEL_EVENT, ServerRequests.OPEN_SNAPSHOT_EVENT,
+        -> true
+        else -> false
+    }
+
     private fun applyEvent(event: ServerEvent) {
         if (event.type == SESSIONS_CHANGED_EVENT) { onSessionsChanged(); return }
         val key = resolve(event) ?: return
@@ -1723,6 +1779,17 @@ class SessionRuntimeStore(
                     (event.type == "session.info" && event.bool("running") == true)
                 )
             val phaseChanged = nextPhase != runtime.phase
+            // An event that asserted nothing must not postpone the watchdog. The common case is a
+            // `session.info` with no `running` bit: the probe's own `session.resume` draws one, it
+            // restates nothing, and `logTransition` stays silent because phase/gen/streaming are
+            // all unchanged — yet it used to stamp `lastEventAt`, which is the input BOTH the
+            // stale-run threshold and `settleSilentRunFromHistory`'s grace check read. A run whose
+            // completion was missed therefore kept deferring its own self-heal on the strength of
+            // the probes sent to resolve it, which is why HG-100's log is a bare row of
+            // `probing 1 active run(s)` with no verdict between them, forever.
+            // The same reasoning already retired `sessions.changed` as a credit (HG-57,
+            // `SessionsChangedProbeTest`); this generalizes it to every event.
+            val informative = event.saysSomethingAboutTheRun() || phaseChanged || terminal || starting
             val todo = if (event.type == "tool.complete" && event.str("name") == "todo") {
                 event.todoCounts()
             } else null
@@ -1734,7 +1801,7 @@ class SessionRuntimeStore(
                     "tool.complete", "message.complete", "error" -> null
                     else -> runtime.toolName
                 },
-                lastEventAt = now,
+                lastEventAt = if (informative) now else runtime.lastEventAt,
                 // Sticky: only an authoritative "this session is no longer running" clears the
                 // flag. A run can emit message.complete (or a recoverable error) and keep working
                 // — background processes still running, another message to follow — and dropping
@@ -2096,6 +2163,17 @@ class SessionRuntimeStore(
         const val PENDING_EVENT_CAP = 200
         /** A foreground run this long without any event is asked about by the watchdog. */
         const val STALE_RUN_MS = 3 * 60_000L
+        /**
+         * The same question for a phase that is still nothing but a disk claim (HG-100). Three
+         * minutes is the benefit of the doubt owed to a run THIS process watched start: it may be
+         * inside a long tool call, and nothing about its silence is suspicious. A phase restored
+         * from disk has no such standing — the process that saw it start is gone, `session.access`
+         * is absent upstream so nothing can confirm it, and the run may well have finished while
+         * the app was dead. Thirty seconds is long enough for a genuine run's next event to land
+         * (a reconnect plus the first delta) and short enough that a ghost does not outlive the
+         * user's patience. The transcript still casts the deciding vote either way.
+         */
+        const val RESTORED_CLAIM_SETTLE_MS = 30_000L
         const val WATCHDOG_TICK_MS = 60_000L
         /** One probe per run per minute, however many triggers fire. */
         const val PROBE_MIN_INTERVAL_MS = 60_000L
@@ -2120,6 +2198,16 @@ class SessionRuntimeStore(
         const val PHASE_PERSIST_MIN_INTERVAL_MS = 2_000L
         /** How long to wait for a run to settle before calling an approval answer undelivered. */
         const val APPROVAL_CONFIRM_SETTLE_MS = 2_500L
+        /**
+         * Causes that say nothing about whether the run is still live, so a runtime stays in
+         * [restoredKeys] through them (HG-100). `restore` writes the claim and `reconnect` repeats
+         * it when `session.access` cannot be read. The three history causes refresh TEXT: each one
+         * deliberately leaves the phase to the events (see `acceptReconciledHistory` and
+         * `acceptManualHistory`), so treating them as confirmation would credit the claim with
+         * evidence its own code declines to act on — and on a cold start the reconnect drags a
+         * reconcile along behind it, which is how the marker used to be cleared within the second.
+         */
+        val UNCONFIRMED_CAUSES = setOf("restore", "reconnect", "reconcile", "manual-refresh", "older-page")
     }
 }
 

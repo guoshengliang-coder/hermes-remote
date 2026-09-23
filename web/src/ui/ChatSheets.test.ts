@@ -28,6 +28,19 @@ describe("in-chat search (HG-45: visible body text only)", () => {
     expect(searchHits([item("a", "assistant", "x")], "  ")).toEqual([]);
     expect(searchHits([item("a", "assistant", "a **b** c")], "**")).toEqual([]);
   });
+
+  // HG-106. The CJK emphasis repair inserts zero-width spaces, but only on the way into the DOM
+  // (Markdown.tsx). searchHits reads the message text, so the hit COUNT this produces — which is
+  // what the highlight walker indexes into by `nth` — must be identical either way. If a future
+  // change ever moves the repair into the shared render path, this goes red.
+  it("counts hits off the original text, not the display repair", () => {
+    const source = "**事实｜来源：**2026-08 的薪酬表；**边界：**来源未核验";
+    expect(searchHits([item("a", "assistant", source)], "来源")).toEqual([
+      { key: "a", nth: 0 },
+      { key: "a", nth: 1 },
+    ]);
+    expect(searchHits([item("a", "assistant", source)], "​")).toEqual([]);
+  });
 });
 
 describe("share transcript (HG-104: the whole conversation, not only the loaded pages)", () => {

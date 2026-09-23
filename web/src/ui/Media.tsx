@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { GatewayClient } from "../api/gateway";
 import { hermesPaths } from "../api/gateway";
 import { toAppError } from "../app/failures";
+import { mediaKey, readCachedMedia, writeCachedMedia } from "../app/mediaCache";
 import { useApp } from "../app/store";
 import type { AppError } from "../errors";
 import type { Attachment } from "../hermes/media";
@@ -10,6 +11,10 @@ import { FileIcon } from "./icons";
 
 // Mac files referenced by messages (MEDIA:/@image:/@file:). Always fetched through the device
 // files route with the session cookie, turned into blob: URLs — never a cross-origin <img src>.
+//
+// Three tiers (HG-108): this page's blob: URLs, then IndexedDB, then the network. The middle tier
+// is what survives a reload — before it, refreshing an image-heavy conversation re-downloaded every
+// image at full size. See mediaCache.ts for why the bytes go there rather than into any HTTP cache.
 
 const blobUrls = new Map<string, Promise<string>>();
 const MAX_CACHED = 60;
@@ -19,11 +24,20 @@ export async function fetchFileBlob(client: GatewayClient, deviceId: string, pat
   return response.blob();
 }
 
+/** The persisted blob if there is one, otherwise the network — and then persist it. */
+async function loadBlob(client: GatewayClient, deviceId: string, path: string): Promise<Blob> {
+  const cached = await readCachedMedia(deviceId, path);
+  if (cached) return cached;
+  const blob = await fetchFileBlob(client, deviceId, path);
+  void writeCachedMedia(deviceId, path, blob);
+  return blob;
+}
+
 export function cachedBlobUrl(client: GatewayClient, deviceId: string, path: string): Promise<string> {
-  const key = `${deviceId}\n${path}`;
+  const key = mediaKey(deviceId, path);
   let hit = blobUrls.get(key);
   if (!hit) {
-    hit = fetchFileBlob(client, deviceId, path).then((blob) => URL.createObjectURL(blob));
+    hit = loadBlob(client, deviceId, path).then((blob) => URL.createObjectURL(blob));
     hit.catch(() => blobUrls.delete(key));
     blobUrls.set(key, hit);
     if (blobUrls.size > MAX_CACHED) {

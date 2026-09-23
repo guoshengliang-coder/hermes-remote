@@ -145,3 +145,21 @@ describe("renderMarkdownFragment", () => {
     expect(links[0]!.getAttribute("rel")).toBe("noopener noreferrer");
   });
 });
+
+// HG-106, end to end over the pair Markdown.tsx composes. The renderer alone is strict CommonMark
+// and must stay that way — the repair is a separate pass at the display call site, so this asserts
+// the composition rather than a change in renderMarkdown.
+describe("CJK emphasis, through the renderer", () => {
+  it("renders the reported sentence as bold once repaired", async () => {
+    const { renderMarkdown } = await import("./render");
+    const { withCjkEmphasisRepaired } = await import("./cjkEmphasis");
+    const source = "**事实｜来源：**2026-08《小迈科技薪酬表》薪酬档案快照";
+
+    expect(dom(renderMarkdown(source)).querySelector("strong")).toBeNull();
+
+    const strong = dom(renderMarkdown(withCjkEmphasisRepaired(source))).querySelector("strong");
+    expect(strong).not.toBeNull();
+    // The zero-width space rides inside the bold run; it is invisible, and only display sees it.
+    expect(strong!.textContent?.replace(/​/g, "")).toBe("事实｜来源：");
+  });
+});

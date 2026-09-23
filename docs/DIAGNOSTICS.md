@@ -73,6 +73,17 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 从未被对账过——手机整段时间离线，或该会话的 deviceId 不在当前传输路由上。此时行内显示的是**最后已知**
 状态，不是此刻的真相；判断前先确认这一点（HG-31）。
 
+**`cause=restore` → `cause=reconnect` 之后只剩一串 `[session] probing`，中间没有任何 `[phase]` 行
+（HG-100）**：这看着符合上面那条「健康」判据，其实是坏的。配套特征是同一秒内有一条
+`[history] reconcile … accepted=true`——**那一轮其实早已结束，冷启动把一个死掉的 claim 复活了**。
+这是客户端裁决问题，不要往第 2 问、第 1 问走。三处成因：`session.access` 上游永久 `-32601`，
+拿不到答案时重连按磁盘原样相信；不改变任何东西的事件（`session.info` 不带 `running`）照样刷新
+`lastEventAt`，把自愈的沉默门槛一再推远；历史对账拿到完整回复也刻意不改 phase。
+0.1.142 起：重连与对账都不再算作「已证实」，未经证实的 claim 用 30 秒而不是 3 分钟的门槛去读历史，
+并要求 REST 的最后一条会话行是助手行（还在跑的那一轮，上游只落了用户行）。
+自愈成功时仍写作 `cause=probe:history-settled`；因尾行是用户行而放弃时写
+`[session] settle s=… transcript ends on a USER turn -- still running`。
+
 **握手停滞（HG-19）**：`Connecting` 只有两个出口——收到 `gateway.ready`，或 socket 死掉。曾经有
 第三种情形无人处理：socket 建立了、既不完成握手也不关闭。表现是横幅一直「正在连接 Relay…」、每个
 动作各自在 15 秒后报 `gateway readiness timeout`、而 `/api/status` 全程 200（REST 走 HTTP 隧道，

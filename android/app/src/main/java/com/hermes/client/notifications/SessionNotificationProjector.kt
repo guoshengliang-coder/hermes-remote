@@ -6,6 +6,7 @@ import com.hermes.client.data.progress.SessionRuntimeKey
 import com.hermes.client.ui.chat.ApprovalRequest
 import com.hermes.client.ui.chat.ApprovalTier
 import com.hermes.client.ui.chat.ClarifyRequest
+import com.hermes.client.ui.chat.speechText
 import com.hermes.client.ui.chat.tierFor
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localized
@@ -263,9 +264,22 @@ fun NotificationSummary.label(language: AppLanguage): String = listOfNotNull(
     finished.takeIf { it > 0 }?.let { localized(language, "$it 个已结束", if (it == 1) "1 finished" else "$it finished") },
 ).joinToString(" · ")
 
-/** First ~140 characters of the final reply, whitespace collapsed; null when there is nothing. */
+/**
+ * First ~140 characters of the final reply, Markdown syntax stripped and whitespace collapsed;
+ * null when there is nothing left.
+ *
+ * The stripping is [speechText], the same pass read-aloud uses, rather than a third transform of
+ * its own: a notification and a spoken reply want the same thing — the content without the syntax
+ * (HG-105; before this the bar showed `**结论：…**` verbatim). Taking the first 140 characters
+ * AFTER stripping is deliberate: markers that would be cut away must not eat into the budget.
+ *
+ * What it does not do: table pipes, list bullets and quote markers survive. They rarely appear in
+ * the opening 140 characters, and removing them means deciding how a table reads as one line —
+ * a separate change.
+ */
 internal fun snippet(text: String?, max: Int = 140): String? {
-    val flat = text?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val plain = text?.let(::speechText)
+    val flat = plain?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotBlank() } ?: return null
     return if (flat.length <= max) flat else flat.take(max - 1).trimEnd() + "…"
 }
 
