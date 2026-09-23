@@ -1,9 +1,11 @@
 import { render } from "preact";
 import { App } from "./App";
+import { blockPageZoom } from "./app/noZoom";
 import "./styles.css";
 
 const root = document.getElementById("app");
 if (root) render(<App />, root);
+blockPageZoom();
 
 // The service worker only caches the shell and hashed assets (never /v2/* or any API); it is
 // registered in production builds only so development always sees fresh modules.

@@ -122,6 +122,9 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   background: var(--surface);
+  /* Taps act immediately and double tap does not zoom the page; surfaces with their own pinch
+     (viewer, editor) set touch-action: none themselves. */
+  touch-action: manipulation;
 }
 
 body {
