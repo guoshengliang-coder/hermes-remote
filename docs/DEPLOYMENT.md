@@ -1238,6 +1238,43 @@ Web package `0.1.0-de9be41d71e0` was published right after the switch (`scripts/
 (`/secure-input/hermes-go/gateway-0.4.19-81d7d5d/`) as `targetArtifactManifest`, and
 `scripts/publish-web-app.sh --rollback` for the Web package.
 
+## Routine release: Gateway 0.4.21, session window 180 days (R5-F1; production complete 2026-09-23)
+
+Owner-authorized (merge and deployment, 2026-09-23). Operator `claude-webapp`. The release carries one
+behaviour change: the refresh window goes from 30 to 180 days, still rolling — every rotation restarts it
+(#402). It followed two Web-only publishes the same morning: the cold-start session resume (#400, the actual
+reason the owner kept being asked for an email code) and the no-page-zoom fix (#397). Database schema 16
+unchanged, no migration, mode `email_sharing_components_web_push` preserved, so this is a routine R5-F1
+release; rollback to 0.4.20 stays possible (same schema). All peer sessions were idle at the time, so no
+other production work was in flight.
+
+Artifacts from `Gateway OCI` run 35811630564 on `main 09499b505ce7` (the version bump, #403): Gateway
+`0.4.21-09499b505ce7` (archive SHA-256 `b56c941da431d3e997f055a6f16e26c17c4ac33b68a4cc8905992faa427ea89d`) and
+operator bundle `Hermes-R5D-Ops-09499b505ce7` (SHA-256
+`81f983a7b3a4386c877fac33f1853be5a5b0b22a143a525fb6c90f6ab7595a8a`), both verified locally, re-hashed on the
+host after transfer, and the operator bundle verified again from its extracted copy at
+`/opt/hermes-go-ops/09499b505ce7ed2bb18793d4ba262ed4621dac6d`. Bundles live in
+`/secure-input/hermes-go/gateway-0.4.21-09499b50/` (root `0600`). `production-release.json` was retargeted and
+its operator set to `claude-webapp` (previous copy `production-release-2b8cbc5c6f2f.json`).
+
+Run `e61a3f37-7e1b-4e61-8cb8-3f3e8151784e` (`production-deploy`) committed: `activeSlot: blue`,
+`previousSlot: green`, `preparedStage: candidate_verified`, `current` → `releases/0.4.21-09499b505ce7`,
+`previous` → `releases/0.4.20-2b8cbc5c6f2f`. Independent checks afterwards: public capabilities
+`server.version` 0.4.21 with `push: {"providers":["fcm"]}` and `webDeviceFeatures` unchanged; `/app/` and
+`/account` 200; an unauthenticated `GET /v2/devices/<id>/ws` upgrade still 401; loopback `/readyz` 200
+(migrations ok); Docker healthy with zero restarts and no warn-or-worse lines; both account Connectors
+reconnected within a second of the switch (02:54:52Z and 02:54:53Z); green inactive as the rollback slot;
+the retired `hermes-remote-gateway` unit inactive; nginx and DERP active. The short-lived `mac-mini` legacy
+Connector in the log is the release's own public smoke, the same pattern the previous slot shows.
+`xray.service` has been inactive since 2026-08-30 and was not touched. Backup pins (schema 16) are unchanged.
+
+Web package `0.1.0-14e3405d5aaa` was published before the Gateway switch (`scripts/publish-web-app.sh` with
+`WEB_PUBLISH_VERIFY_PUBLIC=1`, previous `0.1.0-de9be41d71e0`); it is independent of the Gateway version.
+Rollback: `--operation rollback` with the 0.4.20 bundle
+(`/secure-input/hermes-go/gateway-0.4.20-2b8cbc5c/`) as `targetArtifactManifest`, and
+`scripts/publish-web-app.sh --rollback` for the Web package. Sessions issued before the switch keep their
+30-day expiry until their next rotation.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
