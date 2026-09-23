@@ -99,21 +99,10 @@ node scripts/verify-desktop-component-release-v2.mjs \
   --origin "$DESKTOP_RELEASE_PUBLIC_ORIGIN" --channel "$DESKTOP_RELEASE_CHANNEL" \
   --architecture "$DESKTOP_RELEASE_ARCHITECTURE" >/dev/null
 
-manifest_files() {
-  node - "$1" <<'NODE'
-const fs = require('node:fs');
-const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-const entries = value.artifacts ?? value.components;
-if (!Array.isArray(entries) || entries.length === 0) process.exit(65);
-for (const entry of entries) {
-  if (typeof entry.fileName !== 'string' || !/^[A-Za-z0-9._-]+$/.test(entry.fileName)) process.exit(65);
-  process.stdout.write(`${entry.fileName}\n`);
-}
-NODE
-}
-
 release_name="$(basename "$DESKTOP_RELEASE_MANIFEST")"
 component_name="$(basename "$DESKTOP_COMPONENT_MANIFEST")"
+release_files="$(node scripts/desktop-publish-files.mjs "$DESKTOP_RELEASE_MANIFEST")"
+component_files="$(node scripts/desktop-publish-files.mjs "$DESKTOP_COMPONENT_MANIFEST")"
 release_size="$(stat -f %z "$DESKTOP_RELEASE_MANIFEST")"
 component_size="$(stat -f %z "$DESKTOP_COMPONENT_MANIFEST")"
 release_sha="$(shasum -a 256 "$DESKTOP_RELEASE_MANIFEST" | awk '{print $1}')"
@@ -145,7 +134,7 @@ NODE
 
 ssh "$DESKTOP_RELEASE_SSH_TARGET" \
   "mkdir -p '$remote_release/$DESKTOP_RELEASE_VERSION' '$remote_components/$DESKTOP_RELEASE_VERSION'"
-for name in "$release_name" $(manifest_files "$DESKTOP_RELEASE_MANIFEST"); do
+for name in "$release_name" $release_files; do
   source="$release_dir/$name"
   [[ -f "$source" && ! -L "$source" ]] || exit 66
   scp "$source" "$DESKTOP_RELEASE_SSH_TARGET:$remote_release/$DESKTOP_RELEASE_VERSION/$name"
@@ -153,7 +142,7 @@ for name in "$release_name" $(manifest_files "$DESKTOP_RELEASE_MANIFEST"); do
     -o "$work/release-$name"
   cmp -s "$source" "$work/release-$name"
 done
-for name in "$component_name" $(manifest_files "$DESKTOP_COMPONENT_MANIFEST"); do
+for name in "$component_name" $component_files; do
   source="$component_dir/$name"
   [[ -f "$source" && ! -L "$source" ]] || exit 66
   scp "$source" "$DESKTOP_RELEASE_SSH_TARGET:$remote_components/$DESKTOP_RELEASE_VERSION/$name"

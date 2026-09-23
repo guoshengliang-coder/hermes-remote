@@ -148,7 +148,7 @@ test("release channel publisher keeps verification, full readback, rollback, and
   const source = await readFile("scripts/publish-desktop-release.sh", "utf8");
   assert.match(source, /verify-desktop-managed-release\.mjs/);
   assert.match(source, /verify-desktop-component-release-v2\.mjs/);
-  assert.match(source, /manifest_files/);
+  assert.match(source, /desktop-publish-files\.mjs/);
   assert.match(source, /cmp -s \"\$source\"/);
   assert.match(source, /--rollback/);
   assert.match(source, /desktop-managed-v\$\{DESKTOP_RELEASE_VERSION\}/);
