@@ -1205,6 +1205,39 @@ bundle (`/secure-input/hermes-go/gateway-0.4.18-1d6322f/`) as `targetArtifactMan
 batch-4 features by itself once `webDeviceFeatures` is gone, and `scripts/publish-web-app.sh --rollback` returns
 the previous Web package.
 
+## Routine release: Gateway 0.4.20 with Web batches 5–6 and the HG-104 edge work (R5-F1; production complete 2026-09-23)
+
+Owner-authorized (merge, version gate and deployment, 2026-09-23). Operator `claude-hg104`. The release carries
+HG-104 (permessage-deflate on the Connector control sockets, `status`/`bytes`/`chunks`/`ttfbMs` on `http.tunnel`
+logs, and the client-side session-list debounce plus chat-history paging), the HG-101/102/103 push fixes (#388)
+and Web batches 5 (#389) and 6 (#395). Database schema 16 unchanged, no migration, mode
+`email_sharing_components_web_push` preserved — a routine R5-F1 release; rollback to 0.4.19 stays possible
+(same schema).
+
+Artifacts from `Gateway OCI` run 35804527315 on `main 2b8cbc5c6f2f` (the version bump, #398): Gateway
+`0.4.20-2b8cbc5c6f2f` (archive SHA-256 `8dc617a909d91524d050d36fc8ea05cb07aaf29897f02bb7d1d245d58660f873`,
+image `hermes-remote-gateway:0.4.20-2b8cbc5c6f2f`) and operator bundle `Hermes-R5D-Ops-2b8cbc5c6f2f` (SHA-256
+`1a6bc1787c43f4c222c27943cd80070fae6fa20902f566bdf21a00b2a5ecedde`), both verified locally, re-hashed on the host,
+and the operator bundle verified again from its extracted copy at
+`/opt/hermes-go-ops/2b8cbc5c6f2f7f1240062d5ca1b890a7e75efe24`. Bundles live in
+`/secure-input/hermes-go/gateway-0.4.20-2b8cbc5c/` (root `0600`). `production-release.json` was retargeted and its
+operator set to `claude-hg104` (previous copy `production-release-81d7d5de9524.json`).
+
+Run `d0bd0a29-55f9-4087-931d-6205bb55a048` (`production-deploy`) committed: `activeSlot: green`,
+`previousSlot: blue`, `preparedStage: candidate_verified`, `current` → `releases/0.4.20-2b8cbc5c6f2f`, `previous` →
+`releases/0.4.19-81d7d5de9524`. Independent checks afterwards: public capabilities `server.version` 0.4.20;
+loopback `/internal/version` `serverVersion` 0.4.20 with `sourceCommit` `2b8cbc5c…` and `sourceDirty: false`;
+`/internal/account-connectors` showed both account Connectors reconnected (generations 7 and 8) within a minute of
+the switch, which is also the permessage-deflate check — the ws client negotiates the extension by default;
+`/relay-health` ok; an unauthenticated device WebSocket upgrade still 401; blue inactive as the rollback slot.
+`xray.service` has been inactive since 2026-08-30 and was not touched. Backup pins (schema 16) are unchanged.
+
+Web package `0.1.0-de9be41d71e0` was published right after the switch (`scripts/publish-web-app.sh` with
+`WEB_PUBLISH_VERIFY_PUBLIC=1`, previous `0.1.0-22d05ddfc1e2`). Android 0.1.141 (code 142) was published through
+`scripts/android-release-train.mjs` in the same window. Rollback: `--operation rollback` with the 0.4.19 bundle
+(`/secure-input/hermes-go/gateway-0.4.19-81d7d5d/`) as `targetArtifactManifest`, and
+`scripts/publish-web-app.sh --rollback` for the Web package.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
@@ -1300,11 +1333,22 @@ with the signed-in account's `/v2/devices` `lastSeenAt` and end-to-end health; n
 `/relay-health` legacy count nor this live snapshot alone proves Android REST/WebSocket traffic.
 The endpoint is read-only and does not authorize a restart, migration, or production deployment.
 
-## HG-104 payload compression and edge timing (source change; production application pending authorization)
+## HG-104 payload compression and edge timing (applied to production 2026-09-23)
 
-**Status: nothing in this section has been applied to production.** It records what the HG-104 code
-changes mean for the live host and how to apply them once the owner separately authorizes it. A
-source merge or a new operator bundle does not authorize any of the steps below.
+**Status: applied to production on 2026-09-23, owner-authorized, alongside the Gateway 0.4.20 release.**
+The timing `log_format` went in first (`/etc/nginx/conf.d/hermes-edge.conf`, backup
+`/root/hermes-edge.conf.bak-20260923-0922`, new site-file SHA-256
+`ecc23e5f2e174d96772143bacda068d38e93c2e7f9a062a90eb5570d4ef87c66`, superseding `4c67d49d…`), then the
+release, then the device-API gzip (`/etc/hermes-go/account/binding-routes.conf`, backup
+`/root/binding-routes.conf.bak-20260923-0927`, live file now hashes
+`8fee179adbbb73cead70ccfaa87119645648af3d546afa0db3581129e0ff5b21` — the rollout-preflight mismatch described
+below is therefore resolved). The steps below remain the procedure; re-read them before repeating any of it,
+and note that a source merge or a new operator bundle still does not authorize a further application.
+
+Pre-change baseline from `/var/log/nginx/hermes-edge.access.log` on 2026-09-23 between 00:36 and 09:27 CST:
+`/v2/devices/*/api/profiles/sessions` 112 requests, 50,961,500 bytes, about 455 KiB each;
+`/v2/devices/*/api/sessions/*/messages` 15 requests, 7,976,061 bytes, about 532 KiB each. The same window after
+the change, taken from `/var/log/nginx/hermes-edge.timing.log`, is the after side of the comparison.
 
 The 2026-09-07 edge compression covers only `location ^~ /api/` in the hand-maintained site file.
 Account-mode clients (the Web app, and Android in account mode) read the same Hermes JSON through
