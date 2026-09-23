@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 import { constants, readFileSync } from "node:fs";
-import { mkdir, open, readdir, realpath, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, resolve, sep } from "node:path";
 import {
@@ -37,6 +37,14 @@ import { HermesAuth, boundedResponseBody, fetchHermesOpenApi } from "./hermes-au
 import { contractReportResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
+import {
+  isThumbnailable,
+  isWorthDownscaling,
+  snapThumbnailWidth,
+  sipsTools,
+  thumbnailFileName,
+  thumbnailFormatFor,
+} from "./thumbnails.js";
 
 // Launchd captures stdout/stderr without timestamps, which made the 2026-09-01
 // reconnect-churn investigation impossible to correlate with server-side events.
@@ -62,11 +70,17 @@ const hermesBaseUrl = (process.env.HERMES_BASE_URL ?? "http://127.0.0.1:9119").r
 const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`;
 const filesRoot = resolve(process.env.FILES_ROOT ?? homedir());
 const uploadRoot = resolve(process.env.UPLOAD_ROOT ?? resolve(filesRoot, ".hermes-remote", "uploads"));
+const thumbnailRoot = resolve(process.env.THUMBNAIL_ROOT ?? resolve(filesRoot, ".hermes-remote", "thumbs"));
 const maxUploadBytes = positiveIntEnv("MAX_UPLOAD_BYTES", 6 * 1024 * 1024);
 const maxFileBytes = positiveIntEnv("MAX_FILE_BYTES", 100 * 1024 * 1024);
 const maxUploadCacheBytes = positiveIntEnv("MAX_UPLOAD_CACHE_BYTES", 512 * 1024 * 1024);
 const maxUploadCacheFiles = positiveIntEnv("MAX_UPLOAD_CACHE_FILES", 200, 10_000);
 const uploadRetentionMs = positiveIntEnv("UPLOAD_RETENTION_HOURS", 7 * 24, 24 * 365) * 60 * 60 * 1000;
+// Previews are derived data: losing one costs a re-encode, so this cache can be smaller and
+// shorter-lived than the upload cache, which holds the only copy of what a phone sent.
+const maxThumbnailCacheBytes = positiveIntEnv("MAX_THUMBNAIL_CACHE_BYTES", 256 * 1024 * 1024);
+const maxThumbnailCacheFiles = positiveIntEnv("MAX_THUMBNAIL_CACHE_FILES", 500, 10_000);
+const thumbnailRetentionMs = positiveIntEnv("THUMBNAIL_RETENTION_HOURS", 30 * 24, 24 * 365) * 60 * 60 * 1000;
 const controlHeartbeatMs = positiveIntEnv("CONTROL_HEARTBEAT_MS", 15_000);
 const localRequestTimeoutMs = positiveIntEnv("LOCAL_REQUEST_TIMEOUT_MS", 60_000);
 const chatRequestTimeoutMs = positiveIntEnv("CHAT_REQUEST_TIMEOUT_MS", 10 * 60_000);
@@ -125,6 +139,10 @@ let lifecycleObserver: HermesSessionObserver | undefined;
 
 if (!isWithinRoot(uploadRoot, filesRoot)) {
   throw new Error("UPLOAD_ROOT must be inside FILES_ROOT so uploaded attachments remain downloadable");
+}
+
+if (!isWithinRoot(thumbnailRoot, filesRoot)) {
+  throw new Error("THUMBNAIL_ROOT must be inside FILES_ROOT so generated previews remain servable");
 }
 
 function connect(): void {
@@ -417,6 +435,9 @@ async function handleFileRequest(
     return;
   }
   let requestedPath: string;
+  // Ignored for anything that is not a raster image, and snapped to a tier rather than honoured
+  // verbatim so the preview cache cannot be filled with near-identical widths (HG-115).
+  const thumbnailWidth = snapThumbnailWidth(rawQueryParameter(request.path, "thumb"));
   try {
     if (url.pathname !== "/api/files") { fail(404, "not_found"); return; }
     const rawPath = rawQueryParameter(request.path, "path");
@@ -458,31 +479,51 @@ async function handleFileRequest(
       if (!metadata.isFile()) { fail(400, "invalid_file"); return; }
       if (metadata.size > maxFileBytes) { fail(413, "file_too_large"); return; }
 
-      sendControl(socket, {
-        type: "tunnel.http.response.start",
-        version: PROTOCOL_VERSION,
-        requestId: request.id,
-        status: 200,
-        headers: {
-          "content-type": contentTypeFor(canonicalPath),
-          "content-length": String(metadata.size),
-          "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(basename(canonicalPath))}`,
-        },
-      });
-      streamStarted = true;
-      let sequence = 0;
-      while (true) {
-        signal.throwIfAborted();
-        const chunk = Buffer.allocUnsafe(httpResponseChunkBytes);
-        const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
-        if (bytesRead === 0) break;
-        await sendResponseChunk(socket, request.id, sequence++, chunk.subarray(0, bytesRead), signal);
+      // A preview is served in the original's place when one was asked for and could be made;
+      // every failure path below falls back to the original rather than to an error (HG-115).
+      const preview = thumbnailWidth === null
+        ? undefined
+        : await buildThumbnail(canonicalPath, metadata, thumbnailWidth);
+      const previewHandle = preview === undefined
+        ? undefined
+        : await open(preview.path, constants.O_RDONLY | noFollow).catch(() => undefined);
+
+      try {
+        const body = previewHandle ?? handle;
+        const shown = previewHandle === undefined ? undefined : preview;
+        const size = shown === undefined ? metadata.size : shown.size;
+        const name = shown === undefined
+          ? basename(canonicalPath)
+          : `${basename(canonicalPath, extname(canonicalPath))}${shown.format.extension}`;
+
+        sendControl(socket, {
+          type: "tunnel.http.response.start",
+          version: PROTOCOL_VERSION,
+          requestId: request.id,
+          status: 200,
+          headers: {
+            "content-type": shown === undefined ? contentTypeFor(canonicalPath) : shown.format.contentType,
+            "content-length": String(size),
+            "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+          },
+        });
+        streamStarted = true;
+        let sequence = 0;
+        while (true) {
+          signal.throwIfAborted();
+          const chunk = Buffer.allocUnsafe(httpResponseChunkBytes);
+          const { bytesRead } = await body.read(chunk, 0, chunk.length, null);
+          if (bytesRead === 0) break;
+          await sendResponseChunk(socket, request.id, sequence++, chunk.subarray(0, bytesRead), signal);
+        }
+        sendControl(socket, {
+          type: "tunnel.http.response.end",
+          version: PROTOCOL_VERSION,
+          requestId: request.id,
+        });
+      } finally {
+        await previewHandle?.close();
       }
-      sendControl(socket, {
-        type: "tunnel.http.response.end",
-        version: PROTOCOL_VERSION,
-        requestId: request.id,
-      });
     } finally {
       await handle.close();
     }
@@ -558,6 +599,103 @@ async function handleUploadRequest(
     }
     console.error("File upload failed", safeError(error));
     sendFileError(socket, request.id, 500, "file_upload_failed");
+  }
+}
+
+interface Thumbnail {
+  path: string;
+  size: number;
+  format: ReturnType<typeof thumbnailFormatFor>;
+}
+
+/**
+ * The cached preview for one image at one tier, generating it if this is the first ask.
+ *
+ * Returns undefined for every reason there might be not to have one — an unsupported source, a
+ * sips failure, a preview that came out no smaller than the original. The caller then serves the
+ * original, so a broken preview path costs bytes, never a broken picture.
+ */
+async function buildThumbnail(
+  canonicalPath: string,
+  source: { size: number; mtimeMs: number; dev: number; ino: number },
+  width: number,
+): Promise<Thumbnail | undefined> {
+  if (!isThumbnailable(canonicalPath)) return undefined;
+  try {
+    const described = await sipsTools.describe(canonicalPath);
+    // Already small enough: `-Z` would UPSCALE it, costing bytes and blurring the picture.
+    if (!isWorthDownscaling(described, width)) return undefined;
+    const format = thumbnailFormatFor(canonicalPath, described.hasAlpha);
+    const path = resolve(thumbnailRoot, thumbnailFileName(canonicalPath, source, width, format));
+    if (!isWithinRoot(path, thumbnailRoot)) return undefined;
+
+    const cached = await stat(path).catch(() => undefined);
+    if (cached?.isFile()) {
+      return cached.size < source.size ? { path, size: cached.size, format } : undefined;
+    }
+
+    await mkdir(thumbnailRoot, { recursive: true, mode: 0o700 });
+    // Write under a unique name and rename: two requests for the same image race routinely (a
+    // conversation opens every bubble at once), and a half-written file must never be servable.
+    const partial = `${path}.${randomUUID()}.partial`;
+    try {
+      await sipsTools.convert(canonicalPath, partial, width, format);
+      // sips took a path, not our O_NOFOLLOW handle, so confirm the name still points at the file
+      // we validated. A swap during the call is the one window `realpath` + O_NOFOLLOW leaves.
+      const after = await stat(canonicalPath).catch(() => undefined);
+      if (after === undefined || after.dev !== source.dev || after.ino !== source.ino) {
+        await unlink(partial).catch(() => undefined);
+        return undefined;
+      }
+      const produced = await stat(partial);
+      // A preview that is not smaller is not a preview. Small PNGs re-encode larger than they
+      // started, and serving those would make this feature a regression for exactly those images.
+      if (produced.size >= source.size) {
+        await unlink(partial).catch(() => undefined);
+        return undefined;
+      }
+      await rename(partial, path);
+      await trimThumbnailDirectory(path);
+      return { path, size: produced.size, format };
+    } catch (error) {
+      await unlink(partial).catch(() => undefined);
+      throw error;
+    }
+  } catch (error) {
+    console.warn("Thumbnail generation failed; serving the original", safeError(error));
+    return undefined;
+  }
+}
+
+/** Same policy as the upload cache, over derived files that can always be made again. */
+async function trimThumbnailDirectory(protectedPath: string): Promise<void> {
+  const now = Date.now();
+  const entries = await readdir(thumbnailRoot).catch(() => [] as string[]);
+  const files = (await Promise.all(entries.map(async (name) => {
+    const path = resolve(thumbnailRoot, name);
+    if (!isWithinRoot(path, thumbnailRoot)) return undefined;
+    const metadata = await stat(path).catch(() => undefined);
+    return metadata?.isFile() ? { path, size: metadata.size, modifiedAt: metadata.mtimeMs } : undefined;
+  }))).filter((entry): entry is { path: string; size: number; modifiedAt: number } => entry !== undefined)
+    .sort((left, right) => right.modifiedAt - left.modifiedAt);
+
+  let retainedBytes = 0;
+  let retainedFiles = 0;
+  for (const file of files) {
+    if (file.path === protectedPath) {
+      retainedBytes += file.size;
+      retainedFiles += 1;
+      continue;
+    }
+    const expired = now - file.modifiedAt > thumbnailRetentionMs;
+    const overCapacity = retainedFiles >= maxThumbnailCacheFiles
+      || retainedBytes + file.size > maxThumbnailCacheBytes;
+    if (expired || overCapacity) {
+      await unlink(file.path).catch(() => undefined);
+    } else {
+      retainedBytes += file.size;
+      retainedFiles += 1;
+    }
   }
 }
 

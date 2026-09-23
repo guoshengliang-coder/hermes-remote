@@ -11,6 +11,17 @@ describe("mediaKey", () => {
     expect(mediaKey("dev-1", "/Users/x/a.png")).toBe("dev-1\n/Users/x/a.png");
     expect(mediaKey("dev-1", "/a")).not.toBe(mediaKey("dev-2", "/a"));
   });
+
+  // HG-115: the bubble's preview and the viewer's original are the same path at two sizes. One
+  // key for both would serve whichever arrived first — a blurry fullscreen, or a bubble that
+  // downloaded the megabytes this feature exists to avoid.
+  it("separates a preview from the original", () => {
+    expect(mediaKey("dev-1", "/a", 1080)).not.toBe(mediaKey("dev-1", "/a"));
+    expect(mediaKey("dev-1", "/a", 1080)).not.toBe(mediaKey("dev-1", "/a", 720));
+    // A falsy width is "no thumbnail", not "a thumbnail of width 0".
+    expect(mediaKey("dev-1", "/a", 0)).toBe(mediaKey("dev-1", "/a"));
+    expect(mediaKey("dev-1", "/a", undefined)).toBe(mediaKey("dev-1", "/a"));
+  });
 });
 
 describe("entriesToEvict", () => {
@@ -45,8 +56,8 @@ describe("entriesToEvict", () => {
 describe("without IndexedDB", () => {
   it("degrades to no cache instead of throwing", async () => {
     expect(typeof indexedDB).toBe("undefined");
-    await expect(writeCachedMedia("dev-1", "/a", new Blob(["x"]))).resolves.toBeUndefined();
-    await expect(readCachedMedia("dev-1", "/a")).resolves.toBeNull();
+    await expect(writeCachedMedia(mediaKey("dev-1", "/a"), new Blob(["x"]))).resolves.toBeUndefined();
+    await expect(readCachedMedia(mediaKey("dev-1", "/a"))).resolves.toBeNull();
     await expect(clearMediaCache()).resolves.toBeUndefined();
   });
 });

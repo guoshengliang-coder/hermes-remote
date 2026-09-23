@@ -31,9 +31,13 @@ export interface CachedMedia {
   at: number;
 }
 
-/** Device-scoped so two Macs bound to the same browser never share an entry. */
-export function mediaKey(deviceId: string, path: string): string {
-  return `${deviceId}\n${path}`;
+/**
+ * Device-scoped so two Macs bound to the same browser never share an entry, and size-scoped so a
+ * bubble's preview and the viewer's original are separate entries rather than whichever arrived
+ * first (HG-115).
+ */
+export function mediaKey(deviceId: string, path: string, thumbWidth?: number): string {
+  return `${deviceId}\n${path}${thumbWidth ? `\n@${thumbWidth}` : ""}`;
 }
 
 /**
@@ -96,11 +100,10 @@ function settled<T>(request: IDBRequest<T>): Promise<T | null> {
   });
 }
 
-/** The cached blob for this path, or null. A hit refreshes its LRU stamp. */
-export async function readCachedMedia(deviceId: string, path: string): Promise<Blob | null> {
+/** The cached blob for this key (see [mediaKey]), or null. A hit refreshes its LRU stamp. */
+export async function readCachedMedia(key: string): Promise<Blob | null> {
   const db = await database();
   if (!db) return null;
-  const key = mediaKey(deviceId, path);
   let record: CachedMedia | null;
   try {
     record = (await settled(db.transaction(STORE, "readonly").objectStore(STORE).get(key))) as CachedMedia | null;
@@ -122,10 +125,10 @@ async function touch(db: IDBDatabase, record: CachedMedia): Promise<void> {
 }
 
 /** Store the blob and trim the store back under both ceilings. Never throws. */
-export async function writeCachedMedia(deviceId: string, path: string, blob: Blob): Promise<void> {
+export async function writeCachedMedia(key: string, blob: Blob): Promise<void> {
   const db = await database();
   if (!db) return;
-  const record: CachedMedia = { key: mediaKey(deviceId, path), blob, bytes: blob.size, at: Date.now() };
+  const record: CachedMedia = { key, blob, bytes: blob.size, at: Date.now() };
   try {
     await settled(db.transaction(STORE, "readwrite").objectStore(STORE).put(record));
   } catch {

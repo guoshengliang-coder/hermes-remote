@@ -460,15 +460,24 @@ class HermesRestApi(
     fun parseMessages(raw: String): List<MessageDto> =
         json.decodeFromString<MessagesDto>(raw).messages
 
-    /** Stream a Connector-authorized artifact to disk; large files never become strings/ByteArrays. */
+    /**
+     * Stream a Connector-authorized artifact to disk; large files never become strings/ByteArrays.
+     *
+     * [thumbWidth] asks for a downscaled preview instead of the original (HG-115). The Connector
+     * ignores it for anything that is not a raster image and falls back to the original whenever a
+     * preview cannot be made or would not be smaller, so it never changes WHAT arrives — only how
+     * much of it.
+     */
     suspend fun downloadArtifact(
         path: String,
         destination: File,
         maxBytes: Long = 100L * 1024L * 1024L,
+        thumbWidth: Int? = null,
         onProgress: (downloaded: Long, total: Long?) -> Unit = { _, _ -> },
     ): File = withContext(Dispatchers.IO) {
         val encoded = java.net.URLEncoder.encode(path, "UTF-8")
-        val request = builder("/api/files?path=$encoded").get().build()
+        val thumb = thumbWidth?.let { "&thumb=$it" }.orEmpty()
+        val request = builder("/api/files?path=$encoded$thumb").get().build()
         val call = clientFor(request).newCall(request).apply {
             timeout().timeout(10, TimeUnit.MINUTES)
         }

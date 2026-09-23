@@ -208,7 +208,14 @@ export const hermesPaths = {
   /** Message search, with the non-conversation sources excluded like Android does. */
   search: (query: string, excludeSources: readonly string[] = []) =>
     `sessions/search?q=${encodeURIComponent(query)}${excludeSources.length ? `&exclude_sources=${encodeURIComponent(excludeSources.join(","))}` : ""}`,
-  file: (path: string) => `files?path=${encodeURIComponent(path)}`,
+  /**
+   * A Mac file. `thumb` asks the Connector for a downscaled preview instead of the original
+   * (HG-115); it is ignored for anything that is not a raster image, and the Connector falls back
+   * to the original whenever a preview cannot be made, so this never changes what is shown — only
+   * how many bytes it took.
+   */
+  file: (path: string, thumbWidth?: number) =>
+    `files?path=${encodeURIComponent(path)}${thumbWidth ? `&thumb=${thumbWidth}` : ""}`,
 } as const;
 
 // ---- Client ---------------------------------------------------------------------------------

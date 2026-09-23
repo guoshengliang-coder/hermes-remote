@@ -73,9 +73,11 @@ class ChatMediaRepository @Inject constructor(
         check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             "System Save As is required on this Android version"
         }
-        val source = requireLocalImage(image)
-        val mimeType = exportMimeType(image)
-        val displayName = exportDisplayName(image)
+        // What lands in the photo library has to be the picture, not the preview of it (HG-115).
+        val full = requiredOriginal(image)
+        val source = requireLocalImage(full)
+        val mimeType = exportMimeType(full)
+        val displayName = exportDisplayName(full)
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Images.Media.MIME_TYPE, mimeType)
@@ -100,7 +102,7 @@ class ChatMediaRepository @Inject constructor(
 
     /** Android 8/9 and explicit “Save as…” destinations arrive as a user-granted content Uri. */
     suspend fun copyToUri(image: ChatImage, destination: Uri): Unit = withContext(Dispatchers.IO) {
-        val source = requireLocalImage(image)
+        val source = requireLocalImage(requiredOriginal(image))
         try {
             context.contentResolver.openOutputStream(destination, "w")?.use { output ->
                 source.inputStream().use { it.copyTo(output) }
@@ -130,6 +132,49 @@ class ChatMediaRepository @Inject constructor(
         val base = safeSource?.substringBeforeLast('.', safeSource)?.takeIf { it.isNotBlank() }
             ?: "Hermes_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(now)}"
         return "$base.$expectedExtension"
+    }
+
+    /**
+     * The image with its full-size bytes on disk, fetching them when only the preview is cached.
+     *
+     * Everything that owes the user the real picture goes through here (HG-115): the fullscreen
+     * viewer, save, save-as, share. A bubble does not — that is the whole point of the preview.
+     * Returns the image unchanged when [ChatImage.originalPath] is null, which is what "this is
+     * already the original" means.
+     *
+     * A failure returns the preview rather than throwing: a fullscreen picture that is softer than
+     * it should be still shows the user their image, where an error shows them nothing. The export
+     * paths below are the ones that must not accept that, and they check.
+     */
+    suspend fun original(image: ChatImage): ChatImage {
+        val target = image.originalPath ?: return image
+        val remotePath = image.remotePath ?: return image
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                val file = File(target)
+                if (!file.isFile || file.length() == 0L) {
+                    downloads.withPermit { rest.downloadArtifact(remotePath, file) }
+                    trimCache()
+                }
+                measured(image.copy(localPath = file.absolutePath, originalPath = null), file)
+            }
+        }.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            image
+        }
+    }
+
+    /**
+     * [original], but an export may not quietly fall back to the preview: saving or sharing a
+     * downscaled copy under the original's name hands the user a file that is not what they asked
+     * for, and they have no way to tell. Failing is the honest outcome — the caller already shows
+     * `HR-MEDIA-001` and the user can try again.
+     */
+    suspend fun requiredOriginal(image: ChatImage): ChatImage {
+        if (image.originalPath == null) return image
+        val full = original(image)
+        check(full.originalPath == null) { "Full-size image is not available on this device yet" }
+        return full
     }
 
     fun requireLocalImage(image: ChatImage): File {
@@ -164,6 +209,8 @@ class ChatMediaRepository @Inject constructor(
         return runCatching {
             withContext(Dispatchers.IO) {
                 val cacheKey = sha256("${profile.orEmpty()}\n$sourceKey")
+                // An original already on disk beats downloading a preview of it: an install that
+                // cached full-size images before HG-115 must not re-fetch every one of them.
                 val existing = directory.listFiles()?.firstOrNull { it.name.startsWith(cacheKey) }
                 if (existing != null && existing.isFile && existing.length() > 0L) {
                     return@withContext measured(image.copy(localPath = existing.absolutePath), existing)
@@ -180,11 +227,19 @@ class ChatMediaRepository @Inject constructor(
                         resolvedFile,
                     )
                 }
-                // Connector streams the original bytes in acknowledged chunks. This avoids the
+                // A bubble shows a small picture, so fetch a small picture (HG-115). The Connector
+                // streams it in acknowledged chunks, as it did the original — this avoids the
                 // former data:image;base64 JSON response and its second tunnel-level Base64 layer.
-                rest.downloadArtifact(requireNotNull(image.remotePath), file)
-                trimCache()
-                measured(image.copy(mimeType = mime, localPath = file.absolutePath), file)
+                val preview = previewFileFor(cacheKey)
+                val cachedPreview = preview.takeIf { it.isFile && it.length() > 0L }
+                if (cachedPreview == null) {
+                    rest.downloadArtifact(requireNotNull(image.remotePath), preview, thumbWidth = THUMBNAIL_WIDTH)
+                    trimCache()
+                }
+                measured(
+                    image.copy(mimeType = mime, localPath = preview.absolutePath, originalPath = file.absolutePath),
+                    preview,
+                )
             }
         }.getOrElse { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
@@ -319,6 +374,18 @@ class ChatMediaRepository @Inject constructor(
         .digest(value.toByteArray())
         .joinToString("") { "%02x".format(it) }
 
+    /**
+     * The preview's cache file for an image whose original is keyed by [cacheKey].
+     *
+     * The name must NOT begin with [cacheKey]: the original is found by scanning for exactly that
+     * prefix, and a preview sitting in front of it would be served as the full-size copy. Hence a
+     * prefix of its own. No extension, because the Connector picks the preview's format from the
+     * source's transparency — the name would be a guess; nothing reads it, decoding sniffs the
+     * bytes, and every export path goes through the original.
+     */
+    private fun previewFileFor(cacheKey: String): File =
+        File(directory, "preview-$THUMBNAIL_WIDTH-$cacheKey")
+
     private fun trimCache() {
         val files = directory.listFiles()?.filter { it.isFile }?.sortedByDescending { it.lastModified() }
             ?: return
@@ -333,6 +400,12 @@ class ChatMediaRepository @Inject constructor(
         const val MAX_EXTERNAL_IMAGE_BYTES = 25 * 1024 * 1024
         const val MAX_CACHE_FILES = 200
         const val MAX_CACHE_BYTES = 200L * 1024L * 1024L
+
+        /**
+         * The preview tier asked of the Connector for bubbles (HG-115). Matches the single tier it
+         * makes; anything else snaps back to that one, so this is the value, not a preference.
+         */
+        const val THUMBNAIL_WIDTH = 1080
     }
 }
 

@@ -243,7 +243,11 @@ Deliberately **not** in the table, because upstream's `openapi.json` cannot vouc
 
 - `/api/files`, `/api/files/upload` — upstream has routes with these names, but **this Connector
   answers them itself** (`handleFileRequest`, bounded by `FILES_ROOT`) and never forwards them to
-  Hermes. They are our surface, not upstream's.
+  Hermes. They are our surface, not upstream's. Being ours is what lets `GET /api/files` take a
+  `thumb=<px>` parameter upstream knows nothing about (HG-115): it asks for a downscaled preview,
+  is ignored for anything that is not a raster image, and falls back to the original whenever a
+  preview cannot be made or would not be smaller — so a client that does not send it, or a
+  Connector too old to read it, both keep working unchanged.
 - `/api/ws` — a WebSocket route; OpenAPI does not describe WebSocket routes, so it is absent from
   every Hermes schema. The Connector's session observer opens exactly this socket on every
   (re)connect, and its RPC surface is §3.
