@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Hermes GO Desktop · 登录门禁与新人引导</title>
+<!--
+  Mockups for docs/DESKTOP_ONBOARDING_REQUIREMENTS.md. Tokens follow docs/DESKTOP_DESIGN.md
+  ("Shared visual tokens"). The app icon is the canonical android/app/src/main/ic_launcher-playstore.png;
+  download-qr.png is a real, scannable QR for https://mrlgs.net/ generated with CoreImage.
+  Render one screen with ?s=<id> (see render.sh); without a query every screen is stacked.
+-->
+<style>
+  :root {
+    --blue: #0B5FD0;
+    --canvas: #F7F9FD;
+    --card: #FAFBFD;
+    --card-strong: #FFFFFF;
+    --hair: #EBEDF2;
+    --text: #1B1F27;
+    --secondary: #6B7280;
+    --tertiary: #9AA1AD;
+    --green: #1F9D55;
+    --amber: #C77700;
+    --red: #D93B3B;
+    --shadow: 0 1px 2px rgba(20, 30, 50, .05), 0 4px 14px rgba(20, 30, 50, .05);
+  }
+  .dark {
+    --blue: #3D8BFF;
+    --canvas: #111820;
+    --card: #1A212A;
+    --card-strong: #1E2630;
+    --hair: #333A44;
+    --text: #E8ECF2;
+    --secondary: #9AA3B0;
+    --tertiary: #6F7885;
+    --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #DDE2EA;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  section.board { padding: 40px; width: 1260px; }
+  section.board + section.board { border-top: 1px dashed #b9c0cc; }
+  .caption { font-size: 13px; color: #4b5563; margin: 0 0 14px 2px; }
+  .caption b { color: #111827; }
+
+  /* ---------- window chrome ---------- */
+  .window {
+    width: 1180px; height: 760px; border-radius: 12px; overflow: hidden; position: relative;
+    background: var(--canvas); color: var(--text);
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.25), 0 22px 60px rgba(20,30,50,.28);
+    display: flex; flex-direction: column;
+  }
+  .titlebar { height: 28px; flex: none; display: flex; align-items: center; padding-left: 14px; gap: 8px; }
+  .titlebar i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .titlebar i:nth-child(1) { background: #FF5F57; }
+  .titlebar i:nth-child(2) { background: #FEBC2E; }
+  .titlebar i:nth-child(3) { background: #28C840; }
+  .gate { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+  /* ---------- stepper ---------- */
+  .stepper { display: flex; justify-content: center; align-items: center; gap: 0; padding: 18px 0 8px; }
+  .step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--tertiary); }
+  .step .dot {
+    width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+    border: 1.5px solid var(--hair); font-size: 12px; font-weight: 600; color: var(--tertiary);
+    background: var(--card-strong);
+  }
+  .step.done { color: var(--secondary); }
+  .step.done .dot { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .step.current { color: var(--text); font-weight: 600; }
+  .step.current .dot { border-color: var(--blue); color: var(--blue); box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 14%, transparent); }
+  .step-line { width: 64px; height: 1.5px; background: var(--hair); margin: 0 14px; }
+  .step-line.done { background: var(--blue); }
+
+  /* ---------- layout pieces ---------- */
+  .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 40px; min-height: 0; }
+  .column { width: 520px; }
+  .column.wide { width: 760px; }
+  .logo { width: 64px; height: 64px; border-radius: 15px; display: block; }
+  .logo.sm { width: 44px; height: 44px; border-radius: 11px; }
+  h1 { font-size: 26px; font-weight: 700; margin: 18px 0 6px; letter-spacing: -.2px; }
+  h2 { font-size: 20px; font-weight: 700; margin: 0 0 6px; }
+  .lede { font-size: 14px; line-height: 1.55; color: var(--secondary); margin: 0; }
+  .card {
+    background: var(--card); border: 1px solid var(--hair); border-radius: 14px; box-shadow: var(--shadow);
+    padding: 22px 24px;
+  }
+  .footer {
+    flex: none; height: 68px; border-top: 1px solid var(--hair); display: flex; align-items: center;
+    justify-content: space-between; padding: 0 28px; background: color-mix(in srgb, var(--card) 70%, transparent);
+  }
+  .footer .left { display: flex; gap: 18px; }
+  .linkbtn { font-size: 13px; color: var(--secondary); display: inline-flex; align-items: center; gap: 6px; }
+  .linkbtn svg { width: 15px; height: 15px; }
+
+  /* ---------- controls ---------- */
+  .btn {
+    height: 32px; padding: 0 16px; border-radius: 8px; font-size: 13px; font-weight: 500; display: inline-flex;
+    align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--hair); background: var(--card-strong);
+    color: var(--text); box-shadow: 0 .5px 1px rgba(0,0,0,.06); white-space: nowrap;
+  }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.lg { height: 40px; padding: 0 22px; font-size: 14px; border-radius: 10px; }
+  .btn.block { width: 100%; }
+  .btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+  .btn.danger-outline { color: var(--red); }
+  .btn.disabled { opacity: .42; }
+  .field {
+    height: 40px; border-radius: 9px; border: 1px solid var(--hair); background: var(--card-strong);
+    display: flex; align-items: center; padding: 0 12px; gap: 9px; font-size: 14px;
+  }
+  .field.focus { border-color: var(--blue); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--blue) 22%, transparent); }
+  .field .ph { color: var(--tertiary); }
+  .field svg { width: 17px; height: 17px; color: var(--tertiary); flex: none; }
+  .label { font-size: 12px; font-weight: 600; color: var(--secondary); margin: 0 0 7px; }
+  .otp { display: flex; gap: 10px; }
+  .otp span {
+    width: 52px; height: 58px; border-radius: 10px; border: 1px solid var(--hair); background: var(--card-strong);
+    display: grid; place-items: center; font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .otp span.cur { border-color: var(--blue); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--blue) 22%, transparent); }
+  .otp span.cur::after { content: ""; width: 1.5px; height: 26px; background: var(--blue); }
+  .hint { font-size: 12px; color: var(--tertiary); display: flex; align-items: center; gap: 6px; }
+  .hint svg { width: 14px; height: 14px; flex: none; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .spacer { flex: 1; }
+  .mt8 { margin-top: 8px; } .mt12 { margin-top: 12px; } .mt16 { margin-top: 16px; } .mt20 { margin-top: 20px; } .mt24 { margin-top: 24px; } .mt28 { margin-top: 28px; }
+  .muted { color: var(--secondary); }
+  .small { font-size: 12px; }
+
+  /* info rows */
+  .facts { margin-top: 14px; border-top: 1px solid var(--hair); }
+  .fact { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--hair); font-size: 13px; align-items: flex-start; }
+  .fact:last-child { border-bottom: 0; padding-bottom: 0; }
+  .fact svg { width: 16px; height: 16px; color: var(--secondary); flex: none; margin-top: 1px; }
+  .fact .k { width: 64px; flex: none; color: var(--secondary); }
+  .fact .v { flex: 1; line-height: 1.45; }
+
+  /* status */
+  .sdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+  .sdot.g { background: var(--green); } .sdot.a { background: var(--amber); } .sdot.r { background: var(--red); } .sdot.n { background: var(--tertiary); }
+  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--blue); }
+  .pill.gray { background: color-mix(in srgb, var(--secondary) 12%, transparent); color: var(--secondary); }
+
+  .banner {
+    border-radius: 12px; padding: 12px 14px; display: flex; gap: 11px; align-items: flex-start; font-size: 13px; line-height: 1.5;
+    background: color-mix(in srgb, var(--amber) 11%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 28%, transparent);
+  }
+  .banner svg { width: 18px; height: 18px; color: var(--amber); flex: none; margin-top: 1px; }
+  .banner b { font-weight: 600; }
+  .banner .code { font-family: ui-monospace, "SF Mono", monospace; font-size: 11.5px; color: var(--secondary); }
+  .banner.red { background: color-mix(in srgb, var(--red) 8%, transparent); border-color: color-mix(in srgb, var(--red) 24%, transparent); }
+  .banner.red svg { color: var(--red); }
+
+  /* progress list */
+  .plist { margin-top: 16px; }
+  .pitem { display: flex; align-items: center; gap: 12px; padding: 9px 0; font-size: 13.5px; }
+  .pitem .ic { width: 20px; height: 20px; display: grid; place-items: center; flex: none; }
+  .pitem.done .ic { color: var(--blue); }
+  .pitem.pending { color: var(--tertiary); }
+  .pitem .sub { font-size: 12px; color: var(--tertiary); margin-left: auto; }
+  .spin {
+    width: 16px; height: 16px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--blue) 22%, transparent);
+    border-top-color: var(--blue);
+  }
+  .spin.lg { width: 26px; height: 26px; border-width: 2.5px; }
+  .ring { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--hair); }
+  .bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--blue) 12%, transparent); overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--blue); border-radius: 3px; }
+
+  /* option cards */
+  .options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .opt {
+    border-radius: 14px; border: 1.5px solid var(--hair); background: var(--card); padding: 20px; position: relative; box-shadow: var(--shadow);
+  }
+  .opt.sel { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 4%, var(--card)); }
+  .opt.off { opacity: .55; }
+  .opt .radio { position: absolute; top: 18px; right: 18px; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--hair); }
+  .opt.sel .radio { border: 5.5px solid var(--blue); }
+  .opt .oi { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--blue); }
+  .opt .oi svg { width: 22px; height: 22px; }
+  .opt h3 { font-size: 15px; margin: 14px 0 6px; }
+  .opt p { font-size: 12.5px; line-height: 1.55; color: var(--secondary); margin: 0; }
+  .opt .foot { margin-top: 12px; font-size: 12px; color: var(--secondary); display: flex; align-items: center; gap: 6px; }
+
+  .macs { border-radius: 12px; border: 1px solid var(--hair); background: var(--card); overflow: hidden; }
+  .mac { display: flex; align-items: center; gap: 12px; padding: 12px 16px; font-size: 13.5px; }
+  .mac + .mac { border-top: 1px solid var(--hair); }
+  .mac svg { width: 20px; height: 20px; color: var(--blue); flex: none; }
+  .mac .meta { font-size: 12px; color: var(--secondary); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+
+  /* sheet */
+  .scrim { position: absolute; inset: 28px 0 0 0; background: rgba(15, 20, 30, .18); }
+  .sheet {
+    position: absolute; top: 28px; left: 50%; transform: translateX(-50%); width: 540px;
+    background: var(--card-strong); border-radius: 0 0 14px 14px; box-shadow: 0 18px 50px rgba(20,30,50,.28), 0 0 0 .5px rgba(0,0,0,.18);
+    padding: 26px 28px 22px;
+  }
+  .sheet ul { margin: 12px 0 0; padding: 0; list-style: none; }
+  .sheet li { display: flex; gap: 10px; font-size: 13px; line-height: 1.5; padding: 5px 0; }
+  .sheet li svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
+
+  /* sidebar shell (manage-only main window) */
+  .shell { flex: 1; display: flex; min-height: 0; }
+  .sidebar { width: 210px; border-right: 1px solid var(--hair); background: color-mix(in srgb, var(--card) 80%, transparent); padding: 22px 10px; }
+  .sb-id { display: flex; gap: 10px; align-items: center; padding: 0 8px 24px; }
+  .sb-item { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 13px; border-radius: 10px; font-size: 14px; }
+  .sb-item svg { width: 18px; height: 18px; }
+  .sb-item.on { background: color-mix(in srgb, var(--blue) 9%, transparent); color: var(--blue); font-weight: 600; }
+  .main { flex: 1; padding: 30px 34px; overflow: hidden; }
+
+  /* menu bar board */
+  .desk { width: 1180px; height: 430px; border-radius: 12px; overflow: hidden; position: relative;
+          background: linear-gradient(160deg, #cfd8e6, #e9edf3 55%, #d9e0ea); box-shadow: 0 0 0 .5px rgba(0,0,0,.2); }
+  .menubar { height: 26px; background: rgba(245,247,250,.78); backdrop-filter: blur(20px); display: flex; align-items: center;
+             padding: 0 14px; font-size: 13px; gap: 18px; color: #1b1f27; }
+  .menubar .r { margin-left: auto; display: flex; gap: 16px; align-items: center; }
+  .menubar .hico { width: 16px; height: 16px; }
+  .pops { display: flex; gap: 28px; padding: 26px 30px; justify-content: center; }
+  .popcol { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .poptag { font-size: 12px; font-weight: 600; color: #374151; }
+  .pop { width: 285px; background: rgba(250,251,253,.97); border-radius: 12px; box-shadow: 0 12px 34px rgba(20,30,50,.22), 0 0 0 .5px rgba(0,0,0,.14); font-size: 13px; color: #1b1f27; overflow: hidden; }
+  .pop .ph { display: flex; gap: 10px; align-items: center; padding: 14px; }
+  .pop .ph img { width: 32px; height: 32px; border-radius: 8px; }
+  .pop .hr { height: 1px; background: #E5E7EC; }
+  .pop .pr { height: 34px; display: flex; align-items: center; padding: 0 14px; gap: 7px; font-size: 12px; }
+  .pop .pr .spacer { flex: 1; }
+  .pop .pa { height: 38px; display: flex; align-items: center; gap: 9px; padding: 0 14px; }
+  .pop .pa svg { width: 16px; height: 16px; color: #4b5563; }
+  .pop .cta { margin: 10px 12px; height: 34px; border-radius: 8px; background: #0B5FD0; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
+  .pop .note { padding: 0 14px 12px; font-size: 11.5px; color: #6B7280; line-height: 1.45; }
+
+
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: color-mix(in srgb, var(--secondary) 12%, transparent); gap: 2px; }
+  .seg span { height: 30px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--secondary); }
+  .seg span.on { background: var(--card-strong); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .seg svg { width: 15px; height: 15px; }
+  .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--blue); font-size: 12px; font-weight: 700; flex: none; }
+  .ios-share { display: inline-flex; vertical-align: -3px; width: 16px; height: 16px; color: var(--blue); }
+
+  svg { stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+
+<!-- ===================================================================== -->
+<section class="board" id="launch-checking">
+  <p class="caption"><b>01 启动检查</b> · 冷启动时账号状态是 <code>.checking</code>，不渲染成登录页，避免每次启动闪一下登录页（需求 §5.1）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="center">
+        <img class="logo" src="../../../android/app/src/main/ic_launcher-playstore.png" alt="">
+        <div class="spin lg mt28"></div>
+        <p class="lede mt16">正在检查账号与这台 Mac…</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="launch-error">
+  <p class="caption"><b>02 启动时连不上服务</b> · <code>.checking</code> 且带 <code>accountIssue</code>：不能一直转圈，给错误码、重试和复制诊断（§5.1）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="center">
+        <div class="column" style="text-align:center">
+          <img class="logo" style="margin:0 auto" src="../../../android/app/src/main/ic_launcher-playstore.png" alt="">
+          <h1>暂时无法连接 Hermes GO</h1>
+          <p class="lede">登录状态需要联网确认。这台 Mac 上已在运行的服务不受影响。</p>
+          <div class="banner red mt24" style="text-align:left">
+            <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+            <div><b>无法连接 Relay，将自动重试。</b><br><span class="code">HR-CONN-002</span> <span class="muted">· 请检查网络或系统代理设置</span></div>
+          </div>
+          <div class="row mt24" style="justify-content:center">
+            <span class="btn lg">复制诊断</span>
+            <span class="btn lg primary">重试</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="signin-email">
+  <p class="caption"><b>03 登录 · 输入邮箱</b> · 整窗、无侧边栏、没有绕开登录的入口；顶部四步提示让首次用户知道登录之后还有什么（§5.2）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step current"><span class="dot">1</span>登录</div><div class="step-line"></div>
+        <div class="step"><span class="dot">2</span>准备 Hermes</div><div class="step-line"></div>
+        <div class="step"><span class="dot">3</span>连接这台 Mac</div><div class="step-line"></div>
+        <div class="step"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column" style="width:420px">
+          <img class="logo" src="../../../android/app/src/main/ic_launcher-playstore.png" alt="">
+          <h1>登录 Hermes GO</h1>
+          <p class="lede">输入邮箱，我们会发送一封包含六位验证码的邮件。首次验证会自动创建账号。</p>
+          <p class="label mt24">邮箱</p>
+          <div class="field focus">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>
+            <span>you@example.com</span>
+          </div>
+          <span class="btn lg primary block mt16">发送验证码</span>
+          <div class="hint mt20"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>这台 Mac 上的 Hermes 凭据不会上传</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span></div>
+        <span class="small muted">版本 0.2.27</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="signin-code">
+  <p class="caption"><b>04 登录 · 输入验证码</b> · 沿用现有邮箱验证码流程：更换邮箱、重新发送（§5.2）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step current"><span class="dot">1</span>登录</div><div class="step-line"></div>
+        <div class="step"><span class="dot">2</span>准备 Hermes</div><div class="step-line"></div>
+        <div class="step"><span class="dot">3</span>连接这台 Mac</div><div class="step-line"></div>
+        <div class="step"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column" style="width:420px">
+          <img class="logo" src="../../../android/app/src/main/ic_launcher-playstore.png" alt="">
+          <h1>输入验证码</h1>
+          <p class="lede">六位验证码已发送至 <b style="color:var(--text)">you@example.com</b>，10 分钟内有效。</p>
+          <div class="otp mt24"><span>4</span><span>8</span><span>1</span><span class="cur"></span><span></span><span></span></div>
+          <span class="btn lg primary block mt20 disabled">验证并登录</span>
+          <div class="row mt16" style="justify-content:space-between">
+            <span class="linkbtn" style="color:var(--blue)">更换邮箱</span>
+            <span class="linkbtn">重新发送（52 秒）</span>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span></div>
+        <span class="small muted">版本 0.2.27</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="signin-expired">
+  <p class="caption"><b>05 登录已失效（老用户）</b> · 带原因横幅；已装机的用户不显示四步提示；后台服务照常运行（§4.2、§5.3）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="center">
+        <div class="column" style="width:420px">
+          <img class="logo" src="../../../android/app/src/main/ic_launcher-playstore.png" alt="">
+          <h1>重新登录</h1>
+          <div class="banner mt16">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <div><b>登录已过期，请重新登录。</b> <span class="code">HR-AUTH-003</span><br><span class="muted">这台 Mac 上的 Hermes 和后台连接不会因此停止。</span></div>
+          </div>
+          <p class="label mt24">邮箱</p>
+          <div class="field">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>
+            <span>you@example.com</span>
+          </div>
+          <span class="btn lg primary block mt16">发送验证码</span>
+          <div class="row mt16" style="justify-content:center"><span class="linkbtn" style="color:var(--blue)">使用其他邮箱账号</span></div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span></div>
+        <span class="small muted">版本 0.2.27</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="signin-email-dark">
+  <p class="caption"><b>06 登录 · 深色模式</b> · 深色令牌：画布 #111820，卡片 #1A212A，分隔线 #333A44</p>
+  <div class="window dark">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step current"><span class="dot">1</span>登录</div><div class="step-line"></div>
+        <div class="step"><span class="dot">2</span>准备 Hermes</div><div class="step-line"></div>
+        <div class="step"><span class="dot">3</span>连接这台 Mac</div><div class="step-line"></div>
+        <div class="step"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column" style="width:420px">
+          <img class="logo" src="../../../android/app/src/main/ic_launcher-playstore.png" alt="">
+          <h1>登录 Hermes GO</h1>
+          <p class="lede">输入邮箱，我们会发送一封包含六位验证码的邮件。首次验证会自动创建账号。</p>
+          <p class="label mt24">邮箱</p>
+          <div class="field focus">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>
+            <span class="ph">name@example.com</span>
+          </div>
+          <span class="btn lg primary block mt16 disabled">发送验证码</span>
+          <div class="hint mt20"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>这台 Mac 上的 Hermes 凭据不会上传</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span></div>
+        <span class="small muted">版本 0.2.27</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="choice-new-mac">
+  <p class="caption"><b>07 老账号、新 Mac · 未满额</b> · 登录后发现账号下已有 Mac、本机没装：先问这台 Mac 怎么用；未满 3 台就直接添加，不存在替换（§7.1、§7.2）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="center">
+        <div class="column wide">
+          <h1 style="margin-top:0">你的账号已连接 1 台 Mac</h1>
+          <p class="lede">这台 MacBook Pro 还没有连接。你想怎么使用它？</p>
+          <div class="macs mt20">
+            <div class="mac">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="1.5"/><path d="M9 20h6M12 15v5"/></svg>
+              <div><div>Mac mini</div><div class="meta"><span class="sdot g"></span>在线 · Hermes 可访问</div></div>
+              <span class="spacer"></span><span class="pill gray">默认</span>
+            </div>
+          </div>
+          <div class="options mt20">
+            <div class="opt sel">
+              <span class="radio"></span>
+              <div class="oi"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M1.5 19h21"/><path d="M12 8.5v4M10 10.5h4"/></svg></div>
+              <h3>把这台 Mac 也连上</h3>
+              <p>在这台 MacBook Pro 上准备 Hermes 并连接账号。手机可以在两台 Mac 之间切换。</p>
+              <div class="foot"><span class="sdot n"></span>已用 1 / 3 台</div>
+            </div>
+            <div class="opt">
+              <span class="radio"></span>
+              <div class="oi"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7S2.5 12 2.5 12Z"/></svg></div>
+              <h3>只在这台 Mac 上管理</h3>
+              <p>不在本机安装任何东西，用这台 Mac 查看和管理 Mac mini。以后可以随时改为连接。</p>
+              <div class="foot"><span class="sdot n"></span>本机不做任何改动</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span><span class="linkbtn">退出登录</span></div>
+        <span class="btn lg primary">继续</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="choice-full">
+  <p class="caption"><b>08 老账号、新 Mac · 已满 3 台</b> · 「连接这台」置灰；先移除一台，名额空出后自动恢复。「只管理」始终可用（§7.2、§7.3）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="center">
+        <div class="column wide">
+          <h1 style="margin-top:0">你的账号已连接 3 台 Mac</h1>
+          <p class="lede">这台 MacBook Pro 还没有连接。你想怎么使用它？</p>
+          <div class="banner mt16">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+            <div><b>此账号已达到三台自有 Mac 的上限，请先移除一台。</b> <span class="code">HR-BIND-010</span></div>
+          </div>
+          <div class="macs mt16">
+            <div class="mac">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="1.5"/><path d="M9 20h6M12 15v5"/></svg>
+              <div><div>Mac mini</div><div class="meta"><span class="sdot g"></span>在线 · 默认</div></div>
+              <span class="spacer"></span><span class="btn danger-outline">移除</span>
+            </div>
+            <div class="mac">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="1.5"/><path d="M9 20h6M12 15v5"/></svg>
+              <div><div>Mac Studio</div><div class="meta"><span class="sdot n"></span>离线 · 最近在线 9 月 2 日</div></div>
+              <span class="spacer"></span><span class="btn danger-outline">移除</span>
+            </div>
+            <div class="mac">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="1.5"/><path d="M9 20h6M12 15v5"/></svg>
+              <div><div>办公室 iMac</div><div class="meta"><span class="sdot g"></span>在线</div></div>
+              <span class="spacer"></span><span class="btn danger-outline">移除</span>
+            </div>
+          </div>
+          <div class="options mt16">
+            <div class="opt off">
+              <span class="radio"></span>
+              <div class="oi"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M1.5 19h21"/><path d="M12 8.5v4M10 10.5h4"/></svg></div>
+              <h3>把这台 Mac 也连上</h3>
+              <p>需要先移除一台 Mac，名额空出后即可选择。</p>
+              <div class="foot"><span class="sdot a"></span>已用 3 / 3 台</div>
+            </div>
+            <div class="opt sel">
+              <span class="radio"></span>
+              <div class="oi"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7S2.5 12 2.5 12Z"/></svg></div>
+              <h3>只在这台 Mac 上管理</h3>
+              <p>不在本机安装任何东西，用这台 Mac 查看和管理已连接的 Mac。</p>
+              <div class="foot"><span class="sdot n"></span>本机不做任何改动</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span><span class="linkbtn">退出登录</span></div>
+        <span class="btn lg primary">继续</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="remove-mac-sheet">
+  <p class="caption"><b>09 移除一台 Mac</b> · 原生 sheet；写清后果；邮箱验证码确认后才能移除（<code>DELETE /v2/devices/{id}</code> + <code>connector.unbind</code>，§7.3）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate" style="filter: saturate(.9)">
+      <div class="center">
+        <div class="column wide">
+          <h1 style="margin-top:0">你的账号已连接 3 台 Mac</h1>
+          <p class="lede">这台 MacBook Pro 还没有连接。你想怎么使用它？</p>
+          <div class="banner mt16"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg><div><b>此账号已达到三台自有 Mac 的上限，请先移除一台。</b></div></div>
+          <div class="macs mt16" style="height:190px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <h2>移除「Mac Studio」？</h2>
+      <p class="lede small" style="font-size:13px">它会从你的 Hermes GO 账号中移除。</p>
+      <ul>
+        <li><svg viewBox="0 0 24 24" style="color:var(--red)"><path d="M18 6 6 18M6 6l12 12"/></svg>Mac Studio 会立即断开，手机将无法再访问它。</li>
+        <li><svg viewBox="0 0 24 24" style="color:var(--green)"><path d="m5 12 5 5L20 7"/></svg>那台 Mac 上的 Hermes 对话、文件和配置不会被删除。</li>
+        <li><svg viewBox="0 0 24 24" style="color:var(--secondary)"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>之后可以在那台 Mac 上重新连接。</li>
+      </ul>
+      <p class="label mt20">验证码已发送至 you@example.com</p>
+      <div class="otp"><span>2</span><span>9</span><span>0</span><span>7</span><span>1</span><span>6</span></div>
+      <div class="row mt24">
+        <span class="linkbtn" style="color:var(--blue)">重新发送</span>
+        <span class="spacer"></span>
+        <span class="btn">取消</span>
+        <span class="btn danger">验证并移除</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="onboard-hermes-found">
+  <p class="caption"><b>10 引导第 2 步 · 已有 Hermes</b> · 一台 Mac 只有一个 Hermes：本机已有就直接用，不提供「另装一份」（§6.2，MANAGED_HERMES_STRATEGY）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step done"><span class="dot">✓</span>登录</div><div class="step-line done"></div>
+        <div class="step current"><span class="dot">2</span>准备 Hermes</div><div class="step-line"></div>
+        <div class="step"><span class="dot">3</span>连接这台 Mac</div><div class="step-line"></div>
+        <div class="step"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column">
+          <h1 style="margin-top:0">已找到这台 Mac 上的 Hermes</h1>
+          <p class="lede">Hermes GO 会直接使用它和你现有的对话，不会再安装第二份。</p>
+          <div class="card mt24">
+            <div class="row">
+              <div class="oi" style="width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--green) 12%,transparent);color:var(--green)"><svg viewBox="0 0 24 24" style="width:22px;height:22px"><path d="m5 12 5 5L20 7"/></svg></div>
+              <div><div style="font-weight:600;font-size:15px">Hermes 可以使用</div><div class="small muted">检查于刚刚</div></div>
+            </div>
+            <div class="facts">
+              <div class="fact"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="k">位置</span><span class="v">~/.hermes</span></div>
+              <div class="fact"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg><span class="k">对话</span><span class="v">继续使用这台 Mac 上已有的对话与设置</span></div>
+              <div class="fact"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2.5 2"/></svg><span class="k">更新</span><span class="v">Hermes 的版本由你自己决定，Hermes GO 不会替你升级</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span></div>
+        <span class="btn lg primary">继续</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="onboard-hermes-missing">
+  <p class="caption"><b>11 引导第 2 步 · 没有 Hermes</b> · 沿用现有「这台 Mac 还没有 Hermes」卡片的事实行与按钮；「安装 Hermes…」只打开确认 sheet（§6.2，DESKTOP_DESIGN 2026-09-22）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step done"><span class="dot">✓</span>登录</div><div class="step-line done"></div>
+        <div class="step current"><span class="dot">2</span>准备 Hermes</div><div class="step-line"></div>
+        <div class="step"><span class="dot">3</span>连接这台 Mac</div><div class="step-line"></div>
+        <div class="step"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column" style="width:560px">
+          <h1 style="margin-top:0">这台 Mac 还没有 Hermes</h1>
+          <p class="lede">推荐安装官方 Hermes。它会装在 <code>~/.hermes</code>，与你手动安装完全一样，之后由 Hermes GO 负责启动。</p>
+          <div class="card mt20" style="padding:8px 22px 14px">
+            <div class="facts" style="border-top:0">
+              <div class="fact"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg><span class="k">来源</span><span class="v">官方安装脚本（HTTPS，main 分支）</span></div>
+              <div class="fact"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="k">位置</span><span class="v">~/.hermes · 约 2–4 GB，网络良好时 10–20 分钟</span></div>
+              <div class="fact"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span class="k">网络</span><span class="v">使用系统代理（127.0.0.1:7890）</span></div>
+              <div class="fact"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span class="k">权限</span><span class="v">以你的身份运行，不需要管理员密码或 sudo，可随时取消</span></div>
+              <div class="fact"><svg viewBox="0 0 24 24"><path d="M12 3 4 7v6c0 4 3.5 7 8 8 4.5-1 8-4 8-8V7Z"/></svg><span class="k">模型</span><span class="v">模型服务稍后用 <code>hermes setup</code> 配置</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span></div>
+        <div class="row"><span class="btn lg">改用内置 Hermes</span><span class="btn lg primary">安装 Hermes…</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="onboard-connect">
+  <p class="caption"><b>12 引导第 3 步 · 连接中</b> · 内部 9 个步骤合并成用户能看懂的 5 行；开始前仍弹出现有的「安装并连接」确认 sheet（§6.2）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step done"><span class="dot">✓</span>登录</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>准备 Hermes</div><div class="step-line done"></div>
+        <div class="step current"><span class="dot">3</span>连接这台 Mac</div><div class="step-line"></div>
+        <div class="step"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column">
+          <h1 style="margin-top:0">正在连接这台 Mac</h1>
+          <p class="lede">完成后，这台 Mac 会在后台保持连接，手机随时可以访问。</p>
+          <div class="card mt24">
+            <div class="row"><span style="font-weight:600;font-size:14px">第 3 项，共 5 项</span><span class="spacer"></span><span class="small muted">约 1 分钟</span></div>
+            <div class="bar mt12"><i style="width:52%"></i></div>
+            <div class="plist">
+              <div class="pitem done"><span class="ic"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="m5 12 5 5L20 7"/></svg></span>下载并验证安装包<span class="sub">签名已校验</span></div>
+              <div class="pitem done"><span class="ic"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="m5 12 5 5L20 7"/></svg></span>安装后台服务</div>
+              <div class="pitem"><span class="ic"><span class="spin"></span></span>绑定到你的账号</div>
+              <div class="pitem pending"><span class="ic"><span class="ring"></span></span>开机自动启动</div>
+              <div class="pitem pending"><span class="ic"><span class="ring"></span></span>验证可以从手机访问</div>
+            </div>
+          </div>
+          <div class="hint mt16"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>关闭窗口不会中断；如果退出 Hermes GO，下次打开会从这里继续。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制诊断</span><span class="linkbtn">查看详情</span></div>
+        <span class="btn lg primary disabled">正在连接…</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="onboard-phone">
+  <p class="caption"><b>13 引导第 4 步 · Android</b> · 先选手机类型；Android 扫码下载 App，二维码固定指向 https://mrlgs.net/（自动跳转最新 APK）；可「稍后再说」（§6.4）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step done"><span class="dot">✓</span>登录</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>准备 Hermes</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>连接这台 Mac</div><div class="step-line done"></div>
+        <div class="step current"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column wide" style="width:800px">
+          <div class="row" style="justify-content:space-between;align-items:flex-end">
+            <div><h1 style="margin-top:0">最后一步：连上你的手机</h1>
+            <p class="lede">这台 Mac 已经准备好了。选择你的手机类型，按步骤用同一个邮箱登录即可。</p></div>
+            <div class="seg"><span class="on"><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></svg>Android</span><span><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 5h3"/></svg>iPhone / iPad</span></div>
+          </div>
+          <div class="row mt24" style="align-items:stretch;gap:20px">
+            <div class="card" style="width:300px;flex:none;text-align:center;padding:24px">
+              <img src="download-qr.png" alt="" style="width:188px;height:188px;image-rendering:pixelated;border-radius:6px;background:#fff;padding:6px">
+              <div style="font-weight:600;font-size:14px" class="mt12">用手机相机扫码下载</div>
+              <div class="field mt12" style="height:32px;font-size:12.5px;justify-content:space-between">
+                <span>https://mrlgs.net/</span>
+                <svg viewBox="0 0 24 24" style="color:var(--blue)"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+              </div>
+              <div class="small muted mt8">下载 Android App</div>
+            </div>
+            <div class="card" style="flex:1;padding:24px 26px">
+              <div class="plist" style="margin-top:0">
+                <div class="pitem" style="align-items:flex-start;padding:8px 0"><span class="dot" style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--blue) 10%,transparent);color:var(--blue);font-size:12px;font-weight:700;flex:none">1</span><div><div style="font-weight:600">扫码下载并安装 Hermes GO</div><div class="small muted mt8" style="margin-top:3px">手机可能会提示「允许安装未知来源应用」</div></div></div>
+                <div class="pitem" style="align-items:flex-start;padding:8px 0"><span class="dot" style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--blue) 10%,transparent);color:var(--blue);font-size:12px;font-weight:700;flex:none">2</span><div><div style="font-weight:600">用 you@example.com 登录</div><div class="small muted" style="margin-top:3px">与这台 Mac 使用同一个邮箱</div></div></div>
+                <div class="pitem" style="align-items:flex-start;padding:8px 0"><span class="dot" style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--blue) 10%,transparent);color:var(--blue);font-size:12px;font-weight:700;flex:none">3</span><div><div style="font-weight:600">选择「MacBook Pro」</div><div class="small muted" style="margin-top:3px">之后就能在手机上继续这台 Mac 的对话</div></div></div>
+              </div>
+              <div class="row mt20" style="padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--blue) 6%,transparent);font-size:13px">
+                <span class="spin"></span><span>正在等待手机登录…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn">稍后再说</span></div>
+        <span class="btn lg primary disabled">进入 Hermes GO</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="onboard-phone-ios">
+  <p class="caption"><b>14 引导第 4 步 · iPhone / iPad</b> · 没有 iOS App：扫码在 Safari 打开 Web App（https://mrlgs.net/app/），添加到主屏幕后全屏使用（§6.4）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step done"><span class="dot">✓</span>登录</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>准备 Hermes</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>连接这台 Mac</div><div class="step-line done"></div>
+        <div class="step current"><span class="dot">4</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column wide" style="width:800px">
+          <div class="row" style="justify-content:space-between;align-items:flex-end">
+            <div><h1 style="margin-top:0">最后一步：连上你的手机</h1>
+            <p class="lede">这台 Mac 已经准备好了。选择你的手机类型，按步骤用同一个邮箱登录即可。</p></div>
+            <div class="seg"><span><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></svg>Android</span><span class="on"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 5h3"/></svg>iPhone / iPad</span></div>
+          </div>
+          <div class="row mt24" style="align-items:stretch;gap:20px">
+            <div class="card" style="width:300px;flex:none;text-align:center;padding:24px">
+              <img src="webapp-qr.png" alt="" style="width:188px;height:188px;image-rendering:pixelated;border-radius:6px;background:#fff;padding:6px">
+              <div style="font-weight:600;font-size:14px" class="mt12">用相机扫码，在 Safari 打开</div>
+              <div class="field mt12" style="height:32px;font-size:12.5px;justify-content:space-between">
+                <span>https://mrlgs.net/app/</span>
+                <svg viewBox="0 0 24 24" style="color:var(--blue)"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+              </div>
+              <div class="small muted mt8">网页版 · 无需从 App Store 安装</div>
+            </div>
+            <div class="card" style="flex:1;padding:24px 26px">
+              <div class="plist" style="margin-top:0">
+                <div class="pitem" style="align-items:flex-start;padding:7px 0"><span class="num">1</span><div><div style="font-weight:600">用相机扫码，在 Safari 中打开</div></div></div>
+                <div class="pitem" style="align-items:flex-start;padding:7px 0"><span class="num">2</span><div><div style="font-weight:600">点「分享」<svg class="ios-share" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11H5v10h14V11h-1"/></svg></div><div class="small muted" style="margin-top:3px">iPhone 在屏幕底部，iPad 在地址栏右侧</div></div></div>
+                <div class="pitem" style="align-items:flex-start;padding:7px 0"><span class="num">3</span><div><div style="font-weight:600">选「添加到主屏幕」，再点「添加」</div></div></div>
+                <div class="pitem" style="align-items:flex-start;padding:7px 0"><span class="num">4</span><div><div style="font-weight:600">从主屏幕的 Hermes GO 图标打开</div><div class="small muted" style="margin-top:3px">用 you@example.com 登录，选择「MacBook Pro」</div></div></div>
+              </div>
+              <div class="hint mt12"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>也可以直接在 Safari 标签页里用，但会显示浏览器的地址栏和工具栏。</div>
+              <div class="row mt16" style="padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--blue) 6%,transparent);font-size:13px">
+                <span class="spin"></span><span>正在等待 Web App 登录…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"><span class="linkbtn">稍后再说</span></div>
+        <span class="btn lg primary disabled">进入 Hermes GO</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="onboard-phone-done">
+  <p class="caption"><b>15 引导第 4 步 · 已连上</b> · 账号下出现新的已授权手机时自动打勾，主按钮变为可用</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="gate">
+      <div class="stepper">
+        <div class="step done"><span class="dot">✓</span>登录</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>准备 Hermes</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>连接这台 Mac</div><div class="step-line done"></div>
+        <div class="step done"><span class="dot">✓</span>连上手机</div>
+      </div>
+      <div class="center">
+        <div class="column" style="text-align:center">
+          <div style="width:64px;height:64px;border-radius:50%;margin:0 auto;display:grid;place-items:center;background:color-mix(in srgb,var(--green) 13%,transparent);color:var(--green)"><svg viewBox="0 0 24 24" style="width:32px;height:32px;stroke-width:2"><path d="m5 12 5 5L20 7"/></svg></div>
+          <h1>全部设置完成</h1>
+          <p class="lede">现在可以在手机上使用这台 Mac 上的 Hermes 了。</p>
+          <div class="macs mt24" style="text-align:left">
+            <div class="mac"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M1.5 19h21"/></svg><div><div>MacBook Pro（这台 Mac）</div><div class="meta"><span class="sdot g"></span>已连接 · 开机自动启动</div></div></div>
+            <div class="mac"><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></svg><div><div>HONOR Magic6</div><div class="meta"><span class="sdot g"></span>刚刚登录</div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="left"></div>
+        <span class="btn lg primary">进入 Hermes GO</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="manage-only-overview">
+  <p class="caption"><b>16 只管理模式的主界面</b> · 概览显示所选 Mac 的状态；顶部入口「把这台 Mac 也连上」随时可以回到引导（§7.1、§9）</p>
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i></div>
+    <div class="shell">
+      <div class="sidebar">
+        <div class="sb-id"><img class="logo sm" src="../../../android/app/src/main/ic_launcher-playstore.png" alt=""><div><div style="font-weight:700;font-size:16px">Hermes GO</div><div class="small muted">Desktop</div></div></div>
+        <div class="sb-item on"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>概览</div>
+        <div class="sb-item"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>诊断</div>
+        <div class="sb-item"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6Z"/><path d="M9 12h7M9 16h7"/></svg>日志</div>
+        <div class="sb-item"><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></svg>账号与设备</div>
+        <div class="sb-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"/></svg>设置</div>
+      </div>
+      <div class="main">
+        <div class="row small muted" style="letter-spacing:.8px;font-weight:600">正在管理 · MAC MINI<span class="spacer"></span><span style="letter-spacing:0;font-weight:500">you@example.com</span></div>
+        <h1 style="margin-top:10px">工作正常</h1>
+        <p class="lede">Mac mini 正在安全连接 Hermes GO</p>
+        <div class="card mt20" style="padding:14px 18px;display:flex;align-items:center;gap:14px;background:color-mix(in srgb,var(--blue) 5%,var(--card))">
+          <svg viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--blue)"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M1.5 19h21"/></svg>
+          <div style="flex:1"><div style="font-weight:600;font-size:13.5px">这台 MacBook Pro 只用于管理</div><div class="small muted">本机没有安装后台服务。想让手机也能使用这台 Mac 上的 Hermes，可以把它连上。</div></div>
+          <span class="btn">把这台 Mac 也连上</span>
+        </div>
+        <div class="card mt16" style="display:flex;justify-content:space-around;padding:26px 20px">
+          <div style="text-align:center"><div style="width:48px;height:48px;border-radius:50%;border:1.4px solid var(--blue);display:grid;place-items:center;margin:0 auto;color:var(--blue)"><svg viewBox="0 0 24 24" style="width:20px;height:20px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div><div style="font-weight:600;font-size:13px" class="mt8">Gateway</div><div class="row small muted" style="justify-content:center;gap:6px;margin-top:4px"><span class="sdot g"></span>账号连接 · 42 ms</div></div>
+          <div style="text-align:center"><div style="width:48px;height:48px;border-radius:50%;border:1.4px solid var(--blue);display:grid;place-items:center;margin:0 auto;color:var(--blue)"><svg viewBox="0 0 24 24" style="width:20px;height:20px"><rect x="4" y="4" width="16" height="11" rx="1.5"/><path d="M9 20h6M12 15v5"/></svg></div><div style="font-weight:600;font-size:13px" class="mt8">Connector</div><div class="row small muted" style="justify-content:center;gap:6px;margin-top:4px"><span class="sdot g"></span>在线</div></div>
+          <div style="text-align:center"><div style="width:48px;height:48px;border-radius:50%;border:1.4px solid var(--blue);display:grid;place-items:center;margin:0 auto;color:var(--blue)"><svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M4 6h16v10H4z"/><path d="M8 20h8"/></svg></div><div style="font-weight:600;font-size:13px" class="mt8">Hermes</div><div class="row small muted" style="justify-content:center;gap:6px;margin-top:4px"><span class="sdot g"></span>可访问</div></div>
+          <div style="text-align:center"><div style="width:48px;height:48px;border-radius:50%;border:1.4px solid var(--blue);display:grid;place-items:center;margin:0 auto;color:var(--blue)"><svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M12 3 4 7v6c0 4 3.5 7 8 8 4.5-1 8-4 8-8V7Z"/><path d="m9 12 2 2 4-4"/></svg></div><div style="font-weight:600;font-size:13px" class="mt8">端到端</div><div class="row small muted" style="justify-content:center;gap:6px;margin-top:4px"><span class="sdot g"></span>正常</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section class="board" id="menubar">
+  <p class="caption"><b>17 菜单栏</b> · 保留菜单栏。未登录：直接给「登录」；未装机：「完成设置」回到引导；只管理：显示所选 Mac 的状态（§9）</p>
+  <div class="desk">
+    <div class="menubar"><b></b><span style="font-weight:600">Finder</span><span>文件</span><span>编辑</span><span>显示</span>
+      <div class="r">
+        <svg class="hico" viewBox="0 0 24 24" style="stroke-width:1.8"><circle cx="12" cy="12" r="9"/><path d="M9 8v8M15 8v8M9 12h6"/></svg>
+        <span>9月23日 周三 14:20</span>
+      </div>
+    </div>
+    <div class="pops">
+      <div class="popcol">
+        <span class="poptag">未登录</span>
+        <div class="pop">
+          <div class="ph"><img src="../../../android/app/src/main/ic_launcher-playstore.png" alt=""><div><div style="font-weight:700;font-size:14px">Hermes GO</div><div class="row" style="gap:6px;font-size:12px;margin-top:2px"><span class="sdot n"></span>未登录</div></div></div>
+          <div class="hr"></div>
+          <div class="note" style="padding-top:12px">登录后即可让手机使用这台 Mac 上的 Hermes。</div>
+          <div class="cta">登录 Hermes GO…</div>
+          <div class="hr"></div>
+          <div class="pa"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>打开主窗口</div>
+          <div class="pa"><svg viewBox="0 0 24 24"><path d="M9 4H5v16h4M15 8l4 4-4 4M19 12H9"/></svg>退出 Hermes GO</div>
+        </div>
+      </div>
+      <div class="popcol">
+        <span class="poptag">已登录 · 未装机</span>
+        <div class="pop">
+          <div class="ph"><img src="../../../android/app/src/main/ic_launcher-playstore.png" alt=""><div><div style="font-weight:700;font-size:14px">Hermes GO</div><div class="row" style="gap:6px;font-size:12px;margin-top:2px"><span class="sdot a"></span>还差 2 步完成设置</div></div></div>
+          <div class="hr"></div>
+          <div class="pr"><span>Hermes GO 账号</span><span class="spacer"></span><span class="sdot g"></span><span style="color:#6B7280">已登录</span></div>
+          <div class="pr"><span>这台 Mac</span><span class="spacer"></span><span class="sdot n"></span><span style="color:#6B7280">未连接</span></div>
+          <div class="cta">完成设置…</div>
+          <div class="hr"></div>
+          <div class="pa"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>打开主窗口</div>
+          <div class="pa"><svg viewBox="0 0 24 24"><path d="M9 4H5v16h4M15 8l4 4-4 4M19 12H9"/></svg>退出 Hermes GO</div>
+        </div>
+      </div>
+      <div class="popcol">
+        <span class="poptag">只管理 · 显示所选 Mac</span>
+        <div class="pop">
+          <div class="ph"><img src="../../../android/app/src/main/ic_launcher-playstore.png" alt=""><div><div style="font-weight:700;font-size:14px">Hermes GO</div><div class="row" style="gap:6px;font-size:12px;margin-top:2px"><span class="sdot g"></span>Mac mini 工作正常</div></div></div>
+          <div class="hr"></div>
+          <div class="pr"><span>正在管理</span><span class="spacer"></span><span style="color:#6B7280">Mac mini ›</span></div>
+          <div class="pr"><span>Connector</span><span class="spacer"></span><span class="sdot g"></span><span style="color:#6B7280">在线</span></div>
+          <div class="pr"><span>Hermes</span><span class="spacer"></span><span class="sdot g"></span><span style="color:#6B7280">可访问</span></div>
+          <div class="hr"></div>
+          <div class="pa"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>打开主窗口</div>
+          <div class="pa"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7L20 8"/><path d="M20 3v5h-5"/></svg>刷新状态</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const only = new URLSearchParams(location.search).get("s");
+  if (only) {
+    for (const s of document.querySelectorAll("section.board")) {
+      if (s.id !== only) s.remove();
+    }
+  }
+</script>
+</body>
+</html>
