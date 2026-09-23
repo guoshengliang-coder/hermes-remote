@@ -339,7 +339,7 @@ export class GatewayClient {
     return this.refreshing ? this.refreshing.then(() => undefined, () => undefined) : Promise.resolve();
   }
 
-  refresh(): Promise<void> {
+  refresh(options: { silent?: boolean } = {}): Promise<void> {
     this.refreshing ??= (async () => {
       try {
         const body = await this.request<WebRefreshResponse>("POST", REFRESH_PATH, { idempotent: true, refreshOn401: false });
@@ -348,7 +348,9 @@ export class GatewayClient {
       } catch (error) {
         if (error instanceof GatewayHttpError && error.status >= 400 && error.status < 500 && error.status !== 429) {
           this.stopKeepAlive();
-          this.emitSignedOut(error);
+          // A silent attempt is a question ("is there still a session?"), not a session ending:
+          // the first visit of a signed-out browser must not look like being thrown out.
+          if (!options.silent) this.emitSignedOut(error);
         } else {
           this.scheduleKeepAlive(this.refreshRetryMs);
         }
@@ -358,6 +360,20 @@ export class GatewayClient {
       }
     })();
     return this.refreshing;
+  }
+
+  /**
+   * Cold start: the access cookie lives 15 minutes, the refresh cookie 30 days, and
+   * GET /v2/web/session only reads the access one. Reopening the app after a pause therefore
+   * looks signed out until this exchanges the refresh cookie. True when a session came back.
+   */
+  async resume(): Promise<boolean> {
+    try {
+      await this.refresh({ silent: true });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async send(method: string, path: string, options: RequestOptions): Promise<Response> {
