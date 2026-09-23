@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { ModelOptionsResponse } from "../api/gateway";
+import { useDefaultModel } from "../app/defaultModel";
 import { toAppError } from "../app/failures";
 import { modelKey, modelPrefs, recordModelUse, rememberReasoning, toggleFavoriteModel } from "../app/localPrefs";
 import { useApp } from "../app/store";
@@ -52,6 +53,7 @@ function switchError(error: unknown): AppError {
 export function ModelSheet({
   current,
   profile,
+  explicitOverride,
   actions,
   onSwitched,
   onReasoning,
@@ -59,13 +61,15 @@ export function ModelSheet({
 }: {
   current: { model: string | null; provider: string | null };
   profile: string | null;
+  explicitOverride: boolean;
   actions: ModelActions;
-  onSwitched: (provider: string, model: string) => void;
+  onSwitched: (provider: string, model: string, restored: boolean) => void;
   onReasoning: (value: string) => void;
   onClose: () => void;
 }) {
-  const { t, language, client, device } = useApp();
+  const { t, language, client, device, features } = useApp();
   const deviceId = device?.deviceId ?? "";
+  const defaultModel = useDefaultModel(client, deviceId, profile, features.has("default-model"));
   const [providers, setProviders] = useState<NonNullable<ModelOptionsResponse["providers"]> | null>(null);
   const [listError, setListError] = useState<AppError | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -106,20 +110,20 @@ export function ModelSheet({
   const all = useMemo(() => (providers ?? []).flatMap((p) => (p.models ?? []).map((m) => ({ provider: p.slug, providerName: p.name || p.slug, model: m, key: modelKey(p.slug, m) }))), [providers]);
   const byKey = useMemo(() => new Map(all.map((o) => [o.key, o])), [all]);
 
-  async function choose(provider: string, model: string) {
+  async function choose(provider: string, model: string, restored = false) {
     if (pending) return;
     const key = modelKey(provider, model);
     setPending(key);
     setError(null);
     try {
       await actions.switchModel(provider, model);
-      recordModelUse(deviceId, key);
+      if (!restored) recordModelUse(deviceId, key);
       // The effort last used with this model comes back with it (Android applyReasoningPresetFor).
-      const preset = modelPrefs(deviceId).presets[key];
+      const preset = restored ? null : modelPrefs(deviceId).presets[key];
       if (isReasoning(preset)) {
         await actions.setReasoning(preset).then(() => onReasoning(preset), () => undefined);
       }
-      onSwitched(provider, model);
+      onSwitched(provider, model, restored);
       onClose();
     } catch (e) {
       setError(switchError(e));
@@ -172,6 +176,9 @@ export function ModelSheet({
 
   const recents = prefs.recents.map((k) => byKey.get(k)).filter((o): o is NonNullable<typeof o> => Boolean(o));
   const favorites = prefs.favorites.map((k) => byKey.get(k)).filter((o): o is NonNullable<typeof o> => Boolean(o));
+  const configured = defaultModel.model;
+  const overridden = Boolean(configured && (explicitOverride || (current.model !== null && current.model !== configured.model) || (current.provider !== null && current.provider !== configured.provider)));
+  const canRestore = Boolean(overridden && configured && sessionModelCommand(configured.provider, configured.model));
 
   return (
     <Sheet title={t("选择模型", "Select model")} closeLabel={t("关闭", "Close")} onClose={onClose} wide
@@ -182,7 +189,12 @@ export function ModelSheet({
             <span class="model-status-name mono">{current.model || t("默认模型", "Default model")}</span>
             <span class="model-status-label">{t("当前使用", "In use")}</span>
           </span>
-          <span class="model-status-note">{current.provider ? `${current.provider} · ` : ""}{t("仅此对话", "This conversation")}</span>
+          <span class="model-status-note">{configured ? (overridden
+            ? t(`此对话覆盖 · 默认 ${configured.model}`, `Conversation override · default ${configured.model}`)
+            : t(`跟随默认 · ${configured.model}`, `Following default · ${configured.model}`))
+            : (current.provider ? `${current.provider} · ` : "") + t("当前会话", "Current conversation")}</span>
+          {canRestore && configured ? <button type="button" class="model-restore text-button" disabled={pending !== null}
+            onClick={() => void choose(configured.provider, configured.model, true)}>{t("恢复默认模型", "Restore default model")}</button> : null}
           <span class="reasoning-row">
             <label class="reasoning-label" for="reasoning-select">{t("推理强度", "Reasoning effort")}</label>
             <select id="reasoning-select" class="reasoning-select" value={isReasoning(reasoning) ? reasoning : ""}
@@ -194,6 +206,7 @@ export function ModelSheet({
         </span>
       </div>
       {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
+      {defaultModel.error ? <ErrorNotice error={defaultModel.error} language={language} onRetry={defaultModel.retry} variant="inline" /> : null}
       {listError ? <ErrorNotice error={listError} language={language} onRetry={() => setAttempt(attempt + 1)} /> : null}
       {!providers && !listError ? <div class="center-spinner"><span class="spinner" /></div> : null}
       {providers && all.length === 0 ? <p class="picker-note">{t("暂无可选模型", "No models available")}</p> : null}

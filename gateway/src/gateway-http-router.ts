@@ -3,6 +3,7 @@ import type { AccountGatewayControl } from "./account/account-runtime.js";
 import { accountErrors, type AccountPrincipal } from "./account/model.js";
 import {
   browserResponseHeaders,
+  browserRouteBodyAllowed,
   browserRouteFor,
   type WebDeviceAccess,
 } from "./account/web-device-access.js";
@@ -218,6 +219,7 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
       const apiPath = route.targetUrl.pathname;
       const allowed = browserRouteFor(request.method, route.targetUrl);
       if (!allowed) throw accountErrors.webRouteUnavailable();
+      if (!browserRouteBodyAllowed(allowed, request.headers)) throw accountErrors.webRouteUnavailable();
       let body: Buffer | undefined;
       if (allowed.body) {
         // Read and check the body here; the exact bytes that passed are what gets forwarded. A

@@ -7,7 +7,7 @@ import { Composer } from "./Composer";
 import { SessionRow } from "./SessionRow";
 
 const hosts: HTMLElement[] = [];
-const context = { t: (zh: string) => zh, language: "zh", device: null } as unknown as AppContextValue;
+const context = { t: (zh: string) => zh, language: "zh", device: null, features: new Set() } as unknown as AppContextValue;
 afterEach(() => { for (const host of hosts.splice(0)) { render(null, host); host.remove(); } });
 
 function mount(node: preact.ComponentChildren): HTMLElement {

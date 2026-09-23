@@ -123,7 +123,7 @@ export function supportsWebDeviceAccess(caps: GatewayCapabilities): boolean {
   return caps.accountAuth?.webDeviceAccess === true;
 }
 
-export type WebDeviceFeature = "session-manage" | "session-delete" | "workspace-move" | "model-select" | "process-list" | "session-access";
+export type WebDeviceFeature = "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "process-list" | "session-access";
 
 /** Features this Gateway admits for the Web app; an older Gateway lists none, so nothing extra shows. */
 export function webDeviceFeatures(caps: GatewayCapabilities): ReadonlySet<WebDeviceFeature> {
@@ -134,6 +134,11 @@ export function webDeviceFeatures(caps: GatewayCapabilities): ReadonlySet<WebDev
 /** `GET /api/model/options` (Android ModelOptionsDto): providers each with model-name strings. */
 export interface ModelOptionsResponse {
   providers?: { slug: string; name?: string | null; is_current?: boolean; models?: string[] }[];
+}
+
+export interface DefaultModelResponse {
+  model: string;
+  provider: string;
 }
 
 /** POST /api/mobile/events/{ack,read} → 200. */
@@ -564,6 +569,10 @@ export class GatewayClient {
 
   modelOptions(deviceId: string, profile?: string | null): Promise<ModelOptionsResponse> {
     return this.deviceApi(deviceId, "GET", `model/options${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`);
+  }
+
+  defaultModel(deviceId: string, profile?: string | null): Promise<DefaultModelResponse> {
+    return this.deviceApi(deviceId, "GET", `hermes-remote/default-model${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`);
   }
 
   // ---- Lifecycle inbox ----

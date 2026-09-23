@@ -3351,6 +3351,11 @@ button.chat-workspace:disabled {
   color: var(--on-surface-variant);
 }
 
+.model-restore {
+  align-self: flex-start;
+  min-height: 2.5rem;
+}
+
 .reasoning-row {
   display: flex;
   align-items: center;

@@ -996,6 +996,7 @@ Allowlisted REST paths: `/api/status`, `/api/hermes-remote/contract`, `/api/sess
 | `PATCH /api/sessions/{id}` | No query; JSON object body with only `title` (string 1–200), `archived` (bool), `profile` (profile name); at least `title` or `archived`; declared body ≤ 4 KB, forwarded byte for byte |
 | `DELETE /api/sessions/{id}` | Query only `profile`; no body |
 | `GET /api/model/options` | Query only `profile` |
+| `GET/HEAD /api/hermes-remote/default-model` | Exact Connector-owned read; zero or one validated `profile` query; no body; `GET` returns only `model` and `provider` with `Cache-Control: private, no-store` |
 
 Anything else answers `403 HR-WEB-001`. On the WebSocket `client.capabilities`, `session.create`,
 `session.resume`, `prompt.submit`, `session.interrupt`, `image.attach`, `file.attach`,

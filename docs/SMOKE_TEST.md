@@ -1112,6 +1112,13 @@ version with each result.
     the reasoning effort; confirm on Android that the same conversation shows the new model. Move a
     chat via its project subtitle. While Android runs a turn in the same conversation, open it on the
     Web: the composer is replaced by `HR-SESS-013` with Retry.
+    For HG-114 on an isolated stack with a Connector backed by Hermes, check the side drawer's
+    read-only default model for two Macs and two profiles. In a conversation using another model,
+    tap “恢复默认模型”; only that conversation changes, and the upstream global model stays put.
+    Disconnect the Mac and retry: show `HR-WEB-009`, no previous Mac's value or restore button.
+    A same-origin authenticated `GET /api/hermes-remote/default-model?profile=work` returns exactly
+    `model` and `provider` with `Cache-Control: private, no-store`; direct `/api/config`, an extra
+    query key, a duplicate profile, a body, and a write method are refused before the Connector.
 14. **Composer and chat extras (batch 5).** Save a table as an image: the iOS share sheet opens and
     Save Image puts it in Photos (legible, light background even in dark mode). ＋ → 拍照 opens the
     camera. Edit a photo: two fingers zoom without drawing or zooming the page, one finger draws,

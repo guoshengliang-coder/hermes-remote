@@ -94,6 +94,7 @@ export const HERMES_REST_CONTRACT: readonly ContractPath[] = Object.freeze([
   optional("POST", "/api/cron/jobs/{id}/trigger", "cron"),
   optional("GET", "/api/cron/delivery-targets", "cron"),
   optional("GET", "/api/model/options", "models"),
+  optional("GET", "/api/model/info", "models"),
   optional("POST", "/api/model/set", "models"),
   optional("PUT", "/api/profiles/{id}/model", "models"),
   optional("GET", "/api/tools/toolsets", "tools"),

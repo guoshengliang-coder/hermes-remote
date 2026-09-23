@@ -26,6 +26,11 @@ calls `PATCH`/`DELETE /api/sessions/{id}`, `GET /api/model/options`, `session.wo
 session's `reasoning`), `process.list` and `session.access`. The Gateway admits those **by parameter
 shape**, so an upstream change to their params (a renamed key, a new required key, new reasoning
 values) must update the Gateway validators as well as both clients, or the Web app gets `HR-WEB-001`.
+For HG-114, the Connector alone reads optional `GET /api/model/info` for the selected profile
+and sends only `model` and `provider` through its own `/api/hermes-remote/default-model` route.
+This shape was checked against `hermes_cli/web_routers/models.py:get_model_info` on the local
+Hermes source and the pinned 0.21.3 OpenAPI fixture. Android and Desktop do not call the new
+Connector route; their existing model and configuration behavior is unchanged.
 
 ## Adapted upstream version
 
@@ -227,6 +232,7 @@ seeing the Mac, listing conversations, reading one — and its absence is **brea
 | `POST` | `/api/cron/jobs/{id}/trigger` | optional | cron |
 | `GET` | `/api/cron/delivery-targets` | optional | cron |
 | `GET` | `/api/model/options` | optional | models |
+| `GET` | `/api/model/info` | optional | models |
 | `POST` | `/api/model/set` | optional | models |
 | `PUT` | `/api/profiles/{id}/model` | optional | models |
 | `GET` | `/api/tools/toolsets` | optional | tools |

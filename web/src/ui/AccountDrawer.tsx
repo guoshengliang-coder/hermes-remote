@@ -1,7 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
 import pkg from "../../package.json";
+import { useDefaultModel } from "../app/defaultModel";
 import { useApp } from "../app/store";
 import { useBackClose } from "../app/useBackClose";
+import { ErrorNotice } from "./ErrorNotice";
 import { BackIcon, ChevronIcon, CloseIcon, MacIcon, SettingsIcon } from "./icons";
 
 // The Web counterpart of the Android card drawer. Only the chosen Mac's data is shown.
@@ -9,6 +11,7 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
   const app = useApp();
   const { t, device } = app;
   const [page, setPage] = useState<"home" | "settings">("home");
+  const defaultModel = useDefaultModel(app.client, device?.deviceId ?? "", null, app.features.has("default-model"));
   useBackClose(onClose);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -52,6 +55,14 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
               </span>
               <ChevronIcon />
             </button>
+            {app.features.has("default-model") ? (
+              <section class="drawer-section">
+                <h3>{t("默认模型", "Default model")}</h3>
+                {defaultModel.model ? <p class="drawer-detail mono">{defaultModel.model.model} · {defaultModel.model.provider}</p> : null}
+                {defaultModel.loading ? <p class="drawer-detail">{t("读取中…", "Loading…")}</p> : null}
+                {defaultModel.error ? <ErrorNotice error={defaultModel.error} language={app.language} onRetry={defaultModel.retry} variant="inline" /> : null}
+              </section>
+            ) : null}
             <section class="drawer-section">
               <h3>{t("主题", "Theme")}</h3>
               <div class="drawer-choices" role="group" aria-label={t("主题", "Theme")}>

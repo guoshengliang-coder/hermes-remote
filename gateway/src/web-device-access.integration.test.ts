@@ -183,7 +183,7 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     };
     assert.equal(capabilities.accountAuth.webDeviceAccess, true);
     assert.deepEqual(capabilities.accountAuth.webDeviceFeatures, [
-      "session-manage", "session-delete", "workspace-move", "model-select", "process-list", "session-access",
+      "session-manage", "session-delete", "workspace-move", "model-select", "default-model", "process-list", "session-access",
     ]);
     const shell = await fetch(`${origin}/app/sessions/abc`);
     assert.equal(shell.status, 200);
@@ -256,6 +256,14 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     const models = await read("/model/options?profile=work", browserAccess);
     assert.equal(models.status, 200);
     await models.body?.cancel();
+    const defaultModel = await read("/hermes-remote/default-model?profile=work", browserAccess);
+    assert.equal(defaultModel.status, 200);
+    assert.equal(defaultModel.headers.get("cache-control"), "private, no-store");
+    await defaultModel.body?.cancel();
+    await expectError(read("/hermes-remote/default-model?profile=a&profile=b", browserAccess), 403, "HR-WEB-001");
+    await expectError(read("/hermes-remote/default-model?include_keys=1", browserAccess), 403, "HR-WEB-001");
+    await expectError(read("/hermes-remote/default-model%2Fconfig", browserAccess), 403, "HR-WEB-001");
+    await expectError(write("/hermes-remote/default-model", browserAccess), 403, "HR-WEB-001");
     await expectError(read("/config", browserAccess), 403, "HR-WEB-001");
 
     // Mac files are never rendered on the Gateway origin.

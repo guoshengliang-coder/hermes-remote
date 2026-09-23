@@ -197,6 +197,11 @@ the same browser session; no new credential type exists. Behind
   closed because it returns the whole Hermes configuration. Session updates and deletes are logged
   as `web.session.manage` with the installation id (no titles or content). The Web app confirms
   archive and asks a red confirmation before delete;
+- HG-114 admits only `GET/HEAD /api/hermes-remote/default-model`, with no body and at most one
+  validated `profile` query. The Connector reads local `GET /api/model/info` with the Mac-only
+  credential, bounds and validates the response, and returns only `model` and `provider`.
+  Configuration and other upstream fields never cross the tunnel. The response is `private,
+  no-store`; a failure hides the label and restore action rather than using stale data;
 - the WebSocket is screened the same way: a browser tunnel forwards only the chat client's JSON-RPC
   methods (`client.capabilities`, `session.create/resume/interrupt`, `prompt.submit`,
   `image.attach`, `file.attach`, `request.answer`, `clarify.lock`, and the older
