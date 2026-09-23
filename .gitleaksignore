@@ -55,3 +55,7 @@ dd2905f994f5fe00c80e21f8d41d847398271249:scripts/test/production-push-rollout.te
 # HG-104 8a6ae46: RFC 6455 sample Sec-WebSocket-Key in curl examples, not a credential (replaced by a generated key in the next commit).
 8a6ae4672ce9e0e4c86fadc25575ec3e7f8485b3:docs/DEPLOYMENT.md:generic-api-key:1429
 8a6ae4672ce9e0e4c86fadc25575ec3e7f8485b3:docs/SMOKE_TEST.md:generic-api-key:1152
+# 8d552624 briefly carried two literal test idempotency keys (replaced with randomUUID() in the
+# next commit). Inert fixtures, never credentials; pinned to that commit so new findings still fail.
+8d552624e4c14048009e5a3ec89b775fbd7a41dc:gateway/src/account-mode.test.ts:generic-api-key:258
+8d552624e4c14048009e5a3ec89b775fbd7a41dc:gateway/src/account-mode.test.ts:generic-api-key:268
