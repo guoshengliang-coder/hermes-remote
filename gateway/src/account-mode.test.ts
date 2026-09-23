@@ -255,7 +255,7 @@ test("a refresh restarts the 180-day window instead of counting from the sign-in
     clientInstallationId: INSTALLATION_ID,
     displayName: "Pixel",
     appVersion: "0.2.0",
-    idempotencyKey: "6f2b1a48-2f39-4d58-9df6-6a4bcb0d2f10",
+    idempotencyKey: randomUUID(), // generated: a literal one reads like a leaked key to gitleaks
   });
   assert.equal(signIn.session.refreshExpiresAt, "2027-03-01T04:00:00.000Z");
 
@@ -265,7 +265,7 @@ test("a refresh restarts the 180-day window instead of counting from the sign-in
   const rotated = await service.refresh({
     refreshToken: codec.issueRefreshToken(),
     clientInstallationId: INSTALLATION_ID,
-    idempotencyKey: "0c5f4cbb-6b0e-4d5c-9f2c-7f1df0f2a2f3",
+    idempotencyKey: randomUUID(),
   });
   assert.equal(rotated.refreshExpiresAt, "2027-07-31T04:00:00.000Z");
   assert.equal(rotated.accessExpiresAt, "2027-02-01T04:15:00.000Z");
