@@ -45,6 +45,10 @@ private val ATTACHED_IMAGE_PLACEHOLDER = Regex(
     "(?m)^\\s*\\[User attached image:[^]]+]\\s*$",
     RegexOption.IGNORE_CASE,
 )
+private val HISTORY_ATTACHED_IMAGE = Regex(
+    "(?m)^\\s*\\[Image attached at:\\s*(/[^]\\r\\n]+\\.(?:png|jpe?g|gif|webp))]\\s*$",
+    RegexOption.IGNORE_CASE,
+)
 private val FILE_DIRECTIVE = Regex(
     "(?m)^\\s*@file:(?:\\\"([^\\\"]+)\\\"|'([^']+)'|`([^`]+)`|(.+?))\\s*$",
 )
@@ -147,8 +151,9 @@ private data class ExplicitMediaExtraction(
 )
 
 /** Hermes persists attachments as `@image:/absolute/path`; keep the path out of visible chat. */
-internal fun parseMessageContent(raw: String): ParsedMessageContent {
-    val explicitMedia = extractExplicitMediaReferences(raw)
+internal fun parseMessageContent(raw: String, userHistory: Boolean = false): ParsedMessageContent {
+    val historyImage = if (userHistory) extractHistoryAttachedImages(raw) else LabeledImageExtraction(raw, emptyList())
+    val explicitMedia = extractExplicitMediaReferences(historyImage.text)
     val labeled = extractLabeledImagePaths(explicitMedia.text)
     val labeledFiles = extractLabeledFilePaths(labeled.text)
     val pathImages = IMAGE_DIRECTIVE.findAll(labeledFiles.text).mapNotNull { match ->
@@ -180,7 +185,8 @@ internal fun parseMessageContent(raw: String): ParsedMessageContent {
     val webImages = actionable
         .filter { it.isImage && it.context == MarkdownSpanContext.STANDALONE && it.destination.startsWith("https://") }
         .mapIndexed { index, span -> ChatImage(id = "web-${span.destination.hashCode()}-$index", sourceUrl = span.destination) }
-    val images = (explicitImages + pathImages + labeledImages + localMarkdownImages + webImages)
+    val historyImages = historyImage.paths.map(::remoteImage)
+    val images = (historyImages + explicitImages + pathImages + labeledImages + localMarkdownImages + webImages)
         .distinctBy { it.remotePath ?: it.sourceUrl ?: it.id }
     val directiveFiles = FILE_DIRECTIVE.findAll(labeledFiles.text).mapIndexed { index, match ->
         val path = match.groupValues.drop(1).firstOrNull { it.isNotBlank() }.orEmpty()
@@ -304,6 +310,19 @@ private fun maskProtectedMediaExamples(raw: String): String {
         range.forEach { index -> if (chars[index] != '\n') chars[index] = ' ' }
     }
     return chars.concatToString()
+}
+
+/** Hermes can persist a user upload as this path marker instead of an @image directive. */
+private fun extractHistoryAttachedImages(raw: String): LabeledImageExtraction {
+    val matches = HISTORY_ATTACHED_IMAGE.findAll(maskProtectedMediaExamples(raw)).toList()
+    if (matches.isEmpty()) return LabeledImageExtraction(raw, emptyList())
+    val paths = matches.mapNotNull { match ->
+        val path = match.groupValues[1]
+        normalizeLocalImagePath(path)?.takeIf { it == path }?.let { match.range to it }
+    }
+    var visible = raw
+    paths.asReversed().forEach { (range, _) -> visible = visible.removeRange(range) }
+    return LabeledImageExtraction(visible, paths.map { it.second })
 }
 
 private fun normalizeExplicitMediaPath(raw: String): String {
@@ -589,7 +608,7 @@ internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
  * comes back with the same output, exit code and duration the live tool.complete event carried.
  */
 fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): ChatMessage {
-    val parsed = parseMessageContent(content.orEmpty())
+    val parsed = parseMessageContent(content.orEmpty(), userHistory = role.equals("user", ignoreCase = true))
     // Compaction handoffs ride the user-role channel. Project them the way upstream projects a
     // transcript for display, keeping any real content merged into the carrier; a turn left with
     // nothing is dropped by [isRenderable].
