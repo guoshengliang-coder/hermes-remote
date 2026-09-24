@@ -382,6 +382,21 @@ The current automated suite covers:
   and surfaces retryable `HR-MIGRATE-014`, with the setting on or off; a port taken between that probe
   and the start gives the same answer with no bootstrap. `HR-MIGRATE-013` copy claims no restart.
 
+- the Desktop entry route and first-run onboarding (`DESKTOP_ONBOARDING_REQUIREMENTS.md` §4.1): every
+  row of the state table, `.checking` never rendering as the sign-in page, an unconfirmed account
+  showing retry instead of spinning, an expired-session reason reaching the page while an explicit
+  sign-out carries none, `.existingServiceNeedsAttention` and `.existingServicePreserved` both staying
+  out of onboarding, a running setup keeping onboarding on screen, and the §6.3 resume rules;
+- the new-Mac choice and its quota (§7): an account that already owns another Mac is asked first, a
+  shared Mac or this Mac's own previous binding does not trigger it, manage-only is remembered, and
+  "把这台 Mac 也连上" becomes unavailable only when the owned-Mac limit is reached;
+- the phone step (§6.4): a `phone` or `browser` installation that appears after the step began counts,
+  one that already existed does not, and a Web App sign-in is never labelled an iPhone;
+- removing an owned Mac through `DELETE /v2/devices/{id}`: request path, `connector.unbind` grant and
+  idempotency key, grant reuse after a lost response, fail-closed behaviour without multi-device, and
+  refusal of a shared or unknown device;
+- the onboarding record: stored per account, and an empty record leaves nothing behind.
+
 Remaining email-first release acceptance requires live-provider tests for resend/cooldown, expiry,
 account-existence-neutral delivery behavior, packaged-UI inspection proving that an `email_otp`-only
 Gateway exposes no Google action, and a packaged two-phone run proving the verification sheet and
@@ -443,6 +458,8 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Account deletion off | No Desktop danger-zone action appears and the route is not called | Core/API automated; packaged UI pending |
 | Permanent account deletion | Typed `DELETE`, acknowledgement, and fresh email code precede immediate Cloud logout; success and recovered ambiguous completion land on “deletion submitted”; the explicit other-email exit reaches an empty sign-in flow, while local Hermes remains intact | Core/API/PostgreSQL automated; disposable packaged-account and privacy review pending |
 | Android account-mode cutover | Android signs in by email, selects the intended owned/shared Mac, proves REST and WebSocket traffic, then Desktop migrates; protected Connector status matches the exact binding/generation before and after Desktop/Mac restart | Primary single-phone 0.1.113 path accepted 2026-09-10; migrated-Mac reboot plus post-reboot account REST/WebSocket accepted 2026-09-11; activation-interruption and multi-phone/shared-Mac matrices remain pending |
+| Sign-in gate with a live phone (HG-129) | **Manual.** On a Mac that is set up and serving a phone, invalidate only the Desktop session (sign out from another client, or revoke the session). The window shows the full-window sign-in page with the `HR-AUTH-*` banner; `launchctl print gui/$UID/com.hermesgo.connector` and `com.hermesgo.hermes-server` keep their PIDs and states, and the phone keeps answering for the whole gated period. Sign back in: the window returns to the section it was on. Sign out from Settings instead: no reason banner appears | The gate is a `RootView` presentation switch and the monitoring loop is untouched by it, but `HermesGoDesktopCoreTests` cannot assert either — the loop and the window live in the executable target. **Not run** |
+| First run on a clean Mac (HG-129) | **Manual, on a clean macOS user account or VM with no managed install** (the same host as the "Install Hermes on a clean Mac" row). Launch: the checking page, then a full-window sign-in page carrying the four-step hint. After the email code: no install and no other Mac → onboarding step 2; another owned Mac exists → the "把这台 Mac 也连上 / 只在这台 Mac 上管理" choice first. Step 3 shows the plan's rows and stops at the confirmation sheet; committing ends on the step 4 QR page. Android: scanning `https://mrlgs.net/` downloads the current versioned APK; after signing in with the same email the step ticks, and the overview's "还没有手机连接" card disappears. iPhone/iPad: scanning `https://mrlgs.net/app/` opens the Web App in Safari; added to the home screen and signed in, step 4 ticks as 网页版 Hermes GO, never as an iPhone. Quit during step 3 and relaunch: onboarding resumes at the step the Mac is really on, not from the beginning. At a 3-Mac limit the connect option reads "先移除一台 Mac" and removing one through the email code frees the slot | Router, quota, phone-completion rule, and the removal API are automated. The two QR codes, real phone sign-ins, and the interrupted-install resume are **not run** |
 
 The first real-app check verified that the ad-hoc app launches and remains running. The target Mac run
 then verified the installed DMG against a live legacy Connector without changing its PID, launch count,

@@ -169,6 +169,36 @@ with `HR-MIGRATE-008` and the blocking checkout is the one Hermes GO's own insta
 own Hermes the card instead carries secondary guidance to fix or remove that install, and offers no
 alternative.
 
+## Sign-in gate and first-run onboarding (2026-09-25)
+
+A full-window gate replaces the sidebar whenever the owner cannot use the app: launch-checking,
+launch-failed, sign-in, session-expired, Gateway-without-account-support, and account-deletion
+submitted. It keeps the shared tokens — cool canvas, one content column about 420 pt wide centred in
+the window, the canonical app icon at the top, one prominent action — and shows no sidebar and no
+alternative entry, because nothing it hides is usable before sign-in. Sign-in failures and the
+expired-session banner use the registered `HR-*` code with the same "code · explanation" shape as
+every other issue, and 「复制诊断」 sits in the window footer.
+
+First-run onboarding keeps that shell and adds a four-step indicator (登录 · 准备 Hermes · 连接这台 Mac
+· 连上手机) above the content, one screen per step, one prominent action below, and 「复制诊断」 in the
+footer with 「查看详情」 where detail exists. Step 3 shows one progress card with a linear bar and at
+most five rows the owner can read; internal plan step names stay behind 「查看详情」. Step 4 is the
+only step with a secondary 「稍后再说」 exit, because a Mac that is already set up can wait for a
+phone. Its 「Android ｜ iPhone / iPad」 segmented control switches wording and QR only; both QR codes
+are rendered locally from the account Gateway's origin (`/` and `/app/`) and are never generated
+placeholders.
+
+Disabled primary actions are a defined state — a muted surface with a secondary-coloured label — not
+the prominent blue at reduced opacity, which was unreadable in dark mode. The overview can carry a
+problem card (a half-installed or inconsistent Mac) and, in manage-only mode, a "本机（…）只用于管理"
+banner that names this Mac and the Mac it manages; a compatible, already-installed Mac gets neither.
+The menu bar mirrors the gate: signed out it offers 「登录 Hermes GO」, a signed-in Mac with nothing
+installed offers 「完成设置」, and manage-only mode replaces the Gateway/Hermes rows with the managed
+Mac's name, Connector and Hermes rows. Before setup the menu bar never reads as a failure: its
+headline counts the remaining steps (「还差 2 步完成设置」) and its single row says 「这台 Mac · 未连接」
+instead of two Gateway/Hermes rows that would look like two faults caused by not having signed in.
+The 17 screens of this flow are direction references in `docs/design/desktop-onboarding/`.
+
 ## Shared visual tokens
 
 - Brand primary: `#0B5FD0` in light mode; blue is chrome/action color only.
@@ -246,6 +276,8 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
 - [Phone pairing](design/desktop/pairing.png)
 - [Diagnostics and logs](design/desktop/diagnostics.png)
 - [Phase-0 SwiftUI implementation](design/desktop/implementation-phase0.png)
+- [Sign-in gate and first-run onboarding](design/desktop-onboarding/README.md) — 17 screens, rendered
+  from `docs/design/desktop-onboarding/onboarding.html`
 
 These are direction references, not pixel specifications. Generated placeholder QR codes are not
 functional, and generated approximations of the H mark must be replaced by the canonical app icon.

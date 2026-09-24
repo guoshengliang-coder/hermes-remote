@@ -93,6 +93,8 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var componentBootstrapOperation: DesktopComponentBootstrapOperation = .idle
     @Published private(set) var componentBootstrapPreparation: DesktopComponentBootstrapPreparation?
     @Published private(set) var componentBootstrapIssue: DesktopIssue?
+    /// Per-account onboarding facts (`DesktopOnboardingRecord`); reloaded when the account changes.
+    @Published private(set) var onboardingRecord = DesktopOnboardingRecord()
 
     private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
     private let prober = HTTPHealthProber()
@@ -119,10 +121,18 @@ final class DesktopViewModel: ObservableObject {
     /// With the setting off, launchd's running arguments are compared with the agent file once per
     /// launch, to finish a rollback that was interrupted between writing the file and restarting.
     private var hasCheckedRunningAgentWhileDisabled = false
+    private let onboardingStore: any DesktopOnboardingStoring
+    /// The account Gateway's origin; the phone step's QR targets are derived from it.
+    let accountGatewayURL: URL
 
-    init(profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore()) {
+    init(
+        profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore(),
+        onboardingStore: any DesktopOnboardingStoring = UserDefaultsDesktopOnboardingStore()
+    ) {
         self.profileStore = profileStore
+        self.onboardingStore = onboardingStore
         let configuration = DesktopAccountConfiguration.load()
+        accountGatewayURL = configuration.gatewayURL
         let bootstrapConfiguration = DesktopManagedBootstrapConfigurationState.load()
         let componentConfiguration = DesktopComponentPreflightConfigurationState.load()
         managedBootstrapConfiguration = bootstrapConfiguration
@@ -207,6 +217,13 @@ final class DesktopViewModel: ObservableObject {
         case .degraded: "主链路可用，但有一项能力需要确认"
         case .needsAttention: "连接链路中有一项关键检查未通过"
         }
+    }
+
+    /// §9: in manage-only mode the menu bar names the Mac it reports on, because this Mac's own
+    /// Gateway and Hermes rows no longer describe anything the owner cares about.
+    var menuBarStatusTitle: String {
+        guard isManageOnly, let device = selectedAccountDevice else { return statusTitle }
+        return "\(device.desktopDisplayName) · \(statusTitle)"
     }
 
     var overallLevel: HealthLevel {
@@ -606,6 +623,8 @@ final class DesktopViewModel: ObservableObject {
             accountIssue = nil
         }
         if previousAccountID != nextAccountID {
+            onboardingRecord = nextAccountID.map { onboardingStore.load(accountID: $0) }
+                ?? DesktopOnboardingRecord()
             bootstrapPlan = .checking
             if managedBootstrapPreparation == nil, !isManagedBootstrapBusy {
                 managedBootstrapOperation = .idle
@@ -646,6 +665,146 @@ final class DesktopViewModel: ObservableObject {
             )
         }
         return false
+    }
+
+    // MARK: Entry route and onboarding (docs/DESKTOP_ONBOARDING_REQUIREMENTS.md)
+
+    /// What the main window shows. Only presentation: the monitoring loop and every background
+    /// service keep running whatever this returns (§4.2).
+    var entryRoute: DesktopEntryRoute {
+        DesktopEntryRouter.route(DesktopEntryInputs(
+            accountState: accountState,
+            hasAccountIssue: accountIssue != nil,
+            readiness: bootstrapPlan.readiness,
+            setupInProgress: isManagedBootstrapAccountLocked,
+            hermesDecisionPending: isHermesInstallDecisionPending,
+            record: onboardingRecord
+        ))
+    }
+
+    var currentDashboard: AccountDashboard? {
+        if case .signedIn(let dashboard) = accountState { return dashboard }
+        return nil
+    }
+
+    /// Records the only two facts onboarding needs to remember: that this Mac entered it, and which
+    /// phones already existed at that moment. Called whenever the route changes.
+    func entryRouteDidChange(_ route: DesktopEntryRoute) {
+        guard case .onboarding(let step) = route,
+              step < .connectPhone,
+              let dashboard = currentDashboard,
+              !onboardingRecord.phoneStepPending
+        else { return }
+        var record = onboardingRecord
+        record.phoneStepPending = true
+        record.phoneBaseline = DesktopRemoteClients.baseline(dashboard.installations)
+        saveOnboardingRecord(record)
+    }
+
+    /// Phones and Web App sign-ins that appeared after this Mac entered onboarding.
+    var newlyConnectedClients: [ManagedAccountInstallation] {
+        guard let dashboard = currentDashboard else { return [] }
+        return DesktopRemoteClients.newlyConnected(
+            dashboard.installations,
+            baseline: onboardingRecord.phoneBaseline ?? []
+        )
+    }
+
+    /// Step 4 finished — a phone signed in, or the owner chose "稍后再说".
+    func finishPhoneStep() {
+        var record = onboardingRecord
+        record.phoneStepPending = false
+        record.phoneBaseline = nil
+        saveOnboardingRecord(record)
+    }
+
+    func chooseNewMacUse(_ choice: DesktopNewMacChoice) async {
+        var record = onboardingRecord
+        record.newMacChoice = choice
+        saveOnboardingRecord(record)
+        guard choice == .manageOnly, let dashboard = currentDashboard,
+              dashboard.selectedDevice == nil
+        else { return }
+        let others = DesktopEntryRouter.otherOwnedDevices(dashboard)
+        if let target = others.first(where: \.isDefault) ?? others.first {
+            await selectDevice(target.deviceId)
+        }
+    }
+
+    var isManageOnly: Bool {
+        onboardingRecord.newMacChoice == .manageOnly
+            && bootstrapPlan.readiness != .managedInstallActive
+            && bootstrapPlan.readiness != .managedUpgradeAvailable
+    }
+
+    /// Starts step 3 on whichever installer path Gateway selected; both stop at their own
+    /// confirmation sheet before changing the machine.
+    func startSetup() async {
+        if isComponentBootstrapPathSelected {
+            await prepareComponentBootstrap()
+        } else {
+            await prepareManagedBootstrap()
+        }
+    }
+
+    /// Which Hermes step 3 will run, for the step 2 confirmation screen. Read-only detection.
+    enum OnboardingHermesSource: Equatable {
+        case local(DesktopLocalHermesInstallation)
+        case bundled
+        case unknown
+    }
+
+    func onboardingHermesSource() async -> OnboardingHermesSource {
+        guard DesktopLocalHermesRuntimeSetting.isEnabled() else { return .bundled }
+        guard let detector = localHermesDetector else { return .unknown }
+        let detection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
+        return detection.installation.map { .local($0) } ?? .unknown
+    }
+
+    func phoneTargetURL(_ platform: DesktopPhonePlatform) -> URL? {
+        platform.targetURL(gatewayURL: accountGatewayURL)
+    }
+
+    func requestDeviceRemovalVerification(
+        deviceID: String
+    ) async -> DesktopEmailVerificationChallenge? {
+        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return nil }
+        isAccountOperationInProgress = true
+        accountIssue = nil
+        defer { isAccountOperationInProgress = false }
+        do {
+            return try await accountController.requestDeviceRemovalVerification(deviceID: deviceID)
+        } catch let error as AccountClientError {
+            accountIssue = DesktopIssue.account(error)
+        } catch {
+            accountIssue = DesktopIssue(
+                code: .accountServiceUnavailable,
+                technicalCause: String(describing: error)
+            )
+        }
+        return nil
+    }
+
+    @discardableResult
+    func removeOwnedDevice(
+        _ deviceID: String,
+        verification: DesktopEmailVerificationChallenge,
+        verificationCode: String
+    ) async -> Bool {
+        await performAccountOperation {
+            try await self.accountController.removeOwnedDevice(
+                deviceID: deviceID,
+                verification: verification,
+                verificationCode: verificationCode
+            )
+        }
+    }
+
+    private func saveOnboardingRecord(_ record: DesktopOnboardingRecord) {
+        onboardingRecord = record
+        if let dashboard = currentDashboard {
+            onboardingStore.save(record, accountID: dashboard.session.account.id)
+        }
     }
 
     func refresh() async {

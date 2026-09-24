@@ -188,7 +188,96 @@ public actor DesktopAccountController {
     ) async throws -> DesktopAccountState {
         guard let record = sessionRecord else { return .signedOut }
         try requirePhoneRevocation(id: id)
-        let operation = "account.installation.revoke:\(id.lowercased())"
+        let completed = try await commitVerifiedMutation(
+            record: record,
+            operation: "account.installation.revoke:\(id.lowercased())",
+            scope: "account.installation.revoke",
+            verification: verification,
+            verificationCode: verificationCode
+        ) { grant, accessToken, idempotencyKey in
+            try await self.api.revokePhone(
+                id: id,
+                grant: grant,
+                accessToken: accessToken,
+                idempotencyKey: idempotencyKey
+            )
+        }
+        return try await loadDashboard(record: completed)
+    }
+
+    /// Verification for removing one of the account's own Macs other than this one (§7.3 of
+    /// `DESKTOP_ONBOARDING_REQUIREMENTS.md`). The code goes to the signed-in account email.
+    public func requestDeviceRemovalVerification(
+        deviceID: String
+    ) async throws -> DesktopEmailVerificationChallenge {
+        guard let record = sessionRecord else {
+            throw accountOperationError(
+                code: "HR-AUTH-003",
+                message: "Session expired.",
+                recoveryAction: "sign_in"
+            )
+        }
+        try requireDeviceRemoval(deviceID: deviceID)
+        let current = try await refreshIfNeeded(record)
+        guard let accountEmail = current.account.email else {
+            throw accountOperationError(
+                code: "HR-AUTH-006",
+                message: "Email verification is required.",
+                recoveryAction: "reauthenticate"
+            )
+        }
+        let email = try normalizedEmail(accountEmail)
+        let challenge = try await api.requestEmailReauthenticationChallenge(
+            email: email,
+            accessToken: current.session.accessToken
+        )
+        sessionRecord = current
+        return DesktopEmailVerificationChallenge(
+            challenge: challenge,
+            email: email,
+            idempotencyKey: UUID().uuidString.lowercased()
+        )
+    }
+
+    /// Unbinds another owned Mac. Its Hermes data is untouched; its Connector loses access.
+    public func removeOwnedDevice(
+        deviceID: String,
+        verification: DesktopEmailVerificationChallenge,
+        verificationCode: String
+    ) async throws -> DesktopAccountState {
+        guard let record = sessionRecord else { return .signedOut }
+        try requireDeviceRemoval(deviceID: deviceID)
+        let completed = try await commitVerifiedMutation(
+            record: record,
+            operation: "device.unbind:\(deviceID)",
+            scope: "connector.unbind",
+            verification: verification,
+            verificationCode: verificationCode
+        ) { grant, accessToken, idempotencyKey in
+            try await self.api.unbindDevice(
+                id: deviceID,
+                grant: grant,
+                accessToken: accessToken,
+                idempotencyKey: idempotencyKey
+            )
+        }
+        if deviceSelectionStore.load(accountID: completed.account.id) == deviceID {
+            deviceSelectionStore.save(nil, accountID: completed.account.id)
+        }
+        return try await loadDashboard(record: completed)
+    }
+
+    /// Exchanges an email code for a scoped reauthentication grant and commits one mutation with it.
+    /// The grant and both idempotency keys are kept in the session record until a definitive answer,
+    /// so a lost response is retried with the same grant and key instead of asking for a new code.
+    private func commitVerifiedMutation(
+        record: AccountSessionRecord,
+        operation: String,
+        scope: String,
+        verification: DesktopEmailVerificationChallenge,
+        verificationCode: String,
+        mutation: (_ grant: String, _ accessToken: String, _ idempotencyKey: String) async throws -> Void
+    ) async throws -> AccountSessionRecord {
         var current = try await refreshIfNeeded(record)
         var operationKeys = current.pendingOperationIdempotencyKeys ?? [:]
         var grants = current.pendingReauthenticationGrants ?? [:]
@@ -227,11 +316,11 @@ public actor DesktopAccountController {
                 challengeID: verification.challenge.challengeId,
                 email: verification.email,
                 code: verificationCode.trimmingCharacters(in: .whitespacesAndNewlines),
-                scope: "account.installation.revoke",
+                scope: scope,
                 accessToken: current.session.accessToken,
                 idempotencyKey: reauthenticationKey
             )
-            guard response.scope == "account.installation.revoke" else {
+            guard response.scope == scope else {
                 throw AccountClientError.invalidResponse
             }
             grant = response.grant
@@ -257,13 +346,11 @@ public actor DesktopAccountController {
         try sessionStore.save(current)
         sessionRecord = current
         do {
-            try await api.revokePhone(
-                id: id,
-                grant: grant,
-                accessToken: current.session.accessToken,
-                idempotencyKey: mutationKey
-            )
-        } catch AccountClientError.remote(let remote) where remote.code == "HR-AUTH-006" {
+            try await mutation(grant, current.session.accessToken, mutationKey)
+        } catch AccountClientError.remote(let remote)
+            where remote.code == "HR-AUTH-006" || remote.code == "HR-BIND-011" {
+            // Definitive answers: a stale grant, or a target that no longer exists. Keeping the
+            // grant would only replay the same refusal.
             grants.removeValue(forKey: operation)
             operationKeys.removeValue(forKey: mutationOperation)
             let cleared = replacing(
@@ -284,7 +371,7 @@ public actor DesktopAccountController {
         )
         try sessionStore.save(completed)
         sessionRecord = completed
-        return try await loadDashboard(record: completed)
+        return completed
     }
 
     public func selectDevice(id: String) throws -> DesktopAccountState {
@@ -1171,6 +1258,28 @@ public actor DesktopAccountController {
                 code: "HR-ACCOUNT-006",
                 message: "Phone installation was not found.",
                 recoveryAction: "refresh"
+            )
+        }
+    }
+
+    private func requireDeviceRemoval(deviceID: String) throws {
+        guard capabilitiesSnapshot?.binding.supportsDeviceSelection == true,
+              capabilitiesSnapshot?.accountAuth.providers.contains("email_otp") == true
+        else {
+            throw accountOperationError(
+                code: "HR-ACCOUNT-003",
+                message: "Device removal is disabled.",
+                recoveryAction: "none"
+            )
+        }
+        guard let dashboard = dashboardSnapshot,
+              deviceID != dashboard.localDeviceID,
+              dashboard.ownedDevices.contains(where: { $0.deviceId == deviceID })
+        else {
+            throw accountOperationError(
+                code: "HR-BIND-011",
+                message: "Device is unavailable.",
+                recoveryAction: "select_device"
             )
         }
     }

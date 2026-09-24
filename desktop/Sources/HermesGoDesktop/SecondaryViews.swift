@@ -55,6 +55,7 @@ struct AccountDevicesView: View {
     @State private var invitationAcknowledged = false
     @State private var grantToRevoke: DeviceAccessGrant?
     @State private var sharedDeviceToLeave: AccountDevice?
+    @State private var macToRemove: AccountDevice?
     @State private var isBundledHermesChoicePresented = false
     @State private var isAccountDeletionPresented = false
     @State private var accountDeletionConfirmation = ""
@@ -121,35 +122,11 @@ struct AccountDevicesView: View {
         .sheet(item: $shareDevice) { device in
             shareInvitationSheet(device)
         }
+        .sheet(item: $macToRemove) { device in
+            RemoveMacSheet(device: device)
+        }
         .sheet(isPresented: $isAccountDeletionPresented, onDismiss: resetAccountDeletion) {
             accountDeletionSheet
-        }
-        .sheet(item: Binding(
-            get: { model.managedBootstrapPreparation },
-            set: { value in
-                if value == nil, model.managedBootstrapOperation == .awaitingConfirmation {
-                    Task { await model.cancelManagedBootstrapConfirmation() }
-                }
-            }
-        )) { preparation in
-            managedBootstrapConfirmationSheet(preparation)
-        }
-        .sheet(item: Binding(
-            get: {
-                switch model.componentBootstrapOperation {
-                case .awaitingConfirmation, .committing:
-                    model.componentBootstrapPreparation
-                default:
-                    nil
-                }
-            },
-            set: { value in
-                if value == nil, model.componentBootstrapOperation == .awaitingConfirmation {
-                    Task { await model.cancelComponentBootstrapConfirmation() }
-                }
-            }
-        )) { preparation in
-            componentBootstrapConfirmationSheet(preparation)
         }
         .confirmationDialog(
             "撤销整台设备的共享权限？",
@@ -207,7 +184,11 @@ struct AccountDevicesView: View {
                 detail: "现有 Connector 和手机连接保持原样；可继续使用下方旧版连接。"
             )
         case .signedOut, .needsSignIn:
-            signedOutCard
+            // Unreachable behind the sign-in gate; kept so the page never renders empty.
+            SignInForm()
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .hermesCard()
         case .accountDeletionSubmitted:
             accountDeletionSubmittedCard
         case .signingIn:
@@ -219,87 +200,6 @@ struct AccountDevicesView: View {
         case .signedIn(let dashboard):
             signedInContent(dashboard)
         }
-    }
-
-    private var signedOutCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            AppLogoView(size: 52)
-            Text("使用 Hermes GO 账号连接")
-                .font(.system(size: 22, weight: .bold))
-            Text("输入邮箱后，我们会发送一封包含六位验证码的邮件。首次验证会自动创建账号，以后使用同一邮箱即可登录。")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 9) {
-                accountBenefit("同账号的多台手机可连接同一个 Hermes", symbol: "iphone.gen3")
-                accountBenefit("本机 Hermes 凭据不会上传", symbol: "lock.shield")
-                accountBenefit("本阶段不会停止或替换旧 Connector", symbol: "arrow.triangle.2.circlepath")
-            }
-            if let challenge = accountEmailChallenge {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("验证码已发送至 \(challenge.email)")
-                        .font(.system(size: 12, weight: .semibold))
-                    TextField("六位验证码", text: $accountCode)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 360)
-                    HStack {
-                        Button("更换邮箱") {
-                            accountEmailChallenge = nil
-                            accountCode = ""
-                        }
-                        .buttonStyle(.bordered)
-                        Button("重新发送") {
-                            Task {
-                                if let next = await model.requestEmailSignInCode(email: challenge.email) {
-                                    accountEmailChallenge = next
-                                    accountCode = ""
-                                }
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        Button("验证并登录") {
-                            Task {
-                                if await model.completeEmailSignIn(
-                                    challenge: challenge,
-                                    code: accountCode
-                                ) {
-                                    accountEmail = ""
-                                    accountCode = ""
-                                    accountEmailChallenge = nil
-                                }
-                            }
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(!isSixDigitCode(accountCode) || model.isAccountOperationInProgress)
-                    }
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    TextField("name@example.com", text: $accountEmail)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 360)
-                    Button("发送登录验证码") {
-                        Task {
-                            if let challenge = await model.requestEmailSignInCode(email: accountEmail) {
-                                accountEmailChallenge = challenge
-                                accountEmail = challenge.email
-                            }
-                        }
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(
-                        accountEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || model.isAccountOperationInProgress
-                    )
-                }
-            }
-            Text("验证码仅用于本次登录，请勿转发。Hermes GO 不会通过邮件索要你的密码。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .hermesCard()
     }
 
     private var accountDeletionSubmittedCard: some View {
@@ -481,102 +381,6 @@ struct AccountDevicesView: View {
         }
     }
 
-    private func managedBootstrapConfirmationSheet(
-        _ preparation: DesktopManagedBootstrapPreparation
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Label("安装包签名已验证", systemImage: "checkmark.shield.fill")
-                .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(Color.hermesBlue)
-            Text("Hermes Go \(preparation.releaseVersion)")
-                .font(.system(size: 15, weight: .semibold))
-            Text(preparation.intent.isUpgrade
-                ? "继续后会保留当前账号、设备绑定和本机数据，更新两个用户级自动启动项，并短暂重启 Hermes Server 与 Connector。新版本未通过健康检查时会自动恢复旧版本。"
-                : "继续后会安装受管 Hermes Server 与 Connector、写入两个用户级自动启动项、绑定当前账号，并短暂重启这两个服务。模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(preparation.confirmationText)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
-
-            if model.managedBootstrapOperation == .committing {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("正在执行并验证，失败时会在提交前自动恢复。")
-                        .font(.system(size: 12))
-                }
-            } else {
-                HStack {
-                    Button("取消") {
-                        Task { await model.cancelManagedBootstrapConfirmation() }
-                    }
-                    .keyboardShortcut(.cancelAction)
-                    Spacer()
-                    Button(preparation.intent.isUpgrade ? "升级并重连" : "安装并连接") {
-                        Task { await model.confirmManagedBootstrap() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                }
-            }
-        }
-        .padding(26)
-        .frame(width: 540)
-        .interactiveDismissDisabled(model.managedBootstrapOperation == .committing)
-    }
-
-    private func componentBootstrapConfirmationSheet(
-        _ preparation: DesktopComponentBootstrapPreparation
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Label("组件签名与内容已验证", systemImage: "checkmark.shield.fill")
-                .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(Color.hermesBlue)
-            Text("Hermes Go \(preparation.releaseVersion)")
-                .font(.system(size: 15, weight: .semibold))
-            Text(preparation.intent.isUpgrade
-                ? "继续后会保留当前账号、设备绑定和本机数据，提交已验证的基础组件，并短暂重启 Hermes Server 与 Connector。新版本未通过健康检查时会自动恢复旧版本。不会修改 Homebrew。"
-                : "继续后会把已验证的基础组件提交到受管目录，写入两个用户级自动启动项、绑定当前账号，并短暂启动或切换 Hermes Server 与 Connector。不会修改 Homebrew；模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(preparation.confirmationText)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
-
-            if model.componentBootstrapOperation == .committing {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("正在提交并验证，失败时会按迁移日志自动恢复。")
-                        .font(.system(size: 12))
-                }
-            } else {
-                HStack {
-                    Button("取消") {
-                        Task { await model.cancelComponentBootstrapConfirmation() }
-                    }
-                    .keyboardShortcut(.cancelAction)
-                    Spacer()
-                    Button(preparation.intent.isUpgrade ? "升级并重连" : "安装并连接") {
-                        Task { await model.confirmComponentBootstrap() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                }
-            }
-        }
-        .padding(26)
-        .frame(width: 540)
-        .interactiveDismissDisabled(model.componentBootstrapOperation == .committing)
-    }
-
     /// Shown with `HR-MIGRATE-008` on a fresh setup only when the blocking checkout is the one
     /// Hermes GO's own install left behind — never for a Hermes the owner installed.
     private var bundledHermesChoiceCard: some View {
@@ -725,6 +529,13 @@ struct AccountDevicesView: View {
                         .disabled(model.isAccountOperationInProgress)
                     } else if device.access == "operator" {
                         Button("退出共享", role: .destructive) { sharedDeviceToLeave = device }
+                            .buttonStyle(.borderless)
+                            .disabled(model.isAccountOperationInProgress)
+                    }
+                    if device.access == "owner",
+                       device.deviceId != dashboard.localDeviceID,
+                       dashboard.maxOwnedDevices > 1 {
+                        Button("移除", role: .destructive) { macToRemove = device }
                             .buttonStyle(.borderless)
                             .disabled(model.isAccountOperationInProgress)
                     }

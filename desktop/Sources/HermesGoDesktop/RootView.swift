@@ -31,8 +31,41 @@ enum DesktopSection: String, CaseIterable, Identifiable {
 }
 
 struct RootView: View {
+    @EnvironmentObject private var model: DesktopViewModel
+
+    var body: some View {
+        Group {
+            switch model.entryRoute {
+            case .launching:
+                LaunchGateView()
+            case .launchFailed:
+                LaunchFailedGateView()
+            case .signIn(let expiredReason):
+                SignInGateView(expiredReason: expiredReason)
+            case .serviceUnavailable:
+                ServiceUnavailableGateView()
+            case .accountDeletionSubmitted:
+                AccountDeletionSubmittedGateView()
+            case .newMacChoice:
+                NewMacChoiceGateView()
+            case .onboarding(let step):
+                OnboardingGateView(step: step)
+            case .main:
+                MainShellView()
+            }
+        }
+        .modifier(SetupConfirmationSheets())
+        .onChange(of: model.entryRoute, initial: true) { _, route in
+            model.entryRouteDidChange(route)
+        }
+    }
+}
+
+/// The signed-in, set-up app: sidebar plus sections. The section survives a re-sign-in, so an
+/// unexpected expiry returns to where the owner was (§4.3).
+private struct MainShellView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @State private var selection: DesktopSection = .overview
+    @SceneStorage("desktop.selectedSection") private var selection: DesktopSection = .overview
 
     var body: some View {
         HStack(spacing: 0) {

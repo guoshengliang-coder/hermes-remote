@@ -5,6 +5,7 @@ struct OverviewView: View {
     @EnvironmentObject private var model: DesktopViewModel
     @Environment(\.colorScheme) private var colorScheme
     @Binding var selection: DesktopSection
+    @State private var isPhoneSheetPresented = false
 
     private var topology: [HealthComponent] {
         let visible = Set(model.presentedHealth.components.map(\.component))
@@ -28,13 +29,21 @@ struct OverviewView: View {
                 PageHeader(title: model.statusTitle, subtitle: model.statusDetail) {
                     HStack(spacing: 10) {
                         Button("运行诊断") { selection = .diagnostics }
-                            .buttonStyle(PrimaryButtonStyle())
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
                         Button("账号与设备") { selection = .pairing }
                             .buttonStyle(.bordered)
                             .controlSize(.large)
                     }
                 }
 
+                if showsSetupProblem {
+                    setupProblemCard
+                } else if model.isManageOnly {
+                    manageOnlyBanner
+                } else if showsNoPhoneHint {
+                    noPhoneBanner
+                }
                 compatibilityBanner
                 topologyCard
 
@@ -50,6 +59,106 @@ struct OverviewView: View {
             .padding(34)
         }
         .refreshable { await model.refresh() }
+    }
+
+    /// §8: a half-installed or inconsistent Mac stays on main, so the reason belongs at the top of
+    /// the overview instead of behind the sidebar. `existingServicePreserved` is deliberately not
+    /// this case — that is a working connection, not a problem.
+    private var showsSetupProblem: Bool {
+        model.bootstrapPlan.readiness == .existingServiceNeedsAttention
+    }
+
+    private var setupProblemCard: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.bootstrapPlan.titleChinese)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(model.bootstrapPlan.detailChinese)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            VStack(alignment: .trailing, spacing: 6) {
+                Button("查看详情") { selection = .pairing }
+                    .buttonStyle(.bordered)
+                CopyDiagnosticsButton(
+                    issue: model.managedBootstrapIssue ?? model.componentBootstrapIssue
+                )
+            }
+        }
+        .padding(14)
+        .background(Color.orange.opacity(colorScheme == .dark ? 0.16 : 0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// Chosen "只在这台 Mac 上管理" (§7.1): the way back into onboarding stays one click away.
+    private var manageOnlyBanner: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "laptopcomputer")
+                .font(.system(size: 20))
+                .foregroundStyle(Color.hermesBlue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("这台 Mac 只用于管理")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("本机没有安装后台服务。想让手机也能使用这台 Mac 上的 Hermes，可以把它连上。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("把这台 Mac 也连上") { Task { await model.chooseNewMacUse(.connect) } }
+                .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .background(Color.hermesBlue.opacity(colorScheme == .dark ? 0.16 : 0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// After "稍后再说" in onboarding step 4, the reminder lives here rather than in a second prompt.
+    private var showsNoPhoneHint: Bool {
+        guard let dashboard = model.currentDashboard,
+              model.bootstrapPlan.readiness == .managedInstallActive
+                || model.bootstrapPlan.readiness == .managedUpgradeAvailable
+        else { return false }
+        return DesktopRemoteClients.active(dashboard.installations).isEmpty
+    }
+
+    private var noPhoneBanner: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "iphone")
+                .font(.system(size: 20))
+                .foregroundStyle(Color.hermesBlue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("还没有手机连接")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("在 Android 手机上安装 App，或在 iPhone / iPad 上把网页版添加到主屏幕，用同一个邮箱登录。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("连上手机") { isPhoneSheetPresented = true }
+                .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .background(Color.hermesBlue.opacity(colorScheme == .dark ? 0.16 : 0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .sheet(isPresented: $isPhoneSheetPresented) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("连上手机")
+                    .font(.system(size: 22, weight: .bold))
+                PhoneConnectPanel(showsHeader: false)
+                HStack {
+                    Spacer()
+                    Button("完成") { isPhoneSheetPresented = false }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(26)
+            .frame(width: 860)
+        }
     }
 
     private var accountSummary: String {

@@ -241,6 +241,104 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertNil(try sessions.load()?.pendingOperationIdempotencyKeys)
     }
 
+    func testOwnedMacRemovalUsesConnectorUnbindGrantAndReusesItAfterLostResponse() async throws {
+        let fixtures = AccountFixtures()
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let selections = MemoryDeviceSelectionStore(value: fixtures.deviceA.deviceId)
+        let api = RecordingAccountAPI(
+            fixtures: fixtures,
+            multiDeviceEnabled: true,
+            deviceUnbindFailuresRemaining: 1
+        )
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            deviceSelectionStore: selections,
+            oauth: nil,
+            displayName: "Mac mini",
+            appVersion: "0.4.0"
+        )
+
+        _ = try await controller.bootstrap()
+        let verification = try await controller.requestDeviceRemovalVerification(
+            deviceID: fixtures.deviceA.deviceId
+        )
+        await XCTAssertThrowsErrorAsync(
+            try await controller.removeOwnedDevice(
+                deviceID: fixtures.deviceA.deviceId,
+                verification: verification,
+                verificationCode: "123456"
+            )
+        ) { error in
+            XCTAssertEqual(error as? AccountClientError, .transport)
+        }
+        XCTAssertEqual(try sessions.load()?.pendingReauthenticationGrants?.count, 1)
+
+        let state = try await controller.removeOwnedDevice(
+            deviceID: fixtures.deviceA.deviceId,
+            verification: verification,
+            verificationCode: "123456"
+        )
+        let reauthentications = await api.emailReauthenticationAttempts()
+        let unbinds = await api.deviceUnbindAttempts()
+
+        XCTAssertEqual(reauthentications.map(\.scope), ["connector.unbind"])
+        XCTAssertEqual(unbinds.map(\.id), [fixtures.deviceA.deviceId, fixtures.deviceA.deviceId])
+        XCTAssertEqual(unbinds.map(\.grant), [unbinds[0].grant, unbinds[0].grant])
+        XCTAssertEqual(unbinds.map(\.idempotencyKey), [unbinds[0].idempotencyKey, unbinds[0].idempotencyKey])
+        XCTAssertNil(try sessions.load()?.pendingReauthenticationGrants)
+        XCTAssertNil(try sessions.load()?.pendingOperationIdempotencyKeys)
+        XCTAssertNotEqual(selections.value, fixtures.deviceA.deviceId, "A removed Mac must not stay the selected device")
+        guard case .signedIn(let dashboard) = state else { return XCTFail("Expected signed in") }
+        XCTAssertEqual(dashboard.ownedDevices.map(\.deviceId), [fixtures.deviceB.deviceId])
+    }
+
+    func testOwnedMacRemovalFailsClosedWithoutMultiDeviceGateway() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures, multiDeviceEnabled: false)
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: nil,
+            displayName: "Mac mini",
+            appVersion: "0.4.0"
+        )
+
+        _ = try await controller.bootstrap()
+        await XCTAssertThrowsErrorAsync(
+            try await controller.requestDeviceRemovalVerification(deviceID: fixtures.deviceA.deviceId)
+        ) { error in
+            guard case .remote(let remote) = error as? AccountClientError else { return XCTFail("\(error)") }
+            XCTAssertEqual(remote.code, "HR-ACCOUNT-003")
+        }
+        let reauthentications = await api.emailReauthenticationAttempts()
+        XCTAssertTrue(reauthentications.isEmpty)
+    }
+
+    func testOwnedMacRemovalRejectsSharedAndUnknownDevices() async throws {
+        let fixtures = AccountFixtures()
+        let controller = DesktopAccountController(
+            api: RecordingAccountAPI(fixtures: fixtures, multiDeviceEnabled: true, sharingEnabled: true),
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: nil,
+            displayName: "Mac mini",
+            appVersion: "0.4.0"
+        )
+
+        _ = try await controller.bootstrap()
+        for deviceID in [fixtures.sharedDevice.deviceId, "hermes-unknown"] {
+            await XCTAssertThrowsErrorAsync(
+                try await controller.requestDeviceRemovalVerification(deviceID: deviceID)
+            ) { error in
+                guard case .remote(let remote) = error as? AccountClientError else { return XCTFail("\(error)") }
+                XCTAssertEqual(remote.code, "HR-BIND-011")
+            }
+        }
+    }
+
     func testPhoneRevocationFailsClosedWhenIdentityManagementIsNotAdvertised() async throws {
         let fixtures = AccountFixtures()
         let controller = DesktopAccountController(
@@ -1254,6 +1352,9 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
     private var revoked: String?
     private var phoneRevocationHistory: [PhoneRevocationInput] = []
     private var phoneRevocationFailuresRemaining: Int
+    private var deviceUnbindHistory: [PhoneRevocationInput] = []
+    private var deviceUnbindFailuresRemaining: Int
+    private var unboundDeviceIDs: Set<String> = []
     private var signedOut = false
     private var accountDeletionHistory: [AccountDeletionInput] = []
     private var accountDeletionFailuresRemaining: Int
@@ -1285,6 +1386,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         accountDeletionEnabled: Bool = false,
         accountDeletionFailuresRemaining: Int = 0,
         phoneRevocationFailuresRemaining: Int = 0,
+        deviceUnbindFailuresRemaining: Int = 0,
         shareCreateFailuresRemaining: Int = 0,
         emailReauthenticationFailuresRemaining: Int = 0,
         defaultSelectionFailuresRemaining: Int = 0,
@@ -1302,6 +1404,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         self.accountDeletionEnabled = accountDeletionEnabled
         self.accountDeletionFailuresRemaining = accountDeletionFailuresRemaining
         self.phoneRevocationFailuresRemaining = phoneRevocationFailuresRemaining
+        self.deviceUnbindFailuresRemaining = deviceUnbindFailuresRemaining
         self.shareCreateFailuresRemaining = shareCreateFailuresRemaining
         self.emailReauthenticationFailuresRemaining = emailReauthenticationFailuresRemaining
         self.defaultSelectionFailuresRemaining = defaultSelectionFailuresRemaining
@@ -1404,7 +1507,8 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
     }
     func devices(accessToken: String) async throws -> AccountDevicePage {
         AccountDevicePage(
-            items: [fixtures.deviceA, fixtures.deviceB] + (sharingEnabled ? [fixtures.sharedDevice] : []),
+            items: ([fixtures.deviceA, fixtures.deviceB] + (sharingEnabled ? [fixtures.sharedDevice] : []))
+                .filter { !unboundDeviceIDs.contains($0.deviceId) },
             maxOwnedDevices: 3
         )
     }
@@ -1650,6 +1754,20 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
             throw AccountClientError.transport
         }
     }
+    func unbindDevice(
+        id: String,
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws {
+        deviceUnbindHistory.append(.init(id: id, grant: grant, idempotencyKey: idempotencyKey))
+        if deviceUnbindFailuresRemaining > 0 {
+            deviceUnbindFailuresRemaining -= 1
+            throw AccountClientError.transport
+        }
+        unboundDeviceIDs.insert(id)
+    }
+    func deviceUnbindAttempts() -> [PhoneRevocationInput] { deviceUnbindHistory }
     func signOut(accessToken: String, idempotencyKey: String) async throws { signedOut = true }
 
     func exchangeInput() -> ExchangeInput? { exchanged }

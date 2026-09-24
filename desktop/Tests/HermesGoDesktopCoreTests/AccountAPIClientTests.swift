@@ -259,6 +259,83 @@ final class AccountAPIClientTests: XCTestCase {
         XCTAssertEqual(json["grant"], grant)
     }
 
+    func testDeviceUnbindSendsConnectorUnbindGrantToTheDeviceDeleteRoute() async throws {
+        let requestBox = LockedRequestBox()
+        StubURLProtocol.handler = { request in
+            requestBox.set(request, body: request.capturedBody())
+            return (204, ["Content-Type": "application/json"], Data())
+        }
+        let client = AccountAPIClient(
+            gatewayURL: URL(string: "https://relay.example")!,
+            session: makeStubSession()
+        )
+        let idempotencyKey = "70000000-0000-4000-8000-00000000000A"
+        let grant = "hgg_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
+
+        try await client.unbindDevice(
+            id: "hermes-office",
+            grant: grant,
+            accessToken: "hga_secret",
+            idempotencyKey: idempotencyKey
+        )
+
+        let captured = try XCTUnwrap(requestBox.value())
+        let body = try XCTUnwrap(captured.1)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(captured.0.url?.path, "/v2/devices/hermes-office")
+        XCTAssertEqual(captured.0.httpMethod, "DELETE")
+        XCTAssertEqual(captured.0.value(forHTTPHeaderField: "Authorization"), "Bearer hga_secret")
+        XCTAssertEqual(captured.0.value(forHTTPHeaderField: "Idempotency-Key"), idempotencyKey.lowercased())
+        XCTAssertEqual(json, ["grant": grant])
+    }
+
+    func testDeviceUnbindRejectsUnsafeIdentifiersBeforeSending() async throws {
+        StubURLProtocol.handler = { _ in
+            XCTFail("An invalid unbind must not reach the network")
+            return (204, [:], Data())
+        }
+        let client = AccountAPIClient(
+            gatewayURL: URL(string: "https://relay.example")!,
+            session: makeStubSession()
+        )
+        for (id, grant, key) in [
+            ("../installations/x", "grant", "70000000-0000-4000-8000-00000000000A"),
+            ("hermes-office", "", "70000000-0000-4000-8000-00000000000A"),
+            ("hermes-office", "grant", "not-a-uuid"),
+        ] {
+            do {
+                try await client.unbindDevice(id: id, grant: grant, accessToken: "hga_secret", idempotencyKey: key)
+                XCTFail("Expected \(id) / \(key) to be rejected")
+            } catch {
+                XCTAssertEqual(error as? AccountClientError, .invalidResponse)
+            }
+        }
+    }
+
+    func testConnectorUnbindIsAnAcceptedEmailReauthenticationScope() async throws {
+        let requestBox = LockedRequestBox()
+        StubURLProtocol.handler = { request in
+            requestBox.set(request, body: request.capturedBody())
+            return (200, ["Content-Type": "application/json"], Data(#"{"grant":"hgg_x","scope":"connector.unbind","expiresAt":"2099-09-07T00:05:00Z"}"#.utf8))
+        }
+        let client = AccountAPIClient(
+            gatewayURL: URL(string: "https://relay.example")!,
+            session: makeStubSession()
+        )
+        let grant = try await client.reauthenticateEmail(
+            challengeID: "30000000-0000-4000-8000-000000000001",
+            email: "owner@example.invalid",
+            code: "123456",
+            scope: "connector.unbind",
+            accessToken: "hga_secret",
+            idempotencyKey: "70000000-0000-4000-8000-00000000000B"
+        )
+        let body = try XCTUnwrap(requestBox.value()?.1)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(json["scope"], "connector.unbind")
+        XCTAssertEqual(grant.scope, "connector.unbind")
+    }
+
     func testWholeDeviceSharingUsesEmailReauthenticationAndExplicitDisclosure() async throws {
         let requests = LockedRequestsBox()
         let token = "hsi_" + String(repeating: "a", count: 43)

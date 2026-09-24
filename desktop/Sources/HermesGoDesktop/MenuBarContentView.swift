@@ -14,8 +14,8 @@ struct MenuBarContentView: View {
                     Text("Hermes Go Desktop")
                         .font(.system(size: 14, weight: .bold))
                     HStack(spacing: 6) {
-                        StatusDot(level: model.overallLevel, size: 8)
-                        Text(model.statusTitle)
+                        StatusDot(level: headline.level, size: 8)
+                        Text(headline.title)
                             .font(.system(size: 12))
                     }
                 }
@@ -25,14 +25,15 @@ struct MenuBarContentView: View {
             Divider()
 
             accountStatusRow
-            statusRow(.gateway)
-            statusRow(.hermes)
+            statusRows
+            if let gateAction {
+                gateActionRow(gateAction)
+            }
 
             Divider()
 
             Button {
-                openWindow(id: "main")
-                NSApplication.shared.activate(ignoringOtherApps: true)
+                openMainWindow()
             } label: {
                 Label("打开主窗口", systemImage: "macwindow")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,6 +86,113 @@ struct MenuBarContentView: View {
         .font(.system(size: 12))
         .padding(.horizontal, 14)
         .frame(height: 34)
+    }
+
+    /// §9, and the reason the requirements document starts with it: a Mac that has simply not been
+    /// set up yet must not read as a failure. "需要处理" with a red dot is the symptom the gate exists
+    /// to remove, so before setup the headline counts the remaining steps.
+    private var headline: (level: HealthLevel, title: String) {
+        switch model.entryRoute {
+        case .onboarding(let step):
+            (.degraded, "还差 \(5 - step.rawValue) 步完成设置")
+        case .newMacChoice:
+            (.degraded, "还没有设置这台 Mac")
+        default:
+            (model.overallLevel, model.menuBarStatusTitle)
+        }
+    }
+
+    /// §9: the menu bar keeps working while the window is gated. Signed out it offers sign-in, and a
+    /// signed-in Mac with nothing installed offers to finish setup. Both only open the main window —
+    /// `RootView` decides the page — so the menu bar can never bypass the gate.
+    private var gateAction: (title: String, symbol: String)? {
+        switch model.entryRoute {
+        case .signIn: ("登录 Hermes GO", "person.crop.circle")
+        case .onboarding: ("完成设置", "checklist")
+        default: nil
+        }
+    }
+
+    private func gateActionRow(_ action: (title: String, symbol: String)) -> some View {
+        Button {
+            openMainWindow()
+        } label: {
+            HStack {
+                Label(action.title, systemImage: action.symbol)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(Color.hermesBlue)
+        .padding(.horizontal, 14)
+        .frame(height: 34)
+    }
+
+    /// §9: the rows under the account line describe whatever the owner can act on. In manage-only
+    /// mode that is the Mac being managed, not this machine; on a Mac that has nothing installed yet
+    /// it is that fact alone — local Gateway/Hermes rows would read as two failures caused by not
+    /// having run setup, the symptom the requirements document opens with.
+    @ViewBuilder private var statusRows: some View {
+        if model.isManageOnly, let device = model.selectedAccountDevice {
+            valueRow(
+                title: "正在管理",
+                value: device.desktopDisplayName,
+                level: .healthy,
+                showsStatusDot: false
+            )
+            valueRow(
+                title: "Connector",
+                value: device.connector.online ? "在线" : "离线",
+                level: device.connector.online ? .healthy : .unavailable
+            )
+            valueRow(
+                title: "Hermes",
+                value: model.overviewHermesSummary,
+                level: device.hermes.reachable == true ? .healthy : .unavailable
+            )
+        } else if isNotSetUp {
+            valueRow(title: "这台 Mac", value: "未连接", level: .unavailable)
+        } else {
+            statusRow(.gateway)
+            statusRow(.hermes)
+        }
+    }
+
+    private var isNotSetUp: Bool {
+        switch model.entryRoute {
+        case .onboarding, .newMacChoice: true
+        default: false
+        }
+    }
+
+    private func valueRow(
+        title: String,
+        value: String,
+        level: HealthLevel,
+        showsStatusDot: Bool = true
+    ) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            if showsStatusDot {
+                StatusDot(level: level, size: 8)
+            }
+            Text(value)
+                .foregroundStyle(.secondary)
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 14)
+        .frame(height: 34)
+    }
+
+    private func openMainWindow() {
+        openWindow(id: "main")
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     private func statusRow(_ component: HealthComponent) -> some View {
