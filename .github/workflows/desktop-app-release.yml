@@ -1,36 +1,120 @@
-name: Desktop app release
+name: Desktop official release candidate
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["desktop-v*"]
+    inputs:
+      desktop_version:
+        description: Version in desktop/Packaging/Info.plist
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: desktop-release
+  group: desktop-official-candidate
   cancel-in-progress: false
 
 jobs:
   package:
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     environment: desktop-release
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: npm }
-      - run: npm ci --ignore-scripts
-      - run: npm run desktop:assets:test && npm run desktop:test && npm run desktop:app
-      - name: Verify release environment is provisioned
+      - name: Require current main and exact release version
         env:
-          DESKTOP_RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SIGNING_PRIVATE_KEY }}
-          DESKTOP_RELEASE_SSH_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SSH_PRIVATE_KEY }}
-          DESKTOP_RELEASE_SSH_KNOWN_HOSTS: ${{ secrets.DESKTOP_RELEASE_SSH_KNOWN_HOSTS }}
+          DESKTOP_VERSION: ${{ inputs.desktop_version }}
         run: |
           set -euo pipefail
-          test -n "$DESKTOP_RELEASE_SIGNING_PRIVATE_KEY"
-          test -n "$DESKTOP_RELEASE_SSH_PRIVATE_KEY"
-          test -n "$DESKTOP_RELEASE_SSH_KNOWN_HOSTS"
-          echo "Packaging/publishing is intentionally delegated to scripts/publish-desktop-release.sh after immutable manifests are produced."
+          test "$(uname -m)" = arm64
+          test -z "$(git status --porcelain)"
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          actual=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' desktop/Packaging/Info.plist)
+          test "$actual" = "$DESKTOP_VERSION"
+      - run: npm ci --ignore-scripts
+      - run: npm run desktop:assets:test && npm run desktop:test
+      - name: Developer ID sign, notarize, staple, and verify the exact DMG
+        env:
+          DESKTOP_VERSION: ${{ inputs.desktop_version }}
+          SIGNING_P12_BASE64: ${{ secrets.DESKTOP_APP_SIGNING_P12_BASE64 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.DESKTOP_APP_SIGNING_P12_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.DESKTOP_APP_SIGNING_IDENTITY }}
+          SIGNING_TEAM_ID: ${{ secrets.DESKTOP_APP_SIGNING_TEAM_ID }}
+          NOTARY_KEY_BASE64: ${{ secrets.DESKTOP_APP_NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.DESKTOP_APP_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.DESKTOP_APP_NOTARY_ISSUER_ID }}
+          RELEASE_SIGNING_KEY_ID: ${{ vars.DESKTOP_RELEASE_SIGNING_KEY_ID }}
+          RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.DESKTOP_RELEASE_SIGNING_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          for name in SIGNING_P12_BASE64 SIGNING_P12_PASSWORD SIGNING_IDENTITY SIGNING_TEAM_ID \
+            NOTARY_KEY_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID RELEASE_SIGNING_KEY_ID \
+            RELEASE_SIGNING_PUBLIC_KEY; do
+            test -n "${!name}" || { echo "Missing protected Desktop release input: $name" >&2; exit 64; }
+          done
+          case "$SIGNING_IDENTITY" in
+            "Developer ID Application: "*) ;;
+            *) echo 'Expected a Developer ID Application identity.' >&2; exit 64 ;;
+          esac
+          node scripts/verify-desktop-release-key-continuity.mjs \
+            https://mrlgs.net "$RELEASE_SIGNING_KEY_ID" "$RELEASE_SIGNING_PUBLIC_KEY"
+          umask 077
+          signing_root=$(mktemp -d "$RUNNER_TEMP/desktop-signing.XXXXXXXX")
+          keychain="$signing_root/release.keychain-db"
+          cleanup() {
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -rf "$signing_root"
+          }
+          trap cleanup EXIT
+          printf '%s' "$SIGNING_P12_BASE64" | base64 -D > "$signing_root/developer-id.p12"
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 -D > "$signing_root/notary.p8"
+          keychain_password=$(openssl rand -base64 32)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 7200 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$signing_root/developer-id.p12" -k "$keychain" \
+            -P "$SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -d user -s "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep -F "$SIGNING_IDENTITY" >/dev/null
+
+          export DESKTOP_DMG_KIND=official
+          export HERMES_GO_MANAGED_BOOTSTRAP_ENABLED=1
+          export HERMES_GO_COMPONENT_PREFLIGHT_ENABLED=1
+          export HERMES_GO_DESKTOP_RELEASE_MANIFEST_URL=https://mrlgs.net/desktop/releases/index.json
+          export HERMES_GO_DESKTOP_COMPONENT_MANIFEST_URL=https://mrlgs.net/desktop/components/index.json
+          export HERMES_GO_DESKTOP_RELEASE_ARTIFACT_ORIGIN=https://mrlgs.net
+          export HERMES_GO_DESKTOP_RELEASE_CHANNEL=internal
+          export HERMES_GO_DESKTOP_RELEASE_ARCHITECTURE=arm64
+          export HERMES_GO_DESKTOP_RELEASE_SIGNING_KEY_ID="$RELEASE_SIGNING_KEY_ID"
+          export HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY="$RELEASE_SIGNING_PUBLIC_KEY"
+          export HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT=hermes-serve-v1
+          npm run desktop:dmg
+          dmg="$PWD/desktop/build/Hermes-Go-Desktop-$DESKTOP_VERSION.dmg"
+          test -s "$dmg"
+          xcrun notarytool submit "$dmg" --key "$signing_root/notary.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait --timeout 45m
+          xcrun stapler staple "$dmg"
+          build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' desktop/Packaging/Info.plist)
+          desktop/scripts/verify-official-dmg.sh "$dmg" "$DESKTOP_VERSION" "$build" \
+            "$SIGNING_TEAM_ID" \
+            https://mrlgs.net/desktop/releases/index.json \
+            https://mrlgs.net/desktop/components/index.json \
+            "$RELEASE_SIGNING_KEY_ID" "$RELEASE_SIGNING_PUBLIC_KEY"
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          shasum -a 256 "$dmg"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Hermes-Go-Desktop-${{ inputs.desktop_version }}-notarized
+          path: desktop/build/Hermes-Go-Desktop-${{ inputs.desktop_version }}.dmg
+          if-no-files-found: error
+          retention-days: 7
