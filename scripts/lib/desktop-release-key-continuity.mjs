@@ -5,7 +5,7 @@ const MAX_INDEX_BYTES = 4096;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 
 export async function verifyDesktopReleaseKeyContinuity({
-  origin, keyId, publicKey, fetchImpl = fetch,
+  origin, keyId, publicKey, nextVersion, fetchImpl = fetch,
 }) {
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.protocol !== "https:" || parsedOrigin.pathname !== "/"
@@ -58,7 +58,21 @@ export async function verifyDesktopReleaseKeyContinuity({
   if (observed[0].releaseVersion !== observed[1].releaseVersion) {
     throw new Error("desktop_indexes_out_of_sync");
   }
+  if (nextVersion !== undefined && !isStrictlyNewer(nextVersion, observed[0].releaseVersion)) {
+    throw new Error("desktop_release_version_not_newer");
+  }
   return observed;
+}
+
+function isStrictlyNewer(candidate, current) {
+  if (typeof candidate !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(candidate)) return false;
+  const left = candidate.split(".").map(Number);
+  const right = current.split(".").map(Number);
+  if (![...left, ...right].every(Number.isSafeInteger)) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] > right[index];
+  }
+  return false;
 }
 
 async function readBounded(fetchImpl, url, limit) {

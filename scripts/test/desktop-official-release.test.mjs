@@ -75,10 +75,30 @@ test("candidate key must verify both current public manifests and their index ha
     publicKey: rawPublicKey.toString("base64url"), fetchImpl,
   };
   assert.equal((await verifyDesktopReleaseKeyContinuity(args)).length, 2);
+  assert.equal((await verifyDesktopReleaseKeyContinuity({ ...args, nextVersion: "0.4.4" })).length, 2);
+  await assert.rejects(
+    verifyDesktopReleaseKeyContinuity({ ...args, nextVersion: "0.4.3" }),
+    /desktop_release_version_not_newer/,
+  );
   await assert.rejects(
     verifyDesktopReleaseKeyContinuity({ ...args, publicKey: Buffer.alloc(32).toString("base64url") }),
     /desktop_manifest_signature_invalid/,
   );
   responses.set("https://example.test/desktop/components/0.4.3/manifest.json", Buffer.from("tampered"));
   await assert.rejects(verifyDesktopReleaseKeyContinuity(args), /desktop_manifest_index_mismatch/);
+});
+
+test("signed pair candidate requires protected signing and public-only verification", async () => {
+  const workflow = await readFile(".github/workflows/desktop-managed-release-package.yml", "utf8");
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /environment: desktop-release/);
+  assert.match(workflow, /DESKTOP_RELEASE_SIGNING_PRIVATE_KEY/);
+  assert.match(workflow, /verify-desktop-release-key-continuity\.mjs/);
+  assert.match(workflow, /package-desktop-managed-release\.mjs/);
+  assert.match(workflow, /package-desktop-component-release-v2\.mjs/);
+  assert.match(workflow, /rm "\$SIGNING_KEY_PATH"/);
+  assert.match(workflow, /verify-desktop-managed-release\.mjs/);
+  assert.match(workflow, /verify-desktop-component-release-v2\.mjs/);
+  assert.doesNotMatch(workflow, /publish-desktop-release\.sh/);
+  assert.doesNotMatch(workflow, /push:\s*\n\s*tags:/);
 });

@@ -43,7 +43,8 @@ have no authenticated path forward.
 
 ## GitHub environment
 
-The manually dispatched `desktop-app-release.yml` and `connector-release.yml` candidate workflows reference
+The manually dispatched `desktop-app-release.yml`, `connector-release.yml`, and
+`desktop-managed-release-package.yml` candidate workflows reference
 the protected `desktop-release` environment. The environment must already exist. Configure a
 required reviewer who owns Desktop releases and these component-publisher secrets:
 
@@ -80,6 +81,16 @@ creates the legacy schema-v1 Connector archive and the schema-v2 Node + Connecto
 unsigned archives are uploaded only as short-lived Actions artifacts. They must still be signed into
 both manifests, independently verified, staged behind exact public routes, and passed through the
 paired-index publisher before they are a release. Neither candidate workflow is tag-triggered.
+
+The signed-pair candidate job accepts a new managed release version and the exact Connector version.
+From clean current `main`, it builds schema-v1 and schema-v2 Connector archives, reuses the immutable
+0.4.3 Hermes Server archive only after checking its pinned SHA-256, and signs both new manifests with
+the environment-scoped Ed25519 private key. It verifies that the corresponding public key still
+authenticates both live indexes and that the proposed version is strictly newer before signing,
+removes its temporary private-key file before running
+the independent public-key verifiers, and uploads only the two complete signed release directories.
+It does **not** stage Nginx routes, change public indexes, create a tag, or publish a DMG. These remain
+the explicitly reviewed transaction below; a successful Actions artifact is not a release.
 
 Repository CI and ordinary branch pushes must not receive these secrets. A workflow reference does
 not create or protect an environment; a repository administrator must configure the reviewer and
