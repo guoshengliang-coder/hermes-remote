@@ -175,6 +175,24 @@ class SessionRuntimeStoreTest {
         )
     }
 
+    @Test fun reopening_a_running_session_continues_its_persisted_assistant_tail() = runTest {
+        val fixture = fixture()
+        val key = SessionRuntimeKey("personal", "s1", "mac-mini")
+        fixture.store.applyObservedLifecycle(lifecycle("run.started", sessionId = "s1"))
+        val persistedAt = java.time.Instant.parse("2026-08-31T08:31:00Z").toEpochMilli()
+        fixture.store.markHistoryLoading(key, listOf(
+            ChatMessage("u1", Role.USER, "继续", timestamp = persistedAt),
+            ChatMessage("a1", Role.ASSISTANT, "已有内容", timestamp = persistedAt),
+        ))
+
+        fixture.events.emit(event("message.delta", "runtime-s1", "新内容"))
+        runCurrent()
+
+        val messages = fixture.store.runtimes.value.getValue(key).chat.messages
+        assertEquals(2, messages.size)
+        assertEquals("已有内容新内容", messages.last().text)
+    }
+
     @Test fun intentionalDisconnectMarksAnActiveTurnForResume() = runTest {
         val fixture = fixture()
         val key = fixture.store.register("s1", "personal")

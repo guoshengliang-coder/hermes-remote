@@ -31,6 +31,7 @@ import okhttp3.WebSocketListener
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -56,6 +57,9 @@ const val RELAY_RESPONSE_TOO_LARGE_CODE = -32001
  * different thing to tell the user than "the send failed".
  */
 class GatewayReadinessTimeoutException(message: String) : GatewayRpcException(0, message)
+
+/** The request was sent, but no answer arrived; its server-side outcome is unknown. */
+class GatewayResponseTimeoutException(message: String) : GatewayRpcException(0, message)
 
 /** Endpoint resolution can fail terminally on a local account-repair gate, without network retry. */
 class GatewayEndpointException(message: String, val retryable: Boolean) : Exception(message)
@@ -168,6 +172,8 @@ open class HermesGatewayClient(
     // ignored once a newer socket has been opened, so an in-flight backoff reopen can never
     // race a manual reconnectNow() into two live sockets.
     private val generation = AtomicInteger(0)
+    /** Only the first unanswered RPC on a socket may replace that socket. */
+    private val recoveredTimeoutGeneration = AtomicInteger(-1)
 
     init {
         scope.launch {
@@ -202,7 +208,7 @@ open class HermesGatewayClient(
         val now = System.currentTimeMillis()
         val connectingSince = connectingSinceMs
         val readyAt = lastReadyAtMs
-        return "state=${describe(_state.value)} gen=${generation.get()} attempt=${attempt.get()} " +
+        return "state=${describe(_state.value)} gen=${generation.get()} conn=$connectionId attempt=${attempt.get()} " +
             "manuallyClosed=$manuallyClosed " +
             "readyGate=${if (readyGate.isCompleted) "completed" else "pending"} " +
             "watchdog=${handshakeWatchdog?.let { if (it.isActive) "active" else "finished" } ?: "none"} " +
@@ -216,6 +222,10 @@ open class HermesGatewayClient(
     // Recreated (uncompleted) on each openSocket(); completed when gateway.ready arrives;
     // completed exceptionally when socket closes/fails or close() is called.
     @Volatile private var readyGate: CompletableDeferred<Unit> = CompletableDeferred()
+
+    /** Opaque socket correlation ID; the Gateway logs it beside its own tunnel UUID. */
+    @Volatile private var connectionId = "none"
+    @Volatile private var upgradedGeneration = -1
 
     /**
      * Cancels the handshake watchdog for the socket currently being opened. See [openSocket].
@@ -268,7 +278,7 @@ open class HermesGatewayClient(
          * which conversation every later line refers to: without the answer, a later "session not
          * found" cannot be told apart from a create that never worked.
          */
-        val OUTCOME_RPC_METHODS = setOf("session.create")
+        val OUTCOME_RPC_METHODS = setOf("session.create", "slash.exec")
 
         /** A quiet RPC this slow is worth a line even though it succeeded. */
         const val SLOW_RPC_MS = 1_000L
@@ -430,7 +440,9 @@ open class HermesGatewayClient(
             _state.value = ConnectionState.Connecting
             next
         }
-        DebugLog.log("ws", "opening socket (gen=$gen)")
+        val socketConnectionId = UUID.randomUUID().toString()
+        connectionId = socketConnectionId
+        DebugLog.log("ws", "opening socket (gen=$gen, conn=$socketConnectionId)")
         // Connecting has exactly two exits — `gateway.ready` or the socket dying — and a socket
         // that establishes but never completes the handshake takes neither. On 2026-09-07 one
         // such socket left the app on 「正在连接 Relay…」 until it was force-stopped, while every
@@ -454,6 +466,9 @@ open class HermesGatewayClient(
                 return@launch
             }
             DebugLog.log("error", "handshake timeout (gen=$gen): no gateway.ready in ${handshakeTimeoutMs}ms")
+            com.hermes.client.data.diagnostics.ConnectionIncidents.record(
+                "handshake-timeout", "gen=$gen conn=$socketConnectionId elapsedMs=$handshakeTimeoutMs ${connectionSnapshot()}",
+            )
             // Cancel AND report: cancel() normally makes OkHttp deliver onFailure, but the whole
             // point of this watchdog is a socket that has stopped behaving normally, so the
             // reconnect must not depend on that callback arriving. onSocketClosed is idempotent
@@ -496,6 +511,7 @@ open class HermesGatewayClient(
             val request = Request.Builder()
                 .url(endpoint.url)
                 .apply {
+                    header("X-Hermes-Connection-Id", socketConnectionId)
                     endpoint.sessionToken?.takeIf { it.isNotBlank() }?.let {
                         header("X-Hermes-Session-Token", it)
                     }
@@ -552,6 +568,7 @@ open class HermesGatewayClient(
             // dial that never completed from a gateway that accepted the upgrade and went mute.
             // Those are different failures with different owners.
             DebugLog.log("ws", "socket upgraded (gen=$gen)")
+            upgradedGeneration = gen
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -621,6 +638,16 @@ open class HermesGatewayClient(
             }
             val status = response?.code
             response?.close()
+            if (gen != closedGen && !manuallyClosed) {
+                val stage = when {
+                    upgradedGeneration != gen -> "upgrade"
+                    !readyGate.isCompleted -> "ready"
+                    else -> "active"
+                }
+                com.hermes.client.data.diagnostics.ConnectionIncidents.record(
+                    "ws-failure", "gen=$gen conn=$connectionId stage=$stage exception=${t.javaClass.simpleName} http=${status ?: "-"}",
+                )
+            }
             val terminalAccountRejection = accountTransport && isTerminalAccountHandshakeStatus(status)
             if (terminalAccountRejection) {
                 accountAuthorizationClassificationPending = false
@@ -694,6 +721,11 @@ open class HermesGatewayClient(
                 if (livedMs >= 0) append(" · ready for ${livedMs}ms")
                 if (!worthKeeping) append(" · answered nothing")
             }
+        }
+        if (closeCode != null && closeCode !in setOf(1000, 1001) && !manuallyClosed) {
+            com.hermes.client.data.diagnostics.ConnectionIncidents.record(
+                "ws-close", "gen=$gen conn=$connectionId code=$closeCode ready=${readyGate.isCompleted} answered=$currentSocketAnsweredAnRpc",
+            )
         }
         // Fail any call() that is currently awaiting readiness so it throws immediately.
         readyGate.completeExceptionally(GatewayRpcException(0, reason))
@@ -826,6 +858,9 @@ open class HermesGatewayClient(
             // Every feature reporting its own readiness timeout, 15s apart, with nothing naming
             // the socket, is exactly what HG-27 looked like from the outside.
             DebugLog.log("error", "rpc $what blocked: no gateway.ready in ${READY_TIMEOUT_MS}ms")
+            com.hermes.client.data.diagnostics.ConnectionIncidents.record(
+                "readiness-timeout", "method=$what ${connectionSnapshot()}",
+            )
             throw GatewayReadinessTimeoutException("gateway readiness timeout")
         }
     }
@@ -851,31 +886,46 @@ open class HermesGatewayClient(
         // already follows (DESIGN.md §5.15). process.list runs every 5s per active run and was 55
         // of the 500 buffered entries in the HG-27 report. Slow and failing calls still speak.
         val quiet = method in QUIET_RPC_METHODS
-        if (!quiet) DebugLog.log("ws") { "rpc#$id → $method" }
         val startedAt = System.currentTimeMillis()
+        val sentGeneration = generation.get()
+        val sentConnectionId = connectionId
+        if (!quiet) DebugLog.log("ws") { "rpc#$id conn=$sentConnectionId → $method" }
         val sent = ws?.send(RpcRequest(id, method, params).encode(json)) ?: false
         if (!sent) {
             pending.remove(id)
             resumeWindows.remove(id)
-            DebugLog.log("ws", "rpc#$id $method failed: not connected")
+            DebugLog.log("ws", "rpc#$id conn=$sentConnectionId $method failed: not connected")
             throw GatewayRpcException(0, "not connected")
         }
         return try {
-            val result = withTimeout(rpcTimeoutMs) { deferred.await() }
+            // These two foreground actions have an unknown outcome when their reply is lost.
+            // Bound the spinner, but never auto-replay a possibly successful create or switch.
+            val deadlineMs = if (method == "session.create" || method == "slash.exec") {
+                min(rpcTimeoutMs, 20_000L)
+            } else rpcTimeoutMs
+            val result = withTimeout(deadlineMs) { deferred.await() }
             val elapsed = System.currentTimeMillis() - startedAt
             // A quiet method speaks when it was slow; a session-shaping method always speaks. HG-29
             // was a session that went missing two minutes after session.create, and the log could
             // not say whether the create had ever succeeded: the request line was there and nothing
             // followed it either way.
             if (method in OUTCOME_RPC_METHODS || (quiet && elapsed >= SLOW_RPC_MS)) {
-                DebugLog.log("ws", "rpc#$id $method ← ok (${elapsed}ms)")
+                DebugLog.log("ws", "rpc#$id conn=$sentConnectionId $method ← ok (${elapsed}ms)")
             }
             result
         } catch (e: TimeoutCancellationException) {
             // Previously this threw with no line at all: an opening line and no outcome reads
             // exactly like a request that never returned.
-            DebugLog.log("error", "rpc#$id $method timed out after ${rpcTimeoutMs}ms")
-            throw GatewayRpcException(0, "gateway response timeout")
+            DebugLog.log("error", "rpc#$id conn=$sentConnectionId $method timed out; ${connectionSnapshot()}")
+            com.hermes.client.data.diagnostics.ConnectionIncidents.record(
+                "rpc-timeout", "rpcId=$id method=$method conn=$sentConnectionId elapsedMs=${System.currentTimeMillis() - startedAt} ${connectionSnapshot()}",
+            )
+            // A ready WebSocket can stay open while its RPC path has gone silent. Replacing the
+            // generation heals the *next* action; retrying this action would risk duplicating it.
+            if (sentGeneration == generation.get() && !manuallyClosed &&
+                recoveredTimeoutGeneration.getAndSet(sentGeneration) != sentGeneration
+            ) reconnectNow()
+            throw GatewayResponseTimeoutException("gateway response timeout")
         } finally {
             pending.remove(id, call)
             resumeWindows.remove(id)

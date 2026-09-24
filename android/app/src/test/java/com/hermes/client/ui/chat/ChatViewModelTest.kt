@@ -1489,6 +1489,22 @@ class ChatViewModelTest {
         assertFalse("the sheet must stay open on failure", onDoneCalled)
     }
 
+    @Test fun model_switch_timeout_is_unconfirmed_not_a_refusal() = runTest {
+        coEvery { chatRepo.slashExec("s1", any()) } throws
+            com.hermes.client.data.network.GatewayResponseTimeoutException("gateway response timeout")
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+
+        var onDoneCalled = false
+        vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
+        advanceUntilIdle()
+
+        assertEquals("HR-RPC-008", vm.modelSheet.value.error?.code?.value)
+        assertFalse(vm.modelSheet.value.error?.retryable == true)
+        assertFalse(onDoneCalled)
+        coVerify(exactly = 0) { recentsStore.record(any(), any()) }
+    }
+
     // HG-28. `slash.exec` 5030 means the Mac's Hermes could not start its slash worker at all — the
     // managed 0.3.0 bundle shipped sources that its own child processes could not import, so every
     // slash command was dead. Collapsing that into HR-RPC-004 told the user "请重试" for something

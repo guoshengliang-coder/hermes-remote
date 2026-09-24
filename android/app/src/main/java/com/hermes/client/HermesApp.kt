@@ -3,6 +3,7 @@ package com.hermes.client
 import android.app.Application
 import com.hermes.client.data.diagnostics.CrashReporter
 import com.hermes.client.data.diagnostics.DebugLog
+import com.hermes.client.data.diagnostics.ConnectionIncidents
 import com.hermes.client.data.feedback.FeedbackReporter
 import com.hermes.client.data.feedback.toFeedbackAppearance
 import com.hermes.client.data.repository.SettingsStore
@@ -40,6 +41,7 @@ class HermesApp : Application() {
         // during startup are mirrored, and so the previous run's entries — the ones a crash or a
         // background kill would otherwise take with it — are read back into the buffer.
         DebugLog.init(java.io.File(filesDir, "diagnostics"))
+        ConnectionIncidents.init(java.io.File(filesDir, "diagnostics"))
         // Restore the diagnostic-logging toggle at launch so capture is active before the
         // Diagnostics screen is ever opened (e.g. to catch a failure on the first session open).
         settingsStore.debugLogging

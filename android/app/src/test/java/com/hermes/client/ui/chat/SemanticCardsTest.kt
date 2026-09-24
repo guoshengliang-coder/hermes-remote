@@ -11,6 +11,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SemanticCardsTest {
+    @Test fun reopening_an_active_stream_shows_existing_text_without_retyping_it() {
+        val existing = ChatMessage("a1", Role.ASSISTANT, "已有回答", isStreaming = true)
+        assertTrue(shouldShowExistingStreamImmediately(existing, firstStream = true, runWasActiveOnEntry = true))
+        assertFalse(shouldShowExistingStreamImmediately(existing, firstStream = false, runWasActiveOnEntry = true))
+    }
+
+    @Test fun a_fresh_stream_still_uses_the_typewriter_but_a_persisted_tail_does_not() {
+        val live = ChatMessage("a1", Role.ASSISTANT, "新回答", isStreaming = true)
+        assertFalse(shouldShowExistingStreamImmediately(live, firstStream = true, runWasActiveOnEntry = false))
+        assertTrue(shouldShowExistingStreamImmediately(
+            live.copy(serverId = 42L), firstStream = true, runWasActiveOnEntry = false,
+        ))
+    }
+
     @Test fun commandPayloadParses() {
         val meta = parseToolPayloadMeta(
             """{"output": "ok\ndone", "exit_code": 0, "command": "nginx -t", "duration_ms": 412, "cwd": "/root"}""",

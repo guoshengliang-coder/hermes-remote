@@ -6,6 +6,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 
 /**
  * HG-27 and HG-42 were both noticed by a user long before anyone thought to turn diagnostics on,
@@ -13,6 +15,7 @@ import org.junit.Test
  * events the client acted on.
  */
 class ConnectionIncidentsTest {
+    @get:Rule val temp = TemporaryFolder()
     @Before fun setUp() = ConnectionIncidents.clear()
 
     @After fun tearDown() = ConnectionIncidents.clear()
@@ -58,5 +61,45 @@ class ConnectionIncidentsTest {
         val stored = ConnectionIncidents.snapshot().single().detail
         assertFalse(stored, stored.contains("SUPERSECRET"))
         assertTrue(stored, stored.contains("state=Connecting"))
+    }
+
+    @Test fun timeout_evidence_survives_a_process_restart_without_verbose_logging() {
+        val dir = temp.newFolder("incidents")
+        val now = System.currentTimeMillis()
+        ConnectionIncidents.init(dir, now)
+        ConnectionIncidents.record("rpc-timeout", "rpcId=14 method=session.create conn=abc token=SECRET", now)
+
+        ConnectionIncidents.init(dir, now + 1_000)
+
+        val restored = ConnectionIncidents.snapshot().single()
+        assertEquals("rpc-timeout", restored.kind)
+        assertTrue(restored.detail.contains("rpcId=14"))
+        assertFalse(restored.detail.contains("SECRET"))
+        assertEquals("1", ConnectionIncidents.feedbackContext()["selfHealCount"])
+    }
+
+    @Test fun expired_incidents_are_discarded_on_launch() {
+        val dir = temp.newFolder("expired")
+        val now = System.currentTimeMillis()
+        ConnectionIncidents.init(dir, now)
+        ConnectionIncidents.record("rpc-timeout", "old", now)
+
+        ConnectionIncidents.init(dir, now + 8L * 24 * 60 * 60 * 1_000)
+
+        assertTrue(ConnectionIncidents.snapshot().isEmpty())
+        assertTrue(ConnectionIncidents.feedbackContext().isEmpty())
+    }
+
+    @Test fun clearing_diagnostics_removes_incidents_but_future_failures_still_persist() {
+        val dir = temp.newFolder("cleared")
+        val now = System.currentTimeMillis()
+        ConnectionIncidents.init(dir, now)
+        ConnectionIncidents.record("rpc-timeout", "before", now)
+        DebugLog.clear()
+        assertTrue(ConnectionIncidents.snapshot().isEmpty())
+
+        ConnectionIncidents.record("rpc-timeout", "after", now + 1_000)
+        ConnectionIncidents.init(dir, now + 2_000)
+        assertEquals("after", ConnectionIncidents.snapshot().single().detail)
     }
 }

@@ -1064,7 +1064,11 @@ class SessionRuntimeStore(
             val base = runtime.chat
             runtime.copy(
                 chat = base.copy(
-                    messages = if (base.messages.isEmpty() && !cached.isNullOrEmpty()) cached else base.messages,
+                    messages = if (base.messages.isEmpty() && !cached.isNullOrEmpty()) {
+                        com.hermes.client.ui.chat.inheritStreamFields(
+                            cached, emptyList(), runtime.phase.isActive, runtime.runStartedAt,
+                        )
+                    } else base.messages,
                     historyLoading = true,
                     historyLoaded = !cached.isNullOrEmpty() || base.historyLoaded,
                     historyError = null,
@@ -1090,7 +1094,9 @@ class SessionRuntimeStore(
             if (runtime.chat.messages.isNotEmpty() || runtime.chat.historyLoaded) return@updateRuntime runtime
             runtime.copy(
                 chat = runtime.chat.copy(
-                    messages = messages,
+                    messages = com.hermes.client.ui.chat.inheritStreamFields(
+                        messages, emptyList(), runtime.phase.isActive, runtime.runStartedAt,
+                    ),
                     historyLoaded = true,
                     historyError = null,
                 ),
@@ -1148,6 +1154,7 @@ class SessionRuntimeStore(
                                 com.hermes.client.ui.chat.alignMessageIds(snapshot, runtime.chat.messages),
                                 runtime.chat.messages,
                                 runActive = runtime.phase.isActive,
+                                runStartedAt = runtime.runStartedAt,
                             ),
                             runtime.chat.messages,
                         )
@@ -1190,6 +1197,7 @@ class SessionRuntimeStore(
                         ),
                         runtime.chat.messages,
                         runActive = runtime.phase.isActive,
+                        runStartedAt = runtime.runStartedAt,
                     ),
                     historyLoading = false,
                     historyLoaded = true,
@@ -1976,6 +1984,7 @@ class SessionRuntimeStore(
                         ),
                         runtime.chat.messages,
                         runActive = runtime.phase.isActive,
+                        runStartedAt = runtime.runStartedAt,
                     ),
                     historyLoading = false,
                     historyLoaded = true,

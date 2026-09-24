@@ -93,6 +93,7 @@ class SessionsViewModel @Inject constructor(
     val state: StateFlow<SessionsUiState> = _state.asStateFlow()
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = runtimeStore.runtimes
     val unreadTokens: StateFlow<Set<String>> = runtimeStore.unreadTokens
+    val consecutiveDroppedConnections: Int get() = chat.consecutiveDroppedConnections
 
     fun runtimeFor(
         session: Session,
@@ -652,15 +653,11 @@ class SessionsViewModel @Inject constructor(
      * directory — the default project. A top-level create teaches [defaultProjectPath]. When the
      * gateway silently falls back because [cwd] no longer exists on the Mac, the session still
      * opens but [CreateResult.fellBackToDefault] is set so the UI can say so (HR-SESS-006).
-     * Returns null if creation failed (so the UI doesn't crash).
+     * Throws on failure so the shared FAB can explain it instead of silently dismissing its spinner.
      */
-    suspend fun createSession(cwd: String? = null): CreateResult? {
+    suspend fun createSession(cwd: String? = null): CreateResult {
         restoreSelectedRoute()
-        val created = runCatching { chat.createSession(profileManager.active.value, cwd) }
-            // runCatching also catches CancellationException — rethrow it so cancelling the caller
-            // isn't swallowed and mistaken for a failed creation.
-            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-            .getOrNull() ?: return null
+        val created = chat.createSession(profileManager.active.value, cwd)
         if (cwd.isNullOrBlank()) {
             created.cwd?.let { projectPrefs.setDefaultProjectPath(it) }
             sessions.bindConversation(profileManager.active.value, created.id)

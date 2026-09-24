@@ -24,6 +24,7 @@ enum class AppErrorCode(val value: String) {
     // Not a refused switch: the Mac's Hermes could not start its slash worker at all, so every
     // slash command is dead, not just this one. Telling the user to retry would be false.
     SLASH_WORKER_UNAVAILABLE("HR-RPC-007"),
+    MODEL_SWITCH_UNCONFIRMED("HR-RPC-008"),
     CONFIG_READ_FAILED("HR-CONFIG-001"),
     CONFIG_WRITE_FAILED("HR-CONFIG-002"),
     CONFIG_INVALID_URL("HR-CONFIG-003"),
@@ -91,6 +92,7 @@ enum class AppErrorCode(val value: String) {
     // the whole transcript into 26.3 MiB. Retrying repeats it byte for byte, so the tap is
     // withheld — the HG-29 rule — and the conversation is still readable through history.
     SESSION_TOO_LARGE("HR-SESS-017"),
+    SESSION_CREATE_UNCONFIRMED("HR-SESS-018"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     GALLERY_PERMISSION_REQUIRED("HR-PERM-004"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),

@@ -50,6 +50,11 @@ enum DesktopHermesInstallPhase: Equatable {
 final class DesktopViewModel: ObservableObject {
     @Published private(set) var health: DesktopHealthSnapshot = .checking
     @Published private(set) var legacy: LegacyConnectorSnapshot?
+    @Published private(set) var managedRecentLogs: [String] = []
+    var recentLogLines: [String] {
+        managedRecentLogs.isEmpty ? (legacy?.recentLogs ?? []) : managedRecentLogs
+    }
+    var recentLogWarningCount: Int { RecentLogAnalyzer.summarize(recentLogLines).warningCount }
     @Published private(set) var isRefreshing = false
     @Published private(set) var connectionProfile: ConnectionProfile?
     @Published var profileName = "Mac mini"
@@ -649,10 +654,12 @@ final class DesktopViewModel: ObservableObject {
         defer { isRefreshing = false }
 
         let inspector = self.inspector
-        let observation = await Task.detached(priority: .utility) {
-            inspector.inspect()
+        let managedLogDirectory = managedPaths?.managedRoot.appendingPathComponent("logs", isDirectory: true)
+        let (observation, managedLines) = await Task.detached(priority: .utility) {
+            (inspector.inspect(), managedLogDirectory.map { ManagedLogInspector(logsDirectory: $0).inspect() } ?? [])
         }.value
         legacy = observation
+        managedRecentLogs = managedLines
 
         let checkedAt = Date()
         let rawManagedInstallation = await inspectRawManagedBootstrapInstallation()
@@ -1690,5 +1697,14 @@ final class DesktopViewModel: ObservableObject {
     func openLegacyLogDirectory() {
         guard let directory = legacy?.installDirectory else { return }
         NSWorkspace.shared.open(directory)
+    }
+
+    func openLogDirectory() {
+        if let directory = managedPaths?.managedRoot.appendingPathComponent("logs", isDirectory: true),
+           FileManager.default.fileExists(atPath: directory.path) {
+            NSWorkspace.shared.open(directory)
+        } else {
+            openLegacyLogDirectory()
+        }
     }
 }

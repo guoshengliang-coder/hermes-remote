@@ -118,11 +118,11 @@ struct DiagnosticsView: View {
                 Text("最近日志")
                     .font(.system(size: 15, weight: .bold))
                 Spacer()
-                Label(logBadge, systemImage: model.legacy?.recentLogSummary.warningCount == 0 ? "lock" : "exclamationmark.triangle")
+                Label(logBadge, systemImage: model.recentLogWarningCount == 0 ? "lock" : "exclamationmark.triangle")
                     .font(.system(size: 11))
-                    .foregroundStyle(model.legacy?.recentLogSummary.warningCount == 0 ? Color.secondary : Color.orange)
+                    .foregroundStyle(model.recentLogWarningCount == 0 ? Color.secondary : Color.orange)
             }
-            Text(model.legacy?.recentLogs.suffix(5).joined(separator: "\n") ?? "暂无可显示的日志")
+            Text(model.recentLogLines.isEmpty ? "暂无可显示的日志" : model.recentLogLines.suffix(5).joined(separator: "\n"))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -130,7 +130,7 @@ struct DiagnosticsView: View {
                 .padding(12)
                 .background(.primary.opacity(0.035))
                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            Button("打开日志目录") { model.openLegacyLogDirectory() }
+            Button("打开日志目录") { model.openLogDirectory() }
                 .buttonStyle(.link)
         }
         .padding(20)
@@ -139,7 +139,7 @@ struct DiagnosticsView: View {
     }
 
     private var logBadge: String {
-        let count = model.legacy?.recentLogSummary.warningCount ?? 0
+        let count = model.recentLogWarningCount
         return count == 0 ? "已脱敏" : "已脱敏 · 近期疑似异常 \(count) 条"
     }
 

@@ -16,6 +16,7 @@ The current automated suite covers:
 - legacy Connector config parsing with a strict non-secret allowlist;
 - current Gateway WSS to Relay health URL conversion;
 - legacy launchd/install/log discovery through injected command execution;
+- managed Connector and Desktop log discovery, bounded redaction, and symlink refusal;
 - log/header/query/known-secret redaction;
 - profile validation that rejects insecure remote HTTP, URL credentials, queries, and fragments;
 - that the staged Hermes component is importable by a **child** process with no `PYTHONPATH`

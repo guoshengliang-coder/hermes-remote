@@ -535,10 +535,12 @@ internal fun inheritStreamFields(
     history: List<ChatMessage>,
     current: List<ChatMessage>,
     runActive: Boolean,
+    runStartedAt: Long? = null,
 ): List<ChatMessage> {
     val liveById = current.associateBy { it.id }
     val liveStreaming = runActive && current.any { it.role == Role.ASSISTANT && it.isStreaming }
     val tailAssistant = history.indexOfLast { it.role == Role.ASSISTANT }
+    val lastUser = history.indexOfLast { it.role == Role.USER }
     return history.mapIndexed { index, message ->
         val live = liveById[message.id]?.takeIf { it.role == message.role }
         val merged = if (live == null) message else message.copy(
@@ -560,7 +562,12 @@ internal fun inheritStreamFields(
                 }
             },
         )
-        if (liveStreaming && index == tailAssistant) merged.copy(isStreaming = true) else merged
+        // A cold reopen can know the run is active before it has observed any live delta. REST
+        // may already contain the in-progress assistant row; treat that tail as the live bubble
+        // so the next delta continues it instead of appending a second assistant turn (HG-122).
+        val activeTail = runActive && index == tailAssistant && tailAssistant > lastUser &&
+            (runStartedAt == null || message.timestamp == null || message.timestamp >= runStartedAt - 1_000L)
+        if ((liveStreaming || activeTail) && index == tailAssistant) merged.copy(isStreaming = true) else merged
     }
 }
 

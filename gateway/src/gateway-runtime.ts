@@ -251,6 +251,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
             : undefined,
         access,
         webPrincipal ? screenBrowserFrame : undefined,
+        firstHeader(request, "x-hermes-connection-id"),
       );
     },
     closeDependencies: async () => {

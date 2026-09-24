@@ -10,7 +10,7 @@ struct LogsView: View {
                 title: "日志",
                 subtitle: "仅显示 Desktop 与 Connector 的脱敏运行信息"
             ) {
-                Button("打开日志目录") { model.openLegacyLogDirectory() }
+                Button("打开日志目录") { model.openLogDirectory() }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
             }
@@ -32,7 +32,7 @@ struct LogsView: View {
     }
 
     private var logText: String {
-        let lines = model.legacy?.recentLogs ?? []
+        let lines = model.recentLogLines
         return lines.isEmpty ? "暂无可显示的 Connector 日志。" : lines.joined(separator: "\n")
     }
 }
