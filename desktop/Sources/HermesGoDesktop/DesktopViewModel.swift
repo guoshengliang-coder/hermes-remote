@@ -219,6 +219,13 @@ final class DesktopViewModel: ObservableObject {
         }
     }
 
+    /// §9: in manage-only mode the menu bar names the Mac it reports on, because this Mac's own
+    /// Gateway and Hermes rows no longer describe anything the owner cares about.
+    var menuBarStatusTitle: String {
+        guard isManageOnly, let device = selectedAccountDevice else { return statusTitle }
+        return "\(device.desktopDisplayName) · \(statusTitle)"
+    }
+
     var overallLevel: HealthLevel {
         switch presentedHealth.overall {
         case .checking: .checking

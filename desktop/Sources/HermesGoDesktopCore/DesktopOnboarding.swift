@@ -145,6 +145,16 @@ public enum DesktopEntryRouter {
     }
 }
 
+/// §7.2: an account may own `maxOwnedDevices` Macs — 3 when the Gateway has multi-device enabled, 1
+/// otherwise. At the limit "把这台 Mac 也连上" becomes "先移除一台 Mac"; "只在这台 Mac 上管理" is
+/// available either way. The choice page only appears for a Mac that owns nothing yet, so the count
+/// it shows and this count agree in practice.
+public enum DesktopOwnedMacQuota {
+    public static func isFull(_ dashboard: AccountDashboard) -> Bool {
+        dashboard.ownedDevices.count >= max(1, dashboard.maxOwnedDevices)
+    }
+}
+
 /// Phones and Web App sign-ins that can reach this Mac. The Android app signs in as `phone`; the
 /// Web App added to an iPhone or iPad home screen signs in as `browser`/`web` (§6.4).
 public enum DesktopRemoteClients {

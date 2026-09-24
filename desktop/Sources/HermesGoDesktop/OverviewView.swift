@@ -37,7 +37,9 @@ struct OverviewView: View {
                     }
                 }
 
-                if model.isManageOnly {
+                if showsSetupProblem {
+                    setupProblemCard
+                } else if model.isManageOnly {
                     manageOnlyBanner
                 } else if showsNoPhoneHint {
                     noPhoneBanner
@@ -57,6 +59,40 @@ struct OverviewView: View {
             .padding(34)
         }
         .refreshable { await model.refresh() }
+    }
+
+    /// §8: a half-installed or inconsistent Mac stays on main, so the reason belongs at the top of
+    /// the overview instead of behind the sidebar. `existingServicePreserved` is deliberately not
+    /// this case — that is a working connection, not a problem.
+    private var showsSetupProblem: Bool {
+        model.bootstrapPlan.readiness == .existingServiceNeedsAttention
+    }
+
+    private var setupProblemCard: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.bootstrapPlan.titleChinese)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(model.bootstrapPlan.detailChinese)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            VStack(alignment: .trailing, spacing: 6) {
+                Button("查看详情") { selection = .pairing }
+                    .buttonStyle(.bordered)
+                CopyDiagnosticsButton(
+                    issue: model.managedBootstrapIssue ?? model.componentBootstrapIssue
+                )
+            }
+        }
+        .padding(14)
+        .background(Color.orange.opacity(colorScheme == .dark ? 0.16 : 0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     /// Chosen "只在这台 Mac 上管理" (§7.1): the way back into onboarding stays one click away.

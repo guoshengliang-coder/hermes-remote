@@ -66,6 +66,17 @@ final class DesktopOnboardingTests: XCTestCase {
         )
     }
 
+    /// §4.1 row 6b. `existingServicePreserved` means a working existing connection was kept because
+    /// the managed channel is unavailable. It is not the "needs attention" problem case (§8), but it
+    /// must stay on main for the same reason: onboarding would offer a second install.
+    func testPreservedExistingConnectionStaysOnMain() {
+        XCTAssertEqual(route(signedIn(), readiness: .existingServicePreserved), .main)
+        XCTAssertEqual(
+            route(signedIn(owned: [device("hermes-mini")]), readiness: .existingServicePreserved),
+            .main
+        )
+    }
+
     func testRunningSetupKeepsOnboardingOnScreenWhateverTheReadiness() {
         XCTAssertEqual(
             route(signedIn(), readiness: .checking, setupInProgress: true),
@@ -128,6 +139,26 @@ final class DesktopOnboardingTests: XCTestCase {
             route(signedIn(owned: [device("hermes-shared", access: "operator")]), readiness: .readyForManagedInstall),
             .onboarding(.connectMac)
         )
+    }
+
+    // MARK: Owned-Mac quota (§7.2)
+
+    /// §7.2: at the limit the connect option is the unavailable one and manage-only still works. The
+    /// limit comes from the Gateway (3 with multi-device, otherwise 1); only owned Macs count.
+    func testOwnedMacQuotaBlocksAddingAMacOnlyWhenFull() {
+        XCTAssertFalse(DesktopOwnedMacQuota.isFull(dashboard(owned: [], maxOwned: 3)))
+        XCTAssertFalse(DesktopOwnedMacQuota.isFull(dashboard(owned: [device("hermes-mini")], maxOwned: 3)))
+        XCTAssertTrue(
+            DesktopOwnedMacQuota.isFull(
+                dashboard(owned: (0..<3).map { device("hermes-\($0)") }, maxOwned: 3)
+            )
+        )
+        XCTAssertTrue(DesktopOwnedMacQuota.isFull(dashboard(owned: [device("hermes-mini")], maxOwned: 1)))
+    }
+
+    /// A Gateway reporting an impossible limit must not make the page claim a Mac can be added.
+    func testOwnedMacQuotaTreatsANonPositiveLimitAsOne() {
+        XCTAssertTrue(DesktopOwnedMacQuota.isFull(dashboard(owned: [device("hermes-mini")], maxOwned: 0)))
     }
 
     // MARK: Phone step (§6.4)
@@ -211,7 +242,26 @@ final class DesktopOnboardingTests: XCTestCase {
         ))
     }
 
-    private func signedIn(owned: [AccountDevice] = [], localDeviceID: String? = nil) -> DesktopAccountState {
+    private func dashboard(
+        owned: [AccountDevice] = [],
+        localDeviceID: String? = nil,
+        maxOwned: Int = 3
+    ) -> AccountDashboard {
+        guard case .signedIn(let dashboard) = signedIn(
+            owned: owned,
+            localDeviceID: localDeviceID,
+            maxOwned: maxOwned
+        ) else {
+            preconditionFailure("the helper only builds signed-in states")
+        }
+        return dashboard
+    }
+
+    private func signedIn(
+        owned: [AccountDevice] = [],
+        localDeviceID: String? = nil,
+        maxOwned: Int = 3
+    ) -> DesktopAccountState {
         let account = HermesAccount(
             id: "10000000-0000-4000-8000-000000000001",
             displayName: "Owner",
@@ -247,7 +297,7 @@ final class DesktopOnboardingTests: XCTestCase {
             binding: binding,
             installations: [],
             devices: owned,
-            maxOwnedDevices: 3
+            maxOwnedDevices: maxOwned
         ))
     }
 

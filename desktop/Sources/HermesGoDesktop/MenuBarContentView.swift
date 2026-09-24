@@ -15,7 +15,7 @@ struct MenuBarContentView: View {
                         .font(.system(size: 14, weight: .bold))
                     HStack(spacing: 6) {
                         StatusDot(level: model.overallLevel, size: 8)
-                        Text(model.statusTitle)
+                        Text(model.menuBarStatusTitle)
                             .font(.system(size: 12))
                     }
                 }
@@ -25,14 +25,15 @@ struct MenuBarContentView: View {
             Divider()
 
             accountStatusRow
-            statusRow(.gateway)
-            statusRow(.hermes)
+            statusRows
+            if let gateAction {
+                gateActionRow(gateAction)
+            }
 
             Divider()
 
             Button {
-                openWindow(id: "main")
-                NSApplication.shared.activate(ignoringOtherApps: true)
+                openMainWindow()
             } label: {
                 Label("打开主窗口", systemImage: "macwindow")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,6 +86,88 @@ struct MenuBarContentView: View {
         .font(.system(size: 12))
         .padding(.horizontal, 14)
         .frame(height: 34)
+    }
+
+    /// §9: the menu bar keeps working while the window is gated. Signed out it offers sign-in, and a
+    /// signed-in Mac with nothing installed offers to finish setup. Both only open the main window —
+    /// `RootView` decides the page — so the menu bar can never bypass the gate.
+    private var gateAction: (title: String, symbol: String)? {
+        switch model.entryRoute {
+        case .signIn: ("登录 Hermes GO", "person.crop.circle")
+        case .onboarding: ("完成设置", "checklist")
+        default: nil
+        }
+    }
+
+    private func gateActionRow(_ action: (title: String, symbol: String)) -> some View {
+        Button {
+            openMainWindow()
+        } label: {
+            HStack {
+                Label(action.title, systemImage: action.symbol)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(Color.hermesBlue)
+        .padding(.horizontal, 14)
+        .frame(height: 34)
+    }
+
+    /// §9: in manage-only mode this Mac has no Gateway or Hermes of its own, so the two rows report
+    /// the Mac being managed instead of this machine.
+    @ViewBuilder private var statusRows: some View {
+        if model.isManageOnly, let device = model.selectedAccountDevice {
+            managedDeviceRow(
+                title: "正在管理",
+                value: device.desktopDisplayName,
+                level: .healthy,
+                showsStatusDot: false
+            )
+            managedDeviceRow(
+                title: "Connector",
+                value: device.connector.online ? "在线" : "离线",
+                level: device.connector.online ? .healthy : .unavailable
+            )
+            managedDeviceRow(
+                title: "Hermes",
+                value: model.overviewHermesSummary,
+                level: device.hermes.reachable == true ? .healthy : .unavailable
+            )
+        } else {
+            statusRow(.gateway)
+            statusRow(.hermes)
+        }
+    }
+
+    private func managedDeviceRow(
+        title: String,
+        value: String,
+        level: HealthLevel,
+        showsStatusDot: Bool = true
+    ) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            if showsStatusDot {
+                StatusDot(level: level, size: 8)
+            }
+            Text(value)
+                .foregroundStyle(.secondary)
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 14)
+        .frame(height: 34)
+    }
+
+    private func openMainWindow() {
+        openWindow(id: "main")
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     private func statusRow(_ component: HealthComponent) -> some View {

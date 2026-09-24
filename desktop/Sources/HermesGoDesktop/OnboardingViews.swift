@@ -555,7 +555,7 @@ struct NewMacChoiceGateView: View {
         let dashboard = model.currentDashboard
         let others = dashboard.map(DesktopEntryRouter.otherOwnedDevices) ?? []
         let limit = dashboard?.maxOwnedDevices ?? 1
-        let full = others.count >= limit
+        let full = dashboard.map(DesktopOwnedMacQuota.isFull) ?? false
         let effectiveChoice = choice ?? (full ? .manageOnly : .connect)
         GateShell(step: nil) {
             VStack(alignment: .leading, spacing: 0) {

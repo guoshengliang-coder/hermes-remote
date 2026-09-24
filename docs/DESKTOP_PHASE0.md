@@ -1209,3 +1209,65 @@ Not verified here: the real installer. No test runs upstream's `install.sh`, tou
 real `~/.hermes`, launchd or `~/Library`; the driver is tested against fake installer scripts run by
 the real process runner in a throwaway home (`DesktopHermesInstallerTests`). The manual run on a clean
 macOS user or VM is in `docs/DESKTOP_TEST_PLAN.md`.
+
+### Sign-in gate and first-run onboarding — 2026-09-25 (HG-129)
+
+Desktop no longer opens onto five sidebar sections while signed out. `RootView` asks
+`DesktopEntryRouter` where the window goes, from three facts that are never merged into one flag: the
+account state, this Mac's own `bootstrapPlan.readiness`, and the account's other **owned** Macs.
+`.checking` is its own state, so launch shows a "正在检查" page instead of flashing the sign-in page,
+and `.checking` with an account issue shows the registered code with 重试 / 复制诊断 rather than
+spinning forever. Signed out or session-expired, the whole window is the sign-in page; an expired
+session carries its `HR-AUTH-*` reason in a banner above it, an explicit sign-out does not, and
+signing back in returns to the section that was interrupted. Reaching the Gateway without account
+support and a submitted account deletion are their own windows too.
+
+The gate is presentation only, at `RootView`. `startMonitoring()` keeps running and keeps calling
+`refresh()` → `refreshHermesRuntime()` while the window is gated, and no gate state starts, stops or
+skips a service. A Mac that was already installed and whose session expires therefore keeps serving
+its phone while its owner sees a sign-in page. That claim is asserted by review rather than by a test,
+because the monitoring loop and the window live in the executable target that the test target does not
+depend on; the manual steps are in `docs/DESKTOP_TEST_PLAN.md`.
+
+A signed-in Mac with no managed install enters four-step onboarding: 1 登录, 2 准备 Hermes, 3 连接这台
+Mac, 4 连上手机. It is a presentation over the existing plan → confirm → commit flow. Step 2 reuses
+`HermesInstallCard`, including the "one Hermes per Mac" rule and its note that model providers are
+configured later with `hermes setup` — onboarding asks for no API key and does not depend on a model
+being configured, since step 3's `verifyEndToEnd` probes reachability, not the model. Step 3's
+machine-changing operations still stop at the existing confirmation sheet, now attached once at the
+window root so it presents wherever setup was started. Nothing about progress is written down: each
+launch re-derives the step from real state. The one remembered fact is per account — that this Mac
+entered onboarding, plus the phone IDs that already existed when step 4 began.
+
+Step 4 splits Android from iPhone/iPad because Desktop cannot know which phone the owner holds. Both
+targets are public, unauthenticated URLs derived from the account Gateway's origin and rendered as QR
+codes locally: `/` for the Android APK (the release server redirects it to the newest versioned file)
+and `/app/` for the Web App that is added to the home screen. A Web App sign-in arrives as a
+`browser`/`web` installation and counts as connected; the page never labels it an iPhone, because the
+Gateway records no device name for it. Only a `phone` or `browser` installation that appears after
+step 4 began counts, so a phone that was already connected does not tick it by itself. 「稍后再说」
+finishes the step and leaves a "还没有手机连接" card on the overview instead of a second prompt.
+
+An account that already owns a Mac but signs in on a new one is asked first — "把这台 Mac 也连上" or
+"只在这台 Mac 上管理". The second answer is remembered per account, shows the selected Mac's status in
+the overview and the menu bar, and stays one click from going back. `DesktopOwnedMacQuota.isFull`
+decides when the first option must become "先移除一台 Mac"; at the limit, removing an owned Mac calls
+`DELETE /v2/devices/{id}` with a `connector.unbind` grant obtained from an email code.
+`AccountAPIClient` reuses the grant when a response was lost, and refuses to run at all without
+multi-device or for a device this account does not own.
+
+`.existingServiceNeedsAttention` and `.existingServicePreserved` both stay out of onboarding, because
+the planner already refuses a second install. The first shows the plan's title and detail as a problem
+card at the top of the overview with 复制诊断 and 查看详情; the second is a working connection, so it
+keeps the compatibility banner and gets no problem card. The menu bar mirrors the gate: signed out it
+offers "登录 Hermes GO", a signed-in Mac with nothing installed offers "完成设置" (both only open the
+main window, which routes), and manage-only mode replaces the Gateway/Hermes rows with the managed
+Mac's name, Connector and Hermes rows.
+
+Verified: `swift test --package-path desktop` → 503 tests, 0 failures, 32 of them new (every §4.1 route
+row including `.existingServicePreserved`, the new-Mac choice and quota, the phone-step completion
+rule, the onboarding record, and `DELETE /v2/devices/{id}` construction, grant reuse, fail-closed and
+shared-device refusal). `swift build` compiles the executable target. The mockups are
+`docs/design/desktop-onboarding/`. Not verified: the clean-Mac first run, the two QR codes on real
+phones, and the "services keep running while the window is gated" claim — all three are manual steps
+in `docs/DESKTOP_TEST_PLAN.md`.
