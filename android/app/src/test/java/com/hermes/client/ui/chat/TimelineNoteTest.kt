@@ -227,4 +227,34 @@ class TimelineNoteTest {
         val mixed = "看看这个\n[screenshot]\n[User sent an image: https://example.com/a.png]"
         assertEquals("看看这个", withoutAttachmentScaffolding(mixed))
     }
+
+    // Regression for HG-125, taken from the production store (Hermes 0.21.3): a link pasted on
+    // the PC client submits as an @url reference, and upstream staples the fetched page behind a
+    // "--- Attached Context ---" footer inside the person's own turn — one 8,253-character row
+    // rendered as if the user had typed it.
+    @Test fun `attached context is cut and the typed prompt kept`() {
+        val typed = "@url:`https://example.app.workbuddy.host/#s1`  这个是一个同事的晋升报告，请根据公司的职级标准进行评价"
+        val turn = "$typed\n\n" +
+            "--- Attached Context ---\n\n" +
+            "🌐 @url:`https://example.app.workbuddy.host/#s1` (5595 tokens)\n" +
+            "**个人申报材料** · 杜珊珊 · 2026\n\n回到顶部 打印 / 导出 PDF…"
+        assertEquals(typed, withoutAttachedContextScaffolding(turn))
+        assertEquals(typed, msg(turn).organizedForDisplay().text)
+    }
+
+    // The other footer the same upstream file can append; the official desktop client removes it
+    // to the end of the turn even when no attached-context marker is present (hydration.ts).
+    @Test fun `a context warnings section is removed to the end`() {
+        assertEquals("帮我看看", withoutAttachedContextScaffolding("帮我看看\n\n--- Context Warnings ---\n- 截断到 2000 tokens"))
+        assertEquals("", withoutAttachedContextScaffolding("--- Context Warnings ---\n- x\n\n帮我看看"))
+    }
+
+    @Test fun `a turn without either footer is untouched`() {
+        val plain = "帮我看看昨天的数据\n--- 只是一道分割线 ---"
+        assertEquals(plain, withoutAttachedContextScaffolding(plain))
+    }
+
+    @Test fun `a footer-only turn collapses to empty`() {
+        assertEquals("", withoutAttachedContextScaffolding("--- Attached Context ---\n\n网页正文"))
+    }
 }

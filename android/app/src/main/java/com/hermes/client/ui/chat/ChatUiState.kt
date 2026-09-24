@@ -325,8 +325,11 @@ internal fun ChatMessage.organizedForDisplay(): ChatMessage {
         // about to become a timeline note, whose expanded body shows the original.
         //
         // Attachment context notes are cut the same way and for the same reason, except they can
-        // land on either side of the person's own words (HG-24).
-        val stripped = withoutAttachmentScaffolding(withoutCompressionScaffolding(text))
+        // land on either side of the person's own words (HG-24). An @-reference's fetched
+        // content rides the same turn behind a "--- Attached Context ---" footer (HG-125).
+        val stripped = withoutAttachmentScaffolding(
+            withoutCompressionScaffolding(withoutAttachedContextScaffolding(text)),
+        )
         return if (stripped.isBlank() || stripped == text) this else copy(text = stripped)
     }
     // REST history preserves Hermes tool turns as role="tool"; the domain mapper represents

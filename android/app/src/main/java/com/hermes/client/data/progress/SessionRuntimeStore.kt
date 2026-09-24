@@ -238,6 +238,10 @@ class SessionRuntimeStore(
     private val processPollJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
     private val processPollGraceRemaining = ConcurrentHashMap<SessionRuntimeKey, Int>()
     private val historyReconcileJobs = ConcurrentHashMap<SessionRuntimeKey, Job>()
+    private val reuseReconcileAt = ConcurrentHashMap<SessionRuntimeKey, Long>()
+
+    /** Wall clock for gates that expire by quiet time; injectable so tests can age a runtime. */
+    internal var nowProvider: () -> Long = { System.currentTimeMillis() }
     private val visible = ConcurrentHashMap.newKeySet<SessionRuntimeKey>()
     private val _visibleSessions = MutableStateFlow<Set<SessionRuntimeKey>>(emptySet())
     /** Sessions whose chat screen is currently composed (regardless of app foreground state). */
@@ -1127,12 +1131,21 @@ class SessionRuntimeStore(
             val spanned = com.hermes.client.ui.chat.rowsFrom(runtime.chat.messages, snapshot.firstOrNull()?.serverId)
             val liveChars = spanned.sumOf { it.text.length + it.thinking.length }
             val historyChars = snapshot.sumOf { it.text.length + it.thinking.length }
+            // COMPLETED_UNREAD and a lastEventAt past the request start once kept a stale restored
+            // transcript on screen through every re-entry (HG-124 relapse, 0.1.142): the snapshot
+            // fetched to repair it was discarded unread, while the manual refresh — which judges
+            // coverage with the same tolerance — showed the new content. Both clauses now yield to
+            // a snapshot that covers every local turn, and to a strictly-ahead snapshot once the
+            // local lead is a dead send the server never persisted (staleLocalLead).
+            val coveredBySnapshot = snapshot.covers(expectationFor(runtime).copy(lastAssistantText = ""))
             val keepLive = runtime.chat.messages.isNotEmpty() && (
                 runtime.phase.isActive ||
-                    runtime.phase == SessionRunPhase.COMPLETED_UNREAD ||
-                    runtime.lastEventAt > requestStartedAt ||
                     spanned.size > snapshot.size ||
-                    liveChars > historyChars
+                    liveChars > historyChars ||
+                    (!coveredBySnapshot && !staleLocalLead(runtime, snapshot) && (
+                        runtime.phase == SessionRunPhase.COMPLETED_UNREAD ||
+                            runtime.lastEventAt > requestStartedAt
+                        ))
                 )
             runtime.copy(
                 chat = runtime.chat.copy(
@@ -1941,6 +1954,20 @@ class SessionRuntimeStore(
         job.start()
     }
 
+    /**
+     * One bounded reconcile when open() reuses an already-live session (HG-124): reuse used to be
+     * a pure short-circuit, so a transcript gone stale behind the coverage gate stayed stale for
+     * as long as the ViewModel lived. Throttled so repeated open() calls — configuration changes,
+     * overlay round-trips — cost at most one ladder per interval.
+     */
+    fun requestReuseReconcile(key: SessionRuntimeKey) {
+        val runtime = _runtimes.value[key] ?: return
+        val now = nowProvider()
+        if (now - (reuseReconcileAt[key] ?: 0L) < REUSE_RECONCILE_MIN_INTERVAL_MS) return
+        reuseReconcileAt[key] = now
+        scheduleHistoryReconciliation(key, expectationFor(runtime))
+    }
+
     private fun acceptReconciledHistory(
         key: SessionRuntimeKey,
         messages: List<ChatMessage>,
@@ -1958,7 +1985,11 @@ class SessionRuntimeStore(
                 else -> snapshot.coverageGap(expectation)
             }
             if (reason == null) "reconcile s=${key.sessionId}: ${snapshot.size} rows cover the local turns"
-            else "reconcile s=${key.sessionId} rejected: $reason"
+            else {
+                val expired = _runtimes.value[key]?.let { staleLocalLead(it, snapshot) } == true
+                if (expired) "reconcile s=${key.sessionId}: stale local lead expired (HG-124), accepting over: $reason"
+                else "reconcile s=${key.sessionId} rejected: $reason"
+            }
         }
         updateRuntime(key, cause = "reconcile") { runtime ->
             // The newest page merged into the repository's window. Older rows the screen holds
@@ -1970,7 +2001,10 @@ class SessionRuntimeStore(
             // It is safe to refresh text while a run is still active as long as REST covers every
             // locally observed turn. Keep the phase unchanged; a terminal event/session.info still
             // owns the transition to idle. This also recovers deltas lost during reconnect.
-            if (newerPromptStarted || !snapshot.covers(expectation)) {
+            // The one refusal with no rung left to wait for is a lead the server has moved past
+            // without ever persisting: an idle, long-quiet runtime holding rows REST will never
+            // carry refused every fetch forever while the page sat stale (HG-124).
+            if ((newerPromptStarted || !snapshot.covers(expectation)) && !staleLocalLead(runtime, snapshot)) {
                 return@updateRuntime runtime
             }
             runtime.copy(
@@ -2026,23 +2060,54 @@ class SessionRuntimeStore(
         // Mappers only strips the shapes it knows, anchored to whole lines. A turn sent with
         // images therefore comes back longer than what the user typed, and an equality test
         // rejects that snapshot forever (HG-59): the phone kept a finished run spinning for ten
-        // minutes while every REST answer already carried the result. Match the assistant branch
-        // below -- the remote row containing the local text is what "covers" has to mean, because
-        // the exact persisted shape belongs to Hermes and we cannot version-negotiate it.
-        val lastUser = users.lastOrNull()?.text.orEmpty().matchText()
+        // minutes while every REST answer already carried the result. The remote row containing
+        // the local text is what "covers" has to mean, because the exact persisted shape belongs
+        // to Hermes and we cannot version-negotiate it.
+        //
+        // "Containing the local text" cannot mean the LAST remote row either. A prompt sent from
+        // another device reaches Hermes without a single message.* event ever reaching this
+        // phone — only the run.started/run.completed pair does — so the REST snapshot can be a
+        // whole turn AHEAD of the expectation, with the local turns still inside it. Judging
+        // coverage by last-row equality rejected exactly that snapshot three times in a row
+        // (HG-124, 20260924_102646_68e7a7) while the page sat stale until a manual refresh. The
+        // count checks above already refuse snapshots that lag; here the local text just has to
+        // survive in SOME remote row, with the HG-59 contains() tolerance intact.
         if (expectation.lastUserText.isNotBlank() &&
-            lastUser != expectation.lastUserText &&
-            !lastUser.contains(expectation.lastUserText)
+            users.none {
+                val remote = it.text.orEmpty().matchText()
+                remote == expectation.lastUserText || remote.contains(expectation.lastUserText)
+            }
         ) {
             return "last user turn differs"
         }
         if (expectation.lastAssistantText.isBlank()) return null
-        val persisted = assistants.lastOrNull()?.text.orEmpty().matchText()
-        if (persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)) return null
+        // Same direction as the user branch: a cross-device round appends a newer assistant turn
+        // after the one this phone watched stream, so coverage is presence, not last-row equality.
+        if (assistants.any {
+                val persisted = it.text.orEmpty().matchText()
+                persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)
+            }
+        ) return null
         return "last assistant text not yet persisted"
     }
 
     private fun String.matchText(): String = trim().replace(Regex("\\s+"), " ")
+
+    /**
+     * True when the local transcript's only lead over [snapshot] is rows Hermes never persisted —
+     * a failed or interrupted send. The runtime must be idle, quiet for [STALE_LOCAL_LEAD_MS]
+     * (the reconcile ladder runs for seconds after a commit-worthy event, never minutes), and the
+     * snapshot's newest turn must be strictly newer than the newest one held locally, so an answer
+     * that finished live and is only waiting on its commit stays protected (HG-124).
+     */
+    private fun staleLocalLead(runtime: SessionRuntime, snapshot: List<ChatMessage>): Boolean {
+        if (runtime.phase.isActive || runtime.chat.isGenerating) return false
+        if (runtime.lastEventAt <= 0L || nowProvider() - runtime.lastEventAt < STALE_LOCAL_LEAD_MS) return false
+        val newestLocal = runtime.chat.messages.lastOrNull { it.timestamp != null }?.timestamp
+        val newestRemote = snapshot.lastOrNull { it.timestamp != null }?.timestamp
+        if (newestRemote == null) return false
+        return newestLocal == null || newestRemote > newestLocal
+    }
 
     /** Relay lifecycle events stamp ISO-8601 `occurredAt`; a malformed stamp falls back to now. */
     private fun parseOccurredAt(value: String?): Long? {
@@ -2186,6 +2251,16 @@ class SessionRuntimeStore(
         const val WATCHDOG_TICK_MS = 60_000L
         /** One probe per run per minute, however many triggers fire. */
         const val PROBE_MIN_INTERVAL_MS = 60_000L
+        /**
+         * How long an idle runtime must stay quiet before a strictly-ahead snapshot may retire
+         * local rows Hermes never persisted. The coverage gate exists to wait out a turn's commit;
+         * a failed or interrupted send is a lead the server will never match, and without this
+         * expiry it refuses every fetch forever (HG-124: 20260924_102646_68e7a7 sat three hours
+         * stale through six full fetches that were all refused).
+         */
+        const val STALE_LOCAL_LEAD_MS = 10 * 60_000L
+        /** At most one reuse-triggered reconcile ladder per session per 30 s. */
+        const val REUSE_RECONCILE_MIN_INTERVAL_MS = 30_000L
         /**
          * A burst of these arrives whenever upstream touches the list (a title, a usage update),
          * and each one would otherwise fan out a resume per visible conversation. Five seconds is

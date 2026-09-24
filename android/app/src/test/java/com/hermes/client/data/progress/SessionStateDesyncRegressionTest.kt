@@ -340,4 +340,90 @@ class SessionStateDesyncRegressionTest {
         coVerify(exactly = 1) { sessions.history("s1", "personal") }
         assertEquals("正在分析", store.runtimes.value.getValue(key).chat.messages.last().thinking)
     }
+
+    /**
+     * HG-124. A prompt sent from the PC lands in the Hermes transcript without a single message.*
+     * event ever reaching the phone — only the run.started/run.completed pair does — so the
+     * reconcile ladder is the only channel that can deliver that round to an open page. Its gate
+     * used to read "the snapshot's last user text differs from the expectation" as staleness,
+     * which rejects exactly the server-ahead snapshot: measured 2026-09-24 on
+     * 20260924_102646_68e7a7, three consecutive passes answered "last user turn differs" for a
+     * round Hermes had already committed, and the page sat stale until a manual refresh.
+     */
+    @Test fun reconcileAcceptsASnapshotAheadByACrossDeviceTurn() = runTest {
+        val sessions = mockk<SessionRepository>()
+        coEvery { sessions.history("s1", "personal") } returns listOf(
+            ChatMessage("h-0", Role.USER, "昨天公司数据如何？"),
+            ChatMessage("h-1", Role.ASSISTANT, "第一轮回答"),
+            ChatMessage("h-2", Role.USER, "PC 上发的新问题"),
+            ChatMessage("h-3", Role.ASSISTANT, "PC 上跑完的回答"),
+        )
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "昨天公司数据如何？")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("message.delta", "s1", "第一轮回答"))
+        events.emit(event("message.complete", "s1", "第一轮回答"))
+        advanceUntilIdle()
+
+        // The PC sends the next prompt; the phone only ever hears the lifecycle pair for it.
+        store.applyObservedLifecycle(lifecycle("run.started", "s1"))
+        advanceUntilIdle()
+        store.applyObservedLifecycle(lifecycle("run.completed", "s1"))
+        advanceUntilIdle()
+
+        val messages = store.runtimes.value.getValue(key).chat.messages
+        assertEquals("跨端新轮次必须经对账进入页面（HG-124）", "PC 上发的新问题", messages.last { it.role == Role.USER }.text)
+        assertEquals("PC 上跑完的回答", messages.last { it.role == Role.ASSISTANT }.text)
+    }
+
+    /** The protection the gate exists for: a snapshot that lags the local turn is still refused. */
+    @Test fun reconcileStillRefusesASnapshotThatLagsTheLocalTurn() = runTest {
+        val sessions = mockk<SessionRepository>()
+        coEvery { sessions.history("s1", "personal") } returns listOf(
+            ChatMessage("h-0", Role.USER, "昨天公司数据如何？"),
+            ChatMessage("h-1", Role.ASSISTANT, "第一轮回答"),
+        )
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "昨天公司数据如何？")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("message.complete", "s1", "第一轮回答"))
+        advanceUntilIdle()
+
+        // Hermes has not committed this phone's follow-up yet; the snapshot cannot contain it.
+        store.beginPrompt(key, "手机上接着问")
+        events.emit(event("message.start", "s1"))
+        advanceUntilIdle()
+        store.applyObservedLifecycle(lifecycle("run.completed", "s1"))
+        advanceUntilIdle()
+
+        val messages = store.runtimes.value.getValue(key).chat.messages
+        assertTrue("本地未落盘的轮次不得被对账抹掉", messages.any { it.text == "手机上接着问" })
+    }
+
+    /**
+     * Equal counts with a different last user turn is divergence, not coverage: the narrowed
+     * HG-124 rule accepts a newer row only when the locally observed text still survives inside
+     * the snapshot. A snapshot that lost it entirely keeps being refused.
+     */
+    @Test fun reconcileStillRefusesASnapshotThatLostTheLocalTurn() = runTest {
+        val sessions = mockk<SessionRepository>()
+        coEvery { sessions.history("s1", "personal") } returns listOf(
+            ChatMessage("h-0", Role.USER, "服务端那条不相关的旧轮次"),
+            ChatMessage("h-1", Role.ASSISTANT, "第一轮回答"),
+        )
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "手机上发的")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("message.complete", "s1", "第一轮回答"))
+        advanceUntilIdle()
+        store.applyObservedLifecycle(lifecycle("run.completed", "s1"))
+        advanceUntilIdle()
+
+        val messages = store.runtimes.value.getValue(key).chat.messages
+        assertTrue("轮数相同但丢了本地文本的快照必须拒绝", messages.any { it.text == "手机上发的" })
+        assertFalse(messages.any { it.text == "服务端那条不相关的旧轮次" })
+    }
 }
