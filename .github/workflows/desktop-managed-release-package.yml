@@ -1,0 +1,177 @@
+name: Desktop signed manifest candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      managed_version:
+        description: New paired Desktop release version
+        required: true
+        type: string
+      connector_version:
+        description: Version in connector/package.json
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-signed-candidate
+  cancel-in-progress: false
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    environment: desktop-release
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22.23.2, cache: npm }
+      - name: Require clean current main and unused version
+        env:
+          MANAGED_VERSION: ${{ inputs.managed_version }}
+          CONNECTOR_VERSION: ${{ inputs.connector_version }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          [[ "$MANAGED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(node -p 'require("./connector/package.json").version')" = "$CONNECTOR_VERSION"
+          test "$(node -p 'process.versions.node')" = 22.23.2
+          test -z "$(git status --porcelain)"
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          if git ls-remote --exit-code --tags origin "refs/tags/desktop-managed-v$MANAGED_VERSION" >/dev/null; then
+            echo 'Desktop managed version is already tagged.' >&2
+            exit 65
+          fi
+      - run: npm ci --ignore-scripts
+      - run: npm run build && npm test
+      - name: Build new Connector archives and verify immutable Hermes reuse
+        env:
+          CONNECTOR_VERSION: ${{ inputs.connector_version }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/desktop-pair"
+          mkdir -p "$root/input" "$root/archives/v1" "$root/archives/v2" "$root/release" "$root/components"
+          curl -fsS --proto '=https' \
+            https://mrlgs.net/desktop/releases/0.4.3/Hermes-Server-0.21.0-arm64.tar.gz \
+            -o "$root/input/Hermes-Server-0.21.0-arm64.tar.gz"
+          observed=$(shasum -a 256 "$root/input/Hermes-Server-0.21.0-arm64.tar.gz" | awk '{print $1}')
+          test "$observed" = 06513b2a2d137d70541d2a7b190ea305365a421f8f90d6e21ebb9e814852dc1e
+          node --input-type=module - <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          const root = join(process.env.RUNNER_TEMP, 'desktop-pair');
+          const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const version = process.env.CONNECTOR_VERSION;
+          writeFileSync(join(root, 'v1-archive-config.json'), JSON.stringify({
+            schemaVersion: 1, architecture: 'arm64', sourceCommit,
+            nodeBinary: process.execPath, connector: { version },
+          }));
+          writeFileSync(join(root, 'v2-archive-config.json'), JSON.stringify({
+            schemaVersion: 2, architecture: 'arm64', sourceCommit,
+            nodeRuntime: { version: '22.23.2', binary: process.execPath },
+            connector: { version },
+          }));
+          NODE
+          node scripts/package-desktop-connector.mjs \
+            --config "$root/v1-archive-config.json" --output "$root/archives/v1"
+          node scripts/package-desktop-components-v2.mjs \
+            --config "$root/v2-archive-config.json" --output "$root/archives/v2"
+      - name: Sign both manifests and independently verify the outputs
+        env:
+          MANAGED_VERSION: ${{ inputs.managed_version }}
+          CONNECTOR_VERSION: ${{ inputs.connector_version }}
+          SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SIGNING_PRIVATE_KEY }}
+          SIGNING_KEY_ID: ${{ vars.DESKTOP_RELEASE_SIGNING_KEY_ID }}
+          SIGNING_PUBLIC_KEY: ${{ vars.DESKTOP_RELEASE_SIGNING_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          for name in SIGNING_PRIVATE_KEY SIGNING_KEY_ID SIGNING_PUBLIC_KEY; do
+            test -n "${!name}" || { echo "Missing protected Desktop signing input: $name" >&2; exit 64; }
+          done
+          node scripts/verify-desktop-release-key-continuity.mjs \
+            https://mrlgs.net "$SIGNING_KEY_ID" "$SIGNING_PUBLIC_KEY" "$MANAGED_VERSION"
+          umask 077
+          signing_root=$(mktemp -d "$RUNNER_TEMP/desktop-manifest-signing.XXXXXXXX")
+          trap 'rm -rf "$signing_root"' EXIT
+          printf '%s\n' "$SIGNING_PRIVATE_KEY" > "$signing_root/private.pem"
+          unset SIGNING_PRIVATE_KEY
+          export SIGNING_KEY_PATH="$signing_root/private.pem"
+          node --input-type=module - <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { desktopComponentArchiveContentIdentity } from './scripts/lib/desktop-managed-release.mjs';
+          const root = join(process.env.RUNNER_TEMP, 'desktop-pair');
+          const version = process.env.MANAGED_VERSION;
+          const connectorVersion = process.env.CONNECTOR_VERSION;
+          const keyId = process.env.SIGNING_KEY_ID;
+          const privateKeyFile = process.env.SIGNING_KEY_PATH;
+          const createdAt = new Date();
+          const expiresAt = new Date(createdAt.valueOf() + 30 * 24 * 60 * 60 * 1000);
+          const common = {
+            releaseVersion: version, channel: 'internal', architecture: 'arm64',
+            minimumMacOS: '14.0',
+            createdAt: createdAt.toISOString().replace('.000Z', 'Z'),
+            expiresAt: expiresAt.toISOString().replace('.000Z', 'Z'),
+            artifactOrigin: 'https://mrlgs.net',
+            signing: { keyId, privateKeyFile },
+          };
+          const server = join(root, 'input', 'Hermes-Server-0.21.0-arm64.tar.gz');
+          const connectorV1 = join(root, 'archives', 'v1', `Hermes-Connector-${connectorVersion}-arm64.tar.gz`);
+          writeFileSync(join(root, 'v1-signing-config.json'), JSON.stringify({
+            ...common, schemaVersion: 1, artifactPathPrefix: `/desktop/releases/${version}`,
+            artifacts: [
+              { component: 'hermes_server', version: '0.21.0', source: server, entrypoint: 'bin/hermes-server' },
+              { component: 'connector', version: connectorVersion, source: connectorV1, entrypoint: 'bin/hermes-connector' },
+            ],
+          }));
+          const nodeArchive = join(root, 'archives', 'v2', 'Hermes-Component-node_runtime-22.23.2-arm64.tar.gz');
+          const connectorV2 = join(root, 'archives', 'v2', `Hermes-Component-connector-${connectorVersion}-arm64.tar.gz`);
+          const nodeHash = await desktopComponentArchiveContentIdentity({ archivePath: nodeArchive, entrypoint: 'bin/node' });
+          const connectorHash = await desktopComponentArchiveContentIdentity({ archivePath: connectorV2, entrypoint: 'bin/hermes-connector' });
+          const shared = {
+            architecture: 'arm64', installPhase: 'bootstrap', requiredForBootstrap: true,
+            reuseContract: 'exact_content',
+          };
+          writeFileSync(join(root, 'v2-signing-config.json'), JSON.stringify({
+            ...common, schemaVersion: 2, artifactPathPrefix: `/desktop/components/${version}`,
+            components: [
+              { ...shared, kind: 'node_runtime', version: '22.23.2', source: nodeArchive,
+                entrypoint: 'bin/node', contentSHA256: nodeHash, dependencies: [] },
+              { ...shared, kind: 'connector', version: connectorVersion, source: connectorV2,
+                entrypoint: 'bin/hermes-connector', contentSHA256: connectorHash,
+                dependencies: [{ kind: 'node_runtime', contentSHA256: nodeHash }] },
+            ],
+          }));
+          NODE
+          root="$RUNNER_TEMP/desktop-pair"
+          node scripts/package-desktop-managed-release.mjs \
+            --config "$root/v1-signing-config.json" --output "$root/release"
+          node scripts/package-desktop-component-release-v2.mjs \
+            --config "$root/v2-signing-config.json" --output "$root/components"
+          rm "$SIGNING_KEY_PATH"
+          unset SIGNING_KEY_PATH
+          node scripts/verify-desktop-managed-release.mjs \
+            --manifest "$root/release/Hermes-Desktop-$MANAGED_VERSION-arm64.manifest.json" \
+            --artifacts "$root/release" --key-id "$SIGNING_KEY_ID" --public-key "$SIGNING_PUBLIC_KEY" \
+            --origin https://mrlgs.net --channel internal --architecture arm64
+          node scripts/verify-desktop-component-release-v2.mjs \
+            --manifest "$root/components/Hermes-Desktop-Components-$MANAGED_VERSION-arm64.manifest.json" \
+            --artifacts "$root/components" --key-id "$SIGNING_KEY_ID" --public-key "$SIGNING_PUBLIC_KEY" \
+            --origin https://mrlgs.net --channel internal --architecture arm64
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          shasum -a 256 "$root"/release/* "$root"/components/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Hermes-Desktop-Managed-${{ inputs.managed_version }}-signed-candidate-arm64
+          path: |
+            ${{ runner.temp }}/desktop-pair/release/*
+            ${{ runner.temp }}/desktop-pair/components/*
+          if-no-files-found: error
+          retention-days: 7
