@@ -43,13 +43,43 @@ have no authenticated path forward.
 
 ## GitHub environment
 
-Both `desktop-app-release.yml` (`desktop-v*`) and `connector-release.yml` (`connector-v*`) reference
+The manually dispatched `desktop-app-release.yml` and `connector-release.yml` candidate workflows reference
 the protected `desktop-release` environment. The environment must already exist. Configure a
-required reviewer who owns Desktop releases and these secrets:
+required reviewer who owns Desktop releases and these component-publisher secrets:
 
 - `DESKTOP_RELEASE_SIGNING_PRIVATE_KEY`
 - `DESKTOP_RELEASE_SSH_PRIVATE_KEY`
 - `DESKTOP_RELEASE_SSH_KNOWN_HOSTS`
+
+The official Desktop DMG candidate job additionally needs these environment secrets:
+
+- `DESKTOP_APP_SIGNING_P12_BASE64` and `DESKTOP_APP_SIGNING_P12_PASSWORD` (the Developer ID
+  Application certificate and its export password);
+- `DESKTOP_APP_SIGNING_IDENTITY` and `DESKTOP_APP_SIGNING_TEAM_ID`;
+- `DESKTOP_APP_NOTARY_KEY_BASE64`, `DESKTOP_APP_NOTARY_KEY_ID`, and
+  `DESKTOP_APP_NOTARY_ISSUER_ID` (App Store Connect **Team API key** notarization credentials).
+
+Configure `DESKTOP_RELEASE_SIGNING_KEY_ID` and `DESKTOP_RELEASE_SIGNING_PUBLIC_KEY` as environment
+variables, not private secrets. The public key must be the one trusted by the currently supported
+Desktop app. A key rotation first ships an app trusting both keys, as described above.
+
+Dispatch the candidate job from current `main` with the exact `desktop/Packaging/Info.plist` version.
+Before touching the Apple certificate, it verifies that the configured Ed25519 public key validates
+both live signed manifests and their index hashes; this blocks an accidental one-step key rotation.
+It creates a fresh temporary keychain on a macOS arm64 runner, builds the DMG in one invocation,
+submits it to Apple notarization, staples it, verifies the exact mounted app's Developer ID team,
+bundle version/build and both stable index URLs, then uploads the notarized DMG as a short-lived
+workflow artifact. An ad-hoc build cannot use the `official` DMG name. **This job does not publish
+the DMG or switch the component indexes.** Clean-Mac launch acceptance, the signed component
+manifests, public DMG upload/readback, and the paired-index publisher are separate release gates.
+Do not mistake a green candidate job or a downloaded Actions artifact for a user-visible release.
+
+The Connector candidate job runs from current `main` on macOS arm64 with exact Node 22.23.2. It
+builds and tests the repository, checks `connector/package.json` against the dispatch input, then
+creates the legacy schema-v1 Connector archive and the schema-v2 Node + Connector archives. Those
+unsigned archives are uploaded only as short-lived Actions artifacts. They must still be signed into
+both manifests, independently verified, staged behind exact public routes, and passed through the
+paired-index publisher before they are a release. Neither candidate workflow is tag-triggered.
 
 Repository CI and ordinary branch pushes must not receive these secrets. A workflow reference does
 not create or protect an environment; a repository administrator must configure the reviewer and

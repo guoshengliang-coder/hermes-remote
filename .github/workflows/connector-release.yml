@@ -1,34 +1,86 @@
-name: Connector release
+name: Connector candidate archives
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["connector-v*"]
+    inputs:
+      connector_version:
+        description: Version in connector/package.json
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: connector-release
+  group: connector-candidate
   cancel-in-progress: false
 
 jobs:
   package:
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
     environment: desktop-release
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: { node-version: 22, cache: npm }
-      - run: npm ci --ignore-scripts
-      - run: npm run build && npm test
-      - name: Verify release environment is provisioned
+        with: { node-version: 22.23.2, cache: npm }
+      - name: Require current main and exact Connector version
         env:
-          DESKTOP_RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SIGNING_PRIVATE_KEY }}
-          DESKTOP_RELEASE_SSH_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SSH_PRIVATE_KEY }}
+          CONNECTOR_VERSION: ${{ inputs.connector_version }}
         run: |
           set -euo pipefail
-          test -n "$DESKTOP_RELEASE_SIGNING_PRIVATE_KEY"
-          test -n "$DESKTOP_RELEASE_SSH_PRIVATE_KEY"
-          echo "The connector artifact is published only through the shared desktop-release environment."
+          test "$(uname -m)" = arm64
+          test -z "$(git status --porcelain)"
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          test "$(node -p 'require("./connector/package.json").version')" = "$CONNECTOR_VERSION"
+          test "$(node -p 'process.versions.node')" = 22.23.2
+      - run: npm ci --ignore-scripts
+      - run: npm run build && npm test
+      - name: Build independently versioned schema-v1 and schema-v2 archives
+        env:
+          CONNECTOR_VERSION: ${{ inputs.connector_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/desktop-connector/v1" "$RUNNER_TEMP/desktop-connector/v2"
+          node --input-type=module - <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          const root = process.env.RUNNER_TEMP;
+          const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const nodeBinary = process.execPath;
+          const version = process.env.CONNECTOR_VERSION;
+          writeFileSync(join(root, 'desktop-connector', 'v1-config.json'), JSON.stringify({
+            schemaVersion: 1, architecture: 'arm64', sourceCommit, nodeBinary,
+            connector: { version },
+          }));
+          writeFileSync(join(root, 'desktop-connector', 'v2-config.json'), JSON.stringify({
+            schemaVersion: 2, architecture: 'arm64', sourceCommit,
+            nodeRuntime: { version: '22.23.2', binary: nodeBinary },
+            connector: { version },
+          }));
+          NODE
+          node scripts/package-desktop-connector.mjs \
+            --config "$RUNNER_TEMP/desktop-connector/v1-config.json" \
+            --output "$RUNNER_TEMP/desktop-connector/v1"
+          node scripts/package-desktop-components-v2.mjs \
+            --config "$RUNNER_TEMP/desktop-connector/v2-config.json" \
+            --output "$RUNNER_TEMP/desktop-connector/v2"
+          test -s "$RUNNER_TEMP/desktop-connector/v1/Hermes-Connector-$CONNECTOR_VERSION-arm64.tar.gz"
+          test -s "$RUNNER_TEMP/desktop-connector/v2/Hermes-Component-connector-$CONNECTOR_VERSION-arm64.tar.gz"
+          test -s "$RUNNER_TEMP/desktop-connector/v2/Hermes-Component-node_runtime-22.23.2-arm64.tar.gz"
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          shasum -a 256 "$RUNNER_TEMP"/desktop-connector/v1/*.tar.gz \
+            "$RUNNER_TEMP"/desktop-connector/v2/*.tar.gz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Hermes-Connector-${{ inputs.connector_version }}-candidate-arm64
+          path: |
+            ${{ runner.temp }}/desktop-connector/v1/*.tar.gz
+            ${{ runner.temp }}/desktop-connector/v2/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
