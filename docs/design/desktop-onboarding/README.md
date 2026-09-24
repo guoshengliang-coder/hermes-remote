@@ -4,6 +4,11 @@
 `docs/DESKTOP_DESIGN.md`「Shared visual tokens」，应用图标直接引用规范源
 `android/app/src/main/ic_launcher-playstore.png`。
 
+2026-09-24 复核后重渲染（PNG 全部由 `onboarding.html` 重新生成）：禁用态主按钮改为定义好的灰底灰字
+（原先只是降低不透明度，暗色模式下对比度不足）；05 的错误码与说明改为与 02 相同的「码 · 说明」两行
+排版；12 的进度条填充改为与「第 3 项，共 5 项」相符的 60%；17 第三个面板补上「退出 Hermes GO」；
+16 的横幅改为「本机（MacBook Pro）」以区别于正在管理的 Mac mini；08 的置灰卡片图标同步变灰。
+
 - `onboarding.html`：全部画面的唯一源文件，`?s=<id>` 只显示一个画面。
 - `render.sh`：用本机 Chrome 无头模式把每个画面渲染成 2x PNG（macOS）。
 - `download-qr.png` / `webapp-qr.png`：用 CoreImage 生成、可以真实扫码的二维码，内容分别为
