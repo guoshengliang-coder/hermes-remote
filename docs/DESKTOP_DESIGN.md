@@ -194,8 +194,10 @@ problem card (a half-installed or inconsistent Mac) and, in manage-only mode, a 
 banner that names this Mac and the Mac it manages; a compatible, already-installed Mac gets neither.
 The menu bar mirrors the gate: signed out it offers 「登录 Hermes GO」, a signed-in Mac with nothing
 installed offers 「完成设置」, and manage-only mode replaces the Gateway/Hermes rows with the managed
-Mac's name, Connector and Hermes rows. The 17 screens of this flow are direction references in
-`docs/design/desktop-onboarding/`.
+Mac's name, Connector and Hermes rows. Before setup the menu bar never reads as a failure: its
+headline counts the remaining steps (「还差 2 步完成设置」) and its single row says 「这台 Mac · 未连接」
+instead of two Gateway/Hermes rows that would look like two faults caused by not having signed in.
+The 17 screens of this flow are direction references in `docs/design/desktop-onboarding/`.
 
 ## Shared visual tokens
 

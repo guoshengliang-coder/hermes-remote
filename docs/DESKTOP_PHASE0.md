@@ -1262,7 +1262,9 @@ card at the top of the overview with 复制诊断 and 查看详情; the second i
 keeps the compatibility banner and gets no problem card. The menu bar mirrors the gate: signed out it
 offers "登录 Hermes GO", a signed-in Mac with nothing installed offers "完成设置" (both only open the
 main window, which routes), and manage-only mode replaces the Gateway/Hermes rows with the managed
-Mac's name, Connector and Hermes rows.
+Mac's name, Connector and Hermes rows. Before setup it also stops reading as a failure: the headline
+counts the remaining steps and the row says this Mac is not connected yet, instead of showing two
+Gateway/Hermes rows that would look like faults caused by not having signed in.
 
 Verified: `swift test --package-path desktop` → 503 tests, 0 failures, 32 of them new (every §4.1 route
 row including `.existingServicePreserved`, the new-Mac choice and quota, the phone-step completion
