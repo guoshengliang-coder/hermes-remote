@@ -750,6 +750,9 @@ class ChatViewModel @Inject constructor(
                 _sessionTitle.value = displaySessionTitle(initialTitle, fallback)
             }
             com.hermes.client.data.diagnostics.DebugLog.log("session", "reuse($id)")
+            // HG-124: reuse is not a licence to serve a stale transcript forever; one throttled
+            // reconcile catches up behind the coverage gate without re-running the full open path.
+            existingKey?.let { runtimeStore.requestReuseReconcile(it) }
             return
         }
         refreshJob?.cancel()
