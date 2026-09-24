@@ -698,6 +698,7 @@ not something the person said, and the app renders them as one-line timeline not
 | `[The user sent an audio file attachment: …]`, `[The user sent a video attachment: …]` | `gateway/run_inbound.py` `_prepend_inbound_media_file_notes` | Same family, same shape. |
 | `[The user sent a voice message: /path (duration: …)]` | `gateway/run_inbound.py`, the branch taken when STT is disabled | Same family. |
 | `[User sent an image: …]` / `[User sent audio: …]` / `[User sent a video: …]` / `[User sent a file: …]` | `gateway/run.py` `_build_media_placeholder` | Emitted for a media-only event that was queued while the agent was busy. |
+| `--- Attached Context ---` footer (with `--- Context Warnings ---` to end of turn) | `agent/context_references.py` (`final = f"{final}\n\n--- Attached Context ---\n\n" + …`), Hermes 0.21.3, verified against the mini's source 2026-09-24 | An `@`-reference (`@url:`, `@file:` — a link pasted on the PC client expands to one) submits the fetched content as a footer stapled **below** what the person typed, inside their own turn. See the hazard below. |
 
 **Not in this family:** `[The user sent an image~ Here's what I can see: …]` and the sticker notes
 (`gateway/run.py`) carry the vision pipeline's *description* of what arrived. That description is
@@ -719,9 +720,26 @@ and attachment as separate events that are then merged. So `withoutAttachmentSca
 (`ui/chat/TimelineNote.kt`) removes each occurrence wherever it appears rather than matching a
 prefix; a prefix match leaves the note on screen in exactly the reported case (HG-24).
 
+**Hazard — the attached-context footer is hidden by the official client, not by Hermes.** Upstream
+*keeps* the footer in the stored turn (one production link became an 8,253-character user row,
+HG-125) and strips it only at display time: `apps/desktop/src/lib/chat-messages/hydration.ts`
+`ATTACHED_CONTEXT_MARKER_RE = /(?:^|\n)--- Attached Context ---\s*\n/` cuts there and keeps what
+the person typed (the `@url:` token included — upstream leaves it in the visible prose), while
+`CONTEXT_WARNINGS_MARKER_RE = /(?:^|\n)--- Context Warnings ---[\s\S]*$/` removes that section to
+the end of the turn even with no attached-context marker present. `title_generator.py`
+`_CONTEXT_FOOTER_RE` strips both from titles the same way. The Android side mirrors the two
+display regexes in `withoutAttachedContextScaffolding` (`ui/chat/TimelineNote.kt`) and applies it
+in `organizedForDisplay` ahead of the compression/attachment strippers. What we deliberately do
+NOT mirror is hydration.ts's `@`-reference *hoist* (rewriting a missing reference into a quoted
+block at the top of the turn): every backend observed in production leaves the token in the prose,
+and hoisting would rewrite text that never carried a footer. Per the user's decision for HG-125 the
+footer is fully hidden with no expand entry — identical to the official client.
+
 Mirrored constant: `COMPRESSION_SNAPSHOT_HEADER` in `ui/chat/TimelineNote.kt` is a hand-copy of
 `TODO_INJECTION_HEADER`. Upstream renaming or rewording it silently returns this app to rendering
-the scaffolding as a user bubble — there is no version negotiation and no error.
+the scaffolding as a user bubble — there is no version negotiation and no error. The same hand-copy
+hazard applies to `ATTACHED_CONTEXT_MARKER` / `CONTEXT_WARNINGS_MARKER`, mirrored from
+hydration.ts.
 
 ### 5. Mirrored constants
 

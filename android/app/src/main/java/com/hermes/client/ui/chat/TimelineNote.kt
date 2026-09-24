@@ -159,6 +159,37 @@ fun withoutAttachmentScaffolding(text: String): String {
 }
 
 /**
+ * Hermes' `@`-reference footer, copied from upstream `agent/context_references.py`
+ * (`final = f"{final}\n\n--- Attached Context ---\n\n" + …`, Hermes 0.21.3 — see
+ * docs/HERMES_CONTRACT.md §4b).
+ *
+ * A reference typed on another client (`@url:`, `@file:` — a link pasted on the PC expands to
+ * one) submits the fetched content as a footer stapled below what the person typed. It rides
+ * the wire inside the user's own turn, so the phone rendered pages of a stranger's webpage as
+ * if the user had typed them (HG-125: one link became an 8,253-character user bubble).
+ *
+ * The official desktop client never shows this footer
+ * (`apps/desktop/src/lib/chat-messages/hydration.ts`): it cuts at `ATTACHED_CONTEXT_MARKER_RE`
+ * and removes a `--- Context Warnings ---` section to the end of the turn. Both regexes are
+ * mirrored here. What the person typed — including the `@url:` token itself, which upstream
+ * keeps in the visible prose — survives ahead of the marker.
+ */
+private val ATTACHED_CONTEXT_MARKER = Regex("""(?:^|\n)--- Attached Context ---\s*\n""")
+private val CONTEXT_WARNINGS_MARKER = Regex("""(?:^|\n)--- Context Warnings ---[\s\S]*$""")
+
+/**
+ * [text] with the attached-context footer and everything after it removed, and any
+ * context-warnings section removed. Returns [text] unchanged when neither marker is present,
+ * and "" when the message was footer alone.
+ */
+fun withoutAttachedContextScaffolding(text: String): String {
+    val marker = ATTACHED_CONTEXT_MARKER.find(text)
+    val visible = if (marker == null) text else text.substring(0, marker.range.first)
+    val stripped = CONTEXT_WARNINGS_MARKER.replace(visible, "")
+    return if (stripped == text) text else stripped.trim()
+}
+
+/**
  * Classify a message as a timeline note, or null for a real conversation turn.
  *
  * display_kind (server marker) always wins; the prefix fallback below covers notices the

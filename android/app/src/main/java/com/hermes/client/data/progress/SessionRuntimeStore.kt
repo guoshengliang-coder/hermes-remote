@@ -2017,19 +2017,34 @@ class SessionRuntimeStore(
         // Mappers only strips the shapes it knows, anchored to whole lines. A turn sent with
         // images therefore comes back longer than what the user typed, and an equality test
         // rejects that snapshot forever (HG-59): the phone kept a finished run spinning for ten
-        // minutes while every REST answer already carried the result. Match the assistant branch
-        // below -- the remote row containing the local text is what "covers" has to mean, because
-        // the exact persisted shape belongs to Hermes and we cannot version-negotiate it.
-        val lastUser = users.lastOrNull()?.text.orEmpty().matchText()
+        // minutes while every REST answer already carried the result. The remote row containing
+        // the local text is what "covers" has to mean, because the exact persisted shape belongs
+        // to Hermes and we cannot version-negotiate it.
+        //
+        // "Containing the local text" cannot mean the LAST remote row either. A prompt sent from
+        // another device reaches Hermes without a single message.* event ever reaching this
+        // phone — only the run.started/run.completed pair does — so the REST snapshot can be a
+        // whole turn AHEAD of the expectation, with the local turns still inside it. Judging
+        // coverage by last-row equality rejected exactly that snapshot three times in a row
+        // (HG-124, 20260924_102646_68e7a7) while the page sat stale until a manual refresh. The
+        // count checks above already refuse snapshots that lag; here the local text just has to
+        // survive in SOME remote row, with the HG-59 contains() tolerance intact.
         if (expectation.lastUserText.isNotBlank() &&
-            lastUser != expectation.lastUserText &&
-            !lastUser.contains(expectation.lastUserText)
+            users.none {
+                val remote = it.text.orEmpty().matchText()
+                remote == expectation.lastUserText || remote.contains(expectation.lastUserText)
+            }
         ) {
             return "last user turn differs"
         }
         if (expectation.lastAssistantText.isBlank()) return null
-        val persisted = assistants.lastOrNull()?.text.orEmpty().matchText()
-        if (persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)) return null
+        // Same direction as the user branch: a cross-device round appends a newer assistant turn
+        // after the one this phone watched stream, so coverage is presence, not last-row equality.
+        if (assistants.any {
+                val persisted = it.text.orEmpty().matchText()
+                persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)
+            }
+        ) return null
         return "last assistant text not yet persisted"
     }
 
