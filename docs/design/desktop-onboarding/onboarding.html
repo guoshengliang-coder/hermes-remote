@@ -109,7 +109,11 @@
   .btn.block { width: 100%; }
   .btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
   .btn.danger-outline { color: var(--red); }
-  .btn.disabled { opacity: .42; }
+  /* Disabled is a defined state, not a lowered opacity: readable in both themes. */
+  .btn.disabled {
+    opacity: 1; box-shadow: none; border-color: transparent;
+    background: color-mix(in srgb, var(--text) 9%, var(--card-strong)); color: var(--secondary);
+  }
   .field {
     height: 40px; border-radius: 9px; border: 1px solid var(--hair); background: var(--card-strong);
     display: flex; align-items: center; padding: 0 12px; gap: 9px; font-size: 14px;
@@ -184,6 +188,7 @@
   .opt.sel .radio { border: 5.5px solid var(--blue); }
   .opt .oi { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--blue); }
   .opt .oi svg { width: 22px; height: 22px; }
+  .opt.off .oi { background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--tertiary); }
   .opt h3 { font-size: 15px; margin: 14px 0 6px; }
   .opt p { font-size: 12.5px; line-height: 1.55; color: var(--secondary); margin: 0; }
   .opt .foot { margin-top: 12px; font-size: 12px; color: var(--secondary); display: flex; align-items: center; gap: 6px; }
@@ -367,7 +372,7 @@
           <h1>重新登录</h1>
           <div class="banner mt16">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-            <div><b>登录已过期，请重新登录。</b> <span class="code">HR-AUTH-003</span><br><span class="muted">这台 Mac 上的 Hermes 和后台连接不会因此停止。</span></div>
+            <div><b>登录已过期，请重新登录。</b><br><span class="code">HR-AUTH-003</span> <span class="muted">· 本机后台连接不会因此停止</span></div>
           </div>
           <p class="label mt24">邮箱</p>
           <div class="field">
@@ -646,7 +651,7 @@
           <p class="lede">完成后，这台 Mac 会在后台保持连接，手机随时可以访问。</p>
           <div class="card mt24">
             <div class="row"><span style="font-weight:600;font-size:14px">第 3 项，共 5 项</span><span class="spacer"></span><span class="small muted">约 1 分钟</span></div>
-            <div class="bar mt12"><i style="width:52%"></i></div>
+            <div class="bar mt12"><i style="width:60%"></i></div>
             <div class="plist">
               <div class="pitem done"><span class="ic"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="m5 12 5 5L20 7"/></svg></span>下载并验证安装包<span class="sub">签名已校验</span></div>
               <div class="pitem done"><span class="ic"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="m5 12 5 5L20 7"/></svg></span>安装后台服务</div>
@@ -819,7 +824,7 @@
         <p class="lede">Mac mini 正在安全连接 Hermes GO</p>
         <div class="card mt20" style="padding:14px 18px;display:flex;align-items:center;gap:14px;background:color-mix(in srgb,var(--blue) 5%,var(--card))">
           <svg viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--blue)"><rect x="3" y="5" width="18" height="11" rx="1.5"/><path d="M1.5 19h21"/></svg>
-          <div style="flex:1"><div style="font-weight:600;font-size:13.5px">这台 MacBook Pro 只用于管理</div><div class="small muted">本机没有安装后台服务。想让手机也能使用这台 Mac 上的 Hermes，可以把它连上。</div></div>
+          <div style="flex:1"><div style="font-weight:600;font-size:13.5px">本机（MacBook Pro）只用于管理</div><div class="small muted">本机没有安装后台服务。想让手机也能使用本机上的 Hermes，可以把它连上；不会影响正在管理的 Mac mini。</div></div>
           <span class="btn">把这台 Mac 也连上</span>
         </div>
         <div class="card mt16" style="display:flex;justify-content:space-around;padding:26px 20px">
@@ -880,6 +885,7 @@
           <div class="hr"></div>
           <div class="pa"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>打开主窗口</div>
           <div class="pa"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7L20 8"/><path d="M20 3v5h-5"/></svg>刷新状态</div>
+          <div class="pa"><svg viewBox="0 0 24 24"><path d="M9 4H5v16h4M15 8l4 4-4 4M19 12H9"/></svg>退出 Hermes GO</div>
         </div>
       </div>
     </div>

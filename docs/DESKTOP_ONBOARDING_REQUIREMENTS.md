@@ -51,6 +51,13 @@
 「有没有设备」和「这台装没装」是两件事：一个账号可以已经在 Mac mini 上装好，然后在笔记本上
 登录——此时账号下有设备，但这台 Mac 什么都没装。
 
+因此进入新人引导的条件是**「这台 Mac 没有托管安装」**，不是「账号名下没有设备」。账号下已有 Mac、
+本机没装时，先走 §7 的选择页问一句「这台 Mac 怎么用」，这条路径不能省略成一个「有没有设备」的布尔值。
+
+第三道判据只看**自有** Mac：`AccountDashboard.ownedDevices` 是 `devices` 中 `access == "owner"` 的部分，
+别人共享给我的 Mac（`access == "operator"`）既不触发选择页、也不占自有名额；本机自己的绑定记录
+同样不计入「别的 Mac」。
+
 ## 4. 界面去向
 
 ### 4.1 顶层状态表
@@ -64,6 +71,7 @@
 | 4 | `.signedIn` | 没装：`.readyForManagedInstall` / `.waitingForSignedRelease` | 没有 | **新人引导**，从第 2 步开始（§6） |
 | 5 | `.signedIn` | 没装 | **已有** | **新人引导**，先经过「这台 Mac 怎么用」选择页（§7） |
 | 6 | `.signedIn` | 装了一半 / 不一致：`.existingServiceNeedsAttention` | 任意 | **主界面**，问题卡片置顶（§8） |
+| 6b | `.signedIn` | 现有连接被保留：`.existingServicePreserved`（受管迁移通道不可用） | 任意 | **主界面**，沿用现有兼容观察呈现，不给安装入口（§8） |
 | 7 | `.signedIn` | `.checking` | 任意 | 启动检查页，等待本机检查完成 |
 | 8 | `.unavailable`（Gateway 未开放账号能力） | 任意 | — | 整窗说明页 + 重试（§5.4） |
 | 9 | `.accountDeletionSubmitted` | 任意 | — | 保持现有「云端账号删除已提交」页（`DESKTOP_DESIGN.md`） |
@@ -148,6 +156,11 @@
 - 第 4 步分 Android 与 iPhone / iPad 两种情况，见 §6.4。
 - 整个引导里用户唯一需要输入的是邮箱和验证码。`configureLocalProvider` 只是「使用本机 Hermes
   配置目录」，不要求填写 API Key。
+- **模型服务不在引导内配置**（2026-09-24 确认）：引导不出现 API Key、模型供应商或 base URL 输入，
+  第 2 步沿用现有 `HermesInstallCard` 里「模型服务可稍后在终端运行 `hermes setup` 配置」的说明。
+  引导的完成判据也不依赖模型是否已配置——第 3 步的 `verifyEndToEnd` 走
+  `HTTPHealthProber.probeEndToEnd`，检查的是本机 Hermes 可达与端到端健康，不探测模型。装好但还没配
+  模型的用户照常进入主界面；本需求不新增「配置模型」步骤，也不新增相关提示卡。
 - 第 3 步中会改变机器的操作，仍然先弹出现有的确认 sheet（`managedBootstrapConfirmationSheet` /
   `componentBootstrapConfirmationSheet`），引导不绕过确认。
 - 第 3 步走哪条安装路径（schema-v1 托管发布，或 schema-v2 组件发布），沿用 `DesktopViewModel` 今天
@@ -182,16 +195,16 @@
 **Android：下载 App**
 
 - 二维码内容：公开发布服务的根地址 `https://mrlgs.net/`。`release-server` 把 `/` 302 跳转到当前最新
-  的带版本号 APK（`docs/APP_UPDATE.md`；2026-09-23 线上核对：跳转到
-  `/releases/Hermes-Remote-0.1.141-debug.apk`），所以二维码固定，不随发版变化，Desktop 也不需要
+  的带版本号 APK（`docs/APP_UPDATE.md`；2026-09-24 线上复核：跳转到
+  `/releases/Hermes-Remote-0.1.144-debug.apk`），所以二维码固定，不随发版变化，Desktop 也不需要
   请求 `index.json`。
 - 步骤：① 用相机扫码下载并安装（可能提示允许安装未知来源应用）② 用同一个邮箱登录 ③ 选择这台 Mac。
 
 **iPhone / iPad：添加 Web App 到主屏幕**
 
-目前没有 iOS App。iPhone 与 iPad 使用 Gateway 托管的 Web App（`https://mrlgs.net/app/`，2026-09-23
-线上核对：`/app` 308 跳转到 `/app/`，页面声明了 `manifest.webmanifest`、`apple-touch-icon` 与
-`apple-mobile-web-app-capable`），添加到主屏幕后以独立窗口全屏运行。
+目前没有 iOS App。iPhone 与 iPad 使用 Gateway 托管的 Web App（`https://mrlgs.net/app/`，2026-09-24
+线上复核：`/app/` 直接 200，页面声明了 `manifest.webmanifest`、`apple-touch-icon`、
+`apple-mobile-web-app-title` 与 `apple-mobile-web-app-capable`），添加到主屏幕后以独立窗口全屏运行。
 
 - 二维码内容：`https://mrlgs.net/app/`。
 - 步骤：
@@ -258,6 +271,18 @@
   和接口，**不改 Gateway 契约**。
 - 目前 Desktop、Android、Web 均未调用这个接口，Desktop 是第一个客户端。
 
+Gateway 的错误映射（2026-09-24 对照 `gateway/src/account/` 核对，均已登记在
+`docs/ERROR_HANDLING.md`，不需要新增码）：
+
+| `unbindDevice` 结果 / 情形 | HTTP | `HR-*` | 界面上的处理 |
+|---|---|---|---|
+| `not_found`（设备已不在账号下） | 404 | `HR-BIND-011` | 提示后刷新设备列表 |
+| `reauthentication_failed`（grant 缺失、过期、已用或 scope 不符） | 403 | `HR-AUTH-006` | 重新走邮箱验证码 |
+| `idempotency_conflict`（幂等键复用但请求不同） | 409 | `HR-ACCOUNT-005` | 作为新操作重发 |
+| `installation_invalid`（本机会话已失效） | 401 | `HR-AUTH-004` | 回到登录页 |
+| `multiDeviceEnabled` 关闭 | — | — | 路由不存在，Desktop 不显示「移除」入口 |
+| 满额时再绑定（对照 §7.2） | 409 | `HR-BIND-010` | 回到「先移除一台」 |
+
 界面：
 
 - 名额满时，选择页（§7.1）列出已有的 Mac，每台带「移除」按钮。
@@ -271,9 +296,10 @@
   补进 `DESKTOP_DESIGN.md`。
 
 需要的测试：删除接口的请求构造（路径、grant、幂等键）、`connector.unbind` 验证码换 grant、
-`not_found` / `reauthentication_failed` 的错误映射、移除后 dashboard 刷新使名额恢复。
+上表每一行的错误映射（`HR-BIND-011` / `HR-AUTH-006` / `HR-ACCOUNT-005` / `HR-AUTH-004`）、移除后
+dashboard 刷新使名额恢复。
 
-## 8. 装了一半或状态不一致（状态 6）
+## 8. 装了一半或状态不一致（状态 6、6b）
 
 `.existingServiceNeedsAttention` 包括安装中断、需要人工检查、launchd 与安装记录不一致三种情况。
 `DesktopBootstrapPlanner.plan()` 在这些情况下本来就把 `canBegin` 设为 false，目的是防止装出第二份
@@ -282,6 +308,10 @@
 - **不进新人引导**，引导不能再提供一个安装入口。
 - 进主界面，并在概览页顶部放一张问题卡片，内容取自 `bootstrapPlan` 的标题与说明，附「复制诊断」
   和「查看详情」（跳到「账号与设备」）。
+
+`.existingServicePreserved` 是另一种情况：现有连接正常，只是受管迁移通道当前不可用（`DesktopBootstrap.swift`
+的 `managedInstallAvailability` 分支）。它同样不进引导、不提供安装入口，但**不是问题**：进主界面并沿用
+现有的兼容观察呈现，不要为它弹问题卡片。
 
 ## 9. 主界面与菜单栏的配套调整
 
@@ -308,8 +338,16 @@
 - 第 4 步分 Android（二维码下载 App）与 iPhone / iPad（二维码打开 Web App 并添加到主屏幕）两种情况（§6.4）。
 - 「只管理」模式下菜单栏显示所选 Mac 的状态（§9）。
 
-实现时核对：`DELETE /v2/devices/{id}` 的 `not_found` / `reauthentication_failed` 等结果在 Gateway 上
-映射成哪些 `HR-*` 码，逐一对照 `docs/ERROR_HANDLING.md`；如无现成码，先登记再用。
+2026-09-24（对应 HG-129）补充确认：
+
+- 进入引导的判据是**这台 Mac 没有托管安装**，不是「账号名下没有设备」：账号下已有 Mac 而本机没装时
+  先走 §7 的选择页（§3）。条目原文的「账号没有任何绑定的设备」按此修正。
+- 引导里**不加入模型服务配置**：全程只输邮箱与验证码，模型留到引导之后用 `hermes setup`（§6.2）。
+- 第 2 步不提供「另装一份 Hermes」，沿用 `docs/MANAGED_HERMES_STRATEGY.md` 的一台 Mac 一个 Hermes（§6.2）。
+- iPhone / iPad 走已上线的 Web App「添加到主屏幕」，不新增 iOS 客户端（§6.4）。
+
+实现时核对：`DELETE /v2/devices/{id}` 的错误映射已按 Gateway 现有实现定在 §7.3 的表格里，全部是已
+登记的错误码，不需要新增；实现时验证客户端把每个码映射到表里那一行即可。
 
 ## 11. 验证要求
 
@@ -318,12 +356,14 @@
 `docs/DESKTOP_TEST_PLAN.md`。至少需要以下单元测试：
 
 - §4.1 状态表的每一行，由一个纯函数（例如 `DesktopEntryRoute.resolve(account:readiness:dashboard:)`）
-  决定去向，逐行覆盖。
+  决定去向，逐行覆盖（含 6b 的 `.existingServicePreserved`）。
 - `.checking` 不会被判定为登录页；`.checking` 加 `accountIssue` 判定为可重试的错误页。
 - 会话失效时 `startMonitoring()` 循环继续运行，`refreshHermesRuntime()` 仍被调用（§4.2）。
 - 断点续装：§6.3 的每个反推分支。
-- 名额满 / 未满时，§7.1 两个选项的可用性。
+- 第三道判据只看自有 Mac：账号下只有共享 Mac 时不触发选择页；本机自己的绑定记录不算「别的 Mac」（§3）。
+- 名额满 / 未满时，§7.1 两个选项的可用性；满额时「连接这台」不可用而「只管理」始终可用。
 - 第 4 步完成判据：基线之后新出现的 `phone` 与 `browser` 设备都判定为完成；基线中已有的设备不判定。
-- `.existingServiceNeedsAttention` 不会进入引导（§8）。
+- 引导不出现 API Key / 模型供应商入口，第 3 步完成判据不依赖模型是否已配置（§6.2）。
+- `.existingServiceNeedsAttention` 不会进入引导，`.existingServicePreserved` 同样不给安装入口（§8）。
 
 干净 Mac 上的完整首装流程无法自动化，需要加入 `docs/DESKTOP_TEST_PLAN.md` 的人工步骤。
