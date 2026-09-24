@@ -27,6 +27,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法加载模型列表，请重试。", "Couldn't load the model list. Retry.")
         AppErrorCode.MODEL_SWITCH_FAILED ->
             localized(language, "无法切换本会话的模型，请重试。", "Couldn't switch this conversation's model. Retry.")
+        AppErrorCode.MODEL_SWITCH_UNCONFIRMED ->
+            localized(language, "模型切换未收到确认，请查看当前模型后再操作。", "The model switch was not confirmed. Check the current model before trying again.")
         AppErrorCode.MODEL_DEFAULT_FAILED ->
             localized(language, "无法设置默认模型，请重试。", "Couldn't set the default model. Retry.")
         AppErrorCode.MODEL_REASONING_FAILED ->
@@ -37,6 +39,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
                 "Mac 上的 Hermes 无法执行命令，请查看详情。",
                 "The Hermes on your Mac can't run commands. See the details.",
             )
+        AppErrorCode.SESSION_CREATE_UNCONFIRMED ->
+            localized(language, "新建会话未收到确认，连接正在恢复，请稍后重试。", "New conversation was not confirmed. The connection is recovering; try again shortly.")
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->

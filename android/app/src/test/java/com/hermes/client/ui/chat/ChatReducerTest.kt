@@ -18,6 +18,34 @@ class ChatReducerTest {
     private fun ev(type: String, session: String = "s1", build: (kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) = {}) =
         ServerEvent(type, session, buildJsonObject { put("session_id", session); build() })
 
+    @Test fun active_history_tail_continues_instead_of_creating_a_duplicate_on_reopen() {
+        val history = listOf(
+            ChatMessage("u1", Role.USER, "请继续"),
+            ChatMessage("a1", Role.ASSISTANT, "已有内容"),
+        )
+        val resumed = inheritStreamFields(history, emptyList(), runActive = true)
+        val afterDelta = ChatUiState.empty().copy(messages = resumed)
+            .reduce(ev("message.delta") { put("text", "新内容") })
+
+        assertEquals(2, afterDelta.messages.size)
+        assertEquals("已有内容新内容", afterDelta.messages.last().text)
+        assertTrue(afterDelta.messages.last().isStreaming)
+    }
+
+    @Test fun idle_history_tail_is_not_marked_streaming() {
+        val history = listOf(ChatMessage("a1", Role.ASSISTANT, "完成"))
+        assertFalse(inheritStreamFields(history, emptyList(), runActive = false).single().isStreaming)
+    }
+
+    @Test fun an_old_completed_answer_is_not_reused_for_a_new_active_run() {
+        val history = listOf(
+            ChatMessage("u1", Role.USER, "以前的请求", timestamp = 1_000L),
+            ChatMessage("a1", Role.ASSISTANT, "以前的回答", timestamp = 2_000L),
+        )
+        val resumed = inheritStreamFields(history, emptyList(), runActive = true, runStartedAt = 10_000L)
+        assertFalse(resumed.last().isStreaming)
+    }
+
     @Test fun start_delta_complete_builds_one_assistant_message() {
         var s = ChatUiState.empty()
         s = s.reduce(ev("message.start") { put("message_id", "a1") })

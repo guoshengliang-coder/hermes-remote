@@ -25,7 +25,10 @@ import {
   HermesSessionObserver,
   type ObserverSocket,
 } from "./session-observer-runner.js";
-import { createConnectorLogger, parseConnectorLogLevel, summarizeHermesFrame } from "./connector-log.js";
+import {
+  createConnectorLogger, parseConnectorLogLevel, rpcResponseIdentity,
+  summarizeHermesFrame, trackedForegroundRpcRequest,
+} from "./connector-log.js";
 import { ObserverStateStore } from "./session-observer.js";
 import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
@@ -127,6 +130,7 @@ const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
 // Per app tunnel: when it opened and how many Hermes frames it carried, so a close line can say
 // whether the phone was still attached when a run's terminal event went by.
 const tunnelStats = new Map<string, { openedAt: number; framesToApp: number; framesFromApp: number; lastTerminal?: string }>();
+const pendingForegroundRpcs = new Map<string, Map<number, { method: string; startedAt: number }>>();
 /** The last local-socket error per tunnel, so its close can say what actually killed it. */
 const localErrors = new Map<string, string>();
 const inFlightHttpRequests = new InFlightHttpRequests();
@@ -841,19 +845,31 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
     });
     localSockets.set(request.id, local);
     pendingSocketFrames.set(request.id, []);
+    pendingForegroundRpcs.set(request.id, new Map());
     tunnelStats.set(request.id, { openedAt: Date.now(), framesToApp: 0, framesFromApp: 0 });
     log.info("tunnel.open", { tunnel: request.id, path: request.path, tunnels: localSockets.size });
 
     local.on("open", () => {
       const queued = pendingSocketFrames.get(request.id) ?? [];
       pendingSocketFrames.delete(request.id);
-      log.debug("tunnel.local_open", { tunnel: request.id, queued: queued.length });
+      log.info("tunnel.local_open", { tunnel: request.id, queued: queued.length,
+        connectMs: Date.now() - (tunnelStats.get(request.id)?.openedAt ?? Date.now()) });
       for (const frame of queued) sendLocalFrame(local, frame);
     });
     local.on("message", (data, isBinary) => {
       const buffer = rawDataToBuffer(data);
       const stats = tunnelStats.get(request.id);
       if (stats) stats.framesToApp += 1;
+      const tracked = pendingForegroundRpcs.get(request.id);
+      const answered = tracked?.size ? rpcResponseIdentity(buffer, isBinary) : null;
+      const pending = answered ? tracked?.get(answered.id) : undefined;
+      if (answered && pending) {
+        tracked?.delete(answered.id);
+        log.info("tunnel.rpc.local_answer", {
+          tunnel: request.id, rpcId: answered.id, method: pending.method,
+          ok: answered.ok, durationMs: Date.now() - pending.startedAt,
+        });
+      }
       const decision = decideOversizedFrame(buffer, maxLocalSocketPayloadBytes);
       if (!decision.forward) {
         // The tunnel stays open. Everything else on it — other conversations, the stop button,
@@ -901,6 +917,15 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       pendingSocketFrames.delete(request.id);
       const stats = tunnelStats.get(request.id);
       tunnelStats.delete(request.id);
+      const pending = pendingForegroundRpcs.get(request.id);
+      const unansweredForegroundRpcs = pending?.size ?? 0;
+      for (const [rpcId, call] of pending ? [...pending].slice(0, 16) : []) {
+        log.info("tunnel.rpc.unanswered", {
+          tunnel: request.id, rpcId, method: call.method,
+          ageMs: Date.now() - call.startedAt,
+        });
+      }
+      pendingForegroundRpcs.delete(request.id);
       const localError = localErrors.get(request.id);
       localErrors.delete(request.id);
       // The receive ceiling, not the forward limit: a frame over the forward limit is dropped
@@ -923,6 +948,7 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
         durationMs: stats ? Date.now() - stats.openedAt : undefined,
         framesToApp: stats?.framesToApp,
         framesFromApp: stats?.framesFromApp,
+        unansweredForegroundRpcs,
         lastTerminal: stats?.lastTerminal,
         tunnels: localSockets.size,
       });
@@ -989,6 +1015,11 @@ function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
     return;
   }
   local.send(frame.binary ? data : data.toString("utf8"), { binary: frame.binary });
+  const rpc = trackedForegroundRpcRequest(data, frame.binary);
+  if (rpc) {
+    pendingForegroundRpcs.get(frame.id)?.set(rpc.id, { method: rpc.method, startedAt: Date.now() });
+    log.info("tunnel.rpc.local_sent", { tunnel: frame.id, rpcId: rpc.id, method: rpc.method });
+  }
 }
 
 function closeTunnelSocket(id: string, code?: number, reason?: string): void {

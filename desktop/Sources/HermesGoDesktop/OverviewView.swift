@@ -194,12 +194,12 @@ struct OverviewView: View {
             ("后台模式", backgroundModeSummary),
             ("只读观察", observerSummary),
             ("近期异常", recentWarningSummary),
-            ("日志数量", "\(model.legacy?.recentLogs.count ?? 0) 条"),
+            ("日志数量", "\(model.recentLogLines.count) 条"),
         ])
     }
 
     private var recentWarningSummary: String {
-        let count = model.legacy?.recentLogSummary.warningCount ?? 0
+        let count = model.recentLogWarningCount
         return count == 0 ? "未发现疑似异常" : "\(count) 条历史记录"
     }
 

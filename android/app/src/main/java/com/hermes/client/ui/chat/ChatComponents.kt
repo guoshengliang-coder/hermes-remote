@@ -518,6 +518,8 @@ fun ChatMessageList(
     var renderedTail by remember(sessionId) { mutableStateOf<ChatMessage?>(null) }
     LaunchedEffect(sessionId) {
         var renderedSource: ChatMessage? = null
+        var firstStream = true
+        val runWasActiveOnEntry = state.isGenerating
         // Typewriter reveal: decouple the display from the network's bursty delta cadence.
         // This executor deliberately survives message.start -> delta -> complete. The previous
         // effect restarted around those boundaries and briefly rendered the authoritative full
@@ -525,11 +527,29 @@ fun ChatMessageList(
         // replaced it with the full answer in one frame. Both paths looked like screen flashing.
         while (isActive) {
             val newest = latestAssistantSource
-            if (newest?.isStreaming == true && activeStreamId != newest.id) {
+            if (newest != null && shouldShowExistingStreamImmediately(
+                    newest, firstStream, runWasActiveOnEntry,
+                )
+            ) {
+                // Opening a running conversation is not a new generation event. Its already
+                // visible answer must be painted in full, not typed out again from character 0
+                // every time the user returns to the screen (HG-122 video 1).
+                firstStream = false
+                activeStreamId = newest.id
+                revealedCount = newest.text.length
+                renderedSource = newest
+                renderedTail = withContext(Dispatchers.Default) {
+                    newest.stabilizedForStreaming(latestPlaceholder)
+                }
+            } else if (newest?.isStreaming == true && activeStreamId != newest.id) {
                 activeStreamId = newest.id
                 revealedCount = 0
                 renderedSource = null
                 renderedTail = newest.copy(text = "", thinking = "", tools = emptyList(), images = emptyList(), files = emptyList())
+                // A newly started run keeps the typewriter pacing. An existing run with an empty
+                // placeholder waits until its first non-empty snapshot before deciding whether
+                // it is restoring old text.
+                if (!runWasActiveOnEntry && newest.serverId == null) firstStream = false
             }
             if (newest != null && newest.id == activeStreamId) {
                 val target = newest.text.length
@@ -2113,6 +2133,14 @@ internal fun AssistantMarkdownBlock(
         dimens = markdownDimens(tableCellWidth = CHAT_TABLE_CELL_WIDTH, tableCellPadding = CHAT_TABLE_CELL_PADDING),
     )
 }
+
+/** A returned-to stream already has readable text; only genuinely new output is paced. */
+internal fun shouldShowExistingStreamImmediately(
+    source: ChatMessage,
+    firstStream: Boolean,
+    runWasActiveOnEntry: Boolean,
+): Boolean = firstStream && source.isStreaming && source.text.isNotEmpty() &&
+    (runWasActiveOnEntry || source.serverId != null)
 
 private const val STREAM_RENDER_INTERVAL_MS = 64L
 private const val STREAM_SIZE_ANIMATION_MS = 120

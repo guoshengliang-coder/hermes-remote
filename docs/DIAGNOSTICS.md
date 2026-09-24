@@ -30,8 +30,10 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 
 ## 第 3 问：手机认为什么（设备日志）
 
-前提：用户在 设置 → 诊断 打开了「诊断日志」并复现了问题（日志跨进程死亡保留 7 天；默认关闭，
-关着时零开销）。让用户在诊断页选中该会话的芯片、点「分享」，得到的就是这一条会话的全部行。
+前提：详细诊断已开启并复现了问题（debug 构建默认开启、release 构建默认关闭，用户选择优先；
+开启后跨进程死亡保留 7 天）。让用户在诊断页选中该会话的芯片、点「分享」，得到的就是这一条会话的全部行。
+即使详细诊断关闭，最近 5 条连接自愈、连接失败与 RPC/就绪超时也会脱敏后留在私有目录 7 天，
+并随用户主动提交的反馈附上。WebSocket 失败只记阶段、异常类和 HTTP 状态，不记异常原文或 URL。
 
 要看的行：
 
@@ -48,7 +50,7 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `[event] buffered … / replaying N buffered event(s)` | 别名未建立时事件被缓冲、随后重放 | Mac 端发起的运行 |
 | `[event] unmatched sessions.changed without session id` | **0.1.128 及更早才有**。上游的列表级广播被整条丢弃 | 见下方 HG-57 |
 | `[session] probe s=<id> failed (n)` | 探测失败次数 | 网络差 / Mac 失联 |
-| `[ws] opening socket (gen=N)` / `socket closed (gen=N): …` | socket 生死 | 每次重连 |
+| `[ws] opening socket (gen=N, conn=<UUID>)` / `socket closed (gen=N): …` | socket 生死；`conn` 对应 Gateway 的 `clientConnectionId` | 每次重连 |
 | `[ws] socket upgraded (gen=N)` | HTTP 升级完成，此后在等 `gateway.ready` | 每次连接 |
 | `[ws] state A → B` | 连接状态每一次转换，**含恢复方向** | 每次变化 |
 | `[ws] snapshot state=… gen=… manuallyClosed=… readyGate=… watchdog=… socket=… connectingFor=… sinceReady=…` | 横幅升起或提交报告时，socket 内部状态的全量读数 | 只在异常时 |
@@ -65,7 +67,7 @@ sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
 | `[health] <上一档> → <这一档>` | `/api/status` 探测的结论变化（`healthy` / `unreachable` / `device-offline`），红条就由它驱动 | 只在换档时 |
 | `[session] upstream reclaimed <id>; next send will recover` | 上游把这个会话回收了（`event session.reclaimed`），它之后的任何 prompt 都会失败 | 掉线超过 120s 后重连 |
 | `[session] recreated <旧id> as <新id> → handle=…` | 被回收的空会话已被静默换成新会话，消息照常送达 | 承接上一行 |
-| `[ws] rpc#N session.create ← ok (…ms)` | 会话确实建出来了。**只有 `session.create` 记回包**，别的方法成功时不记 | 每次新建 |
+| `[ws] rpc#N conn=<UUID> session.create/slash.exec ← ok (…ms)` | 操作收到成功回包；这两类前台操作总记回包 | 每次新建或切换模型 |
 | `[lifecycle] app foregrounded` / `app backgrounded` | 前后台切换 | 每次 |
 | `[lifecycle] monitoring mode <MODE>` | 保活策略每次选定的模式 | 每次变化 |
 
@@ -117,11 +119,12 @@ Gateway 自己超时或拒绝流式序列，Gateway 还会发 `tunnel.http.cance
 `http.cancelled`，并中止本地 fetch、文件读写和分块 ACK 等待。看到超时后旧请求仍持续占资源，通常说明
 Gateway/Connector 尚未一起升级；滚动升级期间旧 Connector 会忽略这个新增消息，安全但不会获得取消收益。
 
-**自愈记录随反馈一起到（0.1.124 起）**：诊断日志默认关闭，而 HG-27 和 HG-42 都是用户先发现、事后
+**故障记录随反馈一起到**：详细诊断可能被关闭，而 HG-27 和 HG-42 都是用户先发现、事后
 才想起开日志——App 其实早就自己检测到了故障，只是没有地方把它留下来。现在客户端每次**自己修好**一次
 停滞（`connect()` 强换，或下面那条监督者兜底），都会在一个**始终开启**的小记录里存下时间、类型和当时
-的快照，最多 5 条，并在任何一次反馈提交时作为 `connection` 上下文一起送出（`selfHealCount` 是累计
-次数，`selfHeal1..5` 是最近几条）。所以拿到一份写着「连不上」的报告时，**先看这个上下文**：有
+的快照，最多 5 条；新建会话或模型切换等 RPC 超时也记录 `rpcId`、方法、连接 ID 和快照。记录在私有目录
+跨进程保存 7 天，并在用户提交反馈时作为 `connection` 上下文送出（旧字段名 `selfHealCount` 是累计
+次数，`selfHeal1..5` 是最近几条故障）。所以拿到一份写着「连不上」的报告时，**先看这个上下文**：有
 `selfHealCount` 就说明这台设备确实反复停滞过，而且当时的 `[ws] snapshot` 已经在手上，不必再请用户
 复现一次。健康设备不会带这个上下文。
 
@@ -237,6 +240,19 @@ sudo docker logs --since 2026-09-05T10:20:00Z hermes-go-gateway-blue 2>&1 | grep
 `session.info` / `error` / `approval.request` / `clarify.request`）经过时记一行，带它走的 tunnel id；
 `tunnel.close` 带 `lastTerminal`。"运行 10:31:08 结束、承载它的 tunnel 10:31:02 已关"这句话，
 从这两行直接读出。
+
+**新建会话 / 模型切换无回包**：新版诊断只对 `session.create` 和 `slash.exec` 记方法名、RPC 数字 id、
+隧道 id 与耗时，不记参数或结果。手机的 `rpc#N →` / `← ok` / `timed out` 对照 Gateway 的
+`app.tunnel.open.clientConnectionId`（手机快照里的 `conn`）可先找到唯一隧道，再看
+`app.rpc.received`、Mac 受管 Connector 的 `tunnel.rpc.local_sent` / `tunnel.rpc.local_answer`、
+Gateway 的 `app.rpc.returned`：最后出现在哪一跳，就继续排查它的下一跳。`app.rpc.returned`
+表示回包已排入 Gateway 的手机 socket，不保证手机应用已读取；若背压触发关闭，此行不会写。
+隧道关闭时，Gateway 的 `app.rpc.unanswered` 和 Connector 的 `tunnel.rpc.unanswered` 会逐条记下
+仍未回答的前台 RPC（每条隧道最多 16 条，只有方法/id/等待时长）；这比仅看总数更容易区分是哪次操作断在中途。
+Mac 当前受管服务的日志路径以
+`launchctl print gui/$(id -u)/com.hermesgo.connector` 的 `stdout path` 为准，不能沿用已停用的旧
+`Hermes Remote/connector.log`。`local_answer` / `app.rpc.returned` 缺失只表示没有观测到可解析的小型答复；
+大于 1 MiB 的答复不解析诊断元数据，但仍照常转发，不能凭日志缺行断言 Hermes 没有回答。
 
 部署此版本之前的时间段仍然只有起停行，退回 2a/2b：
 

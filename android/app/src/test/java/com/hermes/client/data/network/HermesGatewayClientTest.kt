@@ -149,6 +149,9 @@ class HermesGatewayClientTest {
             val upgrade = serverRule.server.takeRequest(5, TimeUnit.SECONDS)!!
             assertEquals("/api/ws", upgrade.target)
             assertEquals("t", upgrade.headers["X-Hermes-Session-Token"])
+            assertTrue(upgrade.headers["X-Hermes-Connection-Id"].orEmpty().matches(
+                Regex("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"),
+            ))
             assertFalse(upgrade.target.contains("token="))
         } finally {
             tearDownClient(client, okHttp)
@@ -334,8 +337,52 @@ class HermesGatewayClientTest {
                 runCatching { withTimeout(5_000) { client.call("never-replies", buildJsonObject {}) } }
                     .exceptionOrNull()
             }
-            assertTrue(error is GatewayRpcException)
+            assertTrue(error is GatewayResponseTimeoutException)
             assertEquals("gateway response timeout", error?.message)
+        } finally {
+            tearDownClient(client, okHttp)
+        }
+    }
+
+    @Test fun timed_out_rpc_replaces_a_silent_socket_without_replaying_the_request() = runTest {
+        val sentCreates = java.util.concurrent.atomic.AtomicInteger(0)
+        serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                webSocket.send(GATEWAY_READY_FRAME)
+            }
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (json.parseToJsonElement(text).jsonObject["method"]?.jsonPrimitive?.content == "session.create") {
+                    sentCreates.incrementAndGet()
+                }
+            }
+        }).build())
+        serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                webSocket.send(GATEWAY_READY_FRAME)
+            }
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val request = json.parseToJsonElement(text).jsonObject
+                if (request["method"]?.jsonPrimitive?.content == "session.create") sentCreates.incrementAndGet()
+                val id = request["id"]?.jsonPrimitive?.content ?: return
+                webSocket.send("""{"jsonrpc":"2.0","id":$id,"result":{"pong":true}}""")
+            }
+        }).build())
+        val base = serverRule.server.url("/api/ws").toString().replace("http", "ws")
+        val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val client = HermesGatewayClient(okHttp, json, testScope, rpcTimeoutMs = 100) {
+            GatewayWebSocketEndpoint(base, "t")
+        }
+        try {
+            client.connect()
+            val failure = withContext(Dispatchers.Default) {
+                runCatching { client.call("session.create", buildJsonObject {}) }.exceptionOrNull()
+            }
+            assertTrue(failure is GatewayResponseTimeoutException)
+            val next = withContext(Dispatchers.Default) {
+                withTimeout(5_000) { client.call("ping", buildJsonObject {}) }
+            }
+            assertTrue(next.jsonObject["pong"]!!.jsonPrimitive.content.toBoolean())
+            assertEquals("a timed-out create must never be sent again", 1, sentCreates.get())
         } finally {
             tearDownClient(client, okHttp)
         }

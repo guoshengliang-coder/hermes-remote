@@ -2,6 +2,7 @@ package com.hermes.client.data.error
 
 import com.hermes.client.data.network.GatewayReadinessTimeoutException
 import com.hermes.client.data.network.GatewayRpcException
+import com.hermes.client.data.network.GatewayResponseTimeoutException
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localizedMessage
 import org.junit.Assert.assertEquals
@@ -15,6 +16,12 @@ import org.junit.Test
  * and nothing about why, when nothing was wrong with the request at all.
  */
 class NewChatFailuresTest {
+    @Test fun a_sent_create_without_a_reply_explains_the_recovery() {
+        val error = newChatFailure(GatewayResponseTimeoutException("gateway response timeout"), 0)
+        assertEquals(AppErrorCode.SESSION_CREATE_UNCONFIRMED, error.code)
+        assertTrue(error.retryable)
+        assertTrue(error.localizedMessage(AppLanguage.ZH).contains("稍后重试"))
+    }
     @Test fun a_single_dropped_connection_is_an_interruption_worth_retrying_now() {
         val error = newChatFailure(GatewayRpcException(0, "closed"), droppedConnections = 1)
 

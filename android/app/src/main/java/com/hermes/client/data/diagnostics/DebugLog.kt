@@ -204,6 +204,7 @@ object DebugLog {
             _entries.value = emptyList()
         }
         store?.let { target -> ioExecutor.execute { target.clear() } }
+        ConnectionIncidents.clearAndRetainStorage()
     }
 
     /**

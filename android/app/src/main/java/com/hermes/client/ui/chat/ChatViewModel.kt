@@ -2186,10 +2186,12 @@ class ChatViewModel @Inject constructor(
      */
     private fun modelSwitchError(e: Throwable, stage: String): com.hermes.client.data.error.AppError {
         val workerGone = (e as? GatewayRpcException)?.code == SLASH_WORKER_FAILED_CODE
+        val unconfirmed = e is com.hermes.client.data.network.GatewayResponseTimeoutException
         return com.hermes.client.data.error.AppError(
             if (workerGone) com.hermes.client.data.error.AppErrorCode.SLASH_WORKER_UNAVAILABLE
+            else if (unconfirmed) com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_UNCONFIRMED
             else com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-            retryable = !workerGone, technicalCause = e.message, stage = stage,
+            retryable = !workerGone && !unconfirmed, technicalCause = e.message, stage = stage,
         )
     }
 

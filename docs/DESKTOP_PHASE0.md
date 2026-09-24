@@ -13,6 +13,8 @@ Gateway, and Hermes behavior, and be packaged as an app/DMG before any backgroun
 - Strict allowlist parsing of non-secret fields from the legacy `connector.env`.
 - Public Relay and local Hermes reachability probes.
 - Bounded legacy log tailing with centralized redaction.
+- Diagnostics and Logs prefer bounded, redacted managed Connector and Desktop service-operation
+  tails when installed; the legacy tail remains a fallback. Raw Hermes stdout is never previewed.
 - Explicit compatibility-observation messaging.
 - Canonical Android app-icon reuse with a packaging consistency gate.
 - Ad-hoc local `.app` and `.dmg` build scripts.

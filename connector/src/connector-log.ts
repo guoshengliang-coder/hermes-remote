@@ -121,3 +121,33 @@ export function summarizeHermesFrame(text: string): FrameSummary {
   }
   return { kind: "other", terminal: false };
 }
+
+/** Bounded parsing: never log the command, params, result, or error body. */
+export function trackedForegroundRpcRequest(data: Buffer, isBinary: boolean): { id: number; method: string } | null {
+  if (isBinary || data.length > 4096) return null;
+  try {
+    const frame: unknown = JSON.parse(data.toString("utf8"));
+    if (typeof frame !== "object" || frame === null || Array.isArray(frame)) return null;
+    const request = frame as Record<string, unknown>;
+    if (request.method !== "session.create" && request.method !== "slash.exec") return null;
+    if (typeof request.id !== "number" || !Number.isSafeInteger(request.id)) return null;
+    return { id: request.id, method: request.method };
+  } catch {
+    return null;
+  }
+}
+
+/** Only small responses are parsed; large frames are relayed normally without diagnostic logging. */
+export function rpcResponseIdentity(data: Buffer, isBinary: boolean): { id: number; ok: boolean } | null {
+  if (isBinary || data.length > 1024 * 1024) return null;
+  try {
+    const frame: unknown = JSON.parse(data.toString("utf8"));
+    if (typeof frame !== "object" || frame === null || Array.isArray(frame)) return null;
+    const response = frame as Record<string, unknown>;
+    if (typeof response.id !== "number" || !Number.isSafeInteger(response.id)) return null;
+    if (!("result" in response) && !("error" in response)) return null;
+    return { id: response.id, ok: !("error" in response) };
+  } catch {
+    return null;
+  }
+}

@@ -1,6 +1,8 @@
 package com.hermes.client.data.diagnostics
 
 import com.hermes.client.data.error.redactSecrets
+import java.io.File
+import java.util.Base64
 
 /**
  * The few connection events worth remembering whether or not anyone turned diagnostics on.
@@ -11,10 +13,9 @@ import com.hermes.client.data.error.redactSecrets
  * never captured. By then the app had already detected the fault — it simply had nowhere durable
  * to say so.
  *
- * This is deliberately tiny. It records only events the client has *acted* on (a stall it repaired
- * by itself), keeps the last [CAPACITY], and is read back as feedback context so every report
- * carries them. A user who files "连不上" gets the self-heal history attached without having to
- * know what a diagnostic log is.
+ * This is deliberately tiny. It records stalls the client repaired and timeouts with an uncertain
+ * outcome, keeps the last [CAPACITY] in a private seven-day file, and restores them as feedback
+ * context after process death. Legacy feedback field names retain the `selfHeal` prefix.
  *
  * Not telemetry: nothing leaves the device except inside a report the user chose to send.
  */
@@ -27,6 +28,29 @@ object ConnectionIncidents {
     private val lock = Any()
     private val recent = ArrayDeque<Incident>(CAPACITY)
     private var total = 0
+    private var storage: File? = null
+
+    /** Restore the small failure-only record, independent of the opt-in verbose log. */
+    fun init(dir: File, nowMillis: Long = System.currentTimeMillis()) {
+        synchronized(lock) {
+            storage = File(dir, "connection-incidents.txt")
+            recent.clear()
+            total = 0
+            val saved = runCatching { storage?.readLines().orEmpty() }.getOrDefault(emptyList())
+            total = saved.firstOrNull()?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+            saved.drop(1).takeLast(CAPACITY).forEach { line ->
+                val parts = line.split('|', limit = 3)
+                if (parts.size != 3) return@forEach
+                val at = parts[0].toLongOrNull() ?: return@forEach
+                if (at > nowMillis || nowMillis - at > RETENTION_MILLIS) return@forEach
+                val kind = decode(parts[1]) ?: return@forEach
+                val detail = decode(parts[2]) ?: return@forEach
+                recent.addLast(Incident(at, kind, redactSecrets(detail).take(MAX_DETAIL_LENGTH)))
+            }
+            if (recent.isEmpty()) total = 0
+            persist()
+        }
+    }
 
     /**
      * [detail] is a connection snapshot. It is redacted on the way in rather than on the way out,
@@ -36,7 +60,8 @@ object ConnectionIncidents {
         synchronized(lock) {
             total++
             if (recent.size == CAPACITY) recent.removeFirst()
-            recent.addLast(Incident(atMillis, kind, redactSecrets(detail)))
+            recent.addLast(Incident(atMillis, kind.take(64), redactSecrets(detail).take(MAX_DETAIL_LENGTH)))
+            persist()
         }
     }
 
@@ -62,6 +87,45 @@ object ConnectionIncidents {
         synchronized(lock) {
             recent.clear()
             total = 0
+            storage?.delete()
+            storage = null
         }
     }
+
+    /** User-facing clear keeps the store attached so later failures are still retained. */
+    fun clearAndRetainStorage() {
+        synchronized(lock) {
+            recent.clear()
+            total = 0
+            storage?.delete()
+        }
+    }
+
+    private fun persist() {
+        val target = storage ?: return
+        runCatching {
+            val dir = target.parentFile ?: return
+            if (!dir.isDirectory && !dir.mkdirs()) return
+            val temporary = File(dir, "connection-incidents.tmp")
+            val value = buildString {
+                append(total).append('\n')
+                recent.forEach { incident ->
+                    append(incident.atMillis).append('|')
+                    append(encode(incident.kind)).append('|')
+                    append(encode(incident.detail)).append('\n')
+                }
+            }
+            temporary.writeText(value)
+            if (!temporary.renameTo(target)) temporary.delete()
+        }
+    }
+
+    private fun encode(value: String): String = Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))
+
+    private fun decode(value: String): String? = runCatching {
+        String(Base64.getDecoder().decode(value), Charsets.UTF_8)
+    }.getOrNull()
+
+    private const val MAX_DETAIL_LENGTH = 512
+    private const val RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
 }

@@ -62,6 +62,57 @@ test("an app tunnel logs its open and a close summary with frame counts both way
   assert.equal(JSON.stringify(lines).includes("prompt.submit"), false);
 });
 
+test("foreground RPC receipt logs only method and id, never slash command contents", () => {
+  const { lines, connector, broker } = harness();
+  const app = new FakeSocket();
+  broker.open(app as unknown as WebSocket, connector);
+  const tunnelId = lines.find((line) => line.kind === "app.tunnel.open")?.tunnel as string;
+  app.emit("message", Buffer.from(JSON.stringify({ id: 9, method: "slash.exec", params: { command: "/model private-model --session" } })), false);
+  app.emit("message", Buffer.from(JSON.stringify({ id: 10, method: "session.create", params: { cwd: "/private/workspace" } })), false);
+  app.emit("message", Buffer.from(JSON.stringify({ id: 11, method: "prompt.submit", params: { text: "private prompt" } })), false);
+  const received = lines.filter((line) => line.kind === "app.rpc.received");
+  assert.deepEqual(received.map((line) => [line.rpcId, line.method]), [[9, "slash.exec"], [10, "session.create"]]);
+  broker.handleConnectorMessage(connector, {
+    type: "tunnel.ws.frame", version: 1, id: tunnelId,
+    dataBase64: Buffer.from(JSON.stringify({ id: 9, result: { output: "private result" } })).toString("base64"),
+    binary: false,
+  } as WireMessage);
+  const returned = lines.filter((line) => line.kind === "app.rpc.returned");
+  assert.deepEqual(returned.map((line) => [line.rpcId, line.method, line.ok]), [[9, "slash.exec", true]]);
+  assert.equal(JSON.stringify([...received, ...returned]).includes("private"), false);
+  app.close();
+  assert.equal(lines.find((line) => line.kind === "app.tunnel.close")?.unansweredForegroundRpcs, 1);
+  assert.deepEqual(lines.filter((line) => line.kind === "app.rpc.unanswered").map((line) => [line.rpcId, line.method]),
+    [[10, "session.create"]]);
+});
+
+test("app tunnel correlates a valid client connection id without logging arbitrary header text", () => {
+  const { lines, connector, broker } = harness();
+  broker.open(new FakeSocket() as unknown as WebSocket, connector, undefined, undefined, undefined,
+    "123e4567-e89b-42d3-a456-426614174000");
+  assert.equal(lines.find((line) => line.kind === "app.tunnel.open")?.clientConnectionId,
+    "123e4567-e89b-42d3-a456-426614174000");
+  broker.open(new FakeSocket() as unknown as WebSocket, connector, undefined, undefined, undefined,
+    "private-token=do-not-log");
+  assert.equal(lines.filter((line) => line.kind === "app.tunnel.open")[1]?.clientConnectionId, undefined);
+  assert.equal(JSON.stringify(lines).includes("do-not-log"), false);
+});
+
+test("backpressure never claims an RPC reply was forwarded to the app", () => {
+  const { lines, connector, broker } = harness();
+  const app = new FakeSocket();
+  broker.open(app as unknown as WebSocket, connector);
+  const tunnelId = lines.find((line) => line.kind === "app.tunnel.open")?.tunnel as string;
+  app.emit("message", Buffer.from(JSON.stringify({ id: 6, method: "session.create", params: {} })), false);
+  app.bufferedAmount = 1024 * 1024;
+  broker.handleConnectorMessage(connector, {
+    type: "tunnel.ws.frame", version: 1, id: tunnelId,
+    dataBase64: Buffer.from(JSON.stringify({ id: 6, result: {} })).toString("base64"), binary: false,
+  } as WireMessage);
+  assert.equal(lines.some((line) => line.kind === "app.rpc.returned"), false);
+  assert.equal(lines.find((line) => line.kind === "app.tunnel.close")?.unansweredForegroundRpcs, 1);
+});
+
 test("a connector going away closes every tunnel on its route and says how many", () => {
   const { lines, connector, broker } = harness();
   const a = new FakeSocket();

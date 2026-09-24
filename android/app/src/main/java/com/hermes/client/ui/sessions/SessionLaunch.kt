@@ -61,20 +61,26 @@ internal fun rememberSessionCreator(
             creating = true
             scope.launch {
                 try {
-                    vm.createSession(cwd)?.let { created ->
-                        if (created.fellBackToDefault) {
-                            // The folder is gone on the Mac and the gateway silently used its own
-                            // launch dir instead — say so rather than leave the chat in a surprise
-                            // workspace (HR-SESS-006).
-                            val error = AppError(
-                                AppErrorCode.PROJECT_FELL_BACK_TO_DEFAULT,
-                                retryable = false,
-                                stage = "session_create",
-                            )
-                            Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
-                        }
-                        onOpen(ChatLaunch.new(created.id, activeProfile, created.deviceId))
+                    val created = vm.createSession(cwd)
+                    if (created.fellBackToDefault) {
+                        // The folder is gone on the Mac and the gateway silently used its own
+                        // launch dir instead — say so rather than leave the chat in a surprise
+                        // workspace (HR-SESS-006).
+                        val error = AppError(
+                            AppErrorCode.PROJECT_FELL_BACK_TO_DEFAULT,
+                            retryable = false,
+                            stage = "session_create",
+                        )
+                        Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
                     }
+                    onOpen(ChatLaunch.new(created.id, activeProfile, created.deviceId))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val error = com.hermes.client.data.error.newChatFailure(
+                        e, vm.consecutiveDroppedConnections,
+                    )
+                    Toast.makeText(context, error.localizedMessage(language), Toast.LENGTH_LONG).show()
                 } finally {
                     creating = false
                 }

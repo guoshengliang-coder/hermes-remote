@@ -4,7 +4,9 @@ import {
   createConnectorLogger,
   parseConnectorLogLevel,
   sanitizeLogFields,
+  rpcResponseIdentity,
   summarizeHermesFrame,
+  trackedForegroundRpcRequest,
 } from "./connector-log.js";
 
 test("log level defaults to info and rejects unknown values", () => {
@@ -38,4 +40,16 @@ test("a Hermes frame is described by its event type and session, never quoted", 
 
   assert.deepEqual(summarizeHermesFrame(JSON.stringify({ id: "3", result: { ok: true } })), { kind: "rpc", type: "rpc.result", terminal: false });
   assert.deepEqual(summarizeHermesFrame("not json"), { kind: "other", terminal: false });
+});
+
+test("foreground RPC tracing recognizes only bounded top-level metadata", () => {
+  const request = Buffer.from(JSON.stringify({ id: 7, method: "slash.exec", params: { command: "/model private --session" } }));
+  assert.deepEqual(trackedForegroundRpcRequest(request, false), { id: 7, method: "slash.exec" });
+  assert.equal(trackedForegroundRpcRequest(request, true), null);
+  assert.equal(trackedForegroundRpcRequest(Buffer.from(JSON.stringify({ id: 8, method: "prompt.submit" })), false), null);
+  assert.equal(trackedForegroundRpcRequest(Buffer.from("{"), false), null);
+  assert.equal(trackedForegroundRpcRequest(Buffer.alloc(4097), false), null);
+  assert.deepEqual(rpcResponseIdentity(Buffer.from(JSON.stringify({ id: 7, result: { output: "private" } })), false), { id: 7, ok: true });
+  assert.deepEqual(rpcResponseIdentity(Buffer.from(JSON.stringify({ id: 7, error: { message: "private" } })), false), { id: 7, ok: false });
+  assert.equal(rpcResponseIdentity(Buffer.from(JSON.stringify({ event: { id: 7, result: "private" } })), false), null);
 });

@@ -2,6 +2,7 @@ package com.hermes.client.data.error
 
 import com.hermes.client.data.network.GatewayReadinessTimeoutException
 import com.hermes.client.data.network.GatewayRpcException
+import com.hermes.client.data.network.GatewayResponseTimeoutException
 
 /**
  * How many connections have to die in a row before the client may say the connection "keeps"
@@ -25,6 +26,12 @@ private const val UNSTABLE_CONNECTION_THRESHOLD = 3
  * themselves, which is what lets this distinguish "retry now" from "this will keep happening".
  */
 fun newChatFailure(error: Throwable, droppedConnections: Int): AppError = when {
+    error is GatewayResponseTimeoutException -> AppError(
+        code = AppErrorCode.SESSION_CREATE_UNCONFIRMED,
+        retryable = true,
+        technicalCause = error.message,
+        stage = "session.create",
+    )
     // The socket never finished its handshake, which has its own registered meaning and copy.
     error is GatewayReadinessTimeoutException -> AppError(
         code = AppErrorCode.HANDSHAKE_TIMEOUT,

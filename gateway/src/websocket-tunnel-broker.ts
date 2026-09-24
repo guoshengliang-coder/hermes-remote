@@ -27,6 +27,7 @@ interface AppTunnel<TConnector extends WebSocketConnector> {
   bytesToApp: number;
   framesFromApp: number;
   bytesFromApp: number;
+  pendingForegroundRpcs: Map<number, { method: string; startedAt: number }>;
 }
 
 type SendWireMessage = (socket: WebSocket, message: WireMessage) => void;
@@ -40,6 +41,35 @@ export type ScreenAppFrame = (data: Buffer, isBinary: boolean) => {
   replies: string[];
   violation?: string;
 };
+
+/** Only metadata for the two foreground RPCs whose missing replies strand a spinner. */
+export function trackedForegroundRpcRequest(data: Buffer, isBinary: boolean): { id: number; method: string } | null {
+  if (isBinary || data.length > 4096) return null;
+  try {
+    const frame: unknown = JSON.parse(data.toString("utf8"));
+    if (typeof frame !== "object" || frame === null || Array.isArray(frame)) return null;
+    const request = frame as Record<string, unknown>;
+    if (request.method !== "session.create" && request.method !== "slash.exec") return null;
+    if (typeof request.id !== "number" || !Number.isSafeInteger(request.id)) return null;
+    return { id: request.id, method: request.method };
+  } catch {
+    return null;
+  }
+}
+
+function trackedForegroundRpcResponse(data: Buffer, isBinary: boolean): { id: number; ok: boolean } | null {
+  if (isBinary || data.length > 1024 * 1024) return null;
+  try {
+    const frame: unknown = JSON.parse(data.toString("utf8"));
+    if (typeof frame !== "object" || frame === null || Array.isArray(frame)) return null;
+    const response = frame as Record<string, unknown>;
+    if (typeof response.id !== "number" || !Number.isSafeInteger(response.id)) return null;
+    if (!("result" in response) && !("error" in response)) return null;
+    return { id: response.id, ok: !("error" in response) };
+  } catch {
+    return null;
+  }
+}
 
 export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
   private readonly tunnels = new Map<string, AppTunnel<TConnector>>();
@@ -67,6 +97,7 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
       sessionId: string;
     },
     screenAppFrame?: ScreenAppFrame,
+    clientConnectionId?: string,
   ): void {
     const revalidate = revalidateConnector
       ? () => {
@@ -93,9 +124,12 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
       bytesToApp: 0,
       framesFromApp: 0,
       bytesFromApp: 0,
+      pendingForegroundRpcs: new Map(),
     });
     this.log.info("app.tunnel.open", {
       tunnel: id,
+      clientConnectionId: clientConnectionId && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientConnectionId)
+        ? clientConnectionId : undefined,
       device: connector.deviceId,
       routingKey: connector.routingKey,
       tunnels: this.tunnels.size,
@@ -130,6 +164,11 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
         tunnel.framesFromApp += 1;
         tunnel.bytesFromApp += buffer.length;
       }
+      const rpc = trackedForegroundRpcRequest(buffer, isBinary);
+      if (rpc) {
+        tunnel?.pendingForegroundRpcs.set(rpc.id, { method: rpc.method, startedAt: Date.now() });
+        this.log.info("app.rpc.received", { tunnel: id, rpcId: rpc.id, method: rpc.method });
+      }
       this.send(current.socket, {
         type: "tunnel.ws.frame",
         version: PROTOCOL_VERSION,
@@ -143,6 +182,7 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
       if (revalidationTimer) clearInterval(revalidationTimer);
       const tunnel = this.tunnels.get(id);
       this.tunnels.delete(id);
+      if (tunnel) this.logUnansweredRpcs(id, tunnel, "app-close");
       const current = this.resolveConnector(connector.routingKey);
       this.log.info("app.tunnel.close", {
         tunnel: id,
@@ -154,6 +194,7 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
         bytesToApp: tunnel?.bytesToApp,
         framesFromApp: tunnel?.framesFromApp,
         bytesFromApp: tunnel?.bytesFromApp,
+        unansweredForegroundRpcs: tunnel?.pendingForegroundRpcs.size,
         connectorOnline: current === connector,
         tunnels: this.tunnels.size,
       });
@@ -179,6 +220,9 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
         const data = Buffer.from(message.dataBase64, "base64");
         tunnel.framesToApp += 1;
         tunnel.bytesToApp += data.length;
+        const answered = tunnel.pendingForegroundRpcs.size
+          ? trackedForegroundRpcResponse(data, message.binary) : null;
+        const pending = answered ? tunnel.pendingForegroundRpcs.get(answered.id) : undefined;
         if (tunnel.socket.bufferedAmount + data.length > this.maxSocketBufferedBytes) {
           this.log.info("app.tunnel.backpressure", {
             tunnel: message.id,
@@ -190,6 +234,13 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
           tunnel.socket.send(message.binary ? data : data.toString("utf8"), {
             binary: message.binary,
           });
+          if (answered && pending) {
+            tunnel.pendingForegroundRpcs.delete(answered.id);
+            this.log.info("app.rpc.returned", {
+              tunnel: message.id, rpcId: answered.id, method: pending.method,
+              ok: answered.ok, durationMs: Date.now() - pending.startedAt,
+            });
+          }
         }
       }
       return true;
@@ -201,6 +252,7 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
           || tunnel.routingKey !== connector.routingKey
           || tunnel.connector !== connector) return true;
       this.tunnels.delete(message.id);
+      this.logUnansweredRpcs(message.id, tunnel, "connector-close");
       this.log.info("app.tunnel.close_by_connector", {
         tunnel: message.id,
         device: connector.deviceId,
@@ -221,6 +273,7 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
     for (const [id, tunnel] of this.tunnels) {
       if (tunnel.routingKey !== routingKey) continue;
       this.tunnels.delete(id);
+      this.logUnansweredRpcs(id, tunnel, "connector-offline");
       closed += 1;
       tunnel.socket.close(1013, "Mac connector disconnected");
     }
@@ -257,6 +310,15 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
     );
   }
 
+  private logUnansweredRpcs(id: string, tunnel: AppTunnel<TConnector>, reason: string): void {
+    for (const [rpcId, pending] of [...tunnel.pendingForegroundRpcs].slice(0, 16)) {
+      this.log.info("app.rpc.unanswered", {
+        tunnel: id, rpcId, method: pending.method, reason,
+        ageMs: Date.now() - pending.startedAt,
+      });
+    }
+  }
+
   private closeAccountTunnels(
     matches: (access: NonNullable<AppTunnel<TConnector>["accountAccess"]>) => boolean,
     reason: string,
@@ -264,6 +326,7 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
     for (const [id, tunnel] of this.tunnels) {
       if (!tunnel.accountAccess || !matches(tunnel.accountAccess)) continue;
       this.tunnels.delete(id);
+      this.logUnansweredRpcs(id, tunnel, "access-revoked");
       tunnel.socket.close(4403, reason);
     }
   }

@@ -846,8 +846,8 @@ class SessionsViewModelTest {
 
         val result = vm.createSession("/u/proj")
 
-        assertEquals("s9", result?.id)
-        assertTrue(result!!.fellBackToDefault)
+        assertEquals("s9", result.id)
+        assertTrue(result.fellBackToDefault)
         coVerify(exactly = 0) { projectPrefs.setDefaultProjectPath(any()) }
     }
 
@@ -857,7 +857,18 @@ class SessionsViewModelTest {
         val vm = buildVm()
         advanceUntilIdle()
 
-        assertFalse(vm.createSession("/u/proj")!!.fellBackToDefault)
+        assertFalse(vm.createSession("/u/proj").fellBackToDefault)
+    }
+
+    @Test fun create_failure_reaches_the_fab_instead_of_becoming_a_silent_null() = runTest {
+        coEvery { chatRepo.createSession("personal", null) } throws
+            com.hermes.client.data.network.GatewayResponseTimeoutException("gateway response timeout")
+        val vm = buildVm()
+        advanceUntilIdle()
+
+        val error = runCatching { vm.createSession(null) }.exceptionOrNull()
+        assertTrue(error is com.hermes.client.data.network.GatewayResponseTimeoutException)
+        coVerify(exactly = 0) { sessionRepo.bindConversation(any(), any(), any()) }
     }
 
     @Test fun top_level_create_lands_in_the_default_project_and_teaches_its_path() = runTest {
@@ -868,8 +879,8 @@ class SessionsViewModelTest {
 
         val result = vm.createSession(null)
 
-        assertEquals("s1", result?.id)
-        assertFalse(result!!.fellBackToDefault)
+        assertEquals("s1", result.id)
+        assertFalse(result.fellBackToDefault)
         coVerify { projectPrefs.setDefaultProjectPath("/Users/me/") }
     }
 
@@ -884,7 +895,7 @@ class SessionsViewModelTest {
 
         val result = vm.createSession()
 
-        assertEquals("mac-default", result?.deviceId)
+        assertEquals("mac-default", result.deviceId)
         io.mockk.verify { accountSessions.restoreSelectedDeviceRoute() }
         io.mockk.verify { chatRepo.reconnect() }
         io.mockk.verify { sessionRepo.bindConversation("personal", "s-device", "mac-default") }
