@@ -1275,6 +1275,33 @@ Rollback: `--operation rollback` with the 0.4.20 bundle
 `scripts/publish-web-app.sh --rollback` for the Web package. Sessions issued before the switch keep their
 30-day expiry until their next rotation.
 
+## Routine release: Gateway 0.4.23, HG-120–122 diagnostics (R5-F1; production complete 2026-09-24)
+
+Owner-authorized merge and release. The change adds cross-end request correlation and timing diagnostics;
+the database remains at schema 16, the release contract and minimum clients are unchanged, and no Web
+package was published. PR #419 merged the behavior, and red-light version PR #420 allocated Gateway
+0.4.23 alongside Connector 0.1.9 and Desktop 0.2.27. This Gateway deployment does not itself publish a
+signed Desktop or Android artifact.
+
+The matching successful `Gateway OCI` run 35980031711 on `main 6420120b6712` supplied Gateway
+`0.4.23-6420120b6712` (archive SHA-256
+`cee92ef5e5f5575871e63cbe50f5982bc22de5fcb5c24aeba490b6f731d770c1`) and operator bundle
+`Hermes-R5D-Ops-6420120b6712` (SHA-256
+`35372a7a265fbbbbd4784f6b02660199b91aba095dd2b26afd666a3a713a4605`). Both manifests and
+archives were verified locally, re-hashed on the host, and the operator bundle was verified again from
+the extracted copy at `/opt/hermes-go-ops/6420120b67125651baa8bd644141be7d33e89e10`. The new
+private bundle is at `/secure-input/hermes-go/gateway-0.4.23-6420120b/`; a separate release config
+pins it without overwriting the prior config.
+
+R5-F1 run `9c4977ab-7375-4535-b454-d84e82d384bf` committed with `activeSlot: blue`,
+`previousSlot: green`, `preparedStage: candidate_verified`, `current` →
+`releases/0.4.23-6420120b6712`, and `previous` → `releases/0.4.22-566538d87e38`. Independent
+checks found public capabilities `server.version` 0.4.23 and unchanged client minima, `/account` and
+`/app/` 200, `/relay-health` healthy, loopback `/readyz` 200, the blue container healthy with zero
+restarts, no warning-or-worse blue unit journal lines in the five-minute window, green inactive,
+and `nginx -t` successful. The previous 0.4.22 bundle and slot remain available for the R5-F1
+rollback operation; no rollback was needed.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
