@@ -110,6 +110,12 @@ public protocol AccountAPIRequesting: Sendable {
         accessToken: String,
         idempotencyKey: String
     ) async throws
+    func unbindDevice(
+        id: String,
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws
     func signOut(accessToken: String, idempotencyKey: String) async throws
 }
 
@@ -508,6 +514,28 @@ public actor AccountAPIClient: AccountAPIRequesting {
         )
     }
 
+    /// Removes one of the account's own Macs (`DELETE /v2/devices/{id}`, multi-device Gateways only).
+    /// The grant comes from an email reauthentication scoped to `connector.unbind`.
+    public func unbindDevice(
+        id: String,
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws {
+        guard isValidDeviceID(id),
+              UUID(uuidString: idempotencyKey) != nil,
+              !grant.isEmpty,
+              grant.utf8.count <= 256
+        else { throw AccountClientError.invalidResponse }
+        try await sendEmpty(
+            path: "/v2/devices/\(id)",
+            method: "DELETE",
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey.lowercased(),
+            body: InstallationRevocationRequest(grant: grant)
+        )
+    }
+
     public func signOut(accessToken: String, idempotencyKey: String) async throws {
         try await sendEmpty(
             path: "/v2/auth/sign-out",
@@ -784,6 +812,7 @@ private func isValidShareInvitationToken(_ value: String) -> Bool {
 
 private let supportedReauthenticationScopes: Set<String> = [
     "account.installation.revoke",
+    "connector.unbind",
     "account.delete",
     "device.share",
 ]
