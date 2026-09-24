@@ -287,6 +287,7 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.144 修复新建会话与视频预览问题，改进模型切换体验及跨端诊断日志。
 - Version 0.1.143 修复从会话列表进入会话不显示电脑端新消息、需手动刷新的问题；本地遗留的失败消息不再卡住自动同步（HG-124）
 - Version 0.1.142 PC 端新消息自动同步到已打开的会话页；粘贴链接的会话不再把网页正文显示成你输入的内容（HG-124/HG-125）
 - Version 0.1.141 Version 0.1.141
@@ -867,7 +868,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.143-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.144-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
