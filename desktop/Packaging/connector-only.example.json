@@ -4,6 +4,6 @@
   "sourceCommit": "0000000000000000000000000000000000000000",
   "nodeBinary": "/absolute/path/to/arm64/node",
   "connector": {
-    "version": "0.1.8"
+    "version": "0.1.9"
   }
 }
