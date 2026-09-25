@@ -3,9 +3,12 @@
 Release discovery, two-component topology, signing-key rotation, and protected-environment setup
 are documented in [`../docs/DESKTOP_RELEASE_CHANNEL.md`](../docs/DESKTOP_RELEASE_CHANNEL.md).
 
-Current internal test release candidate: **0.2.28** (build 31). This build carries the sign-in gate
-and first-run onboarding for HG-129; the managed release and its Connector candidate are unchanged.
-Publication still requires the signed Desktop release channel.
+Current internal test release candidate: **0.2.29** (build 32). It adds the HG-117
+existing-install update target and the HG-116 shared Dock icon. Connector **0.1.10** adds
+the opt-in bounded history preview for HG-107. The proposed managed release is **0.4.5**;
+these versions remain candidates until the signed Desktop release channel publishes them.
+
+0.2.28 (build 31) carried the sign-in gate and first-run onboarding for HG-129.
 
 0.2.27 (build 30) carried foreground-request correlation and diagnostic logging for HG-120–122.
 0.2.26 (build 29) had three changes (HG-97, HG-98, HG-99).
