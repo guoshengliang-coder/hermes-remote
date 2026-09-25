@@ -97,6 +97,22 @@ fi
 if [ -n "${HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT:-}" ]; then
   plutil -replace HermesGoDesktopHermesRuntimeContract -string "$HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT" "$app/Contents/Info.plist"
 fi
+if [ -n "${HERMES_GO_APP_UPDATE_ENABLED:-}" ]; then
+  case "$HERMES_GO_APP_UPDATE_ENABLED" in
+    0) plutil -replace HermesGoDesktopAppUpdateEnabled -bool false "$app/Contents/Info.plist" ;;
+    1) plutil -replace HermesGoDesktopAppUpdateEnabled -bool true "$app/Contents/Info.plist" ;;
+    *) echo "HERMES_GO_APP_UPDATE_ENABLED must be 0 or 1." >&2; exit 1 ;;
+  esac
+fi
+if [ -n "${HERMES_GO_APP_UPDATE_INDEX_URL:-}" ]; then
+  plutil -replace HermesGoDesktopAppUpdateIndexURL -string "$HERMES_GO_APP_UPDATE_INDEX_URL" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_APP_UPDATE_CHANNEL:-}" ]; then
+  plutil -replace HermesGoDesktopAppUpdateChannel -string "$HERMES_GO_APP_UPDATE_CHANNEL" "$app/Contents/Info.plist"
+fi
+if [ -n "${HERMES_GO_APP_UPDATE_ARCHITECTURE:-}" ]; then
+  plutil -replace HermesGoDesktopAppUpdateArchitecture -string "$HERMES_GO_APP_UPDATE_ARCHITECTURE" "$app/Contents/Info.plist"
+fi
 
 bootstrap_enabled="$(plutil -extract HermesGoManagedBootstrapEnabled raw "$app/Contents/Info.plist")"
 component_enabled="$(plutil -extract HermesGoComponentPreflightEnabled raw "$app/Contents/Info.plist")"
@@ -108,6 +124,10 @@ release_architecture="$(plutil -extract HermesGoDesktopReleaseArchitecture raw "
 legacy_key_id="$(plutil -extract HermesGoDesktopReleaseSigningKeyID raw "$app/Contents/Info.plist")"
 legacy_public_key="$(plutil -extract HermesGoDesktopReleaseSigningPublicKey raw "$app/Contents/Info.plist")"
 signing_keys="$(plutil -extract HermesGoDesktopReleaseSigningKeys raw "$app/Contents/Info.plist")"
+app_update_enabled="$(plutil -extract HermesGoDesktopAppUpdateEnabled raw "$app/Contents/Info.plist")"
+app_update_index_url="$(plutil -extract HermesGoDesktopAppUpdateIndexURL raw "$app/Contents/Info.plist")"
+app_update_channel="$(plutil -extract HermesGoDesktopAppUpdateChannel raw "$app/Contents/Info.plist")"
+app_update_architecture="$(plutil -extract HermesGoDesktopAppUpdateArchitecture raw "$app/Contents/Info.plist")"
 
 if [ "$bootstrap_enabled" = "true" ] && [ -z "$release_index_url" ]; then
   echo "Managed bootstrap is enabled but its stable release index URL is empty." >&2
@@ -131,6 +151,12 @@ if [ "$bootstrap_enabled" = "true" ] || [ "$component_enabled" = "true" ]; then
     exit 1
   fi
 fi
+if [ "$app_update_enabled" = "true" ]; then
+  if [ -z "$app_update_index_url" ] || [ -z "$app_update_channel" ] || [ -z "$app_update_architecture" ]; then
+    echo "App update checking is enabled but its index URL, channel, and architecture are not all set." >&2
+    exit 1
+  fi
+fi
 
 echo "DESKTOP_RELEASE_CONFIGURATION"
 echo "MANAGED_BOOTSTRAP_ENABLED=$bootstrap_enabled"
@@ -140,6 +166,8 @@ echo "COMPONENT_INDEX_URL=$component_index_url"
 echo "ARTIFACT_ORIGIN=$artifact_origin"
 echo "RELEASE_CHANNEL=$release_channel"
 echo "RELEASE_ARCHITECTURE=$release_architecture"
+echo "APP_UPDATE_ENABLED=$app_update_enabled"
+echo "APP_UPDATE_INDEX_URL=$app_update_index_url"
 if [ -n "$signing_keys" ]; then
   echo "SIGNING_TRUST=multi-key"
 elif [ -n "$legacy_key_id" ]; then

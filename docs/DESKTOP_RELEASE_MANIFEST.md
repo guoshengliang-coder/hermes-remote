@@ -254,6 +254,52 @@ restart recovery stops the candidate, restores the snapshot and pointer, restart
 Connector, proves the same binding healthy, and restores the old `account_active` journal. The private
 snapshot is removed only after commit or proven rollback.
 
+## App update index and update checking
+
+Desktop ships an off-by-default check for a newer Desktop app and a newer managed release. The managed
+check reuses `DesktopReleaseIndex` against the existing stable `/desktop/releases/index.json`: it only
+decides that a newer release exists, and installing it still runs the signed prepare → confirm →
+commit path. The app check reads a separate stable `/desktop/apps/index.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "channel": "internal",
+  "architecture": "arm64",
+  "appVersion": "0.2.29",
+  "buildNumber": 32,
+  "minimumMacOS": "14.0",
+  "downloadURL": "https://mrlgs.net/desktop/apps/0.2.29/Hermes-Go-Desktop-0.2.29.dmg",
+  "sizeBytes": 2690779,
+  "sha256": "<64 lowercase hex>",
+  "releaseNotes": ["<one line per change>"],
+  "sourceCommit": "<40 lowercase hex>",
+  "updatedAt": "2026-09-25T00:00:00Z"
+}
+```
+
+- The index is discovery metadata only. The download URL must stay on the index origin under
+  `<origin>/desktop/apps/<version>/` with the exact `Hermes-Go-Desktop-<version>.dmg` name, and the
+  DMG's size and SHA-256 must match before anything is mounted.
+- `releaseNotes` is an optional bounded array (at most 20 notes, each at most 500 bytes, single-line).
+  The release and component indexes carry the same optional field.
+- Build enablement is `HERMES_GO_APP_UPDATE_ENABLED=1` plus `HERMES_GO_APP_UPDATE_INDEX_URL`,
+  `HERMES_GO_APP_UPDATE_CHANNEL`, and `HERMES_GO_APP_UPDATE_ARCHITECTURE`. Default builds carry none,
+  so the Settings toggle reports that update checking is unavailable rather than failing.
+- `scripts/desktop-app-update-index.mjs` generates the app index from the finished DMG and a bounded
+  notes file. It is offline and never uploads.
+- `scripts/publish-desktop-release.sh` accepts an optional `DESKTOP_RELEASE_NOTES_FILE` (a JSON array)
+  and embeds it as `releaseNotes` in both stable indexes; unset, the field is an empty array.
+- `desktop-app-release.yml` accepts an optional `release_notes` JSON array, generates the app index
+  after notarization, and uploads it with the DMG as a workflow artifact. Publication is the separate
+  `scripts/publish-desktop-app-update.sh` transaction: it re-verifies the index against the DMG,
+  uploads one immutable version, switches `/desktop/apps/index.json` atomically with public readback and
+  `--rollback`, and never runs in CI.
+- Internal-test builds are ad-hoc signed. Replacing `/Applications/Hermes Go Desktop.app` is therefore
+  a best-effort staged swap scheduled after the app exits, followed by a relaunch; it is not an
+  Apple-notarized auto-updater. Public distribution still requires Developer ID signing, notarization,
+  and stapling.
+
 ## Publication and rollout gates
 
 ### Offline packaging and verification

@@ -126,26 +126,47 @@ release_sha="$(shasum -a 256 "$DESKTOP_RELEASE_MANIFEST" | awk '{print $1}')"
 component_sha="$(shasum -a 256 "$DESKTOP_COMPONENT_MANIFEST" | awk '{print $1}')"
 updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Optional update notes carried into both stable indexes. Rejected unless it is exactly a bounded
+# array of short single-line strings, so a malformed file cannot publish a bad index.
+notes_json='[]'
+if [[ -n "${DESKTOP_RELEASE_NOTES_FILE:-}" ]]; then
+  [[ -f "$DESKTOP_RELEASE_NOTES_FILE" && ! -L "$DESKTOP_RELEASE_NOTES_FILE" ]] || {
+    echo "Desktop release notes file is missing or symlinked" >&2
+    exit 66
+  }
+  notes_json="$(node - "$DESKTOP_RELEASE_NOTES_FILE" <<'NODE'
+const fs = require('node:fs');
+const notes = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (!Array.isArray(notes) || notes.length > 20) process.exit(64);
+for (const note of notes) {
+  if (typeof note !== 'string' || note.length === 0 || Buffer.byteLength(note) > 500) process.exit(64);
+  if (/[\u0000-\u001f\u007f]/.test(note)) process.exit(64);
+}
+process.stdout.write(JSON.stringify(notes));
+NODE
+)" || { echo "Desktop release notes file is invalid" >&2; exit 64; }
+fi
+
 node - "$work/release-index.json" "$DESKTOP_RELEASE_VERSION" "$DESKTOP_RELEASE_CHANNEL" \
   "$DESKTOP_RELEASE_ARCHITECTURE" "$release_name" "$release_size" "$release_sha" \
-  "$updated_at" "$DESKTOP_RELEASE_PUBLIC_ORIGIN/desktop/releases" <<'NODE'
+  "$updated_at" "$DESKTOP_RELEASE_PUBLIC_ORIGIN/desktop/releases" "$notes_json" <<'NODE'
 const fs = require('node:fs');
-const [out, version, channel, architecture, name, size, sha, updatedAt, base] = process.argv.slice(2);
+const [out, version, channel, architecture, name, size, sha, updatedAt, base, notes] = process.argv.slice(2);
 fs.writeFileSync(out, `${JSON.stringify({
   schemaVersion: 1, channel, architecture, releaseVersion: version,
   manifestURL: `${base}/${version}/${name}`, manifestSizeBytes: Number(size),
-  manifestSHA256: sha, updatedAt,
+  manifestSHA256: sha, releaseNotes: JSON.parse(notes), updatedAt,
 })}\n`, { mode: 0o600 });
 NODE
 node - "$work/component-index.json" "$DESKTOP_RELEASE_VERSION" "$DESKTOP_RELEASE_CHANNEL" \
   "$DESKTOP_RELEASE_ARCHITECTURE" "$component_name" "$component_size" "$component_sha" \
-  "$updated_at" "$DESKTOP_RELEASE_PUBLIC_ORIGIN/desktop/components" <<'NODE'
+  "$updated_at" "$DESKTOP_RELEASE_PUBLIC_ORIGIN/desktop/components" "$notes_json" <<'NODE'
 const fs = require('node:fs');
-const [out, version, channel, architecture, name, size, sha, updatedAt, base] = process.argv.slice(2);
+const [out, version, channel, architecture, name, size, sha, updatedAt, base, notes] = process.argv.slice(2);
 fs.writeFileSync(out, `${JSON.stringify({
   schemaVersion: 1, channel, architecture, releaseVersion: version,
   manifestURL: `${base}/${version}/${name}`, manifestSizeBytes: Number(size),
-  manifestSHA256: sha, updatedAt,
+  manifestSHA256: sha, releaseNotes: JSON.parse(notes), updatedAt,
 })}\n`, { mode: 0o600 });
 NODE
 

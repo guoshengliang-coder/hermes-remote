@@ -46,9 +46,24 @@ enum DesktopHermesInstallPhase: Equatable {
     }
 }
 
+/// Where the owner is in checking for a newer Desktop app or managed release.
+enum DesktopUpdateCheckState: Equatable {
+    case idle
+    case checking
+    case upToDate(DesktopUpdateReport)
+    case available(DesktopUpdateReport)
+    case failed(DesktopIssue)
+
+    var report: DesktopUpdateReport? {
+        switch self {
+        case .upToDate(let report), .available(let report): report
+        case .idle, .checking, .failed: nil
+        }
+    }
+}
+
 @MainActor
-final class DesktopViewModel: ObservableObject {
-    @Published private(set) var health: DesktopHealthSnapshot = .checking
+final class DesktopViewModel: ObservableObject {    @Published private(set) var health: DesktopHealthSnapshot = .checking
     @Published private(set) var legacy: LegacyConnectorSnapshot?
     @Published private(set) var managedRecentLogs: [String] = []
     var recentLogLines: [String] {
@@ -95,6 +110,12 @@ final class DesktopViewModel: ObservableObject {
     @Published private(set) var componentBootstrapIssue: DesktopIssue?
     /// Per-account onboarding facts (`DesktopOnboardingRecord`); reloaded when the account changes.
     @Published private(set) var onboardingRecord = DesktopOnboardingRecord()
+    @Published private(set) var updateCheckState: DesktopUpdateCheckState = .idle
+    @Published var isUpdateSheetPresented = false
+    @Published private(set) var isAppUpdateInstalling = false
+    @Published private(set) var appUpdateIssue: DesktopIssue?
+    @Published private(set) var appUpdateStatusMessage: String?
+    @Published private(set) var isAutomaticUpdateEnabled = DesktopAutomaticUpdateSetting.isEnabled()
 
     private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
     private let prober = HTTPHealthProber()
@@ -122,6 +143,13 @@ final class DesktopViewModel: ObservableObject {
     /// launch, to finish a rollback that was interrupted between writing the file and restarting.
     private var hasCheckedRunningAgentWhileDisabled = false
     private let onboardingStore: any DesktopOnboardingStoring
+    private let appUpdateConfiguration: DesktopAppUpdateConfigurationState
+    private let updateChecker = DesktopUpdateChecker()
+    private let appUpdateInstaller = DesktopAppUpdateInstaller()
+    let appVersion: String
+    private var lastUpdateCheckAt: Date?
+    private static let automaticUpdateInterval: TimeInterval = 12 * 60 * 60
+    private var currentManagedInstallation: DesktopManagedBootstrapInstallationStatus = .absent
     /// The account Gateway's origin; the phone step's QR targets are derived from it.
     let accountGatewayURL: URL
 
@@ -133,6 +161,9 @@ final class DesktopViewModel: ObservableObject {
         self.onboardingStore = onboardingStore
         let configuration = DesktopAccountConfiguration.load()
         accountGatewayURL = configuration.gatewayURL
+        appUpdateConfiguration = DesktopAppUpdateConfigurationState.load()
+        appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "development"
         let bootstrapConfiguration = DesktopManagedBootstrapConfigurationState.load()
         let componentConfiguration = DesktopComponentPreflightConfigurationState.load()
         managedBootstrapConfiguration = bootstrapConfiguration
@@ -147,8 +178,7 @@ final class DesktopViewModel: ObservableObject {
             machineIdentityStore: KeychainConnectorMachineIdentityStore(),
             oauth: oauth,
             displayName: Host.current().localizedName ?? "Mac",
-            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-                ?? "development"
+            appVersion: appVersion
         )
         accountController = controller
         let managedPaths = try? DesktopManagedBootstrapPaths.currentUser()
@@ -279,16 +309,158 @@ final class DesktopViewModel: ObservableObject {
             await self?.refreshAccount(bootstrap: true)
             await self?.recoverManagedBootstrapAfterRestart()
             await self?.refreshComponentPreflight()
+            await self?.runAutomaticUpdateCheckIfDue()
             var cycle = 0
             while !Task.isCancelled {
                 await self?.refresh()
                 cycle += 1
                 if cycle.isMultiple(of: 4) {
                     await self?.refreshAccount()
+                    await self?.runAutomaticUpdateCheckIfDue()
                 }
                 try? await Task.sleep(for: .seconds(15))
             }
         }
+    }
+
+    // MARK: - Updates
+
+    var installedManagedVersion: String? {
+        if case .active(let releaseVersion, _, _, _) = currentManagedInstallation {
+            return releaseVersion
+        }
+        return nil
+    }
+
+    var updateSources: DesktopUpdateSources {
+        let app: DesktopAppUpdateConfiguration? =
+            if case .configured(let value) = appUpdateConfiguration { value } else { nil }
+        let managed: DesktopManagedBootstrapConfiguration? =
+            if case .configured(let value) = effectiveManagedBootstrapConfiguration {
+                value
+            } else {
+                nil
+            }
+        return DesktopUpdateSources(
+            appIndexURL: app?.indexURL,
+            appChannel: app?.channel,
+            appArchitecture: app?.architecture,
+            managedIndexURL: managed?.manifestURL,
+            managedChannel: managed?.channel,
+            managedArchitecture: managed?.architecture
+        )
+    }
+
+    var isUpdateConfigured: Bool {
+        let sources = updateSources
+        return sources.appIndexURL != nil
+            || sources.managedIndexURL?.lastPathComponent == "index.json"
+    }
+
+    var updateStatusText: String {
+        switch updateCheckState {
+        case .idle: isUpdateConfigured ? "尚未检查" : "此版本未配置更新检查"
+        case .checking: "正在检查更新…"
+        case .upToDate: "已是最新版本（\(appVersion)）"
+        case .available(let report):
+            report.appUpdate != nil ? "发现新版本" : "发现可升级的组件版本"
+        case .failed(let issue): issue.summaryChinese
+        }
+    }
+
+    func setAutomaticUpdateChecksEnabled(_ enabled: Bool) {
+        DesktopAutomaticUpdateSetting.setEnabled(enabled)
+        isAutomaticUpdateEnabled = enabled
+        if enabled {
+            Task { await checkForUpdates(manual: false) }
+        }
+    }
+
+    func checkForUpdates(manual: Bool) async {
+        guard isUpdateConfigured else {
+            let issue = DesktopIssue(code: .updateNotConfigured)
+            updateCheckState = .failed(issue)
+            if manual { appUpdateIssue = issue }
+            return
+        }
+        if case .checking = updateCheckState, !manual { return }
+        let sources = updateSources
+        let checker = updateChecker
+        let installedManagedVersion = installedManagedVersion
+        updateCheckState = .checking
+        appUpdateStatusMessage = nil
+        if manual { appUpdateIssue = nil }
+        do {
+            let report = try await checker.check(
+                sources: sources,
+                installedAppVersion: appVersion,
+                installedManagedVersion: installedManagedVersion
+            )
+            lastUpdateCheckAt = report.checkedAt
+            updateCheckState = report.hasUpdates ? .available(report) : .upToDate(report)
+            if report.hasUpdates {
+                isUpdateSheetPresented = true
+            } else if manual {
+                appUpdateStatusMessage = "已是最新版本（\(appVersion)）"
+            }
+        } catch {
+            let issue = DesktopIssue.updateCheck(error)
+            updateCheckState = .failed(issue)
+            if manual { appUpdateIssue = issue }
+        }
+    }
+
+    /// Runs from the monitoring loop; a no-op until the 12-hour interval has passed. A build with no
+    /// update source, or an owner who switched automatic checks off, never reaches the network.
+    func runAutomaticUpdateCheckIfDue() async {
+        guard isUpdateConfigured, DesktopAutomaticUpdateSetting.isEnabled() else { return }
+        if let lastUpdateCheckAt,
+           Date().timeIntervalSince(lastUpdateCheckAt) < Self.automaticUpdateInterval {
+            return
+        }
+        await checkForUpdates(manual: false)
+    }
+
+    func installAppUpdate() async {
+        guard case .available(let report) = updateCheckState,
+              let reference = report.appUpdate?.appReference
+        else { return }
+        guard !isAppUpdateInstalling else { return }
+        isAppUpdateInstalling = true
+        appUpdateIssue = nil
+        defer { isAppUpdateInstalling = false }
+        do {
+            let prepared = try await appUpdateInstaller.prepare(
+                reference: reference,
+                destinationAppURL: Bundle.main.bundleURL,
+                workspaceRoot: Self.updateWorkspaceRoot()
+            )
+            try appUpdateInstaller.commit(prepared)
+            appUpdateStatusMessage = "已安排安装 \(reference.appVersion)，应用即将退出并自动重启。"
+            isUpdateSheetPresented = false
+            try? await Task.sleep(for: .seconds(1))
+            NSApplication.shared.terminate(nil)
+        } catch {
+            appUpdateIssue = DesktopIssue.appUpdateInstall(error)
+        }
+    }
+
+    /// The managed-release upgrade reuses the existing signed prepare → confirm → commit path; the
+    /// index check only decided that a newer release exists.
+    func installManagedUpdate() {
+        isUpdateSheetPresented = false
+        Task { await prepareManagedBootstrap() }
+    }
+
+    private static func updateWorkspaceRoot() -> URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return base
+            .appendingPathComponent("Hermes Go/Updates", isDirectory: true)
+            .resolvingSymlinksInPath()
     }
 
     func refreshComponentPreflight() async {
@@ -1661,6 +1833,7 @@ final class DesktopViewModel: ObservableObject {
     private func applyManagedBootstrapInstallation(
         _ installation: DesktopManagedBootstrapInstallationStatus
     ) {
+        currentManagedInstallation = installation
         guard managedBootstrapPreparation == nil else { return }
         switch installation {
         case .active(let releaseVersion, _, _, _):

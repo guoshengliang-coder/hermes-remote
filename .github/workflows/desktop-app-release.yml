@@ -7,6 +7,11 @@ on:
         description: Version in desktop/Packaging/Info.plist
         required: true
         type: string
+      release_notes:
+        description: JSON array of short single-line release notes for the app update index
+        required: false
+        type: string
+        default: "[]"
 
 permissions:
   contents: read
@@ -51,6 +56,7 @@ jobs:
           NOTARY_ISSUER_ID: ${{ secrets.DESKTOP_APP_NOTARY_ISSUER_ID }}
           RELEASE_SIGNING_KEY_ID: ${{ vars.DESKTOP_RELEASE_SIGNING_KEY_ID }}
           RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.DESKTOP_RELEASE_SIGNING_PUBLIC_KEY }}
+          APP_NOTES_JSON: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
           for name in SIGNING_P12_BASE64 SIGNING_P12_PASSWORD SIGNING_IDENTITY SIGNING_TEAM_ID \
@@ -97,6 +103,10 @@ jobs:
           export HERMES_GO_DESKTOP_RELEASE_SIGNING_KEY_ID="$RELEASE_SIGNING_KEY_ID"
           export HERMES_GO_DESKTOP_RELEASE_SIGNING_PUBLIC_KEY="$RELEASE_SIGNING_PUBLIC_KEY"
           export HERMES_GO_DESKTOP_HERMES_RUNTIME_CONTRACT=hermes-serve-v1
+          export HERMES_GO_APP_UPDATE_ENABLED=1
+          export HERMES_GO_APP_UPDATE_INDEX_URL=https://mrlgs.net/desktop/apps/index.json
+          export HERMES_GO_APP_UPDATE_CHANNEL=internal
+          export HERMES_GO_APP_UPDATE_ARCHITECTURE=arm64
           npm run desktop:dmg
           dmg="$PWD/desktop/build/Hermes-Go-Desktop-$DESKTOP_VERSION.dmg"
           test -s "$dmg"
@@ -112,9 +122,22 @@ jobs:
           git fetch --no-tags origin main
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
           shasum -a 256 "$dmg"
+          printf '%s' "${APP_NOTES_JSON:-[]}" > "$RUNNER_TEMP/app-notes.json"
+          node scripts/desktop-app-update-index.mjs \
+            --version "$DESKTOP_VERSION" \
+            --channel internal \
+            --architecture arm64 \
+            --dmg "$dmg" \
+            --origin https://mrlgs.net \
+            --notes-file "$RUNNER_TEMP/app-notes.json" \
+            --source-commit "$(git rev-parse HEAD)" \
+            --output "$PWD/desktop/build/app-update-index" \
+            --build-number "$build"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Hermes-Go-Desktop-${{ inputs.desktop_version }}-notarized
-          path: desktop/build/Hermes-Go-Desktop-${{ inputs.desktop_version }}.dmg
+          path: |
+            desktop/build/Hermes-Go-Desktop-${{ inputs.desktop_version }}.dmg
+            desktop/build/app-update-index/index.json
           if-no-files-found: error
           retention-days: 7

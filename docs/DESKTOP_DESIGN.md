@@ -227,6 +227,22 @@ small system-tinted (gray in an inactive/light menu bar) indicator aligned with 
 status icons, avoids a white app-icon tile, and remains legible in both appearance modes. The glyph
 opens the same Hermes Go Desktop menu; it is a status affordance, not a replacement app icon.
 
+## Update surface
+
+- One "检查更新" action appears in two places: the menu-bar menu and Settings → 更新. Both call the
+  same check; neither can install anything the other cannot.
+- When a check finds an app update, a managed-release update, or both, one sheet opens titled
+  “发现新版本”. It lists each available update in its own card — 应用更新 and 组件更新 — with the
+  version, the release notes, and a single “立即更新”.
+- 应用更新 downloads, verifies, and stages a replacement app, then quits and relaunches. 组件更新
+  hands off to the existing signed prepare → confirm → commit sheet; the update sheet never replaces
+  the exact-version confirmation the managed installer requires.
+- “已是最新版本” is shown inline in Settings, not as a modal. A failed check shows a registered
+  `HR-DESKUPDATE-*` code with its bilingual explanation and a retry action.
+- Automatic checks run once at launch and then at most once every 12 hours; the owner can switch them
+  off in Settings. A build with no update index reports that checking is unavailable rather than
+  showing a failure.
+
 ## Status and error language
 
 - Every layer keeps its own state: Desktop Agent, Gateway, local Hermes, optional observer, end to end.
