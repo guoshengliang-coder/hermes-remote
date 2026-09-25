@@ -60,6 +60,7 @@ import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedMessage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -320,7 +321,9 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
     val language = LocalAppLanguage.current
     val clipboard = LocalClipboardManager.current
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
-    val hasOutput = tool.output.isNotBlank()
+    val full = rememberFullHistoryRow(tool.historySource, expanded)
+    val output = full.row?.content?.let(::normalizeDisplayPayload) ?: tool.output
+    val hasOutput = tool.output.isNotBlank() || tool.historySource != null
     val running = tool.status == ToolStatus.RUNNING
     val failed = !running && (tool.exitCode ?: 0) != 0
     val borderColor = when {
@@ -392,7 +395,7 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = if (expanded) Int.MAX_VALUE else 2,
                         )
-                        val body = tool.output
+                        val body = output
                         if (expanded && body.isNotBlank()) {
                             SelectionContainer {
                                 // Not search-marked: tool output is out of the search scope (HG-45).
@@ -422,7 +425,7 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
                 // Generic payload: normalized text for everyone; Product mode included.
                 SelectionContainer {
                     Text(
-                        tool.output.take(12_000),
+                        output.take(12_000),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 10.dp),
@@ -432,12 +435,19 @@ internal fun SemanticToolCard(tool: ToolCall, completed: Boolean = false) {
 
             if (expanded && hasOutput) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { clipboard.setText(AnnotatedString(tool.output)) }) {
+                    TextButton(
+                        enabled = tool.historySource == null || full.row != null,
+                        onClick = { clipboard.setText(AnnotatedString(output)) },
+                    ) {
                         Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                         Text(localized(language, "复制结果", "Copy result"), modifier = Modifier.padding(start = 5.dp))
                     }
                 }
-                if (tool.output.length > 12_000) {
+                if (full.loading) Text(localized(language, "正在读取全文…", "Loading full content…"))
+                if (full.error != null) TextButton(onClick = full::retry) {
+                    Text(full.error!!.localizedMessage(language))
+                }
+                if (output.length > 12_000) {
                     Text(
                         localized(
                             language,
@@ -760,6 +770,7 @@ internal fun ToolTimelineCard(
     searchQuery: String? = null,
 ) {
     val language = LocalAppLanguage.current
+    val clipboard = LocalClipboardManager.current
     var cardExpanded by rememberSaveable("timeline-card-$stateKey") { mutableStateOf(false) }
     val searchHitsTool = remember(tools, searchQuery) {
         val query = searchQuery?.trim().orEmpty()
@@ -808,6 +819,9 @@ internal fun ToolTimelineCard(
             }
             visibleTools.forEach { tool ->
                 var expanded by rememberSaveable("timeline-${tool.id}") { mutableStateOf(false) }
+                val full = rememberFullHistoryRow(tool.historySource, expanded)
+                val output = full.row?.content?.let(::normalizeDisplayPayload) ?: tool.output
+                val hasOutput = tool.output.isNotBlank() || tool.historySource != null
                 val running = tool.status == ToolStatus.RUNNING
                 val failed = !running && (tool.exitCode ?: 0) != 0
                 val summary = tool.command
@@ -818,7 +832,7 @@ internal fun ToolTimelineCard(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .let { base ->
-                            if (tool.output.isNotBlank()) {
+                            if (hasOutput) {
                                 base.then(
                                     Modifier.background(androidx.compose.ui.graphics.Color.Transparent),
                                 )
@@ -828,7 +842,7 @@ internal fun ToolTimelineCard(
                         }
                         .padding(vertical = 5.dp)
                         .then(
-                            if (tool.output.isNotBlank()) {
+                            if (hasOutput) {
                                 Modifier.clickableNoIndication { expanded = !expanded }
                             } else {
                                 Modifier
@@ -875,7 +889,7 @@ internal fun ToolTimelineCard(
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
-                if (expanded && tool.output.isNotBlank()) {
+                if (expanded && hasOutput) {
                     Row(Modifier.height(IntrinsicSize.Min).padding(bottom = 6.dp)) {
                         Box(
                             Modifier
@@ -887,7 +901,7 @@ internal fun ToolTimelineCard(
                         )
                         SelectionContainer(Modifier.weight(1f)) {
                             Text(
-                                tool.output.take(12_000),
+                                output.take(12_000),
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 12.sp,
@@ -902,6 +916,14 @@ internal fun ToolTimelineCard(
                             )
                         }
                     }
+                    if (full.loading) Text(localized(language, "正在读取全文…", "Loading full content…"))
+                    if (full.error != null) TextButton(onClick = full::retry) {
+                        Text(full.error!!.localizedMessage(language))
+                    }
+                    TextButton(
+                        enabled = tool.historySource == null || full.row != null,
+                        onClick = { clipboard.setText(AnnotatedString(output)) },
+                    ) { Text(localized(language, "复制结果", "Copy result")) }
                 }
             }
         }

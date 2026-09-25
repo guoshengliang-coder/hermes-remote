@@ -49,7 +49,12 @@ data class ToolCall(
     // A task-list payload (the gateway sends the full list on tool.complete) renders as a
     // checklist card with progress instead of a generic tool card.
     val todos: List<TodoItem> = emptyList(),
+    val historySource: HistoryLocator? = null,
 )
+
+/** Connector preview locator; the full row is resolved only when a folded card opens. */
+data class HistoryLocator(val sessionId: String, val profile: String?, val rowId: Int, val offset: Int)
+data class HistoryThinkingPart(val text: String, val source: HistoryLocator? = null)
 
 /** One entry of an agent task list; status is completed / in_progress / pending / cancelled. */
 data class TodoItem(
@@ -112,6 +117,8 @@ data class ChatMessage(
     val files: List<ChatFile> = emptyList(),
     val tools: List<ToolCall> = emptyList(),
     val thinking: String = "",
+    val thinkingSource: HistoryLocator? = null,
+    val thinkingParts: List<HistoryThinkingPart> = emptyList(),
     val isStreaming: Boolean = false,
     val isError: Boolean = false,
     val interrupted: Boolean = false,

@@ -141,6 +141,21 @@ class InlineTextSelectionTest {
         compose.onAllNodesWithText("编辑并重新发送").assertCountEquals(0)
     }
 
+    @Test fun user_url_token_shows_short_link_in_the_bubble() {
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ZH) {
+                com.hermes.client.ui.theme.HermesTheme(darkTheme = false) {
+                    UserBubble(
+                        msg = ChatMessage(id = "url", role = Role.USER, text = "查看 @url:`https://example.com/very/long/path`"),
+                        onEditResend = {}, onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText("查看 链接 · example.com").assertExists()
+        compose.onAllNodesWithText("@url:", substring = true).assertCountEquals(0)
+    }
+
     private val hasLongClickAction = SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick)
 
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithContentDescriptionCount(

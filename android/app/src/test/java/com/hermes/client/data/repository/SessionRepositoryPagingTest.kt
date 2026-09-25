@@ -47,11 +47,11 @@ class SessionRepositoryPagingTest {
     }
 
     private fun serveTail(range: LongRange) {
-        coEvery { rest.messagesRaw("s1", "default", null, page, null, MessageOrder.LATEST) } returns body(range)
+        coEvery { rest.messagesRaw("s1", "default", null, page, null, MessageOrder.LATEST, true) } returns body(range)
     }
 
     private fun serveOlder(offset: Int, range: LongRange) {
-        coEvery { rest.messagesRaw("s1", "default", null, page, offset, MessageOrder.LATEST) } returns body(range)
+        coEvery { rest.messagesRaw("s1", "default", null, page, offset, MessageOrder.LATEST, true) } returns body(range)
     }
 
     @Test fun history_asks_only_for_the_newest_page() = runTest(scheduler) {
@@ -60,7 +60,7 @@ class SessionRepositoryPagingTest {
 
         repository.history("s1", "default")
 
-        coVerify(exactly = 1) { rest.messagesRaw("s1", "default", null, page, null, MessageOrder.LATEST) }
+        coVerify(exactly = 1) { rest.messagesRaw("s1", "default", null, page, null, MessageOrder.LATEST, true) }
     }
 
     @Test fun a_refreshed_tail_keeps_the_older_pages_already_loaded() = runTest(scheduler) {
@@ -101,7 +101,7 @@ class SessionRepositoryPagingTest {
 
         // At the start, no further request goes out.
         repository.olderHistory("s1", "default")
-        coVerify(exactly = 1) { rest.messagesRaw("s1", "default", null, page, 200, MessageOrder.LATEST) }
+        coVerify(exactly = 1) { rest.messagesRaw("s1", "default", null, page, 200, MessageOrder.LATEST, true) }
     }
 
     @Test fun an_older_page_inside_held_rows_skips_a_page_instead_of_stopping() = runTest(scheduler) {
@@ -127,7 +127,7 @@ class SessionRepositoryPagingTest {
         repository.history("s1", "default")
         val offsets = mutableListOf<Int>()
         for (offset in listOf(100, 200, 300, 400, 500)) {
-            coEvery { rest.messagesRaw("s1", "default", null, page, offset, MessageOrder.LATEST) } answers {
+            coEvery { rest.messagesRaw("s1", "default", null, page, offset, MessageOrder.LATEST, true) } answers {
                 offsets += offset
                 body(101L..200L)
             }
@@ -138,18 +138,15 @@ class SessionRepositoryPagingTest {
         assertEquals(0, older.added)
         assertFalse(older.reachedStart)
         assertEquals(listOf(100, 200, 300, 400, 500), offsets)
-        // And paging to the start stops instead of looping 200 pages.
-        offsets.clear()
+        // Export reads unabridged oldest pages, independently of the UI preview window.
+        coEvery { rest.messagesRaw("s1", "default", null, 500, 0, MessageOrder.OLDEST, false) } returns body(101L..200L)
         repository.fullHistory("s1", "default")
-        assertEquals(SessionRepository.OLDER_PAGE_MAX_ATTEMPTS, offsets.size)
+        assertEquals(listOf(100, 200, 300, 400, 500), offsets)
     }
 
     @Test fun full_history_pages_to_exhaustion() = runTest(scheduler) {
         val repository = SessionRepository(rest, this, store)
-        serveTail(201L..300L)
-        serveOlder(offset = 100, 101L..200L)
-        serveOlder(offset = 200, 1L..100L)
-        serveOlder(offset = 300, LongRange.EMPTY)
+        coEvery { rest.messagesRaw("s1", "default", null, 500, 0, MessageOrder.OLDEST, false) } returns body(1L..300L)
 
         val all = repository.fullHistory("s1", "default")
 

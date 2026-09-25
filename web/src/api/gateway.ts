@@ -206,10 +206,10 @@ export const hermesPaths = {
   sessions: "sessions",
   profileSessions: "profiles/sessions",
   /** `inline_images=false` keeps base64 images out of the page (Android does the same). */
-  messages: (sessionId: string, profile?: string | null, page?: MessagesPage) =>
+  messages: (sessionId: string, profile?: string | null, page?: MessagesPage, preview = false) =>
     `sessions/${encodePathSegment(sessionId)}/messages?inline_images=false${profile ? `&profile=${encodeURIComponent(profile)}` : ""}${
       page ? `&order=${page.order}&limit=${page.limit}&offset=${page.offset}` : ""
-    }`,
+    }${preview ? "&hr_preview=1" : ""}`,
   /** Message search, with the non-conversation sources excluded like Android does. */
   search: (query: string, excludeSources: readonly string[] = []) =>
     `sessions/search?q=${encodeURIComponent(query)}${excludeSources.length ? `&exclude_sources=${encodeURIComponent(excludeSources.join(","))}` : ""}`,
@@ -542,8 +542,13 @@ export class GatewayClient {
     return this.deviceApi(deviceId, "GET", hermesPaths.profileSessions);
   }
 
-  messages(deviceId: string, sessionId: string, profile?: string | null, page?: MessagesPage): Promise<MessagesResponse> {
-    return this.deviceApi(deviceId, "GET", hermesPaths.messages(sessionId, profile, page));
+  messages(deviceId: string, sessionId: string, profile?: string | null, page?: MessagesPage, preview = false): Promise<MessagesResponse> {
+    return this.deviceApi(deviceId, "GET", hermesPaths.messages(sessionId, profile, page, preview));
+  }
+
+  fullHistoryRow(deviceId: string, locator: { sessionId: string; profile?: string | null; rowId: number; offset: number }): Promise<MessagesResponse> {
+    const path = hermesPaths.messages(locator.sessionId, locator.profile);
+    return this.deviceApi(deviceId, "GET", `${path}&hr_full_message_id=${locator.rowId}&hr_full_offset=${locator.offset}`);
   }
 
   /** Raw-body upload into the Mac's files root (Connector-served). Answers `{path, name, size}`. */

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { useApp } from "../app/store";
+import { appError } from "../errors";
+import type { HistoryLocator, MessageRow } from "../hermes/types";
 import type { ChatItem } from "../chat/model";
 import {
   formatElapsed,
@@ -22,6 +24,7 @@ import { ErrorNotice } from "./ErrorNotice";
 import { ChevronIcon, CopyIcon, MoreIcon, RefreshIcon, SpeakerIcon, ThumbDownIcon, ThumbUpIcon } from "./icons";
 import type { ViewerImage } from "./ImageViewer";
 import { copyWithFeedback, Markdown } from "./Markdown";
+import { normalizeDisplayPayload } from "../chat/organize";
 import { FileCard, MacImage } from "./Media";
 
 // One turn (DESIGN §5.4 / §5.21, Android ChatComponents.kt). User: bubble (surface-variant 78%,
@@ -50,19 +53,77 @@ function StatusDot({ running, failed }: { running: boolean; failed: boolean }) {
   return <span class={`tool-dot${running ? " running" : failed ? " failed" : " done"}`} aria-hidden="true" />;
 }
 
+function useFullRow(source: HistoryLocator | undefined): { row: MessageRow | null; loading: boolean; failed: boolean; retry: () => void } {
+  const { client, device } = useApp();
+  const key = source ? `${source.sessionId}:${source.rowId}:${source.offset}:${source.profile ?? ""}` : "";
+  const [resolved, setResolved] = useState<{ key: string; row: MessageRow } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [loading, setLoading] = useState(Boolean(source));
+  useEffect(() => {
+    if (!source) return;
+    if (!device) { setFailed(true); setLoading(false); return; }
+    let active = true;
+    setResolved(null);
+    setLoading(true);
+    setFailed(false);
+    void client.fullHistoryRow(device.deviceId, source).then((answer) => {
+      if (!active) return;
+      const found = answer.messages.find((candidate) => candidate.id === source.rowId);
+      if (!found) throw new Error("history row missing");
+      setResolved({ key, row: found });
+    }).catch(() => { if (active) setFailed(true); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [client, device?.deviceId, source?.sessionId, source?.profile, source?.rowId, source?.offset, retry]);
+  return { row: resolved?.key === key ? resolved.row : null, loading, failed, retry: () => setRetry((value) => value + 1) };
+}
+
+function useFullReasoning(sources: readonly HistoryLocator[], open: boolean) {
+  const { client, device } = useApp();
+  const [rows, setRows] = useState<MessageRow[] | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const key = sources.map((s) => `${s.sessionId}:${s.rowId}:${s.offset}:${s.profile ?? ""}`).join("|");
+  useEffect(() => {
+    if (!open || sources.length === 0 || (rows && loadedKey === key)) return;
+    if (!device) { setFailed(true); return; }
+    let active = true;
+    setRows(null);
+    setLoading(true);
+    setFailed(false);
+    void Promise.all(sources.map(async (source) => {
+      const answer = await client.fullHistoryRow(device.deviceId, source);
+      const row = answer.messages.find((candidate) => candidate.id === source.rowId);
+      if (!row) throw new Error("history row missing");
+      return row;
+    })).then((found) => { if (active) { setRows(found); setLoadedKey(key); } })
+      .catch(() => { if (active) setFailed(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [client, device?.deviceId, key, open, retry]);
+  return { rows: loadedKey === key ? rows : null, loading, failed, retry: () => setRetry((value) => value + 1) };
+}
+
 function ToolOutput({ tool }: { tool: ToolCard }) {
-  const { t, flash } = useApp();
+  const { t, flash, language } = useApp();
   const failed = toolFailed(tool);
+  const full = useFullRow(tool.historySource);
+  const output = full.row && typeof full.row.content === "string" ? normalizeDisplayPayload(full.row.content) : tool.output;
   return (
     <div class="tool-body">
-      <pre class={`tool-output mono${failed ? " failed" : ""}`}>{tool.output.slice(0, TOOL_PREVIEW_CHARS)}</pre>
+      <pre class={`tool-output mono${failed ? " failed" : ""}`}>{output.slice(0, TOOL_PREVIEW_CHARS)}</pre>
+      {full.loading ? <p class="tool-note">{t("正在读取全文…", "Loading full content…")}</p> : null}
+      {full.failed ? <ErrorNotice error={appError("HR-SYNC-005")} language={language} onRetry={full.retry} variant="inline" /> : null}
       <div class="tool-body-actions">
-        <button type="button" class="text-button subtle small" onClick={() => void copyWithFeedback(tool.output, flash, t("已复制", "Copied"))}>
+        <button type="button" class="text-button subtle small" disabled={Boolean(tool.historySource) && !full.row}
+          onClick={() => void copyWithFeedback(output, flash, t("已复制", "Copied"))}>
           <CopyIcon size={14} />
           {t("复制结果", "Copy result")}
         </button>
       </div>
-      {tool.output.length > TOOL_PREVIEW_CHARS ? (
+      {output.length > TOOL_PREVIEW_CHARS ? (
         <p class="tool-note">{t("内容较长，界面仅预览前 12,000 字符；复制可获取完整结果。", "Long content: the app previews 12,000 characters. Copy to get the full result.")}</p>
       ) : null}
     </div>
@@ -81,7 +142,7 @@ function ToolCardView({ tool }: { tool: ToolCard }) {
   const { t } = useApp();
   const name = useToolName();
   const [open, setOpen] = useState(false);
-  const hasOutput = tool.output.trim() !== "";
+  const hasOutput = tool.output.trim() !== "" || Boolean(tool.historySource);
   const failed = toolFailed(tool);
   return (
     <div class={`tool-card${failed ? " failed" : ""}`}>
@@ -129,7 +190,7 @@ function ToolTimeline({ tools, completed }: { tools: ToolCard[]; completed: bool
       ) : null}
       {visible.map((tool) => {
         const rowFailed = toolFailed(tool);
-        const hasOutput = tool.output.trim() !== "";
+        const hasOutput = tool.output.trim() !== "" || Boolean(tool.historySource);
         const open = openRow === tool.id;
         return (
           <div class="tool-timeline-row" key={tool.id}>
@@ -190,16 +251,26 @@ function Tools({ tools, completed }: { tools: ToolCard[]; completed: boolean }) 
   );
 }
 
-function Reasoning({ text, streaming }: { text: string; streaming: boolean }) {
-  const { t } = useApp();
+function Reasoning({ text, streaming, parts = [] }: { text: string; streaming: boolean; parts?: Array<{ text: string; source?: HistoryLocator }> }) {
+  const { t, language } = useApp();
   const [open, setOpen] = useState(false);
+  const sources = parts.flatMap((part) => part.source ? [part.source] : []);
+  const full = useFullReasoning(sources, open);
+  const shown = full.rows ? parts.map((part) => {
+    const row = full.rows?.find((candidate) => candidate.id === part.source?.rowId);
+    return row ? row.reasoning_content || row.reasoning || part.text : part.text;
+  }).join("\n\n") : text;
   return (
     <div class="reasoning">
       <button type="button" class="reasoning-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <ChevronIcon open={open} />
         <span>{streaming && !open ? t("思考中…", "Thinking…") : open ? t("收起思考过程", "Hide reasoning") : t("查看思考过程", "View reasoning")}</span>
       </button>
-      {open ? <p class="reasoning-text">{text}</p> : null}
+      {open ? <>
+        <p class="reasoning-text">{shown}</p>
+        {full.loading ? <p class="tool-note">{t("正在读取全文…", "Loading full content…")}</p> : null}
+        {full.failed ? <ErrorNotice error={appError("HR-SYNC-005")} language={language} onRetry={full.retry} variant="inline" /> : null}
+      </> : null}
     </div>
   );
 }
@@ -379,7 +450,7 @@ export function MessageView({ item, actions = {} }: { item: ChatItem; actions?: 
 
   return (
     <div class="turn turn-assistant" data-key={item.key}>
-      {item.reasoning.trim() ? <Reasoning text={item.reasoning} streaming={item.streaming && !display.text} /> : null}
+      {item.reasoning.trim() ? <Reasoning text={item.reasoning} streaming={item.streaming && !display.text} parts={item.reasoningParts} /> : null}
       {display.tools.length ? <Tools tools={display.tools} completed={!item.streaming} /> : null}
       {gallery.length ? (
         <div class={`assistant-media${mediaClass}`}>

@@ -386,7 +386,14 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         if case .checking = updateCheckState, !manual { return }
         let sources = updateSources
         let checker = updateChecker
-        let installedManagedVersion = installedManagedVersion
+        // Inspect the actual scoped install before discovery. At startup the monitor may not have
+        // published its first snapshot yet, so a cached .absent must not suppress an update.
+        let managedInstallation = await inspectScopedManagedBootstrapInstallation()
+        let installedManagedVersion: String? = if case .active(let version, _, _, _) = managedInstallation {
+            version
+        } else {
+            nil
+        }
         updateCheckState = .checking
         appUpdateStatusMessage = nil
         if manual { appUpdateIssue = nil }
@@ -398,6 +405,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             )
             lastUpdateCheckAt = report.checkedAt
             updateCheckState = report.hasUpdates ? .available(report) : .upToDate(report)
+            // The Account & Devices card reads this discovered version as a preflight hint.
+            // Refresh it now instead of waiting for the next monitor cycle.
+            _ = await refreshManagedBootstrapPreflight()
             if report.hasUpdates {
                 isUpdateSheetPresented = true
             } else if manual {
@@ -1689,7 +1699,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         guard case .configured(let configuration) = effectiveManagedBootstrapConfiguration else {
             return nil
         }
-        return configuration.pinnedReleaseVersion
+        return configuration.targetReleaseVersion(
+            discoveredVersion: updateCheckState.report?.managedUpdate?.version
+        )
     }
 
     private var selectedTargetReleaseVersion: String? {

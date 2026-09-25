@@ -76,7 +76,7 @@ class HistoryFailuresTest {
     }
 
     @Test fun the_new_codes_are_registered_bilingual_and_distinct() {
-        for (code in listOf(AppErrorCode.HISTORY_UPSTREAM_FAILED, AppErrorCode.HISTORY_UNREADABLE)) {
+        for (code in listOf(AppErrorCode.HISTORY_UPSTREAM_FAILED, AppErrorCode.HISTORY_UNREADABLE, AppErrorCode.HISTORY_PREVIEW_FAILED)) {
             val error = AppError(code, retryable = false)
             val zh = error.localizedMessage(AppLanguage.ZH)
             val en = error.localizedMessage(AppLanguage.EN)
@@ -87,6 +87,11 @@ class HistoryFailuresTest {
         }
         assertEquals("SYNC-003", AppErrorCode.HISTORY_UPSTREAM_FAILED.compact)
         assertEquals("SYNC-004", AppErrorCode.HISTORY_UNREADABLE.compact)
+        val preview = AppError(AppErrorCode.HISTORY_PREVIEW_FAILED, retryable = true,
+            technicalCause = "Authorization: Bearer secret", stage = "history_full_row")
+        assertTrue(preview.retryable)
+        assertEquals("SYNC-005", preview.code.compact)
+        assertFalse(preview.sanitizedDiagnostic().contains("secret"))
     }
 
     @Test fun the_three_causes_do_not_share_a_sentence() {

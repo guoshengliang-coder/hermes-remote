@@ -25,6 +25,7 @@ export interface ToolCard {
   exitCode?: number | null;
   durationMs?: number | null;
   todos?: TodoItem[];
+  historySource?: import("../hermes/types").HistoryLocator;
 }
 
 // ---- payload metadata ---------------------------------------------------------------------

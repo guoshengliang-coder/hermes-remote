@@ -1600,15 +1600,32 @@ internal fun UserBubble(
                     if (msg.text.isNotBlank()) Spacer(Modifier.height(8.dp))
                 }
                 if (msg.text.isNotBlank()) {
-                    SelectionContainer(Modifier.testTag("chat-selectable-${msg.id}")) {
-                        Text(
-                            searchHighlighted(msg.text),
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                fontSize = 17.sp,
-                                lineHeight = 25.sp,
-                                letterSpacing = 0.sp,
-                            ),
-                        )
+                    val renderedUrlTokens = remember(msg.text, language) {
+                        renderUserUrlTokens(msg.text, localized(language, "链接", "Link"))
+                    }
+                    val linkStyles = hermesLinkStyles()
+                    val visibleText = searchHighlighted(renderedUrlTokens.text).let { highlighted ->
+                        AnnotatedString.Builder(highlighted).apply {
+                            renderedUrlTokens.links.forEach { link ->
+                                addLink(
+                                    androidx.compose.ui.text.LinkAnnotation.Url(link.url, styles = linkStyles),
+                                    link.start,
+                                    link.endExclusive,
+                                )
+                            }
+                        }.toAnnotatedString()
+                    }
+                    CompositionLocalProvider(LocalUriHandler provides rememberSafeUriHandler()) {
+                        SelectionContainer(Modifier.testTag("chat-selectable-${msg.id}")) {
+                            Text(
+                                visibleText,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 17.sp,
+                                    lineHeight = 25.sp,
+                                    letterSpacing = 0.sp,
+                                ),
+                            )
+                        }
                     }
                 }
               }
@@ -1891,7 +1908,7 @@ internal fun AssistantTurn(
                 // in place, and the turn's actions live in its action row below.
                 .padding(vertical = 2.dp),
         ) {
-            if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking)
+            if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking, msg.thinkingParts)
             remember(msg.tools) { groupToolsForDisplay(msg.tools) }.forEach { group ->
                 when (group) {
                     is ToolDisplayGroup.Single -> SemanticToolCard(group.tool, completed = !msg.isStreaming)
@@ -3092,11 +3109,41 @@ internal fun QuietFoldSummary(
 }
 
 @Composable
-private fun ThinkingCard(messageId: String, text: String) {
+private fun ThinkingCard(messageId: String, text: String, parts: List<com.hermes.client.domain.HistoryThinkingPart> = emptyList()) {
     val language = LocalAppLanguage.current
     // rememberSaveable keyed by the message id: plain remember lost the expanded state whenever
     // the item scrolled out of the Lazy viewport and was recycled.
     var expanded by androidx.compose.runtime.saveable.rememberSaveable(messageId) { mutableStateOf(false) }
+    val loader = LocalHistoryFullRowLoader.current
+    var fullText by remember(messageId, parts) { mutableStateOf<String?>(null) }
+    var loading by remember(messageId, parts) { mutableStateOf(false) }
+    var failure by remember(messageId, parts) { mutableStateOf<com.hermes.client.data.error.AppError?>(null) }
+    var retry by remember(messageId, parts) { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(expanded, parts, retry, loader) {
+        if (!expanded || fullText != null || parts.none { it.source != null }) return@LaunchedEffect
+        loading = true
+        failure = null
+        try {
+            val resolved = mutableListOf<String>()
+            for (part in parts) {
+                val source = part.source
+                resolved += if (source == null) part.text else {
+                    val row = loader?.invoke(source)?.takeIf { it.id == source.rowId }
+                        ?: error("history row missing")
+                    row.reasoningContent ?: row.reasoning ?: part.text
+                }
+            }
+            fullText = resolved.joinToString("\n\n")
+        } catch (cause: Exception) {
+            failure = com.hermes.client.data.error.AppError(
+                com.hermes.client.data.error.AppErrorCode.HISTORY_PREVIEW_FAILED,
+                retryable = true, technicalCause = cause.javaClass.simpleName, stage = "history_full_reasoning",
+            )
+        } finally {
+            loading = false
+        }
+    }
+    val shown = fullText ?: text
     // Quiet in BOTH states: unlike the tool timeline this toggle never shows progress (a live run's
     // reasoning is voiced by RunningStatusLine), so restyling it at completion would only flash.
     QuietFoldSummary(
@@ -3111,11 +3158,15 @@ private fun ThinkingCard(messageId: String, text: String) {
             // Not search-marked: reasoning is out of the search scope (HG-45), and marking text
             // the counter does not count is a worse mismatch than not marking it.
             Text(
-                text,
+                shown,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )
         }
+        if (loading) Text(localized(language, "正在读取全文…", "Loading full content…"))
+        failure?.let { error -> androidx.compose.material3.TextButton(onClick = { retry++ }) {
+            Text(error.localizedMessage(language))
+        } }
     }
 }

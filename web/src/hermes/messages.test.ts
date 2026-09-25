@@ -92,6 +92,18 @@ describe("parseHistory", () => {
     const [m] = parseHistory([{ id: 9, role: "user", content: [{ type: "text", text: "see" }, { type: "image_url", image_url: { url: "/Users/me/p.png" } }] }]);
     expect(m).toMatchObject({ text: "see", images: [{ path: "/Users/me/p.png" }] });
   });
+
+  it("keeps Connector preview locators for folded reasoning and tool results", () => {
+    const source = { fields: ["reasoning_content"], offset: 100, sessionId: "s1", profile: "work" };
+    const parsed = parseHistory([
+      { id: 10, role: "assistant", content: "answer", reasoning_content: "preview", hr_preview: source,
+        tool_calls: [{ id: "call", function: { name: "terminal", arguments: "{}" } }] },
+      { id: 11, role: "tool", tool_call_id: "call", content: "preview",
+        hr_preview: { ...source, fields: ["content"] } },
+    ]);
+    expect(parsed[0]?.reasoningSource).toEqual({ rowId: 10, offset: 100, sessionId: "s1", profile: "work" });
+    expect(parsed[0]?.tools[0]?.historySource).toEqual({ rowId: 11, offset: 100, sessionId: "s1", profile: "work" });
+  });
 });
 
 describe("toolLabel", () => {

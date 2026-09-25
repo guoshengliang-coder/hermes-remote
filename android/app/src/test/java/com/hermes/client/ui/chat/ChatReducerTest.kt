@@ -15,6 +15,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatReducerTest {
+    @Test fun foldedAssistantRowsKeepEachReasoningPreviewSource() {
+        val first = ChatMessage("a1", Role.ASSISTANT, "first", thinking = "one",
+            thinkingParts = listOf(com.hermes.client.domain.HistoryThinkingPart("one",
+                com.hermes.client.domain.HistoryLocator("s1", null, 1, 0))))
+        val second = ChatMessage("a2", Role.ASSISTANT, "second", thinking = "short",
+            thinkingParts = listOf(com.hermes.client.domain.HistoryThinkingPart("short")))
+        val merged = mergeAssistantTurns(first, second)
+        assertEquals(2, merged.thinkingParts.size)
+        assertEquals(1, merged.thinkingParts.first().source?.rowId)
+        assertEquals("short", merged.thinkingParts.last().text)
+    }
     private fun ev(type: String, session: String = "s1", build: (kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) = {}) =
         ServerEvent(type, session, buildJsonObject { put("session_id", session); build() })
 

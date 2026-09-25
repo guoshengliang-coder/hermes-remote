@@ -34,6 +34,7 @@ export interface ChatItem {
   attachments: Attachment[];
   images: DisplayImage[];
   reasoning: string;
+  reasoningParts?: Array<{ text: string; source?: import("../hermes/types").HistoryLocator }>;
   tools: ToolItem[];
   streaming: boolean;
   interrupted?: boolean;
@@ -235,6 +236,7 @@ function mergeAssistant(previous: ChatItem, next: ChatItem): ChatItem {
     key: previous.key,
     text: joinParts(previous.text, next.text),
     reasoning: joinParts(previous.reasoning, next.reasoning),
+    reasoningParts: [...(previous.reasoningParts ?? []), ...(next.reasoningParts ?? [])],
     timestampMs: previous.timestampMs ?? next.timestampMs,
     attachments: dedupeAttachments([...previous.attachments, ...next.attachments]),
     images,
@@ -324,9 +326,11 @@ export function historyItems(rows: MessageRow[]): ChatItem[] {
       attachments: m.attachments,
       images: m.images,
       reasoning: m.reasoning,
+      ...(m.reasoning ? { reasoningParts: [{ text: m.reasoning, ...(m.reasoningSource ? { source: m.reasoningSource } : {}) }] } : {}),
       tools: m.tools.map((t) => {
         const argCommand = t.arguments ? parseToolPayloadMeta(t.arguments)?.command ?? null : null;
-        return completeTool({ id: t.id, name: t.name, output: "", done: true, command: argCommand }, t.hasResult ? t.output : null);
+        return completeTool({ id: t.id, name: t.name, output: "", done: true, command: argCommand,
+          ...(t.historySource ? { historySource: t.historySource } : {}) }, t.hasResult ? t.output : null);
       }),
       streaming: false,
       timestampMs: m.timestampMs,

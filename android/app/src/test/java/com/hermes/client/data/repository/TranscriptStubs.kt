@@ -18,7 +18,7 @@ internal fun HermesRestApi.stubTranscript(
     rows: List<MessageDto>,
 ) {
     val payload = payloadFor(rows)
-    coEvery { messagesRaw(sessionId, profile, any(), any(), any(), any()) } returns payload
+    coEvery { messagesRaw(sessionId, profile, any(), any(), any(), any(), any()) } returns payload
     every { parseMessages(any()) } returns rows
 }
 

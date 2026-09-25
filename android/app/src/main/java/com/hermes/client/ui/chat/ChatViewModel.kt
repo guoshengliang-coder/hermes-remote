@@ -1203,6 +1203,11 @@ class ChatViewModel @Inject constructor(
         olderHistoryJob = viewModelScope.launch { loadOlderPages(untilStart = false) }
     }
 
+    suspend fun fullHistoryRow(locator: com.hermes.client.domain.HistoryLocator): com.hermes.client.data.network.MessageDto? {
+        if (locator.sessionId != storedSessionId || locator.profile != currentProfile) return null
+        return sessions.fullHistoryRow(locator, currentDeviceId)
+    }
+
     /**
      * Page the open conversation back to its first row, for the actions that mean the whole
      * conversation rather than what has been scrolled into view: in-chat search, 我的提问 and

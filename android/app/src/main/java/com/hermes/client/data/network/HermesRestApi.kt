@@ -443,6 +443,7 @@ class HermesRestApi(
         limit: Int? = null,
         offset: Int? = null,
         order: MessageOrder? = null,
+        preview: Boolean = false,
     ): String = getRaw(
         // Stored rows remain unchanged. This read projection replaces only inline data-image
         // payloads, keeping old image-heavy conversations below the relay response ceiling.
@@ -451,10 +452,26 @@ class HermesRestApi(
             limit?.let { append("&limit=$it") }
             offset?.let { append("&offset=$it") }
             order?.let { append("&order=${it.wire}") }
+            if (preview) append("&hr_preview=1")
             append(profileParam(profile))
         },
         deviceId,
     )
+
+    suspend fun fullHistoryRow(
+        sessionId: String,
+        profile: String?,
+        deviceId: String?,
+        rowId: Int,
+        sourceOffset: Int,
+    ): MessageDto? {
+        val raw = getRaw(buildString {
+            append("/api/sessions/$sessionId/messages?inline_images=false")
+            append("&hr_full_message_id=$rowId&hr_full_offset=$sourceOffset")
+            append(profileParam(profile))
+        }, deviceId)
+        return parseMessages(raw).singleOrNull { it.id == rowId }
+    }
 
     /** Parses a transcript payload, whether it arrived just now or came back off the disk. */
     fun parseMessages(raw: String): List<MessageDto> =

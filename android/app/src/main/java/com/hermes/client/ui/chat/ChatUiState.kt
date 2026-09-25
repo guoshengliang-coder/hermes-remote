@@ -548,6 +548,8 @@ internal fun inheritStreamFields(
         val live = liveById[message.id]?.takeIf { it.role == message.role }
         val merged = if (live == null) message else message.copy(
             thinking = message.thinking.ifBlank { live.thinking },
+            thinkingSource = message.thinkingSource ?: live.thinkingSource,
+            thinkingParts = message.thinkingParts.ifEmpty { live.thinkingParts },
             tools = when {
                 message.tools.isEmpty() -> live.tools
                 else -> {
@@ -583,6 +585,8 @@ internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): C
         id = previous.id,
         text = joinTurnParts(previous.text, message.text),
         thinking = joinTurnParts(previous.thinking, message.thinking),
+        thinkingSource = message.thinkingSource ?: previous.thinkingSource,
+        thinkingParts = previous.thinkingParts + message.thinkingParts,
         timestamp = previous.timestamp ?: message.timestamp,
         images = (previous.images + message.images).distinctBy { it.id },
         files = (previous.files + message.files).distinctBy { it.id },

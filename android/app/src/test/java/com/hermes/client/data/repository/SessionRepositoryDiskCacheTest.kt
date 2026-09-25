@@ -42,7 +42,7 @@ class SessionRepositoryDiskCacheTest {
 
     /** Real decoding, so the DTO contract is exercised rather than stubbed around. */
     private fun serveRealPayload(sessionId: String, profile: String?, payload: String) {
-        coEvery { rest.messagesRaw(sessionId, profile, any(), any(), any(), any()) } returns payload
+        coEvery { rest.messagesRaw(sessionId, profile, any(), any(), any(), any(), any()) } returns payload
         every { rest.parseMessages(any()) } answers {
             json.decodeFromString<MessagesDto>(firstArg()).messages
         }
