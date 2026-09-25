@@ -1399,3 +1399,44 @@ This is an **internal ad-hoc test build**, without Developer ID signing, notariz
 stapling, or an application-update index entry. The managed release indexes remain at 0.4.4
 (Connector 0.1.9); Connector 0.1.10 / managed 0.4.5 have not been published. No installed-Mac
 or clean-Mac launch test was performed for 0.2.29.
+
+## 2026-09-25 managed 0.4.5 publication (Connector 0.1.10, HG-107)
+
+The owner approved managed **0.4.5** and Connector **0.1.10**. They were published from a clean
+isolated worktree at `577a5b76` (including #434 and #436), on arm64 with Node 22.23.2. The
+protected GitHub `desktop-release` environment was not configured, so the signed candidate was
+built on the controlled Mac mini using its existing Ed25519 key. Before signing, its file owner,
+mode and size matched the prior custody record; the derived public key matched the published
+Desktop trust key and verified both live 0.4.4 manifests. No private key bytes were copied,
+printed, uploaded or placed in the worktree.
+
+`npm ci --ignore-scripts`, `npm run build`, and the full `npm test` passed (394 script tests:
+393 passed, one skipped) using OpenSSL 3. The first test run with macOS's default LibreSSL failed
+the two legacy recovery CMS tests; the OpenSSL 3 rerun passed both. The immutable 0.4.3 Hermes
+Server archive was downloaded and checked against its pinned SHA-256 before reuse. Both new
+Connector archives, the Node runtime archive and the two 0.4.5 manifests were built and passed
+the independent public-key verifiers locally.
+
+The release manifest SHA-256 is
+`780e8bb9084a453d100fab90e201debe246a3c9ddd20453ca6daf886afc740cc`; the component
+manifest SHA-256 is
+`1b59e0bf76124df6f01b75294997b3a5d887e5fee87782483831afe2df76e259`.
+The legacy Connector archive SHA-256 is
+`7a1beca636be526fb9d21196f38cb189dbd843ac81026866570db95bf25bec43`; the component
+Connector archive SHA-256 is
+`8e6ed93508c7d7a80c651eef337db9fe1a82c32b852c8f7d87e03992de411fee`.
+
+All six immutable files were installed into new root-owned 0.4.5 directories. Six exact Nginx
+routes were added after the route file matched its audited SHA-256 (`e307012f…` before,
+`b8dde149…` after); `nginx -t` passed and Nginx reloaded. Every file was then downloaded in full
+from public HTTPS and compared byte-for-byte to the local signed candidate; both downloaded
+manifests passed independent signature and artifact verification. Only after that did
+`scripts/publish-desktop-release.sh` switch and read back both stable indexes. The indexes now
+resolve to 0.4.5 and pass signing-key continuity; tag `desktop-managed-v0.4.5` points to
+`577a5b76`. Both previous indexes and the 0.4.4 public files remain for rollback. Relay health
+and the 0.2.29 internal DMG still answer. Private staging and the one-time route backup were
+removed after verification.
+
+This proves publication of the signed managed release, **not activation on a Mac**. No installed
+Connector was restarted or upgraded in this step. The Desktop 0.2.29 DMG remains an ad-hoc
+internal test build; no official notarized app-update release is implied.
