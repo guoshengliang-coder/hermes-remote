@@ -3012,6 +3012,24 @@ html[data-theme="dark"] .group-header {
   border: 1px solid var(--outline-variant);
 }
 
+/* A foldable's inner screen is still a touch-first list, not a narrow desktop page. Keep the
+   reading measure on desktops and chat pages, but give list surfaces the available width. */
+@media (min-width: 45rem) and (pointer: coarse) {
+  .list-page .topbar-row,
+  .list-page .content,
+  .list-page .segments {
+    max-width: none;
+  }
+
+  .list-page .menu {
+    right: calc(0.5rem + var(--safe-right));
+  }
+
+  .list-page .fab {
+    right: calc(1rem + var(--safe-right));
+  }
+}
+
 .segment {
   flex: 1;
   min-height: 2rem;
