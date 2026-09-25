@@ -1370,3 +1370,32 @@ Still not verified by this publication: the clean-Mac first run, both phone QR p
 resume-after-interrupt path and the "a gated session leaves the phones working" check remain manual
 steps in `docs/DESKTOP_TEST_PLAN.md`. This is an internal ad-hoc build: not Developer ID signed,
 notarized or stapled.
+
+## 2026-09-25 Desktop 0.2.29 internal test DMG (HG-126, HG-117, HG-116, HG-107)
+
+Desktop **0.2.29/build 32** includes the batch merged in #434 (`f8ef748e`) and the version
+change merged in #436 (`3a54734c`). The owner approved this version and publication. The DMG was
+built from a clean, isolated worktree at `3a54734c` after the Desktop asset tests, 515 Desktop
+tests, and `desktop:app` passed. It is published for internal testing at
+`https://mrlgs.net/desktop/apps/0.2.29/Hermes-Go-Desktop-0.2.29-dev.dmg`.
+
+The published 0.2.28 DMG was downloaded and its hash checked before copying its release
+configuration. The configured public key verified both live 0.4.4 signed indexes. The mounted
+0.2.29 app has the same 28 prior `Info.plist` keys except for version/build, plus four disabled
+app-update keys added since 0.2.28. The DMG passed `hdiutil verify`; its arm64 app passed strict
+ad-hoc `codesign --verify --deep --strict` with bundle ID `com.hermesgo.desktop`.
+
+The **3,474,576-byte** DMG has SHA-256
+`a2885e45caf3a1c7ba91655bdf95bdc2e54c7e4573f87e39e94785e00bb59114`. Publication
+used a private staging directory and checked the uploaded bytes before installing the immutable,
+root-owned file. The exact Nginx route was added only after the route file matched its audited
+SHA-256 (`1733e372…` before; `e307012f…` after). `nginx -t` passed and Nginx was reloaded.
+Full public re-download reproduced the size and SHA-256, passed `hdiutil verify`, and its
+mounted app passed configuration and strict code-signature checks again. The exact URL answers
+200, the version directory 404, and POST 403; the prior 0.2.28 DMG, both managed indexes, and
+Relay health still answer. The staging directory and one-time route backup were removed.
+
+This is an **internal ad-hoc test build**, without Developer ID signing, notarization,
+stapling, or an application-update index entry. The managed release indexes remain at 0.4.4
+(Connector 0.1.9); Connector 0.1.10 / managed 0.4.5 have not been published. No installed-Mac
+or clean-Mac launch test was performed for 0.2.29.
