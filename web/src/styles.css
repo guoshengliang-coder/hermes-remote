@@ -1190,6 +1190,51 @@ html[data-theme="dark"] .group-header {
   min-height: 0;
 }
 
+/* iOS pans a smaller visual viewport to the focused input while 100dvh stays at full height. */
+.chat-page.keyboard-viewport {
+  position: fixed;
+  top: var(--chat-viewport-top);
+  left: 0;
+  right: 0;
+  height: var(--chat-viewport-height);
+}
+
+.chat-page.keyboard-viewport .chat-bottom {
+  padding-bottom: 0;
+}
+
+.chat-page.compact-viewport {
+  --topbar-h: 2.5rem;
+}
+
+.chat-page.compact-viewport .chat-title .chat-workspace,
+.chat-page.compact-viewport .model-chip,
+.chat-page.compact-viewport .composer-progress {
+  display: none;
+}
+
+.chat-page.compact-viewport .composer-input {
+  max-height: 4.75rem;
+}
+
+.chat-page.compact-viewport .composer-wrap {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.chat-page.compact-viewport .composer-actions {
+  justify-content: flex-end;
+}
+
+.chat-page.compact-viewport .attachment-strip {
+  padding-bottom: 0.25rem;
+}
+
+.chat-page.compact-viewport .attachment-chip,
+.chat-page.compact-viewport .attachment-chip img {
+  height: 3rem;
+}
+
 .chat-title {
   flex: 1;
   min-width: 0;
@@ -4100,9 +4145,9 @@ button.chat-workspace:disabled {
 
 /* ---- short screens: phone landscape, or the keyboard up (DESIGN §5.21 横屏与键盘) ----
    With interactive-widget=resizes-content Chrome shrinks the layout viewport to the space above
-   the keyboard, so this query also fires while typing; iOS ignores that key and only reaches it
-   in landscape. Everything here trades chrome for reading room: the message list must keep a
-   usable height whatever is open. */
+   the keyboard, so this query also fires while typing; iOS ignores that key, so chat uses the
+   visual viewport and the compact-viewport class above. Everything here trades chrome for reading
+   room: the message list must keep a usable height whatever is open. */
 @media (max-height: 30rem) {
   :root {
     --topbar-h: 2.5rem;
