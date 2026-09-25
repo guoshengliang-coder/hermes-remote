@@ -496,14 +496,14 @@ class SessionRuntimeStore(
         val skipped = touchedBeforeSeed.toSet()
         var restored = 0
         records.filter { it.survives(now, route) }.forEach { record ->
-            val key = key(record.sessionId, record.profile, record.deviceId)
+            val key = restoredKey(record)
             // A live event that beat the disk read is fresher truth; never overwrite it.
             if (key in skipped) return@forEach
             updateRuntime(key, cause = "restore") { it.withRestored(record) }
             restored++
         }
         _restoredKeys.value = records.mapNotNull { record ->
-            val key = key(record.sessionId, record.profile, record.deviceId)
+            val key = restoredKey(record)
             key.takeIf { it !in skipped && _runtimes.value.containsKey(it) }
         }.toSet()
         seeded = true
@@ -520,6 +520,18 @@ class SessionRuntimeStore(
                 delay(PHASE_PERSIST_MIN_INTERVAL_MS)
             }
     }
+
+    /**
+     * The key a stored record is restored under.
+     *
+     * Records written before HG-137 can carry a null profile: a lifecycle completion folded with no
+     * runtime at hand filed Hermes' default identity that way. Normalizing it to the same label a
+     * session row and an opened chat use means the restored runtime and the runtime opening
+     * registers share one key, so the terminal verdict is retired by the same `markRead` instead of
+     * surviving as an alias and coming back on every cold start.
+     */
+    private fun restoredKey(record: SessionPhaseRecord): SessionRuntimeKey =
+        key(record.sessionId, record.profile?.ifBlank { null } ?: DEFAULT_PROFILE, record.deviceId)
 
     /**
      * Did the answer we just sent actually reach a run that was still waiting for it?
@@ -1041,17 +1053,51 @@ class SessionRuntimeStore(
         // Bypasses updateRuntime, so it carries its own pre-seed guard: a verdict the user has
         // already cleared must not be restored from a snapshot written before they cleared it.
         if (!seeded) touchedBeforeSeed += key
+        // A terminal verdict can sit under a profile alias of this same conversation on this same
+        // Mac (a lifecycle fold with no runtime at hand used to file the default identity as null,
+        // HG-137). Opening the chat has to retire every alias, or the survivor is protected from
+        // `pruneIdleRuntimes` as a terminal verdict, is written back, and returns on the next cold
+        // start while the row — which looks the conversation up by id and device, not profile —
+        // keeps rendering it. [terminalVerdictAliases] keeps this to one conversation: same session
+        // id, same Mac, and the same profile-normalized identity.
+        val aliases = terminalVerdictAliases(key)
         if (key in _restoredKeys.value) _restoredKeys.update { it - key }
+        if (aliases.isNotEmpty()) _restoredKeys.update { it - aliases }
         val token = SessionReadStore.token(key.profile, key.sessionId, key.deviceId)
         _unreadTokens.update { it - token }
         if (readStore != null) pendingReadMarks[token] = false
         _runtimes.update { map ->
-            val current = map[key] ?: return@update map
-            if (current.phase.isTerminalVerdict) {
-                map + (key to current.copy(phase = SessionRunPhase.IDLE).normalized())
-            } else map
+            var changed = false
+            val next = map.mapValues { (candidate, runtime) ->
+                if ((candidate == key || candidate in aliases) && runtime.phase.isTerminalVerdict) {
+                    changed = true
+                    runtime.copy(phase = SessionRunPhase.IDLE).normalized()
+                } else runtime
+            }
+            if (changed) next else map
         }
         if (readStore != null) readPersistenceQueue.trySend(token to false)
+    }
+
+    /**
+     * Other runtimes in this process that the same open should retire: they must hold a terminal
+     * verdict and carry the *same read token*, which is what makes them the same conversation.
+     *
+     * The token encodes profile (with Hermes' default identity normalized to one label), session id
+     * and Mac route, so this deliberately does NOT reach a same-id conversation in another profile or
+     * on another Mac — those are different conversations and stay untouched
+     * (docs/ACCOUNT_MODE_TEST_PLAN.md). See the call site in [markRead].
+     */
+    private fun terminalVerdictAliases(key: SessionRuntimeKey): Set<SessionRuntimeKey> {
+        val token = SessionReadStore.token(key.profile, key.sessionId, key.deviceId)
+        return _runtimes.value.values
+            .filter { runtime ->
+                runtime.phase.isTerminalVerdict &&
+                    SessionReadStore.token(
+                        runtime.key.profile, runtime.key.sessionId, runtime.key.deviceId,
+                    ) == token
+            }
+            .mapTo(mutableSetOf()) { it.key }
     }
 
     private fun markUnread(key: SessionRuntimeKey) {
@@ -1565,7 +1611,12 @@ class SessionRuntimeStore(
             candidates.singleOrNull()?.let { return it }
             candidates.firstOrNull { it.profile == null || it.profile == DEFAULT_PROFILE }?.let { return it }
         }
-        return key(event.storedSessionId, profile, event.deviceId)
+        // A completion observed while this process holds no runtime for the session used to be
+        // keyed with a null profile. That record persisted and restored under a key the chat never
+        // registers, so opening the conversation retired a different runtime and the verdict came
+        // back on every cold start (HG-137). Session rows and the chat both normalize Hermes'
+        // default identity to "default", so fold there too.
+        return key(event.storedSessionId, profile ?: DEFAULT_PROFILE, event.deviceId)
     }
 
     private fun updateRuntime(
