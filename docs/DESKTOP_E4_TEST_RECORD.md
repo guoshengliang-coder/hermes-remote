@@ -1358,7 +1358,15 @@ directory returns 404, POST to the exact route returns 403, and the 0.2.26 DMG, 
 the Android download redirect and Relay `/health` all still answer as before. Private staging and the
 one-time route backup were removed after verification.
 
-Not verified by this publication: nothing was installed from this build on any Mac, so the clean-Mac
-first run, both phone QR paths, the resume-after-interrupt path and the "a gated session leaves the
-phones working" check remain manual steps in `docs/DESKTOP_TEST_PLAN.md`. This is an internal ad-hoc
-build: not Developer ID signed, notarized or stapled.
+Installed on the Mac mini (`LGS-MACMINI`, M4) after re-downloading the published DMG and checking its
+size and SHA-256 against this record. Only the GUI was restarted: `com.hermesgo.connector` (pid
+18088) and `com.hermesgo.hermes-server` (pid 18057) kept their PIDs, the Hermes job still runs
+`hermes-local-serve` against `~/.hermes`, and `Managed/logs/desktop-runtime.log` gained no entry, so
+Desktop performed no service operation. The replaced 0.2.27 build is kept beside the DMG until the
+new build proves stable on this Mac. The DMG carried no quarantine attribute, so this ad-hoc build
+needed no Gatekeeper detour; `codesign --verify --deep --strict` passes on the installed app.
+
+Still not verified by this publication: the clean-Mac first run, both phone QR paths, the
+resume-after-interrupt path and the "a gated session leaves the phones working" check remain manual
+steps in `docs/DESKTOP_TEST_PLAN.md`. This is an internal ad-hoc build: not Developer ID signed,
+notarized or stapled.
