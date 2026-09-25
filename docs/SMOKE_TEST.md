@@ -1246,3 +1246,22 @@ must carry the exact `Origin`); keep it out of shell history.
 6. **Session list fallback.** When a client falls back from `/api/profiles/sessions` to
    `/api/sessions`, the request is `GET /api/sessions?limit=100` and answers `200` (a limit above 100
    is `422` upstream — docs/HERMES_CONTRACT.md §1c).
+
+### HG-107 folded history (Android and Web; real Connector required)
+
+7. Open a long tool-heavy conversation on both clients. The 100-row page includes `hr_preview=1`
+   and is markedly smaller than the ordinary response; the visible answer and tool count remain
+   intact. Open a folded tool result and reasoning card: one `hr_full_message_id` request per row
+   returns the complete content, and copy obtains the full result. Reopen a previously cached
+   Android transcript and repeat. A legacy request without `hr_preview` still receives the original
+   upstream bytes.
+8. While viewing an older page, add new messages from another client, then expand an old result.
+   The row ID must match despite the latest-page offset drift; if it has moved beyond the bounded
+   lookup, the card shows retryable `HR-SYNC-005` and never offers a truncated copy. Attach that
+   conversation to another prompt: the attached document contains the full tool and reasoning text.
+
+### HG-126 user URL token (Android device)
+
+9. Send `@url:` followed by a backtick-wrapped HTTPS link. The bubble shows “链接 · 域名”; tapping
+   opens the safe external handler, while Copy and Edit/Resend preserve the literal original.
+   A plain URL and a token in a fenced code block remain literal. Check at large font scale.

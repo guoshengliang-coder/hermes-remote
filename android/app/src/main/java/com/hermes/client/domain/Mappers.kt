@@ -613,6 +613,10 @@ fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): Chat
     // transcript for display, keeping any real content merged into the carrier; a turn left with
     // nothing is dropped by [isRenderable].
     val projected = CompactionCarrier.project(parsed.text)
+    val thinkingText = if (role.equals("assistant", ignoreCase = true)) {
+        reasoningContent?.takeIf { it.isNotBlank() } ?: reasoning?.takeIf { it.isNotBlank() } ?: ""
+    } else ""
+    val thinkingSource = if (historyPreview?.fields?.any { it == "reasoning" || it == "reasoning_content" } == true) historyLocator() else null
     return ChatMessage(
         id = id?.toString() ?: "m-${hashCode()}",
         role = when (role.lowercase()) {
@@ -629,15 +633,22 @@ fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): Chat
         // Hermes persists reasoning and tool calls on every assistant row and the gateway passes
         // them through; until 2026-09-05 the DTO simply did not model them, so every history
         // load or reconcile came back without the reasoning card or tool timeline (HG-8).
-        thinking = if (role.equals("assistant", ignoreCase = true)) {
-            reasoningContent?.takeIf { it.isNotBlank() } ?: reasoning?.takeIf { it.isNotBlank() } ?: ""
-        } else "",
+        thinking = thinkingText,
+        thinkingSource = thinkingSource,
+        thinkingParts = if (thinkingText.isNotBlank()) listOf(HistoryThinkingPart(thinkingText, thinkingSource)) else emptyList(),
         tools = if (role.equals("assistant", ignoreCase = true)) historyToolCalls(toolResults) else emptyList(),
         displayKind = displayKind?.ifBlank { null },
         displayTaskCount = displayMetadata?.intOrNull("task_count"),
         displayFailedCount = displayMetadata?.intOrNull("failed_count"),
         serverId = id?.toLong(),
     )
+}
+
+private fun MessageDto.historyLocator(): HistoryLocator? {
+    val preview = historyPreview ?: return null
+    val rowId = id ?: return null
+    if (rowId <= 0 || preview.offset < 0 || preview.sessionId.isBlank()) return null
+    return HistoryLocator(preview.sessionId, preview.profile, rowId, preview.offset)
 }
 
 /**
@@ -672,6 +683,7 @@ private fun MessageDto.historyToolCalls(toolResults: Map<String, MessageDto>): L
             exitCode = resultMeta?.exitCode,
             durationMs = resultMeta?.durationMs,
             todos = resultMeta?.todos.orEmpty(),
+            historySource = toolResults[id]?.takeIf { "content" in it.historyPreview?.fields.orEmpty() }?.historyLocator(),
         )
     }
 }

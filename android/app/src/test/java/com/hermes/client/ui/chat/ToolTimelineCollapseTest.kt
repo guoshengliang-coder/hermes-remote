@@ -5,11 +5,15 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.runtime.CompositionLocalProvider
+import com.hermes.client.data.network.MessageDto
+import com.hermes.client.domain.HistoryLocator
 import com.hermes.client.domain.ToolCall
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.ui.theme.HermesTheme
 import com.hermes.client.ui.InChinese
 import org.junit.Rule
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -78,5 +82,26 @@ class ToolTimelineCollapseTest {
             }
         }
         compose.onNodeWithText("skill_view").assertIsDisplayed()
+    }
+
+    @Test fun folded_tool_result_loads_full_row_only_when_opened() {
+        val requested = mutableListOf<HistoryLocator>()
+        val source = HistoryLocator("s1", null, 42, 100)
+        compose.setContent {
+            InChinese { HermesTheme(darkTheme = false) {
+                CompositionLocalProvider(LocalHistoryFullRowLoader provides { locator ->
+                    requested += locator
+                    MessageDto(id = 42, role = "tool", content = "complete result")
+                }) {
+                    SemanticToolCard(ToolCall("call", "terminal", ToolStatus.DONE,
+                        output = "preview", historySource = source))
+                }
+            } }
+        }
+        assertEquals(emptyList<HistoryLocator>(), requested)
+        compose.onNodeWithText("terminal").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("complete result").assertIsDisplayed()
+        assertEquals(listOf(source), requested)
     }
 }

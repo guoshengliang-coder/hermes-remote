@@ -218,6 +218,9 @@ identity, About page, and QR center mark use that artwork without redrawing or r
 `desktop/Packaging/AppIcon.png` is a synchronized packaging copy, and the packaging gate fails if it
 drifts from the canonical source. The packaged app declares `CFBundleIconFile=AppIcon` and is not an
 `LSUIElement` agent, so the running app is represented by this icon in the Dock.
+HG-116 keeps the same faceted H on both platforms but removes the solid white square from the
+canonical 512 px artwork. Transparent space lets the mark sit cleanly in the macOS Dock; Android's
+adaptive launcher continues to supply its platform background behind the same mark.
 
 ### Menu-bar status glyph
 
@@ -242,6 +245,9 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
 - Automatic checks run once at launch and then at most once every 12 hours; the owner can switch them
   off in Settings. A build with no update index reports that checking is unavailable rather than
   showing a failure.
+- On a Mac with an existing managed installation and an index URL, a validated update discovery
+  supplies the target version to the Account & Devices upgrade card immediately. The card still
+  enters the signed prepare → confirm → commit flow; the discovered version is only a preflight hint.
 
 ## Status and error language
 

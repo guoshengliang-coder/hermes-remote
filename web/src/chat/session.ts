@@ -303,7 +303,7 @@ export class ChatSession {
     const id = this.storedId;
     if (!id) return true;
     try {
-      const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile, latestPage());
+      const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile, latestPage(), true);
       if (this.disposed || id !== this.storedId) return false;
       const rows = rowsOf(body);
       this.storedRowCount = rows.length;
@@ -340,7 +340,7 @@ export class ChatSession {
     try {
       let offset = loaded.rows.length;
       for (let skips = 0; ; skips++) {
-        const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile, latestPage(offset));
+        const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile, latestPage(offset), true);
         if (this.disposed) return;
         if (id !== this.storedId) {
           // The conversation was replaced meanwhile: a stale epoch only clears the loader.

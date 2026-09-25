@@ -2,8 +2,9 @@
 
 Hermes Remote is a **client of upstream Hermes' private API**. Nothing in this repository modifies
 Hermes, and there is no version negotiation on the wire: the Android app speaks Hermes' own REST and
-WebSocket RPC, and the Gateway and Connector relay those bytes without parsing them
-(`tunnel.ws.frame` carries an opaque base64 payload).
+WebSocket RPC. The Gateway and Connector relay WebSocket frames without parsing them
+(`tunnel.ws.frame` carries an opaque base64 payload). Ordinary REST requests also stay opaque;
+HG-107 adds an explicit `hr_preview=1` exception for the history route in Connector.
 
 That makes upstream renames the largest un-instrumented upgrade risk in the project. This document
 is the inventory of what we consume, and the checklist to run before adopting a new Hermes.
@@ -71,6 +72,16 @@ ever needed.
 Also consumed from the same rows: `id`, `role`, `content`, `reasoning` / `reasoning_content`,
 `tool_calls`, `tool_call_id`, `tool_name`, `display_kind`, `display_metadata`. A column Hermes
 renames disappears silently — deserialization yields null, never an error.
+
+**HG-107 history projection is ours, not an upstream field.** New Android and Web clients request
+`hr_preview=1` on a 100-row page. Connector removes that parameter before forwarding, reads at
+most 8 MiB, and limits only long tool-result `content` and assistant `reasoning` fields to 160
+characters. A changed row gets `hr_preview` with its fields, source offset, session and profile.
+Opening a folded result asks the same route for `hr_full_message_id` and `hr_full_offset`;
+Connector validates the row ID across a bounded set of neighboring latest pages and returns one
+unabridged row. An ordinary request, including one from an older client, still streams upstream
+bytes unchanged. Export/attach paths deliberately request unabridged oldest pages. A malformed or
+oversized opt-in page and a missing full row return retryable `HR-SYNC-005`.
 
 **`content` is not always a string.** A turn that carried attachments comes back as a list of
 content blocks — `[{"type":"text","text":"…"}, {"type":"image_url", …}]` — observed on

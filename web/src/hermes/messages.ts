@@ -1,5 +1,5 @@
 import { classifyAttachment, parseAttachments, type Attachment } from "./media";
-import type { JsonObject, JsonValue, MessageContent, MessageRow, ToolCallWire } from "./types";
+import type { HistoryLocator, JsonObject, JsonValue, MessageContent, MessageRow, ToolCallWire } from "./types";
 
 // `/api/sessions/{id}/messages` rows → display model. Port of android data/network/Dtos.kt
 // (MessageContentSerializer), domain/Mappers.kt (MessageDto.toDomain, historyToolCalls) and
@@ -24,6 +24,7 @@ export interface DisplayToolCall {
   /** The matching role=tool row's content ("" when no result row was persisted). */
   output: string;
   hasResult: boolean;
+  historySource?: HistoryLocator;
 }
 
 export interface DisplayMessage {
@@ -41,6 +42,7 @@ export interface DisplayMessage {
   attachments: Attachment[];
   timestampMs: number | null;
   reasoning: string;
+  reasoningSource?: HistoryLocator;
   tools: DisplayToolCall[];
   displayKind: string | null;
   displayMetadata: JsonObject | null;
@@ -154,9 +156,18 @@ function historyToolCalls(row: MessageRow, results: Map<string, MessageRow>): Di
     }
     const result = results.get(id);
     const output = result ? flattenContent(result.content).text ?? "" : "";
-    out.push({ id, name: toolLabel(wrapper, argObj), arguments: argText, output, hasResult: output.trim() !== "" });
+    const historySource = result && result.hr_preview?.fields.includes("content") ? locator(result) : undefined;
+    out.push({ id, name: toolLabel(wrapper, argObj), arguments: argText, output, hasResult: output.trim() !== "" || Boolean(historySource), ...(historySource ? { historySource } : {}) });
   });
   return out;
+}
+
+function locator(row: MessageRow): HistoryLocator | undefined {
+  const preview = row.hr_preview;
+  return typeof row.id === "number" && preview && typeof preview.sessionId === "string"
+    && Number.isSafeInteger(preview.offset) && preview.offset >= 0
+    ? { rowId: row.id, sessionId: preview.sessionId, profile: preview.profile, offset: preview.offset }
+    : undefined;
 }
 
 function roleOf(role: string): DisplayRole {
@@ -189,6 +200,8 @@ export function toDisplayMessage(row: MessageRow, index: number, toolResults: Ma
     attachments: parsed.attachments,
     timestampMs: messageTimestampMs(row.timestamp, row.created_at),
     reasoning: assistant ? nonBlank(row.reasoning_content) ?? nonBlank(row.reasoning) ?? "" : "",
+    ...(assistant && row.hr_preview?.fields.some((field) => field === "reasoning" || field === "reasoning_content")
+      ? { reasoningSource: locator(row) } : {}),
     tools: assistant ? historyToolCalls(row, toolResults) : [],
     displayKind: nonBlank(row.display_kind),
     displayMetadata: isObject(row.display_metadata) ? (row.display_metadata as JsonObject) : null,

@@ -37,6 +37,7 @@ import { decideOversizedFrame } from "./oversized-frame.js";
 import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
 import { displayVersion } from "./hermes-contract.js";
 import { HermesAuth, boundedResponseBody, fetchHermesOpenApi } from "./hermes-auth.js";
+import { historyProjection } from "./history-preview.js";
 import { contractReportResponse, defaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
@@ -303,7 +304,9 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
       case "hermes":
         break;
     }
-    const response = await hermesAuth.request(request.path, {
+    const projected = await historyProjection(request.method, request.path, (path) =>
+      hermesAuth.request(path, { method: "GET", signal: controller.signal }));
+    const response = projected ?? await hermesAuth.request(request.path, {
       method: request.method,
       headers: request.headers,
       body: request.bodyBase64 ? Buffer.from(request.bodyBase64, "base64") : undefined,

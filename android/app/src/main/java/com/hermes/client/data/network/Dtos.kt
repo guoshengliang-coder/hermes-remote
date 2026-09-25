@@ -99,6 +99,14 @@ import kotlinx.serialization.json.contentOrNull
     // On a role="tool" result row: which call this answers, and the tool that produced it.
     @SerialName("tool_call_id") val toolCallId: String? = null,
     @SerialName("tool_name") val toolName: String? = null,
+    @SerialName("hr_preview") val historyPreview: HistoryPreviewDto? = null,
+)
+
+@Serializable data class HistoryPreviewDto(
+    val fields: List<String> = emptyList(),
+    val offset: Int = 0,
+    val sessionId: String = "",
+    val profile: String? = null,
 )
 @Serializable data class MessagesDto(val messages: List<MessageDto> = emptyList())
 

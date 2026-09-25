@@ -100,6 +100,17 @@ public struct DesktopManagedBootstrapConfiguration: Equatable, Sendable {
         return DesktopManagedInstallLayout.validVersion(value) ? value : nil
     }
 
+    /// Index discovery is a read-only hint for the existing-install card. The downloader still
+    /// resolves the index again and verifies the signed manifest before any service mutation.
+    public func targetReleaseVersion(discoveredVersion: String?) -> String? {
+        if let pinnedReleaseVersion { return pinnedReleaseVersion }
+        guard manifestURL.lastPathComponent == "index.json",
+              let discoveredVersion,
+              DesktopManagedInstallLayout.validVersion(discoveredVersion)
+        else { return nil }
+        return discoveredVersion
+    }
+
     public init(
         manifestURL: URL,
         artifactOrigin: URL,

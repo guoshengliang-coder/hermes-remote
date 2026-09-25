@@ -6,6 +6,7 @@ import com.hermes.client.data.network.MessageOrder
 import com.hermes.client.data.network.SearchResultDto
 import com.hermes.client.data.network.SessionStatsDto
 import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.HistoryLocator
 import com.hermes.client.domain.Session
 import com.hermes.client.domain.toDomain
 import com.hermes.client.data.auth.AccountRoutingContext
@@ -316,6 +317,7 @@ class SessionRepository(
                 sessionId, profile, deviceId,
                 limit = TranscriptWindow.HISTORY_PAGE_SIZE,
                 order = MessageOrder.LATEST,
+                preview = true,
             )
             val tail = TranscriptWindow.rowsOf(raw)
             windowLock.withLock {
@@ -352,6 +354,7 @@ class SessionRepository(
                     limit = TranscriptWindow.HISTORY_PAGE_SIZE,
                     offset = (before?.serverRows ?: 0) + skip,
                     order = MessageOrder.LATEST,
+                    preview = true,
                 )
                 val page = TranscriptWindow.rowsOf(raw)
                 attempt++
@@ -379,17 +382,23 @@ class SessionRepository(
         deviceId: String? = null,
         maxPages: Int = FULL_HISTORY_MAX_PAGES,
     ): List<ChatMessage> {
-        var messages = history(sessionId, profile, deviceId)
-        var pages = 0
-        while (hasOlderHistory(sessionId, profile, deviceId) != false && pages < maxPages) {
-            val page = olderHistory(sessionId, profile, deviceId)
-            messages = page.messages
-            pages++
-            // Nothing added after the bounded skips: an upstream not honouring `offset`. Stop.
-            if (page.reachedStart || page.added == 0) break
+        val rows = mutableListOf<MessageDto>()
+        val seen = mutableSetOf<Int>()
+        var offset = 0
+        repeat(maxPages) {
+            // Attachment/export callers need every original byte, independent of the UI window.
+            val page = rest.parseMessages(rest.messagesRaw(
+                sessionId, profile, deviceId, limit = 500, offset = offset, order = MessageOrder.OLDEST,
+            ))
+            page.forEach { row -> if (row.id == null || seen.add(row.id)) rows.add(row) }
+            if (page.size < 500) return mapHistory(rows)
+            offset += page.size
         }
-        return messages
+        return mapHistory(rows)
     }
+
+    suspend fun fullHistoryRow(locator: HistoryLocator, deviceId: String?): MessageDto? =
+        rest.fullHistoryRow(locator.sessionId, locator.profile, deviceId, locator.rowId, locator.offset)
 
     /**
      * Whether rows older than those held may exist: false once the first row is loaded, null when

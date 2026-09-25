@@ -159,6 +159,20 @@ describe("notices", () => {
 });
 
 describe("history organisation (Android organizedForDisplay)", () => {
+  it("keeps every reasoning segment locator when adjacent assistant rows fold", () => {
+    const source = (offset: number) => ({ fields: ["reasoning_content"], offset, sessionId: "s1", profile: null });
+    const s = reduceChat(initialChatState, { type: "history", rows: [
+      { id: 1, role: "assistant", content: "first", reasoning_content: "preview one", hr_preview: source(0) },
+      { id: 2, role: "assistant", content: "second", reasoning_content: "short" },
+      { id: 3, role: "assistant", content: "third", reasoning_content: "preview three", hr_preview: source(100) },
+    ] });
+    expect(s.items).toHaveLength(1);
+    expect(s.items[0]!.reasoningParts).toEqual([
+      { text: "preview one", source: { rowId: 1, offset: 0, sessionId: "s1", profile: null } },
+      { text: "short" },
+      { text: "preview three", source: { rowId: 3, offset: 100, sessionId: "s1", profile: null } },
+    ]);
+  });
   it("folds consecutive assistant records into one turn and keeps tools from both", () => {
     const rows = [
       { id: 1, role: "user", content: "go", timestamp: 1 },

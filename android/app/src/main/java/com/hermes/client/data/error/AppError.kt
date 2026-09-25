@@ -105,6 +105,7 @@ enum class AppErrorCode(val value: String) {
     // Distinct from a 5xx (the Mac is fine) and from a dropped connection (the bytes arrived).
     // The same bytes parse the same way next time, so the app has to be updated instead.
     HISTORY_UNREADABLE("HR-SYNC-004"),
+    HISTORY_PREVIEW_FAILED("HR-SYNC-005"),
     NOTIFICATION_ACTION_FAILED("HR-NOTIF-001"),
     // Registering this phone's FCM token with the Relay failed (HG-94). Nothing is lost: the
     // 15-minute JobScheduler sync and the foreground socket keep running, so alerts are only

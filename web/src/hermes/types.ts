@@ -75,6 +75,15 @@ export interface MessageRow {
   tool_calls?: ToolCallWire[] | string | null;
   tool_call_id?: string | null;
   tool_name?: string | null;
+  /** Connector opt-in projection; absent on older Connectors and unabridged reads. */
+  hr_preview?: { fields: string[]; offset: number; sessionId: string; profile?: string | null };
+}
+
+export interface HistoryLocator {
+  sessionId: string;
+  profile?: string | null;
+  rowId: number;
+  offset: number;
 }
 
 export interface MessagesResponse {

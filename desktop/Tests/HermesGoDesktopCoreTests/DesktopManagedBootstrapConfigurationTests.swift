@@ -188,6 +188,31 @@ final class DesktopManagedBootstrapConfigurationTests: XCTestCase {
         XCTAssertNil(generic.pinnedReleaseVersion)
     }
 
+    func testIndexTargetUsesDiscoveredVersionOnlyAfterValidatedDiscovery() throws {
+        let index = try DesktopManagedBootstrapConfiguration(
+            manifestURL: URL(string: "https://updates.example/desktop/releases/index.json")!,
+            artifactOrigin: URL(string: "https://updates.example")!,
+            channel: "internal",
+            architecture: "arm64",
+            signingKeyID: "desktop-release-test",
+            signingPublicKey: Data(repeating: 7, count: 32),
+            runtimeContract: .serveV1
+        )
+        XCTAssertNil(index.targetReleaseVersion(discoveredVersion: nil))
+        XCTAssertEqual(index.targetReleaseVersion(discoveredVersion: "0.4.4"), "0.4.4")
+
+        let pinned = try DesktopManagedBootstrapConfiguration(
+            manifestURL: URL(string: "https://updates.example/desktop/releases/0.4.3/Hermes-Desktop-0.4.3-arm64.manifest.json")!,
+            artifactOrigin: URL(string: "https://updates.example")!,
+            channel: "internal",
+            architecture: "arm64",
+            signingKeyID: "desktop-release-test",
+            signingPublicKey: Data(repeating: 7, count: 32),
+            runtimeContract: .serveV1
+        )
+        XCTAssertEqual(pinned.targetReleaseVersion(discoveredVersion: "0.4.4"), "0.4.3")
+    }
+
     private func load(_ environment: [String: String]) -> DesktopManagedBootstrapConfigurationState {
         DesktopManagedBootstrapConfigurationState.load(environment: environment)
     }

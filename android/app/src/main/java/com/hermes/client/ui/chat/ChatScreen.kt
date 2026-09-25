@@ -1320,6 +1320,9 @@ fun ChatScreen(
             } else {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f)) {
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        LocalHistoryFullRowLoader provides { locator -> vm.fullHistoryRow(locator) },
+                    ) {
                     ChatMessageList(
                         state = state,
                         isNewSession = isNewSession,
@@ -1363,6 +1366,7 @@ fun ChatScreen(
                             }
                         },
                     )
+                    }
                     // New-session greeting overlay: visible only while nothing has been said,
                     // fades out 150ms with the first message. Display-only — the composer keeps
                     // every control exactly where it already is.

@@ -195,7 +195,7 @@ class SessionRepositoryTest {
         var calls = 0
         val rows = listOf(MessageDto(1, "user", "开始"))
         val payload = payloadFor(rows)
-        coEvery { rest.messagesRaw("session-3", "default", any(), any(), any(), any()) } coAnswers {
+        coEvery { rest.messagesRaw("session-3", "default", any(), any(), any(), any(), any()) } coAnswers {
             calls += 1
             if (calls == 1) release.await()
             payload
@@ -271,7 +271,7 @@ class SessionRepositoryTest {
             accountSessions = manager,
             conversationDevices = mockk(relaxed = true),
         )
-        coEvery { rest.messagesRaw("session-2", "personal", "mac-history", any(), any(), any()) } returns
+        coEvery { rest.messagesRaw("session-2", "personal", "mac-history", any(), any(), any(), any()) } returns
             """{"messages":[{"id":1,"role":"assistant","content":"from historical Mac"}]}"""
         every { rest.parseMessages(any()) } returns listOf(
             MessageDto(1, "assistant", "from historical Mac"),

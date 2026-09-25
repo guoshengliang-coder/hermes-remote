@@ -67,6 +67,19 @@ class HermesRestApiTest {
         assertEquals(null, url.queryParameter("order"))
     }
 
+    @Test fun preview_and_full_row_queries_are_explicit_and_keep_profile() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"messages":[]}""").build())
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"messages":[{"id":42,"role":"tool","content":"full"}]}""").build())
+        val api = api(serverRule.server)
+        api.messagesRaw("s1", "work", limit = 100, order = MessageOrder.LATEST, preview = true)
+        assertEquals("1", serverRule.server.takeRequest().url.queryParameter("hr_preview"))
+        assertEquals("full", api.fullHistoryRow("s1", "work", null, 42, 100)?.content)
+        val url = serverRule.server.takeRequest().url
+        assertEquals("42", url.queryParameter("hr_full_message_id"))
+        assertEquals("100", url.queryParameter("hr_full_offset"))
+        assertEquals("work", url.queryParameter("profile"))
+    }
+
     @Test fun sessions_parses_list_and_sends_token() = runTest {
         serverRule.server.enqueue(MockResponse.Builder().code(200).body(
             """{"sessions":[{"id":"s1","title":"First","model":"opus","provider":"anthropic","message_count":3}]}"""

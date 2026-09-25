@@ -59,6 +59,9 @@ existing install boundary:
   a notarized auto-updater.
 - 立即更新 for the managed release reuses the signed prepare → confirm → commit path; the check only
   decides that a newer release exists.
+- For an existing managed installation, index discovery also refreshes the Account & Devices
+  upgrade card's target version after validating the release; an absent or invalid discovery never
+  starts preparation or mutates the running service.
 - Default builds carry no app update index, so the surface is inert without a configured release.
 
 ## I3-A account-client alpha — local only

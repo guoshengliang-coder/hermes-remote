@@ -91,4 +91,18 @@ class HistoryReasoningAndToolsMappingTest {
         assertEquals("fallback", messages[0].thinking)
         assertEquals("b", messages[1].thinking)
     }
+
+    @Test fun previewLocatorsSurviveDtoMappingForFoldedReasoningAndToolResults() {
+        val raw = """{"messages":[
+          {"id":10,"role":"assistant","content":"answer","reasoning_content":"preview",
+           "hr_preview":{"fields":["reasoning_content"],"offset":100,"sessionId":"s1","profile":"work"},
+           "tool_calls":[{"id":"call","function":{"name":"terminal","arguments":"{}"}}]},
+          {"id":11,"role":"tool","tool_call_id":"call","content":"preview",
+           "hr_preview":{"fields":["content"],"offset":100,"sessionId":"s1","profile":"work"}}
+        ]}"""
+        val rows = json.decodeFromString(MessagesDto.serializer(), raw).messages
+        val message = rows[0].toDomain(mapOf("call" to rows[1]))
+        assertEquals(HistoryLocator("s1", "work", 10, 100), message.thinkingSource)
+        assertEquals(HistoryLocator("s1", "work", 11, 100), message.tools.single().historySource)
+    }
 }

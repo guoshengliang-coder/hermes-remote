@@ -208,7 +208,7 @@ describe("ChatSession", () => {
     ws.receive({ jsonrpc: "2.0", id: ws.last("client.capabilities")!.id, result: { server_requests: ["approval"] } });
     await tick();
     expect((ws.last("session.resume") as { params?: Record<string, unknown> }).params).toMatchObject({ session_id: "stored-9", profile: "work" });
-    expect(historyCalls[0]).toEqual(["dev-mac", "stored-9", "work", { order: "latest", limit: 100, offset: 0 }]);
+    expect(historyCalls[0]).toEqual(["dev-mac", "stored-9", "work", { order: "latest", limit: 100, offset: 0 }, true]);
     session.dispose();
   });
 

@@ -531,6 +531,8 @@ Automated (JVM-free Swift unit tests, `npm run desktop:test`):
 2. `DesktopUpdateCheckerTests` proves a newer app and managed release are both reported with notes,
    equal versions report nothing, a managed update is not offered when nothing is installed, a
    malformed index fails closed, and no configured source reports “not configured”.
+   `DesktopManagedBootstrapConfigurationTests` also pins that a validated discovered version can
+   target an existing-install upgrade card only for an index URL; an exact manifest remains pinned.
 3. `scripts/test/desktop-app-update-index.test.mjs` proves the generator writes an index matching the
    DMG bytes, refuses a misnamed DMG, rejects oversized/multi-line notes, and never overwrites an
    existing index.
@@ -549,3 +551,12 @@ Manual, on a real Mac (not reproducible in CI):
 4. Switch automatic checks off and confirm no index request is made across a launch; switch them on and
    confirm one check runs.
 5. Confirm a build with no app index reports “此版本未配置更新检查” and shows no failure banner.
+6. On an existing managed installation, check an index with a newer signed release: Account &
+   Devices shows the discovered target and “下载并验证更新” after the check. An invalid index leaves
+   the installed service and upgrade action untouched. This real-machine path remains unverified.
+
+### HG-116 Dock icon
+
+The asset equality gate checks the canonical Android image and Desktop packaging copy. On a
+physical Mac, inspect the built app in the Dock in light and dark appearance; the faceted H should
+retain its colors without an opaque white square. The local ad-hoc build is not a signed release.

@@ -51,6 +51,9 @@ describe("paths", () => {
       "sessions/s1/messages?inline_images=false&profile=work&order=latest&limit=100&offset=200",
     );
     expect(hermesPaths.messages("s1", null, { order: "oldest", limit: 500, offset: 0 })).toBe("sessions/s1/messages?inline_images=false&order=oldest&limit=500&offset=0");
+    expect(hermesPaths.messages("s1", "work", { order: "latest", limit: 100, offset: 0 }, true)).toBe(
+      "sessions/s1/messages?inline_images=false&profile=work&order=latest&limit=100&offset=0&hr_preview=1",
+    );
   });
 
   it("builds the device WebSocket URL from the page scheme and host", () => {
@@ -81,6 +84,12 @@ describe("paths", () => {
 });
 
 describe("GatewayClient requests", () => {
+  it("looks up one full history row by validated id and source offset", async () => {
+    const { client, calls } = fake(() => json(200, { messages: [{ id: 42, role: "tool", content: "full" }] }));
+    await expect(client.fullHistoryRow("dev", { sessionId: "s1", profile: "work", rowId: 42, offset: 100 }))
+      .resolves.toMatchObject({ messages: [{ content: "full" }] });
+    expect(calls[0]!.url).toBe("/v2/devices/dev/api/sessions/s1/messages?inline_images=false&profile=work&hr_full_message_id=42&hr_full_offset=100");
+  });
   it("GET: same-origin credentials, no CSRF header, parses JSON", async () => {
     const { client, calls } = fake(() => json(200, { sessions: [] }));
     await expect(client.sessions("dev")).resolves.toEqual({ sessions: [] });
