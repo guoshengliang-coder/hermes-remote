@@ -58,6 +58,7 @@ reassigned.
 | `PERM` | Android or service permissions | camera, notifications, storage access |
 | `NOTIF` | Notification delivery and actions | channel disabled, action/reply failure |
 | `UPDATE` | APK update and installation | manifest, download, hash, certificate, installer |
+| `DESKUPDATE` | Desktop app and managed-release update checking | index fetch, download, verification, replacement |
 | `RELEASE` | Server release packaging and candidate gates | build prerequisites, image identity, isolated smoke |
 | `OPS` | Cloud host installation and diagnostics | preflight, artifact integrity, bootstrap, status, doctor |
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
@@ -234,6 +235,11 @@ expanded without changing the underlying meaning.
 | `HR-UPDATE-007` | System package installer could not be opened | 无法打开系统安装器，请重试。 | Couldn't open the system installer. Retry. | Yes |
 | `HR-UPDATE-008` | DownloadManager job, persisted metadata, or residual APK could not be cleaned up | 无法清理更新下载，请重试。 | Couldn't clean up the update download. Retry. | Yes |
 | `HR-UPDATE-009` | A restored/downloaded APK is no longer the manifest's latest release | 已发布更新版本，请删除旧下载后获取最新版。 | A newer release is available. Delete the old download and get the latest version. | No (delete old download, then download latest) |
+| `HR-DESKUPDATE-001` | The Desktop app or managed-release update index could not be fetched, decoded, or validated | 无法检查更新，请检查网络后重试。 | Couldn't check for updates. Check your network and try again. | Yes (retry) |
+| `HR-DESKUPDATE-002` | This Desktop build has no app update index configured, so checking is unavailable rather than failed | 此版本未配置更新检查，暂时无法检查更新。 | Update checking isn't configured in this build, so updates can't be checked. | No |
+| `HR-DESKUPDATE-003` | The new Desktop app package could not be downloaded from the index | 新版本下载失败，请稍后重试。 | The update download failed. Try again shortly. | Yes (retry) |
+| `HR-DESKUPDATE-004` | The downloaded Desktop app package failed its size, SHA-256, or bundle-identity check and was discarded | 下载的更新包未通过完整性校验，已停止安装，请重新下载。 | The downloaded update failed its integrity check and was not installed. Download it again. | Yes (re-download only; installation stays blocked) |
+| `HR-DESKUPDATE-005` | The verified Desktop app package could not be staged or scheduled for replacement | 新版本已下载并校验，但未能安排替换安装，请重试或手动安装。 | The new version was downloaded and verified, but the replacement could not be scheduled. Retry or install it manually. | Yes (retry) |
 | `HR-RELEASE-001` | Gateway image prerequisites, source cleanliness, dependency build, or release packaging gate failed | 无法生成可验证的 Gateway 镜像，请检查构建环境和源码状态。 | Couldn't build a verifiable Gateway image. Check the build environment and source state. | Yes (inspect details, fix prerequisites, retry) |
 | `HR-RELEASE-002` | Gateway candidate image identity, architecture, isolation, startup, readiness, or Connector attachment check failed | Gateway 候选镜像未通过身份、隔离或就绪检查。 | The Gateway candidate image failed its identity, isolation, or readiness checks. | Yes (inspect details and retry) |
 | `HR-RELEASE-003` | Gateway candidate image REST, WebSocket, authentication, or release-contract smoke failed | Gateway 候选镜像的端到端验证失败，请检查诊断后重试。 | The Gateway candidate image failed end-to-end verification. Review diagnostics and retry. | Yes (inspect details and retry) |

@@ -52,6 +52,17 @@ struct MenuBarContentView: View {
             .padding(.horizontal, 14)
             .frame(height: 38)
 
+            Button {
+                openMainWindow()
+                Task { await model.checkForUpdates(manual: true) }
+            } label: {
+                Label("检查更新", systemImage: "arrow.down.circle")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+
             Divider()
 
             Text("账号客户端 · 不影响旧 Connector")

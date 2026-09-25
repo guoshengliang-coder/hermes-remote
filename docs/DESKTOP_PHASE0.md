@@ -41,7 +41,25 @@ Gateway, and Hermes behavior, and be packaged as an app/DMG before any backgroun
 - No one-time pairing code; the compatible v1 QR contains the saved long-lived App Token.
 - No Connector control IPC.
 - No automatic repair, Hermes restart, or configuration write.
-- No Developer ID signing, notarization, or automatic update.
+- No Developer ID signing or notarization. The internal-only update check described below never claims
+  a notarized install.
+
+## Desktop update checking — internal only
+
+The packaged app can check for a newer Desktop app and a newer managed release without changing any
+existing install boundary:
+
+- The check reads a stable app index (`/desktop/apps/index.json`) plus the existing managed release
+  index, compares semantic versions, and reports 应用更新 / 组件更新 with the publisher's release notes.
+- Automatic checks run once at launch and then at most once every 12 hours; Settings carries the switch
+  and a manual “检查更新”. A build with no app index reports that checking is unavailable.
+- 立即更新 for the app downloads the DMG, verifies its size and SHA-256, mounts it read-only, checks the
+  inner bundle's version and identifier, then stages the replacement and schedules the swap for after
+  the app quits (launchd `submit`, then relaunch). This is a best-effort internal-test replacement, not
+  a notarized auto-updater.
+- 立即更新 for the managed release reuses the signed prepare → confirm → commit path; the check only
+  decides that a newer release exists.
+- Default builds carry no app update index, so the surface is inert without a configured release.
 
 ## I3-A account-client alpha — local only
 

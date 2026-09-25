@@ -52,6 +52,14 @@
   <string></string>
   <key>HermesGoDesktopHermesRuntimeContract</key>
   <string></string>
+  <key>HermesGoDesktopAppUpdateEnabled</key>
+  <false/>
+  <key>HermesGoDesktopAppUpdateIndexURL</key>
+  <string></string>
+  <key>HermesGoDesktopAppUpdateChannel</key>
+  <string></string>
+  <key>HermesGoDesktopAppUpdateArchitecture</key>
+  <string></string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key>

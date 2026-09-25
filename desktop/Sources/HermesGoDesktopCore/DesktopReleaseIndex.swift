@@ -12,6 +12,23 @@ public struct DesktopReleaseIndexReference: Equatable, Sendable {
     public let manifestURL: URL
     public let manifestSizeBytes: Int
     public let manifestSHA256: String
+    /// Optional publisher-supplied change summary. Discovery metadata only: the signed manifest
+    /// remains authoritative for what may be installed.
+    public let releaseNotes: [String]
+
+    public init(
+        releaseVersion: String,
+        manifestURL: URL,
+        manifestSizeBytes: Int,
+        manifestSHA256: String,
+        releaseNotes: [String] = []
+    ) {
+        self.releaseVersion = releaseVersion
+        self.manifestURL = manifestURL
+        self.manifestSizeBytes = manifestSizeBytes
+        self.manifestSHA256 = manifestSHA256
+        self.releaseNotes = releaseNotes
+    }
 }
 
 /// A mutable HTTPS index is discovery only. The referenced immutable envelope still has to pass
@@ -23,12 +40,13 @@ public enum DesktopReleaseIndex {
         expectedChannel: String,
         expectedArchitecture: String
     ) throws -> DesktopReleaseIndexReference {
+        let requiredKeys: Set<String> = [
+            "schemaVersion", "channel", "architecture", "releaseVersion",
+            "manifestURL", "manifestSizeBytes", "manifestSHA256", "updatedAt",
+        ]
         guard data.count <= 256 * 1024,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(object.keys) == Set([
-                  "schemaVersion", "channel", "architecture", "releaseVersion",
-                  "manifestURL", "manifestSizeBytes", "manifestSHA256", "updatedAt",
-              ]),
+              Set(object.keys) == requiredKeys || Set(object.keys) == requiredKeys.union(["releaseNotes"]),
               object["schemaVersion"] as? Int == 1,
               object["channel"] as? String == expectedChannel,
               object["architecture"] as? String == expectedArchitecture,
@@ -44,12 +62,23 @@ public enum DesktopReleaseIndex {
               canonicalDate(updatedAt)
         else { throw DesktopReleaseIndexError.invalidIndex }
 
+        let releaseNotes: [String]
+        if object.keys.contains("releaseNotes") {
+            guard let parsed = object["releaseNotes"] as? [String],
+                  DesktopAppUpdateIndex.validReleaseNotes(parsed)
+            else { throw DesktopReleaseIndexError.invalidIndex }
+            releaseNotes = parsed
+        } else {
+            releaseNotes = []
+        }
+
         try validateManifestURL(manifestURL, indexURL: indexURL, releaseVersion: releaseVersion)
         return DesktopReleaseIndexReference(
             releaseVersion: releaseVersion,
             manifestURL: manifestURL,
             manifestSizeBytes: size,
-            manifestSHA256: sha256
+            manifestSHA256: sha256,
+            releaseNotes: releaseNotes
         )
     }
 

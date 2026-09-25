@@ -520,3 +520,32 @@ Items 1–4 now have injected local core tests. They are not considered target-M
 packaged UI path is compiled but hidden in the default-off build, and no real signed/notarized
 artifact has exercised it. Item 5 and the physical clean-install/upgrade/interruption matrix remain
 manual gates.
+
+## Update checking
+
+Automated (JVM-free Swift unit tests, `npm run desktop:test`):
+
+1. `DesktopUpdateIndexTests` proves the app index resolves every field, rejects unknown fields,
+   off-origin download URLs, a filename/version mismatch, bad notes, and a wrong channel, and that
+   semantic comparison is correct in both directions.
+2. `DesktopUpdateCheckerTests` proves a newer app and managed release are both reported with notes,
+   equal versions report nothing, a managed update is not offered when nothing is installed, a
+   malformed index fails closed, and no configured source reports “not configured”.
+3. `scripts/test/desktop-app-update-index.test.mjs` proves the generator writes an index matching the
+   DMG bytes, refuses a misnamed DMG, rejects oversized/multi-line notes, and never overwrites an
+   existing index.
+
+Manual, on a real Mac (not reproducible in CI):
+
+1. Build an update-capable app with `HERMES_GO_APP_UPDATE_ENABLED=1` and an app index pointing at a
+   prepared release; confirm Settings shows the current and component versions and the automatic-check
+   switch, and that the menu bar offers “检查更新”.
+2. With the published index one patch ahead, confirm a manual check opens the unified sheet with both
+   update cards when both exist, that 立即更新 for the app downloads, verifies, quits, replaces
+   `/Applications/Hermes Go Desktop.app`, and relaunches at the new version, and that 组件更新 opens the
+   existing signed confirmation sheet.
+3. Confirm an app-index download whose SHA-256 is deliberately wrong stops with `HR-DESKUPDATE-004` and
+   leaves the installed app untouched.
+4. Switch automatic checks off and confirm no index request is made across a launch; switch them on and
+   confirm one check runs.
+5. Confirm a build with no app index reports “此版本未配置更新检查” and shows no failure banner.

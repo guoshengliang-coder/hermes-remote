@@ -1,9 +1,10 @@
 # Desktop release channel
 
-Desktop release discovery uses two mutable, cache-disabled pointers:
+Desktop release discovery uses three mutable, cache-disabled pointers:
 
 - `/desktop/releases/index.json` for the Desktop application release envelope;
-- `/desktop/components/index.json` for the Node + Connector component envelope.
+- `/desktop/components/index.json` for the Node + Connector component envelope;
+- `/desktop/apps/index.json` for the Desktop application binary update (see "App update channel").
 
 Each pointer names one immutable, versioned manifest, including its byte length and SHA-256. The
 pointer is discovery data only: Desktop checks its same-origin HTTPS path and identity, then still
@@ -118,3 +119,27 @@ publisher uses passwordless `sudo` for index operations, verifies every pre-stag
 public download and byte comparison, then performs the same two-index transaction and tag gate.
 It never uploads into the root-owned store or changes Nginx routes itself. If verification fails,
 leave the old indexes in place; the new immutable files may remain unreferenced for inspection.
+
+## App update channel
+
+The Desktop application binary has its own discovery pointer: `/desktop/apps/index.json`, a schema-1
+document naming the latest `appVersion`, its exact DMG URL under
+`/desktop/apps/<version>/Hermes-Go-Desktop-<version>.dmg`, byte size, SHA-256, minimum macOS, bounded
+`releaseNotes`, and source commit. `DESKTOP_RELEASE_MANIFEST.md` carries the exact schema and the
+client-side rules.
+
+`desktop-app-release.yml` builds and notarizes the DMG, sets the app update build settings, and
+generates the index with `scripts/desktop-app-update-index.mjs`; both the DMG and the index are
+uploaded only as short-lived workflow artifacts. That job does not publish.
+
+Publication is the separate, explicitly reviewed transaction in
+`scripts/publish-desktop-app-update.sh`. It requires a clean worktree at current `origin/main`, the
+notarized DMG, and its generated index; it re-checks that the index names exactly that DMG's version,
+size, SHA-256, and URL. It uploads one immutable version directory, downloads the public DMG and
+compares it byte-for-byte, switches `index.json` through a `.next` file, reads the public index back
+and compares it, preserves the previous index for `--rollback`, and only then creates and pushes the
+`desktop-app-v<version>` tag. The protected pre-staged mode (`DESKTOP_RELEASE_PRESTAGED_PROTECTED=1`
+with `DESKTOP_RELEASE_REMOTE_APP_ROOT`) never uploads into a root-owned store.
+
+An Actions artifact, a tag, or an updated `index.json` is not by itself proof that an installed Mac
+received the update; only the public readback plus a real update run closes that gate.

@@ -42,7 +42,7 @@ it("moves the model control inside the composer only while focused", () => {
   expect(host.querySelector(".composer-disclaimer")?.textContent).toBe("内容由 AI 生成");
 });
 
-it("routes sidebar theme and settings language choices to app preferences", () => {
+it("keeps theme changes pending until Save and cancels them without changing the setting", () => {
   const chosen: string[] = [];
   const value = {
     ...context,
@@ -55,9 +55,43 @@ it("routes sidebar theme and settings language choices to app preferences", () =
   document.body.append(host);
   hosts.push(host);
   act(() => render(<AppContext.Provider value={value}><AccountDrawer onClose={() => {}} /></AppContext.Provider>, host));
-  const button = (label: string) => [...host.querySelectorAll("button")].find((node) => node.textContent === label)!;
-  act(() => button("深色").click());
+  const button = (label: string) => [...host.querySelectorAll("button")].find((node) => node.getAttribute("aria-label") === label || node.textContent === label)!;
+  act(() => button("主题").click());
+  act(() => button("黑曜石深色").click());
+  expect(chosen).toEqual([]);
+  act(() => button("关闭").click());
+  expect(host.querySelector('[aria-label="外观与主题"]')).toBeNull();
+  act(() => button("主题").click());
+  expect(host.querySelector('[aria-label="跟随系统"]')?.getAttribute("aria-checked")).toBe("true");
+  act(() => button("黑曜石深色").click());
+  act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+  expect(chosen).toEqual([]);
+  act(() => button("主题").click());
+  act(() => host.querySelector<HTMLElement>(".drawer-theme-scrim")!.click());
+  expect(host.querySelector('[aria-label="外观与主题"]')).toBeNull();
+  act(() => button("主题").click());
+  act(() => button("温润浅色").click());
+  act(() => button("保存").click());
+  expect(chosen).toEqual(["theme:light"]);
+});
+
+it("keeps shared settings accessible from the drawer", () => {
+  const chosen: string[] = [];
+  const value = {
+    ...context,
+    themeMode: "system",
+    languagePreference: "system",
+    setThemeMode: (mode: string) => chosen.push(`theme:${mode}`),
+    setLanguagePreference: (choice: string) => chosen.push(`language:${choice}`),
+  } as AppContextValue;
+  const host = document.createElement("div");
+  document.body.append(host);
+  hosts.push(host);
+  act(() => render(<AppContext.Provider value={value}><AccountDrawer onClose={() => {}} /></AppContext.Provider>, host));
+  const button = (label: string) => [...host.querySelectorAll("button")].find((node) => node.getAttribute("aria-label") === label || node.textContent === label)!;
   act(() => host.querySelector<HTMLButtonElement>('button[aria-label="设置"]')!.click());
   act(() => button("English").click());
-  expect(chosen).toEqual(["theme:dark", "language:en"]);
+  expect(chosen).toEqual(["language:en"]);
+  act(() => button("返回").click());
+  expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
 });
