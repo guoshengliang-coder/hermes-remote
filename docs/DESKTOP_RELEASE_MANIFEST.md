@@ -290,6 +290,11 @@ commit path. The app check reads a separate stable `/desktop/apps/index.json`:
   notes file. It is offline and never uploads.
 - `scripts/publish-desktop-release.sh` accepts an optional `DESKTOP_RELEASE_NOTES_FILE` (a JSON array)
   and embeds it as `releaseNotes` in both stable indexes; unset, the field is an empty array.
+- `desktop-app-release.yml` accepts an optional `release_notes` JSON array, generates the app index
+  after notarization, and uploads it with the DMG as a workflow artifact. Publication is the separate
+  `scripts/publish-desktop-app-update.sh` transaction: it re-verifies the index against the DMG,
+  uploads one immutable version, switches `/desktop/apps/index.json` atomically with public readback and
+  `--rollback`, and never runs in CI.
 - Internal-test builds are ad-hoc signed. Replacing `/Applications/Hermes Go Desktop.app` is therefore
   a best-effort staged swap scheduled after the app exits, followed by a relaunch; it is not an
   Apple-notarized auto-updater. Public distribution still requires Developer ID signing, notarization,
