@@ -3,10 +3,11 @@
 Release discovery, two-component topology, signing-key rotation, and protected-environment setup
 are documented in [`../docs/DESKTOP_RELEASE_CHANNEL.md`](../docs/DESKTOP_RELEASE_CHANNEL.md).
 
-Current internal test release candidate: **0.2.27** (build 30). This build carries
-foreground-request correlation and diagnostic logging for HG-120–122; the companion Connector
-candidate is **0.1.9**. Publication still requires the signed Desktop release channel.
+Current internal test release candidate: **0.2.28** (build 31). This build carries the sign-in gate
+and first-run onboarding for HG-129; the managed release and its Connector candidate are unchanged.
+Publication still requires the signed Desktop release channel.
 
+0.2.27 (build 30) carried foreground-request correlation and diagnostic logging for HG-120–122.
 0.2.26 (build 29) had three changes (HG-97, HG-98, HG-99).
 
 Desktop release discovery now starts from stable, cache-disabled indexes while retaining strict
