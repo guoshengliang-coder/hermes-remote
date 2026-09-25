@@ -1310,3 +1310,55 @@ PIDs, the job stayed in local mode (this Mac already had the setting on), and De
 service operation. The install-when-missing path and default-on switching of a Mac that never opted
 in remain physically unverified (`docs/DESKTOP_TEST_PLAN.md`). This is an internal ad-hoc build: not
 Developer ID signed, notarized or stapled.
+
+## 2026-09-25 Desktop 0.2.28 publication (sign-in gate and first-run onboarding, HG-129)
+
+Desktop **0.2.28/build 31** ships HG-129: a full-window sign-in gate, four-step first-run onboarding,
+the Android/iPhone–iPad split of its phone step, the "connect this Mac too / only manage from here"
+choice for an existing account on a new Mac, and the menu-bar and overview adjustments that go with
+them. The requirements and 17 mockups (#425 at `9540c598`), the implementation (#426 at `cb0b2f47`)
+and the version (#427 at `9e84f15b`) are all on `main`; version and publish gates were authorised by
+the owner.
+
+**0.2.27/build 30 never reached the host.** It is recorded on `main` and a dev DMG was built locally on
+2026-09-24, but `https://mrlgs.net/desktop/apps/0.2.27/Hermes-Go-Desktop-0.2.27-dev.dmg` returns 404
+while 0.2.26 and earlier return 200. 0.2.28 supersedes it — it carries HG-120–122 as well as HG-129 —
+so no number is lost and no published artifact changed meaning.
+
+The published configuration was taken from the **published 0.2.26**, not from this Mac's installed
+0.2.27: mounting `Hermes-Go-Desktop-0.2.26-dev.dmg` and reading its `Info.plist` shows the two index
+pointers (`/desktop/releases/index.json`, `/desktop/components/index.json`), component preflight off,
+`internal`/`arm64`, key `desktop-internal-2026-a` and `hermes-serve-v1`. The locally installed 0.2.27
+carried a pinned concrete 0.4.3 manifest and component preflight on, which no published build has
+used; that configuration was deliberately not adopted.
+
+Built from a clean detached worktree at `9e84f15b` after `desktop:assets:test` and all 503 Desktop
+tests passed. Before building, the pinned key was checked against both live indexes
+(`RELEASES_VERSION=0.4.4`, `COMPONENTS_VERSION=0.4.4`, `DESKTOP_SIGNING_CONTINUITY_OK`). The release
+configuration was exported into the `desktop:dmg` run, because `desktop:dmg` rebuilds the app through
+`build-app.sh` and would otherwise package an unconfigured app. Reading `Info.plist` back from the
+mounted DMG and comparing all 28 keys with the published 0.2.26 shows **only the version and build
+number differ**; strict `codesign --verify --deep --strict` passed (ad-hoc, `com.hermesgo.desktop`,
+arm64).
+
+The 3,215,182-byte DMG has SHA-256
+`d4d985e52fe2d5871613135193a35bb72a4f28011c02bb7eb6f50ff066c6a954` and is published at
+`https://mrlgs.net/desktop/apps/0.2.28/Hermes-Go-Desktop-0.2.28-dev.dmg`.
+
+Publication used an owner-only staging directory on the HK host and required the uploaded artifact to
+reproduce the local size and hash. The final file was installed root-owned mode 0644 under a new
+mode-0755 `/srv/hermes-desktop-apps/0.2.28`; the exact route was appended to
+`/etc/hermes-go/desktop-release-routes.conf` only after that file still matched its audited
+`6dd0b4dc…` (new `1733e372…`, one-time backup `/root/desktop-release-routes.conf.before-dmg-0.2.28`);
+`nginx -t` passed, Nginx reloaded and is active. A full public re-download reproduced the exact size
+and hash, passed `hdiutil verify`, exposed the same packaged configuration from the mounted app, and
+passed strict codesign again. The response is HTTP 200 with one-year immutable caching and `nosniff`;
+its `Content-Type` is `application/octet-stream`, unchanged from how 0.2.26 is served. The version
+directory returns 404, POST to the exact route returns 403, and the 0.2.26 DMG, the releases index,
+the Android download redirect and Relay `/health` all still answer as before. Private staging and the
+one-time route backup were removed after verification.
+
+Not verified by this publication: nothing was installed from this build on any Mac, so the clean-Mac
+first run, both phone QR paths, the resume-after-interrupt path and the "a gated session leaves the
+phones working" check remain manual steps in `docs/DESKTOP_TEST_PLAN.md`. This is an internal ad-hoc
+build: not Developer ID signed, notarized or stapled.
