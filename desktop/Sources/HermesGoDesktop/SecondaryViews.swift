@@ -1267,6 +1267,48 @@ struct SettingsView: View {
                 .hermesCard()
 
                 VStack(alignment: .leading, spacing: 10) {
+                    Text("更新")
+                        .font(.system(size: 16, weight: .bold))
+                    settingRow("当前版本", model.appVersion)
+                    if let managedVersion = model.installedManagedVersion {
+                        Divider()
+                        settingRow("组件版本", managedVersion)
+                    }
+                    Toggle(
+                        "自动检查更新（每 12 小时）",
+                        isOn: Binding(
+                            get: { model.isAutomaticUpdateEnabled },
+                            set: { model.setAutomaticUpdateChecksEnabled($0) }
+                        )
+                    )
+                    .font(.system(size: 13))
+                    .toggleStyle(.switch)
+                    HStack(spacing: 12) {
+                        Text(model.updateStatusText)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("检查更新") {
+                            Task { await model.checkForUpdates(manual: true) }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isCheckingUpdates)
+                    }
+                    if let issue = model.appUpdateIssue {
+                        GateIssueBanner(issue: issue)
+                    }
+                    if let message = model.appUpdateStatusMessage {
+                        Text(message)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .hermesCard()
+
+                VStack(alignment: .leading, spacing: 10) {
                     Text("安全边界")
                         .font(.system(size: 16, weight: .bold))
                     Text("Desktop 当前不会停止旧 Connector、修改 Hermes、导入明文凭据或开放本机端口。")
@@ -1281,6 +1323,11 @@ struct SettingsView: View {
             }
             .padding(34)
         }
+    }
+
+    private var isCheckingUpdates: Bool {
+        if case .checking = model.updateCheckState { return true }
+        return false
     }
 
     private var accountStatus: String {

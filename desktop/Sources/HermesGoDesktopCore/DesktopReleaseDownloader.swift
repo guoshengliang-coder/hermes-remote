@@ -57,19 +57,37 @@ public final class DesktopReleaseDownloader: @unchecked Sendable {
         _ artifact: DesktopReleaseArtifact,
         into downloadRoot: URL
     ) async throws -> URL {
-        guard let url = URL(string: artifact.downloadURL),
-              Self.validHTTPSURL(url),
-              artifact.sizeBytes > 0,
-              artifact.sizeBytes <= 2 * 1024 * 1024 * 1024,
-              artifact.fileName == url.lastPathComponent
+        guard let url = URL(string: artifact.downloadURL) else {
+            throw DesktopReleaseDownloadError.invalidRequest
+        }
+        return try await download(
+            from: url,
+            fileName: artifact.fileName,
+            sizeBytes: artifact.sizeBytes,
+            into: downloadRoot
+        )
+    }
+
+    public func download(
+        from url: URL,
+        fileName: String,
+        sizeBytes: Int64,
+        into downloadRoot: URL
+    ) async throws -> URL {
+        guard Self.validHTTPSURL(url),
+              sizeBytes > 0,
+              sizeBytes <= 2 * 1024 * 1024 * 1024,
+              fileName == url.lastPathComponent,
+              !fileName.isEmpty,
+              !fileName.contains("/")
         else { throw DesktopReleaseDownloadError.invalidRequest }
         let root = try preparePrivateRoot(downloadRoot)
-        let destination = root.appendingPathComponent(artifact.fileName)
+        let destination = root.appendingPathComponent(fileName)
         guard !fileManager.fileExists(atPath: destination.path) else {
             throw DesktopReleaseDownloadError.unsafeDestination
         }
 
-        let delegate = BoundedNoRedirectDownloadDelegate(maximumBytes: artifact.sizeBytes)
+        let delegate = BoundedNoRedirectDownloadDelegate(maximumBytes: sizeBytes)
         let temporary: URL
         let response: URLResponse
         do {
@@ -82,10 +100,10 @@ public final class DesktopReleaseDownloader: @unchecked Sendable {
             throw DesktopReleaseDownloadError.transportFailed
         }
         defer { try? fileManager.removeItem(at: temporary) }
-        try validate(response: response, requestedURL: url, expectedSize: artifact.sizeBytes)
+        try validate(response: response, requestedURL: url, expectedSize: sizeBytes)
         guard let attributes = try? fileManager.attributesOfItem(atPath: temporary.path),
               let size = attributes[.size] as? NSNumber,
-              size.int64Value == artifact.sizeBytes
+              size.int64Value == sizeBytes
         else { throw DesktopReleaseDownloadError.invalidResponse }
         do {
             try fileManager.moveItem(at: temporary, to: destination)

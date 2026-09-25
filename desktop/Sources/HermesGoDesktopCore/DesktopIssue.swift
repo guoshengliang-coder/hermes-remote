@@ -105,6 +105,16 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     /// The installer finished — or the Mac changed before it ran — but detection does not report a
     /// usable standard Hermes. Nothing was switched.
     case hermesInstallNotUsable = "HR-MIGRATE-018"
+    /// A Desktop update check could not fetch or validate the stable index.
+    case updateCheckFailed = "HR-DESKUPDATE-001"
+    /// This build has no update source configured; checking is unavailable, not failed.
+    case updateNotConfigured = "HR-DESKUPDATE-002"
+    /// The new Desktop app package could not be downloaded.
+    case appUpdateDownloadFailed = "HR-DESKUPDATE-003"
+    /// The downloaded app package failed its size or SHA-256 check and was discarded.
+    case appUpdateVerificationFailed = "HR-DESKUPDATE-004"
+    /// The verified app package could not be staged or scheduled for replacement.
+    case appUpdateInstallFailed = "HR-DESKUPDATE-005"
 }
 
 public enum DesktopManagedStartupRepairStage: String, Sendable {
@@ -297,6 +307,16 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("无法使用 Hermes 安装程序", "Can't use the Hermes installer", "Hermes 官方安装程序与 Hermes GO 支持的方式不一致，未做任何安装。请改用 Hermes GO 内置的 Hermes，或更新 Hermes GO。", "The official Hermes installer isn't in a form Hermes GO supports, so nothing was installed. Use the Hermes built into Hermes GO, or update Hermes GO.", false, .details)
         case .hermesInstallNotUsable:
             ("安装后的 Hermes 无法直接使用", "The installed Hermes can't be used", "Hermes 安装已结束，但这台 Mac 上的 Hermes 不是 Hermes GO 能直接使用的标准形式，未做任何切换。请查看详情，或改用 Hermes GO 内置的 Hermes。", "Hermes finished installing, but it isn't in the standard form Hermes GO can use, so nothing was switched. Review the details, or use the Hermes built into Hermes GO.", false, .details)
+        case .updateCheckFailed:
+            ("无法检查更新", "Couldn't check for updates", "无法检查更新，请检查网络后重试。", "Couldn't check for updates. Check your network and try again.", true, .retry)
+        case .updateNotConfigured:
+            ("此版本未配置更新检查", "Update checking isn't configured", "此版本尚未配置更新来源，暂时无法检查更新。", "Update checking isn't configured in this build, so updates can't be checked.", false, .none)
+        case .appUpdateDownloadFailed:
+            ("更新下载失败", "Update download failed", "新版本下载失败，请稍后重试。", "The update download failed. Try again shortly.", true, .retry)
+        case .appUpdateVerificationFailed:
+            ("更新包校验未通过", "Update package failed verification", "下载的更新包未通过完整性校验，已停止安装，请重新下载。", "The downloaded update failed its integrity check and was not installed. Download it again.", true, .retry)
+        case .appUpdateInstallFailed:
+            ("未能安装新版本", "Couldn't install the new version", "新版本已下载并校验，但未能安排替换安装，请重试或手动安装。", "The new version was downloaded and verified, but the replacement could not be scheduled. Retry or install it manually.", true, .retry)
         case .localHermesMissingWithoutFallback:
             ("本机 Hermes 已不存在", "This Mac's Hermes is gone", "这台 Mac 上的 Hermes 已被移除，且没有可恢复的内置 Hermes。请重新安装 Hermes 或 Hermes GO。", "This Mac's Hermes was removed and there is no built-in Hermes to return to. Reinstall Hermes or Hermes GO.", false, .details)
         }
@@ -399,5 +419,23 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             .migrationPreflightFailed
         }
         return DesktopIssue(code: code, technicalCause: String(describing: error))
+    }
+
+    public static func updateCheck(_ error: Error) -> DesktopIssue {
+        if error as? DesktopUpdateCheckError == .notConfigured {
+            return DesktopIssue(code: .updateNotConfigured)
+        }
+        return DesktopIssue(code: .updateCheckFailed, technicalCause: String(describing: error))
+    }
+
+    public static func appUpdateInstall(_ error: Error) -> DesktopIssue {
+        switch error as? DesktopAppUpdateInstallError {
+        case .downloadFailed:
+            return DesktopIssue(code: .appUpdateDownloadFailed, technicalCause: String(describing: error))
+        case .verificationFailed, .bundleMismatch:
+            return DesktopIssue(code: .appUpdateVerificationFailed, technicalCause: String(describing: error))
+        default:
+            return DesktopIssue(code: .appUpdateInstallFailed, technicalCause: String(describing: error))
+        }
     }
 }
