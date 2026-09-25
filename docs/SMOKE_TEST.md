@@ -1049,6 +1049,21 @@ follows system dark mode. Landscape with the keyboard up leaves the page about 3
 emulator (status bar, Chrome's toolbar and the keyboard take the rest): only the caret line of the
 input shows. That is the browser's limit, not something the page can reclaim.
 
+HG-131 physical foldable check (not yet verified on a device): install `/app/` from Android Chrome
+to the Home Screen. Record phone model, Android and Chrome versions, Chrome's Page zoom and Force
+enable zoom settings, and the system text size. Set Page zoom to 100% and turn Force enable zoom
+off for the normal app check. Open the conversation list on the cover screen, then unfold without
+reloading. The cover list should use the viewport width with 16px side gutters;
+on an inner screen at least 45rem wide, the top bar and list should span the available width, the
+segments should retain 16px gutters, and the menu and new-chat button should stay near the right
+safe edge. Fold again: the list position and selected segment should remain. Try pinching the list
+both ways: the page's `visualViewport.scale` should remain 1 with Force enable zoom off; an image
+opened in the viewer should still zoom independently. If the typography or width remains abnormal,
+record `innerWidth`, `document.documentElement.clientWidth`, `visualViewport.width` and `.scale`,
+the computed font size of `.row-title` and `.row-subline`, and whether Chrome's Desktop site setting
+is enabled. Compare those values with a fresh Chrome profile before attributing the problem to the
+Web stylesheet.
+
 HG-109 (branch `claude/hg-109-open-latest`, Web only): the mock now pages
 `GET /api/sessions/{id}/messages` the way upstream does (`order=latest` counts back from the newest
 row, each page ascending) and lists a 260-row fixture, 「长会话 · 260 条历史」. Before the fix, opening
