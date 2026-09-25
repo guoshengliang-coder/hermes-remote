@@ -1092,9 +1092,15 @@ version with each result.
    state and no `HR-AUTH-*` error.
 4. **iOS Chrome.** Repeat 1–3 in Chrome for iOS (its Add to Home Screen needs iOS 16.4+). Expected:
    the same results as Safari.
-5. **Safe areas.** On a notched or Dynamic Island iPhone, in portrait and landscape, light and dark.
-   Expected: nothing sits under the island, the home indicator or the rounded corners, and the
-   composer stays above the home indicator while the keyboard is open.
+5. **Safe areas and keyboard (HG-133).** On a notched or Dynamic Island iPhone, in portrait and
+   landscape, light and dark, open a chat in the Home Screen app and focus its composer with the
+   Sogou keyboard; repeat with the system keyboard and in Safari. Record the phone model, iOS and
+   keyboard versions. Expected: nothing sits under the island, home indicator or rounded corners;
+   while typing, the top bar and message area remain visible, messages still scroll, and the composer
+   stays directly above the keyboard's own controls without an extra page-sized blank region. Dismiss
+   and reopen the keyboard, rotate, then switch chats; the layout must recover without a jump or
+   clipped input. iOS may show its native Previous / Next / Done form assistant above the keyboard;
+   the Web app cannot reliably remove that system control.
 6. **Download from the Mac.** Tap a `MEDIA:` file that is not an image, such as `.html` or `.pdf`.
    Expected: iOS offers to download or preview it. It never renders inside the app's origin.
 7. **Sign out on a shared device.** Sign out, then reopen the app offline. Expected: no conversation

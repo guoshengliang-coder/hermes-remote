@@ -49,6 +49,7 @@ import { ImageViewer, type ViewerImage } from "./ImageViewer";
 import { MessageView, type MessageActions } from "./Message";
 import { QuestionSheet } from "./QuestionSheet";
 import { loadSessions } from "./SessionList";
+import { followChatVisualViewport } from "./chatViewport";
 
 // Chat page for /app/s/<storedSessionId> and /app/new. A new chat keeps the same page (and
 // socket) when its first send gives it a durable id and the URL is replaced.
@@ -88,6 +89,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const anchor = useRef<ScrollAnchor | null>(null);
+  const page = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<ChatSession | null>(null);
   const [storedId, setStoredId] = useState<string | null>(sessionId);
   const scroller = useRef<HTMLDivElement>(null);
@@ -119,6 +121,8 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const [processes, setProcesses] = useState<BackgroundProcess[]>([]);
   const [processesOpen, setProcessesOpen] = useState(false);
   const [ownedElsewhere, setOwnedElsewhere] = useState(false);
+
+  useEffect(() => page.current ? followChatVisualViewport(page.current) : undefined, []);
 
   // Opened from a message-search hit: in-chat search starts pre-filled (Android initialQuery).
   useEffect(() => {
@@ -492,7 +496,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   let previousMs: number | null = null;
 
   return (
-    <div class="page chat-page">
+    <div class="page chat-page" ref={page}>
       <header class="topbar">
         {searchOpen ? <BackClose onClose={() => { setSearchOpen(false); setSearchQuery(""); }} /> : null}
         {searchOpen ? (
