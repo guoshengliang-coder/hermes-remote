@@ -94,6 +94,25 @@ export const MacIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const MoonIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20.5 14.1A8.5 8.5 0 019.9 3.5 8.5 8.5 0 1020.5 14.1z" />
+  </Svg>
+);
+
+export const SunIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+  </Svg>
+);
+
+export const CubeIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 2.8l8 4.6v9.2l-8 4.6-8-4.6V7.4zM4 7.4l8 4.6 8-4.6M12 12v9.2" />
+  </Svg>
+);
+
 export const SettingsIcon = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="3" />
