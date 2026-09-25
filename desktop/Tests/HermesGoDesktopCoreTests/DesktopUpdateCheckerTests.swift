@@ -12,16 +12,7 @@ final class DesktopUpdateCheckerTests: XCTestCase {
     }
 
     func testNewerAppAndManagedReleasesAreReportedWithNotes() async throws {
-        UpdateURLProtocol.handler = { [self] request in
-            switch request.url {
-            case appIndexURL:
-                return (200, [:], appIndex(version: "0.2.29"))
-            case managedIndexURL:
-                return (200, [:], managedIndex(version: "0.4.4"))
-            default:
-                return (404, [:], Data())
-            }
-        }
+        stubIndexes(appVersion: "0.2.29", managedVersion: "0.4.4")
 
         let report = try await checker().check(
             sources: sources(),
@@ -36,16 +27,7 @@ final class DesktopUpdateCheckerTests: XCTestCase {
     }
 
     func testEqualVersionsProduceNoUpdate() async throws {
-        UpdateURLProtocol.handler = { [self] request in
-            switch request.url {
-            case appIndexURL:
-                return (200, [:], appIndex(version: "0.2.28"))
-            case managedIndexURL:
-                return (200, [:], managedIndex(version: "0.4.3"))
-            default:
-                return (404, [:], Data())
-            }
-        }
+        stubIndexes(appVersion: "0.2.28", managedVersion: "0.4.3")
 
         let report = try await checker().check(
             sources: sources(),
@@ -59,16 +41,7 @@ final class DesktopUpdateCheckerTests: XCTestCase {
     }
 
     func testManagedUpdateIsNotReportedWhenNothingIsInstalled() async throws {
-        UpdateURLProtocol.handler = { [self] request in
-            switch request.url {
-            case appIndexURL:
-                return (200, [:], appIndex(version: "0.2.28"))
-            case managedIndexURL:
-                return (200, [:], managedIndex(version: "0.4.4"))
-            default:
-                return (404, [:], Data())
-            }
-        }
+        stubIndexes(appVersion: "0.2.28", managedVersion: "0.4.4")
 
         let report = try await checker().check(
             sources: sources(),
@@ -111,6 +84,20 @@ final class DesktopUpdateCheckerTests: XCTestCase {
     }
 
     // MARK: - Fixtures
+
+    private func stubIndexes(appVersion: String, managedVersion: String) {
+        // Deliberately built from locals before the closure: capturing `self` inside a handler that
+        // switches over an optional URL used to crash the Swift 6.1.2 SILGen pass on CI.
+        let appData = appIndex(version: appVersion)
+        let managedData = managedIndex(version: managedVersion)
+        let appURL = appIndexURL
+        let managedURL = managedIndexURL
+        UpdateURLProtocol.handler = { request in
+            if request.url == appURL { return (200, [:], appData) }
+            if request.url == managedURL { return (200, [:], managedData) }
+            return (404, [:], Data())
+        }
+    }
 
     private func checker() -> DesktopUpdateChecker {
         let configuration = URLSessionConfiguration.ephemeral
