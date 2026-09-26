@@ -1,0 +1,6 @@
+{
+  "channel": "internal",
+  "releaseNotes": [
+    "- 连接失败时的诊断日志与反馈记录现在会注明当时使用的是 Wi-Fi、蜂窝数据还是 VPN（例如 net=cellular+vpn），便于排查「VPN 规则说直连、实际却走了代理」这类连接问题（HG-140）。"
+  ]
+}
