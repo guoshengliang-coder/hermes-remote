@@ -17,6 +17,7 @@ import com.hermes.client.data.repository.PersistedQuestion
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionPhaseRecord
 import com.hermes.client.data.repository.SessionPhaseSnapshot
+import com.hermes.client.data.repository.SessionReadMarkers
 import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.repository.SessionAccess
@@ -202,7 +203,7 @@ class SessionRuntimeStore(
     private val chatRepository: ChatRepository,
     private val appScope: CoroutineScope,
     private val profiles: ProfileManager,
-    private val readStore: SessionReadStore? = null,
+    private val readStore: SessionReadMarkers? = null,
     /**
      * Cross-process snapshot of run state (HG-31). Null in tests and in any build that does not
      * want it: null means nothing is written and nothing is restored, so the store behaves
@@ -438,6 +439,27 @@ class SessionRuntimeStore(
     }
 
     /**
+     * Has the user already seen this persisted terminal verdict?
+     *
+     * A terminal verdict is only ever written alongside the unread marker that explains it (the two
+     * are created together by `markUnread` and cleared together by `markRead`), so a verdict whose
+     * token is absent from the read store describes a conversation that has since been opened. The
+     * row only shows 已完成 while unread (docs/DESIGN.md §5.2), so restoring it would resurrect a
+     * status the dot has already dropped — the exact loop HG-138 reported: open the conversation,
+     * the dot disappears, yet the verdict returns on every cold start.
+     *
+     * Only meaningful when the read store answered; [unreadTokens] is null when it is absent or its
+     * read failed, and then nothing is retired. Non-terminal records (a waiting run, a clarify card)
+     * never carry an unread marker and are never checked.
+     */
+    private fun SessionPhaseRecord.alreadySeenWithoutMarker(unreadTokens: Set<String>?): Boolean {
+        if (unreadTokens == null) return false
+        val restored = runCatching { SessionRunPhase.valueOf(phase) }.getOrNull() ?: return false
+        if (!restored.isTerminalVerdict) return false
+        return SessionReadStore.token(profile, sessionId, deviceId) !in unreadTokens
+    }
+
+    /**
      * Fold a stored record onto a runtime.
      *
      * A phase that means "this process is watching a live stream" (thinking, streaming, using a
@@ -494,8 +516,21 @@ class SessionRuntimeStore(
         val route = accountSessions?.transportRoutingContext()?.deviceId
         val now = clock()
         val skipped = touchedBeforeSeed.toSet()
+        // The unread marker and a terminal verdict are two halves of one fact (HG-31): the marker
+        // is the "not yet seen" flag, the verdict is the line that explains it. A verdict that
+        // survives without its marker is one the user has already read — `markRead` clears the
+        // marker and the verdict together, and the row only shows 已完成 while unread
+        // (docs/DESIGN.md §5.2) — so restoring it would resurrect a 「已完成」 the dot has already
+        // dropped (HG-138). Null means the read store answered nothing (absent, or its read threw),
+        // in which case the check is skipped and today's behavior is unchanged.
+        val unreadTokens = readStore?.let { runCatching { it.unread.first() }.getOrNull() }
         var restored = 0
+        var retired = 0
         records.filter { it.survives(now, route) }.forEach { record ->
+            if (record.alreadySeenWithoutMarker(unreadTokens)) {
+                retired++
+                return@forEach
+            }
             val key = restoredKey(record)
             // A live event that beat the disk read is fresher truth; never overwrite it.
             if (key in skipped) return@forEach
@@ -508,6 +543,9 @@ class SessionRuntimeStore(
         }.toSet()
         seeded = true
         DebugLog.log("phase", "restored $restored runtime(s) from disk (skipped ${skipped.size} already live)")
+        if (retired > 0) {
+            DebugLog.log("phase", "retired $retired restored verdict(s) whose unread marker was already cleared")
+        }
         // Covers the case where the transport is already up by the time the snapshot lands; the
         // usual cold start is still offline here and answers OFFLINE, which the connection
         // collector above then retries the moment there is a socket.

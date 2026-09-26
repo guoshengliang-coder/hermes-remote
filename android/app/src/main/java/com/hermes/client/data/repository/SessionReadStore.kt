@@ -9,12 +9,25 @@ import kotlinx.coroutines.flow.map
 
 private val Context.sessionReadDataStore by preferencesDataStore(name = "session_read_state")
 
+/**
+ * What [com.hermes.client.data.progress.SessionRuntimeStore] needs from the read markers.
+ *
+ * Narrow on purpose: the unread set is the authoritative "not yet seen" flag a restored terminal
+ * verdict is checked against, and an interface lets a test supply one without an Android `Context`
+ * and a DataStore (HG-138).
+ */
+interface SessionReadMarkers {
+    val unread: Flow<Set<String>>
+    suspend fun markUnread(token: String)
+    suspend fun markRead(token: String)
+}
+
 /** Device-local unread markers, keyed by Mac/profile/session so they survive process restarts. */
-class SessionReadStore(private val context: Context) {
+class SessionReadStore(private val context: Context) : SessionReadMarkers {
     private val unreadKey = stringSetPreferencesKey("unread_sessions")
     private val knownKey = stringSetPreferencesKey("known_sessions")
 
-    val unread: Flow<Set<String>> = context.sessionReadDataStore.data.map { prefs ->
+    override val unread: Flow<Set<String>> = context.sessionReadDataStore.data.map { prefs ->
         prefs[unreadKey].orEmpty()
     }
 
@@ -33,13 +46,13 @@ class SessionReadStore(private val context: Context) {
         }
     }
 
-    suspend fun markUnread(token: String) {
+    override suspend fun markUnread(token: String) {
         context.sessionReadDataStore.edit { prefs ->
             prefs[unreadKey] = prefs[unreadKey].orEmpty() + token
         }
     }
 
-    suspend fun markRead(token: String) {
+    override suspend fun markRead(token: String) {
         context.sessionReadDataStore.edit { prefs ->
             prefs[unreadKey] = prefs[unreadKey].orEmpty() - token
         }
