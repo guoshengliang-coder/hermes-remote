@@ -1306,6 +1306,40 @@ restarts, no warning-or-worse blue unit journal lines in the five-minute window,
 and `nginx -t` successful. The previous 0.4.22 bundle and slot remain available for the R5-F1
 rollback operation; no rollback was needed.
 
+## Routine release: Gateway 0.4.24, HG-140 tunnel-revalidation fix (R5-F1; production complete 2026-09-26)
+
+Owner-authorized merge and release. The change stops the 5-second account-tunnel revalidation from
+presenting transient failures (a Postgres hiccup, a Mac connector blink) to the phone as
+`4403 "account authorization changed"`: authorization and binding end-states still close 4403
+immediately, configuration errors close 1013, transient failures are tolerated for three
+consecutive ticks (~15 s) and audited as `app.tunnel.revalidation_failed` /
+`app.tunnel.revalidation_exhausted` (failureKind, accountErrorCode, underlying error — the old code
+swallowed the error), then closed as `1013 "account service unavailable"`. The access-revocation
+bus path is unchanged. No release-contract, minimum-clients, or database change; no Web package
+was published.
+
+PR #445 (merge `8ba80163`) carried the behavior; red-light version PR #447 allocated Gateway
+0.4.24 (merge `0fb01cc9`) so the public `server.version` distinguishes the fix from
+0.4.23-6420120b. The matching successful `Gateway OCI` run 36237632257 on `main 0fb01cc9` supplied
+Gateway `0.4.24-0fb01cc91f20` (archive SHA-256
+`9c3f54c0ff038b17a3973bde4a1e698a8ac514351040b527b9037ae1fb0f28f3`) and operator bundle
+`Hermes-R5D-Ops-0fb01cc91f20` (SHA-256
+`b5fd2b2c434f5d28c9c4c396449651eef7894cd785884be48e221f72f8ede797`). Both manifests and archives
+were verified locally, re-hashed on the host after transfer, and the operator bundle verified
+again from the extracted copy at
+`/opt/hermes-go-ops/0fb01cc91f201ed20fdc6b6ba1f388242af527d0`. The private Gateway bundle is at
+`/secure-input/hermes-go/gateway-0.4.24-0fb01cc9/`; the release config is
+`production-release-hg140.json` (copied from the hg120-122 config, operator `claude-hg140`).
+
+R5-F1 run `00a9c81a-bc47-4d1d-a9cf-a9c2231330ca` committed with `activeSlot: green`,
+`previousSlot: blue`, `preparedStage: candidate_verified`, `current` →
+`releases/0.4.24-0fb01cc91f20`, `previous` → `releases/0.4.23-6420120b6712`. Independent checks
+found public capabilities `server.version` 0.4.24 with unchanged client minima, `/account` and
+`/app/` 200, `/relay-health` healthy with the expected retired-Legacy `connectors: 0`, loopback
+`/readyz` 200, the green container healthy with zero restarts, no warning-or-worse green unit
+journal lines, blue inactive (exit 0), and `nginx -t` successful. The 0.4.23 bundle and blue slot
+remain available for the R5-F1 rollback operation; no rollback was needed.
+
 ## Edge JSON compression (2026-09-07, authorized)
 
 Nothing on the path compressed anything. Hermes returns no `Content-Encoding` even when asked for gzip, the
