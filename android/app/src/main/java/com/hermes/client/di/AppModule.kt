@@ -290,6 +290,7 @@ object AppModule {
         client: HermesGatewayClient,
         scope: CoroutineScope,
         routedRestRecoverySignal: RoutedRestRecoverySignal,
+        diagnostics: com.hermes.client.data.network.ConnectionDiagnostics,
     ): com.hermes.client.data.network.GatewayHealthMonitor =
         com.hermes.client.data.network.GatewayHealthMonitor(
             api = api,
@@ -297,6 +298,7 @@ object AppModule {
             connectionState = client.connectionState,
             scope = scope,
             routedRestRecoverySignal = routedRestRecoverySignal,
+            diagnostics = diagnostics,
         )
 
     @Provides

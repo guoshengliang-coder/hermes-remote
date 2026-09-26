@@ -101,6 +101,7 @@ class GatewayHealthMonitor(
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
     private val routedRestRecoverySignal: RoutedRestRecoverySignal = RoutedRestRecoverySignal(),
+    private val diagnostics: ConnectionDiagnostics? = null,
 ) {
     private val _health = MutableStateFlow<GatewayHealth>(GatewayHealth.Unknown)
     val health: StateFlow<GatewayHealth> = _health.asStateFlow()
@@ -122,6 +123,8 @@ class GatewayHealthMonitor(
 
     private val probeGuard = Mutex()
     private var periodicJob: Job? = null
+    private var diagnosedOrigin: String? = null
+    @Volatile private var appForeground = false
 
     init {
         // A dropped/errored socket is an early hint the backend may be gone — re-probe promptly.
@@ -305,14 +308,25 @@ class GatewayHealthMonitor(
     private suspend fun evaluate(): GatewayHealth {
         val connectivitySaysOffline = !connectivity.isOnline()
         // First attempt; on a retryable failure (null) try once more before declaring it down.
-        val status = attemptStatus() ?: attemptStatus()
-        return status
-            ?: if (connectivitySaysOffline) GatewayHealth.DeviceOffline
-            else GatewayHealth.GatewayUnreachable("unreachable")
+        val causes = mutableListOf<String?>()
+        val status = attemptStatus(causes) ?: attemptStatus(causes)
+        if (status != null) {
+            if (status is GatewayHealth.Healthy) diagnosedOrigin = null
+            return status
+        }
+        if (connectivitySaysOffline) return GatewayHealth.DeviceOffline
+        val previous = _health.value as? GatewayHealth.GatewayUnreachable
+        val activeDiagnostics = diagnostics?.takeIf { appForeground }
+        val origin = activeDiagnostics?.configuredBaseUrl()
+        if (previous?.detail?.startsWith("HR-CONN-") == true && diagnosedOrigin == origin) return previous
+        if (activeDiagnostics == null) return GatewayHealth.GatewayUnreachable("unreachable")
+        val diagnosis = activeDiagnostics.diagnose(causes, baseUrl = origin)
+        diagnosedOrigin = origin
+        return GatewayHealth.GatewayUnreachable(diagnosis.code)
     }
 
     /** Terminal state on a definitive answer (healthy / unauthorized), or null for a retryable failure. */
-    private suspend fun attemptStatus(): GatewayHealth? {
+    private suspend fun attemptStatus(causes: MutableList<String?>): GatewayHealth? {
         val start = System.nanoTime()
         return try {
             val dto = withTimeout(PROBE_TIMEOUT_MS) { api.gatewayStatus() }
@@ -322,13 +336,18 @@ class GatewayHealthMonitor(
             when (e.code) {
                 401 -> GatewayHealth.GatewayUnreachable("unauthorized") // definitive
                 0 -> GatewayHealth.Unknown // no gateway configured yet — not a down state
-                else -> null // retryable
+                else -> {
+                    causes += "HTTP_${e.code}"
+                    null // retryable
+                }
             }
         } catch (e: TimeoutCancellationException) {
+            causes += "SocketTimeoutException"
             null // probe timed out — retryable
         } catch (e: CancellationException) {
             throw e // genuine cancellation (e.g. stopForeground) — never swallow
         } catch (e: Exception) {
+            causes += e.javaClass.simpleName
             null // IO / other — retryable
         }
     }
@@ -343,6 +362,7 @@ class GatewayHealthMonitor(
 
     /** Begin foreground probing: probe now, then every [PROBE_INTERVAL_MS]. Idempotent. */
     fun startForeground() {
+        appForeground = true
         if (periodicJob?.isActive == true) return
         periodicJob = scope.launch {
             while (true) {
@@ -354,6 +374,7 @@ class GatewayHealthMonitor(
 
     /** Stop foreground probing (app backgrounded). */
     fun stopForeground() {
+        appForeground = false
         periodicJob?.cancel()
         periodicJob = null
     }

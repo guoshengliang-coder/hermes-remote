@@ -12,10 +12,10 @@ class BannerLabelTest {
         )
     }
     @Test fun error_is_error_copy() {
-        assertEquals("Couldn't connect to the Relay (HR-CONN-002). Retry.", bannerLabel(ConnectionState.Error("boom")))
+        assertEquals("Couldn't reach the service (HR-CONN-002). Retry.", bannerLabel(ConnectionState.Error("boom")))
     }
     @Test fun connecting_is_a_nonTerminal_progress_message() {
-        assertEquals("Connecting to the Relay…", bannerLabel(ConnectionState.Connecting))
+        assertEquals("Connecting to the service…", bannerLabel(ConnectionState.Connecting))
         assertEquals(true, connectionBannerModel(ConnectionState.Connecting).progress)
         assertEquals(null, connectionBannerModel(ConnectionState.Connecting).error)
     }

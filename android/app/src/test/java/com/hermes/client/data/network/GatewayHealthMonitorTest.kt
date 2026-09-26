@@ -2,6 +2,8 @@ package com.hermes.client.data.network
 
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -22,6 +24,30 @@ class GatewayHealthMonitorTest {
     }
 
     private fun ok() = GatewayStatusDto(version = "1.2.3", gatewayRunning = true, gatewayState = "running")
+
+    @Test fun persistentForegroundFailureDiagnosesOnceAndClearsWhenStatusRecovers() = runTest {
+        val diagnostics = mockk<ConnectionDiagnostics>()
+        every { diagnostics.configuredBaseUrl() } returns "https://relay.example"
+        coEvery { diagnostics.diagnose(any(), any(), any()) } returns ConnectionDiagnosis.CONNECTION_TIMEOUT
+        coEvery { api.gatewayStatus() } throws java.net.SocketTimeoutException("timeout")
+        val monitor = GatewayHealthMonitor(
+            api, FakeConnectivity(true), MutableStateFlow(ConnectionState.Disconnected),
+            backgroundScope, diagnostics = diagnostics,
+        )
+
+        monitor.probe()
+        coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
+        monitor.startForeground()
+        monitor.probe()
+        assertEquals("HR-CONN-009", (monitor.health.value as GatewayHealth.GatewayUnreachable).detail)
+        monitor.probe()
+        coVerify(exactly = 1) { diagnostics.diagnose(any(), any(), any()) }
+
+        coEvery { api.gatewayStatus() } returns ok()
+        coEvery { api.contractTargetKey() } returns null
+        monitor.probe()
+        assertTrue(monitor.health.value is GatewayHealth.Healthy)
+    }
 
     /**
      * The "only transitions" guard compared the health values themselves, and Healthy carries

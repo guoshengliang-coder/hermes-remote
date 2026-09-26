@@ -9,6 +9,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun connectionDiagnosisCodesHaveDistinctBilingualRetryableCopyAndRedactedDetails() {
+        val codes = listOf(
+            AppErrorCode.ADDRESS_NOT_FOUND to "HR-CONN-008",
+            AppErrorCode.CONNECTION_TIMEOUT to "HR-CONN-009",
+            AppErrorCode.SERVICE_UNAVAILABLE to "HR-CONN-010",
+            AppErrorCode.CONNECTION_FLAPPING to "HR-CONN-011",
+        )
+        for ((code, value) in codes) {
+            val error = AppError(code, retryable = true, technicalCause = "token=secret password=hidden")
+            assertEquals(code, AppErrorCode.fromValue(value))
+            assertTrue(error.localizedMessage(AppLanguage.ZH).endsWith("($value)"))
+            assertTrue(error.localizedMessage(AppLanguage.EN).endsWith("($value)"))
+            assertTrue(error.localizedSummary(AppLanguage.ZH) != error.localizedSummary(AppLanguage.EN))
+            assertTrue(error.retryable)
+            assertFalse(error.sanitizedDiagnostic().contains("secret"))
+            assertFalse(error.sanitizedDiagnostic().contains("hidden"))
+        }
+    }
+
     @Test fun localizedSummaryDoesNotRepeatTheStableCode() {
         val error = AppError(AppErrorCode.CRON_ACTION_FAILED, retryable = true)
         assertFalse(error.localizedSummary(AppLanguage.ZH).contains("HR-CRON-003"))

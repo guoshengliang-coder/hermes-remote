@@ -69,8 +69,8 @@ class AppLanguageTest {
 
     @Test fun connectorOffline_hasLocalizedRetryableCopy() {
         val error = AppError(AppErrorCode.CONNECTOR_OFFLINE, retryable = true)
-        assertTrue(error.localizedMessage(AppLanguage.ZH).contains("Mac 端当前离线"))
-        assertTrue(error.localizedMessage(AppLanguage.EN).contains("Mac is offline"))
+        assertTrue(error.localizedMessage(AppLanguage.ZH).contains("电脑目前未连接"))
+        assertTrue(error.localizedMessage(AppLanguage.EN).contains("computer isn't connected"))
         assertTrue(error.localizedMessage(AppLanguage.ZH).contains("HR-CONN-005"))
     }
 }

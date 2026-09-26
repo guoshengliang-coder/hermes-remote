@@ -10,6 +10,8 @@ import com.hermes.client.data.auth.isLoopbackGatewayBaseUrl
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.data.network.ConnectionDiagnosis
+import com.hermes.client.data.network.ConnectionDiagnostics
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.network.GatewayProbeResult
 import com.hermes.client.data.network.HermesRestApi
@@ -39,6 +41,10 @@ enum class StartupFailure(val code: String) {
     DEVICE_OFFLINE("HR-CONN-001"),
     CONNECTION_FAILED("HR-CONN-002"),
     CONNECTOR_OFFLINE("HR-CONN-005"),
+    ADDRESS_NOT_FOUND("HR-CONN-008"),
+    CONNECTION_TIMEOUT("HR-CONN-009"),
+    SERVICE_UNAVAILABLE("HR-CONN-010"),
+    CONNECTION_FLAPPING("HR-CONN-011"),
     INITIAL_DATA_FAILED("HR-RPC-001"),
     CONFIGURATION_FAILED("HR-CONFIG-001"),
     INVALID_URL("HR-CONFIG-003"),
@@ -55,6 +61,7 @@ enum class StartupPhase(val progress: Float) {
     CONFIGURATION(0.12f),
     NETWORK(0.28f),
     AUTHENTICATION(0.52f),
+    DIAGNOSTICS(0.6f),
     CONNECTION(0.74f),
     INITIAL_DATA(0.9f),
     READY(1f),
@@ -74,6 +81,7 @@ sealed interface StartupUiState {
     data class Loading(
         val reason: StartupReason,
         val phase: StartupPhase,
+        val retryAttempt: Int = 0,
     ) : StartupUiState
 
     data class Failed(
@@ -105,6 +113,7 @@ class StartupViewModel @Inject constructor(
     private val models: ModelRepository,
     private val runtimes: SessionRuntimeStore,
     private val foregroundRecovery: ForegroundRecoveryCoordinator,
+    private val diagnostics: ConnectionDiagnostics,
     private val accountSessions: AccountSessionManager? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow<StartupUiState>(StartupUiState.Hidden)
@@ -155,7 +164,7 @@ class StartupViewModel @Inject constructor(
 
     private fun describe(state: StartupUiState): String = when (state) {
         StartupUiState.Hidden -> "hidden"
-        is StartupUiState.Loading -> "${state.reason} · ${state.phase}"
+        is StartupUiState.Loading -> "${state.reason} · ${state.phase} retry=${state.retryAttempt}"
         is StartupUiState.Failed -> "${state.reason} · FAILED ${state.failure} (${state.failure.code})"
         is StartupUiState.RepairRequired ->
             "${state.reason} · REPAIR ${state.failure} (${state.failure.code})"
@@ -201,6 +210,12 @@ class StartupViewModel @Inject constructor(
 
     fun onBackground() {
         appForeground = false
+        val loading = _state.value as? StartupUiState.Loading
+        if (loading?.reason == StartupReason.CONNECTION_RECOVERY) {
+            attemptJob?.cancel()
+            attemptJob = null
+            _state.value = StartupUiState.Hidden
+        }
     }
 
     fun onActiveDestinationChanged(destination: StartupDestination) {
@@ -308,8 +323,20 @@ class StartupViewModel @Inject constructor(
                 val connectivitySaysOffline = !connectivity.isOnline()
 
                 _state.value = StartupUiState.Loading(reason, StartupPhase.AUTHENTICATION)
-                val probe = if (accountMode) probeAccountConnection()
+                val causes = mutableListOf<String?>()
+                suspend fun statusProbe(): GatewayProbeResult = if (accountMode) probeAccountConnection()
                     else checkNotNull(config).let { rest.probeStatusFor(it.baseUrl, it.token) }
+                var probe = statusProbe()
+                if (probe is GatewayProbeResult.Unreachable) causes += probe.cause
+                for (retryNumber in 1..MAX_AUTO_RETRIES) {
+                    if (!probe.isTransientConnectionFailure()) break
+                    _state.value = StartupUiState.Loading(
+                        reason, StartupPhase.AUTHENTICATION, retryAttempt = retryNumber,
+                    )
+                    delay(RETRY_DELAY_MS * retryNumber)
+                    probe = statusProbe()
+                    if (probe is GatewayProbeResult.Unreachable) causes += probe.cause
+                }
                 when (probe) {
                     GatewayProbeResult.Reachable -> Unit
                     is GatewayProbeResult.Unauthorized -> {
@@ -344,9 +371,15 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.ServerFailure -> {
                         minimumDisplay?.cancel()
+                        val genericFailure = probe.errorCode !in setOf(
+                            "device_offline", "HR-CONN-005", "HR-AUTH-007", "HR-ACCOUNT-001", "HR-ACCOUNT-002",
+                        )
+                        val diagnosed = if (genericFailure) diagnoseConnection(
+                            reason, causes + "HTTP_${probe.statusCode}",
+                        ) else null
                         fail(
                             reason,
-                            when (probe.errorCode) {
+                            diagnosed ?: when (probe.errorCode) {
                                 "device_offline", "HR-CONN-005" -> StartupFailure.CONNECTOR_OFFLINE
                                 "HR-AUTH-007" -> StartupFailure.ACCOUNT_RATE_LIMITED
                                 "HR-ACCOUNT-001" -> StartupFailure.ACCOUNT_UNAVAILABLE
@@ -358,10 +391,15 @@ class StartupViewModel @Inject constructor(
                     }
                     is GatewayProbeResult.Unreachable -> {
                         minimumDisplay?.cancel()
+                        val diagnosed = diagnoseConnection(reason, causes)
                         fail(
                             reason,
-                            if (connectivitySaysOffline) StartupFailure.DEVICE_OFFLINE
-                            else StartupFailure.CONNECTION_FAILED,
+                            if (connectivitySaysOffline && diagnosed in setOf(
+                                    StartupFailure.CONNECTION_FAILED,
+                                    StartupFailure.ADDRESS_NOT_FOUND,
+                                    StartupFailure.CONNECTION_TIMEOUT,
+                                )) StartupFailure.DEVICE_OFFLINE
+                            else diagnosed,
                         )
                         return@coroutineScope
                     }
@@ -428,6 +466,28 @@ class StartupViewModel @Inject constructor(
                     fail(reason, StartupFailure.CONNECTION_FAILED)
                 }
             }
+        }
+    }
+
+    private fun GatewayProbeResult.isTransientConnectionFailure(): Boolean =
+        this is GatewayProbeResult.Unreachable ||
+            (this is GatewayProbeResult.ServerFailure && errorCode == null)
+
+    private suspend fun diagnoseConnection(reason: StartupReason, causes: List<String?>): StartupFailure {
+        _state.value = StartupUiState.Loading(reason, StartupPhase.DIAGNOSTICS)
+        val result = try {
+            diagnostics.diagnose(causes)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            ConnectionDiagnosis.UNKNOWN
+        }
+        return when (result) {
+            ConnectionDiagnosis.UNKNOWN -> StartupFailure.CONNECTION_FAILED
+            ConnectionDiagnosis.ADDRESS_NOT_FOUND -> StartupFailure.ADDRESS_NOT_FOUND
+            ConnectionDiagnosis.CONNECTION_TIMEOUT -> StartupFailure.CONNECTION_TIMEOUT
+            ConnectionDiagnosis.SERVICE_UNAVAILABLE -> StartupFailure.SERVICE_UNAVAILABLE
+            ConnectionDiagnosis.FLAPPING -> StartupFailure.CONNECTION_FLAPPING
         }
     }
 
@@ -567,6 +627,8 @@ class StartupViewModel @Inject constructor(
         // full transcript re-fetch. At 200ms every one of the 55 reconnects observed in a single
         // day (2026-09-03) paid for a complete recovery.
         const val HOT_START_DEBOUNCE_MS = 3_000L
+        const val MAX_AUTO_RETRIES = 2
+        const val RETRY_DELAY_MS = 600L
         const val MINIMUM_COLD_START_MS = 450L
         const val CONNECTION_TIMEOUT_MS = 15_000L
         const val INITIAL_DATA_TIMEOUT_MS = 15_000L

@@ -28,8 +28,8 @@ class HealthStripTest {
 
     @Test fun label_distinguishes_offline_unreachable_unauthorized() {
         assertEquals("You're offline", healthStripLabel(GatewayHealth.DeviceOffline))
-        assertEquals("Gateway unreachable", healthStripLabel(GatewayHealth.GatewayUnreachable("unreachable")))
-        assertEquals("Gateway unauthorized", healthStripLabel(GatewayHealth.GatewayUnreachable("unauthorized")))
+        assertEquals("Couldn't reach the service", healthStripLabel(GatewayHealth.GatewayUnreachable("unreachable")))
+        assertEquals("Connection credentials invalid", healthStripLabel(GatewayHealth.GatewayUnreachable("unauthorized")))
     }
 
     @Test fun sheet_body_healthy_includes_version_and_latency() {
@@ -84,14 +84,29 @@ class HealthStripTest {
         val contract = notice(HermesContractSeverity.DEGRADED, AppErrorCode.HERMES_FEATURES_MISSING, "cron")
         val down = GatewayHealth.GatewayUnreachable("unreachable")
         assertEquals(HealthStripStyle.ERROR, healthStripStyle(down, contract))
-        assertEquals("Gateway unreachable", healthStripLabel(down, false, contract))
-        assertTrue(healthSheetBody(down, false, contract).contains("isn't responding"))
+        assertEquals("Couldn't reach the service", healthStripLabel(down, false, contract))
+        assertTrue(healthSheetBody(down, false, contract).contains("cause is unclear"))
         assertEquals(HealthStripStyle.NEUTRAL, healthStripStyle(GatewayHealth.DeviceOffline, contract))
         assertEquals("You're offline", healthStripLabel(GatewayHealth.DeviceOffline, false, contract))
     }
 
     @Test fun sheet_body_offline_and_unauthorized_copy() {
         assertTrue(healthSheetBody(GatewayHealth.DeviceOffline).contains("offline"))
-        assertTrue(healthSheetBody(GatewayHealth.GatewayUnreachable("unauthorized")).contains("unauthorized"))
+        assertTrue(healthSheetBody(GatewayHealth.GatewayUnreachable("unauthorized")).contains("credentials"))
+    }
+
+    @Test fun diagnosedFailuresShowPlainCopyAndTheirStableCodes() {
+        val cases = mapOf(
+            "HR-CONN-008" to "找不到服务地址",
+            "HR-CONN-009" to "暂时连不上服务",
+            "HR-CONN-010" to "服务暂时无法响应",
+            "HR-CONN-011" to "连接时好时坏",
+        )
+        for ((code, label) in cases) {
+            val health = GatewayHealth.GatewayUnreachable(code)
+            assertEquals(label, healthStripLabel(health, zh = true))
+            assertEquals(code, healthErrorCode(health))
+            assertTrue(healthSheetBody(health, zh = true).isNotBlank())
+        }
     }
 }
