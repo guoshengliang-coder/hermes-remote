@@ -117,6 +117,7 @@ private fun StartupPhase.progressBand(): ProgressBand = when (this) {
     StartupPhase.CONFIGURATION -> ProgressBand(0.14f, 0.19f)
     StartupPhase.NETWORK -> ProgressBand(0.26f, 0.31f)
     StartupPhase.AUTHENTICATION -> ProgressBand(0.42f, 0.47f)
+    StartupPhase.DIAGNOSTICS -> ProgressBand(0.55f, 0.62f)
     StartupPhase.CONNECTION -> ProgressBand(0.65f, 0.73f)
     StartupPhase.INITIAL_DATA -> ProgressBand(0.86f, 0.93f)
     StartupPhase.READY -> ProgressBand(1f, 1f)
@@ -129,7 +130,17 @@ private fun StartupPhase.progressBand(): ProgressBand = when (this) {
  */
 // The CONNECTION_RECOVERY wording is kept but currently unreachable through the gate: a warm
 // reconnect no longer renders it (§5.11). It belongs to whatever surface reports recovery next.
-internal fun startupStatusText(phase: StartupPhase, reason: StartupReason, language: AppLanguage): String {
+internal fun startupStatusText(
+    phase: StartupPhase,
+    reason: StartupReason,
+    language: AppLanguage,
+    retryAttempt: Int = 0,
+): String {
+    if (retryAttempt > 0) return localized(
+        language,
+        "正在重新连接（第 $retryAttempt/2 次）",
+        "Reconnecting (attempt $retryAttempt/2)",
+    )
     val recovery = reason == StartupReason.CONNECTION_RECOVERY
     return when (phase) {
         StartupPhase.CONFIGURATION,
@@ -141,6 +152,7 @@ internal fun startupStatusText(phase: StartupPhase, reason: StartupReason, langu
         } else {
             localized(language, "正在连接", "Connecting")
         }
+        StartupPhase.DIAGNOSTICS -> localized(language, "正在检查连接问题", "Checking the connection")
         StartupPhase.INITIAL_DATA -> if (recovery) {
             localized(language, "正在恢复当前页面", "Restoring the current screen")
         } else {
@@ -171,9 +183,9 @@ fun StartupScreen(
         is StartupUiState.RepairRequired, StartupUiState.Hidden -> false
     }
     // Keep the last visible state so the exit fade renders the frame we are leaving from.
-    val lastVisible = remember { arrayOfNulls<StartupUiState>(1) }
-    if (visible) lastVisible[0] = state
-    val shown = lastVisible[0] ?: return
+    val lastVisible = remember { mutableStateOf<StartupUiState?>(null) }
+    if (visible) lastVisible.value = state
+    val shown = lastVisible.value ?: return
     val reason = shown.reasonOrNull() ?: StartupReason.COLD_START
     // A cold gate follows the system splash and must appear on the very first frame; the
     // warm recovery overlay has nothing to hand over from, so it fades in briefly instead.
@@ -188,8 +200,9 @@ fun StartupScreen(
         exit = fadeOut(tween(Motion.DurationMedium)) +
             scaleOut(targetScale = 0.98f, animationSpec = tween(Motion.DurationMedium, easing = Motion.Standard)),
     ) {
+        val current = lastVisible.value ?: return@AnimatedVisibility
         StartupGate(
-            state = shown,
+            state = current,
             reason = reason,
             onRetry = onRetry,
             onOpenConnectionSettings = onOpenConnectionSettings,
@@ -356,7 +369,7 @@ private fun LoadingGroup(state: StartupUiState.Loading, palette: StartupPalette,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Crossfade(
-                targetState = startupStatusText(state.phase, state.reason, language),
+                targetState = startupStatusText(state.phase, state.reason, language, state.retryAttempt),
                 animationSpec = tween(180),
                 label = "startup-status",
             ) { status ->
@@ -431,13 +444,33 @@ private fun FailureGroup(
         )
         StartupFailure.CONNECTION_FAILED -> localized(
             language,
-            "无法连接 Relay，请重试。",
-            "Couldn't connect to the Relay. Retry.",
+            "暂时连不上服务，自动检测也未能确定原因。请重试。",
+            "Couldn't reach the service. Automatic checks couldn't find the cause. Retry.",
+        )
+        StartupFailure.ADDRESS_NOT_FOUND -> localized(
+            language,
+            "找不到服务地址，请切换 Wi-Fi 或移动网络后重试。",
+            "Couldn't find the service address. Switch networks and retry.",
+        )
+        StartupFailure.CONNECTION_TIMEOUT -> localized(
+            language,
+            "暂时连不上服务，请切换网络或稍后重试。",
+            "Couldn't reach the service. Switch networks or try again later.",
+        )
+        StartupFailure.SERVICE_UNAVAILABLE -> localized(
+            language,
+            "服务暂时无法正常响应，请稍后重试。",
+            "The service isn't responding normally. Try again later.",
+        )
+        StartupFailure.CONNECTION_FLAPPING -> localized(
+            language,
+            "连接时好时坏。应用已自动重试，请稍后再试。",
+            "The connection keeps changing. The app retried automatically; try again later.",
         )
         StartupFailure.CONNECTOR_OFFLINE -> localized(
             language,
-            "Mac 端当前离线，请确认 Hermes Go Desktop 正在运行。",
-            "The Mac is offline. Make sure Hermes Go Desktop is running.",
+            "你的电脑目前未连接，请打开电脑上的 Hermes Go。",
+            "Your computer isn't connected. Open Hermes Go on it.",
         )
         StartupFailure.INITIAL_DATA_FAILED -> localized(
             language,
@@ -451,8 +484,8 @@ private fun FailureGroup(
         )
         StartupFailure.INVALID_URL -> localized(
             language,
-            "Relay 地址无效，请检查设置。",
-            "The Relay URL is invalid. Check settings.",
+            "服务地址无效，请检查设置。",
+            "The service address is invalid. Check settings.",
         )
         StartupFailure.AUTHENTICATION_FAILED -> localized(
             language,

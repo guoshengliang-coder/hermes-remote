@@ -61,10 +61,13 @@ fun healthStripLabel(health: GatewayHealth, zh: Boolean = false, contract: Herme
     when (health) {
         GatewayHealth.DeviceOffline -> if (zh) "设备已离线" else "You're offline"
         is GatewayHealth.GatewayUnreachable ->
-            if (health.detail == "unauthorized") {
-                if (zh) "Relay 拒绝了凭证" else "Gateway unauthorized"
-            } else {
-                if (zh) "Relay 暂时无法连接" else "Gateway unreachable"
+            when (health.detail) {
+                "unauthorized" -> if (zh) "连接凭据无效" else "Connection credentials invalid"
+                "HR-CONN-008" -> if (zh) "找不到服务地址" else "Service address not found"
+                "HR-CONN-009" -> if (zh) "暂时连不上服务" else "Couldn't reach the service"
+                "HR-CONN-010" -> if (zh) "服务暂时无法响应" else "Service isn't responding"
+                "HR-CONN-011" -> if (zh) "连接时好时坏" else "Connection keeps changing"
+                else -> if (zh) "暂时连不上服务" else "Couldn't reach the service"
             }
         is GatewayHealth.Healthy, GatewayHealth.Unknown -> when (contractShown(health, contract)?.severity) {
             HermesContractSeverity.BREAKING -> if (zh) "Mac 上的 Hermes 不兼容" else "Hermes on the Mac is incompatible"
@@ -117,21 +120,34 @@ private fun gatewaySheetBody(health: GatewayHealth, zh: Boolean): String = when 
     is GatewayHealth.Healthy -> buildString {
         append(
             when {
-                health.running -> if (zh) "Relay 运行中" else "Gateway running"
-                else -> if (zh) "Relay 可达，但服务未运行" else "Gateway reachable, not running"
+                health.running -> if (zh) "服务运行正常" else "Service running"
+                else -> if (zh) "服务地址可访问，但服务未运行" else "Service address reachable, but service not running"
             },
         )
         health.version?.let { append(" · v").append(it) }
         health.latencyMs?.let { append(" · ").append(it).append(" ms") }
     }
     is GatewayHealth.GatewayUnreachable ->
-        if (health.detail == "unauthorized") {
-            if (zh) "Relay 拒绝了会话令牌（未授权），请检查 App Token。" else "The gateway rejected the session token (unauthorized)."
-        } else {
-            if (zh) "Relay 没有响应，可能正在重启或暂时不可用。" else "The gateway isn't responding. It may be down or restarting."
+        when (health.detail) {
+            "unauthorized" -> if (zh) "连接凭据无效，请检查连接设置。" else "Connection credentials are invalid. Check connection settings."
+            "HR-CONN-008" -> if (zh) "找不到服务地址，请切换 Wi-Fi 或移动网络后重试。" else "Couldn't find the service address. Switch networks and retry."
+            "HR-CONN-009" -> if (zh) "暂时连不上服务，请切换网络或稍后重试。" else "Couldn't reach the service. Switch networks or try again later."
+            "HR-CONN-010" -> if (zh) "服务暂时无法正常响应，请稍后重试。" else "The service isn't responding normally. Try again later."
+            "HR-CONN-011" -> if (zh) "连接时好时坏。应用已自动重试，请稍后再试。" else "The connection keeps changing. The app retried automatically; try again later."
+            else -> if (zh) "暂时连不上服务，尚不能确定原因。请稍后重试。" else "Couldn't reach the service. The cause is unclear. Try again later."
         }
     GatewayHealth.DeviceOffline -> if (zh) "设备当前没有网络，恢复后 Hermes 会自动重连。" else "Your device is offline — Hermes will reconnect automatically."
     GatewayHealth.Unknown -> if (zh) "检查中…" else "Checking…"
+}
+
+fun healthErrorCode(health: GatewayHealth): String? = when (health) {
+    GatewayHealth.DeviceOffline -> "HR-CONN-001"
+    is GatewayHealth.GatewayUnreachable -> when (health.detail) {
+        "unauthorized" -> "HR-AUTH-001"
+        "HR-CONN-008", "HR-CONN-009", "HR-CONN-010", "HR-CONN-011" -> health.detail
+        else -> "HR-CONN-002"
+    }
+    is GatewayHealth.Healthy, GatewayHealth.Unknown -> null
 }
 
 /**
@@ -202,9 +218,10 @@ fun HealthSheet(
                 modifier = Modifier.padding(top = 8.dp),
             )
             // The code on its own line, labelSmall in the secondary colour (docs/DESIGN.md §5.11).
-            if (!health.isUnhealthy()) contract?.let { notice ->
+            val errorCode = healthErrorCode(health) ?: contractShown(health, contract)?.error?.code?.value
+            errorCode?.let { code ->
                 Text(
-                    notice.error.code.value,
+                    code,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),

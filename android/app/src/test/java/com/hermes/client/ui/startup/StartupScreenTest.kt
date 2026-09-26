@@ -1,6 +1,7 @@
 package com.hermes.client.ui.startup
 
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
@@ -11,7 +12,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.hermes.client.BuildConfig
 import com.hermes.client.ui.theme.HermesTheme
-import com.hermes.client.ui.InChinese
+import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.LocalAppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -30,13 +32,14 @@ class StartupScreenTest {
     val compose = createComposeRule()
 
     private val state = mutableStateOf<StartupUiState>(StartupUiState.Hidden)
+    private val language = mutableStateOf(AppLanguage.ZH)
     private var retries = 0
 
     private fun show(initial: StartupUiState, dark: Boolean = false) {
         state.value = initial
         compose.mainClock.autoAdvance = false
         compose.setContent {
-            InChinese {
+            CompositionLocalProvider(LocalAppLanguage provides language.value) {
                 HermesTheme(darkTheme = dark) {
                     StartupScreen(state = state.value, onRetry = { retries++ }, onOpenConnectionSettings = {})
                 }
@@ -89,12 +92,59 @@ class StartupScreenTest {
     @Test fun failureShowsCodeOnItsOwnLineHidesProgressAndRetries() {
         show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.CONNECTOR_OFFLINE))
         advance(600)
-        compose.onNodeWithText("Mac 端当前离线，请确认 Hermes Go Desktop 正在运行。").assertIsDisplayed()
+        compose.onNodeWithText("你的电脑目前未连接，请打开电脑上的 Hermes Go。").assertIsDisplayed()
         compose.onNodeWithText("HR-CONN-005").assertIsDisplayed()
         compose.onNode(progressBar).assertDoesNotExist()
 
         compose.onNodeWithText("重新连接").performClick()
         assertEquals(1, retries)
+    }
+
+    @Test fun addressFailureUsesPlainCopyWithItsStableCode() {
+        show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.ADDRESS_NOT_FOUND))
+        advance(600)
+        compose.onNodeWithText("找不到服务地址，请切换 Wi-Fi 或移动网络后重试。").assertIsDisplayed()
+        compose.onNodeWithText("HR-CONN-008").assertIsDisplayed()
+    }
+
+    @Test fun serviceFailureUsesPlainCopyWithItsStableCode() {
+        show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.SERVICE_UNAVAILABLE))
+        advance(600)
+        compose.onNodeWithText("服务暂时无法正常响应，请稍后重试。").assertIsDisplayed()
+        compose.onNodeWithText("HR-CONN-010").assertIsDisplayed()
+    }
+
+    @Test fun fluctuatingFailureUsesPlainCopyWithItsStableCode() {
+        show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.CONNECTION_FLAPPING))
+        advance(600)
+        compose.onNodeWithText("连接时好时坏。应用已自动重试，请稍后再试。").assertIsDisplayed()
+        compose.onNodeWithText("HR-CONN-011").assertIsDisplayed()
+    }
+
+    @Test fun englishConnectionErrorFitsOnTheStartupScreen() {
+        language.value = AppLanguage.EN
+        show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.CONNECTION_TIMEOUT))
+        advance(600)
+        compose.onNodeWithText("Couldn't reach the service. Switch networks or try again later.").assertIsDisplayed()
+        compose.onNodeWithText("HR-CONN-009").assertIsDisplayed()
+    }
+
+    @Test fun retryProgressIsVisibleAfterTheRevealDelay() {
+        show(StartupUiState.Loading(StartupReason.COLD_START, StartupPhase.AUTHENTICATION, retryAttempt = 1))
+        advance(1_200)
+        compose.onNodeWithText("正在重新连接（第 1/2 次）").assertIsDisplayed()
+        state.value = StartupUiState.Loading(StartupReason.COLD_START, StartupPhase.AUTHENTICATION, retryAttempt = 2)
+        advance(400)
+        compose.onNodeWithText("正在重新连接（第 2/2 次）").assertIsDisplayed()
+    }
+
+    @Test fun exhaustedRetryReplacesTheLoadingLineWithItsFailure() {
+        show(StartupUiState.Loading(StartupReason.COLD_START, StartupPhase.AUTHENTICATION, retryAttempt = 2))
+        advance(1_200)
+        state.value = StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.ADDRESS_NOT_FOUND)
+        advance(600)
+        compose.onNodeWithText("找不到服务地址，请切换 Wi-Fi 或移动网络后重试。").assertIsDisplayed()
+        compose.onNodeWithText("HR-CONN-008").assertIsDisplayed()
     }
 
     @Test fun accountRateLimitKeepsItsLocalizedStableCode() {

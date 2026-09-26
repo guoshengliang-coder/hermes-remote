@@ -43,8 +43,8 @@ fun bannerLabel(state: ConnectionState, zh: Boolean = false): String = when (sta
     ConnectionState.Disconnected ->
         if (zh) "连接已中断，将自动恢复（HR-CONN-004）。" else "Connection interrupted; restoring automatically (HR-CONN-004)."
     is ConnectionState.Error ->
-        if (zh) "无法连接 Relay（HR-CONN-002），请重试。" else "Couldn't connect to the Relay (HR-CONN-002). Retry."
-    ConnectionState.Connecting -> if (zh) "正在连接 Relay…" else "Connecting to the Relay…"
+        if (zh) "暂时连不上服务（HR-CONN-002），请重试。" else "Couldn't reach the service (HR-CONN-002). Retry."
+    ConnectionState.Connecting -> if (zh) "正在连接服务…" else "Connecting to the service…"
     ConnectionState.Reconnecting -> if (zh) "正在重新连接并恢复会话…" else "Reconnecting and restoring the conversation…"
     ConnectionState.Connected -> if (zh) "已连接" else "Connected"
 }

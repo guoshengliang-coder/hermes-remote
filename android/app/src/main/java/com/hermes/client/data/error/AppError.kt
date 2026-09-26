@@ -15,6 +15,10 @@ enum class AppErrorCode(val value: String) {
     // right now lands on the next one. Only claimed when the client has actually counted repeated
     // dropped connections — saying "it keeps failing" on the first failure would be a guess.
     CONNECTION_UNSTABLE("HR-CONN-007"),
+    ADDRESS_NOT_FOUND("HR-CONN-008"),
+    CONNECTION_TIMEOUT("HR-CONN-009"),
+    SERVICE_UNAVAILABLE("HR-CONN-010"),
+    CONNECTION_FLAPPING("HR-CONN-011"),
     RPC_FAILED("HR-RPC-001"),
     RPC_TIMEOUT("HR-RPC-002"),
     MODEL_LIST_FAILED("HR-RPC-003"),

@@ -6,19 +6,27 @@ import com.hermes.client.data.error.AppErrorCode
 /** Product-safe error copy. Technical causes remain available only through diagnostics. */
 fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
         AppErrorCode.CONNECTION_FAILED ->
-            localized(language, "无法连接 Relay，请重试。", "Couldn't connect to the Relay. Retry.")
+            localized(language, "暂时连不上服务，请重试。", "Couldn't reach the service. Retry.")
         AppErrorCode.HANDSHAKE_TIMEOUT ->
             localized(language, "Relay 已连接，但会话握手超时。", "The Relay connected, but the session handshake timed out.")
         AppErrorCode.CONNECTION_INTERRUPTED ->
             localized(language, "连接已中断，请重试。", "The connection was interrupted. Retry.")
         AppErrorCode.CONNECTOR_OFFLINE ->
-            localized(language, "Mac 端当前离线，请启动 Hermes Go Desktop。", "The Mac is offline. Start Hermes Go Desktop.")
+            localized(language, "你的电脑目前未连接，请打开电脑上的 Hermes Go。", "Your computer isn't connected. Open Hermes Go on it.")
         AppErrorCode.CONNECTION_UNSTABLE ->
             localized(
                 language,
                 "连接反复中断，这次操作没能完成，请稍后重试或检查 Mac 端。",
                 "The connection keeps dropping, so this didn't go through. Try again later or check the Mac.",
             )
+        AppErrorCode.ADDRESS_NOT_FOUND ->
+            localized(language, "找不到服务地址，请切换 Wi-Fi 或移动网络后重试。", "Couldn't find the service address. Switch networks and retry.")
+        AppErrorCode.CONNECTION_TIMEOUT ->
+            localized(language, "暂时连不上服务，请切换网络或稍后重试。", "Couldn't reach the service. Switch networks or try again later.")
+        AppErrorCode.SERVICE_UNAVAILABLE ->
+            localized(language, "服务暂时无法正常响应，请稍后重试。", "The service isn't responding normally. Try again later.")
+        AppErrorCode.CONNECTION_FLAPPING ->
+            localized(language, "连接时好时坏。应用已自动重试，请稍后再试。", "The connection keeps changing. The app retried automatically; try again later.")
         AppErrorCode.RPC_FAILED ->
             localized(language, "Relay 请求失败，请重试。", "The Relay request failed. Retry.")
         AppErrorCode.RPC_TIMEOUT ->

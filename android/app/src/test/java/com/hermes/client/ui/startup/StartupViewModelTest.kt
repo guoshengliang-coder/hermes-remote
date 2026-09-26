@@ -7,6 +7,8 @@ import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.ConnectionState
+import com.hermes.client.data.network.ConnectionDiagnosis
+import com.hermes.client.data.network.ConnectionDiagnostics
 import com.hermes.client.data.network.ConnectivityChecker
 import com.hermes.client.data.network.GatewayProbeResult
 import com.hermes.client.data.network.HermesRestApi
@@ -26,6 +28,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -47,6 +50,7 @@ class StartupViewModelTest {
     private val models = mockk<ModelRepository>(relaxed = true)
     private val runtimes = mockk<SessionRuntimeStore>(relaxed = true)
     private val foregroundRecovery = mockk<ForegroundRecoveryCoordinator>()
+    private val diagnostics = mockk<ConnectionDiagnostics>()
     private val connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     private val config = GatewayConfig("https://relay.example", "token")
 
@@ -58,6 +62,8 @@ class StartupViewModelTest {
         coEvery { sessions.listAllProfiles() } returns emptyList()
         coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns GatewayProbeResult.Reachable
         coEvery { foregroundRecovery.recoverActive() } returns null
+        every { diagnostics.configuredBaseUrl() } returns config.baseUrl
+        coEvery { diagnostics.diagnose(any(), any(), any()) } returns ConnectionDiagnosis.UNKNOWN
     }
 
     @After fun tearDown() = Dispatchers.resetMain()
@@ -72,6 +78,7 @@ class StartupViewModelTest {
         models,
         runtimes,
         foregroundRecovery,
+        diagnostics,
         accountSessions,
     )
 
@@ -524,6 +531,8 @@ class StartupViewModelTest {
 
         vm.onActivityCreated(processColdStart = true)
         runCurrent()
+        advanceUntilIdle()
+        runCurrent()
 
         val failed = vm.state.value as StartupUiState.Failed
         assertEquals(StartupFailure.DEVICE_OFFLINE, failed.failure)
@@ -543,13 +552,13 @@ class StartupViewModelTest {
         runCurrent()
         connection.value = ConnectionState.Connected
         runCurrent()
-        advanceTimeBy(2_000)
+        advanceUntilIdle()
         runCurrent()
 
         assertTrue(vm.state.value.toString(), vm.state.value !is StartupUiState.Failed)
     }
 
-    /** A working network that cannot reach the Relay is the Relay's fault, not the device's. */
+    /** A failed status probe does not establish which side of the connection was at fault. */
     @Test fun anUnreachableGatewayOnAHealthyNetworkKeepsTheRelayCode() = runTest {
         every { connectivity.isOnline() } returns true
         coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
@@ -557,6 +566,8 @@ class StartupViewModelTest {
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        advanceUntilIdle()
         runCurrent()
 
         assertEquals(
@@ -574,6 +585,8 @@ class StartupViewModelTest {
 
         vm.onActivityCreated(processColdStart = true)
         runCurrent()
+        advanceUntilIdle()
+        runCurrent()
         vm.requestConfigurationRepair()
 
         val repair = vm.state.value as StartupUiState.RepairRequired
@@ -587,6 +600,8 @@ class StartupViewModelTest {
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        advanceUntilIdle()
         runCurrent()
         vm.requestConfigurationRepair()
 
@@ -636,6 +651,8 @@ class StartupViewModelTest {
         val repair = vm.state.value as StartupUiState.RepairRequired
         assertEquals(StartupFailure.AUTHENTICATION_FAILED, repair.failure)
         assertEquals(StartupReason.COLD_START, repair.reason)
+        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
         verify(exactly = 0) { chat.connect() }
     }
 
@@ -667,9 +684,97 @@ class StartupViewModelTest {
 
         vm.onActivityCreated(processColdStart = true)
         runCurrent()
+        advanceTimeBy(2_000)
+        runCurrent()
 
         val failed = vm.state.value as StartupUiState.Failed
         assertEquals(StartupFailure.CONNECTION_FAILED, failed.failure)
+    }
+
+    @Test fun oneTransientStatusFailureRetriesWithoutShowingAnError() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("SocketTimeoutException") andThen GatewayProbeResult.Reachable
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        val retrying = vm.state.value as StartupUiState.Loading
+        assertEquals(1, retrying.retryAttempt)
+        verify(exactly = 0) { chat.connect() }
+
+        advanceTimeBy(StartupViewModel.RETRY_DELAY_MS)
+        runCurrent()
+        coVerify(exactly = 2) { rest.probeStatusFor(config.baseUrl, config.token) }
+        verify(exactly = 1) { chat.connect() }
+        coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
+    }
+
+    @Test fun leavingTheStartupGateCancelsScheduledRetriesAndDiagnostics() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("SocketTimeoutException")
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        assertEquals(1, (vm.state.value as StartupUiState.Loading).retryAttempt)
+        vm.requestConfigurationRepair()
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertTrue(vm.state.value is StartupUiState.RepairRequired)
+        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
+    }
+
+    @Test fun repeatedResolutionFailureShowsSpecificCodeOnlyAfterTwoRetries() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("UnknownHostException")
+        coEvery { diagnostics.diagnose(any(), any(), any()) } returns ConnectionDiagnosis.ADDRESS_NOT_FOUND
+        val vm = vm()
+
+        vm.onActivityCreated(processColdStart = true)
+        runCurrent()
+        assertEquals(1, (vm.state.value as StartupUiState.Loading).retryAttempt)
+        advanceTimeBy(StartupViewModel.RETRY_DELAY_MS)
+        runCurrent()
+        assertEquals(2, (vm.state.value as StartupUiState.Loading).retryAttempt)
+        advanceTimeBy(StartupViewModel.RETRY_DELAY_MS * 2)
+        runCurrent()
+
+        assertEquals(StartupFailure.ADDRESS_NOT_FOUND, (vm.state.value as StartupUiState.Failed).failure)
+        coVerify(exactly = 3) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 1) { diagnostics.diagnose(any(), any(), any()) }
+    }
+
+    @Test fun persistentForegroundFailureRunsDiagnosticsWithoutCoveringTheScreen() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("SocketTimeoutException")
+        val vm = vm()
+
+        vm.onForeground()
+        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS + 2_000)
+        runCurrent()
+
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+        coVerify(exactly = 1) { diagnostics.diagnose(any(), any(), any()) }
+    }
+
+    @Test fun backgroundingCancelsForegroundRetryBeforeDiagnostics() = runTest {
+        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
+            GatewayProbeResult.Unreachable("SocketTimeoutException")
+        val vm = vm()
+
+        vm.onForeground()
+        advanceTimeBy(StartupViewModel.HOT_START_DEBOUNCE_MS)
+        runCurrent()
+        assertEquals(1, (vm.state.value as StartupUiState.Loading).retryAttempt)
+        vm.onBackground()
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
     }
 
     @Test fun connectorOfflineHasItsOwnRecoveryMessageAndCode() = runTest {

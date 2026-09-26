@@ -30,6 +30,25 @@ class StartupCopyTest {
         )
     }
 
+    @Test fun retryAndDiagnosticStagesUseBilingualCopy() {
+        assertEquals(
+            "正在重新连接（第 1/2 次）",
+            startupStatusText(StartupPhase.AUTHENTICATION, StartupReason.COLD_START, AppLanguage.ZH, 1),
+        )
+        assertEquals(
+            "Reconnecting (attempt 2/2)",
+            startupStatusText(StartupPhase.AUTHENTICATION, StartupReason.COLD_START, AppLanguage.EN, 2),
+        )
+        assertEquals(
+            "正在检查连接问题",
+            startupStatusText(StartupPhase.DIAGNOSTICS, StartupReason.COLD_START, AppLanguage.ZH),
+        )
+        assertEquals(
+            "Checking the connection",
+            startupStatusText(StartupPhase.DIAGNOSTICS, StartupReason.COLD_START, AppLanguage.EN),
+        )
+    }
+
     @Test fun laterPhasesKeepTheirOwnLines() {
         assertEquals("正在准备会话", startupStatusText(StartupPhase.INITIAL_DATA, StartupReason.COLD_START, AppLanguage.ZH))
         assertEquals("Preparing conversations", startupStatusText(StartupPhase.INITIAL_DATA, StartupReason.COLD_START, AppLanguage.EN))
