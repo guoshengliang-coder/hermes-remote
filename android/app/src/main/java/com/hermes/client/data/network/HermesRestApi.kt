@@ -226,7 +226,7 @@ class HermesRestApi(
         } catch (error: Throwable) {
             val elapsed = System.currentTimeMillis() - startedAt
             com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                "GET $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms)"
+                "GET $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms) · net=${NetworkTransports.current()}"
             }
             throw error
         }
@@ -235,7 +235,7 @@ class HermesRestApi(
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                    "GET $path ← ${resp.code} (${elapsed}ms) ${body.take(200)}"
+                    "GET $path ← ${resp.code} (${elapsed}ms) ${body.take(200)} · net=${NetworkTransports.current()}"
                 }
                 val stableCode = runCatching {
                     json.decodeFromString<AccountErrorEnvelopeDto>(body).error.code
@@ -707,7 +707,7 @@ class HermesRestApi(
             } catch (error: Throwable) {
                 val elapsed = System.currentTimeMillis() - startedAt
                 com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                    "$method $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms)"
+                    "$method $path ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms) · net=${NetworkTransports.current()}"
                 }
                 throw error
             }
@@ -716,7 +716,7 @@ class HermesRestApi(
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                        "$method $path ← ${resp.code} (${elapsed}ms) ${body.take(200)}"
+                        "$method $path ← ${resp.code} (${elapsed}ms) ${body.take(200)} · net=${NetworkTransports.current()}"
                     }
                     val stableCode = runCatching {
                         json.decodeFromString<AccountErrorEnvelopeDto>(body).error.code

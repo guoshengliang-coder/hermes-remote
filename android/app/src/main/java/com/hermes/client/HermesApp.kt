@@ -6,6 +6,8 @@ import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.diagnostics.ConnectionIncidents
 import com.hermes.client.data.feedback.FeedbackReporter
 import com.hermes.client.data.feedback.toFeedbackAppearance
+import com.hermes.client.data.network.AndroidNetworkTransports
+import com.hermes.client.data.network.NetworkTransports
 import com.hermes.client.data.repository.SettingsStore
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +44,10 @@ class HermesApp : Application() {
         // background kill would otherwise take with it — are read back into the buffer.
         DebugLog.init(java.io.File(filesDir, "diagnostics"))
         ConnectionIncidents.init(java.io.File(filesDir, "diagnostics"))
+        // Failure diagnostics annotate each record with the active network's transports, so a
+        // "VPN rule says DIRECT" claim can be checked against what the failing traffic actually
+        // sat on. Installed before anything can fail on the network.
+        NetworkTransports.install(AndroidNetworkTransports(this))
         // Restore the diagnostic-logging toggle at launch so capture is active before the
         // Diagnostics screen is ever opened (e.g. to catch a failure on the first session open).
         settingsStore.debugLogging
