@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { PROTOCOL_VERSION, type WireMessage } from "@hermes-remote/protocol";
+import { AccountModeError } from "./account/model.js";
 import { silentGatewayLogger, type GatewayLogger } from "./gateway-log.js";
 import { rawDataToBuffer, safeCloseCode } from "./websocket-utils.js";
 
@@ -35,6 +36,16 @@ type ResolveConnector<TConnector extends WebSocketConnector> = (
   routingKey: string,
 ) => TConnector | undefined;
 type RevalidateConnector<TConnector extends WebSocketConnector> = () => Promise<TConnector>;
+
+/** How often an account tunnel's connector authorization is re-checked. */
+const REVALIDATION_INTERVAL_MS = 5_000;
+/**
+ * Consecutive transient revalidation failures tolerated before the tunnel is closed as
+ * `1013 "account service unavailable"` — about 15 seconds at the interval above. Authorization
+ * end-states (revocation, binding change) still close immediately; see
+ * [classifyRevalidationFailure].
+ */
+const MAX_CONSECUTIVE_REVALIDATION_FAILURES = 3;
 /** Decides per app frame whether it may reach Hermes (browser tunnels only). */
 export type ScreenAppFrame = (data: Buffer, isBinary: boolean) => {
   forward: boolean;
@@ -71,6 +82,80 @@ function trackedForegroundRpcResponse(data: Buffer, isBinary: boolean): { id: nu
   }
 }
 
+/**
+ * How a failed tunnel revalidation must be treated.
+ *
+ * Until 2026-09-26 every rejection — a Postgres timeout, a Mac connector blink, anything — was
+ * closed as `4403 "account authorization changed"`, presenting a recoverable hiccup to the phone as
+ * a definitive revocation and kicking it through a full re-authenticate/reconnect cycle. Real
+ * revocations do not depend on this poll: the access-revocation bus closes matching tunnels
+ * immediately with an exact reason, so the 5-second revalidation is only the fallback for a lost
+ * event. That is what makes it safe to treat unknown errors as transient here: worst case, a
+ * revocation whose bus event was lost takes effect after the failure budget below instead of after
+ * one 5-second tick.
+ */
+export type RevalidationFailureKind =
+  | "authorization"
+  | "binding"
+  | "configuration"
+  | "transient";
+
+export function classifyRevalidationFailure(error: unknown): RevalidationFailureKind {
+  if (!(error instanceof AccountModeError)) return "transient";
+  if (error.retryable) return "transient";
+  switch (error.code) {
+    case "HR-BIND-011": // deviceNotFound — this Mac is gone from the account
+    case "HR-BIND-006": // bindingRevoked
+      return "binding";
+    case "HR-ACCOUNT-003": // featureDisabled
+    case "HR-BIND-008": // bindingFeatureDisabled
+    case "HR-ACCOUNT-009": // identityFeatureDisabled
+    case "HR-ACCOUNT-010": // webSessionFeatureDisabled
+      return "configuration";
+    default:
+      return "authorization";
+  }
+}
+
+export interface RevalidationDecision {
+  action: "keep-open" | "close";
+  code?: number;
+  reason?: string;
+}
+
+/** Counts consecutive transient revalidation failures and decides when the tunnel must give up. */
+export class RevalidationFailurePolicy {
+  private consecutiveFailures = 0;
+
+  constructor(private readonly maxConsecutiveFailures: number) {}
+
+  get failures(): number {
+    return this.consecutiveFailures;
+  }
+
+  recordSuccess(): void {
+    this.consecutiveFailures = 0;
+  }
+
+  recordFailure(error: unknown): RevalidationDecision {
+    const kind = classifyRevalidationFailure(error);
+    if (kind === "authorization") {
+      return { action: "close", code: 4403, reason: "account authorization changed" };
+    }
+    if (kind === "binding") {
+      return { action: "close", code: 4403, reason: "account binding changed" };
+    }
+    if (kind === "configuration") {
+      return { action: "close", code: 1013, reason: "account mode unavailable" };
+    }
+    this.consecutiveFailures += 1;
+    if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+      return { action: "close", code: 1013, reason: "account service unavailable" };
+    }
+    return { action: "keep-open" };
+  }
+}
+
 export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
   private readonly tunnels = new Map<string, AppTunnel<TConnector>>();
 
@@ -80,6 +165,7 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
     private readonly send: SendWireMessage,
     private readonly resolveConnector: ResolveConnector<TConnector>,
     private readonly log: GatewayLogger = silentGatewayLogger,
+    private readonly maxConsecutiveRevalidationFailures: number = MAX_CONSECUTIVE_REVALIDATION_FAILURES,
   ) {}
 
   get atCapacity(): boolean {
@@ -99,21 +185,48 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
     screenAppFrame?: ScreenAppFrame,
     clientConnectionId?: string,
   ): void {
+    const id = randomUUID();
+    const failurePolicy = new RevalidationFailurePolicy(this.maxConsecutiveRevalidationFailures);
+    let revalidationSequence = 0;
     const revalidate = revalidateConnector
       ? () => {
-          void revalidateConnector().then((current) => {
+          const sequence = ++revalidationSequence;
+          revalidateConnector().then((current) => {
+            if (sequence !== revalidationSequence || socket.readyState !== WebSocket.OPEN) return;
+            failurePolicy.recordSuccess();
             if (current !== connector) socket.close(4403, "account binding changed");
-          }).catch(() => socket.close(4403, "account authorization changed"));
+          }).catch((error: unknown) => {
+            if (sequence !== revalidationSequence || socket.readyState !== WebSocket.OPEN) return;
+            const decision = failurePolicy.recordFailure(error);
+            const failureKind = classifyRevalidationFailure(error);
+            const accountErrorCode = error instanceof AccountModeError ? error.code : undefined;
+            this.log.info(
+              decision.action === "close" && decision.code === 1013
+                ? "app.tunnel.revalidation_exhausted"
+                : "app.tunnel.revalidation_failed",
+              {
+                tunnel: id,
+                device: connector.deviceId,
+                routingKey: connector.routingKey,
+                failures: failurePolicy.failures,
+                failureKind,
+                accountErrorCode,
+                error,
+              },
+            );
+            if (decision.action === "close" && decision.code !== undefined && decision.reason) {
+              socket.close(decision.code, decision.reason);
+            }
+          });
         }
       : undefined;
     const revalidationTimer = revalidate
       ? setInterval(() => {
           revalidate();
-        }, 5_000)
+        }, REVALIDATION_INTERVAL_MS)
       : undefined;
     revalidationTimer?.unref();
 
-    const id = randomUUID();
     this.tunnels.set(id, {
       socket,
       routingKey: connector.routingKey,

@@ -55,6 +55,10 @@ From Gateway 0.4.1 on, the Gateway writes one JSON object per line (`{"ts","leve
 `GATEWAY_LOG_LEVEL` selects `off` / `error` / `info` (default) / `debug`, and the managed slot
 environment does not set it. The lines an incident needs, all at `info`: `app.tunnel.open` /
 `app.tunnel.close` (frame and byte counts both ways, whether the Connector was still online),
+`app.tunnel.revalidation_failed` / `app.tunnel.revalidation_exhausted` (why an account tunnel's
+5-second authorization recheck failed and how it was classified — since HG-140; transient
+failures such as a Connector blink or a database hiccup are tolerated for about 15 seconds and
+audited rather than presented to the phone as `4403 "account authorization changed"`),
 `connector.online` / `connector.offline`, `lifecycle.received` (with `lagMs` behind the Mac's
 stamp), `lifecycle.served` / `lifecycle.acked`, and `http.tunnel` (method, path, outcome, status,
 decoded body `bytes`, streamed `chunks`, `ttfbMs` to the Connector's first response message, and

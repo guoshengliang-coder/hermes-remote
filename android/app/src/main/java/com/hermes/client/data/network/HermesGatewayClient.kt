@@ -720,6 +720,9 @@ open class HermesGatewayClient(
                 append("): $reason")
                 if (livedMs >= 0) append(" · ready for ${livedMs}ms")
                 if (!worthKeeping) append(" · answered nothing")
+                // The transport note answers "was this failure on wifi / cellular / vpn" — the
+                // question the 2026-09-26 incident could not settle from the logs it had (HG-140).
+                append(" · net=${NetworkTransports.current()}")
             }
         }
         if (closeCode != null && closeCode !in setOf(1000, 1001) && !manuallyClosed) {

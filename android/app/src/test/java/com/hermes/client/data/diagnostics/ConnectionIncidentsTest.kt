@@ -1,5 +1,6 @@
 package com.hermes.client.data.diagnostics
 
+import com.hermes.client.data.network.NetworkTransports
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,7 +17,11 @@ import org.junit.rules.TemporaryFolder
  */
 class ConnectionIncidentsTest {
     @get:Rule val temp = TemporaryFolder()
-    @Before fun setUp() = ConnectionIncidents.clear()
+    @Before fun setUp() {
+        ConnectionIncidents.clear()
+        // Deterministic transport note: tests that do not care still get a stable "unknown".
+        NetworkTransports.install { "unknown" }
+    }
 
     @After fun tearDown() = ConnectionIncidents.clear()
 
@@ -100,6 +105,20 @@ class ConnectionIncidentsTest {
 
         ConnectionIncidents.record("rpc-timeout", "after", now + 1_000)
         ConnectionIncidents.init(dir, now + 2_000)
-        assertEquals("after", ConnectionIncidents.snapshot().single().detail)
+        // Since HG-140 every record carries the network transports it failed on.
+        assertEquals("after · net=unknown", ConnectionIncidents.snapshot().single().detail)
+    }
+
+    /**
+     * HG-140: the 2026-09-26 incident could not verify that a "DIRECT" VPN rule meant the failing
+     * traffic really went direct. The record now always says which transports were active.
+     */
+    @Test fun every_record_carries_the_active_network_transports() {
+        NetworkTransports.install { "cellular+vpn" }
+
+        ConnectionIncidents.record("ws-close", "gen=3 code=4403 ready=true")
+
+        val stored = ConnectionIncidents.snapshot().single().detail
+        assertTrue(stored, stored.endsWith("· net=cellular+vpn"))
     }
 }

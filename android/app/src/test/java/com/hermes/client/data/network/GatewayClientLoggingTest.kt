@@ -53,6 +53,7 @@ class GatewayClientLoggingTest {
         DebugLog.setStateSnapshot(null)
         DebugLog.clear()
         DebugLog.detachStore()
+        NetworkTransports.install { "unknown" }
     }
 
     private fun messages(): List<String> = DebugLog.entries.value.map { it.message }
@@ -117,10 +118,17 @@ class GatewayClientLoggingTest {
 
     /** The other half of the same distinction: a dial that never reaches an upgrade. */
     @Test fun a_socket_that_never_dials_records_no_upgrade() = runTest {
+        // HG-140: every socket-close line also names the transports it failed on, so a VPN-rule
+        // claim ("it went DIRECT") can be checked against the failure evidence.
+        NetworkTransports.install { "cellular" }
         val (client, okHttp) = client(DEAD_URL)
         try {
             client.connect()
             assertTrue("the failure must be recorded", awaitLine("socket closed (gen=1)"))
+            assertTrue(
+                "the transport note must ride along: ${messages()}",
+                awaitLine("· net=cellular"),
+            )
             assertFalse(
                 "nothing upgraded, so no line may say it did: ${messages()}",
                 has("socket upgraded"),

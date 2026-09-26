@@ -54,13 +54,16 @@ object ConnectionIncidents {
 
     /**
      * [detail] is a connection snapshot. It is redacted on the way in rather than on the way out,
-     * so a future reader of [recent] cannot reintroduce the leak by forgetting.
+     * so a future reader of [recent] cannot reintroduce the leak by forgetting. The active
+     * network's transports are appended here so every recorded incident says what it failed on
+     * (HG-140: "the VPN rule said DIRECT" was unverifiable without it).
      */
     fun record(kind: String, detail: String, atMillis: Long = System.currentTimeMillis()) {
         synchronized(lock) {
             total++
             if (recent.size == CAPACITY) recent.removeFirst()
-            recent.addLast(Incident(atMillis, kind.take(64), redactSecrets(detail).take(MAX_DETAIL_LENGTH)))
+            val annotated = "$detail · net=${com.hermes.client.data.network.NetworkTransports.current()}"
+            recent.addLast(Incident(atMillis, kind.take(64), redactSecrets(annotated).take(MAX_DETAIL_LENGTH)))
             persist()
         }
     }

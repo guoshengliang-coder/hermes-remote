@@ -67,7 +67,12 @@ test("account tunnel performs an immediate authorization recheck after upgrade",
     () => connector,
   );
   const app = fakeSocket();
-  broker.open(app.socket, connector, async () => { throw new Error("revoked during upgrade"); }, {
+  // HG-140: only a definitive authorization end-state may close as 4403 from the recheck. A
+  // transient error (a plain database hiccup, a connector blink) is tolerated and audited
+  // instead — covered in websocket-revalidation.test.ts.
+  broker.open(app.socket, connector, async () => {
+    throw accountErrors.sessionExpired();
+  }, {
     accountId: "grantee-a",
     bindingId: "binding-1",
     installationId: "installation-a",
