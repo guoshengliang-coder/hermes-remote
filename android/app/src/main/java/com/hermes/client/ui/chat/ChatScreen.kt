@@ -830,9 +830,7 @@ fun ChatScreen(
     var voiceStartedAt by remember(sessionId) { mutableStateOf(0L) }
     var voiceSession by remember(sessionId) { mutableStateOf<DoubaoVoiceSession?>(null) }
     val voiceScope = androidx.compose.runtime.rememberCoroutineScope()
-    androidx.compose.runtime.DisposableEffect(sessionId, voiceSession) {
-        onDispose { voiceSession?.cancel() }
-    }
+    rememberVoiceSessionDisposer(sessionId, voiceSession)
     fun voiceError(code: AppErrorCode) {
         android.widget.Toast.makeText(
             context, AppError(code, retryable = true).localizedMessage(language), android.widget.Toast.LENGTH_LONG,
@@ -2527,6 +2525,23 @@ private fun AttachmentActionCard(
             Icon(icon, contentDescription = null, modifier = Modifier.size(30.dp))
             Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 10.dp))
         }
+    }
+}
+
+/**
+ * Cancels the live voice session when the conversation (or the screen) goes away. The session
+ * itself must NOT key the effect: `beginVoice` assigns `voiceSession = session`, and a key change
+ * runs the previous `onDispose`, which reads the *new* value — one recomposition (~18ms in the
+ * HG-144 logs) after every press, cancelling the session it was meant to guard. That single line
+ * killed every voice attempt from the feature's first release: the Final/Failed callbacks never
+ * arrived, so the banner hung forever (0.1.151) or fell to the 20s backstop (0.1.152).
+ * `rememberUpdatedState` hands `onDispose` the current session without re-keying on it.
+ */
+@Composable
+internal fun rememberVoiceSessionDisposer(sessionId: String, voiceSession: DoubaoVoiceSession?) {
+    val current by androidx.compose.runtime.rememberUpdatedState(voiceSession)
+    androidx.compose.runtime.DisposableEffect(sessionId) {
+        onDispose { current?.cancel() }
     }
 }
 
