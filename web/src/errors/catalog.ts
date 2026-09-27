@@ -22,10 +22,10 @@ export interface CatalogEntry {
 
 export const CATALOG = {
   "HR-CONN-001": { zh: "当前网络不可用，请检查网络连接。", en: "No usable network is available. Check your connection.", retryable: true, action: "retry" },
-  "HR-CONN-002": { zh: "无法连接 Relay，将自动重试。", en: "Couldn't connect to the Relay. Retrying automatically.", retryable: true, action: "reconnect" },
+  "HR-CONN-002": { zh: "暂时连不上服务，将自动重试。", en: "Couldn't reach the service. Retrying automatically.", retryable: true, action: "reconnect" },
   "HR-CONN-003": { zh: "Relay 已连接，但会话握手超时。", en: "The Relay connected, but the session handshake timed out.", retryable: true, action: "reconnect" },
   "HR-CONN-004": { zh: "连接中断，正在恢复会话。", en: "The connection was interrupted. Restoring the conversation.", retryable: true, action: "reconnect" },
-  "HR-CONN-005": { zh: "Mac 端当前离线，请启动 Hermes Go Desktop。", en: "The Mac is offline. Start Hermes Go Desktop.", retryable: true, action: "retry" },
+  "HR-CONN-005": { zh: "你的电脑目前未连接，请打开电脑上的 Hermes Go。", en: "Your computer isn't connected. Open Hermes Go on it.", retryable: true, action: "retry" },
   "HR-CONN-006": { zh: "Hermes 当前不可访问，请检查这台 Mac 上的 Hermes 服务。", en: "Hermes is unavailable. Check the Hermes service on this Mac.", retryable: true, action: "retry" },
   "HR-AUTH-003": { zh: "登录已过期，请重新登录。", en: "Your session expired. Sign in again.", retryable: false, action: "sign-in" },
   "HR-AUTH-004": { zh: "这台设备的登录已被撤销，请重新登录。", en: "This device's session was revoked. Sign in again.", retryable: false, action: "sign-in" },
