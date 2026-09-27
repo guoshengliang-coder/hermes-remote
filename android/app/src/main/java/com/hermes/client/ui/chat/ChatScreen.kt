@@ -828,6 +828,8 @@ fun ChatScreen(
     var voiceZone by remember(sessionId) { mutableStateOf(VoiceReleaseAction.SEND) }
     var voiceReleaseIntent by remember(sessionId) { mutableStateOf(VoiceReleaseAction.SEND) }
     var voiceStartedAt by remember(sessionId) { mutableStateOf(0L) }
+    // HG-146: drives the recording clock and the central waveform in [VoiceRecordingOverlay].
+    var voiceElapsedMs by remember(sessionId) { mutableStateOf(0L) }
     var voiceSession by remember(sessionId) { mutableStateOf<DoubaoVoiceSession?>(null) }
     val voiceScope = androidx.compose.runtime.rememberCoroutineScope()
     rememberVoiceSessionDisposer(sessionId, voiceSession)
@@ -858,6 +860,7 @@ fun ChatScreen(
         voiceHeld = true
         voiceWaiting = false
         voiceStartedAt = android.os.SystemClock.elapsedRealtime()
+        voiceElapsedMs = 0L
         val session = DoubaoVoiceSession(context, voiceScope, vm::voiceEndpoint) { event ->
             when (event) {
                 is VoiceEvent.Partial -> voiceTranscript = event.text
@@ -950,6 +953,16 @@ fun ChatScreen(
         if (voiceSession != null) settleWaiting(notify = true)
     }
 
+    // HG-146: the recording clock, and the waveform it drives. Only while the finger is down;
+    // it freezes on release so the waiting card keeps showing when the user let go.
+    LaunchedEffect(voiceHeld, voiceStartedAt) {
+        if (!voiceHeld) return@LaunchedEffect
+        while (true) {
+            voiceElapsedMs = android.os.SystemClock.elapsedRealtime() - voiceStartedAt
+            kotlinx.coroutines.delay(VOICE_WAVE_TICK_MS)
+        }
+    }
+
     // Upstream reclaimed this conversation and the send path replaced it with a fresh one. The
     // runtime — and the message in flight — already moved; re-navigate so the entry names the live
     // conversation instead of the dead id, which back-then-forward would otherwise reopen.
@@ -965,6 +978,9 @@ fun ChatScreen(
         LocalBotOrigin provides botOrigin,
         LocalLocallySentIds provides locallySentIds,
     ) {
+    // HG-146: the recording surface is a full-screen layer over the chat (scrim + card + swipe
+    // targets + "正在聆听" dome), so the Scaffold is boxed instead of squeezing it into the bar.
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             // The search bar takes the top bar's place (docs/DESIGN.md §5.4): the transcript
@@ -1171,17 +1187,6 @@ fun ChatScreen(
                         }
                     }
                 }
-                if (voiceHeld || voiceWaiting) {
-                    VoiceRecognitionBanner(
-                        language = language,
-                        held = voiceHeld,
-                        waiting = voiceWaiting,
-                        transcript = voiceTranscript,
-                        cancelZone = voiceZone == VoiceReleaseAction.CANCEL,
-                        editZone = voiceZone == VoiceReleaseAction.EDIT,
-                        onDismissWaiting = { settleWaiting(notify = false) },
-                    )
-                }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(if (sessionWritable && composerFocused) 28.dp else 30.dp),
@@ -1202,32 +1207,26 @@ fun ChatScreen(
                             onRetry = { vm.refreshCurrentConversation() },
                         )
                     } else if (voiceMode) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    voiceSession?.cancel()
-                                    voiceSession = null
-                                    voiceHeld = false
-                                    voiceWaiting = false
-                                    voiceMode = false
-                                },
-                                enabled = !voiceHeld && !voiceWaiting,
-                            ) {
-                                Icon(Icons.Rounded.Keyboard, contentDescription = localized(language, "切换键盘输入", "Switch to keyboard"), modifier = Modifier.size(24.dp))
-                            }
-                            Box(Modifier.weight(1f)) {
-                                VoiceHoldButton(
-                                    label = localized(language, if (voiceHeld) "松开发送" else "按住说话", if (voiceHeld) "Release to send" else "Hold to talk"),
-                                    enabled = connected && !state.isGenerating && !voiceWaiting,
-                                    onDown = { beginVoice() },
-                                    onZone = { voiceZone = it },
-                                    onRelease = { releaseVoice(it) },
-                                )
-                            }
-                        }
+                        VoiceComposerBar(
+                            language = language,
+                            holdLabel = localized(language, if (voiceHeld) "松开发送" else "按住说话", if (voiceHeld) "Release to send" else "Hold to talk"),
+                            holdEnabled = connected && !state.isGenerating && !voiceWaiting,
+                            keyboardEnabled = !voiceHeld && !voiceWaiting,
+                            sessionWritable = sessionWritable,
+                            isGenerating = state.isGenerating,
+                            onKeyboard = {
+                                voiceSession?.cancel()
+                                voiceSession = null
+                                voiceHeld = false
+                                voiceWaiting = false
+                                voiceMode = false
+                            },
+                            onDown = { beginVoice() },
+                            onZone = { voiceZone = it },
+                            onRelease = { releaseVoice(it) },
+                            onAdd = { showAttachSheet = true },
+                            onStop = { vm.stop() },
+                        )
                     } else if (composerFocused) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
                             OutlinedTextField(
@@ -1542,6 +1541,19 @@ fun ChatScreen(
                     }
                 }
             }
+        }
+    }
+        if (voiceHeld || voiceWaiting) {
+            VoiceRecordingOverlay(
+                language = language,
+                held = voiceHeld,
+                waiting = voiceWaiting,
+                transcript = voiceTranscript,
+                cancelZone = voiceZone == VoiceReleaseAction.CANCEL,
+                editZone = voiceZone == VoiceReleaseAction.EDIT,
+                elapsedMs = voiceElapsedMs,
+                onDismissWaiting = { settleWaiting(notify = false) },
+            )
         }
     }
     }
@@ -2542,60 +2554,6 @@ internal fun rememberVoiceSessionDisposer(sessionId: String, voiceSession: Douba
     val current by androidx.compose.runtime.rememberUpdatedState(voiceSession)
     androidx.compose.runtime.DisposableEffect(sessionId) {
         onDispose { current?.cancel() }
-    }
-}
-
-/**
- * The press-to-talk status banner. While held it shows the live slide zones; once released it
- * shows "Finishing recognition…" — and since HG-144 the banner itself is the way out of a hung
- * wait: tapping it cancels and hands any partial transcript to the draft, so the user is never
- * stuck staring at a wait whose callbacks were lost (the backstop timer covers the no-tap case).
- */
-@Composable
-internal fun VoiceRecognitionBanner(
-    language: com.hermes.client.ui.localization.AppLanguage,
-    held: Boolean,
-    waiting: Boolean,
-    transcript: String,
-    cancelZone: Boolean,
-    editZone: Boolean,
-    onDismissWaiting: () -> Unit,
-) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier.fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .then(if (waiting && !held) Modifier.clickable(onClick = onDismissWaiting) else Modifier),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                transcript.ifBlank {
-                    localized(language, if (waiting) "正在完成识别…" else "正在听…", if (waiting) "Finishing recognition…" else "Listening…")
-                },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            if (held) {
-                Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(
-                        localized(language, "左上滑取消", "Slide up left to cancel"),
-                        color = if (cancelZone) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Text(
-                        localized(language, "右上滑转文字", "Slide up right to edit text"),
-                        color = if (editZone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-            } else {
-                Text(
-                    localized(language, "点按取消等待", "Tap to stop waiting"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-        }
     }
 }
 
