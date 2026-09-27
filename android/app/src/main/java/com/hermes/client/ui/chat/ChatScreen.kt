@@ -852,7 +852,7 @@ fun ChatScreen(
         voiceHeld = true
         voiceWaiting = false
         voiceStartedAt = android.os.SystemClock.elapsedRealtime()
-        val session = DoubaoVoiceSession(voiceScope, vm::voiceEndpoint) { event ->
+        val session = DoubaoVoiceSession(context, voiceScope, vm::voiceEndpoint) { event ->
             when (event) {
                 is VoiceEvent.Partial -> voiceTranscript = event.text
                 is VoiceEvent.Final -> {

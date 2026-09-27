@@ -1,8 +1,12 @@
 package com.hermes.client.ui.chat
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import androidx.core.content.ContextCompat
 import com.hermes.client.data.network.GatewayWebSocketEndpoint
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +39,7 @@ private class MicrophoneFailure(cause: Throwable) : IllegalStateException("micro
 
 /** One press, one microphone and one WebSocket. No audio is persisted or added to diagnostics. */
 internal class DoubaoVoiceSession(
+    private val context: Context,
     private val scope: CoroutineScope,
     private val endpoint: suspend () -> GatewayWebSocketEndpoint,
     private val onEvent: (VoiceEvent) -> Unit,
@@ -117,6 +122,8 @@ internal class DoubaoVoiceSession(
 
     private suspend fun captureAudio() {
         try {
+            check(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) { "microphone permission revoked" }
             val minBytes = AudioRecord.getMinBufferSize(
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
             )
