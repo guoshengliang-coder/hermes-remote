@@ -74,7 +74,7 @@ internal class DoubaoVoiceSession(
                 val ws = withTimeout(10_000) { opened.await() }
                 check(ws.send(DoubaoSpeechProtocol.initialRequest()))
                 withTimeout(10_000) { initialized.await() }
-                var sequence = 1
+                var sequence = DoubaoSpeechProtocol.FIRST_AUDIO_SEQUENCE
                 var held: ByteArray? = null
                 for (chunk in chunks) {
                     held?.let { check(ws.send(DoubaoSpeechProtocol.audio(sequence++, it, last = false))) }
