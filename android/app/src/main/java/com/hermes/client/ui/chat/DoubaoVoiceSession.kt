@@ -7,6 +7,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.core.content.ContextCompat
+import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.GatewayWebSocketEndpoint
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -37,17 +38,32 @@ internal enum class VoiceFailure { MICROPHONE, CONNECTION, RECOGNITION, TIMEOUT 
 private class RecognitionFailure : IllegalStateException("recognition failed")
 private class MicrophoneFailure(cause: Throwable) : IllegalStateException("microphone unavailable", cause)
 
-/** One press, one microphone and one WebSocket. No audio is persisted or added to diagnostics. */
+/**
+ * One press, one microphone and one WebSocket. No audio is persisted or added to diagnostics;
+ * neither is the transcript — the voice log lines below carry only event names, durations and
+ * character counts, so a hung recognition is diagnosable without recording what was said.
+ */
 internal class DoubaoVoiceSession(
     private val context: Context,
     private val scope: CoroutineScope,
     private val endpoint: suspend () -> GatewayWebSocketEndpoint,
+    private val endpointTimeoutMs: Long = ENDPOINT_TIMEOUT_MS,
     private val onEvent: (VoiceEvent) -> Unit,
 ) {
     private companion object {
         val client = OkHttpClient.Builder().readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS).build()
         const val SAMPLE_RATE = 16_000
         const val CHUNK_BYTES = 6_400 // 200 ms, mono PCM16
+
+        /**
+         * Endpoint resolution runs before every `withTimeout` below and is the one unbounded
+         * segment of the session: in account mode it can wait on the token-refresh mutex and a
+         * network refresh round trip, which on a VPN-flapping network (HG-144: 195 self-heals
+         * in one afternoon) can hang far past any user patience — and with it the
+         * "Finishing recognition…" banner, whose only exits are the Final/Failed callbacks this
+         * hang never reaches. Bounding it turns the hang into Failed(TIMEOUT).
+         */
+        const val ENDPOINT_TIMEOUT_MS = 10_000L
     }
 
     private val stopped = AtomicBoolean(false)
@@ -63,9 +79,12 @@ internal class DoubaoVoiceSession(
 
     fun start() {
         job = scope.launch(Dispatchers.IO) {
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            DebugLog.log("voice") { "start" }
             val capture = launch { captureAudio() }
             try {
-                val target = endpoint()
+                val target = withTimeout(endpointTimeoutMs) { endpoint() }
+                DebugLog.log("voice") { "endpoint ready (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)" }
                 val request = Request.Builder().url(target.url).apply {
                     target.bearerToken?.let { header("Authorization", "Bearer $it") }
                     target.sessionToken?.let { header("X-Hermes-Session-Token", it) }
@@ -74,6 +93,7 @@ internal class DoubaoVoiceSession(
                 val ws = withTimeout(10_000) { opened.await() }
                 check(ws.send(DoubaoSpeechProtocol.initialRequest()))
                 withTimeout(10_000) { initialized.await() }
+                DebugLog.log("voice") { "asr initialized (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)" }
                 var sequence = DoubaoSpeechProtocol.FIRST_AUDIO_SEQUENCE
                 var held: ByteArray? = null
                 for (chunk in chunks) {
@@ -84,7 +104,9 @@ internal class DoubaoVoiceSession(
                     // Last audio packet has a negative sequence. Keep one packet back so its data
                     // carries the end marker rather than sending an empty trailing packet.
                     check(ws.send(DoubaoSpeechProtocol.audio(sequence, held ?: byteArrayOf(), last = true)))
+                    DebugLog.log("voice") { "audio flushed, awaiting final (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)" }
                     val final = withTimeout(8_000) { finalText.await() }
+                    DebugLog.log("voice") { "final ${final.length} chars (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)" }
                     withContext(Dispatchers.Main) { if (!cancelled.get()) onEvent(VoiceEvent.Final(final)) }
                 }
             } catch (error: Exception) {
@@ -94,6 +116,9 @@ internal class DoubaoVoiceSession(
                         is RecognitionFailure -> VoiceFailure.RECOGNITION
                         is TimeoutCancellationException -> VoiceFailure.TIMEOUT
                         else -> VoiceFailure.CONNECTION
+                    }
+                    DebugLog.log("voice") {
+                        "failed reason=$reason partialChars=${latestText.length} (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)"
                     }
                     withContext(Dispatchers.Main) { if (!cancelled.get()) onEvent(VoiceEvent.Failed(latestText, reason)) }
                 }
@@ -107,11 +132,13 @@ internal class DoubaoVoiceSession(
     }
 
     fun finish() {
+        DebugLog.log("voice") { "finish" }
         stopped.set(true)
         stopRecorder()
     }
 
     fun cancel() {
+        DebugLog.log("voice") { "cancelled" }
         cancelled.set(true)
         stopped.set(true)
         stopRecorder()
