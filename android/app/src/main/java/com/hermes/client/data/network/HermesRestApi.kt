@@ -494,23 +494,30 @@ class HermesRestApi(
     ): File = withContext(Dispatchers.IO) {
         val encoded = java.net.URLEncoder.encode(path, "UTF-8")
         val thumb = thumbWidth?.let { "&thumb=$it" }.orEmpty()
-        val request = builder("/api/files?path=$encoded$thumb").get().build()
+        val target = "/api/files?path=$encoded$thumb"
+        val request = builder(target).get().build()
         val call = clientFor(request).newCall(request).apply {
             timeout().timeout(10, TimeUnit.MINUTES)
         }
+        val startedAt = System.currentTimeMillis()
         try {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw HermesApiException(response.code, response.body.string().ifBlank { "HTTP ${response.code}" })
+                    val elapsed = System.currentTimeMillis() - startedAt
+                    val detail = runCatching { response.body.string() }.getOrDefault("").ifBlank { "HTTP ${response.code}" }
+                    com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                        "GET $target ← ${response.code} (${elapsed}ms) ${detail.take(200)}"
+                    }
+                    throw HermesApiException(response.code, detail)
                 }
                 val body = response.body
                 val total = body.contentLength().takeIf { it >= 0 }
                 if (total != null && total > maxBytes) throw HermesApiException(413, "file is too large")
                 destination.parentFile?.mkdirs()
+                var downloaded = 0L
                 body.byteStream().use { input ->
                     destination.outputStream().buffered().use { output ->
                         val buffer = ByteArray(64 * 1024)
-                        var downloaded = 0L
                         while (true) {
                             val read = input.read(buffer)
                             if (read < 0) break
@@ -520,6 +527,10 @@ class HermesRestApi(
                             onProgress(downloaded, total)
                         }
                     }
+                }
+                val elapsed = System.currentTimeMillis() - startedAt
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "GET $target ← ${response.code} (${elapsed}ms) ${downloaded}b → ${destination.name}"
                 }
             }
         } catch (error: Throwable) {

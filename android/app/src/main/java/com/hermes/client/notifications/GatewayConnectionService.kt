@@ -7,7 +7,6 @@ import android.os.IBinder
 import androidx.core.app.NotificationManagerCompat
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.network.HermesGatewayClient
-import com.hermes.client.data.repository.NotificationSettings
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -29,7 +28,6 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class GatewayConnectionService : Service() {
     @Inject lateinit var client: HermesGatewayClient
-    @Inject lateinit var settings: NotificationSettings
     @Inject lateinit var notifier: HermesNotifier
     @Inject lateinit var profiles: com.hermes.client.data.repository.ProfileManager
     @Inject lateinit var lifecycleEvents: com.hermes.client.data.repository.LifecycleEventRepository
@@ -38,10 +36,6 @@ class GatewayConnectionService : Service() {
 
     private val job = SupervisorJob()
     private val scope = CoroutineScope(job)
-
-    // Latest notification prefs, kept current by a collector so the poll loop never blocks on
-    // DataStore. @Volatile for cross-thread visibility (scope has no single-thread dispatcher).
-    @Volatile private var latestPrefs = NotificationPrefs()
 
     override fun onCreate() {
         super.onCreate()
@@ -64,7 +58,6 @@ class GatewayConnectionService : Service() {
         if (profiles.active.value == null) {
             scope.launch { runCatching { profiles.refresh() } }
         }
-        scope.launch { settings.prefs.collect { latestPrefs = it } }
         // Keep the ongoing service card honest about how many sessions it is watching.
         scope.launch {
             runtimes.runtimes.map { map -> map.values.count { it.hasActiveWork } }
@@ -83,11 +76,15 @@ class GatewayConnectionService : Service() {
         }
         scope.launch {
             while (currentCoroutineContext().isActive) {
-                val moreAvailable = if (latestPrefs.enabled) {
-                    runCatching {
-                        lifecycleEvents.sync { batch -> lifecycleDispatcher.dispatch(batch) }.moreAvailable
-                    }.getOrDefault(false)
-                } else false
+                // The inbox folds cross-device run state into SessionRuntimeStore BEFORE any card is
+                // considered: gating the fetch itself on the notification switch left a user who
+                // turned notifications off with a session list that never learned another device
+                // had started or finished a run (HG-142). The shade is projected inside the
+                // dispatcher, and SessionNotificationProjector already yields nothing when the
+                // switch is off — so a disabled user gets the state, not the cards.
+                val moreAvailable = runCatching {
+                    lifecycleEvents.sync { batch -> lifecycleDispatcher.dispatch(batch) }.moreAvailable
+                }.getOrDefault(false)
                 if (!moreAvailable) delay(LIFECYCLE_POLL_MS)
             }
         }

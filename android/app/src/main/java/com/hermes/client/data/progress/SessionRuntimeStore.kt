@@ -24,6 +24,7 @@ import com.hermes.client.data.repository.SessionAccess
 import com.hermes.client.data.repository.SessionAccessState
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.ImageTransferState
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.chat.ChatUiState
 import com.hermes.client.ui.chat.ClarifyQuestion
@@ -1209,26 +1210,35 @@ class SessionRuntimeStore(
     ) {
         updateRuntime(key) { runtime ->
             // A tail page merged into the repository's window; rows on screen older than that
-            // window stay in front (HG-104). The "is the live copy ahead?" comparisons below only
-            // look at the rows the snapshot spans — held rows older than it say nothing about it.
-            val snapshot = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
-            val spanned = com.hermes.client.ui.chat.rowsFrom(runtime.chat.messages, snapshot.firstOrNull()?.serverId)
+            // window stay in front (HG-104), and the in-flight assistant tail stays after it
+            // (HG-141). The "is the live copy ahead?" comparisons below only look at the rows the
+            // snapshot spans — held rows older than it say nothing about it.
+            val grafted = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
+            val snapshot = snapshotForReconcile(messages, runtime)
+            val spanned = com.hermes.client.ui.chat.rowsFrom(runtime.chat.messages, grafted.firstOrNull()?.serverId)
             val liveChars = spanned.sumOf { it.text.length + it.thinking.length }
-            val historyChars = snapshot.sumOf { it.text.length + it.thinking.length }
+            val historyChars = grafted.sumOf { it.text.length + it.thinking.length }
             // COMPLETED_UNREAD and a lastEventAt past the request start once kept a stale restored
             // transcript on screen through every re-entry (HG-124 relapse, 0.1.142): the snapshot
             // fetched to repair it was discarded unread, while the manual refresh — which judges
             // coverage with the same tolerance — showed the new content. Both clauses now yield to
             // a snapshot that covers every local turn, and to a strictly-ahead snapshot once the
             // local lead is a dead send the server never persisted (staleLocalLead).
+            //
+            // An ACTIVE run used to keep the live copy unconditionally, so reopening a session
+            // another device was running discarded every refreshed transcript while the page sat
+            // frozen on its first user turn (HG-141); it now keeps the live copy only when the
+            // snapshot — with the in-flight tail appended — does not cover the settled turns.
             val coveredBySnapshot = snapshot.covers(expectationFor(runtime).copy(lastAssistantText = ""))
             val keepLive = runtime.chat.messages.isNotEmpty() && (
-                runtime.phase.isActive ||
-                    spanned.size > snapshot.size ||
-                    liveChars > historyChars ||
-                    (!coveredBySnapshot && !staleLocalLead(runtime, snapshot) && (
-                        runtime.phase == SessionRunPhase.COMPLETED_UNREAD ||
-                            runtime.lastEventAt > requestStartedAt
+                (runtime.phase.isActive && !coveredBySnapshot) ||
+                    (!runtime.phase.isActive && (
+                        spanned.size > grafted.size ||
+                            liveChars > historyChars ||
+                            (!coveredBySnapshot && !staleLocalLead(runtime, snapshot) && (
+                                runtime.phase == SessionRunPhase.COMPLETED_UNREAD ||
+                                    runtime.lastEventAt > requestStartedAt
+                                ))
                         ))
                 )
             runtime.copy(
@@ -1278,13 +1288,14 @@ class SessionRuntimeStore(
         // (HG-8). The transcript is refreshed the way a reconnect reconcile is — accepted only
         // when REST covers every locally observed turn — and the phase is left to the events.
         val active = before.phase.isActive || before.chat.isGenerating
-        val snapshotBefore = com.hermes.client.ui.chat.graftOlderHead(messages, previous)
+        val snapshotBefore = snapshotForReconcile(messages, before)
         if (active && !snapshotBefore.covers(expectationFor(before).copy(lastAssistantText = ""))) {
             return ManualHistoryResult.BUSY
         }
         updateRuntime(key, cause = "manual-refresh") { runtime ->
-            // Older pages already on screen stay (HG-104); the refresh answers for the tail.
-            val snapshot = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
+            // Older pages already on screen stay (HG-104); the refresh answers for the tail,
+            // and the in-flight assistant tail stays after it (HG-141).
+            val snapshot = snapshotForReconcile(messages, runtime)
             runtime.copy(
                 chat = runtime.chat.copy(
                     messages = com.hermes.client.ui.chat.inheritStreamFields(
@@ -1306,7 +1317,7 @@ class SessionRuntimeStore(
         // Inherited stream fields (reasoning, tool results, the live tail) legitimately differ
         // from the raw REST rows; compare with them normalized out, as the reconcile does.
         fun ChatMessage.comparable() = copy(timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false)
-        val expected = com.hermes.client.ui.chat.graftOlderHead(messages, committed)
+        val expected = snapshotForReconcile(messages, _runtimes.value[key] ?: return ManualHistoryResult.BUSY)
         val accepted = committed.size == expected.size &&
             committed.zip(expected).all { (a, b) -> a.comparable() == b.comparable() }
         if (!accepted) return ManualHistoryResult.BUSY
@@ -1354,9 +1365,12 @@ class SessionRuntimeStore(
     fun acceptHydratedImages(key: SessionRuntimeKey, hydrated: List<ChatMessage>) {
         val byImageId = hydrated
             .flatMap { it.images }
-            // Only images that gained something. A hydrate that failed comes back with no local
-            // path and must not overwrite a copy that still has one.
-            .filter { !it.localPath.isNullOrBlank() }
+            // Images that gained something, and images that gave up. A failed hydrate comes back
+            // with no local path and must not overwrite a copy that still has one — but dropping
+            // the failure entirely left the on-screen state READY with nothing to show, which is
+            // the bubble that spins forever (HG-143); FAILED reaches the UI so the cell can show
+            // its broken state, and the next transcript reload retries the download.
+            .filter { !it.localPath.isNullOrBlank() || it.state == ImageTransferState.FAILED }
             .associateBy { it.id }
         if (byImageId.isEmpty()) return
         updateRuntime(key) { runtime ->
@@ -1364,7 +1378,14 @@ class SessionRuntimeStore(
                 if (message.images.none { byImageId.containsKey(it.id) }) {
                     message
                 } else {
-                    message.copy(images = message.images.map { byImageId[it.id] ?: it })
+                    message.copy(images = message.images.map { existing ->
+                        val incoming = byImageId[existing.id] ?: return@map existing
+                        if (incoming.state == ImageTransferState.FAILED && !existing.localPath.isNullOrBlank()) {
+                            existing
+                        } else {
+                            incoming
+                        }
+                    })
                 }
             }))
         }
@@ -1975,6 +1996,9 @@ class SessionRuntimeStore(
          * cannot contain the turns this phone holds from before N, and must not be refused for it.
          */
         val turns: List<Pair<Role, Long?>> = emptyList(),
+        /** Hermes row id of the turns [lastUserText]/[lastAssistantText] came from, for the same window exemption. */
+        val lastUserServerId: Long? = null,
+        val lastAssistantServerId: Long? = null,
     ) {
         /** Turns of [role] a snapshot beginning at row [start] must contain; all of them when null. */
         fun turnsFrom(role: Role, start: Long?): Int = when {
@@ -1983,15 +2007,32 @@ class SessionRuntimeStore(
         }
     }
 
-    private fun expectationFor(runtime: SessionRuntime): HistoryExpectation = HistoryExpectation(
-        userTurns = runtime.chat.messages.count { it.role == Role.USER },
-        assistantTurns = runtime.chat.messages.count { it.role == Role.ASSISTANT },
-        turns = runtime.chat.messages
-            .filter { it.role == Role.USER || it.role == Role.ASSISTANT }
-            .map { it.role to it.serverId },
-        lastUserText = runtime.chat.messages.lastOrNull { it.role == Role.USER }?.text.orEmpty().matchText(),
-        lastAssistantText = runtime.chat.messages.lastOrNull { it.role == Role.ASSISTANT }?.text.orEmpty().matchText(),
-    )
+    private fun expectationFor(runtime: SessionRuntime): HistoryExpectation {
+        // An assistant turn the WebSocket is still folding has no server row yet — Hermes persists
+        // the assistant turn only when it completes. While THIS PHONE WATCHES a run another device
+        // started, that bubble is covered by [snapshotForReconcile]'s appended tail instead of by the snapshot,
+        // and must not enter the coverage expectation or every fetch of the running session is
+        // refused for lacking it (HG-141). A run this phone started keeps the old demand — the
+        // foreground recovery gate and the HG-6/7/8 protections wait for Hermes to commit the
+        // turn rather than let a half-fetched transcript pass as recovered. A user turn the phone
+        // holds without an id is an unacknowledged send and KEEPS its expectation either way:
+        // the snapshot must not silently drop it.
+        val watchingARemoteRun = runtime.phase.isActive && !runtime.startedLocally
+        val settled = runtime.chat.messages.filterNot {
+            watchingARemoteRun && it.role == Role.ASSISTANT && it.isStreaming && it.serverId == null
+        }
+        return HistoryExpectation(
+            userTurns = settled.count { it.role == Role.USER },
+            assistantTurns = settled.count { it.role == Role.ASSISTANT },
+            turns = settled
+                .filter { it.role == Role.USER || it.role == Role.ASSISTANT }
+                .map { it.role to it.serverId },
+            lastUserText = settled.lastOrNull { it.role == Role.USER }?.text.orEmpty().matchText(),
+            lastAssistantText = settled.lastOrNull { it.role == Role.ASSISTANT }?.text.orEmpty().matchText(),
+            lastUserServerId = settled.lastOrNull { it.role == Role.USER }?.serverId,
+            lastAssistantServerId = settled.lastOrNull { it.role == Role.ASSISTANT }?.serverId,
+        )
+    }
 
     /**
      * Reconcile several times because Hermes can emit its terminal event slightly before the final
@@ -2064,38 +2105,39 @@ class SessionRuntimeStore(
         messages: List<ChatMessage>,
         expectation: HistoryExpectation,
     ): Boolean {
-        DebugLog.log("history") {
-            val currentMessages = _runtimes.value[key]?.chat?.messages.orEmpty()
-            val snapshot = com.hermes.client.ui.chat.graftOlderHead(messages, currentMessages)
-            val current = _runtimes.value[key]?.let(::expectationFor)
-            val reason = when {
-                current == null -> null
-                current.userTurns > expectation.userTurns ||
-                    (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText) ->
-                    "a newer prompt started"
-                else -> snapshot.coverageGap(expectation)
+        // The ladder spans seconds; judging a snapshot against the expectation captured when it
+        // was scheduled rejects exactly the server-ahead snapshots HG-124 taught the gate to
+        // accept — a cross-device prompt that landed mid-ladder made "current.lastUserText !=
+        // expectation.lastUserText" refuse every remaining rung while the page sat stale (HG-141).
+        // The expectation is therefore re-derived at acceptance time, carrying over only the
+        // relaxations the scheduler chose (an interrupted stream's un-final assistant body).
+        fun effective(runtime: SessionRuntime): HistoryExpectation =
+            expectationFor(runtime).let {
+                if (expectation.lastAssistantText.isBlank()) it.copy(lastAssistantText = "") else it
             }
+        DebugLog.log("history") {
+            val runtime = _runtimes.value[key]
+            val snapshot = runtime?.let { snapshotForReconcile(messages, it) } ?: messages
+            val reason = if (runtime == null) null else snapshot.coverageGap(effective(runtime))
             if (reason == null) "reconcile s=${key.sessionId}: ${snapshot.size} rows cover the local turns"
             else {
-                val expired = _runtimes.value[key]?.let { staleLocalLead(it, snapshot) } == true
+                val expired = runtime?.let { staleLocalLead(it, snapshot) } == true
                 if (expired) "reconcile s=${key.sessionId}: stale local lead expired (HG-124), accepting over: $reason"
                 else "reconcile s=${key.sessionId} rejected: $reason"
             }
         }
         updateRuntime(key, cause = "reconcile") { runtime ->
             // The newest page merged into the repository's window. Older rows the screen holds
-            // beyond that window stay in front of it (HG-104).
-            val snapshot = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
-            val current = expectationFor(runtime)
-            val newerPromptStarted = current.userTurns > expectation.userTurns ||
-                (expectation.lastUserText.isNotBlank() && current.lastUserText != expectation.lastUserText)
+            // beyond that window stay in front of it (HG-104), and the in-flight assistant tail
+            // this phone is folding stays after it (HG-141).
+            val snapshot = snapshotForReconcile(messages, runtime)
             // It is safe to refresh text while a run is still active as long as REST covers every
             // locally observed turn. Keep the phase unchanged; a terminal event/session.info still
             // owns the transition to idle. This also recovers deltas lost during reconnect.
             // The one refusal with no rung left to wait for is a lead the server has moved past
             // without ever persisting: an idle, long-quiet runtime holding rows REST will never
             // carry refused every fetch forever while the page sat stale (HG-124).
-            if ((newerPromptStarted || !snapshot.covers(expectation)) && !staleLocalLead(runtime, snapshot)) {
+            if (!snapshot.covers(effective(runtime)) && !staleLocalLead(runtime, snapshot)) {
                 return@updateRuntime runtime
             }
             runtime.copy(
@@ -2124,15 +2166,42 @@ class SessionRuntimeStore(
         // reasoning, tools and streaming state normalized out. Comparing the inherited fields would
         // never match, and a reconcile that never "accepts" re-downloads the whole transcript on
         // every rung of the ladder (the 2026-09-03 fetch storm).
-        val committed = _runtimes.value[key]?.chat?.messages ?: return false
+        val committedRuntime = _runtimes.value[key] ?: return false
+        val committed = committedRuntime.chat.messages
         fun ChatMessage.comparable() = copy(
             timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false,
         )
         // Against the snapshot as grafted onto what was committed: the head it kept is the
         // committed list's own, so only the part the network answered for can differ.
-        val expected = com.hermes.client.ui.chat.graftOlderHead(messages, committed)
+        val expected = snapshotForReconcile(messages, committedRuntime)
         return committed.size == expected.size &&
             committed.zip(expected).all { (a, b) -> a.comparable() == b.comparable() }
+    }
+
+    /**
+     * The newest page grafted onto the rows the screen already holds (HG-104), with the in-flight
+     * assistant bubbles this phone is folding appended after it while the run is active. Hermes
+     * persists an assistant turn only when it completes, so a snapshot of a running session is
+     * structurally one assistant turn short; without the append, accepting such a snapshot would
+     * drop the live bubble's streamed text (HG-8), and refusing it instead left a cross-device
+     * run's transcript frozen on the phone forever (HG-141). Appending only when the snapshot did
+     * not bring the turn back itself keeps HG-122's in-progress REST row from being duplicated.
+     */
+    private fun snapshotForReconcile(messages: List<ChatMessage>, runtime: SessionRuntime): List<ChatMessage> {
+        val grafted = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
+        // Same ownership line as [expectationFor]: only a run this phone is merely watching needs
+        // the append; a locally started run's in-flight turn is demanded from the snapshot itself.
+        if (!runtime.phase.isActive || runtime.startedLocally) return grafted
+        val pending = runtime.chat.messages.filter {
+            it.role == Role.ASSISTANT && it.isStreaming && it.serverId == null
+        }
+        if (pending.isEmpty()) return grafted
+        val start = grafted.firstOrNull()?.serverId
+        val spannedAssistants = runtime.chat.messages.count {
+            it.role == Role.ASSISTANT && (start == null || (it.serverId ?: Long.MAX_VALUE) >= start)
+        }
+        val snapshotAssistants = grafted.count { it.role == Role.ASSISTANT }
+        return if (snapshotAssistants >= spannedAssistants) grafted else grafted + pending
     }
 
     private fun List<ChatMessage>.covers(expectation: HistoryExpectation): Boolean = coverageGap(expectation) == null
@@ -2163,7 +2232,16 @@ class SessionRuntimeStore(
         // (HG-124, 20260924_102646_68e7a7) while the page sat stale until a manual refresh. The
         // count checks above already refuse snapshots that lag; here the local text just has to
         // survive in SOME remote row, with the HG-59 contains() tolerance intact.
-        if (expectation.lastUserText.isNotBlank() &&
+        //
+        // The window exemption mirrors turnsFrom's (HG-104): once a long cross-device run has
+        // pushed the turn this text came from out of the newest page, no fetch of that page can
+        // ever contain it again, and an in-window-only presence test would refuse every snapshot
+        // forever while the page sat stale (HG-141). A null id keeps the test — that is an
+        // unacknowledged local send the snapshot genuinely must still show.
+        val userTurnInWindow = expectation.lastUserServerId == null ||
+            start == null || expectation.lastUserServerId >= start
+        if (userTurnInWindow &&
+            expectation.lastUserText.isNotBlank() &&
             users.none {
                 val remote = it.text.orEmpty().matchText()
                 remote == expectation.lastUserText || remote.contains(expectation.lastUserText)
@@ -2174,6 +2252,11 @@ class SessionRuntimeStore(
         if (expectation.lastAssistantText.isBlank()) return null
         // Same direction as the user branch: a cross-device round appends a newer assistant turn
         // after the one this phone watched stream, so coverage is presence, not last-row equality.
+        // Same window exemption too: a turn that slid out of the newest page cannot be demanded
+        // back from it (HG-141).
+        val assistantTurnInWindow = expectation.lastAssistantServerId == null ||
+            start == null || expectation.lastAssistantServerId >= start
+        if (!assistantTurnInWindow) return null
         if (assistants.any {
                 val persisted = it.text.orEmpty().matchText()
                 persisted == expectation.lastAssistantText || persisted.contains(expectation.lastAssistantText)

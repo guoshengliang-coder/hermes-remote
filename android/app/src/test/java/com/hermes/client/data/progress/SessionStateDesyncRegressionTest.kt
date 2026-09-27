@@ -426,4 +426,120 @@ class SessionStateDesyncRegressionTest {
         assertTrue("轮数相同但丢了本地文本的快照必须拒绝", messages.any { it.text == "手机上发的" })
         assertFalse(messages.any { it.text == "服务端那条不相关的旧轮次" })
     }
+
+    /**
+     * HG-141. A run another device started reaches this phone as the lifecycle pair plus the
+     * streamed message.* events, but Hermes persists the assistant turn only when it completes —
+     * so while that run is going, every REST snapshot is structurally one assistant turn short of
+     * what the phone has folded. Judging coverage against the in-flight bubble refused every
+     * snapshot, and a conversation opened on the phone froze on its first user turn while the
+     * message count kept growing on the server.
+     */
+    @Test fun reconcileAcceptsASnapshotOfARemoteRunWhileItsLastTurnIsStillStreaming() = runTest {
+        val sessions = mockk<SessionRepository>()
+        coEvery { sessions.history("s1", "personal") } returns listOf(
+            ChatMessage("h-0", Role.USER, "PC 端的第一句", serverId = 1),
+            ChatMessage("h-1", Role.ASSISTANT, "PC 端第一轮完成", serverId = 2),
+            ChatMessage("h-2", Role.USER, "PC 端的第二句", serverId = 3),
+        )
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.applyObservedLifecycle(lifecycle("run.started", "s1"))
+        advanceUntilIdle()
+
+        // The remote run's stream folds a live bubble on the phone; its final turn has not landed.
+        events.emit(event("message.start", "s1"))
+        events.emit(event("message.delta", "s1", "PC 端正在输出的部分"))
+        advanceUntilIdle()
+        // A completed earlier turn schedules the reconcile ladder; the run keeps going, so the
+        // next message.start re-arms the phase before the ladder's first rung fires.
+        events.emit(event("message.complete", "s1", "PC 端第一轮完成"))
+        events.emit(event("message.start", "s1"))
+        events.emit(event("message.delta", "s1", "第二轮正在输出"))
+        advanceUntilIdle()
+
+        val runtime = store.runtimes.value.getValue(key)
+        assertTrue("运行未结束，阶段应保持活动", runtime.phase.isActive)
+        val messages = runtime.chat.messages
+        assertTrue("服务端已提交的用户轮必须进入页面", messages.any { it.text == "PC 端的第一句" })
+        assertTrue("服务端已完成的助手轮必须进入页面", messages.any { it.text == "PC 端第一轮完成" })
+        assertTrue("跨端第二句（已落盘）必须经对账进入页面", messages.any { it.text == "PC 端的第二句" })
+        val live = messages.last { it.role == Role.ASSISTANT }
+        assertTrue("运行中的在飞气泡不得被对账抹掉", live.isStreaming)
+        assertTrue(
+            "在飞气泡的已流式文本不得丢失",
+            live.text == "PC 端正在输出的部分" || live.text == "第二轮正在输出",
+        )
+    }
+
+    /**
+     * HG-141, window half. A long cross-device run pushes the turn the phone last accepted out of
+     * the newest `limit` page. The count checks learned the window exemption in HG-104; the text
+     * presence check did not, so every fetch answered "last user turn differs" forever.
+     */
+    @Test fun reconcileAcceptsATailPageThatNoLongerCarriesTheLastAcceptedTurn() = runTest {
+        val sessions = mockk<SessionRepository>()
+        val earlyPage = listOf(
+            ChatMessage("h-0", Role.USER, "很早以前的问题", serverId = 1),
+            ChatMessage("h-1", Role.ASSISTANT, "很早以前的回答", serverId = 2),
+        )
+        val tailPage = listOf(
+            ChatMessage("h-50", Role.USER, "滚出窗口后的新问题", serverId = 50),
+            ChatMessage("h-51", Role.ASSISTANT, "滚出窗口后的新回答", serverId = 51),
+        )
+        coEvery { sessions.history("s1", "personal") } returnsMany listOf(earlyPage, tailPage)
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "很早以前的问题")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("message.complete", "s1", "很早以前的回答"))
+        advanceUntilIdle()
+        // The long remote run has since pushed both early turns out of the newest page.
+        store.applyObservedLifecycle(lifecycle("run.started", "s1"))
+        advanceUntilIdle()
+        store.applyObservedLifecycle(lifecycle("run.completed", "s1"))
+        advanceUntilIdle()
+
+        val messages = store.runtimes.value.getValue(key).chat.messages
+        assertTrue(
+            "本地已滑出窗口的轮次不得再被要求出现在尾页里（HG-141）",
+            messages.any { it.text == "滚出窗口后的新问题" },
+        )
+        assertTrue(messages.any { it.text == "滚出窗口后的新回答" })
+    }
+
+    /**
+     * HG-141, stale-expectation half. A cross-device round landing between the ladder's
+     * scheduling and its fetch (via an open-path history accept, as the HG-141 logs show) moved
+     * the current expectation past the captured one, and "a newer prompt started" then refused
+     * every remaining rung against the expired expectation — the exact server-ahead snapshot
+     * HG-124 taught the gate to accept. The expectation must be re-derived at acceptance time.
+     */
+    @Test fun reconcileJudgesTheSnapshotAgainstTheExpectationAtAcceptanceTime() = runTest {
+        val sessions = mockk<SessionRepository>()
+        val ahead = listOf(
+            ChatMessage("h-0", Role.USER, "昨天公司数据如何？", serverId = 1),
+            ChatMessage("h-1", Role.ASSISTANT, "第一轮回答", serverId = 2),
+            ChatMessage("h-2", Role.USER, "对账梯子期间到达的跨端新问题", serverId = 3),
+            ChatMessage("h-3", Role.ASSISTANT, "跨端新回答", serverId = 4),
+        )
+        coEvery { sessions.history("s1", "personal") } returns ahead
+        val (store, events) = fixture(sessions)
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "昨天公司数据如何？")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("message.complete", "s1", "第一轮回答"))
+        // The ladder is scheduled with the pre-cross-device expectation; before its first rung
+        // fires, the open path accepts the transcript that now carries the cross-device round.
+        runCurrent()
+        store.acceptHistory(key, ahead, requestStartedAt = 0L)
+        advanceUntilIdle()
+
+        val messages = store.runtimes.value.getValue(key).chat.messages
+        assertTrue("跨端轮次必须留在页面", messages.any { it.text == "对账梯子期间到达的跨端新问题" })
+        assertTrue(messages.any { it.text == "跨端新回答" })
+        // With the expectation re-derived at acceptance time the very first rung covers the local
+        // turns and the ladder ends; the expired-expectation refusal used to walk all four rungs.
+        coVerify(exactly = 1) { sessions.history("s1", "personal") }
+    }
 }
