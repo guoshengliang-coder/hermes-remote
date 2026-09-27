@@ -12,7 +12,7 @@ import {
 import { toAppError } from "./app/failures";
 import type { GroupId } from "./app/grouping";
 import { detectLanguage, translator } from "./app/i18n";
-import { applyTheme, effectiveLanguage, readLanguagePreference, readThemeMode, saveLanguagePreference, saveThemeMode, type LanguagePreference, type ThemeMode } from "./app/appearance";
+import { applyFontSize, applyTheme, effectiveLanguage, readFontSize, readLanguagePreference, readThemeMode, saveFontSize, saveLanguagePreference, saveThemeMode, type FontSize, type LanguagePreference, type ThemeMode } from "./app/appearance";
 import {
   applyLiveReport,
   deriveNeedsYou,
@@ -61,6 +61,7 @@ type Phase =
 
 const client = new GatewayClient();
 applyTheme(readThemeMode());
+applyFontSize(readFontSize());
 
 const INBOX_POLL_MS = 5000;
 const BASE_TITLE = "Hermes GO";
@@ -90,6 +91,7 @@ export function App() {
   const route = useRoute();
   const [languagePreference, setLanguagePreference] = useState<LanguagePreference>(readLanguagePreference);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode);
+  const [fontSize, setFontSize] = useState<FontSize>(readFontSize);
   const [systemLanguage, setSystemLanguage] = useState(detectLanguage);
   const [gatewayVersion, setGatewayVersion] = useState<string | null>(null);
   const language = languagePreference === "system" ? systemLanguage : effectiveLanguage(languagePreference);
@@ -128,12 +130,16 @@ export function App() {
     return () => media?.removeEventListener?.("change", update);
   }, [themeMode]);
   useEffect(() => {
+    applyFontSize(fontSize);
+  }, [fontSize]);
+  useEffect(() => {
     const update = () => setSystemLanguage(detectLanguage());
     window.addEventListener("languagechange", update);
     return () => window.removeEventListener("languagechange", update);
   }, []);
 
   function chooseTheme(mode: ThemeMode) { saveThemeMode(mode); setThemeMode(mode); }
+  function chooseFontSize(size: FontSize) { saveFontSize(size); setFontSize(size); }
   function chooseLanguage(choice: LanguagePreference) { saveLanguagePreference(choice); setLanguagePreference(choice); }
 
   const currentSessionId = route.name === "chat" ? route.sessionId : null;
@@ -377,6 +383,8 @@ export function App() {
     setLanguagePreference: chooseLanguage,
     themeMode,
     setThemeMode: chooseTheme,
+    fontSize,
+    setFontSize: chooseFontSize,
     gatewayVersion,
     t,
     account,

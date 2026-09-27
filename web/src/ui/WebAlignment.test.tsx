@@ -83,6 +83,8 @@ it("keeps shared settings accessible from the drawer", () => {
     languagePreference: "system",
     setThemeMode: (mode: string) => chosen.push(`theme:${mode}`),
     setLanguagePreference: (choice: string) => chosen.push(`language:${choice}`),
+    fontSize: "standard",
+    setFontSize: (size: string) => chosen.push(`font:${size}`),
   } as AppContextValue;
   const host = document.createElement("div");
   document.body.append(host);
@@ -92,6 +94,8 @@ it("keeps shared settings accessible from the drawer", () => {
   act(() => host.querySelector<HTMLButtonElement>('button[aria-label="设置"]')!.click());
   act(() => button("English").click());
   expect(chosen).toEqual(["language:en"]);
+  act(() => button("特大").click());
+  expect(chosen).toEqual(["language:en", "font:xlarge"]);
   act(() => button("返回").click());
   expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
 });

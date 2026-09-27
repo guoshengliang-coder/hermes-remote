@@ -96,6 +96,19 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
               </div>
             </section>
             <section class="drawer-settings-section">
+              <h3>{t("字体大小", "Font size")}</h3>
+              <p>{t("只影响本浏览器，登出后保留", "Applies to this browser only and survives sign-out")}</p>
+              <div class="drawer-choices" role="group" aria-label={t("字体大小", "Font size")}>
+                {([
+                  { id: "standard", label: t("标准", "Default") },
+                  { id: "large", label: t("大", "Large") },
+                  { id: "xlarge", label: t("特大", "Larger") },
+                  { id: "xxlarge", label: t("超大", "Largest") },
+                ] as const).map((option) => <button type="button" key={option.id} aria-pressed={app.fontSize === option.id}
+                  onClick={() => app.setFontSize(option.id)}>{option.label}</button>)}
+              </div>
+            </section>
+            <section class="drawer-settings-section">
               <h3>{t("Hermes GO 账号", "Hermes GO account")}</h3>
               <p>{app.account?.email ?? "—"}</p>
               <button type="button" class="drawer-link" onClick={() => { onClose(); void app.signOut(); }}>{t("退出登录", "Sign out")}</button>
