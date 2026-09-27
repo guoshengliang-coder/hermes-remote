@@ -243,6 +243,12 @@ class ChatMediaRepository @Inject constructor(
             }
         }.getOrElse { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
+            // Silent before HG-143: a failed hydrate vanished from the diagnostics entirely, so a
+            // bubble spinning forever had zero trace on the phone to say why.
+            com.hermes.client.data.diagnostics.DebugLog.log(
+                "media",
+                "hydrate id=${image.id} source=${image.remotePath ?: image.sourceUrl ?: "-"} failed: ${error.message}",
+            )
             image.copy(state = ImageTransferState.FAILED)
         }
     }

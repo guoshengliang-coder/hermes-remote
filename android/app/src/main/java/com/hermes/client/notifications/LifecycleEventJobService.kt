@@ -7,7 +7,6 @@ import android.app.job.JobService
 import android.content.ComponentName
 import android.content.Context
 import com.hermes.client.data.repository.LifecycleEventRepository
-import com.hermes.client.data.repository.NotificationSettings
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +14,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -23,7 +21,6 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class LifecycleEventJobService : JobService() {
     @Inject lateinit var events: LifecycleEventRepository
-    @Inject lateinit var settings: NotificationSettings
     @Inject lateinit var dispatcher: LifecycleNotificationDispatcher
     @Inject lateinit var channelHealth: ChannelHealthWatcher
 
@@ -34,12 +31,13 @@ class LifecycleEventJobService : JobService() {
         activeJob?.cancel()
         activeJob = scope.launch {
             try {
-                val prefs = settings.prefs.first()
-                if (prefs.enabled) {
-                    events.sync { batch -> dispatcher.dispatch(batch) }
-                    // One extra call on a wake-up that was happening anyway; never its own timer.
-                    runCatching { channelHealth.check() }
-                }
+                // Not gated on the notification switch: the sync folds cross-device run state
+                // (HG-142), and the projector inside already shows no card when notifications are
+                // off. Skipping the fetch left a notifications-off user with permanently stale
+                // session status on the fallback cadence too.
+                events.sync { batch -> dispatcher.dispatch(batch) }
+                // One extra call on a wake-up that was happening anyway; never its own timer.
+                runCatching { channelHealth.check() }
                 jobFinished(params, false)
             } catch (cancelled: CancellationException) {
                 throw cancelled

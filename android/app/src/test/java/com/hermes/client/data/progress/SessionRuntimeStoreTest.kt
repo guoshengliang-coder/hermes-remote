@@ -854,4 +854,46 @@ class SessionRuntimeStoreTest {
         assertEquals(listOf(null, "/cache/two.jpg", null), images.map { it.localPath })
         assertEquals(listOf("img-1", "img-2", "img-3"), images.map { it.id })
     }
+
+    // ---- Image hydration (HG-143) --------------------------------------------------------------
+
+    /**
+     * A hydrate that gave up used to be dropped at the merge, so the on-screen image stayed READY
+     * with no local file — the bubble that spins forever with no trace in the diagnostics. The
+     * failure has to reach the runtime for the cell to show its broken state instead.
+     */
+    @Test fun aFailedHydrateReachesTheRuntimeSoTheBubbleCanStopWaiting() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s-img", "personal")
+        fixture.store.acceptHistory(key, listOf(withImage("u-1", remoteImage("img-1"))), System.currentTimeMillis())
+
+        fixture.store.acceptHydratedImages(
+            key,
+            listOf(withImage("u-1", remoteImage("img-1").copy(state = com.hermes.client.domain.ImageTransferState.FAILED))),
+        )
+
+        val image = fixture.store.messagesFor(key).single().images.single()
+        assertEquals(
+            "下载失败的图片必须以 FAILED 到达界面，而不是永远 READY 转圈（HG-143）",
+            com.hermes.client.domain.ImageTransferState.FAILED,
+            image.state,
+        )
+    }
+
+    /** The failure must not demote a copy that already holds its file (the HG-44 rule, kept). */
+    @Test fun aFailedHydrateStillDoesNotDemoteAnImageThatAlreadyHasItsFile() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s-img", "personal")
+        val ready = remoteImage("img-1").copy(localPath = "/cache/shot.jpg")
+        fixture.store.acceptHistory(key, listOf(withImage("u-1", ready)), System.currentTimeMillis())
+
+        fixture.store.acceptHydratedImages(
+            key,
+            listOf(withImage("u-1", remoteImage("img-1").copy(state = com.hermes.client.domain.ImageTransferState.FAILED))),
+        )
+
+        val image = fixture.store.messagesFor(key).single().images.single()
+        assertEquals("/cache/shot.jpg", image.localPath)
+        assertEquals(com.hermes.client.domain.ImageTransferState.READY, image.state)
+    }
 }
