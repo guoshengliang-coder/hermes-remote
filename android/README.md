@@ -291,6 +291,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.154 redesigns the voice input interface (HG-146): the voice bar keeps the keyboard
+  bar's layout of keyboard toggle, hold-to-talk pill and add button, hold-to-talk opens a
+  full-screen recording overlay with a live clock, waveform and transcript plus cancel /
+  speech-to-text targets, and that add button becomes stop while a voice run is generating.
 - Version 0.1.153 Version 0.1.153 makes voice input actually work (HG-144): the session disposer
   cancelled every voice session one recomposition after it started, so recognition never ran;
   0.1.152 bounded-wait defence exposed it. Also carries cross-device transcript sync fixes
@@ -889,7 +893,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.153-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.154-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
