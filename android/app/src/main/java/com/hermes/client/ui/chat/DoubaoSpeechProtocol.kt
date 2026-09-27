@@ -17,6 +17,9 @@ internal data class SpeechResultFrame(val text: String?, val finished: Boolean, 
 
 /** Volcengine V3 binary framing; sizes and sequence numbers are big endian. */
 internal object DoubaoSpeechProtocol {
+    // The full-client initialization request occupies sequence 1 in Volcengine's stream.
+    const val FIRST_AUDIO_SEQUENCE = 2
+
     fun initialRequest(): ByteString {
         val payload = """{"audio":{"format":"pcm","codec":"raw","rate":16000,"bits":16,"channel":1},"request":{"model_name":"bigmodel","result_type":"full","show_utterances":true,"enable_nonstream":true,"enable_itn":true,"enable_punc":true}}"""
             .toByteArray(Charsets.UTF_8)
