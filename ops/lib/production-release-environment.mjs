@@ -4,6 +4,11 @@ import path from "node:path";
 import { renderDeployGatewayEnvironment } from "./deploy-system.mjs";
 import { OpsError } from "./errors.mjs";
 
+const VOICE_KEY = "DOUBAO_ASR_API_KEY_FILE";
+const VOICE_FILE = "/run/hermes-go/secrets/doubao-asr-api-key";
+const VOICE_LINE = `${VOICE_KEY}=${VOICE_FILE}\n`;
+const voiceSuffix = (inspected) => inspected?.values?.[VOICE_KEY] === VOICE_FILE ? VOICE_LINE : "";
+
 const EMAIL_KEYS = Object.freeze([
   "PORT",
   "HOST",
@@ -140,6 +145,11 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
       values: null,
     });
   }
+  if (content === disabled + VOICE_LINE) {
+    return Object.freeze({
+      mode: "disabled", digest: digest(content), values: Object.freeze({ [VOICE_KEY]: VOICE_FILE }),
+    });
+  }
 
   const values = parseCanonicalEnvironment(content);
   const origin = publicOrigin(config);
@@ -233,7 +243,7 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
 export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
-  if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot);
+  if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot) + voiceSuffix(inspected);
   if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(inspected?.mode)
       || !inspected.values) {
     fail("production_release_environment_mode_invalid");
@@ -244,7 +254,7 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n";
+  }).join("\n") + "\n" + voiceSuffix(inspected);
 }
 
 export function renderBindingRolloutEnvironment(config, slot, inspected) {
@@ -263,7 +273,7 @@ export function renderBindingRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n";
+  }).join("\n") + "\n" + voiceSuffix(inspected);
 }
 
 export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
@@ -280,7 +290,7 @@ export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n";
+  }).join("\n") + "\n" + voiceSuffix(inspected);
 }
 
 export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
@@ -301,7 +311,7 @@ export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n";
+  }).join("\n") + "\n" + voiceSuffix(inspected);
 }
 
 export function renderSharingRolloutEnvironment(config, slot, inspected) {
@@ -318,7 +328,7 @@ export function renderSharingRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n";
+  }).join("\n") + "\n" + voiceSuffix(inspected);
 }
 
 export function renderComponentRolloutEnvironment(config, slot, inspected) {
@@ -335,7 +345,7 @@ export function renderComponentRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n";
+  }).join("\n") + "\n" + voiceSuffix(inspected);
 }
 
 export function renderWebAppRolloutEnvironment(config, slot, inspected) {
@@ -354,7 +364,7 @@ export function renderWebAppRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n";
+  }).join("\n") + "\n" + voiceSuffix(inspected);
 }
 
 export function renderPushRolloutEnvironment(config, slot, inspected) {
@@ -372,7 +382,7 @@ export function renderPushRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n";
+  }).join("\n") + "\n" + voiceSuffix(inspected);
 }
 
 export function sameProductionReleaseEnvironment(left, right) {
@@ -384,6 +394,8 @@ function parseCanonicalEnvironment(content) {
     fail("production_release_environment_format_invalid");
   }
   const lines = content.slice(0, -1).split("\n");
+  const hasVoice = lines.at(-1) === VOICE_LINE.trimEnd();
+  if (hasVoice) lines.pop();
   const keys = lines.length === EMAIL_KEYS.length
     ? EMAIL_KEYS
     : lines.length === PRE_PUSH_KEYS.length
@@ -409,6 +421,7 @@ function parseCanonicalEnvironment(content) {
   if (values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED === undefined) {
     values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED = "0";
   }
+  if (hasVoice) values[VOICE_KEY] = VOICE_FILE;
   return values;
 }
 

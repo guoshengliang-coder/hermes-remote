@@ -251,7 +251,7 @@ location ~ ^/v2/devices/[^/]+/api(?:/|$) {
     gzip_comp_level 6;
 }
 
-location ~ ^/v2/devices/[^/]+/ws$ {
+location ~ ^/v2/devices/[^/]+/(?:ws|voice)$ {
     ${websocketProxy}
 }
 `;

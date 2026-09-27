@@ -342,7 +342,7 @@ test("rendered staging service is content-addressed, hardened, and keeps TLS awa
   assert.equal(unit.includes(fixture.tokens.app), false);
   assert.match(nginx, /location = \/relay-health/);
   assert.match(nginx, /ssl_protocols TLSv1\.2 TLSv1\.3/);
-  assert.match(nginx, /location = \/api\/ws/);
+  assert.match(nginx, /location ~ \^\/api\/\(\?:ws\|voice\)\$/);
   assert.match(nginx, /location = \/v2\/webhooks\/resend \{[\s\S]*?client_max_body_size 64k;/);
   assert.match(nginx, /proxy_pass http:\/\/127\.0\.0\.1:\d+\/v2\/webhooks\/resend;/);
   assert.match(nginx, /proxy_set_header X-Forwarded-For \$remote_addr/);

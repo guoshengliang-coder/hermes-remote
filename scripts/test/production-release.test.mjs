@@ -108,6 +108,39 @@ test("R5-F1 preserves the exact email-only runtime while changing only the candi
   );
 });
 
+test("a private Doubao key file setting survives candidate rendering and rollout environment changes", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const voiceLine = "DOUBAO_ASR_API_KEY_FILE=/run/hermes-go/secrets/doubao-asr-api-key\n";
+  await writeEmailEnvironment(config, "blue");
+  await writeFile(
+    environmentPath(config, "blue"),
+    (await readFile(environmentPath(config, "blue"), "utf8")) + voiceLine,
+    { mode: 0o600 },
+  );
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "email_otp");
+  assert.ok(renderProductionReleaseEnvironment(config, "green", inspected).endsWith(voiceLine));
+  assert.ok(renderBindingRolloutEnvironment(config, "blue", inspected).endsWith(voiceLine));
+});
+
+test("disabled account mode also preserves the private Doubao key file setting", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const voiceLine = "DOUBAO_ASR_API_KEY_FILE=/run/hermes-go/secrets/doubao-asr-api-key\n";
+  await writeFile(
+    environmentPath(config, "blue"),
+    renderDeployGatewayEnvironment(config, "blue") + voiceLine,
+    { mode: 0o600 },
+  );
+  const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+  assert.equal(inspected.mode, "disabled");
+  assert.equal(
+    renderProductionReleaseEnvironment(config, "green", inspected),
+    renderDeployGatewayEnvironment(config, "green") + voiceLine,
+  );
+});
+
 test("R5-F1 recognizes and preserves the exact single-Mac binding runtime", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);

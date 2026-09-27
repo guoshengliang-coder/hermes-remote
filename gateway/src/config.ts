@@ -9,6 +9,7 @@ export interface GatewayConfig {
   appToken: string;
   connectorToken: string;
   internalStatusToken?: string;
+  doubaoAsrApiKey?: string;
   tlsCertFile?: string;
   tlsKeyFile?: string;
   maxBodyBytes: number;
@@ -39,6 +40,7 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
   }
 
   const internalStatusToken = optionalSecret(env, "INTERNAL_STATUS_TOKEN", 16);
+  const doubaoAsrApiKey = optionalSecret(env, "DOUBAO_ASR_API_KEY", 16);
   const webAppDir = webAppDirectory(env);
   const controlHeartbeatIntervalMs = positiveIntEnv(env, "CONTROL_HEARTBEAT_INTERVAL_MS", 5_000, 300_000);
   const controlHeartbeatTimeoutMs = positiveIntEnv(env, "CONTROL_HEARTBEAT_TIMEOUT_MS", 15_000, 300_000);
@@ -52,6 +54,7 @@ export function loadGatewayConfig(env: NodeJS.ProcessEnv): GatewayConfig {
     appToken: requireSecret(env, "APP_TOKEN"),
     connectorToken: requireSecret(env, "CONNECTOR_TOKEN"),
     ...(internalStatusToken ? { internalStatusToken } : {}),
+    ...(doubaoAsrApiKey ? { doubaoAsrApiKey } : {}),
     ...(tlsCertFile ? { tlsCertFile } : {}),
     ...(tlsKeyFile ? { tlsKeyFile } : {}),
     maxBodyBytes: positiveIntEnv(env, "MAX_BODY_BYTES", 10 * 1024 * 1024),

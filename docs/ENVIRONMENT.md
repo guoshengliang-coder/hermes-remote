@@ -29,6 +29,8 @@ TLS_CERT_FILE=/etc/letsencrypt/live/<domain>/fullchain.pem
 TLS_KEY_FILE=/etc/letsencrypt/live/<domain>/privkey.pem
 APP_TOKEN_FILE=/etc/hermes-remote/secrets/app-token
 CONNECTOR_TOKEN_FILE=/etc/hermes-remote/secrets/connector-token
+# Optional speech recognition; private file readable only by Gateway service.
+# DOUBAO_ASR_API_KEY_FILE=/etc/hermes-remote/secrets/doubao-asr-api-key
 # Optional; enables authenticated GET /internal/version and
 # GET /internal/account-email-metrics and /internal/account-retention for loopback operations only.
 INTERNAL_STATUS_TOKEN_FILE=/etc/hermes-remote/secrets/internal-status-token
@@ -44,6 +46,18 @@ CONTROL_HEARTBEAT_TIMEOUT_MS=15000
 This is the Gateway's independent server-to-Connector check; it complements the Connector's own
 outbound heartbeat. A socket that remains TCP-open but stops servicing its event loop is terminated
 after the timeout so the existing Connector reconnect loop can replace it.
+
+When `DOUBAO_ASR_API_KEY_FILE` is present, authenticated phones can open the Gateway's
+`/api/voice` (legacy) or `/v2/devices/{id}/voice` (account) WebSocket. The Gateway relays
+binary audio and recognition frames to Volcengine without exposing the key to the phone. Without
+the private key file, these routes return 503. The service never logs speech frames or the key.
+Provisioning that file and restarting Gateway is a separate, explicitly authorized deployment step.
+For the managed container release, the canonical environment line is
+`DOUBAO_ASR_API_KEY_FILE=/run/hermes-go/secrets/doubao-asr-api-key`; the file lives in the
+read-only mounted private secrets directory. Add the line only after provisioning the file.
+The production release environment inspector and candidate renderer preserve this optional line.
+The account-device Nginx route must also include `/v2/devices/{id}/voice` with WebSocket upgrade
+headers (the managed route renderer includes it); the legacy `/api/voice` follows `/api/`.
 
 The Connector accepts the same optional knob as `CONNECTOR_LOG_LEVEL` (default `info`).
 

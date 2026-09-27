@@ -9,6 +9,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun voiceFailuresHaveBilingualCodesAndRedactedDiagnostics() {
+        listOf(
+            AppErrorCode.MICROPHONE_PERMISSION_REQUIRED,
+            AppErrorCode.VOICE_UNAVAILABLE,
+            AppErrorCode.VOICE_RECOGNITION_FAILED,
+        ).forEach { code ->
+            val error = AppError(code, retryable = true, technicalCause = "token=secret")
+            assertTrue(error.localizedMessage(AppLanguage.ZH).contains(code.value))
+            assertTrue(error.localizedMessage(AppLanguage.EN).contains(code.value))
+            assertTrue(error.localizedSummary(AppLanguage.ZH) != error.localizedSummary(AppLanguage.EN))
+            assertTrue(error.retryable)
+            assertFalse(error.sanitizedDiagnostic().contains("secret"))
+        }
+    }
     @Test fun connectionDiagnosisCodesHaveDistinctBilingualRetryableCopyAndRedactedDetails() {
         val codes = listOf(
             AppErrorCode.ADDRESS_NOT_FOUND to "HR-CONN-008",

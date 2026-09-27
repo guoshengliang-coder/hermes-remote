@@ -190,11 +190,19 @@ test("WebSocket authorization routes an active grantee to the owner's Connector 
     installationId: "grantee-installation",
     sessionId: "grantee-session",
   });
+  const voiceRequest = {
+    headers: { authorization: "Bearer grantee-access" },
+  } as unknown as IncomingMessage;
+  assert.equal(await authorizer.authorize(
+    voiceRequest,
+    new URL("https://gateway.example/v2/devices/hermes-office/voice"),
+  ), connector);
+  assert.equal(authorizer.consumeAccountAccess(voiceRequest)?.bindingId, "binding-owner");
   permitted = false;
   await assert.rejects(
     authorizer.authorize(
       { headers: { authorization: "Bearer grantee-access" } } as unknown as IncomingMessage,
-      new URL("https://gateway.example/v2/devices/hermes-office/ws"),
+      new URL("https://gateway.example/v2/devices/hermes-office/voice"),
     ),
     (error: unknown) => typeof error === "object" && error !== null
       && "code" in error && (error as { code: unknown }).code === "HR-BIND-011",

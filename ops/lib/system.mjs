@@ -158,7 +158,7 @@ export function renderNginxConfig(config) {
         proxy_send_timeout 15s;
     }
 
-    location = /api/ws {
+    location ~ ^/api/(?:ws|voice)$ {
         proxy_pass ${gateway};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

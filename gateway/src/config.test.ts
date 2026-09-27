@@ -34,14 +34,18 @@ test("Gateway config loads file-backed secrets without exposing file whitespace"
   try {
     const appTokenFile = join(root, "app-token");
     const connectorTokenFile = join(root, "connector-token");
+    const doubaoKeyFile = join(root, "doubao-key");
     await writeFile(appTokenFile, "file-app-token\n", { mode: 0o600 });
     await writeFile(connectorTokenFile, "file-connector-token\n", { mode: 0o600 });
+    await writeFile(doubaoKeyFile, "test-doubao-credential\n", { mode: 0o600 });
     const config = loadGatewayConfig({
       APP_TOKEN_FILE: appTokenFile,
       CONNECTOR_TOKEN_FILE: connectorTokenFile,
+      DOUBAO_ASR_API_KEY_FILE: doubaoKeyFile,
     });
     assert.equal(config.appToken, "file-app-token");
     assert.equal(config.connectorToken, "file-connector-token");
+    assert.equal(config.doubaoAsrApiKey, "test-doubao-credential");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -84,6 +88,7 @@ test("Gateway config schema identifies the complete R2 environment contract", as
     "APP_TOKEN_FILE",
     "CONNECTOR_TOKEN_FILE",
     "INTERNAL_STATUS_TOKEN_FILE",
+    "DOUBAO_ASR_API_KEY_FILE",
     "ACCOUNT_AUTH_ENABLED",
     "ACCOUNT_BINDING_ENABLED",
     "ACCOUNT_MULTI_DEVICE_ENABLED",

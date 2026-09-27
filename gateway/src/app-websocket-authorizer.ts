@@ -136,7 +136,7 @@ export class AppWebSocketAuthorizer {
 }
 
 function accountWebSocketDeviceId(pathname: string): string | undefined {
-  const match = /^\/v2\/devices\/([^/]+)\/ws$/.exec(pathname);
+  const match = /^\/v2\/devices\/([^/]+)\/(?:ws|voice)$/.exec(pathname);
   if (!match) return undefined;
   try {
     const deviceId = decodeURIComponent(match[1]);

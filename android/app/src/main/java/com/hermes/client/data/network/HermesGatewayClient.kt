@@ -111,6 +111,14 @@ open class HermesGatewayClient(
     // each connect; loopback mode returns immediately.
     private val wsEndpointProvider: suspend () -> GatewayWebSocketEndpoint,
 ) {
+    /** The voice socket uses the same phone authorization but has its own Gateway route. */
+    suspend fun voiceEndpoint(): GatewayWebSocketEndpoint {
+        val endpoint = wsEndpointProvider()
+        require(!endpoint.url.contains("?ticket=")) { "voice route unavailable for direct Hermes connection" }
+        val url = endpoint.url.replace(Regex("/ws(?=\\?|$)"), "/voice")
+        require(url != endpoint.url) { "voice route unavailable" }
+        return endpoint.copy(url = url)
+    }
     private val _events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 256)
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
     // OkHttp callbacks must never block. A bounded actor preserves event order while the

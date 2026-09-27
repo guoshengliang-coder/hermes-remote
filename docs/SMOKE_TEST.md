@@ -1,5 +1,14 @@
 # Local relay smoke test
 
+## Doubao speech relay
+
+With `DOUBAO_ASR_API_KEY_FILE` unset, an authenticated phone upgrade to `/api/voice` or
+`/v2/devices/{id}/voice` returns 503. With the private key configured, the same phone credential
+opens the route and binary V3 frames travel to/from Doubao; neither the key nor audio content
+appears in Gateway logs. A missing/invalid phone credential is rejected before upstream dialing.
+The local proxy test uses a mock upstream; final transcript timing still needs A-17's real service
+and device check.
+
 Start the gateway and mock connector as described in the root README. Connect a WebSocket client to `ws://127.0.0.1:8787/v1/connect` and send:
 
 Before opening the Connector, verify the release probes. With account mode disabled, both requests

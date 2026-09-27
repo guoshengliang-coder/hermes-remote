@@ -36,7 +36,7 @@ test("multi-device Nginx routes expose selection and explicit traffic without sh
   assert.match(routes, /location = \/v2\/devices/);
   assert.match(routes, /select-default\$/);
   assert.match(routes, /\/api\(\?:\/\|\$\)/);
-  assert.match(routes, /\/ws\$/);
+  assert.match(routes, /\(\?:ws\|voice\)\$/);
   assert.match(routes, /proxy_set_header Upgrade \$http_upgrade/);
   for (const forbidden of ["share-invitations", "/shares", "/leave", "/v2/installations", "/v2/web/"]) {
     assert.equal(routes.includes(forbidden), false);
@@ -62,7 +62,7 @@ test("multi-device Nginx routes gzip JSON only on the device API location", () =
     assert.ok(api.includes(`    ${directive}\n`), `device API location carries ${directive}`);
   }
   assert.doesNotMatch(api, /text\/event-stream/);
-  const ws = locations.get("~ ^/v2/devices/[^/]+/ws$");
+  const ws = locations.get("~ ^/v2/devices/[^/]+/(?:ws|voice)$");
   assert.ok(ws, "device WebSocket location is rendered");
   assert.doesNotMatch(ws, /gzip/);
   for (const [name, body] of locations) {

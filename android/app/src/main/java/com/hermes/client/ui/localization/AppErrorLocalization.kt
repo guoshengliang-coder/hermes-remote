@@ -253,6 +253,12 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "没有能打开链接的应用，链接已复制。", "No app can open this link. It was copied to the clipboard.")
         AppErrorCode.LINK_NOT_OPENABLE ->
             localized(language, "这个链接无法打开。", "This link can't be opened.")
+        AppErrorCode.MICROPHONE_PERMISSION_REQUIRED ->
+            localized(language, "需要麦克风权限，请在设置中允许后重试。", "Microphone access is required. Allow it in Settings and retry.")
+        AppErrorCode.VOICE_UNAVAILABLE ->
+            localized(language, "语音识别暂不可用，请稍后重试或改用键盘。", "Voice recognition is unavailable. Retry later or use the keyboard.")
+        AppErrorCode.VOICE_RECOGNITION_FAILED ->
+            localized(language, "语音识别未完成。如有临时文字，已放入草稿供检查。", "Voice recognition did not finish. Any partial text was placed in the draft for review.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
 }

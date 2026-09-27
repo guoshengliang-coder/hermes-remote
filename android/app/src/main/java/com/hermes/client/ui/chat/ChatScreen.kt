@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -444,6 +445,7 @@ fun ChatScreen(
     // conversations. A dialog rather than a line above the composer: the composer already carries
     // the AI-generated disclaimer under it, and two grey micro-lines around one control is noise.
     var botNoticeOpen by remember { mutableStateOf(false) }
+    var pendingVoiceText by remember(sessionId) { mutableStateOf<String?>(null) }
 
     fun submit() {
         if (!canSend) return
@@ -810,26 +812,106 @@ fun ChatScreen(
         }
     }
 
-    // Voice dictation: the system speech recognizer returns a transcript we append to the draft.
-    // RecognizerIntent needs no RECORD_AUDIO (the system speech app owns the mic + permission).
-    val speechAvailable = remember(context) { android.speech.SpeechRecognizer.isRecognitionAvailable(context) }
-    val speech = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val spoken = result.data
-                ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull().orEmpty()
-            draft = appendDictation(draft, spoken)
-        }
+    var voiceMode by remember(sessionId) { mutableStateOf(false) }
+    var microphonePermissionDialog by remember { mutableStateOf(false) }
+    var voiceHeld by remember(sessionId) { mutableStateOf(false) }
+    var voiceWaiting by remember(sessionId) { mutableStateOf(false) }
+    var voiceTranscript by remember(sessionId) { mutableStateOf("") }
+    var voiceZone by remember(sessionId) { mutableStateOf(VoiceReleaseAction.SEND) }
+    var voiceReleaseIntent by remember(sessionId) { mutableStateOf(VoiceReleaseAction.SEND) }
+    var voiceStartedAt by remember(sessionId) { mutableStateOf(0L) }
+    var voiceSession by remember(sessionId) { mutableStateOf<DoubaoVoiceSession?>(null) }
+    val voiceScope = androidx.compose.runtime.rememberCoroutineScope()
+    androidx.compose.runtime.DisposableEffect(sessionId, voiceSession) {
+        onDispose { voiceSession?.cancel() }
     }
-    fun startDictation() {
-        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag())
-            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, localized(language, "请说出消息内容", "Speak your message"))
+    fun voiceError(code: AppErrorCode) {
+        android.widget.Toast.makeText(
+            context, AppError(code, retryable = true).localizedMessage(language), android.widget.Toast.LENGTH_LONG,
+        ).show()
+    }
+    val microphonePermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            collapseComposer()
+            voiceMode = true
+        } else microphonePermissionDialog = true
+    }
+    fun enterVoiceMode() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            collapseComposer()
+            voiceMode = true
+        } else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    fun beginVoice() {
+        if (voiceSession != null || !connected || state.isGenerating || !sessionWritable) return
+        voiceTranscript = ""
+        voiceZone = VoiceReleaseAction.SEND
+        voiceReleaseIntent = VoiceReleaseAction.SEND
+        voiceHeld = true
+        voiceWaiting = false
+        voiceStartedAt = android.os.SystemClock.elapsedRealtime()
+        val session = DoubaoVoiceSession(voiceScope, vm::voiceEndpoint) { event ->
+            when (event) {
+                is VoiceEvent.Partial -> voiceTranscript = event.text
+                is VoiceEvent.Final -> {
+                    voiceHeld = false
+                    voiceWaiting = false
+                    voiceSession = null
+                    val text = event.text.trim()
+                    if (text.isBlank()) {
+                        voiceError(AppErrorCode.VOICE_RECOGNITION_FAILED)
+                    } else if (voiceReleaseIntent == VoiceReleaseAction.EDIT
+                        || vm.connectionState.value !is ConnectionState.Connected
+                        || vm.state.value.isGenerating) {
+                        draft = appendDictation(draft, text)
+                        voiceMode = false
+                        composerFocused = true
+                    } else if (botNoticeNeeded) {
+                        pendingVoiceText = text
+                        botNoticeOpen = true
+                    } else {
+                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                        vm.sendVoiceText(text)
+                        sendToBottomTick = System.currentTimeMillis()
+                        collapseComposer()
+                    }
+                }
+                is VoiceEvent.Failed -> {
+                    voiceHeld = false
+                    voiceWaiting = false
+                    voiceSession = null
+                    if (event.partialText.isNotBlank()) {
+                        draft = appendDictation(draft, event.partialText)
+                        voiceMode = false
+                        composerFocused = true
+                    }
+                    voiceError(
+                        if (event.reason == VoiceFailure.RECOGNITION || event.partialText.isNotBlank()) {
+                            AppErrorCode.VOICE_RECOGNITION_FAILED
+                        } else {
+                            AppErrorCode.VOICE_UNAVAILABLE
+                        },
+                    )
+                }
+            }
         }
-        runCatching { speech.launch(intent) }
+        voiceSession = session
+        session.start()
+    }
+    fun releaseVoice(action: VoiceReleaseAction) {
+        val session = voiceSession ?: return
+        voiceHeld = false
+        if (action == VoiceReleaseAction.CANCEL || android.os.SystemClock.elapsedRealtime() - voiceStartedAt < 250) {
+            session.cancel()
+            voiceSession = null
+            voiceTranscript = ""
+            return
+        }
+        voiceReleaseIntent = action
+        voiceWaiting = true
+        session.finish()
     }
 
     // Upstream reclaimed this conversation and the send path replaced it with a fresh one. The
@@ -1053,6 +1135,35 @@ fun ChatScreen(
                         }
                     }
                 }
+                if (voiceHeld || voiceWaiting) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(
+                                voiceTranscript.ifBlank {
+                                    localized(language, if (voiceWaiting) "正在完成识别…" else "正在听…", if (voiceWaiting) "Finishing recognition…" else "Listening…")
+                                },
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            if (voiceHeld) {
+                                Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(
+                                        localized(language, "左上滑取消", "Slide up left to cancel"),
+                                        color = if (voiceZone == VoiceReleaseAction.CANCEL) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                    Text(
+                                        localized(language, "右上滑转文字", "Slide up right to edit text"),
+                                        color = if (voiceZone == VoiceReleaseAction.EDIT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(if (sessionWritable && composerFocused) 28.dp else 30.dp),
@@ -1072,6 +1183,33 @@ fun ChatScreen(
                             refreshing = refreshingConversation,
                             onRetry = { vm.refreshCurrentConversation() },
                         )
+                    } else if (voiceMode) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    voiceSession?.cancel()
+                                    voiceSession = null
+                                    voiceHeld = false
+                                    voiceWaiting = false
+                                    voiceMode = false
+                                },
+                                enabled = !voiceHeld && !voiceWaiting,
+                            ) {
+                                Icon(Icons.Rounded.Keyboard, contentDescription = localized(language, "切换键盘输入", "Switch to keyboard"), modifier = Modifier.size(24.dp))
+                            }
+                            Box(Modifier.weight(1f)) {
+                                VoiceHoldButton(
+                                    label = localized(language, if (voiceHeld) "松开发送" else "按住说话", if (voiceHeld) "Release to send" else "Hold to talk"),
+                                    enabled = connected && !state.isGenerating && !voiceWaiting,
+                                    onDown = { beginVoice() },
+                                    onZone = { voiceZone = it },
+                                    onRelease = { releaseVoice(it) },
+                                )
+                            }
+                        }
                     } else if (composerFocused) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
                             OutlinedTextField(
@@ -1103,10 +1241,8 @@ fun ChatScreen(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                if (speechAvailable) {
-                                    IconButton(onClick = { startDictation() }, enabled = sessionWritable) {
-                                        Icon(Icons.Rounded.Mic, contentDescription = localized(language, "语音输入", "Voice input"), modifier = Modifier.size(24.dp))
-                                    }
+                                IconButton(onClick = { enterVoiceMode() }, enabled = sessionWritable) {
+                                    Icon(Icons.Rounded.Mic, contentDescription = localized(language, "切换语音输入", "Switch to voice input"), modifier = Modifier.size(24.dp))
                                 }
                                 // Model chip. Layout contract (real-device regression: a long
                                 // model name once pushed the send/attach buttons off-screen):
@@ -1190,10 +1326,8 @@ fun ChatScreen(
                             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (speechAvailable) {
-                                IconButton(onClick = { startDictation() }, enabled = sessionWritable) {
-                                    Icon(Icons.Rounded.Mic, contentDescription = localized(language, "语音输入", "Voice input"), modifier = Modifier.size(24.dp))
-                                }
+                            IconButton(onClick = { enterVoiceMode() }, enabled = sessionWritable) {
+                                Icon(Icons.Rounded.Mic, contentDescription = localized(language, "切换语音输入", "Switch to voice input"), modifier = Modifier.size(24.dp))
                             }
                             OutlinedTextField(
                                 value = draft,
@@ -1205,7 +1339,7 @@ fun ChatScreen(
                                     .onFocusChanged { if (it.isFocused) composerFocused = true },
                                 placeholder = {
                                     Text(
-                                        localized(language, "发消息或按住说话", "Message or hold to talk"),
+                                        localized(language, "输入消息…", "Type a message…"),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     )
                                 },
@@ -1555,6 +1689,29 @@ fun ChatScreen(
         )
     }
 
+    if (microphonePermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { microphonePermissionDialog = false },
+            title = { Text(localized(language, "需要麦克风权限", "Microphone permission required")) },
+            text = { Text(AppError(AppErrorCode.MICROPHONE_PERMISSION_REQUIRED, retryable = true).localizedMessage(language)) },
+            dismissButton = {
+                TextButton(onClick = { microphonePermissionDialog = false }) {
+                    Text(localized(language, "取消", "Cancel"))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    microphonePermissionDialog = false
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+                        )
+                    }
+                }) { Text(localized(language, "打开设置", "Open settings")) }
+            },
+        )
+    }
+
     state.pendingClarify?.let { req ->
         if (!clarifyCollapsed) {
             com.hermes.client.ui.chat.ClarifySheet(
@@ -1826,7 +1983,11 @@ fun ChatScreen(
     if (botNoticeOpen) {
         val origin = botOrigin
         androidx.compose.material3.AlertDialog(
-            onDismissRequest = { botNoticeOpen = false },
+            onDismissRequest = {
+                pendingVoiceText?.let { draft = appendDictation(draft, it); voiceMode = false }
+                pendingVoiceText = null
+                botNoticeOpen = false
+            },
             title = { Text(com.hermes.client.ui.sessions.botSendNoticeTitle(origin?.source, language)) },
             text = { Text(com.hermes.client.ui.sessions.botSendNoticeBody(origin?.source, language)) },
             confirmButton = {
@@ -1837,8 +1998,14 @@ fun ChatScreen(
                         // botNoticeNeeded has not recomposed yet, so go straight to the send
                         // rather than back through submit()'s gate.
                         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        vm.send(draft)
-                        draft = ""
+                        val spoken = pendingVoiceText
+                        if (spoken != null) {
+                            vm.sendVoiceText(spoken)
+                            pendingVoiceText = null
+                        } else {
+                            vm.send(draft)
+                            draft = ""
+                        }
                         sendToBottomTick = System.currentTimeMillis()
                         collapseComposer()
                     },
@@ -1846,7 +2013,11 @@ fun ChatScreen(
             },
             dismissButton = {
                 androidx.compose.material3.TextButton(
-                    onClick = { botNoticeOpen = false },
+                    onClick = {
+                        pendingVoiceText?.let { draft = appendDictation(draft, it); voiceMode = false }
+                        pendingVoiceText = null
+                        botNoticeOpen = false
+                    },
                 ) { Text(localized(language, "取消", "Cancel")) }
             },
         )

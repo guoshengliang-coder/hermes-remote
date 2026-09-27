@@ -77,7 +77,7 @@ test("R4 blue/green templates isolate candidate process, state, and private port
   assert.equal(nginx.includes(":8787"), false);
   assert.equal(nginx.includes(":8788"), false);
   assert.equal(nginx.includes("$proxy_add_x_forwarded_for"), false);
-  assert.match(nginx, /location = \/api\/ws/);
+  assert.match(nginx, /location ~ \^\/api\/\(\?:ws\|voice\)\$/);
   assert.match(nginx, /location = \/v1\/connect/);
   assert.match(nginx, /location = \/v2\/webhooks\/resend \{[\s\S]*?client_max_body_size 64k;/);
   assert.match(nginx, /proxy_pass http:\/\/hermes_go_gateway_staging\/v2\/webhooks\/resend;/);

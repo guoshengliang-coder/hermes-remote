@@ -71,6 +71,7 @@ reassigned.
 | `COMPAT` | The Mac's upstream Hermes against the REST contract this app depends on | required route missing, optional route missing, Hermes older than verified |
 | `WEB` | The browser Web app (`/app/`) and the Gateway surfaces only it uses | route withheld from browsers, unsupported browser, Web shell/update failure |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
+| `VOICE` | Speech transcription | service unavailable, recognition failure |
 
 ## Canonical structured error
 
@@ -291,6 +292,9 @@ expanded without changing the underlying meaning.
 | `HR-MEDIA-006` | The in-app gallery could not query MediaStore after photo access was granted | 无法读取手机图库，请重试。 | Couldn't read the photo gallery. Retry. | Yes |
 | `HR-PERM-003` | Android blocks installation from this source | 需要允许安装未知应用，授权后请重试。 | Permission to install unknown apps is required. Grant it and retry. | Yes |
 | `HR-PERM-004` | The in-app gallery has neither full nor user-selected photo access | 需要照片访问权限，请允许全部或部分照片。 | Photo access is required. Allow all or selected photos. | Yes |
+| `HR-PERM-005` | The user did not grant Android microphone access for voice input | 需要麦克风权限，请在设置中允许后重试。 | Microphone access is required. Allow it in Settings and retry. | Yes (after permission) |
+| `HR-VOICE-001` | The configured Gateway speech route or recognition service is unavailable | 语音识别暂不可用，请稍后重试或改用键盘。 | Voice recognition is unavailable. Retry later or use the keyboard. | Yes |
+| `HR-VOICE-002` | Recognition ended without a usable final result; any partial text is retained for review | 语音识别未完成。如有临时文字，已放入草稿供检查。 | Voice recognition did not finish. Any partial text was placed in the draft for review. | Yes |
 | `HR-SESS-001` | Session no longer exists. Also the send path's terminal outcome: upstream reclaimed the conversation (`session.reclaimed`, or `session.resume` → 4007) and it held history, so it could not be silently replaced. The bubble reads 未发送 with this code and offers **no** retry | 会话不存在或已被删除。 | The conversation no longer exists or was deleted. | No |
 | `HR-SESS-002` | Live session handle is stale | 会话连接已失效，正在重新挂接。 | The live conversation handle expired. Reattaching now. | Yes |
 | `HR-SESS-003` | Project folder for a move/create no longer exists on the Mac (`session.workspace.move` 4017, or a derived project without a known path) | 项目文件夹在 Mac 上不存在，请重新加载项目后重试。 | The project folder no longer exists on the Mac. Reload projects and retry. | Yes |

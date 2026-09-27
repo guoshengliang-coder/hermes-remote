@@ -35,6 +35,29 @@ class HermesGatewayClientTest {
     // are fine here because OkHttp itself runs on real threads.
     private val testScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @Test fun voiceEndpoint_usesVoiceRouteAndKeepsAccountBearer() = runTest {
+        val http = OkHttpClient()
+        val client = HermesGatewayClient(http, json, testScope) {
+            GatewayWebSocketEndpoint(
+                "wss://gateway.example/v2/devices/mac-1/ws",
+                bearerToken = "test-account-bearer",
+                accountDeviceId = "mac-1",
+            )
+        }
+        try {
+            assertEquals(
+                GatewayWebSocketEndpoint(
+                    "wss://gateway.example/v2/devices/mac-1/voice",
+                    bearerToken = "test-account-bearer",
+                    accountDeviceId = "mac-1",
+                ),
+                client.voiceEndpoint(),
+            )
+        } finally {
+            tearDownClient(client, http)
+        }
+    }
+
     /**
      * Creates an OkHttpClient and HermesGatewayClient for one test.
      * Call [drainOkHttp] on the returned OkHttpClient before the test ends
