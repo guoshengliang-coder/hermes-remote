@@ -110,6 +110,14 @@ import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.localization.localizedMessage
 
+/**
+ * HG-144: last-resort cap on the "Finishing recognition…" wait. Well above the session's own
+ * bounds (endpoint 10s + handshake 10s + init 10s + final 8s are failure paths, not a normal
+ * run — a healthy finish lands in ~1-2s), so it only ever fires when the callbacks were lost,
+ * which is exactly the hang this backstop exists for.
+ */
+private const val VOICE_WAITING_BACKSTOP_MS = 20_000L
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -914,6 +922,36 @@ fun ChatScreen(
         session.finish()
     }
 
+    /**
+     * HG-144: the "Finishing recognition…" banner's only exits used to be the Final/Failed
+     * callbacks, and a session stuck before its first withTimeout never fires either — the
+     * banner then hangs forever with no error and no way out. Two exits now share this path:
+     * the waiting backstop below, and tapping the banner. Both keep any partial transcript in
+     * the draft, exactly like the Failed callback does.
+     */
+    fun settleWaiting(notify: Boolean) {
+        voiceSession?.cancel()
+        voiceSession = null
+        voiceHeld = false
+        if (voiceTranscript.isNotBlank()) {
+            draft = appendDictation(draft, voiceTranscript)
+            voiceMode = false
+            composerFocused = true
+        }
+        voiceTranscript = ""
+        voiceWaiting = false
+        if (notify) voiceError(AppErrorCode.VOICE_RECOGNITION_FAILED)
+    }
+
+    // Backstop, not the primary timeout: the session itself bounds endpoint/open/init/final, so
+    // this only fires when some path left the callbacks behind. Generous on purpose — it must
+    // never beat a session that is merely slow to a normal finish.
+    LaunchedEffect(voiceWaiting) {
+        if (!voiceWaiting) return@LaunchedEffect
+        kotlinx.coroutines.delay(VOICE_WAITING_BACKSTOP_MS)
+        if (voiceSession != null) settleWaiting(notify = true)
+    }
+
     // Upstream reclaimed this conversation and the send path replaced it with a fresh one. The
     // runtime — and the message in flight — already moved; re-navigate so the entry names the live
     // conversation instead of the dead id, which back-then-forward would otherwise reopen.
@@ -1136,33 +1174,15 @@ fun ChatScreen(
                     }
                 }
                 if (voiceHeld || voiceWaiting) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(
-                                voiceTranscript.ifBlank {
-                                    localized(language, if (voiceWaiting) "正在完成识别…" else "正在听…", if (voiceWaiting) "Finishing recognition…" else "Listening…")
-                                },
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                            if (voiceHeld) {
-                                Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(
-                                        localized(language, "左上滑取消", "Slide up left to cancel"),
-                                        color = if (voiceZone == VoiceReleaseAction.CANCEL) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimaryContainer,
-                                    )
-                                    Text(
-                                        localized(language, "右上滑转文字", "Slide up right to edit text"),
-                                        color = if (voiceZone == VoiceReleaseAction.EDIT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    VoiceRecognitionBanner(
+                        language = language,
+                        held = voiceHeld,
+                        waiting = voiceWaiting,
+                        transcript = voiceTranscript,
+                        cancelZone = voiceZone == VoiceReleaseAction.CANCEL,
+                        editZone = voiceZone == VoiceReleaseAction.EDIT,
+                        onDismissWaiting = { settleWaiting(notify = false) },
+                    )
                 }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
@@ -2506,6 +2526,60 @@ private fun AttachmentActionCard(
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(30.dp))
             Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 10.dp))
+        }
+    }
+}
+
+/**
+ * The press-to-talk status banner. While held it shows the live slide zones; once released it
+ * shows "Finishing recognition…" — and since HG-144 the banner itself is the way out of a hung
+ * wait: tapping it cancels and hands any partial transcript to the draft, so the user is never
+ * stuck staring at a wait whose callbacks were lost (the backstop timer covers the no-tap case).
+ */
+@Composable
+internal fun VoiceRecognitionBanner(
+    language: com.hermes.client.ui.localization.AppLanguage,
+    held: Boolean,
+    waiting: Boolean,
+    transcript: String,
+    cancelZone: Boolean,
+    editZone: Boolean,
+    onDismissWaiting: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = Modifier.fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .then(if (waiting && !held) Modifier.clickable(onClick = onDismissWaiting) else Modifier),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                transcript.ifBlank {
+                    localized(language, if (waiting) "正在完成识别…" else "正在听…", if (waiting) "Finishing recognition…" else "Listening…")
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            if (held) {
+                Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        localized(language, "左上滑取消", "Slide up left to cancel"),
+                        color = if (cancelZone) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Text(
+                        localized(language, "右上滑转文字", "Slide up right to edit text"),
+                        color = if (editZone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            } else {
+                Text(
+                    localized(language, "点按取消等待", "Tap to stop waiting"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
         }
     }
 }
