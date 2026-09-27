@@ -99,7 +99,11 @@ class ChatViewModel @Inject constructor(
     private val draftScope: kotlinx.coroutines.CoroutineScope,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
+    private val gatewayForVoice: com.hermes.client.data.network.HermesGatewayClient? = null,
 ) : ViewModel() {
+
+    suspend fun voiceEndpoint(): com.hermes.client.data.network.GatewayWebSocketEndpoint =
+        checkNotNull(gatewayForVoice) { "voice connection unavailable" }.voiceEndpoint()
 
     /**
      * RUN_ENDED: the store believed the run active, Hermes said it is not — the stale state was
@@ -1523,7 +1527,17 @@ class ChatViewModel @Inject constructor(
         dispatch(text, atts)
     }
 
-    private fun dispatch(text: String, atts: List<PendingAttachment>) {
+    /** A dictated turn never consumes typed draft text or staged attachments. */
+    fun sendVoiceText(text: String) {
+        if (_sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE || text.isBlank()) return
+        dispatch(text.trim(), emptyList(), preserveStagedAttachments = true)
+    }
+
+    private fun dispatch(
+        text: String,
+        atts: List<PendingAttachment>,
+        preserveStagedAttachments: Boolean = false,
+    ) {
         val messageId = "u-${java.util.UUID.randomUUID()}"
         val expectedStoredId = storedSessionId
         val expectedProfile = currentProfile
@@ -1567,7 +1581,12 @@ class ChatViewModel @Inject constructor(
                         state = com.hermes.client.domain.FileTransferState.UPLOADING,
                     )
                 }
-                runtimeKey?.let { runtimeStore.beginPrompt(it, text, outgoingImages, outgoingFiles, messageId) }
+                runtimeKey?.let {
+                    runtimeStore.beginPrompt(
+                        it, text, outgoingImages, outgoingFiles, messageId,
+                        clearPendingAttachments = !preserveStagedAttachments,
+                    )
+                }
                     ?: mutateState { it.withUserMessage(text, outgoingImages, outgoingFiles, messageId) }
                 com.hermes.client.data.diagnostics.DebugLog.log(
                     "session", "send($expectedStoredId) waiting for live handle",

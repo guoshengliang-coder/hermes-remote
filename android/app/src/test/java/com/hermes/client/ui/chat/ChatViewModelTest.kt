@@ -1145,6 +1145,22 @@ class ChatViewModelTest {
         runCurrent()
     }
 
+    @Test fun voice_send_preserves_staged_attachment() = kotlinx.coroutines.runBlocking {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        val vm = buildVm()
+        vm.open("s1")
+        mainDispatcherRule.dispatcher.scheduler.runCurrent()
+        vm.stageAttachment("untouched".toByteArray(), "text/plain", "draft.txt")
+        assertEquals(1, vm.state.value.pendingAttachments.size)
+
+        vm.sendVoiceText("  语音问题  ")
+        mainDispatcherRule.dispatcher.scheduler.runCurrent()
+
+        assertEquals(listOf("draft.txt"), vm.state.value.pendingAttachments.map { it.name })
+        coVerify(exactly = 0) { fileRepo.upload(any(), any(), any()) }
+        coVerify(exactly = 1) { chatRepo.submit("s1-live", "语音问题") }
+    }
+
     // HG-65: a PDF used to go to `pdf.attach`, which rasterises every page and leaves the
     // conversation carrying megabytes of base64 that Hermes re-inlines on every read — 12.59 MiB
     // from one 37-page document, past the relay's frame ceiling on its own. It goes as a file now,

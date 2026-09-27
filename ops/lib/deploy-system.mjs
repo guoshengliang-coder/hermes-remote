@@ -158,7 +158,7 @@ server {
         ${commonProxyHeaders(15)}
     }
 
-    location = /api/ws {
+    location ~ ^/api/(?:ws|voice)$ {
         proxy_pass http://${upstreamName(config)};
         ${webSocketProxyHeaders()}
     }

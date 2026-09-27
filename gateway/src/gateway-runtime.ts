@@ -19,6 +19,7 @@ import { LegacyControlSessionHandler } from "./legacy-control-session.js";
 import { LifecycleEventStore } from "./lifecycle-event-store.js";
 import { LifecycleMessageHandler } from "./lifecycle-message-handler.js";
 import { WebSocketTunnelBroker } from "./websocket-tunnel-broker.js";
+import { DoubaoVoiceProxy } from "./doubao-voice-proxy.js";
 import { WebAppHost } from "./web-app-host.js";
 import { screenBrowserFrame } from "./account/web-rpc-filter.js";
 import { rejectUpgrade } from "./websocket-utils.js";
@@ -38,6 +39,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     appToken,
     connectorToken,
     internalStatusToken,
+    doubaoAsrApiKey,
     tlsCertFile,
     tlsKeyFile,
     maxBodyBytes,
@@ -127,6 +129,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     defaultDeviceId,
     tokensEqual: safeEqual,
   });
+  const voiceProxy = new DoubaoVoiceProxy(doubaoAsrApiKey);
   const legacyControlSessions = new LegacyControlSessionHandler({
     appToken,
     connectorToken,
@@ -225,6 +228,9 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     authorizeAppWebSocket: (request, url) => appWebSocketAuthorizer.authorize(request, url),
     rejectAppUpgrade: rejectAccountUpgrade,
     atWebSocketCapacity: () => webSocketTunnels.atCapacity,
+    voiceAvailable: () => voiceProxy.available,
+    voiceAtCapacity: () => voiceProxy.atCapacity,
+    openVoiceWebSocket: (socket) => voiceProxy.open(socket),
     attachLegacyControl: (socket) => legacyControlSessions.attach(socket),
     attachAccountConnector: (socket, sourceIp) => {
       if (accountConnectorSessions) accountConnectorSessions.attach(socket, sourceIp);

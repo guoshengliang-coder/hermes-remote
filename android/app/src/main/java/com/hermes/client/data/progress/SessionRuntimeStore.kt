@@ -1393,13 +1393,15 @@ class SessionRuntimeStore(
         images: List<com.hermes.client.domain.ChatImage> = emptyList(),
         files: List<com.hermes.client.domain.ChatFile> = emptyList(),
         messageId: String = "u-${System.nanoTime()}",
+        clearPendingAttachments: Boolean = true,
     ) {
         historyReconcileJobs.remove(key)?.cancel()
         lastActiveKey = key
         updateRuntime(key, cause = "prompt") { runtime ->
             runtime.copy(
-                chat = runtime.chat.withUserMessage(shownText, images, files, messageId)
-                    .copy(pendingAttachments = emptyList()),
+                chat = runtime.chat.withUserMessage(shownText, images, files, messageId).let { chat ->
+                    if (clearPendingAttachments) chat.copy(pendingAttachments = emptyList()) else chat
+                },
                 phase = SessionRunPhase.SUBMITTING,
                 toolName = null,
                 lastEventAt = System.currentTimeMillis(),

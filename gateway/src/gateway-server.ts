@@ -32,6 +32,9 @@ interface GatewayServerOptions<TConnector> {
     request: IncomingMessage,
     connector: TConnector,
   ): void;
+  voiceAvailable(): boolean;
+  voiceAtCapacity(): boolean;
+  openVoiceWebSocket(socket: WebSocket): void;
   closeDependencies(): Promise<void>;
   reportFailure(message: string, error: unknown): void;
   log: GatewayLogger;
@@ -85,6 +88,7 @@ export class GatewayServer<TConnector> {
   private readonly controlWss: WebSocketServer;
   private readonly accountControlWss: WebSocketServer;
   private readonly appWss: WebSocketServer;
+  private readonly voiceWss: WebSocketServer;
   private readonly server: ReturnType<typeof createServer>;
   private readonly controlHeartbeat: ControlHeartbeat;
 
@@ -113,6 +117,7 @@ export class GatewayServer<TConnector> {
     this.controlWss = new WebSocketServer(connectorWebSocketServerOptions(options.maxWirePayloadBytes));
     this.accountControlWss = new WebSocketServer(connectorWebSocketServerOptions(options.maxWirePayloadBytes));
     this.appWss = new WebSocketServer(appWebSocketServerOptions(options.maxAppPayloadBytes));
+    this.voiceWss = new WebSocketServer(appWebSocketServerOptions(64 * 1024));
     this.controlHeartbeat = new ControlHeartbeat(
       options.controlHeartbeatIntervalMs,
       options.controlHeartbeatTimeoutMs,
@@ -137,6 +142,7 @@ export class GatewayServer<TConnector> {
     for (const client of this.controlWss.clients) client.close(1012, "gateway restarting");
     for (const client of this.accountControlWss.clients) client.close(1012, "gateway restarting");
     for (const client of this.appWss.clients) client.close(1012, "gateway restarting");
+    for (const client of this.voiceWss.clients) client.close(1012, "gateway restarting");
     this.server.close(() => {
       void this.options.closeDependencies().then(
         () => process.exit(0),
@@ -174,6 +180,24 @@ export class GatewayServer<TConnector> {
         this.accountControlWss.handleUpgrade(request, socket, head, (webSocket) => {
           this.accountControlWss.emit("connection", webSocket, request, sourceIp);
         });
+        return;
+      }
+
+      if (url.pathname === "/api/voice"
+          || /^\/v2\/devices\/[^/]+\/voice$/.test(url.pathname)) {
+        if (!this.options.voiceAvailable()) {
+          rejectUpgrade(socket, 503, "Voice unavailable");
+          return;
+        }
+        void this.options.authorizeAppWebSocket(request, url).then(() => {
+          if (this.options.voiceAtCapacity()) {
+            rejectUpgrade(socket, 503, "Voice capacity reached");
+            return;
+          }
+          this.voiceWss.handleUpgrade(request, socket, head, (webSocket) => {
+            this.voiceWss.emit("connection", webSocket);
+          });
+        }).catch((error) => this.options.rejectAppUpgrade(socket, error));
         return;
       }
 
@@ -216,6 +240,9 @@ export class GatewayServer<TConnector> {
       connector: TConnector,
     ) => {
       this.options.openAppWebSocket(socket, request, connector);
+    });
+    this.voiceWss.on("connection", (socket: WebSocket) => {
+      this.options.openVoiceWebSocket(socket);
     });
   }
 

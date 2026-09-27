@@ -14,6 +14,8 @@
     "CONNECTOR_TOKEN_FILE": { "$ref": "#/$defs/path" },
     "INTERNAL_STATUS_TOKEN": { "$ref": "#/$defs/secret16" },
     "INTERNAL_STATUS_TOKEN_FILE": { "$ref": "#/$defs/path" },
+    "DOUBAO_ASR_API_KEY": { "$ref": "#/$defs/secret16" },
+    "DOUBAO_ASR_API_KEY_FILE": { "$ref": "#/$defs/path" },
     "TLS_CERT_FILE": { "$ref": "#/$defs/path" },
     "TLS_KEY_FILE": { "$ref": "#/$defs/path" },
     "DEFAULT_DEVICE_ID": { "type": "string", "minLength": 1, "maxLength": 128 },
