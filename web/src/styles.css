@@ -163,6 +163,14 @@ html {
   touch-action: manipulation;
 }
 
+/* Font size (Settings → 字体大小). Everything below is sized in rem, so scaling the root scales
+   text, spacing and touch targets as one. `standard` writes no attribute: the browser's default
+   font size stays in charge, which is the only control a Home Screen app has left once page zoom
+   is blocked (noZoom.ts). */
+html[data-font-size="large"] { font-size: 112.5%; }
+html[data-font-size="xlarge"] { font-size: 125%; }
+html[data-font-size="xxlarge"] { font-size: 150%; }
+
 body {
   margin: 0;
   min-height: 100dvh;

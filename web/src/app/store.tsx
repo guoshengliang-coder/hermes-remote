@@ -5,7 +5,7 @@ import type { AppError, Language } from "../errors";
 import type { SessionListItem } from "../hermes/types";
 import type { GroupId } from "./grouping";
 import type { Translate } from "./i18n";
-import type { LanguagePreference, ThemeMode } from "./appearance";
+import type { FontSize, LanguagePreference, ThemeMode } from "./appearance";
 import type { InboxState } from "./inbox";
 
 // App-wide state shared through context: the Gateway client, language, the signed-in account,
@@ -26,6 +26,8 @@ export interface AppContextValue {
   setLanguagePreference: (choice: LanguagePreference) => void;
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
+  fontSize: FontSize;
+  setFontSize: (size: FontSize) => void;
   gatewayVersion: string | null;
   t: Translate;
   account: PublicAccount | null;

@@ -1142,6 +1142,12 @@ version with each result.
     the reasoning effort; confirm on Android that the same conversation shows the new model. Move a
     chat via its project subtitle. While Android runs a turn in the same conversation, open it on the
     Web: the composer is replaced by `HR-SESS-013` with Retry.
+14. **Font size (2026-09-27).** Settings → 字体大小: pick 大 / 特大 / 超大 in Safari and in the Home
+    Screen app. Expected: text, line height, spacing and the 44px touch targets grow together, the
+    page reflows without overlap or clipping, and the choice survives a force-quit (it is per
+    browser, like pins and theme). At 超大 the settings page scrolls to the bottom so 删除账号 and
+    关于 stay reachable; 标准 hands the root size back to the browser's own default. Confirm this is
+    the only way to enlarge the page: the Home Screen app blocks Safari's pinch zoom (`noZoom.ts`).
     For HG-114 on an isolated stack with a Connector backed by Hermes, check the side drawer's
     read-only default model for two Macs and two profiles. In a conversation using another model,
     tap “恢复默认模型”; only that conversation changes, and the upstream global model stays put.
