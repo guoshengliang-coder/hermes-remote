@@ -55,7 +55,9 @@ downgrade is not supported.”
 
 The steps below are chained by `scripts/android-release-train.mjs`; run it rather than the steps by
 hand. `prepare --notes-file <notes> --summary "<README entry>"`, from a fresh worktree at
-`origin/main` (copy `android/local.properties` in first), runs the bump, the package gate, opens the
+`origin/main` (copy the gitignored `android/local.properties` and `android/missiongo.properties` in
+first — the package gate's `apk_feedback.py` fails hard without the latter, which is how 0.1.120 lost
+its feedback entry), runs the bump, the package gate, opens the
 release PR and merges it through `scripts/merge-when-green.mjs --allow-red`, then stops and prints the
 local APK for an owner test install. `publish <version>` is the publish gate and runs only on the
 owner's authorization: it refuses unless `origin/main` carries exactly that version and release file
