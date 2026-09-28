@@ -1223,6 +1223,9 @@ class ChatViewModelTest {
             events.emit(event("message.complete", "s1-live", "done"))
             runCurrent()
         } finally {
+            // runTest drains Main's virtual-time scheduler before JUnit @After can cancel these jobs.
+            // Stop the app-scoped process poller here so the test can finish.
+            runtimeJobs.forEach(Job::cancel)
             file.delete()
         }
     }
