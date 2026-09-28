@@ -23,7 +23,7 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
                 "手机能连上服务，但你电脑上的 Hermes Go 没有连接，请在电脑上打开它。",
                 "The phone reached the service, but Hermes Go isn't connected on your computer. Open it there.",
             )
-        AppErrorCode.CONNECTOR_HERMES_UNREACHABLE ->
+        AppErrorCode.HERMES_UNREACHABLE ->
             localized(
                 language,
                 "已连上这台 Mac，但上面的 Hermes 没有响应，请在 Mac 上检查 Hermes。",
@@ -344,7 +344,7 @@ fun AppErrorCode.localizedShortLabel(language: AppLanguage): String? = when (thi
         localized(language, "连接中断", "Connection interrupted")
     AppErrorCode.CONNECTOR_OFFLINE ->
         localized(language, "电脑未连接", "Computer not connected")
-    AppErrorCode.CONNECTOR_HERMES_UNREACHABLE ->
+    AppErrorCode.HERMES_UNREACHABLE ->
         localized(language, "Mac 上的 Hermes 没响应", "Hermes on the Mac isn't responding")
     AppErrorCode.CONNECTION_UNSTABLE ->
         localized(language, "连接反复中断", "Connection keeps dropping")

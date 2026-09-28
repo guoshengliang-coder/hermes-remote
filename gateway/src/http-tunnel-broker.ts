@@ -17,6 +17,7 @@ interface HttpConnector {
 }
 
 interface PendingHttp {
+  requestId: string;
   response: ServerResponse;
   connectorSocket: WebSocket;
   routingKey: string;
@@ -106,6 +107,7 @@ export class HttpTunnelBroker {
     const id = randomUUID();
     const timer = setTimeout(() => this.expire(id), this.requestTimeoutMs);
     this.pending.set(id, {
+      requestId: id,
       response,
       connectorSocket: connector.socket,
       routingKey: connector.routingKey,
@@ -161,6 +163,7 @@ export class HttpTunnelBroker {
     const id = randomUUID();
     const timer = setTimeout(() => this.expire(id), 10 * 60_000);
     const pending: PendingHttp = {
+      requestId: id,
       response, connectorSocket: connector.socket, routingKey: connector.routingKey, timer,
       started: false, nextSequence: 0, startedAt: Date.now(), bytesWritten: 0, chunkCount: 0,
       method: "POST", path: `${url.pathname}${url.search}`, device: connector.deviceId,
@@ -245,6 +248,7 @@ export class HttpTunnelBroker {
     const id = randomUUID();
     const timer = setTimeout(() => this.expire(id), 10 * 60_000);
     this.pending.set(id, {
+      requestId: id,
       response, connectorSocket: connector.socket, routingKey: connector.routingKey, timer,
       started: false, nextSequence: 0, startedAt: Date.now(), bytesWritten: 0, chunkCount: 0,
       method: "POST", path: `${url.pathname}${url.search}`, device: connector.deviceId,
@@ -402,6 +406,7 @@ export class HttpTunnelBroker {
    */
   private logOutcome(pending: PendingHttp, outcome: string): void {
     this.log.info("http.tunnel", {
+      requestId: pending.requestId,
       method: pending.method,
       path: pending.path,
       device: pending.device,

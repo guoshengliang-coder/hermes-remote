@@ -28,6 +28,23 @@ class HermesRestApiTest {
         GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
     }
 
+    @Test fun history_preserves_connector_error_code_and_correlation() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(502).body(
+            """{"error":{"code":"HR-CONN-006","message":"Hermes service unavailable","retryable":true,"recoveryAction":"retry","correlationId":"12345678-1234-1234-1234-123456789abc"}}""",
+        ).build())
+        val failure = runCatching { api(serverRule.server).messagesRaw("s1") }.exceptionOrNull() as HermesApiException
+        assertEquals("HR-CONN-006", failure.errorCode)
+        assertEquals("12345678-1234-1234-1234-123456789abc", failure.correlationId)
+    }
+
+    @Test fun history_recognizes_the_exact_legacy_connector_response() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(502).body(
+            """{"error":"hermes_unreachable"}""",
+        ).build())
+        val failure = runCatching { api(serverRule.server).messagesRaw("s1") }.exceptionOrNull() as HermesApiException
+        assertEquals("HR-CONN-006", failure.errorCode)
+    }
+
     @Test fun messages_requests_the_bounded_read_projection() = runTest {
         serverRule.server.enqueue(MockResponse.Builder().code(200).body("""{"messages":[]}""").build())
 

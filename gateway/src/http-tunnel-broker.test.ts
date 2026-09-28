@@ -322,6 +322,7 @@ test("a streamed response logs its status, decoded bytes, chunk count and time t
   assert.equal(lines.length, 1);
   const { kind, fields } = lines[0];
   assert.equal(kind, "http.tunnel");
+  assert.equal(fields.requestId, id);
   assert.equal(fields.outcome, "streamed");
   assert.equal(fields.status, 200);
   assert.equal(fields.bytes, Buffer.byteLength("{\"messages\":[1,2,3]}"));
@@ -348,6 +349,23 @@ test("a buffered response logs status, bytes, zero chunks and time to first byte
   assert.equal(lines[0].fields.bytes, 15);
   assert.equal(lines[0].fields.chunks, 0);
   assert.equal(typeof lines[0].fields.ttfbMs, "number");
+});
+
+test("a Connector 502 preserves its structured code and correlation through the Gateway", async () => {
+  const sent: WireMessage[] = [];
+  const { logger, lines } = capturingLogger();
+  const broker = new HttpTunnelBroker(1_024, 4, 5_000, (_socket, message) => sent.push(message), logger);
+  const { response, id } = await open(broker, sent, "/api/sessions/s1/messages");
+  const body = JSON.stringify({ error: { code: "HR-CONN-006", correlationId: id, retryable: true } });
+  broker.handleConnectorMessage(connector, {
+    type: "tunnel.http.response", version: 1, requestId: id, status: 502,
+    headers: { "content-type": "application/json" },
+    bodyBase64: Buffer.from(body).toString("base64"),
+  });
+  assert.equal(response.status, 502);
+  assert.equal(response.body, body);
+  assert.equal(lines[0]?.fields.requestId, id);
+  assert.equal(lines[0]?.fields.status, 502);
 });
 
 test("a stream that fails after start keeps its start status and partial counts", async () => {

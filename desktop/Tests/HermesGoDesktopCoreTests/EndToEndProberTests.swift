@@ -94,4 +94,21 @@ final class EndToEndProberTests: XCTestCase {
         XCTAssertEqual(result.issue?.code, .connectorOffline)
         XCTAssertEqual(result.issue?.recoveryAction, .startDesktop)
     }
+
+    func testLocalHermesFailureMapsToHermesCodeForStructuredAndLegacyConnectors() async throws {
+        let profile = try ConnectionProfile.validated(
+            name: "Mac", gatewayAddress: "https://relay.example", appToken: "token"
+        )
+        URLProtocolStub.responseStatus = 502
+        for body in [
+            #"{"error":{"code":"HR-CONN-006","message":"Hermes service unavailable","correlationId":"12345678-1234-1234-1234-123456789abc"}}"#,
+            #"{"error":"hermes_unreachable"}"#,
+        ] {
+            URLProtocolStub.responseBody = Data(body.utf8)
+            let result = await HTTPHealthProber(session: session).probeEndToEnd(profile)
+            XCTAssertEqual(result.issue?.code, .hermesUnavailable)
+            XCTAssertTrue(result.issue?.retryable == true)
+            XCTAssertFalse(result.detail.contains("12345678-1234"))
+        }
+    }
 }
