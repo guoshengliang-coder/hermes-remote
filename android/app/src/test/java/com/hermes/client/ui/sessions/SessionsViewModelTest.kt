@@ -212,6 +212,54 @@ class SessionsViewModelTest {
         assertEquals(2, ids.size)
     }
 
+    // HG-149: the alert strip above the list is built from the cron jobs and the channels, and
+    // `refresh()` reads neither. Handling a job on the 定时任务 page and returning to the list
+    // therefore kept announcing the count from app start — "2 个定时任务需要处理" over a list whose
+    // cron page already said one. Resume is exactly when it has to be right.
+    private fun failingJob(id: String) =
+        com.hermes.client.data.network.CronJobDto(id = id, name = id, lastStatus = "error")
+
+    @Test fun resuming_the_list_re_reads_the_alert_strip() = runTest {
+        coEvery { toolsRepo.cronJobs(any()) } returns listOf(failingJob("a"), failingJob("b"))
+        val vm = buildVm()
+        advanceUntilIdle()
+        assertEquals(2, vm.health.value.standaloneCronJobs)
+
+        // One of the two was handled on the cron screen; the strip must follow on resume.
+        coEvery { toolsRepo.cronJobs(any()) } returns listOf(failingJob("a"))
+        vm.onVisible()
+        advanceUntilIdle()
+
+        assertEquals(1, vm.health.value.standaloneCronJobs)
+    }
+
+    // The strip's sources are broadcast separately from the session list. A cron or channel change
+    // must re-read them WITHOUT paying for a `limit=500` list page (HG-104).
+    @Test fun a_cron_change_event_refreshes_the_strip_without_reloading_the_list() = runTest {
+        val events = kotlinx.coroutines.flow.MutableSharedFlow<com.hermes.client.data.network.ServerEvent>(extraBufferCapacity = 8)
+        every { chatRepo.events } returns events
+        coEvery { toolsRepo.cronJobs(any()) } returns listOf(failingJob("a"))
+        var fetches = 0
+        coEvery { sessionRepo.listAllProfiles() } coAnswers { fetches++; emptyList() }
+        val vm = buildVm()
+        advanceUntilIdle()
+        assertEquals(1, vm.health.value.standaloneCronJobs)
+        val before = fetches
+
+        coEvery { toolsRepo.cronJobs(any()) } returns emptyList()
+        events.emit(
+            com.hermes.client.data.network.ServerEvent(
+                // The literal upstream wire name, not the production constant: this is the
+                // contract, so a typo in the constant has to fail here.
+                type = "cron.changed", sessionId = null, payload = buildJsonObject {},
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(0, vm.health.value.standaloneCronJobs)
+        assertEquals("a cron change is not a session-list change", before, fetches)
+    }
+
     @Test fun failed_background_refresh_keeps_the_existing_list() = runTest {
         coEvery { sessionRepo.listAllProfiles() } returns listOf(session("s1", "cached"))
         val vm = buildVm()
