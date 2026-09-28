@@ -130,6 +130,13 @@ data. Never log a secret merely because the error path is exceptional.
 Add a row before introducing a code. Keep the explanation stable after release; clarification may be
 expanded without changing the underlying meaning.
 
+For HG-151, a Connector that cannot complete a local Hermes HTTP request before response streaming
+returns HTTP 502 with the `HR-CONN-006` structured error envelope and the tunnel request UUID as
+`correlationId`. Android history also recognizes the exact legacy `{"error":"hermes_unreachable"}`
+502 body from older Connectors. An actual Hermes HTTP 5xx remains `HR-SYNC-003` for history.
+Connector `http.local_failure` and Gateway `http.tunnel` logs use the same `requestId`; Connector
+logs only a route category, phase, elapsed time, and allowlisted transport error type/cause code.
+
 | Code | Condition | Default Chinese explanation | Default English explanation | Retryable |
 |---|---|---|---|---|
 | `HR-CONN-001` | Device has no usable network **and the gateway probe also failed** (a capability read alone never decides — see docs/DESIGN.md) | 当前网络不可用，请检查网络连接。 | No usable network is available. Check your connection. | Yes |

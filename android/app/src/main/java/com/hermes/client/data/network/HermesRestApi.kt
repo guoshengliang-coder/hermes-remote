@@ -31,6 +31,7 @@ class HermesApiException(
     message: String,
     /** Stable structured account error, when the response follows the shared error envelope. */
     val errorCode: String? = null,
+    val correlationId: String? = null,
 ) : Exception(message)
 data class UploadedArtifact(val path: String, val name: String, val sizeBytes: Long)
 
@@ -235,16 +236,24 @@ class HermesRestApi(
             val elapsed = System.currentTimeMillis() - startedAt
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
-                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                    "GET $path ← ${resp.code} (${elapsed}ms) ${body.take(200)} · net=${NetworkTransports.current()}"
-                }
-                val stableCode = runCatching {
-                    json.decodeFromString<AccountErrorEnvelopeDto>(body).error.code
+                val structuredError = runCatching {
+                    json.decodeFromString<AccountErrorEnvelopeDto>(body).error
                 }.getOrNull()
+                val legacyConnectorFailure = resp.code == 502 && body == "{\"error\":\"hermes_unreachable\"}"
+                val correlationId = structuredError?.correlationId?.takeIf {
+                    it.matches(Regex("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"))
+                }
+                val stableCode = structuredError?.code
+                    ?: if (legacyConnectorFailure) "HR-CONN-006" else null
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "GET $path ← ${resp.code} (${elapsed}ms) code=${stableCode ?: "unknown"} " +
+                        "requestId=${correlationId ?: "none"} · net=${NetworkTransports.current()}"
+                }
                 throw HermesApiException(
                     code = resp.code,
                     message = stableCode ?: body.ifBlank { "HTTP ${resp.code}" },
                     errorCode = stableCode,
+                    correlationId = correlationId,
                 )
             }
             if (!isQuietPath(path) || elapsed >= SLOW_REQUEST_MS) {

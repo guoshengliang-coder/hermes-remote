@@ -442,6 +442,7 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Hand-edited journal | A journal whose `updatedAt` is `2026-09-20T11:48:09Z` loads (no `HR-MIGRATE-002`), and the next Desktop transition rewrites it as `…09.000Z`; a non-RFC 3339 value still fails closed | Automated |
 | Keychain profile | App Token persists across restart and is never shown in visible UI | Verified locally and on target with disposable test Token 2026-09-02 |
 | Invalid App Token | End-to-end check reports `HR-AUTH-001` with recovery guidance | Automated + local/target UI verified 2026-09-02 |
+| Local Hermes unavailable behind an online Connector | End-to-end 502 from structured or legacy Connector reports retryable `HR-CONN-006`; raw body and request ID stay out of primary copy | Automated in `EndToEndProberTests`; live test stack pending |
 | v1 QR payload | JSON contains only compatible `v`, `url`, and `token` fields | Automated 2026-09-02 |
 | QR reveal | Real QR is hidden by default and carries an explicit long-lived-token warning | Local + target UI verified 2026-09-02; Android scan pending |
 | End-to-end success | Saved App Token reaches Gateway → Connector → Hermes through `/api/status` | Pending target production-token check |

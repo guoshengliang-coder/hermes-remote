@@ -1285,6 +1285,14 @@ must carry the exact `Origin`); keep it out of shell history.
 
 ### History paging (Android and Web; needs the real client against a long conversation)
 
+HG-151 diagnostic check: with a test Mac's Hermes stopped while its Connector stays online,
+open a history page on Android. The failure must show retryable `HR-CONN-006`; its copyable
+diagnostic contains a request UUID. The Connector `http.local_failure` and Gateway `http.tunnel`
+lines should have that same `requestId`, while the Connector line contains no local URL, request
+path, exception message, token, or response body. After Hermes resumes, Retry should load history.
+For a Hermes-originated 5xx, history must still show nonretryable `HR-SYNC-003`. Do this only on a
+test stack; stopping the production Mac service is not part of this check.
+
 4. **First page is 100 rows.** Open a conversation with more than 100 stored messages. The first
    history request (Gateway `http.tunnel` line, or the edge timing log from docs/DEPLOYMENT.md) is
    `GET …/api/sessions/<id>/messages?order=latest&limit=100&offset=0`, and the chat shows the newest

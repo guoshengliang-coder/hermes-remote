@@ -52,6 +52,8 @@ public extension HTTPHealthProber {
                 issue = DesktopIssue(code: .appTokenRejected, technicalCause: "HTTP \(http.statusCode)")
             case 503 where errorCode == "device_offline":
                 issue = DesktopIssue(code: .connectorOffline, technicalCause: "HTTP 503 error=device_offline")
+            case 502 where errorCode == "HR-CONN-006" || errorCode == "hermes_unreachable":
+                issue = DesktopIssue(code: .hermesUnavailable, technicalCause: "HTTP 502 error=HR-CONN-006")
             case 404:
                 issue = DesktopIssue(code: .invalidRelayURL, technicalCause: "HTTP 404")
             default:
@@ -87,7 +89,8 @@ public extension HTTPHealthProber {
     private func relayErrorCode(from data: Data) -> String? {
         guard data.count <= 16 * 1_024,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let value = object["error"] as? String,
+              let value = (object["error"] as? String)
+                ?? (object["error"] as? [String: Any])?["code"] as? String,
               value.count <= 128
         else { return nil }
         return value
