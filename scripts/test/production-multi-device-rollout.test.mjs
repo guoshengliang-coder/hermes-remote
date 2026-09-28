@@ -73,6 +73,17 @@ test("multi-device Nginx routes gzip JSON only on the device API location", () =
   assert.equal(routes.match(/gzip_types/g).length, 1);
 });
 
+test("multi-device upload route alone accepts 50 MiB before the generic API route", () => {
+  const routes = renderMultiDeviceNginxRoutes();
+  const upload = routes.indexOf("location ~ ^/v2/devices/[^/]+/api/files/upload$ {");
+  const generic = routes.indexOf("location ~ ^/v2/devices/[^/]+/api(?:/|$) {");
+  assert.ok(upload >= 0 && generic > upload);
+  const uploadBody = routes.slice(upload, generic);
+  assert.match(uploadBody, /client_max_body_size 50m;/);
+  assert.match(uploadBody, /proxy_read_timeout 600s;/);
+  assert.doesNotMatch(routes.slice(generic), /client_max_body_size 50m;/);
+});
+
 test("production multi-device rollout advances only the plural-device capability", async (t) => {
   const fixture = await createFixture(t);
   const calls = [];

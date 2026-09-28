@@ -232,6 +232,19 @@ location ~ ^/v2/devices/[^/]+/select-default$ {
     ${httpProxy}
 }
 
+location ~ ^/v2/devices/[^/]+/api/files/upload$ {
+    client_max_body_size 50m;
+    proxy_pass http://hermes_go_gateway_production;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 600s;
+    proxy_send_timeout 600s;
+}
+
 location ~ ^/v2/devices/[^/]+/api(?:/|$) {
     proxy_pass http://hermes_go_gateway_production;
     proxy_http_version 1.1;
