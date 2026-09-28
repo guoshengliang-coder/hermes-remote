@@ -69,6 +69,7 @@ import com.hermes.client.R
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedSummaryForValue
 import com.hermes.client.ui.theme.Motion
 import kotlinx.coroutines.delay
 
@@ -437,41 +438,18 @@ private fun FailureGroup(
 ) {
     val language = LocalAppLanguage.current
     val summary = when (state.failure) {
-        StartupFailure.DEVICE_OFFLINE -> localized(
-            language,
-            "当前网络不可用，请检查网络连接。",
-            "No usable network is available. Check your connection.",
-        )
-        StartupFailure.CONNECTION_FAILED -> localized(
-            language,
-            "暂时连不上服务，自动检测也未能确定原因。请重试。",
-            "Couldn't reach the service. Automatic checks couldn't find the cause. Retry.",
-        )
-        StartupFailure.ADDRESS_NOT_FOUND -> localized(
-            language,
-            "找不到服务地址，请切换 Wi-Fi 或移动网络后重试。",
-            "Couldn't find the service address. Switch networks and retry.",
-        )
-        StartupFailure.CONNECTION_TIMEOUT -> localized(
-            language,
-            "暂时连不上服务，请切换网络或稍后重试。",
-            "Couldn't reach the service. Switch networks or try again later.",
-        )
-        StartupFailure.SERVICE_UNAVAILABLE -> localized(
-            language,
-            "服务暂时无法正常响应，请稍后重试。",
-            "The service isn't responding normally. Try again later.",
-        )
-        StartupFailure.CONNECTION_FLAPPING -> localized(
-            language,
-            "连接时好时坏。应用已自动重试，请稍后再试。",
-            "The connection keeps changing. The app retried automatically; try again later.",
-        )
-        StartupFailure.CONNECTOR_OFFLINE -> localized(
-            language,
-            "你的电脑目前未连接，请打开电脑上的 Hermes Go。",
-            "Your computer isn't connected. Open Hermes Go on it.",
-        )
+        // The connection family resolves to the one registered catalogue (docs/ERROR_HANDLING.md,
+        // AppErrorLocalization), so the startup page, the health sheet and the chat banner cannot
+        // drift apart on the same code. This page used to be the second place each sentence was
+        // typed (HG-152).
+        StartupFailure.DEVICE_OFFLINE,
+        StartupFailure.CONNECTION_FAILED,
+        StartupFailure.ADDRESS_NOT_FOUND,
+        StartupFailure.CONNECTION_TIMEOUT,
+        StartupFailure.SERVICE_UNAVAILABLE,
+        StartupFailure.CONNECTION_FLAPPING,
+        StartupFailure.CONNECTOR_OFFLINE,
+        -> localizedSummaryForValue(state.failure.code, language) ?: state.failure.code
         StartupFailure.INITIAL_DATA_FAILED -> localized(
             language,
             "无法加载首屏数据，请重试。",

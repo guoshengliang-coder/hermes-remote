@@ -2137,6 +2137,13 @@ grant/挑战并要求重新获取验证码，不得清除仍有效的账号会�
   重试耗尽后才对适用的官方服务地址做两轮短时、无凭据健康检测；自定义服务地址不访问官方地址。
   检测结果不一致时只说明连接不稳定，不推断是手机还是服务器。主界面只说用户能理解的现象与操作，
   技术原因、端点和逐次结果留在诊断日志中。公开请求单次最多等待 2 秒；退出当前启动流程即取消其检测。
+- **文案点名环节**（HG-152，决策 2026-09-28）：诊断证据指向单一环节时，用户可见文案直接点名该环节
+  ——**手机网络**（`HR-CONN-001/008`）、**Relay**（`HR-CONN-003/010`）、**这台 Mac**（`HR-CONN-005`）、
+  **Mac 上的 Hermes**（`HR-CONN-006`、`HR-COMPAT-001~003`）；证据不足或互相矛盾时明说"暂时无法判断
+  是哪一端"（`HR-CONN-002/009/011`），不猜——这条不越过上一段 HG-139 的"不推断"规则，两者是同一件事的
+  两面：有证据就点名，没证据就说没有。连接家族原本在注册表、`AppErrorLocalization`、`HealthStrip`、
+  `StartupScreen` 各写一份，现已合并为一处（`AppErrorLocalization`，strip 另有短标签），出现场景与
+  所指环节见 `docs/ERROR_HANDLING.md` 的「Connection and diagnosis」一节。
 - **深浅**：由生效主题判定（§2.2）。底色是全 App 唯一必须与 window 资源一致的颜色
   （`@color/startup_background` 浅 `#F8FAFD` / `values-night` 深 `#0D141B` = surfaceContainerLowest dark），
   故浅深两组字面量成对写在 `StartupPalette`；次要色 `#74777F / #9AA0A8`，轨道 `#E7ECF6 / #2B323A`。

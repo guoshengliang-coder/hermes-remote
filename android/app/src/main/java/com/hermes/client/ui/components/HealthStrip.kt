@@ -24,12 +24,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.data.network.GatewayHealth
 import com.hermes.client.data.network.HermesContractNotice
 import com.hermes.client.data.network.HermesContractSeverity
 import com.hermes.client.data.network.isUnhealthy
 import com.hermes.client.ui.localization.AppLanguage
+import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedShortLabel
 import com.hermes.client.ui.localization.localizedSummary
+import com.hermes.client.ui.localization.localizedSummaryForValue
+
+/** The strip and sheet take a `zh` flag; the catalogue takes [AppLanguage]. */
+private fun language(zh: Boolean): AppLanguage = if (zh) AppLanguage.ZH else AppLanguage.EN
 
 /** Visual severity of the strip. Kept separate from color so it is unit-testable. */
 enum class HealthStripStyle { ERROR, NEUTRAL, NONE }
@@ -59,22 +66,33 @@ fun healthStripStyle(health: GatewayHealth, contract: HermesContractNotice? = nu
 /** Short strip label; null when nothing should show. */
 fun healthStripLabel(health: GatewayHealth, zh: Boolean = false, contract: HermesContractNotice? = null): String? =
     when (health) {
-        GatewayHealth.DeviceOffline -> if (zh) "设备已离线" else "You're offline"
-        is GatewayHealth.GatewayUnreachable ->
-            when (health.detail) {
-                "unauthorized" -> if (zh) "连接凭据无效" else "Connection credentials invalid"
-                "HR-CONN-008" -> if (zh) "找不到服务地址" else "Service address not found"
-                "HR-CONN-009" -> if (zh) "暂时连不上服务" else "Couldn't reach the service"
-                "HR-CONN-010" -> if (zh) "服务暂时无法响应" else "Service isn't responding"
-                "HR-CONN-011" -> if (zh) "连接时好时坏" else "Connection keeps changing"
-                else -> if (zh) "暂时连不上服务" else "Couldn't reach the service"
-            }
+        GatewayHealth.DeviceOffline -> AppErrorCode.DEVICE_OFFLINE.localizedShortLabel(language(zh))
+        is GatewayHealth.GatewayUnreachable -> unreachableStripLabel(health.detail, zh)
         is GatewayHealth.Healthy, GatewayHealth.Unknown -> when (contractShown(health, contract)?.severity) {
             HermesContractSeverity.BREAKING -> if (zh) "Mac 上的 Hermes 不兼容" else "Hermes on the Mac is incompatible"
             HermesContractSeverity.DEGRADED -> if (zh) "Mac 上的 Hermes 部分功能不可用" else "Some Hermes features are unavailable"
             null -> null
         }
     }
+
+/**
+ * Strip label for a gateway the probe could not reach. A diagnosed `HR-CONN-*` code resolves to
+ * its registered short form (docs/ERROR_HANDLING.md), so the strip names the link the diagnosis
+ * actually points at — the phone's network, the Relay, the Mac, or Hermes on the Mac — instead of
+ * re-typing that phrase here, where it used to drift from the sheet and the registry.
+ *
+ * The non-code details keep their own copy: `unauthorized` is an auth answer, not a diagnosis,
+ * and a probe that ran without the public-check client has no link to name at all.
+ */
+fun unreachableStripLabel(detail: String?, zh: Boolean = false): String {
+    val lang = language(zh)
+    return when (detail) {
+        "unauthorized" -> localized(lang, "连接凭据无效", "Connection credentials invalid")
+        null, "", "unreachable" -> localized(lang, "暂时连不上服务", "Couldn't reach the service")
+        else -> AppErrorCode.fromValue(detail)?.localizedShortLabel(lang)
+            ?: localized(lang, "暂时连不上服务", "Couldn't reach the service")
+    }
+}
 
 /** Localized name for a Connector feature key; an unknown key is named generically, never raw. */
 fun hermesContractFeatureLabel(feature: String, zh: Boolean): String = when (feature) {
@@ -130,22 +148,20 @@ private fun gatewaySheetBody(health: GatewayHealth, zh: Boolean): String = when 
     is GatewayHealth.GatewayUnreachable ->
         when (health.detail) {
             "unauthorized" -> if (zh) "连接凭据无效，请检查连接设置。" else "Connection credentials are invalid. Check connection settings."
-            "HR-CONN-008" -> if (zh) "找不到服务地址，请切换 Wi-Fi 或移动网络后重试。" else "Couldn't find the service address. Switch networks and retry."
-            "HR-CONN-009" -> if (zh) "暂时连不上服务，请切换网络或稍后重试。" else "Couldn't reach the service. Switch networks or try again later."
-            "HR-CONN-010" -> if (zh) "服务暂时无法正常响应，请稍后重试。" else "The service isn't responding normally. Try again later."
-            "HR-CONN-011" -> if (zh) "连接时好时坏。应用已自动重试，请稍后再试。" else "The connection keeps changing. The app retried automatically; try again later."
-            else -> if (zh) "暂时连不上服务，尚不能确定原因。请稍后重试。" else "Couldn't reach the service. The cause is unclear. Try again later."
+            null, "", "unreachable" -> if (zh) "暂时连不上服务，尚不能确定原因。请稍后重试。" else "Couldn't reach the service. The cause is unclear. Try again later."
+            else -> localizedSummaryForValue(health.detail, language(zh))
+                ?: if (zh) "暂时连不上服务，尚不能确定原因。请稍后重试。" else "Couldn't reach the service. The cause is unclear. Try again later."
         }
-    GatewayHealth.DeviceOffline -> if (zh) "设备当前没有网络，恢复后 Hermes 会自动重连。" else "Your device is offline — Hermes will reconnect automatically."
+    GatewayHealth.DeviceOffline -> AppErrorCode.DEVICE_OFFLINE.localizedSummary(language(zh))
     GatewayHealth.Unknown -> if (zh) "检查中…" else "Checking…"
 }
 
 fun healthErrorCode(health: GatewayHealth): String? = when (health) {
-    GatewayHealth.DeviceOffline -> "HR-CONN-001"
+    GatewayHealth.DeviceOffline -> AppErrorCode.DEVICE_OFFLINE.value
     is GatewayHealth.GatewayUnreachable -> when (health.detail) {
         "unauthorized" -> "HR-AUTH-001"
-        "HR-CONN-008", "HR-CONN-009", "HR-CONN-010", "HR-CONN-011" -> health.detail
-        else -> "HR-CONN-002"
+        // A diagnosed code is already the identity; an undiagnosed probe is the generic failure.
+        else -> AppErrorCode.fromValue(health.detail)?.value ?: AppErrorCode.CONNECTION_FAILED.value
     }
     is GatewayHealth.Healthy, GatewayHealth.Unknown -> null
 }

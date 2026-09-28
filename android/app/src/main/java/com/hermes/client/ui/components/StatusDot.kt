@@ -21,6 +21,7 @@ import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedSummary
 import com.hermes.client.ui.theme.StatusTone
 import com.hermes.client.ui.theme.statusColor
 
@@ -38,15 +39,28 @@ fun connectionLabel(state: ConnectionState, language: AppLanguage = AppLanguage.
     is ConnectionState.Error -> localized(language, "连接错误", "Connection error")
 }
 
-/** Friendlier, sentence-form copy for the chat offline/error banner (vs the terse [connectionLabel]). */
-fun bannerLabel(state: ConnectionState, zh: Boolean = false): String = when (state) {
-    ConnectionState.Disconnected ->
-        if (zh) "连接已中断，将自动恢复（HR-CONN-004）。" else "Connection interrupted; restoring automatically (HR-CONN-004)."
-    is ConnectionState.Error ->
-        if (zh) "暂时连不上服务（HR-CONN-002），请重试。" else "Couldn't reach the service (HR-CONN-002). Retry."
-    ConnectionState.Connecting -> if (zh) "正在连接服务…" else "Connecting to the service…"
-    ConnectionState.Reconnecting -> if (zh) "正在重新连接并恢复会话…" else "Reconnecting and restoring the conversation…"
-    ConnectionState.Connected -> if (zh) "已连接" else "Connected"
+/**
+ * Friendlier, sentence-form copy for the chat offline/error banner (vs the terse [connectionLabel]).
+ *
+ * The two coded states resolve to the registered connection copy rather than re-typing it, so the
+ * banner, the health sheet and the startup page can never disagree about the same code. The code
+ * stays inline because the banner has no room for a separate code line.
+ */
+fun bannerLabel(state: ConnectionState, zh: Boolean = false): String {
+    val language = if (zh) AppLanguage.ZH else AppLanguage.EN
+    return when (state) {
+        ConnectionState.Disconnected -> bannerLine(AppErrorCode.CONNECTION_INTERRUPTED, language)
+        is ConnectionState.Error -> bannerLine(AppErrorCode.CONNECTION_FAILED, language)
+        ConnectionState.Connecting -> localized(language, "正在连接服务…", "Connecting to the service…")
+        ConnectionState.Reconnecting -> localized(language, "正在重新连接并恢复会话…", "Reconnecting and restoring the conversation…")
+        ConnectionState.Connected -> localized(language, "已连接", "Connected")
+    }
+}
+
+/** A registered summary plus its stable code, the shape the chat banner uses for a coded state. */
+private fun bannerLine(code: AppErrorCode, language: AppLanguage): String {
+    val summary = AppError(code, retryable = true).localizedSummary(language)
+    return if (language == AppLanguage.ZH) "$summary（${code.value}）" else "$summary (${code.value})"
 }
 
 fun connectionBannerModel(state: ConnectionState, zh: Boolean = false): ConnectionBannerModel = when (state) {
