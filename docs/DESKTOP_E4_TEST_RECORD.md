@@ -1440,3 +1440,19 @@ removed after verification.
 This proves publication of the signed managed release, **not activation on a Mac**. No installed
 Connector was restarted or upgraded in this step. The Desktop 0.2.29 DMG remains an ad-hoc
 internal test build; no official notarized app-update release is implied.
+
+## 2026-09-28 managed 0.4.6 publication and Mac activation (HG-145)
+
+Managed release **0.4.6** carries Connector **0.1.11** from `1574c4a1`. The existing
+`desktop-internal-2026-a` key's derived public key matched the live manifests before signing;
+the private key remained on the controlled Mac. Both new manifests passed independent
+signature verification. Six immutable files were installed under the new version directory,
+downloaded in full from public HTTPS, and compared byte-for-byte before both signed indexes
+switched to 0.4.6. The previous 0.4.5 files and indexes remain available for rollback.
+
+The installed Mac mini used the Desktop 0.2.29 in-app update flow to download and verify the
+signed components, then activated 0.4.6 and reconnected. The managed release pointer selected
+`releases/0.4.6`, the running Connector came from that directory, and protected production
+account-Connector status showed two online connections. This verifies activation on that
+existing Mac. It does not verify a clean-Mac launch, Developer ID signing, notarization, or a
+new Desktop GUI app release.
