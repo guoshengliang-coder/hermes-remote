@@ -5,14 +5,30 @@ import com.hermes.client.data.error.AppErrorCode
 
 /** Product-safe error copy. Technical causes remain available only through diagnostics. */
 fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
+        AppErrorCode.DEVICE_OFFLINE ->
+            localized(
+                language,
+                "手机当前没有可用网络，请检查 Wi-Fi 或移动网络，恢复后会自动重连。",
+                "Your phone has no network. Check Wi-Fi or mobile data; the app reconnects once it's back.",
+            )
         AppErrorCode.CONNECTION_FAILED ->
-            localized(language, "暂时连不上服务，请重试。", "Couldn't reach the service. Retry.")
+            localized(language, "连不上服务，自动检测也没能确定原因，请重试。", "Couldn't reach the service, and automatic checks couldn't find the cause. Retry.")
         AppErrorCode.HANDSHAKE_TIMEOUT ->
-            localized(language, "Relay 已连接，但会话握手超时。", "The Relay connected, but the session handshake timed out.")
+            localized(language, "Relay 已连上，但会话握手超时，请重试。", "The Relay connected, but the session handshake timed out. Retry.")
         AppErrorCode.CONNECTION_INTERRUPTED ->
-            localized(language, "连接已中断，请重试。", "The connection was interrupted. Retry.")
+            localized(language, "连接中断，正在恢复会话。", "The connection was interrupted. Restoring the conversation.")
         AppErrorCode.CONNECTOR_OFFLINE ->
-            localized(language, "你的电脑目前未连接，请打开电脑上的 Hermes Go。", "Your computer isn't connected. Open Hermes Go on it.")
+            localized(
+                language,
+                "手机能连上服务，但你电脑上的 Hermes Go 没有连接，请在电脑上打开它。",
+                "The phone reached the service, but Hermes Go isn't connected on your computer. Open it there.",
+            )
+        AppErrorCode.CONNECTOR_HERMES_UNREACHABLE ->
+            localized(
+                language,
+                "已连上这台 Mac，但上面的 Hermes 没有响应，请在 Mac 上检查 Hermes。",
+                "Reached the Mac, but Hermes on it isn't responding. Check Hermes on the Mac.",
+            )
         AppErrorCode.CONNECTION_UNSTABLE ->
             localized(
                 language,
@@ -20,13 +36,17 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
                 "The connection keeps dropping, so this didn't go through. Try again later or check the Mac.",
             )
         AppErrorCode.ADDRESS_NOT_FOUND ->
-            localized(language, "找不到服务地址，请切换 Wi-Fi 或移动网络后重试。", "Couldn't find the service address. Switch networks and retry.")
+            localized(language, "手机解析不了服务地址，请切换 Wi-Fi 或移动网络后重试。", "Your phone can't resolve the service address. Switch Wi-Fi or mobile data and retry.")
         AppErrorCode.CONNECTION_TIMEOUT ->
-            localized(language, "暂时连不上服务，请切换网络或稍后重试。", "Couldn't reach the service. Switch networks or try again later.")
+            localized(language, "暂时连不上服务，请切换 Wi-Fi 或移动网络后重试。", "Couldn't reach the service. Switch Wi-Fi or mobile data and retry.")
         AppErrorCode.SERVICE_UNAVAILABLE ->
-            localized(language, "服务暂时无法正常响应，请稍后重试。", "The service isn't responding normally. Try again later.")
+            localized(language, "服务地址能访问，但 Relay 没有正常响应，请稍后重试。", "The service address responds, but the Relay isn't responding properly. Try again later.")
         AppErrorCode.CONNECTION_FLAPPING ->
-            localized(language, "连接时好时坏。应用已自动重试，请稍后再试。", "The connection keeps changing. The app retried automatically; try again later.")
+            localized(
+                language,
+                "连接时好时坏，暂时无法判断是哪一端的问题。应用已自动重试，请稍后再试。",
+                "The connection keeps changing, so the app can't tell which side is at fault yet. It retried automatically; try again later.",
+            )
         AppErrorCode.RPC_FAILED ->
             localized(language, "Relay 请求失败，请重试。", "The Relay request failed. Retry.")
         AppErrorCode.RPC_TIMEOUT ->
@@ -284,3 +304,57 @@ fun AppError.asLocalizedText(): LocalizedText = LocalizedText(
     zh = localizedMessage(AppLanguage.ZH),
     en = localizedMessage(AppLanguage.EN),
 )
+
+/**
+ * The registered explanation for a code, independent of any particular failure instance.
+ *
+ * Lets a surface that only holds a code render the catalogue sentence instead of re-typing it.
+ */
+fun AppErrorCode.localizedSummary(language: AppLanguage): String =
+    AppError(this, retryable = false).localizedSummary(language)
+
+/**
+ * Summary for a failure named only by its wire code, or null when this build does not know it.
+ *
+ * Code-string boundaries — a gateway health detail, a server error code — used to re-type the
+ * registered sentence next to the code, which is how one code's copy ended up in four files
+ * (docs/ERROR_HANDLING.md, this catalogue, HealthStrip, StartupScreen) and drifted. They resolve
+ * it here instead. Null means "not one of ours", and the caller keeps whatever fallback it has:
+ * never invent a meaning for a string this build cannot read.
+ */
+fun localizedSummaryForValue(value: String, language: AppLanguage): String? =
+    AppErrorCode.fromValue(value)?.localizedSummary(language)
+
+/**
+ * Short form for the strip and the chat banner, which have room for a phrase, not a sentence.
+ *
+ * Only the connection family has one: those codes are the ones a user meets while the app still
+ * looks usable, and the strip must say *which link* looks wrong (phone network, Relay, the Mac,
+ * Hermes on the Mac) without pretending to know more than the diagnosis does. Every other surface
+ * shows [localizedSummary] itself. Null means "no short form — render the summary".
+ */
+fun AppErrorCode.localizedShortLabel(language: AppLanguage): String? = when (this) {
+    AppErrorCode.DEVICE_OFFLINE ->
+        localized(language, "手机没有网络", "Phone has no network")
+    AppErrorCode.CONNECTION_FAILED ->
+        localized(language, "连不上服务", "Can't reach the service")
+    AppErrorCode.HANDSHAKE_TIMEOUT ->
+        localized(language, "会话握手超时", "Session handshake timed out")
+    AppErrorCode.CONNECTION_INTERRUPTED ->
+        localized(language, "连接中断", "Connection interrupted")
+    AppErrorCode.CONNECTOR_OFFLINE ->
+        localized(language, "电脑未连接", "Computer not connected")
+    AppErrorCode.CONNECTOR_HERMES_UNREACHABLE ->
+        localized(language, "Mac 上的 Hermes 没响应", "Hermes on the Mac isn't responding")
+    AppErrorCode.CONNECTION_UNSTABLE ->
+        localized(language, "连接反复中断", "Connection keeps dropping")
+    AppErrorCode.ADDRESS_NOT_FOUND ->
+        localized(language, "找不到服务地址", "Service address not found")
+    AppErrorCode.CONNECTION_TIMEOUT ->
+        localized(language, "连不上服务", "Can't reach the service")
+    AppErrorCode.SERVICE_UNAVAILABLE ->
+        localized(language, "服务没正常响应", "Service isn't responding properly")
+    AppErrorCode.CONNECTION_FLAPPING ->
+        localized(language, "连接时好时坏", "Connection keeps changing")
+    else -> null
+}

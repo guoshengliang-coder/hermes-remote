@@ -7,12 +7,15 @@ import org.junit.Test
 class BannerLabelTest {
     @Test fun disconnected_is_friendly() {
         assertEquals(
-            "Connection interrupted; restoring automatically (HR-CONN-004).",
+            "The connection was interrupted. Restoring the conversation. (HR-CONN-004)",
             bannerLabel(ConnectionState.Disconnected),
         )
     }
     @Test fun error_is_error_copy() {
-        assertEquals("Couldn't reach the service (HR-CONN-002). Retry.", bannerLabel(ConnectionState.Error("boom")))
+        assertEquals(
+            "Couldn't reach the service, and automatic checks couldn't find the cause. Retry. (HR-CONN-002)",
+            bannerLabel(ConnectionState.Error("boom")),
+        )
     }
     @Test fun connecting_is_a_nonTerminal_progress_message() {
         assertEquals("Connecting to the service…", bannerLabel(ConnectionState.Connecting))
@@ -39,7 +42,7 @@ class BannerLabelTest {
             connectionBannerModel(ConnectionState.Error("boom"), zh = true).error!!.code.value,
         )
         assertEquals(
-            "连接已中断，将自动恢复（HR-CONN-004）。",
+            "连接中断，正在恢复会话。（HR-CONN-004）",
             bannerLabel(ConnectionState.Disconnected, zh = true),
         )
     }

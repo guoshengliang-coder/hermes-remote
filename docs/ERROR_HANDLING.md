@@ -132,17 +132,17 @@ expanded without changing the underlying meaning.
 
 | Code | Condition | Default Chinese explanation | Default English explanation | Retryable |
 |---|---|---|---|---|
-| `HR-CONN-001` | Device has no usable network **and the gateway probe also failed** (a capability read alone never decides — see docs/DESIGN.md) | 当前网络不可用，请检查网络连接。 | No usable network is available. Check your connection. | Yes |
-| `HR-CONN-002` | WebSocket connection failed | 暂时连不上服务，将自动重试。 | Couldn't reach the service. Retrying automatically. | Yes |
-| `HR-CONN-003` | `gateway.ready` handshake timed out | Relay 已连接，但会话握手超时。 | The Relay connected, but the session handshake timed out. | Yes |
-| `HR-CONN-004` | Connection was interrupted during an operation | 连接中断，正在恢复会话。 | The connection was interrupted. Restoring the conversation. | Yes |
-| `HR-CONN-005` | Relay is reachable but the Mac Connector is offline | 你的电脑目前未连接，请打开电脑上的 Hermes Go。 | Your computer isn't connected. Open Hermes Go on it. | Yes |
-| `HR-CONN-006` | The selected account device is online or known, but its reported Hermes service is unreachable | Hermes 当前不可访问，请检查这台 Mac 上的 Hermes 服务。 | Hermes is unavailable. Check the Hermes service on this Mac. | Yes |
+| `HR-CONN-001` | Device has no usable network **and the gateway probe also failed** (a capability read alone never decides — see docs/DESIGN.md). Failing link: **the phone's own network** | 手机当前没有可用网络，请检查 Wi-Fi 或移动网络，恢复后会自动重连。 | Your phone has no network. Check Wi-Fi or mobile data; the app reconnects once it's back. | Yes |
+| `HR-CONN-002` | WebSocket connection failed and the bounded diagnosis reached no stronger verdict, so **no single failing link can be named**. The copy says so rather than blaming the network or the server | 连不上服务，自动检测也没能确定原因，请重试。 | Couldn't reach the service, and automatic checks couldn't find the cause. Retry. | Yes |
+| `HR-CONN-003` | `gateway.ready` handshake timed out — the Relay accepted the socket but the session handshake did not finish. Failing link: the **Relay↔Mac handshake**, not the phone's connection | Relay 已连上，但会话握手超时，请重试。 | The Relay connected, but the session handshake timed out. Retry. | Yes |
+| `HR-CONN-004` | Connection was interrupted during an operation; the foreground owner reconnects on its own, so this is presented as a progress state carrying a code, not as a failure | 连接中断，正在恢复会话。 | The connection was interrupted. Restoring the conversation. | Yes |
+| `HR-CONN-005` | Relay is reachable but the Mac Connector is offline. Failing link: **the Mac**. The phone and the Relay are fine, and the copy says both so the owner knows where to look | 手机能连上服务，但你电脑上的 Hermes Go 没有连接，请在电脑上打开它。 | The phone reached the service, but Hermes Go isn't connected on your computer. Open it there. | Yes |
+| `HR-CONN-006` | The selected account device is online or known, but the Hermes service it reports is unreachable. Failing link: **Hermes on that Mac**, not the transport | 已连上这台 Mac，但上面的 Hermes 没有响应，请在 Mac 上检查 Hermes。 | Reached the Mac, but Hermes on it isn't responding. Check Hermes on the Mac. | Yes |
 | `HR-CONN-007` | The transport keeps being accepted and dropped, so the operation died with whichever connection carried it and retrying now lands on the next one. Only claimed once the client has counted three connections in a row that closed without answering anything (`HermesGatewayClient.consecutiveDroppedConnections`); a single drop stays `HR-CONN-004`. HG-65: 197 closes in 24 minutes, every one of them after a successful handshake, while nine `session.create` calls went unanswered and the user saw only a transport code | 连接反复中断，这次操作没能完成，请稍后重试或检查 Mac 端。 | The connection keeps dropping, so this didn't go through. Try again later or check the Mac. | Yes |
-| `HR-CONN-008` | Repeated status probes fail at hostname resolution, with no contradictory successful probe | 找不到服务地址，请切换 Wi-Fi 或移动网络后重试。 | Couldn't find the service address. Switch networks and retry. | Yes |
-| `HR-CONN-009` | Repeated status probes cannot establish a connection or time out, with no stronger diagnosis | 暂时连不上服务，请切换网络或稍后重试。 | Couldn't reach the service. Switch networks or try again later. | Yes |
-| `HR-CONN-010` | Public service entry responds, but the service health or status route repeatedly fails | 服务暂时无法正常响应，请稍后重试。 | The service isn't responding normally. Try again later. | Yes |
-| `HR-CONN-011` | Repeated connection or health checks disagree, so a single failure location cannot be determined | 连接时好时坏。应用已自动重试，请稍后再试。 | The connection keeps changing. The app retried automatically; try again later. | Yes |
+| `HR-CONN-008` | Repeated status probes fail at hostname resolution, with no contradictory successful probe. Failing link: **the phone's network cannot resolve the service address** | 手机解析不了服务地址，请切换 Wi-Fi 或移动网络后重试。 | Your phone can't resolve the service address. Switch Wi-Fi or mobile data and retry. | Yes |
+| `HR-CONN-009` | Repeated status probes cannot establish a connection or time out, with no stronger diagnosis. **Neither the phone's network nor the service can be named on this evidence alone**, so the copy names neither | 暂时连不上服务，请切换 Wi-Fi 或移动网络后重试。 | Couldn't reach the service. Switch Wi-Fi or mobile data and retry. | Yes |
+| `HR-CONN-010` | Public service entry responds, but the Relay's own health or status route repeatedly fails. Failing link: **the Relay**. The address and the phone's network are fine | 服务地址能访问，但 Relay 没有正常响应，请稍后重试。 | The service address responds, but the Relay isn't responding properly. Try again later. | Yes |
+| `HR-CONN-011` | Repeated connection or health checks disagree, so **a single failing link cannot be determined**; the copy deliberately names no side (HG-139) | 连接时好时坏，暂时无法判断是哪一端的问题。应用已自动重试，请稍后再试。 | The connection keeps changing, so the app can't tell which side is at fault yet. It retried automatically; try again later. | Yes |
 | `HR-COMPAT-001` | The Connector's contract check (`docs/HERMES_CONTRACT.md` §2, "Connector contract check") found a **required** route — status, the session list, or a conversation's history — missing from the Mac's Hermes `openapi.json`. Hermes GO no longer pins Hermes, so this is the owner's `hermes update` having moved an upstream route the app cannot work without. Reported only on a readable schema: an unreachable or unreadable one is `unknown` and shows nothing. The Connector keeps relaying; the phone lights the health strip and names the missing features in its sheet. Diagnostics carry `METHOD path` per missing route, the Hermes version and the minimum — no upstream text | 这台 Mac 上的 Hermes 与 Hermes GO 不兼容，会话或历史记录可能无法打开。请更新 Hermes GO，或把 Hermes 恢复到兼容版本。 | The Hermes on this Mac isn't compatible with Hermes GO, so conversations or history may not open. Update Hermes GO, or return Hermes to a compatible version. | No (update Hermes GO or Hermes) |
 | `HR-COMPAT-002` | The contract check found only **optional** routes missing (scheduled tasks, skills, messaging channels, models, search, …): chat still works, the named features may fail. Same detection and reporting as `HR-COMPAT-001`; the sheet lists the affected features | 这台 Mac 上的 Hermes 缺少部分接口，定时任务、技能等部分功能可能无法使用；聊天不受影响。 | The Hermes on this Mac is missing some interfaces, so features such as scheduled tasks or skills may not work. Chat is unaffected. | No (update Hermes GO or Hermes) |
 | `HR-COMPAT-003` | Every route the app calls is present, but `/api/status` reports a Hermes older than `MINIMUM_HERMES_VERSION` (`connector/src/hermes-contract.ts`, the version the contract was verified on). Not known to be broken — only unverified — so it degrades rather than blocks. A version the check cannot parse never raises this | 这台 Mac 上的 Hermes 版本低于 Hermes GO 已验证的最低版本，部分功能可能异常。请更新 Hermes。 | The Hermes on this Mac is older than the oldest version Hermes GO was verified with, so some features may misbehave. Update Hermes. | No (update Hermes) |
@@ -350,6 +350,44 @@ expanded without changing the underlying meaning.
 | `HR-MSG-009` | **RETIRED (HG-34, 2026-09-12): the 转到消息渠道 handoff feature was deleted, so nothing in this repo emits this code any more. The number stays allocated and must never be reused.** Handoff refused because one is already in flight for this conversation (4027) | 已经有一次转移在进行，稍后再试。 | A move is already in flight. Try again shortly. | Yes |
 | `HR-UNKNOWN-001` | Unmapped boundary failure | 出现未知错误，请复制诊断信息协助定位。 | An unknown error occurred. Copy diagnostics to help investigate. | Depends |
 
+
+### Connection and diagnosis: what each code points at (HG-152)
+
+A user who cannot connect should be able to tell **which link** failed — the phone's network, the
+Relay, the Mac, or Hermes on the Mac — instead of only being told "can't connect, retry". The
+diagnosis (Android `ConnectionDiagnostics`, then `GatewayHealthMonitor`) already distinguishes these
+cases; this table records the mapping so the copy stays tied to the evidence that produced it.
+
+The rule from `docs/DESIGN.md` §5.11 (HG-139) still holds: **name a link only when the evidence
+points at one.** When the bounded checks disagree, the copy must not guess between the phone and the
+server.
+
+| Code | Diagnosis behind it | Link it names | Recovery offered |
+|---|---|---|---|
+| `HR-CONN-001` | No usable network **and** the probe failed | the phone's network | check Wi-Fi/mobile data; reconnects by itself |
+| `HR-CONN-002` | WebSocket failed, bounded diagnosis reached no verdict | none — says the cause is undetermined | retry |
+| `HR-CONN-003` | `gateway.ready` timed out | the Relay↔Mac handshake | retry |
+| `HR-CONN-004` | Connection dropped mid-operation | none; a self-healing progress state | automatic reconnect |
+| `HR-CONN-005` | Relay reachable, Mac Connector offline | the Mac | open Hermes Go on the Mac |
+| `HR-CONN-006` | Device known, its Hermes service unreachable | Hermes on the Mac | check Hermes on the Mac |
+| `HR-CONN-007` | Repeated accept-then-drop | the connection, with the Mac as the place to look | retry, or check the Mac |
+| `HR-CONN-008` | Hostname resolution fails | the phone's network / the address | switch Wi-Fi or mobile data |
+| `HR-CONN-009` | Connect fails or times out, no stronger verdict | none — either side is possible | switch Wi-Fi or mobile data |
+| `HR-CONN-010` | Public entry answers, the Relay health/status route fails | the Relay | try again later |
+| `HR-CONN-011` | Checks disagree | none — the copy says so explicitly | automatic retry already happened |
+| `HR-COMPAT-001/002/003` | Connector contract check against the Mac's own Hermes | Hermes on the Mac (version / interfaces) | update Hermes GO or Hermes |
+
+One copy, one place. These sentences live in `android/.../ui/localization/AppErrorLocalization.kt`;
+the health strip, the health sheet, the startup failure page, the chat banner and the account-device
+error text all resolve them from there (`localizedSummary`, `localizedSummaryForValue`,
+`localizedShortLabel`). Before HG-152 the same sentence was typed in four files and had already
+drifted — `HR-CONN-002` read "将自动重试" in this registry while the app said "请重试". Changing a
+connection code means changing its registry row and its `AppErrorCode` entry; the surfaces follow.
+
+Not in this pass: the connection-settings "test connection" feedback
+(`ui/settings/ConnectionSettingsViewModel.kt`) keeps its own shorter, action-specific lines. It is
+per-action feedback on the settings screen the user is already editing, not a registered failure
+surface, and it names the code inline.
 
 ### Artifact download failures (decision 2026-09-05)
 

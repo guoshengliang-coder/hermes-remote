@@ -2,6 +2,10 @@ package com.hermes.client.data.error
 
 /** Stable product error identifiers. Meanings are registered in docs/ERROR_HANDLING.md. */
 enum class AppErrorCode(val value: String) {
+    // The device has no usable network and the gateway probe failed too. Registered since the code
+    // existed; the app carried it as a bare string (StartupFailure.DEVICE_OFFLINE, the health
+    // strip's HR-CONN-001) until HG-152, so it had no summary of its own to share.
+    DEVICE_OFFLINE("HR-CONN-001"),
     CONNECTION_FAILED("HR-CONN-002"),
     // The Relay accepted the socket and then never said `gateway.ready`, so the RPC was never
     // sent. Registered since the code existed; nothing produced it until HG-42, where every
@@ -10,6 +14,10 @@ enum class AppErrorCode(val value: String) {
     HANDSHAKE_TIMEOUT("HR-CONN-003"),
     CONNECTION_INTERRUPTED("HR-CONN-004"),
     CONNECTOR_OFFLINE("HR-CONN-005"),
+    // The account's device is online, but the Hermes service it reports is unreachable. The Relay
+    // and Connector are fine, so this is the one code that points at the Mac's own Hermes rather
+    // than at the transport. Registered since the code existed; HG-152 gave it a typed entry.
+    CONNECTOR_HERMES_UNREACHABLE("HR-CONN-006"),
     // Not a single drop (that is CONNECTION_INTERRUPTED): the socket keeps being accepted and then
     // dropped, so the operation dies with whichever connection happened to carry it and retrying
     // right now lands on the next one. Only claimed when the client has actually counted repeated

@@ -92,7 +92,7 @@ class StartupScreenTest {
     @Test fun failureShowsCodeOnItsOwnLineHidesProgressAndRetries() {
         show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.CONNECTOR_OFFLINE))
         advance(600)
-        compose.onNodeWithText("你的电脑目前未连接，请打开电脑上的 Hermes Go。").assertIsDisplayed()
+        compose.onNodeWithText("手机能连上服务，但你电脑上的 Hermes Go 没有连接，请在电脑上打开它。").assertIsDisplayed()
         compose.onNodeWithText("HR-CONN-005").assertIsDisplayed()
         compose.onNode(progressBar).assertDoesNotExist()
 
@@ -103,21 +103,21 @@ class StartupScreenTest {
     @Test fun addressFailureUsesPlainCopyWithItsStableCode() {
         show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.ADDRESS_NOT_FOUND))
         advance(600)
-        compose.onNodeWithText("找不到服务地址，请切换 Wi-Fi 或移动网络后重试。").assertIsDisplayed()
+        compose.onNodeWithText("手机解析不了服务地址，请切换 Wi-Fi 或移动网络后重试。").assertIsDisplayed()
         compose.onNodeWithText("HR-CONN-008").assertIsDisplayed()
     }
 
     @Test fun serviceFailureUsesPlainCopyWithItsStableCode() {
         show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.SERVICE_UNAVAILABLE))
         advance(600)
-        compose.onNodeWithText("服务暂时无法正常响应，请稍后重试。").assertIsDisplayed()
+        compose.onNodeWithText("服务地址能访问，但 Relay 没有正常响应，请稍后重试。").assertIsDisplayed()
         compose.onNodeWithText("HR-CONN-010").assertIsDisplayed()
     }
 
     @Test fun fluctuatingFailureUsesPlainCopyWithItsStableCode() {
         show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.CONNECTION_FLAPPING))
         advance(600)
-        compose.onNodeWithText("连接时好时坏。应用已自动重试，请稍后再试。").assertIsDisplayed()
+        compose.onNodeWithText("连接时好时坏，暂时无法判断是哪一端的问题。应用已自动重试，请稍后再试。").assertIsDisplayed()
         compose.onNodeWithText("HR-CONN-011").assertIsDisplayed()
     }
 
@@ -125,7 +125,7 @@ class StartupScreenTest {
         language.value = AppLanguage.EN
         show(StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.CONNECTION_TIMEOUT))
         advance(600)
-        compose.onNodeWithText("Couldn't reach the service. Switch networks or try again later.").assertIsDisplayed()
+        compose.onNodeWithText("Couldn't reach the service. Switch Wi-Fi or mobile data and retry.").assertIsDisplayed()
         compose.onNodeWithText("HR-CONN-009").assertIsDisplayed()
     }
 
@@ -143,7 +143,7 @@ class StartupScreenTest {
         advance(1_200)
         state.value = StartupUiState.Failed(StartupReason.COLD_START, StartupFailure.ADDRESS_NOT_FOUND)
         advance(600)
-        compose.onNodeWithText("找不到服务地址，请切换 Wi-Fi 或移动网络后重试。").assertIsDisplayed()
+        compose.onNodeWithText("手机解析不了服务地址，请切换 Wi-Fi 或移动网络后重试。").assertIsDisplayed()
         compose.onNodeWithText("HR-CONN-008").assertIsDisplayed()
     }
 

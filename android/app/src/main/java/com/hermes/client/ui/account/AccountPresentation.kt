@@ -9,8 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.hermes.client.data.error.AppErrorCode
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localized
+import com.hermes.client.ui.localization.localizedSummary
 
 /** Copy shared by the sign-in page, the device picker and the account settings page. */
 
@@ -43,7 +45,7 @@ internal fun accountErrorText(
         "HR-BIND-001" -> localized(language, "这个账号还没有连接 Desktop，请先在 Mac 上打开 Hermes Go Desktop。", "This account has no Desktop connection yet. Open Hermes Go Desktop on the Mac.")
         "HR-BIND-009" -> localized(language, "请先选择要使用的 Mac。", "Choose which Mac to use.")
         "HR-BIND-011" -> localized(language, "这台 Mac 已无法由当前账号使用，请选择其他设备。", "That Mac is no longer available to this account. Choose another device.")
-        "HR-CONN-005" -> localized(language, "Mac 当前离线，请启动 Hermes Go Desktop 后重试。", "The Mac is offline. Start Hermes Go Desktop and try again.")
+        "HR-CONN-005" -> AppErrorCode.CONNECTOR_OFFLINE.localizedSummary(language)
         else -> localized(language, "账号服务暂时不可用，请稍后重试。", "The account service is temporarily unavailable. Try again shortly.")
     }
 }

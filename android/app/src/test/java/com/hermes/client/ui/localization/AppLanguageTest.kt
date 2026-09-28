@@ -1,6 +1,8 @@
 package com.hermes.client.ui.localization
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.hermes.client.data.error.AppError
@@ -69,8 +71,49 @@ class AppLanguageTest {
 
     @Test fun connectorOffline_hasLocalizedRetryableCopy() {
         val error = AppError(AppErrorCode.CONNECTOR_OFFLINE, retryable = true)
-        assertTrue(error.localizedMessage(AppLanguage.ZH).contains("电脑目前未连接"))
-        assertTrue(error.localizedMessage(AppLanguage.EN).contains("computer isn't connected"))
+        assertTrue(error.localizedMessage(AppLanguage.ZH).contains("电脑上的 Hermes Go 没有连接"))
+        assertTrue(error.localizedMessage(AppLanguage.EN).contains("Hermes Go isn't connected"))
         assertTrue(error.localizedMessage(AppLanguage.ZH).contains("HR-CONN-005"))
+    }
+
+    /**
+     * HG-152: a code-string boundary resolves the registered sentence instead of re-typing it, and
+     * the strip's short form names the link the diagnosis points at.
+     */
+    @Test fun connectionCodesResolveFromTheirWireValueAndCarryAShortForm() {
+        assertEquals(
+            AppError(AppErrorCode.SERVICE_UNAVAILABLE, retryable = false).localizedSummary(AppLanguage.ZH),
+            localizedSummaryForValue("HR-CONN-010", AppLanguage.ZH),
+        )
+        assertNull(localizedSummaryForValue("HR-UNKNOWN-999", AppLanguage.ZH))
+        assertEquals("服务没正常响应", AppErrorCode.SERVICE_UNAVAILABLE.localizedShortLabel(AppLanguage.ZH))
+        assertEquals("Phone has no network", AppErrorCode.DEVICE_OFFLINE.localizedShortLabel(AppLanguage.EN))
+        // Only the connection family has a short form; every other surface shows the summary.
+        assertNull(AppErrorCode.SEARCH_FAILED.localizedShortLabel(AppLanguage.ZH))
+    }
+
+    @Test fun everyConnectionCodeHasADistinctBilingualSummaryAndShortLabel() {
+        val codes = listOf(
+            AppErrorCode.DEVICE_OFFLINE,
+            AppErrorCode.CONNECTION_FAILED,
+            AppErrorCode.HANDSHAKE_TIMEOUT,
+            AppErrorCode.CONNECTION_INTERRUPTED,
+            AppErrorCode.CONNECTOR_OFFLINE,
+            AppErrorCode.CONNECTOR_HERMES_UNREACHABLE,
+            AppErrorCode.CONNECTION_UNSTABLE,
+            AppErrorCode.ADDRESS_NOT_FOUND,
+            AppErrorCode.CONNECTION_TIMEOUT,
+            AppErrorCode.SERVICE_UNAVAILABLE,
+            AppErrorCode.CONNECTION_FLAPPING,
+        )
+        val summaries = mutableSetOf<String>()
+        for (code in codes) {
+            val error = AppError(code, retryable = true)
+            val zh = error.localizedSummary(AppLanguage.ZH)
+            assertTrue("${code.value} zh must be Chinese", zh.any { it.code > 0x4E00 })
+            assertTrue("${code.value} must differ per language", zh != error.localizedSummary(AppLanguage.EN))
+            assertTrue("${code.value} must not reuse another summary", summaries.add(zh))
+            assertNotNull("${code.value} needs a short form", code.localizedShortLabel(AppLanguage.ZH))
+        }
     }
 }
