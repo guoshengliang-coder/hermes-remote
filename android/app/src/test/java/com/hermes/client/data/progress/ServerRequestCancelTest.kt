@@ -60,7 +60,7 @@ class ServerRequestCancelTest {
 
     @Test fun a_cancel_tears_down_the_named_card_and_probes_the_run() = runTest {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         every { chat.events } returns events
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         // The probe's answer is not what is under test; hold it so the phase the cancel itself set
@@ -98,7 +98,7 @@ class ServerRequestCancelTest {
     /** With two approvals open, answering the first must leave the run waiting on the second. */
     @Test fun answering_one_of_two_queued_approvals_keeps_the_run_waiting_on_the_next() = runTest {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         every { chat.events } returns events
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)
@@ -126,7 +126,7 @@ class ServerRequestCancelTest {
     }
 
     private fun storeWith(events: MutableSharedFlow<ServerEvent>, scope: CoroutineScope): SessionRuntimeStore {
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         every { chat.events } returns events
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)

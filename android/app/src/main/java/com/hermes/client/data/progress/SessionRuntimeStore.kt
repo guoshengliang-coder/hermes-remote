@@ -12,6 +12,7 @@ import com.hermes.client.data.network.todoCounts
 import com.hermes.client.data.diagnostics.DebugLog
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ActiveSessionStatus
 import com.hermes.client.data.repository.PersistedClarify
 import com.hermes.client.data.repository.PersistedQuestion
 import com.hermes.client.data.repository.ProfileManager
@@ -258,6 +259,11 @@ class SessionRuntimeStore(
     @Volatile private var appInForeground = false
     @Volatile private var connected = false
     private val lastProbeAt = ConcurrentHashMap<SessionRuntimeKey, Long>()
+    /** A completed observer turn cannot be reopened by delayed socket deltas from that turn. */
+    private val observedTerminalFence = ConcurrentHashMap.newKeySet<SessionRuntimeKey>()
+    private val fenceProbeJobs = ConcurrentHashMap.newKeySet<SessionRuntimeKey>()
+    /** Compare Connector timestamps only with other Connector timestamps, never the phone clock. */
+    private val lastLifecycleOccurred = ConcurrentHashMap<SessionRuntimeKey, Long>()
     /**
      * Throttle for [onSessionsChanged]. The broadcast arrives in bursts — one per list mutation
      * upstream makes — and it names no session, so unlike [lastProbeAt] there is nothing to key it
@@ -605,6 +611,8 @@ class SessionRuntimeStore(
         }
         val retained = _runtimes.value.keys
         aliases.entries.filter { it.value !in retained }.forEach { aliases.remove(it.key, it.value) }
+        observedTerminalFence.retainAll(retained)
+        lastLifecycleOccurred.keys.removeIf { it !in retained }
         if (lastActiveKey !in retained) lastActiveKey = null
         replayPending(sessionId)
         return key
@@ -646,6 +654,8 @@ class SessionRuntimeStore(
         // conversation lands on the runtime that inherited its work instead of being dropped.
         aliases.entries.filter { it.value == old }.forEach { aliases[it.key] = next }
         aliases[newSessionId] = next
+        if (observedTerminalFence.remove(old)) observedTerminalFence.add(next)
+        lastLifecycleOccurred.remove(old)?.let { lastLifecycleOccurred[next] = it }
         if (visible.remove(old)) visible.add(next)
         if (lastActiveKey == old) lastActiveKey = next
         replayPending(newSessionId)
@@ -688,6 +698,7 @@ class SessionRuntimeStore(
             visible -= key
         }
         _visibleSessions.value = visible.toSet()
+        if (value && appInForeground) scheduleWatchdog()
     }
 
     /**
@@ -703,6 +714,8 @@ class SessionRuntimeStore(
         // slept is asked about now instead of whenever the inbox next gets polled.
         if (foreground) {
             probeActiveRuntimes(reason = "foreground", staleOnly = false)
+            visible.filter { _runtimes.value[it]?.phase?.isActive != true }
+                .forEach { key -> appScope.launch { probe(key, includeIdle = true) } }
             scheduleWatchdog()
         }
     }
@@ -720,6 +733,8 @@ class SessionRuntimeStore(
         cause: String = "session.access",
     ) {
         val running = access.running ?: return
+        if (running) observedTerminalFence.remove(key)
+        else if (_runtimes.value[key]?.phase?.isActive == true) observedTerminalFence.add(key)
         updateRuntime(key, cause = cause) { runtime ->
             val wasActive = runtime.phase.isActive
             val nextPhase = if (running) {
@@ -767,12 +782,10 @@ class SessionRuntimeStore(
         }
 
     /**
-     * Ask Hermes whether a run the store still believes is active really is. A successful
-     * `session.resume` makes Hermes emit `session.info{running}`, which the normal event fold
-     * settles: `running:false` retires the phase and (via normalization) closes the bubble. The
-     * store never invents a terminal state from a transport error — only a run that has been
-     * silent past [ACTIVE_RUN_HARD_CAP_MS] and failed to answer twice is marked interrupted, so
-     * a row cannot spin forever after the Mac disappears.
+     * Ask the same read-only Hermes snapshot used by Desktop and the Connector whether this turn
+     * is working, waiting, or idle. On older Hermes, fall back to resume/access and transcript
+     * reconciliation. A transport error never invents a terminal state: the old hard-cap policy
+     * still needs two failed probes before marking an unreachable run interrupted.
      */
     suspend fun probe(
         key: SessionRuntimeKey,
@@ -789,9 +802,26 @@ class SessionRuntimeStore(
         // minutes while the phone showed nothing, and no probe would ever have asked (HG-57).
         if (!believedActive && !includeIdle) return ProbeResult.IDLE
         if (!connected) return ProbeResult.OFFLINE
+        if (!isCurrentDeviceRoute(key)) return ProbeResult.OFFLINE
         val now = clock()
         if (!force && now - (lastProbeAt[key] ?: 0L) < PROBE_MIN_INTERVAL_MS) return ProbeResult.RATE_LIMITED
         lastProbeAt[key] = now
+        // Desktop and the Connector observer read this same in-memory snapshot. It reports both
+        // directions of change without attaching the phone to a PC-owned conversation.
+        val liveStatus = readActiveStatus(key)
+        if (liveStatus == ActiveSessionStatus.STARTING && !believedActive) return ProbeResult.PROBED
+        if (liveStatus != null && liveStatus != ActiveSessionStatus.STARTING) {
+            // An async answer must not overwrite a newer event or a fresh local prompt.
+            val current = _runtimes.value[key]
+            if (current === runtime && isCurrentDeviceRoute(key) &&
+                !(liveStatus == ActiveSessionStatus.IDLE && runtime.phase == SessionRunPhase.SUBMITTING &&
+                    runtime.startedLocally && now - runtime.lastEventAt < SUBMITTING_SNAPSHOT_GRACE_MS)
+            ) {
+                applyActiveStatus(key, liveStatus)
+                probeFailures.remove(key)
+            }
+            return ProbeResult.PROBED
+        }
         return runCatching { chatRepository.resume(key.sessionId, key.profile) }
             .fold(
                 onSuccess = { handle ->
@@ -827,6 +857,70 @@ class SessionRuntimeStore(
                     } else ProbeResult.FAILED
                 },
             )
+    }
+
+    private suspend fun readActiveStatus(key: SessionRuntimeKey): ActiveSessionStatus? {
+        return try {
+            // Upstream accepts `profile` but its response does not include one. If this client
+            // knows the stored id under two profiles on this Mac, a bare-id match is unsafe.
+            if (_runtimes.value.keys.any { other ->
+                    other != key && other.sessionId == key.sessionId &&
+                        other.deviceId == key.deviceId && other.profile != key.profile
+                }) return null
+            val matches = chatRepository.activeSessions(key.profile).sessions
+                .filter { it.storedId == key.sessionId }
+            when (matches.size) {
+                0 -> ActiveSessionStatus.IDLE
+                1 -> matches.single().status
+                else -> null // The snapshot has no profile; duplicate stored ids are ambiguous.
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            DebugLog.log("session", "active_list s=${key.sessionId} unavailable: ${error.message}")
+            null // Older Hermes: retain the resume/access/history compatibility path.
+        }
+    }
+
+    private fun applyActiveStatus(key: SessionRuntimeKey, status: ActiveSessionStatus) {
+        val wasActive = _runtimes.value[key]?.phase?.isActive == true
+        if (status == ActiveSessionStatus.IDLE && wasActive) observedTerminalFence.add(key)
+        else if (status != ActiveSessionStatus.IDLE) observedTerminalFence.remove(key)
+        val now = clock()
+        updateRuntime(key, cause = "active_list:${status.name.lowercase()}") { runtime ->
+            val nextPhase = when (status) {
+                ActiveSessionStatus.WORKING -> when (runtime.phase) {
+                    SessionRunPhase.SUBMITTING, SessionRunPhase.THINKING,
+                    SessionRunPhase.STREAMING, SessionRunPhase.USING_TOOL -> runtime.phase
+                    else -> SessionRunPhase.THINKING
+                }
+                ActiveSessionStatus.WAITING -> when (runtime.phase) {
+                    SessionRunPhase.WAITING_APPROVAL, SessionRunPhase.WAITING_CLARIFICATION -> runtime.phase
+                    else -> SessionRunPhase.WAITING_ATTENTION
+                }
+                ActiveSessionStatus.IDLE -> when {
+                    !runtime.phase.isActive -> runtime.phase
+                    isWatched(key) -> SessionRunPhase.IDLE
+                    else -> SessionRunPhase.COMPLETED_UNREAD
+                }
+                ActiveSessionStatus.STARTING -> runtime.phase
+            }
+            runtime.copy(
+                phase = nextPhase,
+                toolName = if (status == ActiveSessionStatus.IDLE) null else runtime.toolName,
+                startedLocally = if (status == ActiveSessionStatus.IDLE) false else runtime.startedLocally,
+                runStartedAt = if (nextPhase.isActive) runtime.runStartedAt ?: now else null,
+                lastEventAt = now,
+                lastTerminalAt = if (status == ActiveSessionStatus.IDLE && wasActive) now else runtime.lastTerminalAt,
+                occurredAt = if (nextPhase != runtime.phase) now else runtime.occurredAt,
+            )
+        }
+        if (status == ActiveSessionStatus.IDLE && wasActive) {
+            if (isWatched(key)) markRead(key) else markUnread(key)
+            _runtimes.value[key]?.let {
+                scheduleHistoryReconciliation(key, expectationFor(it).copy(lastAssistantText = ""))
+            }
+        }
     }
 
     /**
@@ -946,7 +1040,9 @@ class SessionRuntimeStore(
             watchdogJob = null
             if (!appInForeground) return@launch
             probeActiveRuntimes(reason = "watchdog", staleOnly = true)
-            if (_runtimes.value.values.any { it.phase.isActive }) scheduleWatchdog()
+            visible.filter { _runtimes.value[it]?.phase?.isActive != true }
+                .forEach { key -> launch { probe(key, includeIdle = true) } }
+            if (_runtimes.value.values.any { it.phase.isActive } || visible.isNotEmpty()) scheduleWatchdog()
         }
     }
 
@@ -1064,7 +1160,12 @@ class SessionRuntimeStore(
         // full-screen "couldn't load", and the transcript accepted just above was already correct.
         // History acceptance is the success criterion — the handle only decides whether there is
         // a live stream left to re-attach to.
-        val handle = try {
+        val beforeStatus = _runtimes.value[key]
+        val liveStatus = if (isCurrentDeviceRoute(key)) readActiveStatus(key) else null
+        if (liveStatus != null && liveStatus != ActiveSessionStatus.STARTING &&
+            _runtimes.value[key] === beforeStatus && isCurrentDeviceRoute(key)
+        ) applyActiveStatus(key, liveStatus)
+        val handle = if (liveStatus == ActiveSessionStatus.IDLE) null else try {
             chatRepository.resume(key.sessionId, key.profile)?.takeIf { it.isNotBlank() }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -1073,7 +1174,7 @@ class SessionRuntimeStore(
             null
         }
         if (handle != null) bindLiveHandle(key, handle)
-        inspectAccess(key, handle)
+        if (liveStatus == null) inspectAccess(key, handle)
         markRead(key)
         val media = mediaRepository
         if (media != null) {
@@ -1435,6 +1536,7 @@ class SessionRuntimeStore(
         messageId: String = "u-${System.nanoTime()}",
         clearPendingAttachments: Boolean = true,
     ) {
+        observedTerminalFence.remove(key)
         historyReconcileJobs.remove(key)?.cancel()
         lastActiveKey = key
         updateRuntime(key, cause = "prompt") { runtime ->
@@ -1574,6 +1676,24 @@ class SessionRuntimeStore(
     /** Fold sanitized Relay observations into the same state read by session/chat/activity UIs. */
     fun applyObservedLifecycle(event: LifecycleEventDto) {
         val key = observedLifecycleKey(event)
+        val now = System.currentTimeMillis()
+        val occurred = parseOccurredAt(event.occurredAt) ?: now
+        val previousLifecycleAt = lastLifecycleOccurred[key]
+        // Inbox delivery can reorder runs. A terminal from the previous turn must not end the
+        // newer one, nor may an old start remove the terminal fence.
+        if (previousLifecycleAt != null && occurred < previousLifecycleAt &&
+            event.event in setOf("run.started", "run.resumed", "run.waiting", "run.completed",
+                "run.interrupted", "run.unknown")
+        ) {
+            DebugLog.log("lifecycle", "stale ${event.event} ignored s=${key.sessionId}")
+            return
+        }
+        if (event.event in setOf("run.started", "run.resumed", "run.waiting", "run.completed",
+                "run.interrupted", "run.unknown")) lastLifecycleOccurred[key] = occurred
+        when (event.event) {
+            "run.started", "run.resumed", "run.waiting" -> observedTerminalFence.remove(key)
+            "run.completed", "run.interrupted", "run.unknown" -> observedTerminalFence.add(key)
+        }
         // Connector observations are the authoritative bridge between Hermes' short-lived runtime
         // handle and its durable database key. Preserve both aliases so a later WebSocket
         // completion/progress notification always opens the stored conversation.
@@ -1581,8 +1701,6 @@ class SessionRuntimeStore(
         aliases[event.storedSessionId] = key
         event.runtimeSessionId.takeIf { it.isNotBlank() }?.let(::replayPending)
         replayPending(event.storedSessionId)
-        val now = System.currentTimeMillis()
-        val occurred = parseOccurredAt(event.occurredAt) ?: now
         // Delivery latency as the phone sees it (phone clock minus the Mac's stamp). 26% of
         // completions were more than 30s late on 2026-09-05; this line makes that visible per run.
         DebugLog.log("lifecycle") {
@@ -1872,6 +1990,18 @@ class SessionRuntimeStore(
     private fun applyEvent(event: ServerEvent) {
         if (event.type == SESSIONS_CHANGED_EVENT) { onSessionsChanged(); return }
         val key = resolve(event) ?: return
+        if (key in observedTerminalFence && event.type in setOf(
+                "message.start", "message.delta", "reasoning.delta", "reasoning.available",
+                "tool.start", "tool.complete", "approval.request", "clarify.request", "session.info",
+            )) {
+            // A new PC turn will be confirmed by run.started or the shared snapshot. One burst
+            // of old deltas may ask once; it may not restart the timer before that confirmation.
+            if (fenceProbeJobs.add(key)) appScope.launch {
+                try { probe(key, includeIdle = true) }
+                finally { fenceProbeJobs.remove(key) }
+            }
+            return
+        }
         if (event.type == "message.start") lastActiveKey = key
         // Whether a turn was in flight when this event arrived. Read BEFORE the fold, because the
         // fold is what retires the phase, and the unread decision below depends on which of the two
@@ -1986,6 +2116,9 @@ class SessionRuntimeStore(
                 lastTerminalAt = if (terminal) now else runtime.lastTerminalAt,
                 occurredAt = if (phaseChanged || terminal || starting) now else runtime.occurredAt,
             )
+        }
+        if (event.type == "session.info" && event.bool("running") == false && wasRunning) {
+            observedTerminalFence.add(key)
         }
         if (event.type in setOf("tool.complete", "message.complete", "agent.terminal.output")) {
             scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
@@ -2383,6 +2516,14 @@ class SessionRuntimeStore(
             it.phase == SessionRunPhase.RECONNECTING && isCurrentDeviceRoute(it.key)
         }
         candidates.forEach { runtime ->
+            val liveStatus = readActiveStatus(runtime.key)
+            if (liveStatus != null && liveStatus != ActiveSessionStatus.STARTING) {
+                if (_runtimes.value[runtime.key] === runtime && isCurrentDeviceRoute(runtime.key)
+                ) applyActiveStatus(runtime.key, liveStatus)
+                // Reattach this phone's own stream after reconnect. A run started on PC only
+                // needs its status mirrored here; probing must not steal its transport.
+                if (!runtime.startedLocally || liveStatus == ActiveSessionStatus.IDLE) return@forEach
+            }
             if (runtime.key in undeliverableResumes) {
                 // History still reaches the phone — the REST path is chunked, so it is not subject
                 // to the frame ceiling that stopped the resume — and it is what decides whether the
@@ -2399,7 +2540,11 @@ class SessionRuntimeStore(
                     bindLiveHandle(runtime.key, handle)
                     val access = if (handle.isNullOrBlank()) null else inspectAccess(runtime.key, handle)
                     if (access?.running == null) {
-                        updateRuntime(runtime.key, cause = "reconnect") { it.copy(phase = it.restoredPhaseAfterReconnect()) }
+                        updateRuntime(runtime.key, cause = "reconnect") {
+                            if (it.phase == SessionRunPhase.RECONNECTING) {
+                                it.copy(phase = it.restoredPhaseAfterReconnect())
+                            } else it
+                        }
                     }
                 }
                 .onFailure { error ->
@@ -2419,10 +2564,12 @@ class SessionRuntimeStore(
     }
 
     private fun isCurrentDeviceRoute(key: SessionRuntimeKey): Boolean =
-        key.deviceId == null || key.deviceId == accountSessions?.transportRoutingContext()?.deviceId
+        accountSessions == null || key.deviceId == null ||
+            key.deviceId == accountSessions.transportRoutingContext()?.deviceId
 
     private companion object {
         const val PROCESS_POLL_MS = 5_000L
+        const val SUBMITTING_SNAPSHOT_GRACE_MS = 30_000L
         /**
          * How long after a local terminal transition an inbox terminal event counts as the same
          * one. The inbox lags the live socket by the 2–3 s poll (plus the 45 s socket grace when

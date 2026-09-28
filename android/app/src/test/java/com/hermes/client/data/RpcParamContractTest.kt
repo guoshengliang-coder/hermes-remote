@@ -71,6 +71,7 @@ class RpcParamContractTest {
 
     /** Just enough of each answer for the call site to return normally. */
     private fun answerFor(method: String): JsonElement = when {
+        method == "session.active_list" -> Json.parseToJsonElement("""{"sessions":[]}""")
         method == "projects.tree" -> Json.parseToJsonElement("""{"projects":[],"active_id":null}""")
         method == "projects.project_sessions" -> Json.parseToJsonElement("""{"project":null}""")
         method.startsWith("projects.") -> Json.parseToJsonElement(
@@ -95,6 +96,7 @@ class RpcParamContractTest {
         chat.moveWorkspace("stored-1", "/w", profile = "p")
         chat.resume("stored-1", profile = "p")
         chat.sessionAccess("stored-1", profile = "p", liveSessionId = "live-1")
+        chat.activeSessions(profile = "p")
         chat.submit("live-1", "hi")
         chat.slashExec("live-1", "/help")
         chat.completePath("live-1", "@x")

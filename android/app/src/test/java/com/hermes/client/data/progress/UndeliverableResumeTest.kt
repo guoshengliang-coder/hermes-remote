@@ -68,7 +68,7 @@ class UndeliverableResumeTest {
 
     private fun kotlinx.coroutines.test.TestScope.fixture(): Fixture {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         val connection = MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         every { chat.events } returns events
         every { chat.connectionState } returns connection

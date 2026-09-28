@@ -170,6 +170,13 @@ socket=none`，而 `connectingFor` 一路涨到几百秒。这是**已被关闭*
 之后：`sessions.changed` 改为触发「去重新对账 / 刷新」，手动刷新无条件先探测一次。排查时若仍看到
 成片的 unmatched 行，说明装的是修复前的版本。
 
+**手机仍显示生成中，PC 同一 Gateway 已空闲（HG-155）**：前台可见聊天或手动刷新后，先找
+`cause=active_list:idle`，它表示手机从 Hermes 与 PC 共用的只读实时快照确认结束；
+`cause=active_list:working` / `waiting` 表示确认仍在运行 / 等待用户。若只有
+`active_list … unavailable`，走旧版 Hermes 的 `session.resume` / `session.access` / 历史兜底，
+记录方法错误与路由设备。完成事件后出现迟到的 `reasoning.delta` 不应再有
+`COMPLETED_UNREAD→THINKING`；新一轮 `run.started` 或实时快照确认工作中才可重新运行。
+
 **发出去了但四分钟没动静，被当成没发出去（HG-56）**：判据是 `prompt.submit` 之后有 `message.start`
 （消息确实送达了），而首个 `cause=event:message.delta` 距它很久 —— HG-56 是 4 分 28 秒。这段时间里
 0.1.128 及更早的聊天页只有一枚标记和一个停止按钮，用户多半会按停止再发一次，于是转写里出现两条

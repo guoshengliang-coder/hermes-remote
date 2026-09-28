@@ -92,6 +92,7 @@ class ChatViewModelTest {
     @Before fun setUp() {
         every { chatRepo.events } returns events
         every { chatRepo.connectionState } returns connectionStateFlow
+        coEvery { chatRepo.activeSessions(any()) } throws UnsupportedOperationException("old Hermes")
         // resume returns null here so the ViewModel keeps the opened id stable for these tests
         // (production switches to the live handle resume returns).
         coEvery { chatRepo.resume(any(), any()) } returns null
