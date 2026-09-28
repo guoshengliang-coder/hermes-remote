@@ -37,6 +37,17 @@ internal const val EVENT_REFRESH_DEBOUNCE_MS = 700L
 /** When a burst finished a turn, one more fetch this long after its last event picks up a late AI title. */
 internal const val EVENT_SETTLE_REFRESH_MS = 4_500L
 
+/**
+ * Upstream's broadcasts for the two inputs behind this screen's alert strip (HG-149).
+ *
+ * They are deliberately NOT in the list-refresh table below: a cron job or a channel changing does
+ * not touch a single session row, and the list fetch is a full `limit=500` page (HG-104). They
+ * only re-read the strip's own two sources.
+ */
+internal const val CRON_CHANGED_EVENT = "cron.changed"
+internal const val PLATFORMS_CHANGED_EVENT = "platforms.changed"
+internal val ALERT_STRIP_EVENT_TYPES = setOf(CRON_CHANGED_EVENT, PLATFORMS_CHANGED_EVENT)
+
 data class SessionsUiState(
     val sessions: List<Session> = emptyList(),
     val loading: Boolean = false,
@@ -438,6 +449,14 @@ class SessionsViewModel @Inject constructor(
         // This VM stays in the back stack while a chat is open, so it catches the event live.
         viewModelScope.launch {
             chat.events.collect { event ->
+                // The alert strip's inputs are not the session list. A cron job or a channel
+                // changing moves no session row, so this must not pay for a `limit=500` page —
+                // and before this table existed the strip kept the count it was built with, so
+                // fixing a job on the 定时任务 page and coming back still read as "2" (HG-149).
+                if (event.type in ALERT_STRIP_EVENT_TYPES) {
+                    scheduleAlertStripRefresh()
+                    return@collect
+                }
                 val shouldRefresh = when (event.type) {
                     "session.title", "message.complete", "error", "gateway.ready" -> true
                     // Upstream's list-level broadcast: the list is what it is about, so this screen
@@ -477,6 +496,11 @@ class SessionsViewModel @Inject constructor(
     fun onVisible() {
         restoreSelectedRoute()
         refresh()
+        // `refresh()` only re-reads the session list. The strip above it is built from the cron
+        // jobs and channels, so it has to be re-read here too: handling a job on the 定时任务
+        // page and coming back used to leave the strip announcing the count from app start
+        // (HG-149). CronScreen already reloads on every resume for the same reason.
+        refreshCronAlerts()
     }
 
     private suspend fun refreshOnce() {
@@ -607,6 +631,20 @@ class SessionsViewModel @Inject constructor(
 
     // True while the current event burst has seen a `message.complete`; cleared by its settle pass.
     private var burstNeedsSettle = false
+
+    private var alertStripRefreshJob: Job? = null
+
+    /**
+     * One trailing-debounced strip read per burst of [ALERT_STRIP_EVENT_TYPES]. A cron run's state
+     * changes arrive as a wave, and each read is two REST calls, so the wave costs one pass.
+     */
+    private fun scheduleAlertStripRefresh() {
+        alertStripRefreshJob?.cancel()
+        alertStripRefreshJob = viewModelScope.launch {
+            delay(EVENT_REFRESH_DEBOUNCE_MS)
+            refreshCronAlerts()
+        }
+    }
 
     /**
      * One trailing-debounced list fetch per burst of events, plus one late settle fetch only when
