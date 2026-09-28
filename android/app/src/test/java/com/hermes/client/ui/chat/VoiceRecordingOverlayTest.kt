@@ -63,6 +63,7 @@ class VoiceRecordingOverlayTest {
                             editZone = editZone,
                             elapsedMs = 12_400L,
                             onDismissWaiting = {},
+                            onTargetsMeasured = {},
                         )
                     }
                 }
@@ -110,6 +111,7 @@ class VoiceRecordingOverlayTest {
                         editZone = false,
                         elapsedMs = 12_400L,
                         onDismissWaiting = onDismiss,
+                        onTargetsMeasured = {},
                     )
                 }
             }

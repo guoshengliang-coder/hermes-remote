@@ -19,55 +19,95 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.localized
 
+/**
+ * HG-153: how far outside the drawn target circle the finger may be and still count as on it. The
+ * circle is 64dp across, so the margin only has to forgive a near miss, not do the aiming.
+ */
+internal val VOICE_TARGET_HIT_MARGIN = 12.dp
+
 @Composable
 internal fun VoiceHoldButton(
     label: String,
     enabled: Boolean,
+    targets: VoiceTargets?,
     onDown: () -> Unit,
     onZone: (VoiceReleaseAction) -> Unit,
     onRelease: (VoiceReleaseAction) -> Unit,
 ) {
-    val threshold = with(LocalDensity.current) { 96.dp.toPx() }
+    val haptic = LocalHapticFeedback.current
+    val hitMargin = with(LocalDensity.current) { VOICE_TARGET_HIT_MARGIN.toPx() }
+    // The finger arrives in this button's local coordinates while the targets are reported in root
+    // coordinates, so the gesture needs this node's own root offset (HG-153).
+    var originInRoot by remember { mutableStateOf(Offset.Zero) }
+    // Read through rememberUpdatedState, and never key pointerInput on it: the overlay reports its
+    // targets one frame after the press, and re-keying would restart the gesture mid-hold — the
+    // restart's finally block releases as CANCEL and the recording dies under the user's finger.
+    val currentTargets by rememberUpdatedState(targets)
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth().height(52.dp).testTag("voice-hold").pointerInput(enabled, threshold) {
-            if (!enabled) return@pointerInput
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false)
-                onDown()
-                var action = VoiceReleaseAction.SEND
-                var released = false
-                try {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) {
-                            released = true
-                            onRelease(action)
-                            break
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .testTag("voice-hold")
+            .onGloballyPositioned { originInRoot = it.positionInRoot() }
+            .pointerInput(enabled, hitMargin) {
+                if (!enabled) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    onDown()
+                    var action = VoiceReleaseAction.SEND
+                    var released = false
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                released = true
+                                onRelease(action)
+                                break
+                            }
+                            val next = voiceReleaseAction(
+                                change.position.x + originInRoot.x,
+                                change.position.y + originInRoot.y,
+                                currentTargets,
+                                hitMargin,
+                            )
+                            if (next != action) {
+                                action = next
+                                onZone(action)
+                                // HG-153: the buzz marks arriving on a target, so the side is
+                                // known without looking. Dropping back to send stays silent.
+                                if (action != VoiceReleaseAction.SEND) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                                }
+                            }
+                            change.consume()
                         }
-                        val next = voiceReleaseAction(change.position.x, change.position.y, size.width.toFloat(), threshold)
-                        if (next != action) {
-                            action = next
-                            onZone(action)
-                        }
-                        change.consume()
+                    } finally {
+                        if (!released) onRelease(VoiceReleaseAction.CANCEL)
                     }
-                } finally {
-                    if (!released) onRelease(VoiceReleaseAction.CANCEL)
                 }
-            }
-        },
+            },
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(label, style = MaterialTheme.typography.titleMedium)
@@ -89,6 +129,7 @@ internal fun VoiceComposerBar(
     keyboardEnabled: Boolean,
     sessionWritable: Boolean,
     isGenerating: Boolean,
+    targets: VoiceTargets?,
     onKeyboard: () -> Unit,
     onDown: () -> Unit,
     onZone: (VoiceReleaseAction) -> Unit,
@@ -111,6 +152,7 @@ internal fun VoiceComposerBar(
             VoiceHoldButton(
                 label = holdLabel,
                 enabled = holdEnabled,
+                targets = targets,
                 onDown = onDown,
                 onZone = onZone,
                 onRelease = onRelease,
