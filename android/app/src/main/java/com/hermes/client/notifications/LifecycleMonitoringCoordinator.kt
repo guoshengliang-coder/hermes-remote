@@ -60,6 +60,8 @@ class LifecycleMonitoringCoordinator @Inject constructor(
 ) {
     private val started = AtomicBoolean(false)
     private val foreground = MutableStateFlow(false)
+    private val ownershipLock = Any()
+    private var decisionGeneration = 0L
     @Volatile internal var lifecycleSeam: ((String) -> Unit)? = null
 
     fun start() {
@@ -72,11 +74,11 @@ class LifecycleMonitoringCoordinator @Inject constructor(
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     DebugLog.log("lifecycle", "app foregrounded")
-                    foreground.value = true
+                    synchronized(ownershipLock) { foreground.value = true }
                 }
                 Lifecycle.Event.ON_STOP -> {
                     DebugLog.log("lifecycle", "app backgrounded")
-                    foreground.value = false
+                    synchronized(ownershipLock) { foreground.value = false }
                 }
                 else -> Unit
             }
@@ -99,6 +101,9 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                     appInForeground,
                 )
             }.distinctUntilChanged().collectLatest { decision ->
+                // Publish ownership before applying it. A previous grace timer can be past its
+                // final suspension point; its close must not overtake a newer connect().
+                val generation = synchronized(ownershipLock) { ++decisionGeneration }
                 // One failed step must never take the monitoring loop down with it. Android can
                 // refuse a background foreground-service start (Android 12+), the JobScheduler and
                 // the encrypted credential store can both throw, and this collector is the only
@@ -109,7 +114,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                     // used to print nothing, leaving `socket closed: client closing` as the only
                     // evidence and no cause anywhere near it.
                     DebugLog.log("lifecycle", "monitoring mode ${decision.mode}")
-                    apply(decision)
+                    apply(decision, generation)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
@@ -119,7 +124,16 @@ class LifecycleMonitoringCoordinator @Inject constructor(
         }
     }
 
-    private suspend fun apply(decision: MonitoringDecision) {
+    private fun closeIfCurrent(generation: Long, reason: String) {
+        synchronized(ownershipLock) {
+            // If the close wins the lock, the next foreground/active decision will reconnect.
+            // If a newer decision wins, this stale close cannot undo that decision's connection.
+            if (generation != decisionGeneration || foreground.value) return
+            gatewayClient.close(reason)
+        }
+    }
+
+    private suspend fun apply(decision: MonitoringDecision, generation: Long) {
         when (decision.mode) {
             LifecycleMonitoringMode.DISABLED -> {
                 GatewayConnectionService.stop(context)
@@ -129,7 +143,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                 // if the app returns to the foreground.
                 delay(BACKGROUND_SOCKET_GRACE_MS)
                 if (foreground.value) return
-                gatewayClient.close("notifications disabled")
+                closeIfCurrent(generation, "notifications disabled")
             }
             LifecycleMonitoringMode.FOREGROUND -> {
                 // IDLE_BACKGROUND deliberately closes the socket for battery life. A
@@ -159,7 +173,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                     delay(UNPROTECTED_ACTIVE_GRACE_MS)
                     if (foreground.value) return
                     DebugLog.log("lifecycle", "unprotected keep-alive lease expired; closing")
-                    gatewayClient.close("keep-alive lease expired")
+                    closeIfCurrent(generation, "keep-alive lease expired")
                 }
             }
             LifecycleMonitoringMode.IDLE_BACKGROUND -> {
@@ -170,7 +184,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                 delay(BACKGROUND_SOCKET_GRACE_MS)
                 if (foreground.value) return
                 lifecycleSeam?.invoke("idle:after-ownership-check")
-                gatewayClient.close("app idle in the background")
+                closeIfCurrent(generation, "app idle in the background")
             }
         }
     }

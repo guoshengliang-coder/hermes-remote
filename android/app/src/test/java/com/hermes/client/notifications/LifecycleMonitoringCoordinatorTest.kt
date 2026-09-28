@@ -43,7 +43,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class LifecycleMonitoringCoordinatorTest {
 
-    @Test fun foregroundArrivingAfterIdleCheckReconnectsAfterClose() = runTest {
+    @Test fun appliedForegroundDecisionPreventsStaleIdleClose() = runTest {
         val settings = mockk<NotificationSettings>(relaxed = true)
         every { settings.prefs } returns MutableStateFlow(NotificationPrefs(enabled = true))
         val strategyStore = mockk<NotificationMonitoringStrategyStore>(relaxed = true)
@@ -66,14 +66,18 @@ class LifecycleMonitoringCoordinatorTest {
         val foreground = LifecycleMonitoringCoordinator::class.java.getDeclaredField("foreground")
             .apply { isAccessible = true }.get(coordinator) as MutableStateFlow<Boolean>
         coordinator.lifecycleSeam = { name ->
-            if (name == "idle:after-ownership-check") foreground.value = true
+            if (name == "idle:after-ownership-check") {
+                foreground.value = true
+                // Deliver the newer foreground decision before the old idle coroutine resumes.
+                runCurrent()
+            }
         }
         try {
             coordinator.start()
             runCurrent()
             advanceTimeBy(45_000)
             runCurrent()
-            verify(exactly = 1) { gateway.close("app idle in the background") }
+            verify(exactly = 0) { gateway.close("app idle in the background") }
             verify(exactly = 1) { gateway.connect() }
         } finally {
             job.cancel()
