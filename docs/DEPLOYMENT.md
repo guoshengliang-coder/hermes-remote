@@ -1630,3 +1630,39 @@ Use `docs/SMOKE_TEST.md` attachment checks against the updated Mac: verify an up
 one near 50 MiB, and rejection above 50 MiB through both Android entries; compare the Mac file's
 SHA-256, reopen the conversation, and watch Gateway memory and Connector connection health. A
 successful package gate or Cloud candidate smoke alone does not prove those production checks.
+
+### HG-145 production publication — 2026-09-28
+
+The implementation PR #466 merged as `4146db8f`; the Cloud release and exact account upload
+route PR #467 merged as `1574c4a1`. Signed managed release **0.4.6** includes Connector
+**0.1.11** from `1574c4a1`. Both public signed indexes and all six immutable files were
+verified by full download before the indexes switched. The installed Mac mini upgraded to
+0.4.6 through the Desktop UI; its managed Connector restarted from the 0.4.6 release directory,
+reconnected, and the protected account-Connector check found two online connections. This was
+an internal managed component upgrade, not a newly signed or notarized Desktop app.
+
+The Gateway OCI bundle for `1574c4a1` passed its build gate and was deployed as Gateway
+**0.4.26**. Production readiness and the protected version endpoint returned the same version
+and source commit. The legacy and account upload locations alone received the 50 MiB body limit;
+`nginx -t` passed before reload. An unauthenticated 11 MiB request reached Gateway auth and
+returned 401 on both upload locations, while an ordinary API path still returned edge 413.
+An authenticated 50 MiB upload through the public legacy location and a disposable Connector
+returned 201; the received file's SHA-256 matched the source. During this transfer the Gateway
+container peaked at about 72 MiB of its 256 MiB limit and later returned to about 59 MiB.
+The disposable Connector exited after the probe, leaving the legacy connection count at zero.
+
+Android release PR #468 merged as `b44c2678` after the local package gate and PR/main CI
+passed. Tag `android-v0.1.155` published the internal APK through the automatic release
+workflow. The public index reports version **0.1.155**, code **156**, source `b44c2678`,
+and `Hermes-Remote-0.1.155-debug.apk`. A full public re-download matched the index's
+33,077,569 bytes and SHA-256
+`fcd4608c32c9f210b058eda81801a6ebdf2db20d97f4f96f6599a73e674e60f1`;
+package, version, minimum SDK, and signing-certificate digest also matched. The CI-built
+public APK has a different byte hash from the local package-gate APK; the public index and
+re-downloaded artifact are the distribution pair.
+
+Still requiring physical-phone and real-Hermes acceptance: both Android entry points with
+PDFs above 6 MiB and near 50 MiB, the over-limit message, model reading, conversation
+history, cancellation/retry, account-mode 50 MiB transfer, and Connector/phone memory during
+those paths. The production probe covered the legacy public upload route and Gateway memory;
+it did not perform those user workflows.
