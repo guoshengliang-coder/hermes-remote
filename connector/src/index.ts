@@ -1311,6 +1311,7 @@ function startLifecycleObserver(): void {
     idlePollMs: sessionObserverIdlePollMs,
     rpcTimeoutMs: sessionObserverRpcTimeoutMs,
     log: (message) => console.log(message),
+    onObservation: (observation) => log.info("lifecycle.observed", { ...observation }),
     // A fresh socket to Hermes is the only sign of a Hermes restart this process gets —
     // `hermes update` kickstarts the serve job onto new code without changing anything else here.
     onHermesConnected: () => { void contractMonitor.refresh("hermes_connected"); },

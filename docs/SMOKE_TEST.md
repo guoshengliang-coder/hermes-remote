@@ -82,6 +82,13 @@ curl -H "X-Hermes-Session-Token: $APP_TOKEN" \
 Start and finish a Hermes task from another local client. Expect exactly one ordered set of lifecycle
 transitions, no prompt/tool/file content in the JSON, and no duplicates after restarting the
 Connector. Stop the Mac Connector and repeat the GET: persisted events must still be available.
+Open an already-read, idle conversation on Android without sending a prompt. Its agent may briefly
+appear as `starting` in the Connector's `lifecycle.observed` log, then `idle`, with the same message
+count and `decision: "none"` on both rows. The Relay inbox must gain no lifecycle event and the
+Android row must stay read after background/foreground and a cold restart. For a real new turn,
+expect `working` and then `idle` with `run.started` and `run.completed` decisions; match each
+Connector event ID to the Android `lifecycle` diagnostic receipt. Collect both logs if a badge
+appears again: the phone log alone cannot show Hermes' `active_list` status or message count.
 After noting an event ID, verify both idempotent state routes:
 
 ```bash

@@ -1,6 +1,8 @@
 import type { SessionLifecycleEvent } from "@hermes-remote/protocol";
 import {
   LifecycleOutbox,
+  type LifecycleObservation,
+  type LiveSessionSnapshot,
   type ObserverStatePersistence,
   SessionLifecycleTracker,
   nextPollDelayMs,
@@ -30,6 +32,8 @@ export interface SessionObserverOptions {
   reconnectMs?: number;
   unsupportedRetryMs?: number;
   log?: (message: string) => void;
+  /** Status and count changes from active_list, including those intentionally not forwarded. */
+  onObservation?: (observation: LifecycleObservation) => void;
   /** Every time the observer's socket to Hermes opens — startup and each reconnect. */
   onHermesConnected?: () => void;
 }
@@ -170,9 +174,11 @@ export class HermesSessionObserver {
 
     try {
       const snapshot = parseActiveList(frame.result);
+      const previous = this.tracker.exportState().sessions;
       const events = this.tracker.reduce(snapshot);
       if (events.length > 0) this.outbox.add(events);
       await this.persist();
+      this.reportObservations(previous, snapshot, events);
       this.flushPending();
       this.schedulePoll(nextPollDelayMs(
         snapshot,
@@ -182,6 +188,51 @@ export class HermesSessionObserver {
     } catch (error) {
       this.options.log?.(`Hermes session.active_list response rejected: ${safeError(error)}`);
       this.schedulePoll(this.options.idlePollMs ?? 20_000);
+    }
+  }
+
+  private reportObservations(
+    previous: LiveSessionSnapshot[],
+    snapshot: LiveSessionSnapshot[],
+    events: SessionLifecycleEvent[],
+  ): void {
+    const report = this.options.onObservation;
+    if (!report) return;
+    const previousById = new Map(previous.map((session) => [session.id, session]));
+    const currentIds = new Set(snapshot.map((session) => session.id));
+    const eventById = new Map(events.map((event) => [event.runtimeSessionId, event]));
+    const emit = (observation: LifecycleObservation) => {
+      // Diagnostics must never interrupt the persisted observation or its delivery.
+      try { report(observation); } catch { /* logging is best-effort */ }
+    };
+    for (const session of snapshot) {
+      const before = previousById.get(session.id);
+      if (before?.status === session.status && before.sessionKey === session.sessionKey &&
+          before.messageCount === session.messageCount) continue;
+      const event = eventById.get(session.id);
+      emit({
+        runtimeSessionId: session.id,
+        storedSessionId: session.sessionKey,
+        previousStatus: before?.status ?? "absent",
+        status: session.status,
+        ...(before?.messageCount !== undefined ? { previousMessageCount: before.messageCount } : {}),
+        ...(session.messageCount !== undefined ? { messageCount: session.messageCount } : {}),
+        decision: event?.event ?? "none",
+        ...(event ? { eventId: event.eventId } : {}),
+      });
+    }
+    for (const before of previous) {
+      if (currentIds.has(before.id)) continue;
+      const event = eventById.get(before.id);
+      emit({
+        runtimeSessionId: before.id,
+        storedSessionId: before.sessionKey,
+        previousStatus: before.status,
+        status: "absent",
+        ...(before.messageCount !== undefined ? { previousMessageCount: before.messageCount } : {}),
+        decision: event?.event ?? "none",
+        ...(event ? { eventId: event.eventId } : {}),
+      });
     }
   }
 

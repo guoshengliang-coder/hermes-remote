@@ -49,6 +49,46 @@ test("emits one event per meaningful lifecycle transition", () => {
   assert.deepEqual(tracker.reduce([working({ status: "idle", lastActive: 105 })]), []);
 });
 
+test("opening an old conversation only pre-warms its agent and emits no run", () => {
+  const tracker = new SessionLifecycleTracker("mac-mini", "default");
+  tracker.reduce([]);
+
+  assert.deepEqual(tracker.reduce([working({ status: "starting" })]), []);
+  assert.deepEqual(tracker.reduce([working({ status: "idle" })]), []);
+  assert.deepEqual(tracker.reduce([]), []);
+
+  const vanished = new SessionLifecycleTracker("mac-mini", "default");
+  vanished.reduce([]);
+  assert.deepEqual(vanished.reduce([working({ status: "starting" })]), []);
+  assert.deepEqual(vanished.reduce([]), []);
+});
+
+test("a real run after agent pre-warm still emits start and completion", () => {
+  const tracker = new SessionLifecycleTracker("mac-mini", "default");
+  tracker.reduce([]);
+
+  assert.deepEqual(tracker.reduce([working({ status: "starting" })]), []);
+  assert.deepEqual(tracker.reduce([working({ status: "working" })]).map((event) => event.event), ["run.started"]);
+  assert.deepEqual(tracker.reduce([working({ status: "idle" })]).map((event) => event.event), ["run.completed"]);
+});
+
+test("a turn completed between polls is retained when its message count grew during pre-warm", () => {
+  const tracker = new SessionLifecycleTracker("mac-mini", "default");
+  tracker.reduce([]);
+  tracker.reduce([working({ status: "starting", messageCount: 25 })]);
+  assert.deepEqual(tracker.reduce([working({ status: "idle", messageCount: 27 })]).map((event) => event.event),
+    ["run.completed"]);
+});
+
+test("a persisted pre-warm from an older Connector cannot finish as a run after restart", () => {
+  const before = new SessionLifecycleTracker("mac-mini", "default");
+  before.reduce([]);
+  before.reduce([working({ status: "starting", messageCount: 25 })]);
+
+  const restored = new SessionLifecycleTracker("mac-mini", "default", before.exportState());
+  assert.deepEqual(restored.reduce([working({ status: "idle", messageCount: 25 })]), []);
+});
+
 test("treats a vanished active runtime as completion exactly once", () => {
   const tracker = new SessionLifecycleTracker("mac-mini");
   tracker.reduce([working()]);
@@ -101,6 +141,7 @@ test("parses only the safe active-list projection", () => {
       session_key: "stored-1",
       status: "working",
       last_active: 123.5,
+      message_count: 25,
       title: "  Safe title  ",
       preview: "must not leave the connector",
     }],
@@ -109,6 +150,7 @@ test("parses only the safe active-list projection", () => {
     sessionKey: "stored-1",
     status: "working",
     lastActive: 123.5,
+    messageCount: 25,
     title: "Safe title",
   }]);
   assert.throws(() => parseActiveList({ sessions: [{

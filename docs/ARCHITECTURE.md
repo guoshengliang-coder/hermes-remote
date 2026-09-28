@@ -124,6 +124,16 @@ backs off to twenty seconds while idle. It converts snapshots into sanitized lif
 commands, file paths, credentials, and approval payloads are deliberately excluded from this wire
 message.
 
+`starting` can mean Hermes is only pre-warming an agent after `session.resume`; it is not evidence
+that a new turn began. The observer waits for `working` before emitting `run.started` and never
+emits `run.completed` for a `starting → idle` pre-warm with unchanged message count. If the count
+grew between polls, it emits completion for the turn that finished before `working` was observed.
+The Connector's `lifecycle.observed` log
+records only runtime/stored IDs, old/new status, old/new message count, the transition decision,
+and an event ID when one was created. Android's `lifecycle` diagnostic lines include that event
+ID and the completion read/unread decision, so the two logs can be correlated without recording
+prompts, previews, titles, or transcript content.
+
 Each transition is written atomically to the Connector outbox before it is sent. The Relay stores it
 durably and only then acknowledges it; reconnects therefore replay safely and deduplicate by stable
 event ID. Android can consume the persisted inbox from `/api/mobile/events` even while the Mac is

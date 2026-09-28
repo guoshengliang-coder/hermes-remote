@@ -6,6 +6,7 @@ import test from "node:test";
 import type { SessionLifecycleEvent } from "@hermes-remote/protocol";
 import {
   ObserverStateStore,
+  type LifecycleObservation,
   type ObserverPersistentState,
   type ObserverStatePersistence,
 } from "./session-observer.js";
@@ -85,6 +86,57 @@ test("observer polls the read-only RPC and persists before forwarding transition
   assert.equal(observer.pendingCount(), 1);
   observer.acknowledge(forwarded[0].eventId);
   await waitFor(() => observer.pendingCount() === 0);
+  observer.stop();
+});
+
+test("diagnostics distinguish agent pre-warm from a real run without logging content", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hermes-observer-diagnostics-"));
+  const socket = new FakeSocket();
+  const forwarded: SessionLifecycleEvent[] = [];
+  const observations: LifecycleObservation[] = [];
+  const observer = new HermesSessionObserver({
+    deviceId: "mac-mini",
+    stateStore: new ObserverStateStore(join(root, "state.json")),
+    websocketUrl: async () => "wss://hermes.test/api/ws?ticket=test",
+    createSocket: () => socket,
+    sendLifecycle: (event) => { forwarded.push(event); return true; },
+    onObservation: (observation) => observations.push(observation),
+    activePollMs: 5,
+    idlePollMs: 5,
+  });
+  await observer.start();
+  socket.emit("message", JSON.stringify({ jsonrpc: "2.0", method: "event", params: { type: "gateway.ready" } }));
+  const answer = async (poll: number, status?: string, messageCount = 25) => {
+    await waitFor(() => socket.sent.length > poll);
+    const id = JSON.parse(socket.sent[poll]).id;
+    socket.emit("message", JSON.stringify({ jsonrpc: "2.0", id, result: { sessions: status ? [{
+      id: "runtime-1", session_key: "stored-1", status, last_active: 123,
+      message_count: messageCount, title: "private title", preview: "private answer",
+    }] : [] } }));
+  };
+  await answer(0);
+  await answer(1, "starting");
+  await answer(2, "idle");
+  await waitFor(() => observations.length === 2);
+  assert.deepEqual(observations.map((entry) => [entry.previousStatus, entry.status, entry.decision]), [
+    ["absent", "starting", "none"], ["starting", "idle", "none"],
+  ]);
+  assert.equal(forwarded.length, 0);
+
+  await answer(3, "working");
+  await answer(4, "idle", 27);
+  await waitFor(() => forwarded.length === 2 && observations.length === 4);
+  assert.deepEqual(observations.slice(2).map((entry) => [entry.decision, entry.previousMessageCount, entry.messageCount]), [
+    ["run.started", 25, 25], ["run.completed", 25, 27],
+  ]);
+  assert.equal(observations[3].eventId, forwarded[1].eventId);
+  await answer(5, "idle", 28);
+  await waitFor(() => observations.length === 5);
+  assert.deepEqual([
+    observations[4].previousStatus, observations[4].status,
+    observations[4].previousMessageCount, observations[4].messageCount, observations[4].decision,
+  ], ["idle", "idle", 27, 28, "none"]);
+  assert.doesNotMatch(JSON.stringify(observations), /private title|private answer/);
   observer.stop();
 });
 
