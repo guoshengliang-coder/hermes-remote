@@ -19,9 +19,10 @@ export interface AccountWebSocketAccess {
   bindingId: string;
   installationId: string;
   sessionId: string;
-  // Set when the upgrade was authorized by the Web app's session cookie rather than a bearer
-  // header; the tunnel is then revalidated by session instead of by that one access token.
-  webPrincipal?: AccountPrincipal;
+  // Captured at upgrade so rotating or expiring its bearer does not invalidate a live tunnel.
+  principal: AccountPrincipal;
+  /** Cookie-authenticated browser tunnel; its RPC frames need the browser allowlist. */
+  web?: true;
 }
 
 export class AppWebSocketAuthorizer {
@@ -98,6 +99,13 @@ export class AppWebSocketAuthorizer {
     return this.connectorFor(principal, deviceId, request, false);
   }
 
+  async revalidateAccountConnector(principal: AccountPrincipal, deviceId?: string): Promise<GatewayPeer> {
+    const control = this.options.accountControl;
+    if (!control) throw accountErrors.featureDisabled();
+    if (!await control.isSessionLive(principal)) throw accountErrors.sessionRevoked();
+    return this.connectorFor(principal, deviceId);
+  }
+
   async connectorFor(
     principal: AccountPrincipal,
     deviceId?: string,
@@ -122,7 +130,8 @@ export class AppWebSocketAuthorizer {
         bindingId: binding.id,
         installationId: principal.installation.id,
         sessionId: principal.sessionId,
-        ...(web ? { webPrincipal: principal } : {}),
+        principal,
+        ...(web ? { web: true as const } : {}),
       });
     }
     return connector;

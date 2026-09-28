@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { WebSocket } from "ws";
 import { createGatewayLogger } from "./gateway-log.js";
 import { accountErrors } from "./account/model.js";
@@ -169,6 +169,95 @@ test("classifyRevalidationFailure separates authorization, binding, configuratio
   assert.equal(classifyRevalidationFailure(accountErrors.featureDisabled()), "configuration");
   assert.equal(classifyRevalidationFailure(accountErrors.bindingFeatureDisabled()), "configuration");
 });
+
+test("a delayed lost-event revocation closes the tunnel after another revalidation tick", async (t) => {
+  const clock = controlledRevalidationClock(t);
+  const queries: Array<ReturnType<typeof deferred<ReturnType<typeof connectorFixture>>>> = [];
+  const connector = connectorFixture();
+  const app = fakeSocket();
+  const broker = new WebSocketTunnelBroker(10, 1024 * 1024, () => {}, () => connector);
+  broker.open(app.socket, connector, () => {
+    const query = deferred<typeof connector>();
+    queries.push(query);
+    return query.promise;
+  });
+  assert.equal(queries.length, 1);
+  clock.tick();
+  queries[0]!.reject(accountErrors.sessionRevoked());
+  await settle();
+  assert.deepEqual(app.closes, [{ code: 4403, reason: "account authorization changed" }]);
+});
+
+test("slow transient failures consume the retry budget without overlapping queries", async (t) => {
+  const clock = controlledRevalidationClock(t);
+  const queries: Array<ReturnType<typeof deferred<ReturnType<typeof connectorFixture>>>> = [];
+  const connector = connectorFixture();
+  const app = fakeSocket();
+  const broker = new WebSocketTunnelBroker(10, 1024 * 1024, () => {}, () => connector);
+  broker.open(app.socket, connector, () => {
+    const query = deferred<typeof connector>();
+    queries.push(query);
+    return query.promise;
+  });
+  for (let failure = 0; failure < 3; failure += 1) {
+    clock.tick();
+    assert.equal(queries.length, failure + 1, "only one database query may be in flight");
+    queries[failure]!.reject(new Error("database busy"));
+    await settle();
+    if (failure < 2) clock.tick();
+  }
+  assert.deepEqual(app.closes, [{ code: 1013, reason: "account service unavailable" }]);
+});
+
+test("a hung revalidation closes at ten seconds without overlapping queries", async (t) => {
+  const clock = controlledRevalidationClock(t);
+  let queries = 0;
+  const connector = connectorFixture();
+  const app = fakeSocket();
+  const broker = new WebSocketTunnelBroker(10, 1024 * 1024, () => {}, () => connector);
+  broker.open(app.socket, connector, () => {
+    queries += 1;
+    return new Promise<typeof connector>(() => {});
+  });
+  clock.tick();
+  assert.equal(queries, 1, "the hung query must not create overlapping database work");
+  clock.timeout();
+  await settle();
+  assert.equal(queries, 1);
+  assert.deepEqual(app.closes, [{ code: 1013, reason: "account service unavailable" }]);
+});
+
+function connectorFixture() {
+  return { socket: fakeSocket().socket, deviceId: "hermes-office", routingKey: "account:binding-1" };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((ok, fail) => { resolve = ok; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+function controlledRevalidationClock(t: TestContext) {
+  const intervals: Array<() => void> = [];
+  const timeouts: Array<() => void> = [];
+  t.mock.method(globalThis, "setInterval", ((callback: () => void, delay?: number) => {
+    assert.equal(delay, 5_000);
+    intervals.push(callback);
+    return { unref() {} } as NodeJS.Timeout;
+  }) as typeof setInterval);
+  t.mock.method(globalThis, "clearInterval", (() => {}) as typeof clearInterval);
+  t.mock.method(globalThis, "setTimeout", ((callback: () => void, delay?: number) => {
+    assert.equal(delay, 10_000);
+    timeouts.push(callback);
+    return { unref() {} } as NodeJS.Timeout;
+  }) as typeof setTimeout);
+  t.mock.method(globalThis, "clearTimeout", (() => {}) as typeof clearTimeout);
+  return {
+    tick: () => { assert.equal(intervals.length, 1); intervals[0]!(); },
+    timeout: () => { assert.ok(timeouts.length > 0, "expected bounded query timeout"); timeouts.shift()!(); },
+  };
+}
 
 function settle(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));

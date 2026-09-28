@@ -763,10 +763,17 @@ affecting the owner. An operator may route Hermes REST/WebSocket traffic and sel
 as a default, but cannot list/manage its shares, bind/replace/unbind it, or delegate access further.
 
 Revocation notifications are immediate within the Gateway process. Every long-lived account-mode
-WebSocket also revalidates its account/binding authorization immediately after upgrade and at least
-every five seconds, so another Gateway process that did not receive the in-memory notification still
-fails closed within that bounded interval. A future multi-node connection directory may replace the
-bounded fallback with cross-process publication; it must not weaken per-request database checks.
+WebSocket also revalidates its session and binding immediately after upgrade, then on a five-second
+timer while no query is in flight. A query that hangs for ten seconds closes the tunnel with
+retryable `1013`; transient failures close after three consecutive failed checks. A Gateway process
+that misses an in-memory notification therefore still fails closed within a bounded time.
+Revalidation uses the session captured at upgrade, since a refresh replaces the access token hash;
+an open tunnel must not keep authenticating that old bearer.
+A session stays live only while its installation and account are active, its refresh family has a
+live credential, and its most recent access expiry is less than five minutes old. Active clients
+refresh through their authenticated HTTP traffic; an idle client eventually loses its tunnel.
+A future multi-node connection directory may replace the bounded fallback with cross-process
+publication; it must not weaken per-request database checks.
 
 ### `GET /v2/connector-binding`
 
@@ -970,8 +977,8 @@ stops cross-site use. Provider tokens are never accepted in any form.
 
 The Gateway records request/tunnel ownership by account session and installation. Connector replies
 can return only to the exact owning tunnel/request, preserving the current request-owner invariant.
-Open account WebSockets are periodically revalidated and close if the session or active binding
-changes.
+Open account WebSockets are periodically revalidated against the captured session and active
+binding. Access-token rotation or expiry alone does not close a live, refreshed session.
 
 ### Browser Web app (`/app/`) cookie device access
 

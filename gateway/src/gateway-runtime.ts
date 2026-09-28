@@ -239,22 +239,14 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
       const access = connector.mode === "account"
         ? appWebSocketAuthorizer.consumeAccountAccess(request)
         : undefined;
-      const webPrincipal = access?.webPrincipal;
-      const webDeviceAccess = accountRuntime.gatewayControl?.webDeviceAccess;
-      const authorization = connector.mode === "account" && !webPrincipal
-        ? firstHeader(request, "authorization")
-        : undefined;
+      const principal = access?.principal;
+      const webPrincipal = access?.web ? principal : undefined;
       webSocketTunnels.open(
         socket,
         connector,
-        webPrincipal && webDeviceAccess
-          ? async () => {
-              await webDeviceAccess.revalidate(webPrincipal);
-              return appWebSocketAuthorizer.connectorFor(webPrincipal, connector.deviceId);
-            }
-          : authorization
-            ? () => appWebSocketAuthorizer.resolveAccountConnector(authorization, connector.deviceId)
-            : undefined,
+        principal
+          ? () => appWebSocketAuthorizer.revalidateAccountConnector(principal, connector.deviceId)
+          : undefined,
         access,
         webPrincipal ? screenBrowserFrame : undefined,
         firstHeader(request, "x-hermes-connection-id"),

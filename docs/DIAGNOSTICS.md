@@ -230,7 +230,7 @@ sudo docker logs --since 2026-09-05T10:20:00Z hermes-go-gateway-blue 2>&1 | grep
 | kind | 回答什么 |
 |---|---|
 | `app.tunnel.open` / `app.tunnel.close` | 手机 socket 何时开、何时关、关时连接器是否在线、双向各跑了多少帧——"终止事件发出时有没有人在听"就看这两行 |
-| `app.tunnel.revalidation_failed` / `app.tunnel.revalidation_exhausted` | 手机隧道的 5 秒授权重验为何失败（HG-140 起）：`failureKind` 区分 `transient`（连接器瞬断、数据库抖动——容忍不踢）/`authorization`/`binding`（终态，立即 4403）/`configuration`，`accountErrorCode` 是 `HR-*` 码；`exhausted` 表示连续临时失败超过预算（约 15 秒）后以 `1013` 关闭。2026-09-26 事件的 `4403 account authorization changed` 误踢在旧版无任何日志可查，这两行就是补上的审计 |
+| `app.tunnel.revalidation_failed` / `app.tunnel.revalidation_exhausted` | 手机隧道的会话与绑定重验为何失败（HG-140 起）：空闲查询每 5 秒启动一次，单个查询超过 10 秒即以可重试 `1013` 关闭，不积压并发查询；使用升级时记录的 session，而非已轮换或过期的旧 bearer；`failureKind` 区分 `transient`（连接器瞬断、数据库抖动——容忍不踢）/`authorization`/`binding`（终态，立即 4403）/`configuration`，`accountErrorCode` 是 `HR-*` 码；`exhausted` 表示连续三次临时失败或单次超时后以 `1013` 关闭。2026-09-26 事件的 `4403 account authorization changed` 误踢在旧版无任何日志可查，这两行就是补上的审计 |
 | `lifecycle.received`（`lagMs`） | 连接器→网关的延迟（实测恒 ≤1s） |
 | `lifecycle.served` / `lifecycle.acked` | 手机何时来取、取到了哪几条、何时确认——`received` 到 `served` 的间隔就是手机没来取的时间 |
 | `http.tunnel` | 每次 REST 隧道：路径、结果、状态、解码后字节数 `bytes`、流式分块数 `chunks`、首字节 `ttfbMs`、耗时；同一秒多次 `/messages` = 对账阶梯 |

@@ -1,6 +1,7 @@
 package com.hermes.client.notifications
 
 import com.hermes.client.data.auth.CredentialStore
+import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.progress.SessionRunPhase
 import com.hermes.client.data.progress.SessionRuntime
@@ -20,6 +21,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -40,6 +42,117 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class LifecycleMonitoringCoordinatorTest {
+
+    @Test fun foregroundArrivingAfterIdleCheckReconnectsAfterClose() = runTest {
+        val settings = mockk<NotificationSettings>(relaxed = true)
+        every { settings.prefs } returns MutableStateFlow(NotificationPrefs(enabled = true))
+        val strategyStore = mockk<NotificationMonitoringStrategyStore>(relaxed = true)
+        every { strategyStore.strategy } returns MutableStateFlow(NotificationMonitoringStrategy.ADAPTIVE)
+        val runtimeStore = mockk<SessionRuntimeStore>(relaxed = true)
+        every { runtimeStore.runtimes } returns MutableStateFlow(emptyMap())
+        every { runtimeStore.visibleSessions } returns MutableStateFlow(emptySet())
+        val accountSessions = mockk<AccountSessionManager>(relaxed = true)
+        every { accountSessions.hasLoadedConnection() } returns true
+        val gateway = mockk<HermesGatewayClient>(relaxed = true)
+        val job = SupervisorJob()
+        val coordinator = LifecycleMonitoringCoordinator(
+            context = RuntimeEnvironment.getApplication(), settings = settings, runtimes = runtimeStore,
+            events = mockk(relaxed = true), dispatcher = mockk(relaxed = true),
+            strategyStore = strategyStore, gatewayClient = gateway,
+            credentials = mockk(relaxed = true), accountSessions = accountSessions,
+            appScope = CoroutineScope(job + StandardTestDispatcher(testScheduler)),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val foreground = LifecycleMonitoringCoordinator::class.java.getDeclaredField("foreground")
+            .apply { isAccessible = true }.get(coordinator) as MutableStateFlow<Boolean>
+        coordinator.lifecycleSeam = { name ->
+            if (name == "idle:after-ownership-check") foreground.value = true
+        }
+        try {
+            coordinator.start()
+            runCurrent()
+            advanceTimeBy(45_000)
+            runCurrent()
+            verify(exactly = 1) { gateway.close("app idle in the background") }
+            verify(exactly = 1) { gateway.connect() }
+        } finally {
+            job.cancel()
+        }
+    }
+
+    @Test fun activeWorkArrivingAfterIdleCheckRestoresSocketAfterClose() = runTest {
+        mockkObject(GatewayConnectionService.Companion)
+        every { GatewayConnectionService.start(any()) } returns true
+        val settings = mockk<NotificationSettings>(relaxed = true)
+        every { settings.prefs } returns MutableStateFlow(NotificationPrefs(enabled = true))
+        val strategyStore = mockk<NotificationMonitoringStrategyStore>(relaxed = true)
+        every { strategyStore.strategy } returns MutableStateFlow(NotificationMonitoringStrategy.ADAPTIVE)
+        val runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
+        val runtimeStore = mockk<SessionRuntimeStore>(relaxed = true)
+        every { runtimeStore.runtimes } returns runtimes
+        every { runtimeStore.visibleSessions } returns MutableStateFlow(emptySet())
+        val gateway = mockk<HermesGatewayClient>(relaxed = true)
+        val job = SupervisorJob()
+        val coordinator = LifecycleMonitoringCoordinator(
+            context = RuntimeEnvironment.getApplication(), settings = settings, runtimes = runtimeStore,
+            events = mockk(relaxed = true), dispatcher = mockk(relaxed = true),
+            strategyStore = strategyStore, gatewayClient = gateway,
+            credentials = mockk(relaxed = true),
+            appScope = CoroutineScope(job + StandardTestDispatcher(testScheduler)),
+        )
+        coordinator.lifecycleSeam = { name ->
+            if (name == "idle:after-ownership-check") {
+                val key = SessionRuntimeKey("personal", "s1")
+                runtimes.value = mapOf(key to SessionRuntime(
+                    key = key, phase = SessionRunPhase.STREAMING, startedLocally = true,
+                ))
+            }
+        }
+        try {
+            coordinator.start()
+            runCurrent()
+            advanceTimeBy(45_000)
+            runCurrent()
+            verify(exactly = 1) { gateway.close("app idle in the background") }
+            verify(exactly = 1) { gateway.connect() }
+        } finally {
+            job.cancel()
+        }
+    }
+
+    @Test fun foregroundReturnWinsOverExpiredBackgroundGrace() = runTest {
+        val prefs = MutableStateFlow(NotificationPrefs(enabled = true))
+        val settings = mockk<NotificationSettings>(relaxed = true)
+        every { settings.prefs } returns prefs
+        val strategyStore = mockk<NotificationMonitoringStrategyStore>(relaxed = true)
+        every { strategyStore.strategy } returns MutableStateFlow(NotificationMonitoringStrategy.ADAPTIVE)
+        val runtimeStore = mockk<SessionRuntimeStore>(relaxed = true)
+        every { runtimeStore.runtimes } returns MutableStateFlow(emptyMap())
+        every { runtimeStore.visibleSessions } returns MutableStateFlow(emptySet())
+        val gateway = mockk<HermesGatewayClient>(relaxed = true)
+        val job = SupervisorJob()
+        val coordinator = LifecycleMonitoringCoordinator(
+            context = RuntimeEnvironment.getApplication(), settings = settings, runtimes = runtimeStore,
+            events = mockk(relaxed = true), dispatcher = mockk(relaxed = true),
+            strategyStore = strategyStore, gatewayClient = gateway,
+            credentials = mockk(relaxed = true),
+            appScope = CoroutineScope(job + StandardTestDispatcher(testScheduler)),
+        )
+        try {
+            coordinator.start()
+            runCurrent() // IDLE_BACKGROUND starts its 45-second grace.
+            advanceTimeBy(45_000)
+            // Put ON_START's foreground update between the timer becoming due and its continuation.
+            @Suppress("UNCHECKED_CAST")
+            val foreground = LifecycleMonitoringCoordinator::class.java.getDeclaredField("foreground")
+                .apply { isAccessible = true }.get(coordinator) as MutableStateFlow<Boolean>
+            foreground.value = true
+            runCurrent()
+            verify(exactly = 0) { gateway.close("app idle in the background") }
+        } finally {
+            job.cancel()
+        }
+    }
 
     @Test fun aFailingModeStepDoesNotTerminateTheMonitoringLoop() = runTest {
         val prefs = MutableStateFlow(NotificationPrefs(enabled = false))

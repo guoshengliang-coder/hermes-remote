@@ -113,6 +113,25 @@ test("backpressure never claims an RPC reply was forwarded to the app", () => {
   assert.equal(lines.find((line) => line.kind === "app.tunnel.close")?.unansweredForegroundRpcs, 1);
 });
 
+test("revoked tunnel stops forwarding frames before its close handshake finishes", () => {
+  const { wire, connector, broker } = harness();
+  const app = new FakeSocket();
+  // A peer can leave the close handshake outstanding. Do not rely on the close event to
+  // remove its message listener or on the WebSocket library to drop an already queued frame.
+  app.close = (code?: number, reason?: string) => {
+    app.closed = { code, reason };
+    app.readyState = WebSocket.CLOSING;
+  };
+  broker.open(app as unknown as WebSocket, connector, undefined, {
+    accountId: "account-1", bindingId: "binding-1",
+    installationId: "installation-1", sessionId: "session-1",
+  });
+  broker.revokeAccountSession("account-1", "session-1");
+  assert.equal(app.closed?.code, 4403);
+  app.emit("message", Buffer.from(JSON.stringify({ id: 8, method: "prompt.submit" })), false);
+  assert.equal(wire.filter((message) => message.type === "tunnel.ws.frame").length, 0);
+});
+
 test("a connector going away closes every tunnel on its route and says how many", () => {
   const { lines, connector, broker } = harness();
   const a = new FakeSocket();

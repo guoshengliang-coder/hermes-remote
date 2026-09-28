@@ -39,6 +39,8 @@ type RevalidateConnector<TConnector extends WebSocketConnector> = () => Promise<
 
 /** How often an account tunnel's connector authorization is re-checked. */
 const REVALIDATION_INTERVAL_MS = 5_000;
+/** A stuck database query cannot hold an unverified tunnel open indefinitely. */
+const REVALIDATION_TIMEOUT_MS = 10_000;
 /**
  * Consecutive transient revalidation failures tolerated before the tunnel is closed as
  * `1013 "account service unavailable"` — about 15 seconds at the interval above. Authorization
@@ -187,37 +189,69 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
   ): void {
     const id = randomUUID();
     const failurePolicy = new RevalidationFailurePolicy(this.maxConsecutiveRevalidationFailures);
-    let revalidationSequence = 0;
+    let revalidationPending = false;
+    let revalidationStopped = false;
+    let revalidationTimeout: NodeJS.Timeout | undefined;
+    const recordFailure = (error: unknown) => {
+      const decision = failurePolicy.recordFailure(error);
+      const failureKind = classifyRevalidationFailure(error);
+      const accountErrorCode = error instanceof AccountModeError ? error.code : undefined;
+      this.log.info(
+        decision.action === "close" && decision.code === 1013
+          ? "app.tunnel.revalidation_exhausted"
+          : "app.tunnel.revalidation_failed",
+        {
+          tunnel: id,
+          device: connector.deviceId,
+          routingKey: connector.routingKey,
+          failures: failurePolicy.failures,
+          failureKind,
+          accountErrorCode,
+          error,
+        },
+      );
+      if (decision.action === "close" && decision.code !== undefined && decision.reason) {
+        revalidationStopped = true;
+        socket.close(decision.code, decision.reason);
+      }
+    };
     const revalidate = revalidateConnector
       ? () => {
-          const sequence = ++revalidationSequence;
-          revalidateConnector().then((current) => {
-            if (sequence !== revalidationSequence || socket.readyState !== WebSocket.OPEN) return;
-            failurePolicy.recordSuccess();
-            if (current !== connector) socket.close(4403, "account binding changed");
-          }).catch((error: unknown) => {
-            if (sequence !== revalidationSequence || socket.readyState !== WebSocket.OPEN) return;
-            const decision = failurePolicy.recordFailure(error);
-            const failureKind = classifyRevalidationFailure(error);
-            const accountErrorCode = error instanceof AccountModeError ? error.code : undefined;
-            this.log.info(
-              decision.action === "close" && decision.code === 1013
-                ? "app.tunnel.revalidation_exhausted"
-                : "app.tunnel.revalidation_failed",
-              {
-                tunnel: id,
-                device: connector.deviceId,
-                routingKey: connector.routingKey,
-                failures: failurePolicy.failures,
-                failureKind,
-                accountErrorCode,
-                error,
-              },
-            );
-            if (decision.action === "close" && decision.code !== undefined && decision.reason) {
-              socket.close(decision.code, decision.reason);
-            }
-          });
+          if (revalidationPending || revalidationStopped || socket.readyState !== WebSocket.OPEN) return;
+          revalidationPending = true;
+          // A timed-out query may still be running inside the database driver. Close this tunnel
+          // instead of starting another query and accumulating unbounded in-flight work.
+          revalidationTimeout = setTimeout(() => {
+            revalidationTimeout = undefined;
+            if (revalidationStopped || socket.readyState !== WebSocket.OPEN) return;
+            revalidationStopped = true;
+            this.log.info("app.tunnel.revalidation_exhausted", {
+              tunnel: id, device: connector.deviceId, routingKey: connector.routingKey,
+              failures: failurePolicy.failures + 1, failureKind: "transient", error: "revalidation timeout",
+            });
+            socket.close(1013, "account service unavailable");
+          }, REVALIDATION_TIMEOUT_MS);
+          revalidationTimeout.unref();
+          const settle = () => {
+            if (revalidationTimeout) clearTimeout(revalidationTimeout);
+            revalidationTimeout = undefined;
+            revalidationPending = false;
+            return !revalidationStopped && socket.readyState === WebSocket.OPEN;
+          };
+          try {
+            revalidateConnector().then((current) => {
+              if (!settle()) return;
+              failurePolicy.recordSuccess();
+              if (current !== connector) {
+                revalidationStopped = true;
+                socket.close(4403, "account binding changed");
+              }
+            }, (error: unknown) => {
+              if (settle()) recordFailure(error);
+            });
+          } catch (error: unknown) {
+            if (settle()) recordFailure(error);
+          }
         }
       : undefined;
     const revalidationTimer = revalidate
@@ -257,6 +291,9 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
     });
 
     socket.on("message", (data, isBinary) => {
+      // A close handshake can leave queued frames arriving after revocation or a failed
+      // revalidation. Never relay those frames to the Mac while the socket is closing.
+      if (revalidationStopped || socket.readyState !== WebSocket.OPEN || !this.tunnels.has(id)) return;
       const current = this.resolveConnector(connector.routingKey);
       if (current !== connector) {
         socket.close(1013, "Mac connector offline");
@@ -292,6 +329,8 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
     });
 
     socket.on("close", (code, reason) => {
+      revalidationStopped = true;
+      if (revalidationTimeout) clearTimeout(revalidationTimeout);
       if (revalidationTimer) clearInterval(revalidationTimer);
       const tunnel = this.tunnels.get(id);
       this.tunnels.delete(id);

@@ -60,6 +60,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
 ) {
     private val started = AtomicBoolean(false)
     private val foreground = MutableStateFlow(false)
+    @Volatile internal var lifecycleSeam: ((String) -> Unit)? = null
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -127,6 +128,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                 // a broken connection. collectLatest cancels this grace period immediately
                 // if the app returns to the foreground.
                 delay(BACKGROUND_SOCKET_GRACE_MS)
+                if (foreground.value) return
                 gatewayClient.close("notifications disabled")
             }
             LifecycleMonitoringMode.FOREGROUND -> {
@@ -143,6 +145,10 @@ class LifecycleMonitoringCoordinator @Inject constructor(
             }
             LifecycleMonitoringMode.ACTIVE_BACKGROUND -> {
                 LifecycleEventJobScheduler.cancel(context)
+                // The previous idle grace may have passed its last ownership check just as this
+                // run became active. start() on an already-running service does not call onCreate,
+                // so explicitly restore the socket after that possible close.
+                gatewayClient.connect()
                 if (!GatewayConnectionService.start(context)) {
                     // The system refused the foreground service (Android 12+ restricts background
                     // starts). The run is still worth following, so the socket stays — but without
@@ -151,6 +157,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                     // collectLatest cancels this the moment the app returns or the run ends.
                     DebugLog.log("lifecycle", "no foreground service; holding the socket on a lease")
                     delay(UNPROTECTED_ACTIVE_GRACE_MS)
+                    if (foreground.value) return
                     DebugLog.log("lifecycle", "unprotected keep-alive lease expired; closing")
                     gatewayClient.close("keep-alive lease expired")
                 }
@@ -161,6 +168,8 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                 // Keep a short lease for ordinary app switching. If foreground/active work
                 // arrives during the delay, collectLatest cancels before close().
                 delay(BACKGROUND_SOCKET_GRACE_MS)
+                if (foreground.value) return
+                lifecycleSeam?.invoke("idle:after-ownership-check")
                 gatewayClient.close("app idle in the background")
             }
         }
