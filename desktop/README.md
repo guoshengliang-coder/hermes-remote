@@ -3,11 +3,16 @@
 Release discovery, two-component topology, signing-key rotation, and protected-environment setup
 are documented in [`../docs/DESKTOP_RELEASE_CHANNEL.md`](../docs/DESKTOP_RELEASE_CHANNEL.md).
 
-Current internal test Desktop app: **0.2.29** (build 32). It adds the HG-117
-existing-install update target and the HG-116 shared Dock icon. Connector **0.1.11**
-adds bounded 50 MiB phone upload handling for HG-145 and reconnect backoff recovery
-for HG-147. The proposed managed component release is **0.4.6**; it remains a
-candidate until the signed Desktop release channel publishes it.
+Current release candidates: Desktop app **0.2.30** (build 33), Connector **0.1.12**,
+and managed component release **0.4.7**. HG-151 makes the Desktop health probe name
+the failing link and makes Connector report local Hermes HTTP failures with a request
+correlation ID. HG-150 prevents a Connector prewarm from marking a session unread.
+These versions remain candidates until their separate release gates and public
+readback complete.
+
+0.2.29 (build 32) added the HG-117 existing-install update target and the HG-116
+shared Dock icon. Connector 0.1.11 added bounded 50 MiB phone uploads for HG-145
+and reconnect backoff recovery for HG-147; managed release 0.4.6 carried it.
 
 0.2.28 (build 31) carried the sign-in gate and first-run onboarding for HG-129.
 
