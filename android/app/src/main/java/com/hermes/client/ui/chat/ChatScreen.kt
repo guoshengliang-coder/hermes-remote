@@ -848,6 +848,11 @@ fun ChatScreen(
     var voiceTranscript by remember(sessionId) { mutableStateOf("") }
     var voiceZone by remember(sessionId) { mutableStateOf(VoiceReleaseAction.SEND) }
     var voiceReleaseIntent by remember(sessionId) { mutableStateOf(VoiceReleaseAction.SEND) }
+    // HG-153: the two swipe targets as the overlay actually drew them, in root coordinates — the
+    // judgement hit-tests against these instead of guessing the overlay's geometry. Null until that
+    // overlay has been laid out, and cleared on every press so a stale target cannot judge the next
+    // recording.
+    var voiceTargets by remember(sessionId) { mutableStateOf<VoiceTargets?>(null) }
     var voiceStartedAt by remember(sessionId) { mutableStateOf(0L) }
     // HG-146: drives the recording clock and the central waveform in [VoiceRecordingOverlay].
     var voiceElapsedMs by remember(sessionId) { mutableStateOf(0L) }
@@ -878,6 +883,7 @@ fun ChatScreen(
         voiceTranscript = ""
         voiceZone = VoiceReleaseAction.SEND
         voiceReleaseIntent = VoiceReleaseAction.SEND
+        voiceTargets = null
         voiceHeld = true
         voiceWaiting = false
         voiceStartedAt = android.os.SystemClock.elapsedRealtime()
@@ -1235,6 +1241,7 @@ fun ChatScreen(
                             keyboardEnabled = !voiceHeld && !voiceWaiting,
                             sessionWritable = sessionWritable,
                             isGenerating = state.isGenerating,
+                            targets = voiceTargets,
                             onKeyboard = {
                                 voiceSession?.cancel()
                                 voiceSession = null
@@ -1574,6 +1581,7 @@ fun ChatScreen(
                 editZone = voiceZone == VoiceReleaseAction.EDIT,
                 elapsedMs = voiceElapsedMs,
                 onDismissWaiting = { settleWaiting(notify = false) },
+                onTargetsMeasured = { voiceTargets = it },
             )
         }
     }

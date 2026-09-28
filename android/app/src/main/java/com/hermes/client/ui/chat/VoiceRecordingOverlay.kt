@@ -29,11 +29,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,10 +93,11 @@ internal fun voiceClock(elapsedMs: Long): String {
  * "Hermes 聊天页 - 微信式双滑语音录制态 (取消/转文字/中央声波)".
  *
  * A scrim over the whole chat carries a floating card (live clock, waveform, streamed
- * transcript), the two swipe targets, and the "正在聆听" dome at the bottom. The gesture itself is
- * unchanged — [VoiceHoldButton] still decides the zone; this layer only shows where the finger is
- * and highlights the target it is over. While [waiting] the layer is the HG-144 exit: tapping it
- * cancels and hands any partial transcript to the draft.
+ * transcript), the two swipe targets, and the "正在聆听" dome at the bottom. [onTargetsMeasured]
+ * hands those two drawn circles back to the composer in root coordinates, which is what the
+ * release judgement now uses (HG-153) — the target the user aims at and the target that selects
+ * are then the same thing by construction. While [waiting] the layer is the HG-144 exit: tapping
+ * it cancels and hands any partial transcript to the draft.
  */
 @Composable
 internal fun VoiceRecordingOverlay(
@@ -100,6 +109,7 @@ internal fun VoiceRecordingOverlay(
     editZone: Boolean,
     elapsedMs: Long,
     onDismissWaiting: () -> Unit,
+    onTargetsMeasured: (VoiceTargets) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Labels sit on the scrim, which is dark in both themes, so they are white in both — the
@@ -136,6 +146,7 @@ internal fun VoiceRecordingOverlay(
                 cancelZone = cancelZone,
                 editZone = editZone,
                 onScrim = onScrim,
+                onTargetsMeasured = onTargetsMeasured,
             )
             Spacer(Modifier.height(20.dp))
             VoiceListeningDome(language = language, waiting = waiting)
@@ -245,8 +256,20 @@ private fun VoiceSwipeTargets(
     cancelZone: Boolean,
     editZone: Boolean,
     onScrim: Color,
+    onTargetsMeasured: (VoiceTargets) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    // HG-153: the two drawn circles are the hot area, so the composer is told where they landed
+    // rather than being asked to guess the overlay's geometry. Reported in root coordinates; equal
+    // values do not re-trigger the writer below.
+    var cancelTarget by remember { mutableStateOf<VoiceTarget?>(null) }
+    var editTarget by remember { mutableStateOf<VoiceTarget?>(null) }
+    val report = rememberUpdatedState(onTargetsMeasured)
+    LaunchedEffect(cancelTarget, editTarget) {
+        val cancel = cancelTarget ?: return@LaunchedEffect
+        val edit = editTarget ?: return@LaunchedEffect
+        report.value(VoiceTargets(cancel, edit))
+    }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 32.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -259,6 +282,9 @@ private fun VoiceSwipeTargets(
             activeContainer = scheme.errorContainer,
             activeContent = scheme.error,
             onScrim = onScrim,
+            onBounds = { center, radius ->
+                cancelTarget = VoiceTarget(VoiceReleaseAction.CANCEL, center.x, center.y, radius)
+            },
         )
         VoiceSwipeTarget(
             icon = Icons.Rounded.Translate,
@@ -267,6 +293,9 @@ private fun VoiceSwipeTargets(
             activeContainer = scheme.primaryContainer,
             activeContent = scheme.onPrimaryContainer,
             onScrim = onScrim,
+            onBounds = { center, radius ->
+                editTarget = VoiceTarget(VoiceReleaseAction.EDIT, center.x, center.y, radius)
+            },
         )
     }
 }
@@ -279,6 +308,7 @@ private fun VoiceSwipeTarget(
     activeContainer: Color,
     activeContent: Color,
     onScrim: Color,
+    onBounds: (Offset, Float) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     val idleContainer = if (isDarkSurface()) scheme.surfaceContainerHigh else scheme.surfaceContainerLowest
@@ -287,7 +317,16 @@ private fun VoiceSwipeTarget(
             shape = CircleShape,
             color = if (active) activeContainer else idleContainer.copy(alpha = 0.92f),
             shadowElevation = 8.dp,
-            modifier = Modifier.size(64.dp),
+            modifier = Modifier
+                .size(64.dp)
+                .onGloballyPositioned { coordinates ->
+                    val box = coordinates.size
+                    val topLeft = coordinates.positionInRoot()
+                    onBounds(
+                        Offset(topLeft.x + box.width / 2f, topLeft.y + box.height / 2f),
+                        box.width / 2f,
+                    )
+                },
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
