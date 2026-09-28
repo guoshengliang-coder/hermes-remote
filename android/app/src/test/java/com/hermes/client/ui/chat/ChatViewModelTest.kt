@@ -1296,6 +1296,36 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { chatRepo.resume("s1", null) }
     }
 
+    @Test fun sendAfterTransientResumeFailureUsesTheRecoveredSocketAndKeepsHistory() = runTest {
+        coEvery { sessionRepo.history("s1", null) } returns listOf(
+            ChatMessage("h-1", Role.USER, "earlier user"),
+            ChatMessage("h-2", Role.ASSISTANT, "earlier reply"),
+        )
+        coEvery { chatRepo.resume("s1", null) } throws
+            com.hermes.client.data.network.GatewayRpcException(0, "account authorization changed") andThen "live-1"
+        coEvery { chatRepo.submit("live-1", "new prompt") } returns Unit
+        val vm = buildVm()
+
+        vm.open("s1")
+        advanceUntilIdle()
+        assertEquals(listOf("earlier user", "earlier reply"), vm.state.value.messages.map { it.text })
+
+        connectionStateFlow.value = ConnectionState.Connected
+        runCurrent()
+        vm.send("new prompt")
+        runCurrent()
+
+        coVerify(exactly = 2) { chatRepo.resume("s1", null) }
+        coVerify(exactly = 1) { chatRepo.submit("live-1", "new prompt") }
+        assertEquals(
+            com.hermes.client.domain.DeliveryState.SENT,
+            vm.state.value.messages.last { it.role == Role.USER }.delivery,
+        )
+        assertEquals("earlier reply", vm.state.value.messages[1].text)
+        events.emit(event("message.complete", "live-1", "done"))
+        advanceUntilIdle()
+    }
+
     // HG-29. A conversation upstream reaped answers 4001 to prompt.submit and then 4007 to the
     // resume the client retries with. The old behaviour flattened both into a retryable
     // HR-SESS-007 "点按重试" that could never succeed. A conversation opened as new, with nothing

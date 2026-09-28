@@ -24,6 +24,7 @@ import com.hermes.client.data.repository.SessionAccess
 import com.hermes.client.data.repository.SessionAccessState
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.DeliveryState
 import com.hermes.client.domain.ImageTransferState
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.chat.ChatUiState
@@ -1203,19 +1204,29 @@ class SessionRuntimeStore(
     private fun sameOrAligned(incoming: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> =
         if (incoming == current) current else incoming
 
+    /** A refused local turn has no server row for REST to cover, but must remain visible. */
+    private fun ChatMessage.isUnsentLocalTurn(): Boolean =
+        serverId == null && (delivery == DeliveryState.FAILED || delivery == DeliveryState.UNDELIVERABLE)
+
+    private fun SessionRuntime.withoutUnsentLocalTurns(): SessionRuntime =
+        copy(chat = chat.copy(messages = chat.messages.filterNot { it.isUnsentLocalTurn() }))
+
     fun acceptHistory(
         key: SessionRuntimeKey,
         messages: List<ChatMessage>,
         requestStartedAt: Long,
     ) {
         updateRuntime(key) { runtime ->
+            val unsent = runtime.chat.messages.filter { it.isUnsentLocalTurn() }
+            val coveredRuntime = runtime.withoutUnsentLocalTurns()
+            val live = coveredRuntime.chat.messages
             // A tail page merged into the repository's window; rows on screen older than that
             // window stay in front (HG-104), and the in-flight assistant tail stays after it
             // (HG-141). The "is the live copy ahead?" comparisons below only look at the rows the
             // snapshot spans — held rows older than it say nothing about it.
-            val grafted = com.hermes.client.ui.chat.graftOlderHead(messages, runtime.chat.messages)
-            val snapshot = snapshotForReconcile(messages, runtime)
-            val spanned = com.hermes.client.ui.chat.rowsFrom(runtime.chat.messages, grafted.firstOrNull()?.serverId)
+            val grafted = com.hermes.client.ui.chat.graftOlderHead(messages, live)
+            val snapshot = snapshotForReconcile(messages, coveredRuntime)
+            val spanned = com.hermes.client.ui.chat.rowsFrom(live, grafted.firstOrNull()?.serverId)
             val liveChars = spanned.sumOf { it.text.length + it.thinking.length }
             val historyChars = grafted.sumOf { it.text.length + it.thinking.length }
             // COMPLETED_UNREAD and a lastEventAt past the request start once kept a stale restored
@@ -1229,13 +1240,13 @@ class SessionRuntimeStore(
             // another device was running discarded every refreshed transcript while the page sat
             // frozen on its first user turn (HG-141); it now keeps the live copy only when the
             // snapshot — with the in-flight tail appended — does not cover the settled turns.
-            val coveredBySnapshot = snapshot.covers(expectationFor(runtime).copy(lastAssistantText = ""))
-            val keepLive = runtime.chat.messages.isNotEmpty() && (
+            val coveredBySnapshot = snapshot.covers(expectationFor(coveredRuntime).copy(lastAssistantText = ""))
+            val keepLive = live.isNotEmpty() && (
                 (runtime.phase.isActive && !coveredBySnapshot) ||
                     (!runtime.phase.isActive && (
                         spanned.size > grafted.size ||
                             liveChars > historyChars ||
-                            (!coveredBySnapshot && !staleLocalLead(runtime, snapshot) && (
+                            (!coveredBySnapshot && !staleLocalLead(coveredRuntime, snapshot) && (
                                 runtime.phase == SessionRunPhase.COMPLETED_UNREAD ||
                                     runtime.lastEventAt > requestStartedAt
                                 ))
@@ -1258,13 +1269,13 @@ class SessionRuntimeStore(
                         // how re-entering a conversation looked like it was replaying the answer.
                         sameOrAligned(
                             com.hermes.client.ui.chat.inheritStreamFields(
-                                com.hermes.client.ui.chat.alignMessageIds(snapshot, runtime.chat.messages),
-                                runtime.chat.messages,
+                                com.hermes.client.ui.chat.alignMessageIds(snapshot, live),
+                                live,
                                 runActive = runtime.phase.isActive,
                                 runStartedAt = runtime.runStartedAt,
                             ),
                             runtime.chat.messages,
-                        )
+                        ) + unsent
                     },
                     historyLoading = false,
                     historyLoaded = true,
@@ -1288,25 +1299,27 @@ class SessionRuntimeStore(
         // (HG-8). The transcript is refreshed the way a reconnect reconcile is — accepted only
         // when REST covers every locally observed turn — and the phase is left to the events.
         val active = before.phase.isActive || before.chat.isGenerating
-        val snapshotBefore = snapshotForReconcile(messages, before)
+        val snapshotBefore = snapshotForReconcile(messages, before.withoutUnsentLocalTurns())
         if (active && !snapshotBefore.covers(expectationFor(before).copy(lastAssistantText = ""))) {
             return ManualHistoryResult.BUSY
         }
         updateRuntime(key, cause = "manual-refresh") { runtime ->
+            val unsent = runtime.chat.messages.filter { it.isUnsentLocalTurn() }
+            val live = runtime.withoutUnsentLocalTurns()
             // Older pages already on screen stay (HG-104); the refresh answers for the tail,
             // and the in-flight assistant tail stays after it (HG-141).
-            val snapshot = snapshotForReconcile(messages, runtime)
+            val snapshot = snapshotForReconcile(messages, live)
             runtime.copy(
                 chat = runtime.chat.copy(
                     messages = com.hermes.client.ui.chat.inheritStreamFields(
                         com.hermes.client.ui.chat.inheritTimestamps(
-                            com.hermes.client.ui.chat.alignMessageIds(snapshot, runtime.chat.messages),
-                            runtime.chat.messages,
+                            com.hermes.client.ui.chat.alignMessageIds(snapshot, live.chat.messages),
+                            live.chat.messages,
                         ),
-                        runtime.chat.messages,
+                        live.chat.messages,
                         runActive = runtime.phase.isActive,
                         runStartedAt = runtime.runStartedAt,
-                    ),
+                    ) + unsent,
                     historyLoading = false,
                     historyLoaded = true,
                     historyError = null,
@@ -1317,7 +1330,9 @@ class SessionRuntimeStore(
         // Inherited stream fields (reasoning, tool results, the live tail) legitimately differ
         // from the raw REST rows; compare with them normalized out, as the reconcile does.
         fun ChatMessage.comparable() = copy(timestamp = null, id = "", thinking = "", tools = emptyList(), isStreaming = false)
-        val expected = snapshotForReconcile(messages, _runtimes.value[key] ?: return ManualHistoryResult.BUSY)
+        val after = _runtimes.value[key] ?: return ManualHistoryResult.BUSY
+        val expected = snapshotForReconcile(messages, after.withoutUnsentLocalTurns()) +
+            after.chat.messages.filter { it.isUnsentLocalTurn() }
         val accepted = committed.size == expected.size &&
             committed.zip(expected).all { (a, b) -> a.comparable() == b.comparable() }
         if (!accepted) return ManualHistoryResult.BUSY
@@ -2019,7 +2034,8 @@ class SessionRuntimeStore(
         // the snapshot must not silently drop it.
         val watchingARemoteRun = runtime.phase.isActive && !runtime.startedLocally
         val settled = runtime.chat.messages.filterNot {
-            watchingARemoteRun && it.role == Role.ASSISTANT && it.isStreaming && it.serverId == null
+            it.isUnsentLocalTurn() ||
+                (watchingARemoteRun && it.role == Role.ASSISTANT && it.isStreaming && it.serverId == null)
         }
         return HistoryExpectation(
             userTurns = settled.count { it.role == Role.USER },
@@ -2117,27 +2133,29 @@ class SessionRuntimeStore(
             }
         DebugLog.log("history") {
             val runtime = _runtimes.value[key]
-            val snapshot = runtime?.let { snapshotForReconcile(messages, it) } ?: messages
+            val snapshot = runtime?.let { snapshotForReconcile(messages, it.withoutUnsentLocalTurns()) } ?: messages
             val reason = if (runtime == null) null else snapshot.coverageGap(effective(runtime))
             if (reason == null) "reconcile s=${key.sessionId}: ${snapshot.size} rows cover the local turns"
             else {
-                val expired = runtime?.let { staleLocalLead(it, snapshot) } == true
+                val expired = runtime?.let { staleLocalLead(it.withoutUnsentLocalTurns(), snapshot) } == true
                 if (expired) "reconcile s=${key.sessionId}: stale local lead expired (HG-124), accepting over: $reason"
                 else "reconcile s=${key.sessionId} rejected: $reason"
             }
         }
         updateRuntime(key, cause = "reconcile") { runtime ->
+            val unsent = runtime.chat.messages.filter { it.isUnsentLocalTurn() }
+            val live = runtime.withoutUnsentLocalTurns()
             // The newest page merged into the repository's window. Older rows the screen holds
             // beyond that window stay in front of it (HG-104), and the in-flight assistant tail
             // this phone is folding stays after it (HG-141).
-            val snapshot = snapshotForReconcile(messages, runtime)
+            val snapshot = snapshotForReconcile(messages, live)
             // It is safe to refresh text while a run is still active as long as REST covers every
             // locally observed turn. Keep the phase unchanged; a terminal event/session.info still
             // owns the transition to idle. This also recovers deltas lost during reconnect.
             // The one refusal with no rung left to wait for is a lead the server has moved past
             // without ever persisting: an idle, long-quiet runtime holding rows REST will never
             // carry refused every fetch forever while the page sat stale (HG-124).
-            if (!snapshot.covers(effective(runtime)) && !staleLocalLead(runtime, snapshot)) {
+            if (!snapshot.covers(effective(runtime)) && !staleLocalLead(live, snapshot)) {
                 return@updateRuntime runtime
             }
             runtime.copy(
@@ -2146,13 +2164,13 @@ class SessionRuntimeStore(
                     // timestamps inherited onto the aligned list.
                     messages = com.hermes.client.ui.chat.inheritStreamFields(
                         com.hermes.client.ui.chat.inheritTimestamps(
-                            com.hermes.client.ui.chat.alignMessageIds(snapshot, runtime.chat.messages),
-                            runtime.chat.messages,
+                            com.hermes.client.ui.chat.alignMessageIds(snapshot, live.chat.messages),
+                            live.chat.messages,
                         ),
-                        runtime.chat.messages,
+                        live.chat.messages,
                         runActive = runtime.phase.isActive,
                         runStartedAt = runtime.runStartedAt,
-                    ),
+                    ) + unsent,
                     historyLoading = false,
                     historyLoaded = true,
                     historyError = null,
@@ -2173,7 +2191,8 @@ class SessionRuntimeStore(
         )
         // Against the snapshot as grafted onto what was committed: the head it kept is the
         // committed list's own, so only the part the network answered for can differ.
-        val expected = snapshotForReconcile(messages, committedRuntime)
+        val expected = snapshotForReconcile(messages, committedRuntime.withoutUnsentLocalTurns()) +
+            committedRuntime.chat.messages.filter { it.isUnsentLocalTurn() }
         return committed.size == expected.size &&
             committed.zip(expected).all { (a, b) -> a.comparable() == b.comparable() }
     }

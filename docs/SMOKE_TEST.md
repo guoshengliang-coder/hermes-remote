@@ -683,6 +683,13 @@ when the phone is asleep — the fix only guarantees that what is shown is true 
    is queued. On the list, pull to refresh while a row says 思考中: the row corrects itself without
    opening the chat. Stop the Mac's Hermes entirely, wait 30 minutes with a run showing 思考中, bring
    the app to the foreground twice a minute apart: the row turns 已中断 instead of spinning forever.
+8. **Failed send beside recovered history (HG-148).** On a real phone, open a conversation with
+   several older turns, briefly cut its network during a new send, and restore it after the bubble
+   shows `SESS-007`. Leave and reopen the conversation, including a cold app start. Once the REST
+   history request succeeds, the older turns and the one unsent bubble must both be visible without
+   pressing Refresh. After the socket reconnects, tap the unsent bubble: it must send once and leave
+   the older turns intact. Record the `history(...)`, `[phase]`, socket close/reconnect, and send
+   lines; this device check is still needed for the timing and visual result beyond the JVM tests.
 
 
 ### Emulator pass, 2026-09-06 (0.1.98, Pixel 9 API 36 against the local dev stack)

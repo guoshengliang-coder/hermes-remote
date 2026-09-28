@@ -10,6 +10,8 @@ import com.hermes.client.data.repository.SessionAccess
 import com.hermes.client.data.repository.SessionAccessState
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
+import com.hermes.client.ui.chat.withDelivery
+import com.hermes.client.ui.chat.withUserMessage
 import io.mockk.every
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -127,6 +129,62 @@ class SessionRuntimeStoreTest {
         val chat = fixture.store.runtimes.value.getValue(key).chat
         assertEquals(listOf("服务端的"), chat.messages.map { it.text })
         assertFalse(chat.historyLoading)
+    }
+
+    @Test fun automaticHistoryRecoversPastARestoredFailedSendAfterSocketRecovery() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, null)
+        // A failed send is restored while REST is in flight. An ordinary session.info reply from
+        // resume can advance lastEventAt even when session.access is unsupported on this Hermes.
+        fixture.store.updateChat(key) { state ->
+            state.withUserMessage("unsent", messageId = "u-unsent")
+                .withDelivery("u-unsent", com.hermes.client.domain.DeliveryState.FAILED)
+        }
+        fixture.events.emit(
+            ServerEvent("session.info", "stored-1", buildJsonObject {
+                put("session_id", "stored-1")
+                put("running", false)
+            }),
+        )
+        val requestStartedAt = fixture.store.runtimes.value.getValue(key).lastEventAt - 1L
+
+        fixture.store.acceptHistory(
+            key,
+            listOf(message("h-0-1", "earlier user"), ChatMessage("h-1-2", Role.ASSISTANT, "earlier reply")),
+            requestStartedAt = requestStartedAt,
+        )
+
+        val shown = fixture.store.runtimes.value.getValue(key).chat.messages
+        assertEquals(listOf("earlier user", "earlier reply", "unsent"), shown.map { it.text })
+        assertEquals("h-0-1", shown.first().id)
+        assertEquals("u-unsent", shown.last().id)
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, shown.last().delivery)
+    }
+
+    @Test fun foregroundAndManualRecoveryKeepTheFailedBubbleBesideServerHistory() = runTest {
+        val sessions = mockk<com.hermes.client.data.repository.SessionRepository>(relaxed = true)
+        val history = listOf(message("h-0-1", "earlier user"), ChatMessage("h-1-2", Role.ASSISTANT, "earlier reply"))
+        coEvery { sessions.history("stored-1", "personal", null) } returns history
+        val fixture = fixture(sessions)
+        coEvery { fixture.chat.resume("stored-1", "personal") } returns null
+        val key = fixture.store.register("stored-1", "personal")
+        fixture.store.markHistoryLoading(key, null)
+        fixture.store.updateChat(key) { state ->
+            state.withUserMessage("unsent", messageId = "u-unsent")
+                .withDelivery("u-unsent", com.hermes.client.domain.DeliveryState.FAILED)
+        }
+
+        assertTrue(fixture.store.recoverVisibleSession(key))
+        assertEquals(
+            listOf("earlier user", "earlier reply", "unsent"),
+            fixture.store.runtimes.value.getValue(key).chat.messages.map { it.text },
+        )
+        assertEquals(
+            ManualHistoryResult.UNCHANGED,
+            fixture.store.acceptManualHistory(key, history),
+        )
+        assertEquals("u-unsent", fixture.store.runtimes.value.getValue(key).chat.messages.last().id)
     }
 
     @Test fun cachedHistoryIsDroppedWhenSomethingIsAlreadyOnScreen() = runTest {
