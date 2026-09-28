@@ -6,15 +6,21 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.InputStream
+
+class AttachmentTooLargeException : IllegalArgumentException("File exceeds 50 MiB")
 
 data class PreparedAttachment(
     val bytes: ByteArray,
     val mimeType: String,
     val name: String,
+    val stagedFile: File? = null,
 )
 
 private const val MAX_IMAGE_SOURCE_BYTES = 48 * 1024 * 1024
 private const val MAX_IMAGE_EDGE = 2560
+private const val STAGED_FILE_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
 
 /** Reads a picker URI with hard bounds and normalizes oversized still images for safe RPC upload. */
 fun prepareAttachment(context: Context, uri: Uri, fallbackName: String = "attachment"): PreparedAttachment {
@@ -37,19 +43,37 @@ fun prepareAttachment(context: Context, uri: Uri, fallbackName: String = "attach
     val mime = resolver.getType(uri)?.ifBlank { null } ?: mimeFromName(originalName)
     val isImage = mime.startsWith("image/", ignoreCase = true)
     val announcedSize = metadata?.second
-    val readLimit = if (isImage) MAX_IMAGE_SOURCE_BYTES else MAX_DIRECT_ATTACHMENT_BYTES
+    val readLimit = if (isImage) MAX_IMAGE_SOURCE_BYTES.toLong() else MAX_FILE_ATTACHMENT_BYTES
     if (announcedSize != null && announcedSize > readLimit) {
-        error(if (isImage) "Image exceeds 48 MB" else "File exceeds 6 MB")
+        if (!isImage) throw AttachmentTooLargeException()
+        error("Image exceeds 48 MB")
+    }
+    if (!isImage) {
+        // Content-provider URIs are not guaranteed to survive navigation or a retry. Snapshot
+        // them once into private storage without holding up to 50 MiB in Compose state.
+        val directory = File(context.cacheDir, "pending-uploads").apply { mkdirs() }
+        val cutoff = System.currentTimeMillis() - STAGED_FILE_MAX_AGE_MS
+        directory.listFiles()?.filter { it.isFile && it.name.endsWith(".pending") && it.lastModified() < cutoff }
+            ?.forEach { it.delete() }
+        val target = File.createTempFile("upload-", ".pending", directory)
+        try {
+            val input = resolver.openInputStream(uri) ?: error("Unable to read the selected file")
+            input.use { stageOrdinaryFile(it, target) }
+            return PreparedAttachment(ByteArray(0), mime, sanitizeAttachmentName(originalName), target)
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
+        }
     }
     val bytes = resolver.openInputStream(uri)?.use { input ->
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(64 * 1024)
-        var total = 0
+        var total = 0L
         while (true) {
             val read = input.read(buffer)
             if (read < 0) break
             total += read
-            if (total > readLimit) error(if (isImage) "Image exceeds 48 MB" else "File exceeds 6 MB")
+            if (total > readLimit) error("Image exceeds 48 MB")
             output.write(buffer, 0, read)
         }
         output.toByteArray()
@@ -62,6 +86,23 @@ fun prepareAttachment(context: Context, uri: Uri, fallbackName: String = "attach
         error("This attachment exceeds the 6 MB direct-upload limit")
     }
     return compressStillImage(bytes, originalName)
+}
+
+/** Read at most [maxBytes], including providers that report no size or report a false size. */
+internal fun stageOrdinaryFile(input: InputStream, target: File, maxBytes: Long = MAX_FILE_ATTACHMENT_BYTES): Long {
+    var total = 0L
+    target.outputStream().use { output ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) throw AttachmentTooLargeException()
+            output.write(buffer, 0, read)
+        }
+    }
+    check(total > 0) { "The selected file is empty" }
+    return total
 }
 
 private fun compressStillImage(bytes: ByteArray, originalName: String): PreparedAttachment {

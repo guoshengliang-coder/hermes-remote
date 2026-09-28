@@ -1,17 +1,20 @@
 import { WebSocket } from "ws";
 import { constants, readFileSync } from "node:fs";
-import { mkdir, open, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, realpath, rename, stat, unlink, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, resolve, sep } from "node:path";
 import {
   ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
+  MAX_PHONE_UPLOAD_BYTES,
+  PHONE_UPLOAD_CHUNK_BYTES,
   encodeWireMessage,
   parseWireMessage,
   type ChatCommand,
   type RelayEvent,
   type SessionLifecycleEvent,
   type TunnelHttpRequest,
+  type TunnelHttpRequestStart,
   type TunnelSocketFrame,
   type TunnelSocketOpen,
   type WireMessage,
@@ -76,7 +79,7 @@ const hermesChatUrl = process.env.HERMES_CHAT_URL ?? `${hermesBaseUrl}/api/chat`
 const filesRoot = resolve(process.env.FILES_ROOT ?? homedir());
 const uploadRoot = resolve(process.env.UPLOAD_ROOT ?? resolve(filesRoot, ".hermes-remote", "uploads"));
 const thumbnailRoot = resolve(process.env.THUMBNAIL_ROOT ?? resolve(filesRoot, ".hermes-remote", "thumbs"));
-const maxUploadBytes = positiveIntEnv("MAX_UPLOAD_BYTES", 6 * 1024 * 1024);
+const maxUploadBytes = Math.min(positiveIntEnv("MAX_UPLOAD_BYTES", MAX_PHONE_UPLOAD_BYTES), MAX_PHONE_UPLOAD_BYTES);
 const maxFileBytes = positiveIntEnv("MAX_FILE_BYTES", 100 * 1024 * 1024);
 const maxUploadCacheBytes = positiveIntEnv("MAX_UPLOAD_CACHE_BYTES", 512 * 1024 * 1024);
 const maxUploadCacheFiles = positiveIntEnv("MAX_UPLOAD_CACHE_FILES", 200, 10_000);
@@ -137,6 +140,17 @@ const pendingForegroundRpcs = new Map<string, Map<number, { method: string; star
 const localErrors = new Map<string, string>();
 const inFlightHttpRequests = new InFlightHttpRequests();
 const responseChunkWaiters = new ResponseChunkWaiters();
+interface StreamUpload {
+  socket: WebSocket;
+  handle: FileHandle;
+  partial: string;
+  path: string;
+  name: string;
+  bytes: number;
+  nextSequence: number;
+  writing?: Promise<void>;
+}
+const streamUploads = new Map<string, StreamUpload>();
 const reconnectBackoff = new ControlReconnectBackoff(controlHeartbeatMs);
 let controlSocket: WebSocket | undefined;
 let controlAuthenticated = false;
@@ -213,6 +227,7 @@ function connect(): void {
     });
     inFlightHttpRequests.abortAll("control_socket_closed");
     responseChunkWaiters.rejectAll(new Error("control_socket_closed"));
+    void abortAllStreamUploads(socket);
     closeLocalSockets();
     if (controlSocket === socket) controlSocket = undefined;
     if (controlSocket === undefined) controlAuthenticated = false;
@@ -275,7 +290,17 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
     case "tunnel.http.request":
       await handleTunnelHttp(socket, message);
       return;
+    case "tunnel.http.request.start":
+      await handleStreamUploadStart(socket, message);
+      return;
+    case "tunnel.http.request.chunk":
+      await handleStreamUploadChunk(socket, message.requestId, message.sequence, message.dataBase64);
+      return;
+    case "tunnel.http.request.end":
+      await handleStreamUploadEnd(socket, message.requestId);
+      return;
     case "tunnel.http.cancel":
+      void abortStreamUpload(message.requestId);
       if (inFlightHttpRequests.cancel(message.requestId, message.reason)) {
         log.info("http.cancelled", { requestId: message.requestId, reason: message.reason });
       }
@@ -585,6 +610,114 @@ async function handleFileRequest(
   }
 }
 
+async function handleStreamUploadStart(socket: WebSocket, request: TunnelHttpRequestStart): Promise<void> {
+  if (request.targetDeviceId !== deviceId) return;
+  if (request.method !== "POST" || new URL(request.path, "http://connector.local").pathname !== "/api/files/upload") {
+    sendFileError(socket, request.id, 400, "invalid_upload_request");
+    return;
+  }
+  if (streamUploads.size > 0 || streamUploads.has(request.id)) {
+    sendFileError(socket, request.id, 503, "HR-FILE-009");
+    return;
+  }
+  const requestedName = (new URL(request.path, "http://connector.local").searchParams.get("name") ?? "attachment")
+    .replace(/[\u0000-\u001f\u007f/\\]/g, "_")
+    .slice(0, 160) || "attachment";
+  const path = resolve(uploadRoot, `${randomUUID()}-${requestedName}`);
+  if (!isWithinRoot(path, uploadRoot)) {
+    sendFileError(socket, request.id, 400, "invalid_upload_path");
+    return;
+  }
+  const partial = `${path}.part`;
+  try {
+    await mkdir(uploadRoot, { recursive: true, mode: 0o700 });
+    const handle = await open(partial, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    streamUploads.set(request.id, { socket, handle, partial, path, name: requestedName, bytes: 0, nextSequence: 0 });
+    sendControl(socket, {
+      type: "tunnel.http.request.ack", version: PROTOCOL_VERSION, requestId: request.id, sequence: -1,
+    });
+  } catch (error) {
+    await unlink(partial).catch(() => undefined);
+    console.error("File upload start failed", safeError(error));
+    sendFileError(socket, request.id, 500, "file_upload_failed");
+  }
+}
+
+async function handleStreamUploadChunk(
+  socket: WebSocket, id: string, sequence: number, dataBase64: string,
+): Promise<void> {
+  const state = streamUploads.get(id);
+  if (!state || state.socket !== socket) return;
+  const bytes = Buffer.from(dataBase64, "base64");
+  if (sequence !== state.nextSequence || bytes.length === 0 || bytes.length > PHONE_UPLOAD_CHUNK_BYTES) {
+    await abortStreamUpload(id);
+    sendFileError(socket, id, 400, "invalid_upload_chunk");
+    return;
+  }
+  if (state.bytes + bytes.length > maxUploadBytes) {
+    await abortStreamUpload(id);
+    sendFileError(socket, id, 413, "HR-FILE-008");
+    return;
+  }
+  try {
+    state.writing = state.handle.writeFile(bytes);
+    await state.writing;
+    if (streamUploads.get(id) !== state) return;
+    state.writing = undefined;
+    state.bytes += bytes.length;
+    state.nextSequence += 1;
+    sendControl(socket, {
+      type: "tunnel.http.request.ack", version: PROTOCOL_VERSION, requestId: id, sequence,
+    });
+  } catch (error) {
+    if (streamUploads.get(id) !== state) return;
+    await abortStreamUpload(id);
+    console.error("File upload chunk failed", safeError(error));
+    sendFileError(socket, id, 500, "file_upload_failed");
+  }
+}
+
+async function handleStreamUploadEnd(socket: WebSocket, id: string): Promise<void> {
+  const state = streamUploads.get(id);
+  if (!state || state.socket !== socket) return;
+  streamUploads.delete(id);
+  if (state.bytes === 0) {
+    await state.handle.close().catch(() => undefined);
+    await unlink(state.partial).catch(() => undefined);
+    sendFileError(socket, id, 400, "empty_file");
+    return;
+  }
+  let writtenPath = state.partial;
+  try {
+    await state.handle.close();
+    await rename(state.partial, state.path);
+    writtenPath = state.path;
+    sendJsonResponse(socket, id, 201, { path: state.path, name: state.name, size: state.bytes });
+    void trimUploadDirectory(state.path).catch((error) => {
+      console.error("Unable to trim upload cache", safeError(error));
+    });
+  } catch (error) {
+    await state.handle.close().catch(() => undefined);
+    await unlink(writtenPath).catch(() => undefined);
+    console.error("File upload finish failed", safeError(error));
+    sendFileError(socket, id, 500, "file_upload_failed");
+  }
+}
+
+async function abortStreamUpload(id: string): Promise<void> {
+  const state = streamUploads.get(id);
+  if (!state) return;
+  streamUploads.delete(id);
+  await state.writing?.catch(() => undefined);
+  await state.handle.close().catch(() => undefined);
+  await unlink(state.partial).catch(() => undefined);
+}
+
+async function abortAllStreamUploads(socket?: WebSocket): Promise<void> {
+  await Promise.all([...streamUploads].filter(([, state]) => !socket || state.socket === socket)
+    .map(([id]) => abortStreamUpload(id)));
+}
+
 async function handleUploadRequest(
   socket: WebSocket,
   request: TunnelHttpRequest,
@@ -602,7 +735,7 @@ async function handleUploadRequest(
     return;
   }
   if (bytes.length > maxUploadBytes) {
-    sendFileError(socket, request.id, 413, "file_too_large");
+    sendFileError(socket, request.id, 413, "HR-FILE-008");
     return;
   }
   const requestedName = (url.searchParams.get("name") ?? "attachment")
@@ -614,14 +747,18 @@ async function handleUploadRequest(
     const storedName = `${randomUUID()}-${requestedName}`;
     const path = resolve(uploadRoot, storedName);
     if (!isWithinRoot(path, uploadRoot)) throw new Error("invalid_upload_path");
-    const handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    writtenPath = path;
+    const partial = `${path}.part`;
+    const handle = await open(partial, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    writtenPath = partial;
     try {
       signal.throwIfAborted();
       await handle.writeFile(bytes);
     } finally {
       await handle.close();
     }
+    signal.throwIfAborted();
+    await rename(partial, path);
+    writtenPath = path;
     signal.throwIfAborted();
     sendJsonResponse(socket, request.id, 201, {
       path,
@@ -632,10 +769,8 @@ async function handleUploadRequest(
       console.error("Unable to trim upload cache", safeError(error));
     });
   } catch (error) {
-    if (signal.aborted) {
-      if (writtenPath) await unlink(writtenPath).catch(() => undefined);
-      return;
-    }
+    if (writtenPath) await unlink(writtenPath).catch(() => undefined);
+    if (signal.aborted) return;
     console.error("File upload failed", safeError(error));
     sendFileError(socket, request.id, 500, "file_upload_failed");
   }
@@ -1216,6 +1351,7 @@ function shutdown(signal: string): void {
   lifecycleObserver?.stop();
   inFlightHttpRequests.abortAll("connector_stopping");
   responseChunkWaiters.rejectAll(new Error("connector_stopping"));
+  void abortAllStreamUploads();
   closeLocalSockets();
   controlSocket?.close(1000, "connector stopping");
   setTimeout(() => process.exit(0), 250).unref();

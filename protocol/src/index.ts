@@ -1,6 +1,10 @@
 export const PROTOCOL_VERSION = 1 as const;
 export const ACCOUNT_CONNECTOR_PROTOCOL_VERSION = 2 as const;
 
+/** One phone upload. The wire frame also contains base64 and JSON framing. */
+export const MAX_PHONE_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const PHONE_UPLOAD_CHUNK_BYTES = 256 * 1024;
+
 export type Role = "app" | "connector";
 
 export interface HelloMessage {
@@ -154,6 +158,39 @@ export interface TunnelHttpRequest {
   bodyBase64?: string;
 }
 
+/** Phone upload body frames are acknowledged after Connector writes them to its partial file. */
+export interface TunnelHttpRequestStart {
+  type: "tunnel.http.request.start";
+  version: typeof PROTOCOL_VERSION;
+  id: string;
+  targetDeviceId: string;
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+}
+
+export interface TunnelHttpRequestChunk {
+  type: "tunnel.http.request.chunk";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+  sequence: number;
+  dataBase64: string;
+}
+
+/** Sequence -1 acknowledges start; nonnegative sequences acknowledge written chunks. */
+export interface TunnelHttpRequestAck {
+  type: "tunnel.http.request.ack";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+  sequence: number;
+}
+
+export interface TunnelHttpRequestEnd {
+  type: "tunnel.http.request.end";
+  version: typeof PROTOCOL_VERSION;
+  requestId: string;
+}
+
 export type TunnelHttpCancelReason =
   | "client_aborted"
   | "gateway_timeout"
@@ -247,6 +284,10 @@ export type WireMessage =
   | SessionLifecycleAck
   | ErrorMessage
   | TunnelHttpRequest
+  | TunnelHttpRequestStart
+  | TunnelHttpRequestChunk
+  | TunnelHttpRequestAck
+  | TunnelHttpRequestEnd
   | TunnelHttpCancel
   | TunnelHttpResponse
   | TunnelHttpResponseStart
@@ -458,6 +499,37 @@ export function parseWireMessage(raw: string): WireMessage {
         ...(bodyBase64 === undefined ? {} : { bodyBase64 }),
       };
     }
+    case "tunnel.http.request.start":
+      return {
+        type: "tunnel.http.request.start",
+        version: PROTOCOL_VERSION,
+        id: boundedString(value.id, "invalid_request_id", 1, 128),
+        targetDeviceId: boundedString(value.targetDeviceId, "invalid_device_id", 1, 128),
+        method: boundedString(value.method, "invalid_http_method", 1, 16),
+        path: apiPath(value.path),
+        headers: stringRecord(value.headers, "invalid_headers"),
+      };
+    case "tunnel.http.request.chunk":
+      return {
+        type: "tunnel.http.request.chunk",
+        version: PROTOCOL_VERSION,
+        requestId: boundedString(value.requestId, "invalid_request_id", 1, 128),
+        sequence: integer(value.sequence, "invalid_sequence", 0, 1_000_000),
+        dataBase64: boundedString(value.dataBase64, "invalid_chunk", 1, MAX_CHUNK_BASE64_CHARS),
+      };
+    case "tunnel.http.request.ack":
+      return {
+        type: "tunnel.http.request.ack",
+        version: PROTOCOL_VERSION,
+        requestId: boundedString(value.requestId, "invalid_request_id", 1, 128),
+        sequence: integer(value.sequence, "invalid_sequence", -1, 1_000_000),
+      };
+    case "tunnel.http.request.end":
+      return {
+        type: "tunnel.http.request.end",
+        version: PROTOCOL_VERSION,
+        requestId: boundedString(value.requestId, "invalid_request_id", 1, 128),
+      };
     case "tunnel.http.cancel":
       return {
         type: "tunnel.http.cancel",

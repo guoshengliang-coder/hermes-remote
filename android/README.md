@@ -70,6 +70,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Calm mint/neutral visual system with a floating, full-width composer inspired by WorkBuddy's layout language.
 - Real Markdown rendering, readable JSON output normalization, and collapsed tool-result cards.
 - Camera, photo picker, voice input, saved prompts, sessions, and model selection remain available.
+- Ordinary picker and share-sheet files are staged in private cache and may be sent up to 50 MiB;
+  files above that limit show `HR-FILE-008`. Images retain their existing compression path. A PDF
+  uses `file.attach`, so it is delivered as a file without Mac-side rasterization.
 - Chat voice input uses a hold-to-talk composer and Gateway-proxied Doubao streaming recognition.
   The provider key is read only by the Gateway from `DOUBAO_ASR_API_KEY_FILE`; it is never stored
   in the Android build. Releasing sends the final transcript, sliding up left cancels, and sliding

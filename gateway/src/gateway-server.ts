@@ -110,7 +110,9 @@ export class GatewayServer<TConnector> {
         )
       : createServer(requestHandler);
     this.server.headersTimeout = 15_000;
-    this.server.requestTimeout = options.requestTimeoutMs + 5_000;
+    // A 50 MiB phone upload on a slow mobile link can exceed the normal 60 s REST timeout.
+    // HttpTunnelBroker retains the shorter response deadline for every non-upload route.
+    this.server.requestTimeout = Math.max(options.requestTimeoutMs, 10 * 60_000) + 5_000;
     this.server.keepAliveTimeout = 5_000;
     this.server.maxHeadersCount = 64;
 

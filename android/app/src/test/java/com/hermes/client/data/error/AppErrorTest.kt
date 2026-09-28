@@ -9,6 +9,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun outgoing_upload_errors_are_bilingual_distinct_and_redact_diagnostics() {
+        val cases = listOf(
+            AppError(AppErrorCode.UPLOAD_TOO_LARGE, retryable = false, technicalCause = "token=secret"),
+            AppError(AppErrorCode.UPLOAD_BUSY, retryable = true, technicalCause = "token=secret"),
+            AppError(AppErrorCode.UPLOAD_SERVER_LIMIT, retryable = false, technicalCause = "token=secret"),
+        )
+        for (error in cases) {
+            assertTrue(error.localizedMessage(AppLanguage.ZH).contains(error.code.value))
+            assertTrue(error.localizedMessage(AppLanguage.EN).contains(error.code.value))
+            assertTrue(error.localizedSummary(AppLanguage.ZH) != error.localizedSummary(AppLanguage.EN))
+            assertFalse(error.sanitizedDiagnostic().contains("secret"))
+            assertEquals(error.code, AppErrorCode.fromValue(error.code.value))
+        }
+        assertFalse(cases[0].retryable)
+        assertTrue(cases[1].retryable)
+        assertFalse(cases[2].retryable)
+    }
     @Test fun voiceFailuresHaveBilingualCodesAndRedactedDiagnostics() {
         listOf(
             AppErrorCode.MICROPHONE_PERMISSION_REQUIRED,

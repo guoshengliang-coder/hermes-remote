@@ -28,6 +28,25 @@ ready duration and time since the last eligible pong. These diagnostic fields co
 close-reason text, credentials or message bodies. Existing desktop-readable connection messages
 remain available. No new user-visible error or error code is introduced.
 
+## Phone uploads (HG-145)
+
+The default per-file limit is 50 MiB. The phone stages ordinary files on disk; Gateway accepts this
+size only for `POST /api/files/upload` and sends one 256 KiB frame at a time per Mac. Connector
+acknowledges each frame after writing it to a private `.part` file, then renames the file after the
+last frame. Failed and cancelled streams remove the partial file. The upload request may run for up
+to 10 minutes. Images retain their existing compression and attachment flow. PDFs are attached as
+files with `file.attach`.
+
+Roll out the new Connector before the Gateway route and the Android client. An older Connector does
+not acknowledge upload start; Gateway detects that after 10 seconds, then preserves uploads up to
+the former 6 MiB limit through the legacy request. Larger files receive `HR-FILE-010` until that
+Mac updates. The capability decision is cached only for that control socket.
+
+Test a near-limit upload against the actual Mac and monitor Connector memory and control socket
+health before releasing the change. A configured `MAX_UPLOAD_BYTES` below 50 MiB lowers the
+effective ceiling. The local 50 MiB frame and Connector tests peaked near 182 MiB each, including
+their test fixtures; the Gateway container limit is 256 MiB, so production still needs observation.
+
 ## Verification
 
 ```sh

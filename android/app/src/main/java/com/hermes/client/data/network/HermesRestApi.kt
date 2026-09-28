@@ -21,6 +21,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Call
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.util.concurrent.TimeUnit
 import java.io.File
@@ -542,10 +543,19 @@ class HermesRestApi(
 
     /** Upload raw bytes over HTTPS; only the tunnel layer Base64-encodes them once. */
     suspend fun uploadArtifact(bytes: ByteArray, name: String, mimeType: String): UploadedArtifact =
+        uploadArtifactBody(bytes.toRequestBody(mimeType.toMediaTypeOrNull()), bytes.size.toLong(), name)
+
+    /** OkHttp streams this private file to the Gateway instead of copying it into a ByteArray. */
+    suspend fun uploadArtifact(file: java.io.File, name: String, mimeType: String): UploadedArtifact {
+        require(file.isFile && file.length() in 1L..50L * 1024 * 1024) { "Invalid staged attachment" }
+        return uploadArtifactBody(file.asRequestBody(mimeType.toMediaTypeOrNull()), file.length(), name)
+    }
+
+    private suspend fun uploadArtifactBody(body: okhttp3.RequestBody, expectedSize: Long, name: String): UploadedArtifact =
         withContext(Dispatchers.IO) {
             val encodedName = java.net.URLEncoder.encode(name, "UTF-8")
             val request = builder("/api/files/upload?name=$encodedName")
-                .post(bytes.toRequestBody(mimeType.toMediaTypeOrNull()))
+                .post(body)
                 .build()
             clientFor(request).newCall(request).apply {
                 timeout().timeout(10, TimeUnit.MINUTES)
@@ -559,7 +569,7 @@ class HermesRestApi(
                     path = obj["path"]?.jsonPrimitive?.content
                         ?: throw HermesApiException(0, "upload response contained no path"),
                     name = obj["name"]?.jsonPrimitive?.content ?: name,
-                    sizeBytes = obj["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: bytes.size.toLong(),
+                    sizeBytes = obj["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: expectedSize,
                 )
             }
         }

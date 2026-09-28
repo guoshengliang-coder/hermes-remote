@@ -623,13 +623,27 @@ fun ChatScreen(
 
     fun stageUri(uri: Uri, fallbackName: String = "attachment") {
         attachScope.launch {
-            runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            var stagedFile: java.io.File? = null
+            try {
+                val attachment = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     prepareAttachment(context, uri, fallbackName)
                 }
-            }.onSuccess { attachment ->
-                vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
-            }.onFailure { showAttachmentError(null) }
+                stagedFile = attachment.stagedFile
+                if (attachment.stagedFile != null) vm.stageAttachment(attachment.stagedFile, attachment.mimeType, attachment.name)
+                else vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
+                stagedFile = null
+            } catch (error: Throwable) {
+                stagedFile?.delete()
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                showAttachmentError(
+                    if (error is AttachmentTooLargeException)
+                        com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.UPLOAD_TOO_LARGE,
+                            retryable = false,
+                        ).localizedMessage(language)
+                    else null,
+                )
+            }
         }
     }
 
@@ -637,13 +651,20 @@ fun ChatScreen(
         attachScope.launch {
             var failures = 0
             for (uri in uris) {
-                runCatching {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                var stagedFile: java.io.File? = null
+                try {
+                    val attachment = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         prepareAttachment(context, uri, "photo.jpg")
                     }
-                }.onSuccess { attachment ->
-                    vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
-                }.onFailure { failures++ }
+                    stagedFile = attachment.stagedFile
+                    if (attachment.stagedFile != null) vm.stageAttachment(attachment.stagedFile, attachment.mimeType, attachment.name)
+                    else vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
+                    stagedFile = null
+                } catch (error: Throwable) {
+                    stagedFile?.delete()
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    failures++
+                }
             }
             if (failures > 0) {
                 showAttachmentError(

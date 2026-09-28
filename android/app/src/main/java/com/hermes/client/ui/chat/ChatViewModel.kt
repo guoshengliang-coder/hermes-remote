@@ -62,6 +62,8 @@ import com.hermes.client.ui.localization.localized
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.ConversationDeviceStore
 
+private class UploadHttpFailure(val response: HermesApiException) : RuntimeException(response)
+
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val chat: ChatRepository,
@@ -955,6 +957,15 @@ class ChatViewModel @Inject constructor(
             // A share may have handed off an image; stage it so it shows as a chip and is
             // flushed to the gateway on the next send (rather than attaching immediately).
             ps?.let { share ->
+                share.stagedFilePath?.let { path ->
+                    val file = java.io.File(path)
+                    runCatching { stageAttachment(file, share.imageMime ?: "application/octet-stream", share.attachmentName ?: "attachment") }
+                        .onFailure { error ->
+                            file.delete()
+                            if (error is kotlinx.coroutines.CancellationException) throw error
+                            appendError(localizedText("附件处理失败（HR-FILE-001）", "Attachment failed (HR-FILE-001)"))
+                        }
+                }
                 val imgB64 = share.imageBase64
                 val imgMime = share.imageMime
                 if (imgB64 != null && imgMime != null) {
@@ -1358,7 +1369,19 @@ class ChatViewModel @Inject constructor(
         require(bytes.size <= MAX_DIRECT_ATTACHMENT_BYTES) { "Attachment exceeds 6 MB" }
         mutateState { it.withAttachment(PendingAttachment(id, bytes, mimeType, name)) }
     }
-    fun removeAttachment(id: String) { mutateState { it.withoutAttachment(id) } }
+    fun stageAttachment(file: java.io.File, mimeType: String, name: String = "attachment") {
+        require(file.isFile && file.length() in 1L..MAX_FILE_ATTACHMENT_BYTES) { "Invalid staged attachment" }
+        if (_state.value.pendingAttachments.size >= ATTACH_CAP) {
+            file.delete()
+            return
+        }
+        val id = "att-${java.util.UUID.randomUUID()}"
+        mutateState { it.withAttachment(PendingAttachment(id, ByteArray(0), mimeType, name, stagedFile = file)) }
+    }
+    fun removeAttachment(id: String) {
+        _state.value.pendingAttachments.firstOrNull { it.id == id }?.stagedFile?.delete()
+        mutateState { it.withoutAttachment(id) }
+    }
 
     /** Put an edited image back where it came from, under the same id. See [withReplacedAttachment]. */
     fun replaceAttachment(id: String, bytes: ByteArray, mimeType: String, name: String) {
@@ -1623,6 +1646,7 @@ class ChatViewModel @Inject constructor(
                     attachments = atts,
                     messageId = messageId,
                 )
+                atts.forEach { it.stagedFile?.delete() }
                 // The gateway acknowledged the turn: the bubble goes from "sending" to solid.
                 updateDelivery(messageId, com.hermes.client.domain.DeliveryState.SENT)
                 // Nothing is outstanding in this conversation any more, so the session row stops
@@ -1660,8 +1684,14 @@ class ChatViewModel @Inject constructor(
                 // each read — so it is the same bytes on every attempt and grows from here. The tap
                 // is withheld for the same reason as 5028, and the copy names the conversation.
                 val responseTooLarge = rpcCode == RELAY_RESPONSE_TOO_LARGE_CODE
+                val serverUploadLimit = (e as? UploadHttpFailure)?.response?.code == 413
+                val uploadBusy = (e as? UploadHttpFailure)?.response?.let {
+                    it.code == 503 && it.message?.contains("HR-FILE-009") == true
+                } == true
                 val error = com.hermes.client.data.error.AppError(
                     when {
+                        serverUploadLimit -> com.hermes.client.data.error.AppErrorCode.UPLOAD_SERVER_LIMIT
+                        uploadBusy -> com.hermes.client.data.error.AppErrorCode.UPLOAD_BUSY
                         gone -> com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
                         ownedElsewhere -> com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE
                         handshakeStalled -> com.hermes.client.data.error.AppErrorCode.HANDSHAKE_TIMEOUT
@@ -1672,7 +1702,7 @@ class ChatViewModel @Inject constructor(
                     },
                     // Decided per code, not by one predicate: every new terminal failure that gets
                     // folded in here has to say so itself, or it inherits a tap it cannot honour.
-                    retryable = !gone && !pdfDependencyMissing && !responseTooLarge,
+                    retryable = !gone && !pdfDependencyMissing && !responseTooLarge && !serverUploadLimit,
                     // Keep the numeric code in the copyable diagnostic, not only in DebugLog below:
                     // upstream's prose is the part that can change under us, the number is the part
                     // we classify on, and the user pasting a diagnostic should be handing us both.
@@ -1695,7 +1725,8 @@ class ChatViewModel @Inject constructor(
                 }
                 updateSentFiles(messageId) { files ->
                     files.map { file ->
-                        if (file.state == com.hermes.client.domain.FileTransferState.UPLOADING) {
+                        if (file.state == com.hermes.client.domain.FileTransferState.UPLOADING ||
+                            file.state == com.hermes.client.domain.FileTransferState.READY) {
                             file.copy(state = com.hermes.client.domain.FileTransferState.FAILED)
                         } else file
                     }
@@ -1749,11 +1780,12 @@ class ChatViewModel @Inject constructor(
             )
             val fileRefs = mutableListOf<String>()
             attachments.forEach { attachment ->
-                val uploaded = fileRepository.upload(
-                    attachment.bytes,
-                    attachment.name,
-                    attachment.mimeType,
-                )
+                val uploaded = try {
+                    attachment.stagedFile?.let { fileRepository.uploadStagedFile(it, attachment.name, attachment.mimeType) }
+                        ?: fileRepository.upload(attachment.bytes, attachment.name, attachment.mimeType)
+                } catch (error: HermesApiException) {
+                    throw UploadHttpFailure(error)
+                }
                 when (attachment.kind) {
                     AttachmentKind.IMAGE -> {
                         val attached = chat.attachImagePath(handle, uploaded.path)
@@ -2184,6 +2216,8 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
+        _state.value.pendingAttachments.forEach { it.stagedFile?.delete() }
+        failedSends.values.flatMap { it.attachments }.forEach { it.stagedFile?.delete() }
     }
 
     /** Called by the composable lifecycle; opening/refreshing history is not itself a read receipt. */

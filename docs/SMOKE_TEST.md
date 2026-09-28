@@ -208,7 +208,8 @@ For a deployed relay, set `PUBLIC_GATEWAY_URL` and `APP_TOKEN` in the invoking s
 With Gateway and Connector running locally and `FILES_ROOT` pointing at a dedicated test directory:
 
 1. Upload a small text, PDF, and processed photo through the Android attachment sheet. Confirm each
-   appears on the outgoing user turn and Hermes receives the attachment before the prompt.
+   appears on the outgoing user turn and Hermes receives the attachment before the prompt. A PDF
+   must use `file.attach`, so the Mac does not need PDF rasterization dependencies.
 2. Capture a photo with the system camera, cancel once, then capture successfully. Confirm cancel is
    harmless and the successful capture produces a thumbnail.
 3. Have Hermes return `@image:/absolute/path/to/image.png` and `@file:/absolute/path/to/report.pdf`.
@@ -217,6 +218,15 @@ With Gateway and Connector running locally and `FILES_ROOT` pointing at a dedica
    `MAX_FILE_BYTES`). Confirm the download completes and the Connector remains online afterward.
 5. Attempt a path outside `FILES_ROOT`, an upload above `MAX_UPLOAD_BYTES`, and a download above
    `MAX_FILE_BYTES`. Expect request-scoped 403/413 errors with no control-WebSocket disconnect.
+6. From both the in-chat picker and Android share sheet, send a file above 6 MiB and another close
+   to 50 MiB. Check the Mac file's size and SHA-256, the correct model's receipt of the full file,
+   and the reopened conversation history. Repeat while another chat is active; that chat must
+   recover normal responses when the upload completes. Watch phone/Gateway/Connector memory and
+   connection health during the 50 MiB attempt.
+7. Try an ordinary file above 50 MiB from both entry points. Expect `HR-FILE-008` before upload.
+   If the server is configured with a lower limit, expect `HR-FILE-010`. Cancel an upload or drop
+   the connection mid-transfer, retry, and verify that no `.part` file or abandoned phone staging
+   file remains after cleanup. Keep image compression and thumbnails working.
 
 ## Single-screen navigation and profile-scope smoke test (2026-08 redesign)
 
