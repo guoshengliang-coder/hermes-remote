@@ -41,6 +41,7 @@ import { historyProjection } from "./history-preview.js";
 import { contractReportResponse, defaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
+import { ControlReconnectBackoff } from "./control-reconnect.js";
 import {
   isThumbnailable,
   isWorthDownscaling,
@@ -136,7 +137,7 @@ const pendingForegroundRpcs = new Map<string, Map<number, { method: string; star
 const localErrors = new Map<string, string>();
 const inFlightHttpRequests = new InFlightHttpRequests();
 const responseChunkWaiters = new ResponseChunkWaiters();
-let retryMs = 1_000;
+const reconnectBackoff = new ControlReconnectBackoff(controlHeartbeatMs);
 let controlSocket: WebSocket | undefined;
 let controlAuthenticated = false;
 let stopping = false;
@@ -151,6 +152,9 @@ if (!isWithinRoot(thumbnailRoot, filesRoot)) {
 }
 
 function connect(): void {
+  if (stopping) return;
+  reconnectBackoff.beginAttempt();
+  const startedAt = performance.now();
   const socket = new WebSocket(gatewayUrl, {
     handshakeTimeout: localSocketConnectTimeoutMs,
     maxPayload: maxWirePayloadBytes,
@@ -161,7 +165,6 @@ function connect(): void {
   controlAuthenticated = false;
 
   socket.on("open", () => {
-    retryMs = 1_000;
     if (accountAuthenticator) {
       socket.send(encodeWireMessage(accountAuthenticator.identify()));
     } else {
@@ -191,6 +194,8 @@ function connect(): void {
   });
 
   socket.on("pong", () => {
+    if (controlSocket !== socket) return;
+    if (awaitingPong) reconnectBackoff.markPong();
     awaitingPong = false;
   });
 
@@ -200,8 +205,12 @@ function connect(): void {
     });
   });
 
-  socket.on("close", () => {
+  socket.on("close", (code) => {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
+    log.info("relay.disconnected", {
+      mode: connectorMode, closeCode: code, authenticated: controlAuthenticated,
+      lifetimeMs: Math.round(performance.now() - startedAt), stopping,
+    });
     inFlightHttpRequests.abortAll("control_socket_closed");
     responseChunkWaiters.rejectAll(new Error("control_socket_closed"));
     closeLocalSockets();
@@ -234,6 +243,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
         accountAuthenticator.requireReady(message);
         deviceId = message.deviceId;
         controlAuthenticated = message.routingEnabled;
+        if (message.routingEnabled) reconnectBackoff.markReady();
         console.log(`Connected to gateway as ${deviceId} in account mode (${message.bindingStatus})`);
         void contractMonitor.ensureFresh("relay_connected");
         if (message.routingEnabled) startLifecycleObserver();
@@ -251,6 +261,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
       console.log(`Connected to gateway as ${message.deviceId}`);
       log.info("relay.connected", { device: message.deviceId, tunnels: localSockets.size });
       controlAuthenticated = true;
+      reconnectBackoff.markReady();
       lifecycleObserver?.relayConnected();
       void contractMonitor.ensureFresh("relay_connected");
       return;
@@ -1095,10 +1106,10 @@ function sendControl(socket: WebSocket, message: WireMessage): boolean {
 
 function scheduleReconnect(): void {
   if (stopping) return;
-  const delay = retryMs + Math.floor(Math.random() * 500);
-  console.log(`Disconnected; reconnecting in ${delay}ms`);
-  setTimeout(connect, delay);
-  retryMs = Math.min(retryMs * 2, 30_000);
+  const decision = reconnectBackoff.nextDelay();
+  log.info("relay.reconnect_scheduled", { mode: connectorMode, ...decision });
+  console.log(`Disconnected; reconnecting in ${decision.delayMs}ms`);
+  setTimeout(connect, decision.delayMs);
 }
 
 function selectResponseHeaders(headers: Headers): Record<string, string> {
