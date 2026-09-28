@@ -16,7 +16,20 @@ export interface LiveSessionSnapshot {
   sessionKey: string;
   status: LiveSessionStatus;
   lastActive: number;
+  messageCount?: number;
   title?: string;
+}
+
+/** Safe projection of one active-list change; no prompt, preview, title, or transcript. */
+export interface LifecycleObservation {
+  runtimeSessionId: string;
+  storedSessionId: string;
+  previousStatus: LiveSessionStatus | "absent";
+  status: LiveSessionStatus | "absent";
+  previousMessageCount?: number;
+  messageCount?: number;
+  decision: SessionLifecycleEventKind | "none";
+  eventId?: string;
 }
 
 interface TrackedSession extends LiveSessionSnapshot {
@@ -68,7 +81,7 @@ export class SessionLifecycleTracker {
     const next = new Map<string, TrackedSession>();
     for (const session of snapshot) {
       const previous = this.sessions.get(session.id);
-      const transition = lifecycleTransition(previous?.status, session.status);
+      const transition = lifecycleTransition(previous, session);
       const transitionSequence = previous?.transitionSequence ?? 0;
       if (transition) {
         const sequence = transitionSequence + 1;
@@ -80,7 +93,7 @@ export class SessionLifecycleTracker {
     }
 
     for (const previous of this.sessions.values()) {
-      if (current.has(previous.id) || !isActive(previous.status)) continue;
+      if (current.has(previous.id) || !isRunning(previous.status)) continue;
       const sequence = previous.transitionSequence + 1;
       events.push(this.eventFor(
         { ...previous, status: "idle" },
@@ -208,10 +221,13 @@ export function parseActiveList(value: unknown): LiveSessionSnapshot[] {
     const lastActive = typeof item.last_active === "number" && Number.isFinite(item.last_active)
       ? item.last_active
       : 0;
+    const messageCount = Number.isSafeInteger(item.message_count) && (item.message_count as number) >= 0
+      ? item.message_count as number
+      : undefined;
     const title = typeof item.title === "string" && item.title.trim()
       ? item.title.trim().slice(0, 256)
       : undefined;
-    return { id, sessionKey, status, lastActive, ...(title ? { title } : {}) };
+    return { id, sessionKey, status, lastActive, ...(messageCount !== undefined ? { messageCount } : {}), ...(title ? { title } : {}) };
   });
 }
 
@@ -224,19 +240,30 @@ export function nextPollDelayMs(
 }
 
 function lifecycleTransition(
-  previous: LiveSessionStatus | undefined,
-  current: LiveSessionStatus,
+  previousSnapshot: TrackedSession | undefined,
+  currentSnapshot: LiveSessionSnapshot,
 ): SessionLifecycleEventKind | undefined {
+  const previous = previousSnapshot?.status;
+  const current = currentSnapshot.status;
   if (previous === undefined || previous === "idle") {
     if (current === "waiting") return "run.waiting";
-    if (current === "starting" || current === "working") return "run.started";
+    // Hermes reports "starting" while pre-warming an agent for session.resume.
+    // That is not a new turn: opening an old conversation can go starting→idle
+    // without adding a message. Only "working" proves a run actually began.
+    if (current === "working") return "run.started";
     return undefined;
   }
-  if (previous === "waiting" && (current === "starting" || current === "working")) {
+  if (previous === "starting" && current === "working") return "run.started";
+  if (previous === "waiting" && current === "working") {
     return "run.resumed";
   }
   if (previous !== "waiting" && current === "waiting") return "run.waiting";
-  if (isActive(previous) && current === "idle") return "run.completed";
+  // A complete turn may fit between polls while the agent is building. A larger
+  // Hermes history proves new content even if "working" was never observed.
+  if (previous === "starting" && current === "idle" &&
+      previousSnapshot?.messageCount !== undefined && currentSnapshot.messageCount !== undefined &&
+      currentSnapshot.messageCount > previousSnapshot.messageCount) return "run.completed";
+  if (isRunning(previous) && current === "idle") return "run.completed";
   return undefined;
 }
 
@@ -251,6 +278,10 @@ function eventState(
 
 function isActive(status: LiveSessionStatus): boolean {
   return ACTIVE_STATES.has(status);
+}
+
+function isRunning(status: LiveSessionStatus): boolean {
+  return status === "working" || status === "waiting";
 }
 
 function parsePersistentState(value: unknown): ObserverPersistentState {
@@ -268,6 +299,7 @@ function parsePersistentState(value: unknown): ObserverPersistentState {
         session_key: item.sessionKey,
         status: item.status,
         last_active: item.lastActive,
+        message_count: item.messageCount,
         title: item.title,
       }] })[0];
       return {

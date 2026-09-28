@@ -1104,6 +1104,10 @@ class SessionRuntimeStore(
         if (key in _restoredKeys.value) _restoredKeys.update { it - key }
         if (aliases.isNotEmpty()) _restoredKeys.update { it - aliases }
         val token = SessionReadStore.token(key.profile, key.sessionId, key.deviceId)
+        val wasUnread = token in _unreadTokens.value
+        if (wasUnread || aliases.isNotEmpty()) {
+            DebugLog.log("lifecycle") { "read cleared s=${key.sessionId} unread=$wasUnread verdicts=${aliases.size}" }
+        }
         _unreadTokens.update { it - token }
         if (readStore != null) pendingReadMarks[token] = false
         _runtimes.update { map ->
@@ -1581,7 +1585,9 @@ class SessionRuntimeStore(
         val occurred = parseOccurredAt(event.occurredAt) ?: now
         // Delivery latency as the phone sees it (phone clock minus the Mac's stamp). 26% of
         // completions were more than 30s late on 2026-09-05; this line makes that visible per run.
-        DebugLog.log("lifecycle") { "${event.event} s=${key.sessionId} late=${(now - occurred) / 1000}s" }
+        DebugLog.log("lifecycle") {
+            "${event.event} s=${key.sessionId} event=${event.eventId} state=${event.state} late=${(now - occurred) / 1000}s"
+        }
         val title = event.title?.trim()?.takeIf { it.isNotBlank() }
         // The inbox replays a terminal transition the live socket already delivered (or that the
         // user already read) a few seconds later. Folding it again would resurrect an unread badge,
@@ -1599,6 +1605,7 @@ class SessionRuntimeStore(
             else -> false
         }
         if (replay) {
+            DebugLog.log("lifecycle") { "replay ignored s=${key.sessionId} event=${event.eventId}" }
             title?.let { setTitle(key, it) }
             return
         }
@@ -1650,7 +1657,11 @@ class SessionRuntimeStore(
         }
         when (event.event) {
             "run.completed" -> {
-                if (isWatched(key)) markRead(key) else markUnread(key)
+                val watched = isWatched(key)
+                DebugLog.log("lifecycle") {
+                    "completion receipt s=${key.sessionId} event=${event.eventId} action=${if (watched) "read" else "unread"}"
+                }
+                if (watched) markRead(key) else markUnread(key)
                 _runtimes.value[key]?.let { runtime ->
                     // The observer confirms that Hermes has finished, but it does not carry the
                     // final assistant body. A phone that was backgrounded may only hold an early
