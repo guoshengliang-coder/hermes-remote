@@ -99,7 +99,7 @@ class AppLanguageTest {
             AppErrorCode.HANDSHAKE_TIMEOUT,
             AppErrorCode.CONNECTION_INTERRUPTED,
             AppErrorCode.CONNECTOR_OFFLINE,
-            AppErrorCode.CONNECTOR_HERMES_UNREACHABLE,
+            AppErrorCode.HERMES_UNREACHABLE,
             AppErrorCode.CONNECTION_UNSTABLE,
             AppErrorCode.ADDRESS_NOT_FOUND,
             AppErrorCode.CONNECTION_TIMEOUT,
