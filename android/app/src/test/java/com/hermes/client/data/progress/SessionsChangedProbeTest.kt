@@ -37,7 +37,7 @@ class SessionsChangedProbeTest {
 
     private fun kotlinx.coroutines.test.TestScope.fixture(): Fixture {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         every { chat.events } returns events
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)

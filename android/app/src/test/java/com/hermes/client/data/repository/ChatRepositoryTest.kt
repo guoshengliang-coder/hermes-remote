@@ -12,9 +12,45 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ChatRepositoryTest {
+    @Test fun activeList_parsesSharedGatewayStatusWithoutAttachingToSession() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call("session.active_list", any()) } returns buildJsonObject {
+            put("sessions", buildJsonArray {
+                add(buildJsonObject {
+                    put("id", "live-1")
+                    put("session_key", "stored-1")
+                    put("status", "working")
+                })
+                add(buildJsonObject {
+                    put("id", "live-2")
+                    put("session_key", "stored-2")
+                    put("status", "waiting")
+                })
+            })
+        }
+
+        val snapshot = ChatRepository(client).activeSessions("personal")
+
+        assertEquals(ActiveSessionStatus.WORKING, snapshot.sessions[0].status)
+        assertEquals("stored-1", snapshot.sessions[0].storedId)
+        assertEquals(ActiveSessionStatus.WAITING, snapshot.sessions[1].status)
+        coVerify { client.call("session.active_list", match {
+            it["profile"]?.jsonPrimitive?.content == "personal"
+        }) }
+        coVerify(exactly = 0) { client.call("session.resume", any()) }
+    }
+
+    @Test fun activeList_rejectsMalformedSnapshotInsteadOfDeclaringEverySessionIdle() {
+        assertThrows(IllegalArgumentException::class.java) {
+            parseActiveSessions(buildJsonObject { put("sessions", buildJsonArray {
+                add(buildJsonObject { put("session_key", "stored-1"); put("status", "working") })
+            }) })
+        }
+    }
     @Test fun submit_sends_prompt_submit_with_text_and_session() = runTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
         coEvery { client.call(any(), any()) } returns JsonPrimitive("ok")

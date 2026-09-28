@@ -86,7 +86,7 @@ class KilledMidRunColdStartTest {
     private fun TestScope.coldStart(silentFor: Long, phase: SessionRunPhase = SessionRunPhase.THINKING): Fixture {
         val clock = Clock(start)
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         every { chat.events } returns events
         val connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
         every { chat.connectionState } returns connection

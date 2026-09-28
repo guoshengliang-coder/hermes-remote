@@ -4,6 +4,9 @@ import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ActiveSession
+import com.hermes.client.data.repository.ActiveSessionsSnapshot
+import com.hermes.client.data.repository.ActiveSessionStatus
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.domain.ChatMessage
@@ -13,6 +16,8 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -56,6 +61,100 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionStateDesyncRegressionTest {
 
+    /** HG-155: a late WebSocket delta from the completed turn must not restart its clock. */
+    @Test fun observedCompletionOutranksLateProgressForTheSameTurn() = runTest {
+        val (store, events) = fixture()
+        val key = store.register("s1", "personal", "mac-mini")
+        store.beginPrompt(key, "跨设备传文件")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("reasoning.delta", "s1", "正在检查"))
+        runCurrent()
+
+        store.applyObservedLifecycle(lifecycle("run.completed", "s1"))
+        assertFalse(store.runtimes.value.getValue(key).phase.isActive)
+        events.emit(event("reasoning.delta", "s1", "迟到的旧进度"))
+        runCurrent()
+
+        val runtime = store.runtimes.value.getValue(key)
+        assertFalse("完成后到达的旧进度不得重新启动会话（HG-155）", runtime.phase.isActive)
+        assertFalse(runtime.chat.isGenerating)
+        assertTrue(runtime.chat.messages.none { it.isStreaming })
+    }
+
+    @Test fun anExplicitIdleInfoAlsoOutranksLateProgress() = runTest {
+        val (store, events) = fixture()
+        val key = store.register("s1", "personal")
+        store.beginPrompt(key, "跨设备传文件")
+        events.emit(event("message.start", "s1"))
+        events.emit(event("session.info", "s1", running = false))
+        events.emit(event("reasoning.delta", "s1", "迟到的旧进度"))
+        runCurrent()
+
+        assertFalse(store.runtimes.value.getValue(key).phase.isActive)
+    }
+
+    @Test fun sharedGatewaySnapshotRetiresAStalePhoneRunWithoutAttachingToPc() = runTest {
+        val f = fixture()
+        val key = f.store.register("s1", "personal", "mac-mini")
+        f.store.beginPrompt(key, "跨设备传文件")
+        f.events.emit(event("message.start", "s1"))
+        runCurrent()
+        coEvery { f.chat.activeSessions("personal") } returns ActiveSessionsSnapshot(emptyList())
+
+        assertEquals(SessionRuntimeStore.ProbeResult.PROBED, f.store.probe(key, force = true))
+        assertFalse(f.store.runtimes.value.getValue(key).phase.isActive)
+        coVerify(exactly = 0) { f.chat.resume(any(), any()) }
+    }
+
+    @Test fun anIdleSnapshotDoesNotCancelAPromptStillBeingSubmitted() = runTest {
+        val f = fixture()
+        val key = f.store.register("s1", "personal", "mac-mini")
+        f.store.beginPrompt(key, "刚发送的提问")
+        coEvery { f.chat.activeSessions("personal") } returns ActiveSessionsSnapshot(emptyList())
+
+        f.store.probe(key, force = true)
+
+        assertEquals(SessionRunPhase.SUBMITTING, f.store.runtimes.value.getValue(key).phase)
+    }
+
+    @Test fun sharedGatewaySnapshotDiscoversAPcRunAndItsWaitingState() = runTest {
+        val f = fixture()
+        val key = f.store.register("s1", "personal", "mac-mini")
+        coEvery { f.chat.activeSessions("personal") } returnsMany listOf(
+            ActiveSessionsSnapshot(listOf(ActiveSession("live-1", "s1", ActiveSessionStatus.WORKING))),
+            ActiveSessionsSnapshot(listOf(ActiveSession("live-1", "s1", ActiveSessionStatus.WAITING))),
+        )
+
+        assertEquals(SessionRuntimeStore.ProbeResult.PROBED, f.store.probe(key, force = true, includeIdle = true))
+        assertEquals(SessionRunPhase.THINKING, f.store.runtimes.value.getValue(key).phase)
+        assertEquals(SessionRuntimeStore.ProbeResult.PROBED, f.store.probe(key, force = true))
+        assertEquals(SessionRunPhase.WAITING_ATTENTION, f.store.runtimes.value.getValue(key).phase)
+        coVerify(exactly = 0) { f.chat.resume(any(), any()) }
+    }
+
+    @Test fun delayedIdleSnapshotCannotRetireANewerPrompt() = runTest {
+        val f = fixture()
+        val key = f.store.register("s1", "personal", "mac-mini")
+        val pending = CompletableDeferred<ActiveSessionsSnapshot>()
+        coEvery { f.chat.activeSessions("personal") } coAnswers { pending.await() }
+        val probe = async { f.store.probe(key, force = true, includeIdle = true) }
+        runCurrent()
+        f.store.beginPrompt(key, "新的一轮")
+        pending.complete(ActiveSessionsSnapshot(emptyList()))
+        probe.await()
+
+        assertEquals(SessionRunPhase.SUBMITTING, f.store.runtimes.value.getValue(key).phase)
+    }
+
+    @Test fun aPreviousTurnsLateCompletionCannotEndANewerObservedRun() = runTest {
+        val f = fixture()
+        val key = f.store.register("s1", "personal", "mac-mini")
+        f.store.applyObservedLifecycle(lifecycle("run.started", "s1", occurredAt = "2026-09-05T02:32:00Z"))
+        f.store.applyObservedLifecycle(lifecycle("run.completed", "s1", occurredAt = "2026-09-05T02:31:00Z"))
+
+        assertEquals(SessionRunPhase.THINKING, f.store.runtimes.value.getValue(key).phase)
+    }
+
     private fun event(type: String, sessionId: String, text: String? = null, running: Boolean? = null) = ServerEvent(
         type = type,
         sessionId = sessionId,
@@ -71,7 +170,12 @@ class SessionStateDesyncRegressionTest {
         },
     )
 
-    private fun lifecycle(kind: String, sessionId: String, profile: String? = "personal") = LifecycleEventDto(
+    private fun lifecycle(
+        kind: String,
+        sessionId: String,
+        profile: String? = "personal",
+        occurredAt: String = "2026-09-05T02:31:09.000Z",
+    ) = LifecycleEventDto(
         type = "session.lifecycle",
         version = 1,
         eventId = "event-$kind-$sessionId",
@@ -85,20 +189,21 @@ class SessionStateDesyncRegressionTest {
             "run.completed" -> "idle"
             else -> "working"
         },
-        occurredAt = "2026-09-05T02:31:09.000Z",
+        occurredAt = occurredAt,
     )
 
     private data class Fixture(
         val store: SessionRuntimeStore,
         val events: MutableSharedFlow<ServerEvent>,
         val connection: MutableStateFlow<ConnectionState>,
+        val chat: ChatRepository,
     )
 
     private fun kotlinx.coroutines.test.TestScope.fixture(
         sessions: SessionRepository? = null,
     ): Fixture {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         every { chat.events } returns events
         val connection = MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         every { chat.connectionState } returns connection
@@ -114,6 +219,7 @@ class SessionStateDesyncRegressionTest {
             ),
             events,
             connection,
+            chat,
         )
     }
 

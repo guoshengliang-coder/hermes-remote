@@ -359,7 +359,7 @@ and lets only the local Connector read the same token. The value never crosses G
 placed in the signed release.
 
 ```
-session.create   session.resume   session.access*    session.interrupt   session.workspace.move
+session.create   session.resume   session.active_list   session.access*    session.interrupt   session.workspace.move
 prompt.submit    slash.exec       complete.path       commands.catalog
 approval.respond clarify.respond† clarify.lock‡      client.capabilities‡  request.answer‡
 config.get       config.set
@@ -419,9 +419,14 @@ at build time (and checks this table against) and which the dev mock enforces in
 | `projects.remove_folder` | `ProjectFolderParams` | `id`, `path`, `profile` | `id`, `path` | present, unvalidated |
 | `projects.set_primary` | `ProjectFolderParams` | `id`, `path`, `profile` | `id`, `path` | present, unvalidated |
 | `projects.delete` | `ProjectIdParams` | `id`, `profile` | `id` | present, unvalidated |
-| `session.active_list` | `SessionActiveListParams` | `current_session_id`, `profile` | — (Connector observer, `session-observer-runner.ts`) | present, unvalidated |
+| `session.active_list` | `SessionActiveListParams` | `current_session_id`, `profile` | `profile`? (Android read-only status; Connector observer sends `{}`) | present, unvalidated |
 | `session.access` | — (-32601 on 17b5df02) | `live_session_id`, `profile`, `session_id` | `session_id`, `profile`?, `live_session_id`? | absent upstream; caller fails open |
 | `clarify.respond` | — (-32601 on 17b5df02) | `answer`, `question_id`, `request_id`, `session_id` | `session_id`, `request_id`, `answer`, `question_id`? | present (old question protocol) |
+
+`session.active_list` returns live rows with `id` (runtime handle), `session_key` (stored id), and
+`status` (`starting` / `working` / `waiting` / `idle`). Its current handler ignores `profile` and
+does not return a profile field. Android only applies a stored-id match when its known identities
+are unambiguous, and falls back to the older probe path when this method is unavailable.
 
 What the audit found and how each was fixed — every fix is one params form **both** servers accept,
 so nothing here depends on guessing the version:

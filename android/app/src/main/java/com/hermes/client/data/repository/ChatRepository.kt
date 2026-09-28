@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -60,6 +62,37 @@ data class SessionAccess(
     val writable: Boolean?,
     val ownerSurface: String?,
 )
+
+/** The read-only in-memory state that Hermes Desktop and the Connector observer also query. */
+enum class ActiveSessionStatus { STARTING, WORKING, WAITING, IDLE }
+
+data class ActiveSession(
+    val runtimeId: String,
+    val storedId: String,
+    val status: ActiveSessionStatus,
+)
+
+data class ActiveSessionsSnapshot(val sessions: List<ActiveSession>)
+
+internal fun parseActiveSessions(result: JsonElement): ActiveSessionsSnapshot {
+    val rows = ((result as? JsonObject)?.get("sessions") as? JsonArray)
+        ?: throw IllegalArgumentException("session.active_list has no sessions array")
+    return ActiveSessionsSnapshot(rows.map { row ->
+        val item = row as? JsonObject ?: throw IllegalArgumentException("invalid active session")
+        val runtimeId = (item["id"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("active session has no runtime id")
+        val storedId = (item["session_key"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("active session has no stored id")
+        val status = when ((item["status"] as? JsonPrimitive)?.contentOrNull) {
+            "starting" -> ActiveSessionStatus.STARTING
+            "working" -> ActiveSessionStatus.WORKING
+            "waiting" -> ActiveSessionStatus.WAITING
+            "idle" -> ActiveSessionStatus.IDLE
+            else -> throw IllegalArgumentException("invalid active session status")
+        }
+        ActiveSession(runtimeId, storedId, status)
+    })
+}
 
 class ChatRepository(private val client: HermesGatewayClient) {
     /**
@@ -203,6 +236,12 @@ class ChatRepository(private val client: HermesGatewayClient) {
             ownerSurface = result["owner_surface"]?.jsonPrimitive?.contentOrNull,
         )
     }
+
+    /** A current-status query only: unlike session.resume, it cannot attach to a PC-owned run. */
+    suspend fun activeSessions(profile: String? = null): ActiveSessionsSnapshot =
+        parseActiveSessions(client.call("session.active_list", buildJsonObject {
+            if (!profile.isNullOrBlank()) put("profile", profile)
+        }))
 
     suspend fun submit(sessionId: String, text: String) {
         client.call("prompt.submit", buildJsonObject {

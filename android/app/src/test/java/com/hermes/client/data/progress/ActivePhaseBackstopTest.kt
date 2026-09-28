@@ -3,6 +3,9 @@ package com.hermes.client.data.progress
 import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ActiveSession
+import com.hermes.client.data.repository.ActiveSessionsSnapshot
+import com.hermes.client.data.repository.ActiveSessionStatus
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.domain.Role
 import io.mockk.coEvery
@@ -56,7 +59,7 @@ class ActivePhaseBackstopTest {
 
     private fun kotlinx.coroutines.test.TestScope.fixture(watchdog: Boolean = false): Fixture {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         every { chat.events } returns events
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)
@@ -84,6 +87,24 @@ class ActivePhaseBackstopTest {
         runCurrent()
 
         coVerify(exactly = 1) { f.chat.resume("s1", "personal") }
+    }
+
+    @Test fun aVisibleIdleChatLearnsAboutAPcRunOnTheNextStatusTick() = runTest {
+        val f = fixture(watchdog = true)
+        val key = f.store.register("s1", "personal")
+        coEvery { f.chat.activeSessions("personal") } returnsMany listOf(
+            ActiveSessionsSnapshot(emptyList()),
+            ActiveSessionsSnapshot(listOf(ActiveSession("live-1", "s1", ActiveSessionStatus.WORKING))),
+        )
+        f.store.setVisible(key, true)
+        f.store.setAppInForeground(true)
+        runCurrent()
+        assertEquals(SessionRunPhase.IDLE, f.store.runtimes.value.getValue(key).phase)
+
+        f.clock.now += 60_000L
+        advanceTimeBy(60_001L); runCurrent()
+        assertEquals(SessionRunPhase.THINKING, f.store.runtimes.value.getValue(key).phase)
+        f.store.setAppInForeground(false)
     }
 
     @Test fun theAnswerSettlesTheRunThroughTheNormalFold() = runTest {

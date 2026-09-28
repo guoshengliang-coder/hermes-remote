@@ -78,7 +78,7 @@ class SessionRuntimeStoreTest {
         sessions: com.hermes.client.data.repository.SessionRepository? = null,
     ): Fixture {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val chat = mockk<ChatRepository>(relaxed = true)
+        val chat = legacyChatRepositoryFixture()
         every { chat.events } returns events
         val connection = MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         every { chat.connectionState } returns connection

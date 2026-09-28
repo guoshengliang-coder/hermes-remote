@@ -297,6 +297,9 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 - Version 0.1.156 judges the hold-to-talk release by the drawn swipe targets and buzzes on entering
   one (HG-153), stops agent prewarm from marking a session unread (HG-150), and names the failing
   link in connection errors from one shared catalogue (HG-151/152)
+- HG-155 aligns an open phone conversation's running and waiting state with the same read-only
+  Hermes `session.active_list` snapshot used by the PC and Connector. Delayed progress after a
+  completion cannot restart the timer; a foreground status check never attaches to a PC-owned run.
 - Version 0.1.155 supports 50 MiB picker and shared files, sends PDFs with file.attach, and bounds
   upload memory (HG-145)
 - Version 0.1.154 redesigns the voice input interface (HG-146): the voice bar keeps the keyboard

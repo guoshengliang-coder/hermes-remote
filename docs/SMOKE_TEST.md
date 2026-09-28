@@ -986,6 +986,13 @@ diagnosed from the attached diagnostic logs; the parts below are the ones no JVM
    host. The devices here are vivo V2166BA (SDK 33) and HONOR CLK-AN00 (SDK 34); neither reaches
    `targetSdk` 37. Name the device in any result rather than writing "verified on device".
 
+5. **HG-155 shared Gateway status.** On the same Gateway, start a turn on PC while its conversation
+   is open on the phone; confirm the phone shows running, then waiting if Hermes needs input. Finish
+   on PC and confirm the phone stops its timer and streaming bubble without a local send. Repeat
+   with the phone backgrounded and reopened, and with a new prompt submitted while a status query
+   is in flight. Check the phone's phase log for `active_list` and no completed-to-thinking
+   transition caused only by a delayed delta. This still needs physical cross-client verification.
+
 ## Web app on iPhone (2026-09-21 branch claude/web-app)
 
 Local reproduction: `./scripts/dev/web-stack.sh up` (Postgres, mock Hermes, TLS Gateway on
