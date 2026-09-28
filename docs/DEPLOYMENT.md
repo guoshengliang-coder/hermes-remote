@@ -1610,3 +1610,23 @@ part into Mac response time and tunnel transfer. For weak networks, measure in t
 browser's network throttling (for example Chrome DevTools "Slow 4G" / "3G"): record the Network
 panel's transferred vs resource size for the history request and the time from opening a long
 conversation to the first rendered message, before and after, on the same conversation.
+
+## HG-145 50 MiB upload release
+
+Release in this order: publish the signed managed Connector component, update the target Mac and
+verify its control connection, deploy the matching Gateway bundle, then apply the two exact Nginx
+upload locations before publishing an Android APK. The Connector must accept chunk acknowledgements
+before a phone sends a file above the former 6 MiB limit. Keep the server-wide `10m` body limit.
+
+The production site file needs `location = /api/files/upload` with `client_max_body_size 50m`,
+`proxy_read_timeout 600s`, and `proxy_send_timeout 600s`, pointing at
+`hermes_go_gateway_production`. The account binding routes need
+`location ~ ^/v2/devices/[^/]+/api/files/upload$` **before** the generic device API regex, with
+the same body limit and timeouts. `renderMultiDeviceNginxRoutes()` emits the latter location for
+future regenerations. Back up the live site and binding routes before editing; run `nginx -t`,
+reload Nginx, then verify both routes and that other API paths retain `10m`.
+
+Use `docs/SMOKE_TEST.md` attachment checks against the updated Mac: verify an upload above 6 MiB,
+one near 50 MiB, and rejection above 50 MiB through both Android entries; compare the Mac file's
+SHA-256, reopen the conversation, and watch Gateway memory and Connector connection health. A
+successful package gate or Cloud candidate smoke alone does not prove those production checks.
