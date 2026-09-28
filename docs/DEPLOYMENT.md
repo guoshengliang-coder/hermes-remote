@@ -1685,3 +1685,30 @@ blue-unit journal entries in the post-switch window. No database schema or Nginx
 The same PR allocates Connector 0.1.12 and Desktop 0.2.30/build 33 for their separate release
 gates. The Gateway publication does not switch the signed managed-component indexes or publish a
 signed and notarized Desktop app.
+
+### Managed components 0.4.7 — 2026-09-29
+
+From clean `main` at `ded7d2c2`, Node 22.23.2 on arm64 built Connector **0.1.12** and both managed
+release layouts. `npm run build` and the full `npm test` suite passed with local loopback access and
+OpenSSL 3. The immutable Hermes Server 0.21.0 archive matched its pinned SHA-256. The existing
+`desktop-internal-2026-a` public key verified both live 0.4.6 signed indexes before signing; the
+same key independently verified the new schema-v1 and schema-v2 0.4.7 manifests and all archives.
+
+Six root-owned 0.4.7 files were staged behind exact GET/HEAD Nginx routes. `nginx -t` passed, and
+each public route returned the expected size. The protected paired publisher then downloaded and
+compared every complete public file before switching both indexes. Public readback reports **0.4.7**
+for `/desktop/releases/index.json` and `/desktop/components/index.json`; their manifest SHA-256
+values are `2f220f16a9e160d2155945de680ad9139d92ed7a1166f05ac312bec28d0b3ff4` and
+`4b80296c384fbde5ee205484e83c89e25cdd1ec4cd6287af46d269ae87527ed4`. Tag
+`desktop-managed-v0.4.7` was pushed after index readback. The Mac mini upgraded through the Desktop
+UI: `Managed/current` points to 0.4.7, its Connector identity reports **0.1.12** from `ded7d2c2`,
+both user agents are running, and the UI reports the account Connector online with Hermes reachable.
+
+Desktop **0.2.30/build 33** remains an internal candidate, not a public app release. A configured
+ad-hoc DMG passed image and strict signature verification; its mounted `Info.plist` retained every
+existing connection setting. After a local trial installation, the UI stayed on account startup,
+and a process sample found the startup task blocked inside macOS Keychain `SecItemCopyMatching`.
+The prior **0.2.29/build 32** app was restored without changing the 0.4.7 managed components; its
+UI returned to healthy account and Connector status. The Keychain block needs investigation before
+another local trial. Public app distribution still requires the protected `desktop-release`
+environment, Developer ID signing, notarization, stapling, and clean-Mac acceptance.
