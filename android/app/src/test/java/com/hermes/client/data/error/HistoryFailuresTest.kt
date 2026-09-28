@@ -21,6 +21,20 @@ import java.io.IOException
  */
 class HistoryFailuresTest {
 
+    @Test fun connector_unreachable_is_retryable_and_keeps_request_correlation() {
+        val error = historyFailure(HermesApiException(
+            502, "HR-CONN-006", errorCode = "HR-CONN-006", correlationId = "12345678-1234-1234-1234-123456789abc",
+        ))
+        assertEquals(AppErrorCode.HERMES_UNREACHABLE, error.code)
+        assertTrue(error.retryable)
+        assertTrue(error.sanitizedDiagnostic().contains("12345678-1234-1234-1234-123456789abc"))
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-CONN-006") && en.contains("HR-CONN-006"))
+        assertTrue(zh.any { it.code > 0x4E00 })
+        assertNotEquals(zh, en)
+    }
+
     @Test fun an_upstream_5xx_points_at_the_mac_and_withholds_the_retry() {
         val error = historyFailure(HermesApiException(500, "Internal Server Error"))
 

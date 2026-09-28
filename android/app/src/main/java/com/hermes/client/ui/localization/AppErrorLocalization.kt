@@ -13,6 +13,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "连接已中断，请重试。", "The connection was interrupted. Retry.")
         AppErrorCode.CONNECTOR_OFFLINE ->
             localized(language, "你的电脑目前未连接，请打开电脑上的 Hermes Go。", "Your computer isn't connected. Open Hermes Go on it.")
+        AppErrorCode.HERMES_UNREACHABLE ->
+            localized(language, "Hermes 当前不可访问，请检查这台 Mac 上的 Hermes 服务。", "Hermes is unavailable. Check the Hermes service on this Mac.")
         AppErrorCode.CONNECTION_UNSTABLE ->
             localized(
                 language,

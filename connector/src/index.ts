@@ -41,6 +41,7 @@ import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifec
 import { displayVersion } from "./hermes-contract.js";
 import { HermesAuth, boundedResponseBody, fetchHermesOpenApi } from "./hermes-auth.js";
 import { historyProjection } from "./history-preview.js";
+import { hermesUnavailableBody, localHttpFailureFields, localHttpRoute } from "./local-http-failure.js";
 import { contractReportResponse, defaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
@@ -324,6 +325,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
 
 async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
   if (request.targetDeviceId !== deviceId) return;
+  const startedAt = Date.now();
   const controller = inFlightHttpRequests.begin(request.id);
   let streamStarted = false;
   try {
@@ -377,7 +379,14 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
     });
   } catch (error) {
     if (controller.signal.aborted) return;
-    console.error("Local Hermes HTTP error", safeError(error));
+    log.error("http.local_failure", {
+      requestId: request.id,
+      method: request.method,
+      route: localHttpRoute(request.path),
+      phase: streamStarted ? "response_stream" : "local_request",
+      durationMs: Date.now() - startedAt,
+      ...localHttpFailureFields(error),
+    });
     if (streamStarted) {
       sendControl(socket, {
         type: "tunnel.http.response.end",
@@ -393,7 +402,7 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
       requestId: request.id,
       status: 502,
       headers: { "content-type": "application/json" },
-      bodyBase64: Buffer.from(JSON.stringify({ error: "hermes_unreachable" }))
+      bodyBase64: Buffer.from(hermesUnavailableBody(request.id))
         .toString("base64"),
     });
   } finally {

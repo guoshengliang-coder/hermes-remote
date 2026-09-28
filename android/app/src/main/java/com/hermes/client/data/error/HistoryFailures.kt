@@ -18,6 +18,12 @@ import java.io.IOException
  * them: check the Mac, wait and retry, or update the app.
  */
 fun historyFailure(error: Throwable): AppError = when {
+    error is HermesApiException && error.errorCode == AppErrorCode.HERMES_UNREACHABLE.value -> AppError(
+        code = AppErrorCode.HERMES_UNREACHABLE,
+        retryable = true,
+        technicalCause = "HTTP ${error.code}" + (error.correlationId?.let { " requestId=$it" } ?: ""),
+        stage = "history",
+    )
     // Upstream answered and the answer was an error. The conversation and the connection are both
     // fine; retrying sends the same request into the same fault.
     error is HermesApiException && error.code >= 500 -> AppError(
