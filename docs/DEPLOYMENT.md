@@ -1666,3 +1666,22 @@ PDFs above 6 MiB and near 50 MiB, the over-limit message, model reading, convers
 history, cancellation/retry, account-mode 50 MiB transfer, and Connector/phone memory during
 those paths. The production probe covered the legacy public upload route and Gateway memory;
 it did not perform those user workflows.
+
+### Gateway 0.4.27 production publication — 2026-09-29
+
+Release PR #478 merged as `4aca0885c39779eb7d627b0c1733dea9bb8ea06c` after its checks
+passed. Its Gateway OCI run 36454975291 supplied Gateway 0.4.27 and the matching R5-F1 operator
+bundle. Both archive hashes matched their manifests locally and on the production host; the
+extracted operator bundle passed `verify-production-baseline-bundle`. The read-only production
+monitor passed host, disk, and fresh encrypted off-host backup checks before deployment.
+
+The production release entrypoint committed run `444c3d58-3688-4d65-8a45-d6651918a640`,
+switching to the blue slot at `releases/0.4.27-4aca0885c397` and retaining
+`releases/0.4.26-1574c4a1ca29` as the rollback point. Independent checks found public
+capabilities reporting 0.4.27, `/relay-health` healthy, `/account` and `/app/` returning 200,
+the blue container healthy, green inactive, `nginx -t` successful, and no warning-or-higher
+blue-unit journal entries in the post-switch window. No database schema or Nginx route changed.
+
+The same PR allocates Connector 0.1.12 and Desktop 0.2.30/build 33 for their separate release
+gates. The Gateway publication does not switch the signed managed-component indexes or publish a
+signed and notarized Desktop app.
