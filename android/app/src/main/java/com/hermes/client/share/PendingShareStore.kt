@@ -37,6 +37,8 @@ data class PendingShare(
     val imageBase64: String? = null,
     val imageMime: String? = null,
     val attachmentName: String? = null,
+    /** Share-in ordinary files use a private disk snapshot, never a base64 handoff. */
+    val stagedFilePath: String? = null,
     val attachments: List<PendingShareAttachment> = emptyList(),
 )
 

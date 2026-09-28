@@ -325,8 +325,12 @@ The Mac Connector reads only the two Basic Auth values it needs from the existin
 
 Attachment deployments additionally configure `FILES_ROOT` to the narrowest Mac directory that may
 be returned to the phone. `UPLOAD_ROOT` must remain inside it; its defaults are
-`$HOME/.hermes-remote/uploads`, 6 MiB per upload, 100 MiB per download, 200 cached uploads, 512 MiB
-cached total, and seven-day retention. These are operational limits, not secrets.
+`$HOME/.hermes-remote/uploads`, 50 MiB per upload, 100 MiB per download, 200 cached uploads, 512 MiB
+cached total, and seven-day retention. Gateway and the edge proxy permit 50 MiB only on
+`POST /api/files/upload` (also under an account device prefix); other request bodies remain capped
+at 10 MiB. Gateway and Connector use acknowledged 256 KiB upload frames; the existing 20 MiB
+control-frame cap stays unchanged. Operators who override `MAX_UPLOAD_BYTES` below 50 MiB lower
+the effective upload limit. These are operational limits, not secrets.
 
 The Connector lifecycle observer is enabled by default in live Hermes mode. Its safe local state is
 stored at `$HOME/.hermes-remote/observer-state.json`; override it with `OBSERVER_STATE_FILE` when the

@@ -4,10 +4,31 @@ import { resolve } from "node:path";
 import test from "node:test";
 import {
   ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
+  MAX_PHONE_UPLOAD_BYTES,
+  PHONE_UPLOAD_CHUNK_BYTES,
   PROTOCOL_VERSION,
   encodeWireMessage,
   parseWireMessage,
 } from "./index.js";
+
+test("a 50 MiB upload is divided into bounded 256 KiB frames", () => {
+  assert.equal(MAX_PHONE_UPLOAD_BYTES, 50 * 1024 * 1024);
+  assert.equal(PHONE_UPLOAD_CHUNK_BYTES, 256 * 1024);
+  assert.equal(MAX_PHONE_UPLOAD_BYTES / PHONE_UPLOAD_CHUNK_BYTES, 200);
+});
+
+test("round-trips bounded upload start, chunk, ack and end frames", () => {
+  const frames = [
+    { type: "tunnel.http.request.start", version: PROTOCOL_VERSION, id: "u", targetDeviceId: "mac",
+      method: "POST", path: "/api/files/upload?name=large.pdf", headers: {} },
+    { type: "tunnel.http.request.chunk", version: PROTOCOL_VERSION, requestId: "u", sequence: 0,
+      dataBase64: Buffer.alloc(PHONE_UPLOAD_CHUNK_BYTES).toString("base64") },
+    { type: "tunnel.http.request.ack", version: PROTOCOL_VERSION, requestId: "u", sequence: -1 },
+    { type: "tunnel.http.request.end", version: PROTOCOL_VERSION, requestId: "u" },
+  ] as const;
+  for (const frame of frames) assert.deepEqual(parseWireMessage(JSON.stringify(frame)), frame);
+  assert.throws(() => parseWireMessage(JSON.stringify({ ...frames[1], dataBase64: "A".repeat(512 * 1024 + 1) })), /invalid_chunk/);
+});
 
 test("round-trips a device status message", () => {
   const message = {

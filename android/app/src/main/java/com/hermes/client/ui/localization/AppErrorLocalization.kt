@@ -105,6 +105,12 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
                 "手机上没有能打开这种文件的应用。文件已下载，请改用「分享」保存到其他应用。",
                 "No app on this phone can open this file type. It downloaded fine — use Share to save it elsewhere.",
             )
+        AppErrorCode.UPLOAD_TOO_LARGE ->
+            localized(language, "文件超过 50 MiB 上传上限，请选择较小的文件。", "The file exceeds the 50 MiB upload limit. Choose a smaller file.")
+        AppErrorCode.UPLOAD_BUSY ->
+            localized(language, "这台 Mac 正在接收另一个大文件，请稍后重试。", "This Mac is receiving another large file. Retry shortly.")
+        AppErrorCode.UPLOAD_SERVER_LIMIT ->
+            localized(language, "文件在 50 MiB 范围内，但服务端拒绝了上传。请检查 Relay 和 Mac 端版本或配置。", "The file is within 50 MiB, but the service refused it. Check the Relay and Mac versions or settings.")
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->

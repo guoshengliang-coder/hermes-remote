@@ -36,6 +36,29 @@ class HermesRestApiArtifactTest {
         assertEquals("abc", request.body?.utf8())
     }
 
+    @Test fun ordinary_file_upload_streams_a_file_larger_than_the_old_six_mib_limit() = runTest {
+        val source = File.createTempFile("upload-large", ".pdf")
+        try {
+            source.outputStream().use { output ->
+                val block = ByteArray(64 * 1024) { 37 }
+                repeat(7 * 1024 * 1024 / block.size) { output.write(block) }
+            }
+            serverRule.server.enqueue(MockResponse.Builder().code(201).body(
+                """{"path":"/tmp/uploaded.pdf","name":"report.pdf","size":${source.length()}}""",
+            ).build())
+
+            val result = api(serverRule.server).uploadArtifact(source, "report.pdf", "application/pdf")
+
+            assertEquals(source.length(), result.sizeBytes)
+            val request = serverRule.server.takeRequest()
+            assertEquals(source.length().toString(), request.headers["Content-Length"])
+            assertEquals(source.length(), request.body?.size?.toLong())
+            assertEquals("/api/files/upload?name=report.pdf", request.target)
+        } finally {
+            source.delete()
+        }
+    }
+
     @Test fun download_streams_binary_response_to_destination() = runTest {
         val expected = ByteArray(256 * 1024) { (it % 251).toByte() }
         serverRule.server.enqueue(MockResponse.Builder().code(200).body(okio.Buffer().write(expected)).build())

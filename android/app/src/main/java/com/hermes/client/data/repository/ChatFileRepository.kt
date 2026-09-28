@@ -41,6 +41,9 @@ class ChatFileRepository @Inject constructor(
     suspend fun upload(bytes: ByteArray, name: String, mimeType: String) =
         rest.uploadArtifact(bytes, name, mimeType)
 
+    suspend fun uploadStagedFile(file: File, name: String, mimeType: String) =
+        rest.uploadArtifact(file, name, mimeType)
+
     private fun trimCache() {
         val files = directory.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") }
             ?.sortedByDescending { it.lastModified() } ?: return

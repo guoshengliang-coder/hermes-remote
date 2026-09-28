@@ -103,6 +103,8 @@ class ChatViewModelTest {
         coEvery { mediaRepo.hydrateMessages(any(), any()) } answers { firstArg() }
         coEvery { fileRepo.upload(any(), any(), any()) } returns
             com.hermes.client.data.network.UploadedArtifact("/tmp/uploaded", "attachment", 3)
+        coEvery { fileRepo.uploadStagedFile(any(), any(), any()) } returns
+            com.hermes.client.data.network.UploadedArtifact("/tmp/uploaded", "attachment", 3)
         coEvery { modelRepo.options() } returns emptyList()
         coEvery { modelRepo.providers() } returns emptyList()
         coEvery { profileRepo.list() } returns emptyList()
@@ -1189,6 +1191,63 @@ class ChatViewModelTest {
 
         events.emit(event("message.complete", "s1-live", "done"))
         runCurrent()
+    }
+
+    @Test fun shared_pdf_is_staged_on_disk_uploaded_as_a_file_and_removed_after_send() = runTest {
+        val file = java.io.File.createTempFile("shared-pdf", ".pending")
+        file.writeText("%PDF-1.4")
+        try {
+            pendingShareStore.put("s1", com.hermes.client.share.PendingShare(
+                stagedFilePath = file.absolutePath,
+                imageMime = "application/pdf",
+                attachmentName = "shared.pdf",
+            ))
+            coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+            coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "shared.pdf") } returns
+                com.hermes.client.data.repository.AttachedFile(
+                    name = "shared.pdf", path = "/tmp/uploaded", refText = "@file:/tmp/uploaded",
+                )
+            val vm = buildVm()
+            vm.open("s1")
+            runCurrent()
+            assertEquals(1, vm.state.value.pendingAttachments.size)
+            assertTrue(vm.state.value.pendingAttachments.single().bytes.isEmpty())
+            assertEquals(file.length(), vm.state.value.pendingAttachments.single().sizeBytes)
+
+            vm.send("总结")
+            runCurrent()
+
+            coVerify { fileRepo.uploadStagedFile(file, "shared.pdf", "application/pdf") }
+            coVerify { chatRepo.submit("s1-live", "总结\n@file:/tmp/uploaded") }
+            assertFalse(file.exists())
+            events.emit(event("message.complete", "s1-live", "done"))
+            runCurrent()
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun upload_413_is_the_server_limit_error_and_preserves_the_staged_file() = runTest {
+        val file = java.io.File.createTempFile("upload-rejected", ".pending")
+        file.writeText("document")
+        try {
+            coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+            coEvery { fileRepo.uploadStagedFile(file, "document.pdf", "application/pdf") } throws
+                com.hermes.client.data.network.HermesApiException(413, "server rejected upload")
+            val vm = buildVm()
+            vm.open("s1")
+            runCurrent()
+            vm.stageAttachment(file, "application/pdf", "document.pdf")
+            vm.send("阅读")
+            runCurrent()
+
+            val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+            assertEquals(com.hermes.client.data.error.AppErrorCode.UPLOAD_SERVER_LIMIT, vm.sendErrorCode(failed.id))
+            assertTrue(file.exists())
+            coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+        } finally {
+            file.delete()
+        }
     }
 
     @Test fun stale_submit_resumes_and_retries_once_with_new_handle() = runTest {

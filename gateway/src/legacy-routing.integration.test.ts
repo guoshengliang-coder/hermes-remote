@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -130,6 +131,70 @@ test("legacy HTTP streaming acknowledges ordered chunks after writing them", net
     const response = await responsePromise;
     assert.equal(response.status, 200);
     assert.equal(Buffer.from(await response.arrayBuffer()).toString(), "abcdef");
+  } finally {
+    sockets.forEach((socket) => socket.close());
+    await stopGateway(gateway);
+  }
+});
+
+test("legacy file upload streams bounded chunks and leaves the control connection usable", {
+  ...networkTestOptions, timeout: 20_000,
+}, async () => {
+  const gateway = await startGateway();
+  const sockets: WebSocket[] = [];
+  try {
+    const connector = await openLegacyPeer(gateway, "connector");
+    sockets.push(connector);
+    const size = Number(process.env.HR_TEST_UPLOAD_BYTES ?? 7 * 1024 * 1024);
+    const body = Buffer.alloc(size, 0x59);
+    const digest = createHash("sha256");
+    let chunks = 0;
+    const complete = new Promise<void>((resolve, reject) => {
+      connector.on("message", (raw) => {
+        let message: WireMessage;
+        try { message = parseWireMessage(raw.toString()); } catch (error) { reject(error); return; }
+        if (message.type === "tunnel.http.request.start") {
+          connector.send(encodeWireMessage({
+            type: "tunnel.http.request.ack", version: PROTOCOL_VERSION,
+            requestId: message.id, sequence: -1,
+          }));
+        }
+        if (message.type === "tunnel.http.request.chunk") {
+          chunks++;
+          digest.update(Buffer.from(message.dataBase64, "base64"));
+          connector.send(encodeWireMessage({
+            type: "tunnel.http.request.ack", version: PROTOCOL_VERSION,
+            requestId: message.requestId, sequence: message.sequence,
+          }));
+        }
+        if (message.type === "tunnel.http.request.end") {
+          connector.send(encodeWireMessage({
+            type: "tunnel.http.response", version: PROTOCOL_VERSION,
+            requestId: message.requestId, status: 201, headers: {},
+          }));
+          resolve();
+        }
+      });
+    });
+    const result = await fetch(`${gateway.origin}/api/files/upload?name=large.pdf`, {
+      method: "POST", headers: { "x-hermes-session-token": gateway.appToken }, body,
+    });
+    await complete;
+    assert.equal(result.status, 201);
+    assert.equal(chunks, Math.ceil(size / (256 * 1024)));
+    assert.equal(digest.digest("hex"), createHash("sha256").update(body).digest("hex"));
+    assert.equal(connector.readyState, WebSocket.OPEN);
+
+    const statusRequest = nextMessage(connector, "tunnel.http.request");
+    const statusResponse = fetch(`${gateway.origin}/api/status`, {
+      headers: { "x-hermes-session-token": gateway.appToken },
+    });
+    const status = await statusRequest;
+    connector.send(encodeWireMessage({
+      type: "tunnel.http.response", version: PROTOCOL_VERSION,
+      requestId: status.id, status: 200, headers: {},
+    }));
+    assert.equal((await statusResponse).status, 200);
   } finally {
     sockets.forEach((socket) => socket.close());
     await stopGateway(gateway);

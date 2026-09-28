@@ -16,6 +16,8 @@ test("Gateway config retains the legacy defaults", () => {
   assert.equal(config.host, "0.0.0.0");
   assert.equal(config.defaultDeviceId, "mac-mini");
   assert.equal(config.maxBodyBytes, 10 * 1024 * 1024);
+  assert.equal(config.maxWirePayloadBytes, 20 * 1024 * 1024);
+  assert.equal(config.maxSocketBufferedBytes, 24 * 1024 * 1024);
   assert.equal(config.requestTimeoutMs, 60_000);
   assert.equal(config.maxPendingRequests, 128);
   assert.equal(config.logLevel, "info");

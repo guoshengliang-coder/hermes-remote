@@ -1,5 +1,7 @@
 package com.hermes.client.ui.chat
 
+import java.io.File
+
 enum class AttachmentKind { IMAGE, PDF, FILE }
 
 /**
@@ -21,8 +23,10 @@ class PendingAttachment(
     val name: String = "attachment",
     val kind: AttachmentKind = attachmentKind(mimeType, name),
     val revision: Int = 0,
+    /** Ordinary files are private, bounded disk snapshots; images keep their existing byte path. */
+    val stagedFile: File? = null,
 ) {
-    val sizeBytes: Long get() = bytes.size.toLong()
+    val sizeBytes: Long get() = stagedFile?.length() ?: bytes.size.toLong()
 
     /** Stable key for this attachment's *current content*. Use it for decode caches and state keys. */
     val contentKey: String get() = if (revision == 0) id else "$id#$revision"
@@ -35,6 +39,7 @@ class PendingAttachment(
 
 const val ATTACH_CAP = 9
 const val MAX_DIRECT_ATTACHMENT_BYTES = 6 * 1024 * 1024
+const val MAX_FILE_ATTACHMENT_BYTES = 50L * 1024 * 1024
 
 fun attachmentKind(mimeType: String, name: String): AttachmentKind = when {
     mimeType.startsWith("image/", ignoreCase = true) -> AttachmentKind.IMAGE

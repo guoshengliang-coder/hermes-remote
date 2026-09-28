@@ -260,14 +260,28 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     log,
   });
 
-  function send(socket: WebSocket, message: WireMessage): void {
-    if (socket.readyState !== WebSocket.OPEN) return;
+  function send(socket: WebSocket, message: WireMessage): boolean {
+    if (socket.readyState !== WebSocket.OPEN) return false;
     const encoded = encodeWireMessage(message);
     if (socket.bufferedAmount + Buffer.byteLength(encoded) > maxSocketBufferedBytes) {
+      // A cancellation is tiny and frees Connector-side work; let it pass even when a previous
+      // frame has filled the buffer.
+      if (message.type === "tunnel.http.cancel") {
+        socket.send(encoded);
+        return true;
+      }
+      // Reject a phone upload frame while this Mac's control socket is busy. Closing it would
+      // interrupt unrelated chats on the same Mac.
+      if (message.type === "tunnel.http.request.start" || message.type === "tunnel.http.request.chunk"
+          || message.type === "tunnel.http.request.end"
+          || (message.type === "tunnel.http.request" && message.path.split("?")[0] === "/api/files/upload")) {
+        return false;
+      }
       socket.close(1013, "backpressure limit reached");
-      return;
+      return false;
     }
     socket.send(encoded);
+    return true;
   }
 
   function sendAccountHttpError(response: ServerResponse, error: unknown): void {

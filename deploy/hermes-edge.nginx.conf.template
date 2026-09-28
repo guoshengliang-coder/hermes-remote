@@ -36,6 +36,40 @@ server {
     access_log /var/log/nginx/hermes-edge.access.log hermes_edge;
     client_max_body_size 10m;
 
+    # Only phone file uploads need the 50 MiB body allowance. Other API routes retain 10m.
+    location = /api/files/upload {
+        client_max_body_size 50m;
+        proxy_pass https://hermes_gateway_tls;
+        proxy_http_version 1.1;
+        proxy_set_header Host mrlgs.net;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_ssl_server_name on;
+        proxy_ssl_name mrlgs.net;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    }
+
+    # Account multi-device routing uses the same upload API under a device prefix.
+    location ~ ^/v2/devices/[^/]+/api/files/upload$ {
+        client_max_body_size 50m;
+        proxy_pass https://hermes_gateway_tls;
+        proxy_http_version 1.1;
+        proxy_set_header Host mrlgs.net;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_ssl_server_name on;
+        proxy_ssl_name mrlgs.net;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    }
+
     # Gateway REST and WebSocket compatibility surface.
     location ^~ /api/ {
         proxy_pass https://hermes_gateway_tls;

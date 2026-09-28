@@ -396,25 +396,33 @@ class MainActivity : ComponentActivity() {
             var b64: String? = null
             var mime: String? = null
             var attachmentName: String? = null
+            var stagedFilePath: String? = null
             if (attachmentUri != null) {
-                val read = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val result = withContext(kotlinx.coroutines.Dispatchers.IO) {
                     runCatching {
                         com.hermes.client.ui.chat.prepareAttachment(
                             this@MainActivity,
                             attachmentUri,
                             if (isImage) "shared-image.jpg" else "shared-file",
                         )
-                    }.getOrNull()
+                    }
                 }
+                result.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
+                val read = result.getOrNull()
                 if (read == null) {
+                    val code = if (result.exceptionOrNull() is com.hermes.client.ui.chat.AttachmentTooLargeException)
+                        com.hermes.client.data.error.AppErrorCode.UPLOAD_TOO_LARGE
+                    else com.hermes.client.data.error.AppErrorCode.FILE_READ_FAILED
                     android.widget.Toast.makeText(
                         this@MainActivity,
-                        localized(languages.current, "无法读取附件（HR-FILE-001）", "Couldn't read the attachment (HR-FILE-001)"),
+                        com.hermes.client.data.error.AppError(code, retryable = code != com.hermes.client.data.error.AppErrorCode.UPLOAD_TOO_LARGE)
+                            .localizedMessage(languages.current),
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     if (caption == null) return@launch  // nothing left to share
                 } else {
-                    b64 = android.util.Base64.encodeToString(read.bytes, android.util.Base64.NO_WRAP)
+                    if (read.stagedFile != null) stagedFilePath = read.stagedFile.absolutePath
+                    else b64 = android.util.Base64.encodeToString(read.bytes, android.util.Base64.NO_WRAP)
                     mime = read.mimeType
                     attachmentName = read.name
                 }
@@ -439,6 +447,7 @@ class MainActivity : ComponentActivity() {
                             imageBase64 = b64,
                             imageMime = mime,
                             attachmentName = attachmentName,
+                            stagedFilePath = stagedFilePath,
                         ),
                     )
                     pendingRoute.value = chatRoute(
@@ -447,6 +456,7 @@ class MainActivity : ComponentActivity() {
                 }
                 .onFailure { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    stagedFilePath?.let { java.io.File(it).delete() }
                     reportNewChatFailure(e)
                 }
         }

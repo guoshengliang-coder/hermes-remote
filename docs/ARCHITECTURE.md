@@ -80,15 +80,21 @@ old-client compatibility and can be closed after migration.
 
 ### Attachment flow
 
-1. Android reads a picker/camera URI with a hard limit. Still images above the direct-upload limit
-   are resized and JPEG-compressed; unsupported executables and oversized non-image files are rejected.
-2. Android uploads raw bytes to authenticated `POST /api/files/upload`; there is no data-URL wrapper.
-   Gateway's existing request cap and Connector's 6 MiB upload cap bound the single-request MVP.
-3. Connector stores the transient file with mode `0600` inside `UPLOAD_ROOT` (which must be within
-   `FILES_ROOT`) and returns its Mac-visible path. Uploads expire after seven days by default and are
-   also trimmed by count and total size.
-4. Android attaches that path to the live Hermes session. Images render as thumbnails; output files
-   render as cards and download only when opened or shared.
+1. Android copies an ordinary picker/share URI into its private cache with a 50 MiB bound, including
+   providers that omit or misreport size. This keeps the draft and HTTP request body file-backed.
+   Images retain their existing resize/JPEG path. Unsupported executables and oversized files are rejected.
+2. Android uploads the staged file to authenticated `POST /api/files/upload`; there is no data-URL
+   wrapper on the phone. Gateway admits one upload per Mac, allows 50 MiB only on this route, and
+   forwards 256 KiB control frames, waiting for Connector's disk-write acknowledgement before
+   reading the next frame. Other REST routes retain their 10 MiB cap.
+3. Connector stores the transient file as a mode `0600` `.part` inside `UPLOAD_ROOT` (which must be
+   within `FILES_ROOT`), renames it after the final frame, and returns its Mac-visible path. Cancelled
+   or failed streams remove the partial file. Uploads expire after seven days by default and are also
+   trimmed by count and total size.
+4. Android attaches that path to the live Hermes session with `file.attach`, including PDFs. Images
+   retain their image attachment path and render as thumbnails; output files render as cards and
+   download only when opened or shared. Staged phone files are deleted after successful submission,
+   removal, or screen teardown.
 5. Authenticated `GET /api/files?path=...` resolves and opens files beneath `FILES_ROOT`, rejects
    traversal/symlink escapes, enforces the output limit, and streams bytes through the acknowledged
    response-chunk protocol. A large result therefore fails only its HTTP request instead of closing

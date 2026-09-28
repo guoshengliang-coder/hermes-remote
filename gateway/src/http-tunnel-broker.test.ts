@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import test from "node:test";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { WebSocket } from "ws";
-import type { WireMessage } from "@hermes-remote/protocol";
+import { MAX_PHONE_UPLOAD_BYTES, PHONE_UPLOAD_CHUNK_BYTES, encodeWireMessage, type WireMessage } from "@hermes-remote/protocol";
 import type { GatewayLogger, LogFields } from "./gateway-log.js";
 import { HttpTunnelBroker } from "./http-tunnel-broker.js";
 
@@ -34,6 +35,202 @@ function request(): IncomingMessage {
   stream.end();
   return stream as IncomingMessage;
 }
+
+function uploadRequest(body: Buffer, declared = body.length): IncomingMessage {
+  const stream = new PassThrough() as PassThrough & Partial<IncomingMessage>;
+  stream.method = "POST";
+  stream.headers = { "content-length": String(declared), "content-type": "application/pdf" };
+  stream.end(body);
+  return stream as IncomingMessage;
+}
+
+function acknowledgingBroker(maxBodyBytes: number, sent: WireMessage[]): HttpTunnelBroker {
+  const broker = new HttpTunnelBroker(maxBodyBytes, 4, 5_000, (_socket, message) => {
+    sent.push(message);
+    if (message.type === "tunnel.http.request.start" || message.type === "tunnel.http.request.chunk") {
+      queueMicrotask(() => broker.handleConnectorMessage(connector, {
+        type: "tunnel.http.request.ack", version: 1,
+        requestId: message.type === "tunnel.http.request.start" ? message.id : message.requestId,
+        sequence: message.type === "tunnel.http.request.start" ? -1 : message.sequence,
+      }));
+    }
+  });
+  return broker;
+}
+
+test("only the authenticated upload route accepts bodies above the normal REST limit", async () => {
+  const sent: WireMessage[] = [];
+  const broker = acknowledgingBroker(1_024, sent);
+  const body = Buffer.alloc(1_025, 7);
+  const upload = new FakeResponse();
+  await broker.forward(uploadRequest(body), upload as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload?name=report.pdf"), connector);
+  const forwarded = sent[0];
+  assert.equal(forwarded?.type, "tunnel.http.request.start");
+  assert.deepEqual(Buffer.from(sent.find((message) => message.type === "tunnel.http.request.chunk")?.dataBase64 ?? "", "base64"), body);
+  assert.equal(sent.at(-1)?.type, "tunnel.http.request.end");
+  if (forwarded?.type === "tunnel.http.request.start") {
+    broker.handleConnectorMessage(connector, {
+      type: "tunnel.http.response", version: 1, requestId: forwarded.id,
+      status: 201, headers: {},
+    });
+  }
+  const ordinary = new FakeResponse();
+  await broker.forward(uploadRequest(body), ordinary as unknown as ServerResponse,
+    new URL("http://gateway.local/api/other"), connector);
+  assert.equal(ordinary.status, 413);
+});
+
+test("a large file remains intact across bounded acknowledged frames", async () => {
+  const size = Number(process.env.HR_TEST_UPLOAD_BYTES ?? 7 * 1024 * 1024);
+  const body = Buffer.alloc(size, 0x7f);
+  const digest = createHash("sha256");
+  let chunks = 0;
+  let largestFrame = 0;
+  let requestId = "";
+  const broker = new HttpTunnelBroker(10 * 1024 * 1024, 4, 5_000, (_socket, message) => {
+    largestFrame = Math.max(largestFrame, Buffer.byteLength(encodeWireMessage(message)));
+    if (message.type === "tunnel.http.request.start") requestId = message.id;
+    if (message.type === "tunnel.http.request.chunk") {
+      digest.update(Buffer.from(message.dataBase64, "base64"));
+      chunks++;
+    }
+    if (message.type === "tunnel.http.request.start" || message.type === "tunnel.http.request.chunk") {
+      queueMicrotask(() => broker.handleConnectorMessage(connector, {
+        type: "tunnel.http.request.ack", version: 1,
+        requestId: message.type === "tunnel.http.request.start" ? message.id : message.requestId,
+        sequence: message.type === "tunnel.http.request.start" ? -1 : message.sequence,
+      }));
+    }
+  });
+  const response = new FakeResponse();
+  await broker.forward(uploadRequest(body), response as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  assert.equal(chunks, Math.ceil(size / PHONE_UPLOAD_CHUNK_BYTES));
+  assert.ok(largestFrame < 512 * 1024);
+  assert.equal(digest.digest("hex"), createHash("sha256").update(body).digest("hex"));
+  broker.handleConnectorMessage(connector, {
+    type: "tunnel.http.response", version: 1, requestId,
+    status: 201, headers: {},
+  });
+});
+
+test("50 MiB upload cap rejects a declared oversized file before a tunnel frame", async () => {
+  const sent: WireMessage[] = [];
+  const broker = acknowledgingBroker(1_024, sent);
+  const response = new FakeResponse();
+  await broker.forward(uploadRequest(Buffer.alloc(0), MAX_PHONE_UPLOAD_BYTES + 1),
+    response as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  assert.equal(response.status, 413);
+  assert.match(response.body, /HR-FILE-008/);
+  assert.equal(sent.length, 0);
+});
+
+test("an unknown-length upload stops at 50 MiB and cancels its partial Connector file", async () => {
+  let cancellations = 0;
+  const broker = new HttpTunnelBroker(1_024, 4, 5_000, (_socket, message) => {
+    if (message.type === "tunnel.http.cancel") cancellations++;
+    if (message.type === "tunnel.http.request.start" || message.type === "tunnel.http.request.chunk") {
+      queueMicrotask(() => broker.handleConnectorMessage(connector, {
+        type: "tunnel.http.request.ack", version: 1,
+        requestId: message.type === "tunnel.http.request.start" ? message.id : message.requestId,
+        sequence: message.type === "tunnel.http.request.start" ? -1 : message.sequence,
+      }));
+    }
+  });
+  const stream = Readable.from((async function* () {
+    for (let i = 0; i < 50; i++) yield Buffer.alloc(1024 * 1024);
+    yield Buffer.from([1]);
+  })()) as Readable & Partial<IncomingMessage>;
+  stream.method = "POST";
+  stream.headers = {};
+  const response = new FakeResponse();
+  await broker.forward(stream as IncomingMessage, response as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  assert.equal(response.status, 413);
+  assert.match(response.body, /HR-FILE-008/);
+  assert.equal(cancellations, 1);
+});
+
+test("a second upload to the same Mac is refused without closing its control tunnel", async () => {
+  const sent: WireMessage[] = [];
+  const broker = acknowledgingBroker(1_024, sent);
+  const first = new FakeResponse();
+  await broker.forward(uploadRequest(Buffer.from("first")), first as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  const second = new FakeResponse();
+  await broker.forward(uploadRequest(Buffer.from("second")), second as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  assert.equal(second.status, 503);
+  assert.match(second.body, /HR-FILE-009/);
+  assert.equal(sent.filter((message) => message.type === "tunnel.http.request.start").length, 1);
+  const opened = sent.find((message) => message.type === "tunnel.http.request.start");
+  if (opened?.type === "tunnel.http.request.start") {
+    broker.handleConnectorMessage(connector, {
+      type: "tunnel.http.response", version: 1, requestId: opened.id,
+      status: 201, headers: {},
+    });
+  }
+  const third = new FakeResponse();
+  await broker.forward(uploadRequest(Buffer.from("third")), third as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  assert.equal(sent.filter((message) => message.type === "tunnel.http.request.start").length, 2);
+  const reopened = sent.filter((message) => message.type === "tunnel.http.request.start")[1];
+  if (reopened?.type === "tunnel.http.request.start") {
+    broker.handleConnectorMessage(connector, {
+      type: "tunnel.http.response", version: 1, requestId: reopened.id,
+      status: 201, headers: {},
+    });
+  }
+});
+
+test("a busy control socket rejects an upload and frees its admission slot", async () => {
+  const broker = new HttpTunnelBroker(1_024, 4, 5_000, () => false);
+  for (const name of ["first", "retry"]) {
+    const response = new FakeResponse();
+    await broker.forward(uploadRequest(Buffer.from(name)), response as unknown as ServerResponse,
+      new URL("http://gateway.local/api/files/upload"), connector);
+    assert.equal(response.status, 503);
+    assert.match(response.body, /HR-FILE-009/);
+  }
+});
+
+test("an older Connector keeps accepting legacy-size uploads without a control disconnect", async () => {
+  const sent: WireMessage[] = [];
+  const broker = new HttpTunnelBroker(1_024, 4, 5_000,
+    (_socket, message) => sent.push(message), capturingLogger().logger, 10);
+  const first = new FakeResponse();
+  await broker.forward(uploadRequest(Buffer.from("old-phone")), first as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  assert.equal(sent[0]?.type, "tunnel.http.request.start");
+  const legacy = sent.find((message) => message.type === "tunnel.http.request");
+  assert.equal(legacy?.type, "tunnel.http.request");
+  if (legacy?.type === "tunnel.http.request") {
+    assert.equal(Buffer.from(legacy.bodyBase64 ?? "", "base64").toString(), "old-phone");
+    broker.handleConnectorMessage(connector, {
+      type: "tunnel.http.response", version: 1, requestId: legacy.id, status: 201, headers: {},
+    });
+  }
+  const second = new FakeResponse();
+  await broker.forward(uploadRequest(Buffer.from("again")), second as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  assert.equal(sent.filter((message) => message.type === "tunnel.http.request.start").length, 1);
+  const last = sent.at(-1);
+  if (last?.type === "tunnel.http.request") {
+    broker.handleConnectorMessage(connector, {
+      type: "tunnel.http.response", version: 1, requestId: last.id, status: 201, headers: {},
+    });
+  }
+  const oversized = new FakeResponse();
+  await broker.forward(uploadRequest(Buffer.alloc(0), LEGACY_UPLOAD_BYTES_FOR_TEST + 1),
+    oversized as unknown as ServerResponse,
+    new URL("http://gateway.local/api/files/upload"), connector);
+  assert.equal(oversized.status, 413);
+  assert.match(oversized.body, /HR-FILE-010/);
+});
+
+const LEGACY_UPLOAD_BYTES_FOR_TEST = 6 * 1024 * 1024;
 
 test("an aborted phone request sends exactly one Connector cancellation", async () => {
   const sent: WireMessage[] = [];
