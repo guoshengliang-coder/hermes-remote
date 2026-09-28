@@ -54,6 +54,7 @@ import {
 
 export interface AccountGatewayControl {
   authenticate(authorization: string | undefined): Promise<AccountPrincipal>;
+  isSessionLive(principal: AccountPrincipal): Promise<boolean>;
   getBinding(principal: AccountPrincipal): Promise<BindingState>;
   resolveDevice(principal: AccountPrincipal, deviceId?: string): Promise<AccountDevice>;
   issueConnectorChallenge(input: {
@@ -437,6 +438,7 @@ export function createAccountRuntime(
     ...(proofCoordinator ? {
       gatewayControl: {
         authenticate: (authorization) => service.authenticate(authorization),
+        isSessionLive: (principal) => service.isSessionLive(principal),
         getBinding: (principal) => controlService.getBinding(principal),
         resolveDevice: (principal, deviceId) => controlService.resolveDevice(principal, deviceId),
         issueConnectorChallenge: (input) => proofCoordinator.issue(input),

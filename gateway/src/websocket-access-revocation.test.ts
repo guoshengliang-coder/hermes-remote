@@ -189,6 +189,7 @@ test("WebSocket authorization routes an active grantee to the owner's Connector 
     bindingId: "binding-owner",
     installationId: "grantee-installation",
     sessionId: "grantee-session",
+    principal: grantee,
   });
   const voiceRequest = {
     headers: { authorization: "Bearer grantee-access" },
@@ -207,6 +208,81 @@ test("WebSocket authorization routes an active grantee to the owner's Connector 
     (error: unknown) => typeof error === "object" && error !== null
       && "code" in error && (error as { code: unknown }).code === "HR-BIND-011",
   );
+});
+
+test("phone tunnel follows its session across access rotation and expiry, but closes on revocation", async () => {
+  const socket = fakeSocket();
+  const binding = {
+    id: "binding-1", accountId: "account-1", deviceId: "mac-1", generation: 1,
+    publicKey: Buffer.alloc(32), publicKeyFingerprint: "f".repeat(64), status: "active" as const,
+  };
+  const connector: GatewayPeer = {
+    socket: socket.socket, role: "connector", deviceId: "mac-1", routingKey: "account:binding-1",
+    mode: "account", accountId: "account-1", binding,
+  };
+  const registry = new InMemoryConnectorRegistry<GatewayPeer>();
+  registry.replaceAccount(binding.id, connector);
+  const principal: AccountPrincipal = {
+    account: { id: "account-1" },
+    installation: { id: "install-1", kind: "phone", platform: "android", displayName: "Phone" },
+    sessionId: "session-1", refreshFamilyId: "family-1",
+  };
+  const acceptedBearers = new Set(["Bearer original", "Bearer unrotated"]);
+  let sessionLive = true;
+  const control = {
+    authenticate: async (authorization: string | undefined) => {
+      if (!authorization || !acceptedBearers.has(authorization)) throw accountErrors.sessionExpired();
+      return principal;
+    },
+    isSessionLive: async (candidate: AccountPrincipal) => {
+      assert.equal(candidate.sessionId, principal.sessionId);
+      assert.equal(candidate.installation.id, principal.installation.id);
+      return sessionLive;
+    },
+    resolveDevice: async () => ({
+      id: binding.id, generation: binding.generation, deviceId: binding.deviceId,
+      publicKeyFingerprint: binding.publicKeyFingerprint,
+    }),
+  } as unknown as AccountGatewayControl;
+  const authorizer = new AppWebSocketAuthorizer({
+    accountControl: control, connectorRegistry: registry, appToken: "legacy",
+    defaultDeviceId: "legacy", tokensEqual: (a, b) => a === b,
+  });
+  const request = { headers: { authorization: "Bearer original" } } as unknown as IncomingMessage;
+  assert.equal(await authorizer.authorize(request, new URL("https://gateway.test/v2/devices/mac-1/ws")), connector);
+  const access = authorizer.consumeAccountAccess(request);
+  assert.ok(access);
+  const app = fakeSocket();
+  const broker = new WebSocketTunnelBroker(10, 1024 * 1024, () => {}, () => connector);
+  broker.open(app.socket, connector, () => authorizer.revalidateAccountConnector(principal, "mac-1"), access);
+  await new Promise((resolve) => setImmediate(resolve));
+  acceptedBearers.delete("Bearer original"); // refresh replaced the original hash immediately.
+  await assert.rejects(authorizer.resolveAccountConnector("Bearer original", "mac-1"), {
+    code: "HR-AUTH-003",
+  });
+  assert.equal(await authorizer.revalidateAccountConnector(principal, "mac-1"), connector);
+  const expiryRequest = { headers: { authorization: "Bearer unrotated" } } as unknown as IncomingMessage;
+  assert.equal(await authorizer.authorize(expiryRequest, new URL("https://gateway.test/v2/devices/mac-1/ws")), connector);
+  const expiryAccess = authorizer.consumeAccountAccess(expiryRequest);
+  assert.ok(expiryAccess);
+  const expiryApp = fakeSocket();
+  broker.open(expiryApp.socket, connector,
+    () => authorizer.revalidateAccountConnector(principal, "mac-1"), expiryAccess);
+  await new Promise((resolve) => setImmediate(resolve));
+  acceptedBearers.delete("Bearer unrotated"); // natural expiry, with no refresh rotation.
+  await assert.rejects(authorizer.resolveAccountConnector("Bearer unrotated", "mac-1"), {
+    code: "HR-AUTH-003",
+  });
+  assert.equal(await authorizer.revalidateAccountConnector(principal, "mac-1"), connector);
+  assert.deepEqual(app.closes, []);
+  assert.deepEqual(expiryApp.closes, []);
+  sessionLive = false; // idle beyond the session-liveness bound, or a missed revoke event.
+  await assert.rejects(authorizer.revalidateAccountConnector(principal, "mac-1"), {
+    code: "HR-AUTH-004",
+  });
+  broker.revokeAccountSession("account-1", "session-1");
+  assert.deepEqual(app.closes, [{ code: 4403, reason: "session access revoked" }]);
+  assert.deepEqual(expiryApp.closes, [{ code: 4403, reason: "session access revoked" }]);
 });
 
 function fakeSocket(): {

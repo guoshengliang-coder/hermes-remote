@@ -489,8 +489,8 @@ export class PostgresAccountRepository implements AccountRepository {
           AND s.revoked_at IS NULL
           AND i.revoked_at IS NULL
           AND a.status = 'active'
-          -- Only a session its browser keeps refreshing: an abandoned or signed-out-while-expired
-          -- tab loses its socket within minutes of its last access token, as bearer sockets do.
+          -- An abandoned browser tab or phone loses its socket within minutes of the last
+          -- access expiry; live clients renew the session through ordinary authenticated traffic.
           AND s.access_expires_at > now() - interval '5 minutes'
           AND EXISTS (
             SELECT 1 FROM refresh_tokens r

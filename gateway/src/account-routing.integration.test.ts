@@ -3,6 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import {
   createHash,
   generateKeyPairSync,
+  randomBytes,
   randomUUID,
   sign,
 } from "node:crypto";
@@ -102,6 +103,15 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
         sessionB, accountB, phoneB, codec.hashAccessToken(accessB),
       ],
     );
+    // Open account WebSockets now revalidate the session itself. Match a real issued session:
+    // an access row without a live refresh-family credential is not an authorized long lease.
+    for (const session of [sessionA, sessionA2, sessionB]) {
+      await setup.query(
+        `INSERT INTO refresh_tokens (id, session_id, family_id, token_hash, expires_at)
+         VALUES ($1, $2, $2, $3, now() + interval '30 days')`,
+        [randomUUID(), session, randomBytes(32).toString("hex")],
+      );
+    }
     await setup.query(
       `INSERT INTO connector_bindings
          (id, account_id, desktop_installation_id, display_name, device_id, public_key,
@@ -516,6 +526,20 @@ test("account V2 Connector isolates routing, health, and per-phone lifecycle rec
     });
     assert.equal(stillRouting.status, 200);
     assert.equal(await stillRouting.text(), "account:/api/status");
+
+    // An existing phone tunnel is bound to the live session, not the access bearer used at
+    // upgrade. Rotate that bearer in real PostgreSQL, let periodic revalidation run, then prove
+    // the same WebSocket still forwards a frame. All earlier REST checks used the original token.
+    const rotatedAccess = codec.issueAccessToken();
+    await setup.query(
+      "UPDATE account_sessions SET access_token_hash = $2, access_expires_at = now() + interval '1 hour' WHERE id = $1",
+      [sessionA, codec.hashAccessToken(rotatedAccess)],
+    );
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 5_500));
+    assert.equal(appSocket.readyState, WebSocket.OPEN);
+    const afterRotation = nextRawMessage(appSocket);
+    appSocket.send("after-rotation");
+    assert.equal(await afterRotation, "account:after-rotation");
   } finally {
     for (const socket of sockets) socket.close();
     if (child) {

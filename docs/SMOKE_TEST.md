@@ -690,6 +690,17 @@ when the phone is asleep — the fix only guarantees that what is shown is true 
    pressing Refresh. After the socket reconnects, tap the unsent bubble: it must send once and leave
    the older turns intact. Record the `history(...)`, `[phase]`, socket close/reconnect, and send
    lines; this device check is still needed for the timing and visual result beyond the JVM tests.
+9. **Account WebSocket renewal and foreground return (HG-148 follow-up).** On a real account-mode
+   phone after the Gateway and Android releases are separately authorized, keep one chat open and
+   active across an access-token refresh and the original token's expiry. Its socket must keep
+   carrying RPCs; a refresh or expiry of the bearer used at upgrade must not produce a `4403` while
+   the same account session and Mac binding remain live. Then background the app until its socket
+   closes, bring it forward, and send once: the new socket must reach `gateway.ready`, resume the
+   existing session and accept the prompt without requiring manual Refresh. Record the app's socket
+   generations, state transitions, RPC and send lines alongside Gateway `app.tunnel.revalidation_*`
+   and close events. Verify a separate explicit sign-out/revocation still closes that account tunnel
+   promptly. Do not perform the revocation half on a production account without an approved test
+   session. JVM and Gateway tests do not replace this real-device timing check.
 
 
 ### Emulator pass, 2026-09-06 (0.1.98, Pixel 9 API 36 against the local dev stack)

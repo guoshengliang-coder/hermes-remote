@@ -174,7 +174,8 @@ open class HermesGatewayClient(
      * there. Null in production, where this costs one null check per connect.
      */
     @Volatile internal var lifecycleSeam: ((String) -> Unit)? = null
-    @Volatile private var accountAuthorizationClassificationPending = false
+    /** The next socket generation allowed a follow-up classification handshake. Guarded by lifecycleLock. */
+    private var accountAuthorizationClassificationPendingGen: Int? = null
     private val attempt = AtomicInteger(0)
     // Monotonic socket generation. Each openSocket() bumps it; a socket's callbacks are
     // ignored once a newer socket has been opened, so an in-flight backoff reopen can never
@@ -438,6 +439,9 @@ open class HermesGatewayClient(
                 return
             }
             val next = generation.incrementAndGet()
+            if (accountAuthorizationClassificationPendingGen != next) {
+                accountAuthorizationClassificationPendingGen = null
+            }
             // Install a fresh, uncompleted readiness gate for this new socket attempt.
             readyGate = CompletableDeferred()
             // This socket has proved nothing yet; [wasWorthKeeping] starts from no.
@@ -553,7 +557,7 @@ open class HermesGatewayClient(
         DebugLog.log("ws", "reconnectNow() forcing a fresh socket")
         val old = synchronized(lifecycleLock) {
             manuallyClosed = false
-            accountAuthorizationClassificationPending = false
+            accountAuthorizationClassificationPendingGen = null
             attempt.set(0)
             ws
         }
@@ -609,18 +613,24 @@ open class HermesGatewayClient(
                     is RpcEvent -> {
                         // Handle gateway.ready: flip to Connected and open the readiness gate.
                         if (msg.event.type == "gateway.ready") {
-                            accountAuthorizationClassificationPending = false
-                            // Deliberately NOT attempt.set(0). Reaching Connected is not evidence
-                            // that this connection works — see [wasWorthKeeping].
-                            lastReadyAtMs = System.currentTimeMillis()
-                            readyAtMsForCurrentSocket = lastReadyAtMs
-                            handshakeWatchdog?.cancel()
-                            // Before the readiness gate opens, so it is the first frame Hermes
-                            // reads on this socket: it handles frames in order, and a session this
-                            // socket resumes before advertising would have its questions withdrawn.
-                            advertiseServerRequests(webSocket, gen)
-                            _state.value = ConnectionState.Connected
-                            readyGate.complete(Unit)
+                            synchronized(lifecycleLock) {
+                                if (gen != generation.get() || manuallyClosed) return@synchronized
+                                // A watchdog or failure already settled this generation's gate.
+                                if (gen == closedGen) return@synchronized
+                                accountAuthorizationClassificationPendingGen = null
+                                // Deliberately NOT attempt.set(0). Reaching Connected is not evidence
+                                // that this connection works — see [wasWorthKeeping].
+                                lastReadyAtMs = System.currentTimeMillis()
+                                readyAtMsForCurrentSocket = lastReadyAtMs
+                                handshakeWatchdog?.cancel()
+                                // Before the readiness gate opens, so it is the first frame Hermes
+                                // reads on this socket: it handles frames in order, and a session this
+                                // socket resumes before advertising would have its questions withdrawn.
+                                advertiseServerRequests(webSocket, gen)
+                                _state.value = ConnectionState.Connected
+                                readyGate.complete(Unit)
+                            }
+                            lifecycleSeam?.invoke("ready:after-closed-guard")
                         }
                         // Log every event except the high-frequency streaming deltas, so the
                         // diagnostic trail stays readable while still capturing errors,
@@ -656,14 +666,18 @@ open class HermesGatewayClient(
                     "ws-failure", "gen=$gen conn=$connectionId stage=$stage exception=${t.javaClass.simpleName} http=${status ?: "-"}",
                 )
             }
+            val classificationPending = synchronized(lifecycleLock) {
+                if (gen != generation.get()) return
+                val pending = accountAuthorizationClassificationPendingGen == gen
+                if (pending) accountAuthorizationClassificationPendingGen = null
+                pending
+            }
             val terminalAccountRejection = accountTransport && isTerminalAccountHandshakeStatus(status)
             if (terminalAccountRejection) {
-                accountAuthorizationClassificationPending = false
                 runCatching { onAccountHandshakeRejected(requireNotNull(status), accountDeviceId) }
                     .onFailure { DebugLog.log("ws", "account rejection handler failed: ${it.javaClass.simpleName}") }
                 onSocketClosed(gen, "account handshake rejected ($status)", retry = false)
-            } else if (accountTransport && accountAuthorizationClassificationPending) {
-                accountAuthorizationClassificationPending = false
+            } else if (accountTransport && classificationPending) {
                 onSocketClosed(gen, "account authorization classification failed", retry = false)
             } else {
                 onSocketClosed(gen, t.message ?: "connection failed")
@@ -679,8 +693,14 @@ open class HermesGatewayClient(
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             if (gen == generation.get() && accountTransport && code == ACCOUNT_AUTHORIZATION_CHANGED_CLOSE_CODE) {
-                accountAuthorizationClassificationPending = true
+                lifecycleSeam?.invoke("closed:after-generation-check")
+                synchronized(lifecycleLock) {
+                    if (gen == generation.get() && gen != closedGen && !manuallyClosed) {
+                        accountAuthorizationClassificationPendingGen = gen + 1
+                    }
+                }
             }
+            lifecycleSeam?.invoke("closed:after-classification-decision")
             // The code, not just the reason. A far end that closes without one leaves `reason`
             // blank, and the log then said only `closed` — which cannot tell a normal 1000 from a
             // 1006, a 1013 the gateway sends when the Mac is offline, or a 4403 revocation. HG-65's
@@ -709,63 +729,69 @@ open class HermesGatewayClient(
     }
 
     protected open fun onSocketClosed(gen: Int, reason: String, retry: Boolean = true, closeCode: Int? = null) {
-        // A newer socket has superseded this one (e.g. reconnectNow()) — ignore its death.
+        // Fast stale-callback check. The check inside the lock is authoritative: openSocket()
+        // can install a newer generation between this read and acquiring lifecycleLock.
         if (gen != generation.get()) return
-        // One death per socket. The handshake watchdog both cancels the socket and reports it
-        // closed, so OkHttp's onFailure for that cancellation arrives second; without this guard
-        // it would schedule a SECOND backoff reconnect and leave two live sockets, which the
-        // generation check only shadows and never closes.
-        if (gen == closedGen) return
-        closedGen = gen
-        handshakeWatchdog?.cancel()
-        val worthKeeping = wasWorthKeeping()
-        val readyAt = readyAtMsForCurrentSocket
-        val livedMs = if (readyAt > 0L) System.currentTimeMillis() - readyAt else -1L
-        DebugLog.log("ws") {
-            buildString {
-                append("socket closed (gen=$gen")
-                closeCode?.let { append(", code=$it") }
-                append("): $reason")
-                if (livedMs >= 0) append(" · ready for ${livedMs}ms")
-                if (!worthKeeping) append(" · answered nothing")
-                // The transport note answers "was this failure on wifi / cellular / vpn" — the
-                // question the 2026-09-26 incident could not settle from the logs it had (HG-140).
-                append(" · net=${NetworkTransports.current()}")
+        lifecycleSeam?.invoke("close:after-generation-check")
+        synchronized(lifecycleLock) {
+            // A newer socket has superseded this one (e.g. reconnectNow()) — ignore its death.
+            if (gen != generation.get()) return
+            // One death per socket. The handshake watchdog both cancels the socket and reports it
+            // closed, so OkHttp's onFailure for that cancellation arrives second; without this guard
+            // it would schedule a SECOND backoff reconnect and leave two live sockets, which the
+            // generation check only shadows and never closes.
+            if (gen == closedGen) return
+            closedGen = gen
+            handshakeWatchdog?.cancel()
+            val worthKeeping = wasWorthKeeping()
+            val readyAt = readyAtMsForCurrentSocket
+            val livedMs = if (readyAt > 0L) System.currentTimeMillis() - readyAt else -1L
+            DebugLog.log("ws") {
+                buildString {
+                    append("socket closed (gen=$gen")
+                    closeCode?.let { append(", code=$it") }
+                    append("): $reason")
+                    if (livedMs >= 0) append(" · ready for ${livedMs}ms")
+                    if (!worthKeeping) append(" · answered nothing")
+                    // The transport note answers "was this failure on wifi / cellular / vpn" — the
+                    // question the 2026-09-26 incident could not settle from the logs it had (HG-140).
+                    append(" · net=${NetworkTransports.current()}")
+                }
             }
-        }
-        if (closeCode != null && closeCode !in setOf(1000, 1001) && !manuallyClosed) {
-            com.hermes.client.data.diagnostics.ConnectionIncidents.record(
-                "ws-close", "gen=$gen conn=$connectionId code=$closeCode ready=${readyGate.isCompleted} answered=$currentSocketAnsweredAnRpc",
-            )
-        }
-        // Fail any call() that is currently awaiting readiness so it throws immediately.
-        readyGate.completeExceptionally(GatewayRpcException(0, reason))
-        failAllPending(reason)
-        connectingSinceMs = 0L
-        if (manuallyClosed || !retry) {
-            _state.value = ConnectionState.Disconnected
-            return
-        }
-        _state.value = ConnectionState.Reconnecting
-        // Only a connection that did something resets the wait. Without this, a far end that keeps
-        // accepting and dropping sockets holds the client at the shortest possible backoff forever.
-        if (worthKeeping) attempt.set(0)
-        val attemptNo = attempt.getAndIncrement()
-        val delayMs = backoff.delayFor(attemptNo)
-        DebugLog.log("ws", "reconnect scheduled in ${delayMs}ms (gen=$gen, attempt=$attemptNo)")
-        scope.launch {
-            kotlinx.coroutines.delay(delayMs)
-            // The reconnect that does not happen is the shape of an unexplained permanent stall:
-            // before this line the log simply stopped, and nothing said whether the app had closed
-            // the socket on purpose or a newer generation had taken over. Those look identical
-            // from outside and only one of them is a bug.
-            lifecycleSeam?.invoke("reconnect:before-guard")
-            if (manuallyClosed || gen != generation.get()) {
-                DebugLog.log("ws", "reconnect dropped (gen=$gen): " +
-                    if (manuallyClosed) "closed by the app" else "superseded by gen=${generation.get()}")
-                return@launch
+            if (closeCode != null && closeCode !in setOf(1000, 1001) && !manuallyClosed) {
+                com.hermes.client.data.diagnostics.ConnectionIncidents.record(
+                    "ws-close", "gen=$gen conn=$connectionId code=$closeCode ready=${readyGate.isCompleted} answered=$currentSocketAnsweredAnRpc",
+                )
             }
-            openSocket()
+            // Fail any call() that is currently awaiting readiness so it throws immediately.
+            readyGate.completeExceptionally(GatewayRpcException(0, reason))
+            failAllPending(reason)
+            connectingSinceMs = 0L
+            if (manuallyClosed || !retry) {
+                _state.value = ConnectionState.Disconnected
+                return
+            }
+            _state.value = ConnectionState.Reconnecting
+            // Only a connection that did something resets the wait. Without this, a far end that keeps
+            // accepting and dropping sockets holds the client at the shortest possible backoff forever.
+            if (worthKeeping) attempt.set(0)
+            val attemptNo = attempt.getAndIncrement()
+            val delayMs = backoff.delayFor(attemptNo)
+            DebugLog.log("ws", "reconnect scheduled in ${delayMs}ms (gen=$gen, attempt=$attemptNo)")
+            scope.launch {
+                kotlinx.coroutines.delay(delayMs)
+                // The reconnect that does not happen is the shape of an unexplained permanent stall:
+                // before this line the log simply stopped, and nothing said whether the app had closed
+                // the socket on purpose or a newer generation had taken over. Those look identical
+                // from outside and only one of them is a bug.
+                lifecycleSeam?.invoke("reconnect:before-guard")
+                if (manuallyClosed || gen != generation.get()) {
+                    DebugLog.log("ws", "reconnect dropped (gen=$gen): " +
+                        if (manuallyClosed) "closed by the app" else "superseded by gen=${generation.get()}")
+                    return@launch
+                }
+                openSocket()
+            }
         }
     }
 
@@ -957,7 +983,7 @@ open class HermesGatewayClient(
         // on both sides or neither side is safe (HG-42).
         synchronized(lifecycleLock) {
             manuallyClosed = true
-            accountAuthorizationClassificationPending = false
+            accountAuthorizationClassificationPendingGen = null
             connectingSinceMs = 0L
             // Fail any call() awaiting readiness so it throws immediately rather than hanging.
             readyGate.completeExceptionally(GatewayRpcException(0, "client closing"))
@@ -973,7 +999,7 @@ open class HermesGatewayClient(
         DebugLog.log("ws", "cancelNow() (manuallyClosed $manuallyClosed → true)")
         synchronized(lifecycleLock) {
             manuallyClosed = true
-            accountAuthorizationClassificationPending = false
+            accountAuthorizationClassificationPendingGen = null
             connectingSinceMs = 0L
             readyGate.completeExceptionally(GatewayRpcException(0, "client cancelled"))
             ws?.cancel()

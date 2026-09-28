@@ -27,6 +27,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class HermesGatewayClientTest {
     @get:Rule val serverRule = MockWebServerRule()
@@ -178,6 +181,69 @@ class HermesGatewayClientTest {
             assertFalse(upgrade.target.contains("token="))
         } finally {
             tearDownClient(client, okHttp)
+        }
+    }
+
+    @Test fun oldCloseCannotPoisonNewReadyGateOrRpc() = runTest {
+        repeat(2) {
+            serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.send(GATEWAY_READY_FRAME)
+                }
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val id = json.parseToJsonElement(text).jsonObject["id"]!!.jsonPrimitive.content
+                    webSocket.send("""{"jsonrpc":"2.0","id":$id,"result":{"pong":true}}""")
+                }
+            }).build())
+        }
+        val base = serverRule.server.url("/api/ws").toString().replace("http", "ws")
+        val http = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val client = object : HermesGatewayClient(http, json, testScope,
+            wsEndpointProvider = { GatewayWebSocketEndpoint(base, "t") }) {
+            fun deliverOldClose() = super.onSocketClosed(1, "old account authorization changed", retry = false,
+                closeCode = 4403)
+        }
+        val checked = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val pauseOnce = AtomicBoolean(true)
+        client.lifecycleSeam = { name ->
+            if (name == "close:after-generation-check" && pauseOnce.compareAndSet(true, false)) {
+                checked.countDown()
+                check(resume.await(5, TimeUnit.SECONDS))
+            }
+        }
+        try {
+            client.connect()
+            withContext(Dispatchers.IO) {
+                withTimeout(5_000) {
+                    while (client.connectionState.value != ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+            }
+            val closeFailure = AtomicReference<Throwable?>(null)
+            val oldClose = Thread {
+                try { client.deliverOldClose() } catch (error: Throwable) { closeFailure.set(error) }
+            }
+            oldClose.start()
+            assertTrue(checked.await(5, TimeUnit.SECONDS))
+            client.reconnectNow()
+            withContext(Dispatchers.IO) {
+                withTimeout(5_000) {
+                    while (!client.connectionSnapshot().contains("gen=2") ||
+                        client.connectionState.value != ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+            }
+            resume.countDown()
+            oldClose.join(5_000)
+            assertFalse(oldClose.isAlive)
+            assertEquals(null, closeFailure.get())
+            val result = withContext(Dispatchers.Default) {
+                withTimeout(5_000) { client.call("ping", buildJsonObject {}) }
+            }
+            assertEquals("true", result.jsonObject["pong"]!!.jsonPrimitive.content)
+            assertEquals(ConnectionState.Connected, client.connectionState.value)
+        } finally {
+            resume.countDown()
+            tearDownClient(client, http)
         }
     }
 
@@ -336,6 +402,79 @@ class HermesGatewayClientTest {
         }
     }
 
+    @Test fun staleAuthorizationCloseCannotStopOrdinaryFailureOnNewGeneration() = runTest {
+        val firstServerSocket = AtomicReference<WebSocket>()
+        serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                firstServerSocket.set(webSocket)
+                webSocket.send(GATEWAY_READY_FRAME)
+            }
+        }).build())
+        serverRule.server.enqueue(MockResponse.Builder().code(503).build())
+        serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                webSocket.send(GATEWAY_READY_FRAME)
+            }
+        }).build())
+        val base = serverRule.server.url("/v2/devices/mac-1/ws").toString().replace("http", "ws")
+        val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val secondRequest = CountDownLatch(1)
+        val releaseSecondRequest = CountDownLatch(1)
+        val accountRequests = java.util.concurrent.atomic.AtomicInteger()
+        val accountOkHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).addInterceptor { chain ->
+            if (accountRequests.incrementAndGet() == 2) {
+                secondRequest.countDown()
+                check(releaseSecondRequest.await(5, TimeUnit.SECONDS))
+            }
+            chain.proceed(chain.request())
+        }.build()
+        val checked = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val decided = CountDownLatch(1)
+        val client = HermesGatewayClient(okHttp, json, testScope,
+            backoff = BackoffPolicy(baseMs = 10, maxMs = 10), accountOkHttp = accountOkHttp) {
+            GatewayWebSocketEndpoint(base, bearerToken = "hga_access", accountDeviceId = "mac-1")
+        }
+        client.lifecycleSeam = { name ->
+            when (name) {
+                "closed:after-generation-check" -> {
+                    checked.countDown()
+                    check(resume.await(5, TimeUnit.SECONDS))
+                }
+                "closed:after-classification-decision" -> decided.countDown()
+            }
+        }
+        try {
+            client.connect()
+            withContext(Dispatchers.IO) {
+                withTimeout(5_000) {
+                    while (client.connectionState.value != ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+            }
+            firstServerSocket.get().close(4403, "account authorization changed")
+            assertTrue(checked.await(5, TimeUnit.SECONDS))
+            client.reconnectNow()
+            assertTrue(secondRequest.await(5, TimeUnit.SECONDS))
+            resume.countDown()
+            assertTrue(decided.await(5, TimeUnit.SECONDS))
+            releaseSecondRequest.countDown()
+            withContext(Dispatchers.IO) {
+                withTimeout(5_000) {
+                    while (serverRule.server.requestCount < 3 ||
+                        client.connectionState.value != ConnectionState.Connected) kotlinx.coroutines.delay(10)
+                }
+            }
+            assertEquals(3, serverRule.server.requestCount)
+        } finally {
+            resume.countDown()
+            releaseSecondRequest.countDown()
+            tearDownClient(client, okHttp)
+            accountOkHttp.dispatcher.executorService.shutdown()
+            accountOkHttp.dispatcher.executorService.awaitTermination(5, TimeUnit.SECONDS)
+            accountOkHttp.connectionPool.evictAll()
+        }
+    }
+
     @Test fun call_times_out_when_gateway_never_replies() = runTest {
         serverRule.server.enqueue(
             MockResponse.Builder().webSocketUpgrade(
@@ -481,6 +620,43 @@ class HermesGatewayClientTest {
             }
         } finally {
             tearDownClient(client, okHttp)
+        }
+    }
+
+    @Test fun lateReadyCannotReopenAWatchdogClosedGeneration() = runTest {
+        val opened = CountDownLatch(1)
+        val serverSocket = AtomicReference<WebSocket>()
+        val readyProcessed = CountDownLatch(1)
+        serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                serverSocket.set(webSocket)
+                opened.countDown()
+            }
+        }).build())
+        val base = serverRule.server.url("/api/ws").toString().replace("http", "ws")
+        val http = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
+        val client = object : HermesGatewayClient(http, json, testScope,
+            backoff = BackoffPolicy(baseMs = 10_000, maxMs = 10_000),
+            wsEndpointProvider = { GatewayWebSocketEndpoint(base, "t") }) {
+            fun failCurrentGeneration() = super.onSocketClosed(1, "gateway handshake timeout", true, null)
+        }
+        client.lifecycleSeam = { name ->
+            if (name == "ready:after-closed-guard") readyProcessed.countDown()
+        }
+        try {
+            client.connect()
+            assertTrue(opened.await(5, TimeUnit.SECONDS))
+            client.failCurrentGeneration()
+            assertEquals(ConnectionState.Reconnecting, client.connectionState.value)
+            serverSocket.get().send(GATEWAY_READY_FRAME)
+            assertTrue(readyProcessed.await(5, TimeUnit.SECONDS))
+            val failure = withContext(Dispatchers.IO) {
+                runCatching { client.call("ping", buildJsonObject {}) }.exceptionOrNull()
+            }
+            assertTrue(failure is GatewayRpcException)
+            assertEquals(ConnectionState.Reconnecting, client.connectionState.value)
+        } finally {
+            tearDownClient(client, http)
         }
     }
 
