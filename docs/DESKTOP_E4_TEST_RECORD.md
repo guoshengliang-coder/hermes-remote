@@ -1456,3 +1456,27 @@ signed components, then activated 0.4.6 and reconnected. The managed release poi
 account-Connector status showed two online connections. This verifies activation on that
 existing Mac. It does not verify a clean-Mac launch, Developer ID signing, notarization, or a
 new Desktop GUI app release.
+
+## 2026-09-28 Desktop 0.2.30 internal test DMG (HG-151)
+
+Desktop **0.2.30/build 33** carries the HG-151 health-probe classification from `2add8f3f`. It
+was built from a clean, isolated worktree at `c6fd5a9d` after the Desktop asset tests, 516
+Desktop tests, and `desktop:dmg` passed in one invocation; the app pins the live
+`https://mrlgs.net/desktop/releases/index.json` and `.../components/index.json` manifest URLs.
+The DMG passed `hdiutil verify`; its arm64 app passed strict ad-hoc `codesign --verify --deep
+--strict` with bundle ID `com.hermesgo.desktop` (`Signature=adhoc`, no TeamIdentifier), and the
+built app reported `CFBundleShortVersionString` 0.2.30 / `CFBundleVersion` 33.
+
+The **3,474,350-byte** DMG has SHA-256
+`9d0cd20ac31454c5e5108e6c84ca9e7b193a2171d4d73347b9da3b682b3dfaac`. Publication used a private
+staging directory; the uploaded bytes were checked with `sha256sum -c` before the immutable,
+root-owned file was installed under `/srv/hermes-desktop-apps/0.2.30/`. The exact Nginx route was
+added only after the route file was backed up; `nginx -t` passed and Nginx was reloaded. A full
+public re-download reproduced the size and SHA-256 and passed `hdiutil verify`. The exact URL
+answers 200, the version directory 404, POST 403; the 0.2.29 DMG, the managed and components
+indexes, the Android release index, and Relay health still answer. Private staging and the
+one-time route backup were removed.
+
+This is an **internal ad-hoc test build**, without Developer ID signing, notarization, stapling,
+or an app-update index entry (`/desktop/apps/index.json` still answers 404). No installed Mac was
+upgraded or restarted in this step, and this is not a claim about a clean-Mac launch.
