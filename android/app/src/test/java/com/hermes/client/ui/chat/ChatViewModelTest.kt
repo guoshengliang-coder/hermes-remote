@@ -7,6 +7,7 @@ import com.hermes.client.data.network.ProfileDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ModelSwitchResult
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ModelFavoritesStore
 import com.hermes.client.data.repository.ModelRecentsStore
@@ -96,6 +97,9 @@ class ChatViewModelTest {
         // resume returns null here so the ViewModel keeps the opened id stable for these tests
         // (production switches to the live handle resume returns).
         coEvery { chatRepo.resume(any(), any()) } returns null
+        coEvery { chatRepo.switchSessionModel(any(), any(), any(), any()) } answers {
+            ModelSwitchResult.Applied(thirdArg(), null)
+        }
         every { profileManager.active } returns MutableStateFlow<String?>(null)
         coEvery { sessionRepo.history(any(), any()) } returns emptyList()
         // Relaxed mockk hands back a stub Session for a nullable reference return, and a stub with
@@ -1519,10 +1523,8 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    // Selecting in the chat sheet ALWAYS switches THIS session's model (the `/model … --session`
-    // slash) — the sheet no longer carries a scope choice; the profile default is edited on the
-    // settings Models screen only.
-    @Test fun onSelectFromSheet_switches_this_session_via_slash() = runTest {
+    // The sheet switches this session through config.set; it never changes the profile default.
+    @Test fun onSelectFromSheet_switches_this_session_directly() = runTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -1531,7 +1533,8 @@ class ChatViewModelTest {
         vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
         advanceUntilIdle()
 
-        coVerify { chatRepo.slashExec("s1", "/model opus --provider anthropic --session") }
+        coVerify { chatRepo.switchSessionModel("s1", "anthropic", "opus", false) }
+        coVerify(exactly = 0) { chatRepo.slashExec(any(), any()) }
         coVerify(exactly = 0) { modelRepo.set(any(), any(), any()) }
         assertEquals("opus", vm.currentModel.value)
         assertTrue("success must clear any sheet error", vm.modelSheet.value.error == null)
@@ -1552,7 +1555,7 @@ class ChatViewModelTest {
 
     // The other half: a switch that did NOT take effect must not offer itself as a shortcut.
     @Test fun a_failed_switch_is_not_recorded() = runTest {
-        coEvery { chatRepo.slashExec("s1", any()) } throws
+        coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } throws
             com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
@@ -1583,7 +1586,7 @@ class ChatViewModelTest {
     // A refused switch surfaces in the sheet's error (not the chat transcript), and the sheet stays
     // open (onDone not invoked) so the user can retry or pick a different model.
     @Test fun onSelectFromSheet_failure_surfaces_sheet_error() = runTest {
-        coEvery { chatRepo.slashExec("s1", any()) } throws
+        coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } throws
             com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
@@ -1599,7 +1602,7 @@ class ChatViewModelTest {
     }
 
     @Test fun model_switch_timeout_is_unconfirmed_not_a_refusal() = runTest {
-        coEvery { chatRepo.slashExec("s1", any()) } throws
+        coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } throws
             com.hermes.client.data.network.GatewayResponseTimeoutException("gateway response timeout")
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
@@ -1614,70 +1617,80 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { recentsStore.record(any(), any()) }
     }
 
-    // HG-28. `slash.exec` 5030 means the Mac's Hermes could not start its slash worker at all — the
-    // managed 0.3.0 bundle shipped sources that its own child processes could not import, so every
-    // slash command was dead. Collapsing that into HR-RPC-004 told the user "请重试" for something
-    // no number of retries could fix; it needs its own non-retryable code.
-    @Test fun onSelectFromSheet_maps_a_dead_slash_worker_to_its_own_terminal_code() = runTest {
-        coEvery { chatRepo.slashExec("s1", any()) } throws
-            com.hermes.client.data.network.GatewayRpcException(
-                5030,
-                "slash worker closed pipe: ... (ModuleNotFoundError: No module named 'tui_gateway')",
-            )
+    @Test fun malformed_switch_reply_is_unconfirmed_not_a_refusal() = runTest {
+        coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } throws
+            com.hermes.client.data.repository.ModelSwitchUnconfirmedException("no applied value")
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
-
-        var onDoneCalled = false
-        vm.onSelectFromSheet("anthropic", "opus") { onDoneCalled = true }
+        vm.onSelectFromSheet("anthropic", "opus") {}
         advanceUntilIdle()
-
-        val error = vm.modelSheet.value.error
-        assertEquals("HR-RPC-007", error?.code?.value)
-        assertFalse("retrying a worker that cannot start is a lie", error?.retryable == true)
-        assertFalse("the sheet must stay open on failure", onDoneCalled)
-        assertTrue(
-            "the cause must survive for diagnostics",
-            error?.technicalCause?.contains("tui_gateway") == true,
-        )
+        assertEquals("HR-RPC-008", vm.modelSheet.value.error?.code?.value)
+        assertFalse(vm.modelSheet.value.error?.retryable == true)
     }
 
-    // "恢复默认" runs the same slash, so it must classify failures the same way.
-    @Test fun restoreDefaultModel_maps_a_dead_slash_worker_to_its_own_terminal_code() = runTest {
-        coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
-        coEvery { modelRepo.providers(any()) } returns listOf(
-            com.hermes.client.data.network.ModelProviderDto(
-                slug = "prov", isCurrent = true, models = listOf("def-model"),
-            ),
-        )
-        coEvery { chatRepo.slashExec("s1", any()) } throws
-            com.hermes.client.data.network.GatewayRpcException(5030, "slash worker closed pipe")
+    @Test fun confirmation_does_not_claim_success_until_confirmed() = runTest {
+        coEvery { chatRepo.switchSessionModel("s1", "anthropic", "opus", false) } returns
+            ModelSwitchResult.ConfirmationRequired
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
-
-        var onDoneCalled = false
-        vm.restoreDefaultModel { onDoneCalled = true }
+        var done = false
+        vm.onSelectFromSheet("anthropic", "opus") { done = true }
         advanceUntilIdle()
+        assertFalse(done)
+        assertEquals("opus", vm.modelSheet.value.confirmation?.model)
+        coVerify(exactly = 0) { recentsStore.record(any(), any()) }
 
-        assertEquals("HR-RPC-007", vm.modelSheet.value.error?.code?.value)
-        assertFalse("the sheet must stay open on failure", onDoneCalled)
+        vm.confirmModelSelection { done = true }
+        advanceUntilIdle()
+        coVerify { chatRepo.switchSessionModel("s1", "anthropic", "opus", true) }
+        assertTrue(done)
     }
 
-    // Model names and provider slugs may contain spaces upstream — the slash command must quote
-    // them, or the argument splits and the wrong model (or an error) results.
-    @Test fun sessionModelCommand_quotes_arguments_with_spaces() {
-        assertEquals("/model opus --provider anthropic --session", sessionModelCommand("anthropic", "opus"))
-        assertEquals(
-            "/model \"step 3.7 (flash)\" --provider openrouter --session",
-            sessionModelCommand("openrouter", "step 3.7 (flash)"),
-        )
-        assertEquals("\"say \\\"hi\\\"\"", slashArg("say \"hi\""))
+    @Test fun deferred_switch_does_not_claim_or_record_success() = runTest {
+        coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } returns ModelSwitchResult.Deferred
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+        var done = false
+        vm.onSelectFromSheet("anthropic", "opus") { done = true }
+        advanceUntilIdle()
+        assertFalse(done)
+        assertEquals(ChatViewModel.ModelSheetNotice.DEFERRED, vm.modelSheet.value.notice)
+        assertFalse(vm.currentModel.value == "opus")
+        coVerify(exactly = 0) { recentsStore.record(any(), any()) }
     }
 
-    // A second tap while a switch is in flight must be ignored — otherwise two slashes race and
+    @Test fun successful_switch_dismisses_before_recent_write_finishes() = runTest {
+        coEvery { recentsStore.record("anthropic", "opus") } coAnswers {
+            kotlinx.coroutines.delay(5_000)
+        }
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+        var done = false
+        vm.onSelectFromSheet("anthropic", "opus") { done = true }
+        runCurrent()
+        assertTrue(done)
+        assertEquals("opus", vm.currentModel.value)
+        advanceUntilIdle()
+    }
+
+    @Test fun applied_switch_with_warning_stays_visible() = runTest {
+        coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } returns
+            ModelSwitchResult.Applied("opus", "provider warning")
+        val vm = buildVm()
+        vm.open("s1"); advanceUntilIdle()
+        var done = false
+        vm.onSelectFromSheet("anthropic", "opus") { done = true }
+        advanceUntilIdle()
+        assertFalse(done)
+        assertEquals("opus", vm.currentModel.value)
+        assertEquals(ChatViewModel.ModelSheetNotice.WARNING, vm.modelSheet.value.notice)
+    }
+
+    // A second tap while a switch is in flight must be ignored — otherwise two writes race and
     // the session lands on whichever finishes last.
     @Test fun onSelectFromSheet_ignores_taps_while_pending() = runTest {
-        coEvery { chatRepo.slashExec("s1", any()) } coAnswers {
-            kotlinx.coroutines.delay(5_000); null
+        coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(5_000); ModelSwitchResult.Applied(thirdArg(), null)
         }
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
@@ -1687,7 +1700,7 @@ class ChatViewModelTest {
         vm.onSelectFromSheet("anthropic", "sonnet") {}
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { chatRepo.slashExec("s1", any()) }
+        coVerify(exactly = 1) { chatRepo.switchSessionModel("s1", any(), any(), any()) }
     }
 
     // Chip contract: a successful SESSION switch marks the chat as overridden; "恢复默认" pins the
@@ -1713,7 +1726,7 @@ class ChatViewModelTest {
 
         vm.restoreDefaultModel {}
         advanceUntilIdle()
-        coVerify { chatRepo.slashExec("s1", "/model def-model --provider prov --session") }
+        coVerify { chatRepo.switchSessionModel("s1", "prov", "def-model", false) }
         assertFalse(vm.sessionModelOverridden.value)
         assertEquals("def-model", vm.currentModel.value)
         watcher.cancel()

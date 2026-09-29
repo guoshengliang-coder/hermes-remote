@@ -1968,7 +1968,22 @@ fun ChatScreen(
             },
             pendingKey = modelSheet.pendingKey,
             error = modelSheet.error?.localizedMessage(language),
-            onDismiss = { modelSheetOpen = false; retryAfterModelSwitch = false },
+            notice = when (modelSheet.notice) {
+                ChatViewModel.ModelSheetNotice.DEFERRED -> localized(
+                    language, "已排队：下一次发送消息时将尝试切换，请在发送后查看当前模型。",
+                    "Queued: Hermes will try to switch on the next message. Check the current model after sending.",
+                )
+                ChatViewModel.ModelSheetNotice.WARNING -> localized(
+                    language, "模型已切换，但 Hermes 返回了提醒。请确认模型可以正常使用。",
+                    "Model switched, but Hermes returned a warning. Check that the model works.",
+                )
+                null -> null
+            },
+            onDismiss = {
+                modelSheetOpen = false
+                retryAfterModelSwitch = false
+                vm.dismissModelConfirmation()
+            },
             onRefresh = { vm.ensureProviders(force = true) },
             refreshing = catalogRefreshing,
             currentSummary = currentSummary,
@@ -1980,6 +1995,35 @@ fun ChatScreen(
             listLoading = providersLoading,
             listError = providersError,
             onRetryLoad = { vm.ensureProviders(force = true) },
+        )
+    }
+
+    modelSheet.confirmation?.let { selection ->
+        AlertDialog(
+            onDismissRequest = vm::dismissModelConfirmation,
+            title = { Text(localized(language, "确认切换模型", "Confirm model switch")) },
+            text = { Text(localized(
+                language,
+                "${selection.model} 可能产生较高费用。确认后将仅为此对话切换。",
+                "${selection.model} may incur higher costs. Confirm to switch this conversation only.",
+            )) },
+            dismissButton = {
+                TextButton(onClick = vm::dismissModelConfirmation) {
+                    Text(localized(language, "取消", "Cancel"))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.confirmModelSelection {
+                        modelSheetOpen = false
+                        if (selection.restoreDefault) retryAfterModelSwitch = false
+                        else if (retryAfterModelSwitch) {
+                            retryAfterModelSwitch = false
+                            vm.regenerate()
+                        }
+                    }
+                }) { Text(localized(language, "继续切换", "Switch model")) }
+            },
         )
     }
 

@@ -16,6 +16,54 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ChatRepositoryTest {
+    @Test fun switchSessionModel_uses_direct_session_rpc_and_parses_outcomes() = runTest {
+        val client = mockk<HermesGatewayClient>()
+        val repo = ChatRepository(client)
+        coEvery { client.call("config.set", any()) } returns buildJsonObject {
+            put("value", "step 3.7 (flash)")
+            put("scope", "session")
+            put("warning", "provider warning")
+        }
+        assertEquals(
+            ModelSwitchResult.Applied("step 3.7 (flash)", "provider warning"),
+            repo.switchSessionModel("live-1", "openrouter", "step 3.7 (flash)"),
+        )
+        coVerify { client.call("config.set", match {
+            it["key"]?.jsonPrimitive?.content == "model" &&
+                it["session_id"]?.jsonPrimitive?.content == "live-1" &&
+                it["value"]?.jsonPrimitive?.content ==
+                "step 3.7 (flash) --provider openrouter --session" &&
+                !it.containsKey("confirm_expensive_model")
+        }) }
+
+        coEvery { client.call("config.set", any()) } returns buildJsonObject {
+            put("confirm_required", true)
+            put("confirm_message", "cost")
+        }
+        assertEquals(ModelSwitchResult.ConfirmationRequired, repo.switchSessionModel("live-1", "p", "m"))
+        coEvery { client.call("config.set", any()) } returns buildJsonObject {
+            put("deferred", true)
+            put("value", "m")
+        }
+        assertEquals(ModelSwitchResult.Deferred, repo.switchSessionModel("live-1", "p", "m", confirmed = true))
+        coVerify { client.call("config.set", match {
+            it["confirm_expensive_model"]?.jsonPrimitive?.content == "true"
+        }) }
+        coVerify(exactly = 0) { client.call("slash.exec", any()) }
+    }
+
+    @Test fun switchSessionModel_rejects_unconfirmed_empty_reply() = runTest {
+        val client = mockk<HermesGatewayClient>()
+        coEvery { client.call("config.set", any()) } returns buildJsonObject { }
+        val error = runCatching { ChatRepository(client).switchSessionModel("live-1", "p", "m") }.exceptionOrNull()
+        assertEquals(ModelSwitchUnconfirmedException::class.java, error?.javaClass)
+    }
+
+    @Test fun modelSwitchValue_rejects_values_the_upstream_split_parser_cannot_preserve() {
+        assertThrows(IllegalArgumentException::class.java) { modelSwitchValue("open router", "opus") }
+        assertThrows(IllegalArgumentException::class.java) { modelSwitchValue("openrouter", "opus --global") }
+    }
+
     @Test fun activeList_parsesSharedGatewayStatusWithoutAttachingToSession() = runTest {
         val client = mockk<HermesGatewayClient>(relaxed = true)
         coEvery { client.call("session.active_list", any()) } returns buildJsonObject {

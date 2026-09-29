@@ -71,6 +71,7 @@ class RpcParamContractTest {
 
     /** Just enough of each answer for the call site to return normally. */
     private fun answerFor(method: String): JsonElement = when {
+        method == "config.set" -> buildJsonObject { put("value", "model"); put("scope", "session") }
         method == "session.active_list" -> Json.parseToJsonElement("""{"sessions":[]}""")
         method == "projects.tree" -> Json.parseToJsonElement("""{"projects":[],"active_id":null}""")
         method == "projects.project_sessions" -> Json.parseToJsonElement("""{"project":null}""")
@@ -102,6 +103,7 @@ class RpcParamContractTest {
         chat.completePath("live-1", "@x")
         chat.reasoningGet("live-1")
         chat.reasoningSet("live-1", "high")
+        chat.switchSessionModel("live-1", "provider", "model", confirmed = true)
         chat.commandsCatalog()
         chat.interrupt("live-1")
         chat.attachImageBytes("live-1", "YWJj", "image/png")

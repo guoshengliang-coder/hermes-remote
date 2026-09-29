@@ -27,6 +27,12 @@ calls `PATCH`/`DELETE /api/sessions/{id}`, `GET /api/model/options`, `session.wo
 session's `reasoning`), `process.list` and `session.access`. The Gateway admits those **by parameter
 shape**, so an upstream change to their params (a renamed key, a new required key, new reasoning
 values) must update the Gateway validators as well as both clients, or the Web app gets `HR-WEB-001`.
+The Android chat model picker now uses `config.set {key:"model", session_id, value:"<model> --provider <provider> --session"}`
+directly, with `confirm_expensive_model` only after the user confirms. It treats `confirm_required`
+and `deferred` as pending outcomes, and `value` plus `scope` as the applied outcome. The Web app
+still uses its `slash.exec` model path. The upstream model-value parser splits on whitespace and
+joins model tokens; Android sends model names with spaces unquoted, and rejects provider slugs with
+spaces or model names containing switch flags rather than sending a different selection.
 For HG-114, the Connector alone reads optional `GET /api/model/info` for the selected profile
 and sends only `model` and `provider` through its own `/api/hermes-remote/default-model` route.
 This shape was checked against `hermes_cli/web_routers/models.py:get_model_info` on the local
@@ -399,7 +405,7 @@ at build time (and checks this table against) and which the dev mock enforces in
 | `slash.exec` | `SlashExecParams` | `command`, `profile`, `session_id` | `session_id`, `command` | present, unvalidated |
 | `complete.path` | `CompletePathParams` | `cwd`, `profile`, `session_id`, `word` | `session_id`, `word` | present, unvalidated |
 | `config.get` | `ConfigGetParams` | `cwd`, `key`, `profile`, `session_id` | `key`, `session_id` | present, unvalidated |
-| `config.set` | `ConfigSetParams` | `confirm_expensive_model`, `key`, `profile`, `scope`, `session_id`, `value` | `key`, `session_id`, `value` | present, unvalidated |
+| `config.set` | `ConfigSetParams` | `confirm_expensive_model`, `key`, `profile`, `scope`, `session_id`, `value` | `key`, `session_id`, `value`, `confirm_expensive_model`? (model confirmation) | present, unvalidated |
 | `commands.catalog` | `CommandsCatalogParams` | `profile`, `session_id` | — | present, unvalidated |
 | `session.interrupt` | `SessionInterruptParams` | `expected_hosted_task_id`, `profile`, `session_id` | `session_id` | present, unvalidated |
 | `image.attach_bytes` | `ImageAttachBytesParams` | `content_base64`, `data`, `ext`, `filename`, `profile`, `session_id` | `session_id`, `content_base64`, `ext`? | present, unvalidated |

@@ -14,6 +14,8 @@ import com.hermes.client.data.progress.SessionRuntimeStore
 import com.hermes.client.data.progress.ManualHistoryResult
 import com.hermes.client.data.progress.isActive
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.ModelSwitchResult
+import com.hermes.client.data.repository.ModelSwitchUnconfirmedException
 import com.hermes.client.data.repository.ChatMediaRepository
 import com.hermes.client.data.repository.ChatFileRepository
 import com.hermes.client.data.repository.ProfileManager
@@ -145,12 +147,6 @@ class ChatViewModel @Inject constructor(
          * and its pid, but that text is not a contract — see docs/HERMES_CONTRACT.md.
          */
         const val SESSION_OWNED_ELSEWHERE_CODE = 4090
-
-        /**
-         * `slash.exec` could not run at all: the Mac's Hermes failed to spawn its slash worker
-         * ("slash worker closed pipe"). Distinct from a slash the worker ran and refused.
-         */
-        const val SLASH_WORKER_FAILED_CODE = 5030
 
         /**
          * `pdf.attach` could not rasterise the PDF: the Mac's Hermes cannot reach `pdftoppm`
@@ -594,7 +590,11 @@ class ChatViewModel @Inject constructor(
         // submits) and shows the spinner on that row.
         val pendingKey: String? = null,
         val error: com.hermes.client.data.error.AppError? = null,
+        val notice: ModelSheetNotice? = null,
+        val confirmation: ModelConfirmation? = null,
     )
+    data class ModelConfirmation(val provider: String, val model: String, val restoreDefault: Boolean)
+    enum class ModelSheetNotice { DEFERRED, WARNING }
     // Model-LIST loading/error states (the sheet's pending/error covers selection, not the
     // list). Loading shows only while the cache is genuinely empty; a background refresh that
     // fails with a cached list stays silent. "Loaded but empty" still counts as an error so a
@@ -2229,47 +2229,77 @@ class ChatViewModel @Inject constructor(
     fun toggleFavorite(provider: String, model: String) =
         viewModelScope.launch { favoritesStore.toggle(provider, model) }
 
-    /**
-     * Apply a model chosen in the sheet — always a SESSION switch (the /model --session slash):
-     * the sheet only ever changes THIS chat; the profile default is edited on the settings
-     * Models screen. On failure the code is surfaced in the sheet (kept open); on success the
-     * sheet is dismissed by the caller via [onDone] and the model's remembered reasoning preset
-     * is applied. A second tap while one selection is in flight is ignored.
-     */
-    /**
-     * Classify a failed `/model …` slash. A worker that never started (`slash.exec` 5030) is not a
-     * refused switch: the Mac's Hermes cannot run ANY slash command, so "请重试" would send the user
-     * round a loop that cannot end — which is exactly what HG-28 looked like from the phone. It gets
-     * its own non-retryable code; everything else keeps the ordinary retryable one.
-     */
+    /** A lost reply cannot establish whether a session switch took effect. */
     private fun modelSwitchError(e: Throwable, stage: String): com.hermes.client.data.error.AppError {
-        val workerGone = (e as? GatewayRpcException)?.code == SLASH_WORKER_FAILED_CODE
-        val unconfirmed = e is com.hermes.client.data.network.GatewayResponseTimeoutException
+        val unconfirmed = e is com.hermes.client.data.network.GatewayResponseTimeoutException ||
+            e is ModelSwitchUnconfirmedException
         return com.hermes.client.data.error.AppError(
-            if (workerGone) com.hermes.client.data.error.AppErrorCode.SLASH_WORKER_UNAVAILABLE
-            else if (unconfirmed) com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_UNCONFIRMED
+            if (unconfirmed) com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_UNCONFIRMED
             else com.hermes.client.data.error.AppErrorCode.MODEL_SWITCH_FAILED,
-            retryable = !workerGone && !unconfirmed, technicalCause = e.message, stage = stage,
+            retryable = !unconfirmed, technicalCause = e.message, stage = stage,
         )
     }
 
-    fun onSelectFromSheet(provider: String, model: String, onDone: () -> Unit) {
-        if (_modelSheet.value.pendingKey != null) return
+    fun onSelectFromSheet(provider: String, model: String, onDone: () -> Unit) =
+        switchModel(provider, model, restoreDefault = false, confirmed = false, onDone = onDone)
+
+    fun dismissModelConfirmation() {
+        _modelSheet.value = _modelSheet.value.copy(confirmation = null)
+    }
+
+    fun confirmModelSelection(onDone: () -> Unit) {
+        val selection = _modelSheet.value.confirmation ?: return
+        _modelSheet.value = _modelSheet.value.copy(confirmation = null)
+        switchModel(selection.provider, selection.model, selection.restoreDefault, confirmed = true, onDone)
+    }
+
+    private fun switchModel(
+        provider: String, model: String, restoreDefault: Boolean, confirmed: Boolean, onDone: () -> Unit,
+    ) {
+        if (_modelSheet.value.pendingKey != null || _modelSheet.value.confirmation != null) return
         val key = com.hermes.client.data.repository.favKey(provider, model)
-        _modelSheet.value = _modelSheet.value.copy(pendingKey = key, error = null)
+        val startedAt = System.nanoTime()
+        _modelSheet.value = _modelSheet.value.copy(pendingKey = key, error = null, notice = null)
         viewModelScope.launch {
-            runCatching { chat.slashExec(sessionId, sessionModelCommand(provider, model)) }
-                .onSuccess {
-                    _currentModel.value = model
-                    _currentProvider.value = provider
-                    _explicitSessionOverride.value = true
-                    _modelSheet.value = ModelSheetUi()  // reset + clear pending/error
-                    recentsStore.record(provider, model)
-                    applyReasoningPresetFor(provider, model)
-                    onDone()
+            runCatching { chat.switchSessionModel(sessionId, provider, model, confirmed) }
+                .onSuccess { result ->
+                    when (result) {
+                        ModelSwitchResult.ConfirmationRequired -> {
+                            com.hermes.client.data.diagnostics.DebugLog.log(
+                                "model", "switch confirmation required after ${(System.nanoTime() - startedAt) / 1_000_000}ms",
+                            )
+                            _modelSheet.value = ModelSheetUi(
+                                confirmation = ModelConfirmation(provider, model, restoreDefault),
+                            )
+                        }
+                        ModelSwitchResult.Deferred -> {
+                            com.hermes.client.data.diagnostics.DebugLog.log(
+                                "model", "switch deferred after ${(System.nanoTime() - startedAt) / 1_000_000}ms",
+                            )
+                            _modelSheet.value = ModelSheetUi(notice = ModelSheetNotice.DEFERRED)
+                        }
+                        is ModelSwitchResult.Applied -> {
+                            _currentModel.value = result.model
+                            _currentProvider.value = provider
+                            _explicitSessionOverride.value = !restoreDefault
+                            _modelSheet.value = ModelSheetUi(
+                                notice = if (result.warning != null) ModelSheetNotice.WARNING else null,
+                            )
+                            applyReasoningPresetFor(provider, result.model)
+                            if (result.warning == null) onDone()
+                            com.hermes.client.data.diagnostics.DebugLog.log(
+                                "model", "switch applied in UI after ${(System.nanoTime() - startedAt) / 1_000_000}ms",
+                            )
+                            // Dismissal must not wait for DataStore's disk write.
+                            runCatching { recentsStore.record(provider, result.model) }
+                        }
+                    }
                 }
                 .onFailure { e ->
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    com.hermes.client.data.diagnostics.DebugLog.log(
+                        "model", "switch failed after ${(System.nanoTime() - startedAt) / 1_000_000}ms",
+                    )
                     _modelSheet.value = _modelSheet.value.copy(
                         pendingKey = null,
                         error = modelSwitchError(e, "model_session_switch"),
@@ -2278,39 +2308,13 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /**
-     * "恢复默认" from the sheet's current-model strip: pins this session back to the configured
-     * default model. (The upstream slash has no "clear override" verb, so this re-points the
-     * session at the default explicitly — same effective model.)
-     */
+    /** Pin this session to the configured default; the profile default remains untouched. */
     fun restoreDefaultModel(onDone: () -> Unit) {
         val model = _defaultModel.value ?: return
         val provider = _defaultProvider.value ?: com.hermes.client.ui.models.resolveModelProvider(
             catalogStore.state.value.providers, null, model,
         ) ?: return
-        if (_modelSheet.value.pendingKey != null) return
-        val key = com.hermes.client.data.repository.favKey(provider, model)
-        _modelSheet.value = _modelSheet.value.copy(pendingKey = key, error = null)
-        viewModelScope.launch {
-            runCatching { chat.slashExec(sessionId, sessionModelCommand(provider, model)) }
-                .onSuccess {
-                    _currentModel.value = model
-                    _currentProvider.value = provider
-                    _explicitSessionOverride.value = false
-                    _modelSheet.value = ModelSheetUi()
-                    // Restoring the default IS a switch — the chip row should offer the way back.
-                    recentsStore.record(provider, model)
-                    applyReasoningPresetFor(provider, model)
-                    onDone()
-                }
-                .onFailure { e ->
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    _modelSheet.value = _modelSheet.value.copy(
-                        pendingKey = null,
-                        error = modelSwitchError(e, "model_restore_default"),
-                    )
-                }
-        }
+        switchModel(provider, model, restoreDefault = true, confirmed = false, onDone = onDone)
     }
 
     // ---- Session reasoning effort (config.get/set {key:"reasoning"} — same RPC as desktop) ----
@@ -2408,18 +2412,6 @@ internal fun isKnownSlashCommand(text: String, commands: List<Pair<String, Strin
         token == catalogName
     }
 }
-
-/**
- * Quote a `/model` slash argument when it contains whitespace (provider slugs and model names may
- * carry spaces upstream); space-free values pass through unchanged so the wire format the gateway
- * already accepts is untouched.
- */
-internal fun slashArg(value: String): String =
-    if (value.any { it.isWhitespace() }) "\"" + value.replace("\"", "\\\"") + "\"" else value
-
-/** The session-scope model switch slash. */
-internal fun sessionModelCommand(provider: String, model: String): String =
-    "/model ${slashArg(model)} --provider ${slashArg(provider)} --session"
 
 internal fun displaySessionTitle(raw: String?, fallback: String = "新会话"): String {
     val title = raw?.trim().orEmpty()
