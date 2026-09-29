@@ -72,6 +72,7 @@ class RpcParamContractTest {
     /** Just enough of each answer for the call site to return normally. */
     private fun answerFor(method: String): JsonElement = when {
         method == "session.active_list" -> Json.parseToJsonElement("""{"sessions":[]}""")
+        method == "subagent.list" -> Json.parseToJsonElement("""{"subagents":[],"delegations":[]}""")
         method == "projects.tree" -> Json.parseToJsonElement("""{"projects":[],"active_id":null}""")
         method == "projects.project_sessions" -> Json.parseToJsonElement("""{"project":null}""")
         method.startsWith("projects.") -> Json.parseToJsonElement(
@@ -111,6 +112,7 @@ class RpcParamContractTest {
         chat.attachFileBytes("live-1", "YWJj", "text/plain", "a.txt")
         chat.attachFilePath("live-1", "/tmp/a.txt", "a.txt")
         chat.listProcesses("live-1")
+        chat.listSubagents("live-1")
         chat.respondApproval("live-1", ApprovalChoice.ONCE)
         chat.respondClarify("live-1", "clr-1", "a", questionId = "q0")
         chat.respondClarify("live-1", "srq-1", "a", questionId = "q0", serverRequest = true)

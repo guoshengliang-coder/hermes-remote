@@ -143,6 +143,9 @@ import android.widget.Toast
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
+import com.hermes.client.data.repository.SubagentPhase
+import com.hermes.client.data.repository.SubagentStatus
+import com.hermes.client.ui.localization.localizedSummary
 import com.hermes.client.domain.ToolStatus
 import com.hermes.client.domain.ChatImage
 import com.hermes.client.domain.ImageTransferState
@@ -499,6 +502,7 @@ fun ChatMessageList(
         onDispose { }
     }
     val visibleProcesses = state.backgroundProcesses.filter { it.running }
+    val visibleSubagents = state.subagents
     // Hermes stores a tool-using answer as multiple adjacent assistant records. Present them as
     // one consumer-facing turn so the action row appears once and acts on the complete answer.
     // During streaming only the tail changes. Cache the settled prefix so each token groups one
@@ -1101,14 +1105,15 @@ fun ChatMessageList(
                             alignment = Alignment.BottomStart,
                         ),
                 ) {
-                    if (processesVisible || sessionRunIndicator) {
-                        Column(Modifier.padding(top = TURN_SPACING)) {
+                    if (processesVisible || visibleSubagents.isNotEmpty() || sessionRunIndicator) {
+                        Column(Modifier.padding(top = TURN_SPACING), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             // The run is active but no bubble is streaming yet (docs/DESIGN.md §5.6):
                             // the indicator belongs to the session's run, so it lives in this
                             // permanent slot rather than in a bubble that may not exist.
                             if (sessionRunIndicator) {
                                 RunningStatusLine(sessionRunPlaceholder(sessionId, state.runStartedAt))
                             }
+                            if (visibleSubagents.isNotEmpty()) SubagentsCard(visibleSubagents)
                             if (processesVisible) BackgroundProcessesCard(visibleProcesses)
                         }
                     } else {
@@ -1840,6 +1845,81 @@ private fun BackgroundProcessesCard(processes: List<com.hermes.client.data.repos
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SubagentsCard(subagents: List<SubagentStatus>) {
+    val language = LocalAppLanguage.current
+    val active = subagents.count { it.active }
+    var expanded by remember(subagents.map { it.id }) { mutableStateOf(false) }
+    val title = if (active > 0) {
+        localized(language, "${subagents.size} 个子代理 · $active 个运行中", "${subagents.size} subagents · $active running")
+    } else {
+        localized(language, "${subagents.size} 个子代理 · 已结束", "${subagents.size} subagents · finished")
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.testTag("subagent-status-card"),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (active > 0) {
+                    com.hermes.client.ui.components.LoadingDots(size = 17.dp)
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text(title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                Icon(
+                    if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                )
+            }
+            val shown = if (expanded) subagents else subagents.take(3)
+            shown.forEach { child ->
+                val fallback = localized(language, "子代理", "Subagent")
+                Text(
+                    child.goal.ifBlank { fallback },
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = if (expanded) 3 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val phase = when (child.status) {
+                    SubagentPhase.QUEUED -> localized(language, "等待中", "Queued")
+                    SubagentPhase.RUNNING -> localized(language, "运行中", "Running")
+                    SubagentPhase.COMPLETED -> localized(language, "已完成", "Completed")
+                    SubagentPhase.FAILED -> localized(language, "失败", "Failed")
+                    SubagentPhase.INTERRUPTED -> localized(language, "已中断", "Interrupted")
+                }
+                val failure = child.failure
+                val activity = when {
+                    failure != null -> "${failure.localizedSummary(language)} ${failure.code.compact}"
+                    !child.active -> child.result
+                    child.currentTool.isNotBlank() && child.progress.isNotBlank() ->
+                        "${child.currentTool} · ${child.progress}"
+                    child.currentTool.isNotBlank() -> child.currentTool
+                    child.progress.isNotBlank() -> child.progress
+                    child.lastTool.isNotBlank() -> localized(
+                        language, "最近工具：${child.lastTool}", "Last tool: ${child.lastTool}",
+                    )
+                    else -> ""
+                }
+                Text(
+                    listOf(phase, activity).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (expanded) 5 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (!expanded && shown.size < subagents.size) {
+                Text(
+                    localized(language, "还有 ${subagents.size - shown.size} 个", "${subagents.size - shown.size} more"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

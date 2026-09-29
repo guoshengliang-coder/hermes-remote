@@ -23,6 +23,9 @@ import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.repository.SessionAccess
 import com.hermes.client.data.repository.SessionAccessState
+import com.hermes.client.data.repository.SUBAGENT_STATUS_EVENTS
+import com.hermes.client.data.repository.reconcileSubagents
+import com.hermes.client.data.repository.withoutCompletedSubagents
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.DeliveryState
@@ -139,7 +142,8 @@ data class SessionRuntime(
     val phaseBeforeReconnect: SessionRunPhase? = null,
 ) {
     val hasRunningProcesses: Boolean get() = chat.backgroundProcesses.any { it.running }
-    val hasActiveWork: Boolean get() = phase.isActive || hasRunningProcesses
+    val hasRunningSubagents: Boolean get() = chat.subagents.any { it.active }
+    val hasActiveWork: Boolean get() = phase.isActive || hasRunningProcesses || hasRunningSubagents
 }
 
 /**
@@ -1542,7 +1546,10 @@ class SessionRuntimeStore(
         updateRuntime(key, cause = "prompt") { runtime ->
             runtime.copy(
                 chat = runtime.chat.withUserMessage(shownText, images, files, messageId).let { chat ->
-                    if (clearPendingAttachments) chat.copy(pendingAttachments = emptyList()) else chat
+                    chat.copy(
+                        pendingAttachments = if (clearPendingAttachments) emptyList() else chat.pendingAttachments,
+                        subagents = chat.subagents.withoutCompletedSubagents(),
+                    )
                 },
                 phase = SessionRunPhase.SUBMITTING,
                 toolName = null,
@@ -1731,7 +1738,12 @@ class SessionRuntimeStore(
             val titled = runtime.copy(title = title ?: runtime.title)
             when (event.event) {
                 "run.started", "run.resumed" -> titled.copy(
-                    chat = runtime.chat.copy(isGenerating = true),
+                    chat = runtime.chat.copy(
+                        isGenerating = true,
+                        subagents = if (event.event == "run.started" && !runtime.phase.isActive) {
+                            runtime.chat.subagents.withoutCompletedSubagents()
+                        } else runtime.chat.subagents,
+                    ),
                     phase = SessionRunPhase.THINKING,
                     toolName = null,
                     lastEventAt = now,
@@ -2017,15 +2029,18 @@ class SessionRuntimeStore(
                 DebugLog.log("event", "reducer rejected ${event.type} session=${event.sessionId ?: "-"}: ${error.message}")
                 runtime.chat
             }
+            val withNewTurn = if (event.type == "message.start" && !runtime.phase.isActive) {
+                reduced.copy(subagents = reduced.subagents.withoutCompletedSubagents())
+            } else reduced
             val withTerminalOutput = if (event.type == "agent.terminal.output") {
                 val processId = event.str("process_id")
                 val chunk = event.str("chunk").orEmpty()
-                reduced.copy(backgroundProcesses = reduced.backgroundProcesses.map { process ->
+                withNewTurn.copy(backgroundProcesses = withNewTurn.backgroundProcesses.map { process ->
                     if (process.id == processId) process.copy(
                         outputTail = (process.outputTail + chunk).takeLast(PROCESS_OUTPUT_TAIL_CHARS),
                     ) else process
                 })
-            } else reduced
+            } else withNewTurn
             val nextPhase = when (event.type) {
                 "message.start", "reasoning.delta", "reasoning.available" -> SessionRunPhase.THINKING
                 "message.delta" -> SessionRunPhase.STREAMING
@@ -2120,7 +2135,9 @@ class SessionRuntimeStore(
         if (event.type == "session.info" && event.bool("running") == false && wasRunning) {
             observedTerminalFence.add(key)
         }
-        if (event.type in setOf("tool.complete", "message.complete", "agent.terminal.output")) {
+        if (event.type in setOf("tool.complete", "message.complete", "agent.terminal.output") ||
+            event.type in SUBAGENT_STATUS_EVENTS
+        ) {
             scheduleProcessPolling(key, PROCESS_DISCOVERY_GRACE_POLLS)
         }
         if (event.type == ServerRequests.CANCEL_EVENT && withdrewACard) {
@@ -2465,6 +2482,15 @@ class SessionRuntimeStore(
                             System.currentTimeMillis()
                         } else current.lastEventAt,
                     )
+                }
+            }
+        val requestedAt = System.currentTimeMillis()
+        runCatching { chatRepository.listSubagents(handle) }
+            .onSuccess { snapshot ->
+                updateRuntime(key) { current ->
+                    current.copy(chat = current.chat.copy(
+                        subagents = reconcileSubagents(current.chat.subagents, snapshot, requestedAt),
+                    ))
                 }
             }
     }

@@ -428,6 +428,12 @@ class ChatRepository(private val client: HermesGatewayClient) {
         }
     }
 
+    /** Hermes' parent-session roster of currently live delegated children. */
+    suspend fun listSubagents(sessionId: String): List<SubagentStatus> {
+        val result = client.call("subagent.list", buildJsonObject { put("session_id", sessionId) })
+        return parseSubagentSnapshot(result.jsonObject, System.currentTimeMillis())
+    }
+
     /**
      * Answer an approval. [serverRequestId] is set when the card came from a server→client request
      * (newer Hermes): the answer then goes to exactly that request through `request.answer`, which

@@ -4,6 +4,9 @@ import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.network.bool
 import com.hermes.client.data.network.str
 import com.hermes.client.data.network.strList
+import com.hermes.client.data.repository.SubagentStatus
+import com.hermes.client.data.repository.SUBAGENT_STATUS_EVENTS
+import com.hermes.client.data.repository.foldSubagentEvent
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.domain.ToolCall
@@ -946,6 +949,7 @@ fun ChatUiState.withServerRequestCancelled(requestId: String?): ChatUiState {
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val backgroundProcesses: List<com.hermes.client.data.repository.BackgroundProcess> = emptyList(),
+    val subagents: List<SubagentStatus> = emptyList(),
     val pendingApproval: ApprovalRequest? = null,
     /**
      * Server-request approvals waiting behind [pendingApproval], oldest first. Newer Hermes can have
@@ -1121,7 +1125,9 @@ fun ChatUiState.reduce(event: ServerEvent): ChatUiState {
             ),
             isGenerating = false,
         )
-        else -> state
+        else -> if (event.type in SUBAGENT_STATUS_EVENTS) {
+            state.copy(subagents = foldSubagentEvent(state.subagents, event, System.currentTimeMillis()))
+        } else state
     }
 }
 

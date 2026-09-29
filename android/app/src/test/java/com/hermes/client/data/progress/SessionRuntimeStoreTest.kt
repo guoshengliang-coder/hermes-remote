@@ -4,6 +4,7 @@ import com.hermes.client.data.network.ConnectionState
 import com.hermes.client.data.network.LifecycleEventDto
 import com.hermes.client.data.network.ServerEvent
 import com.hermes.client.data.repository.ChatRepository
+import com.hermes.client.data.repository.SubagentStatus
 import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionReadStore
 import com.hermes.client.data.repository.SessionAccess
@@ -51,6 +52,52 @@ class SessionRuntimeStoreTest {
         val connection: MutableStateFlow<ConnectionState>,
         val chat: ChatRepository,
     )
+
+    @Test fun childRemainsVisibleAfterParentAnswerAndClearsOnNextTurn() = runTest {
+        val fixture = fixture()
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.beginPrompt(key, "开始")
+        fixture.events.emit(ServerEvent("subagent.start", "s1", buildJsonObject {
+            put("subagent_id", "child-1")
+            put("goal", "审计代码")
+        }))
+        runCurrent()
+        fixture.events.emit(event("message.complete", "s1", "主回答完成"))
+        runCurrent()
+        assertEquals(SessionRunPhase.COMPLETED_UNREAD, fixture.store.runtimes.value.getValue(key).phase)
+        assertTrue(fixture.store.runtimes.value.getValue(key).hasRunningSubagents)
+        fixture.events.emit(ServerEvent("subagent.complete", "s1", buildJsonObject {
+            put("subagent_id", "child-1")
+            put("status", "completed")
+            put("summary", "审计完成")
+        }))
+        runCurrent()
+        assertEquals("审计完成", fixture.store.runtimes.value.getValue(key).chat.subagents.single().result)
+
+        fixture.store.beginPrompt(key, "下一轮")
+        assertTrue(fixture.store.runtimes.value.getValue(key).chat.subagents.isEmpty())
+    }
+
+    @Test fun openingIdleParentHydratesLiveChildFromRoster() = runTest {
+        val fixture = fixture()
+        coEvery { fixture.chat.listProcesses("runtime-s1") } returns emptyList()
+        var polls = 0
+        coEvery { fixture.chat.listSubagents("runtime-s1") } answers {
+            if (++polls == 1) listOf(SubagentStatus(id = "child-1", goal = "检查代码")) else emptyList()
+        }
+        val key = fixture.store.register("s1", "personal")
+        fixture.store.bindLiveHandle(key, "runtime-s1")
+        runCurrent()
+
+        val runtime = fixture.store.runtimes.value.getValue(key)
+        assertEquals(SessionRunPhase.IDLE, runtime.phase)
+        assertEquals("检查代码", runtime.chat.subagents.single().goal)
+        assertTrue(runtime.hasActiveWork)
+        coVerify { fixture.chat.listSubagents("runtime-s1") }
+        advanceTimeBy(20_000)
+        runCurrent()
+        assertTrue(fixture.store.runtimes.value.getValue(key).chat.subagents.isEmpty())
+    }
 
     private fun lifecycle(
         kind: String,

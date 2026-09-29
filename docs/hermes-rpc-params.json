@@ -168,6 +168,13 @@
         "session_id"
       ]
     },
+    "subagent.list": {
+      "model": "SessionParams",
+      "keys": [
+        "profile",
+        "session_id"
+      ]
+    },
     "approval.respond": {
       "model": "ApprovalRespondParams",
       "keys": [
