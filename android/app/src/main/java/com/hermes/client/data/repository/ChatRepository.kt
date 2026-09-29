@@ -49,6 +49,26 @@ data class WorkspaceInfo(val cwd: String?, val branch: String?, val gitRepoRoot:
 /** A "@" completion item: [text] is inserted, [display] shown, [meta] is a hint. */
 data class PathItem(val text: String, val display: String, val meta: String)
 
+/** `config.set model` can accept a pick without applying it yet. */
+sealed interface ModelSwitchResult {
+    data class Applied(val model: String, val warning: String?) : ModelSwitchResult
+    data object ConfirmationRequired : ModelSwitchResult
+    data object Deferred : ModelSwitchResult
+}
+
+class ModelSwitchUnconfirmedException(message: String) : IllegalStateException(message)
+
+/** Hermes joins unrecognized whitespace-separated tokens back into the model name. */
+internal fun modelSwitchValue(provider: String, model: String): String {
+    require(provider.isNotBlank() && provider.none(Char::isWhitespace)) {
+        "Hermes config.set cannot parse a provider slug containing whitespace"
+    }
+    require(model.isNotBlank() && model.split(Regex("\\s+")).none {
+        it in setOf("--provider", "--reasoning", "--global", "--session", "--refresh", "--once")
+    }) { "Hermes config.set cannot parse a model name containing switch flags" }
+    return "$model --provider $provider --session"
+}
+
 enum class SessionAccessState {
     AVAILABLE,
     OWNED_BY_REQUESTER,
@@ -306,6 +326,33 @@ class ChatRepository(private val client: HermesGatewayClient) {
             put("session_id", sessionId)
             put("value", value)
         })
+    }
+
+    /** Direct session switch, without starting Hermes' slash-command worker. */
+    suspend fun switchSessionModel(
+        sessionId: String, provider: String, model: String, confirmed: Boolean = false,
+    ): ModelSwitchResult {
+        val result = client.call("config.set", buildJsonObject {
+            put("key", "model")
+            put("session_id", sessionId)
+            put("value", modelSwitchValue(provider, model))
+            if (confirmed) put("confirm_expensive_model", true)
+        }) as? JsonObject ?: throw ModelSwitchUnconfirmedException("config.set model returned no object")
+        if (result["confirm_required"]?.jsonPrimitive?.booleanOrNull == true) {
+            return ModelSwitchResult.ConfirmationRequired
+        }
+        if (result["deferred"]?.jsonPrimitive?.booleanOrNull == true) {
+            return ModelSwitchResult.Deferred
+        }
+        val applied = (result["value"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: throw ModelSwitchUnconfirmedException("config.set model returned no applied value")
+        val scope = (result["scope"] as? JsonPrimitive)?.contentOrNull
+        if (result.containsKey("scope") && scope != "session") {
+            throw ModelSwitchUnconfirmedException("config.set model returned unexpected scope: $scope")
+        }
+        return ModelSwitchResult.Applied(
+            applied, result["warning"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+        )
     }
 
     /** Fetch the slash-command catalog for the composer palette ("pairs" = [[name, desc], …]). */

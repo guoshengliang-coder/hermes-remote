@@ -111,6 +111,7 @@ class ModelSelectorScreenshotTest {
         listLoading: Boolean = false,
         listError: Boolean = false,
         refreshing: Boolean = false,
+        notice: String? = null,
     ): @androidx.compose.runtime.Composable () -> Unit = {
         ModelSheetHeader(refreshing = refreshing, onRefresh = {}, onDismiss = {})
         ModelSelectorContent(
@@ -120,6 +121,7 @@ class ModelSelectorScreenshotTest {
             onToggleGroup = {},
             pendingKey = pendingKey,
             error = null,
+            notice = notice,
             currentSummary = summary("此对话覆盖", restore = true),
             onRestoreDefault = {},
             recents = recentModels,
@@ -142,6 +144,12 @@ class ModelSelectorScreenshotTest {
 
     @Test fun modelSelectorDark() =
         snap("model-select-dark", darkTheme = true, content = sheet(groups()))
+
+    @Test fun modelSelectorDeferredSwitchNotice() = snap(
+        "model-select-deferred", content = sheet(
+            groups(), notice = "已排队：下一次发送消息时将尝试切换，请在发送后查看当前模型。",
+        ),
+    )
 
     /**
      * The one state the mock actually draws: a switch in flight. The target row takes the

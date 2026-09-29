@@ -309,6 +309,7 @@ fun ModelSelectorContent(
     onToggleGroup: (slug: String) -> Unit,
     pendingKey: String?,
     error: String?,
+    notice: String? = null,
     modifier: Modifier = Modifier,
     currentSummary: CurrentModelSummary? = null,
     onRestoreDefault: (() -> Unit)? = null,
@@ -346,6 +347,14 @@ fun ModelSelectorContent(
             Text(
                 error,
                 color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
+        }
+        if (notice != null) {
+            Text(
+                notice,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             )
@@ -943,6 +952,7 @@ fun ModelSelectorSheet(
     onToggleGroup: (slug: String) -> Unit,
     pendingKey: String?,
     error: String?,
+    notice: String? = null,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
     refreshing: Boolean,
@@ -972,7 +982,7 @@ fun ModelSelectorSheet(
             groups = groups,
             onToggleFavorite = onToggleFavorite, onSelect = onSelect,
             onToggleGroup = onToggleGroup,
-            pendingKey = pendingKey, error = error,
+            pendingKey = pendingKey, error = error, notice = notice,
             modifier = Modifier.padding(bottom = 24.dp),
             currentSummary = currentSummary, onRestoreDefault = onRestoreDefault,
             recents = recents,

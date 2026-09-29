@@ -22,6 +22,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -923,6 +925,7 @@ open class HermesGatewayClient(
         // already follows (DESIGN.md §5.15). process.list runs every 5s per active run and was 55
         // of the 500 buffered entries in the HG-27 report. Slow and failing calls still speak.
         val quiet = method in QUIET_RPC_METHODS
+        val modelSwitch = method == "config.set" && params["key"]?.jsonPrimitive?.contentOrNull == "model"
         val startedAt = System.currentTimeMillis()
         val sentGeneration = generation.get()
         val sentConnectionId = connectionId
@@ -935,9 +938,9 @@ open class HermesGatewayClient(
             throw GatewayRpcException(0, "not connected")
         }
         return try {
-            // These two foreground actions have an unknown outcome when their reply is lost.
+            // Session creation and model switches have an unknown outcome when their reply is lost.
             // Bound the spinner, but never auto-replay a possibly successful create or switch.
-            val deadlineMs = if (method == "session.create" || method == "slash.exec") {
+            val deadlineMs = if (method == "session.create" || method == "slash.exec" || modelSwitch) {
                 min(rpcTimeoutMs, 20_000L)
             } else rpcTimeoutMs
             val result = withTimeout(deadlineMs) { deferred.await() }
@@ -946,8 +949,16 @@ open class HermesGatewayClient(
             // was a session that went missing two minutes after session.create, and the log could
             // not say whether the create had ever succeeded: the request line was there and nothing
             // followed it either way.
-            if (method in OUTCOME_RPC_METHODS || (quiet && elapsed >= SLOW_RPC_MS)) {
-                DebugLog.log("ws", "rpc#$id conn=$sentConnectionId $method ← ok (${elapsed}ms)")
+            if (method in OUTCOME_RPC_METHODS || modelSwitch || (quiet && elapsed >= SLOW_RPC_MS)) {
+                val outcome = if (modelSwitch) {
+                    val body = result as? JsonObject
+                    when {
+                        body?.get("confirm_required")?.jsonPrimitive?.booleanOrNull == true -> "confirmation-required"
+                        body?.get("deferred")?.jsonPrimitive?.booleanOrNull == true -> "deferred"
+                        else -> "applied"
+                    }
+                } else "ok"
+                DebugLog.log("ws", "rpc#$id conn=$sentConnectionId $method ← $outcome (${elapsed}ms)")
             }
             result
         } catch (e: TimeoutCancellationException) {
