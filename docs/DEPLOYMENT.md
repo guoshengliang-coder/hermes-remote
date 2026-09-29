@@ -1712,3 +1712,18 @@ The prior **0.2.29/build 32** app was restored without changing the 0.4.7 manage
 UI returned to healthy account and Connector status. The Keychain block needs investigation before
 another local trial. Public app distribution still requires the protected `desktop-release`
 environment, Developer ID signing, notarization, stapling, and clean-Mac acceptance.
+
+### Desktop 0.2.30 internal Mac mini installation — 2026-09-29
+
+After the blocked first trial above, the owner approved a second installation using the same
+configured ad-hoc DMG and personally allowed its macOS Keychain access prompt. The app image and
+strict signature verification passed again; the installed app reports **0.2.30/build 33**. The
+prior **0.2.29/build 32** app is preserved as a local rollback copy. No managed component was
+replaced during this app installation: `Managed/current` still points to **0.4.7**, with Connector
+**0.1.12**.
+
+The new app completed account startup, remained signed in after a quit and relaunch, and reported
+the account Connector online. Its diagnostic screen passed the background Agent, Gateway, local
+Hermes, and end-to-end connection checks with no action required. This is a local internal app
+installation only. The public Desktop app index has not switched; Developer ID signing,
+notarization, stapling, and clean-Mac acceptance remain required for public app distribution.
