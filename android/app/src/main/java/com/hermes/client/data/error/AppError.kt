@@ -108,6 +108,7 @@ enum class AppErrorCode(val value: String) {
     // withheld — the HG-29 rule — and the conversation is still readable through history.
     SESSION_TOO_LARGE("HR-SESS-017"),
     SESSION_CREATE_UNCONFIRMED("HR-SESS-018"),
+    SUBAGENT_UNFINISHED("HR-SESS-019"),
     INSTALL_PERMISSION_REQUIRED("HR-PERM-003"),
     GALLERY_PERMISSION_REQUIRED("HR-PERM-004"),
     MICROPHONE_PERMISSION_REQUIRED("HR-PERM-005"),

@@ -370,7 +370,7 @@ prompt.submit    slash.exec       complete.path       commands.catalog
 approval.respond clarify.respond† clarify.lock‡      client.capabilities‡  request.answer‡
 config.get       config.set
 file.attach      image.attach     image.attach_bytes  pdf.attach
-process.list     projects.tree    projects.project_sessions
+process.list     subagent.list    projects.tree    projects.project_sessions
 ```
 
 † old question protocol only (f159e581); gone in 17b5df02. ‡ new question protocol; an older Hermes
@@ -413,6 +413,7 @@ at build time (and checks this table against) and which the dev mock enforces in
 | `pdf.attach` | `PdfAttachParams` | `content_base64`, `data`, `filename`, `first_page`, `last_page`, `path`, `profile`, `session_id` | `session_id` + `content_base64`, `filename` \| `path` | present, unvalidated |
 | `file.attach` | `FileAttachParams` | `data_url`, `name`, `path`, `profile`, `session_id` | `session_id`, `name` + `data_url` \| `path` | present, unvalidated |
 | `process.list` | `ProcessListParams` | `profile`, `session_id` | `session_id` | present, unvalidated |
+| `subagent.list` | `SessionParams` | `profile`, `session_id` | `session_id` | absent (optional live roster) |
 | `approval.respond` | `ApprovalRespondParams` | `all`, `choice`, `profile`, `request_id`, `session_id` | `session_id`, `choice` | present, unvalidated |
 | `clarify.lock` | `ClarifyLockParams` | `answer`, `profile`, `question_id`, `request_id` | `request_id`, `question_id`, `answer` | absent (-32601; only sent for a server-request card, which f159e581 never raises) |
 | `request.answer` | `RequestAnswerParams` | `id`, `profile`, `result` | `id`, `result` | absent (only sent for a server-request card, which f159e581 never raises) |
@@ -476,6 +477,22 @@ has not been measured; checklist item 8g still applies before adoption.
 Server events consumed: `message.start` / `message.delta` / `message.complete`,
 `tool.start` / `tool.complete`, `session.info`, `approval.request` / `clarify.request` (old question
 protocol), `request.cancel` (new question protocol), `session.reclaimed`, `sessions.changed`.
+
+**Subagent status (HG-158).** The local Hermes source at `17b5df02` declares
+`subagent.list({session_id})` in `tui_gateway/methods_subagents.py`. It returns the current parent
+session's live `subagents` roster with `subagent_id`, `goal`, `status`, `last_tool`, `tool_count`,
+and `started_at`; `delegations` is currently empty. The RPC requires the calling transport to
+be attached to that live parent session. Android also consumes parent-session `subagent.start`,
+`.progress`, `.tool`, and `.complete` events for live status. The roster omits finished children,
+so Android retains terminal rows it saw until the next parent turn and never presents a cold-open
+roster as historical completion evidence. `process.list` remains the separate background-process
+source. An older Hermes without `subagent.list` leaves live events usable, but cannot recover a
+missed child start after reconnect.
+
+This projection is Android-only in this repository: the native Desktop menu-bar app does not
+render conversation status, and the Web client does not consume `subagent.*` or `subagent.list`.
+Neither needs a child-status consumer for this change; the Web error-catalog alignment in this
+branch only keeps its existing error copy consistent with `docs/ERROR_HANDLING.md`.
 
 `session.lifecycle` used to be listed here and is **not a Hermes event**: neither f159e581 nor
 17b5df02 emits or declares it (`git grep -F '"session.lifecycle"'` finds nothing; the loose pattern

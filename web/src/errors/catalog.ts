@@ -21,12 +21,12 @@ export interface CatalogEntry {
 }
 
 export const CATALOG = {
-  "HR-CONN-001": { zh: "当前网络不可用，请检查网络连接。", en: "No usable network is available. Check your connection.", retryable: true, action: "retry" },
-  "HR-CONN-002": { zh: "暂时连不上服务，将自动重试。", en: "Couldn't reach the service. Retrying automatically.", retryable: true, action: "reconnect" },
-  "HR-CONN-003": { zh: "Relay 已连接，但会话握手超时。", en: "The Relay connected, but the session handshake timed out.", retryable: true, action: "reconnect" },
+  "HR-CONN-001": { zh: "手机当前没有可用网络，请检查 Wi-Fi 或移动网络，恢复后会自动重连。", en: "Your phone has no network. Check Wi-Fi or mobile data; the app reconnects once it's back.", retryable: true, action: "retry" },
+  "HR-CONN-002": { zh: "连不上服务，自动检测也没能确定原因，请重试。", en: "Couldn't reach the service, and automatic checks couldn't find the cause. Retry.", retryable: true, action: "reconnect" },
+  "HR-CONN-003": { zh: "Relay 已连上，但会话握手超时，请重试。", en: "The Relay connected, but the session handshake timed out. Retry.", retryable: true, action: "reconnect" },
   "HR-CONN-004": { zh: "连接中断，正在恢复会话。", en: "The connection was interrupted. Restoring the conversation.", retryable: true, action: "reconnect" },
-  "HR-CONN-005": { zh: "你的电脑目前未连接，请打开电脑上的 Hermes Go。", en: "Your computer isn't connected. Open Hermes Go on it.", retryable: true, action: "retry" },
-  "HR-CONN-006": { zh: "Hermes 当前不可访问，请检查这台 Mac 上的 Hermes 服务。", en: "Hermes is unavailable. Check the Hermes service on this Mac.", retryable: true, action: "retry" },
+  "HR-CONN-005": { zh: "手机能连上服务，但你电脑上的 Hermes Go 没有连接，请在电脑上打开它。", en: "The phone reached the service, but Hermes Go isn't connected on your computer. Open it there.", retryable: true, action: "retry" },
+  "HR-CONN-006": { zh: "已连上这台 Mac，但上面的 Hermes 没有响应，请在 Mac 上检查 Hermes。", en: "Reached the Mac, but Hermes on it isn't responding. Check Hermes on the Mac.", retryable: true, action: "retry" },
   "HR-AUTH-003": { zh: "登录已过期，请重新登录。", en: "Your session expired. Sign in again.", retryable: false, action: "sign-in" },
   "HR-AUTH-004": { zh: "这台设备的登录已被撤销，请重新登录。", en: "This device's session was revoked. Sign in again.", retryable: false, action: "sign-in" },
   "HR-AUTH-005": { zh: "检测到登录凭据重复使用，为保护账号已退出这台设备。", en: "Reuse of a sign-in credential was detected, so this device was signed out for safety.", retryable: false, action: "sign-in" },

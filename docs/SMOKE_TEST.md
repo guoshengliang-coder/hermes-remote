@@ -1330,3 +1330,20 @@ test stack; stopping the production Mac service is not part of this check.
 9. Send `@url:` followed by a backtick-wrapped HTTPS link. The bubble shows “链接 · 域名”; tapping
    opens the safe external handler, while Copy and Edit/Resend preserve the literal original.
    A plain URL and a token in a fenced code block remain literal. Check at large font scale.
+
+## HG-158: child-agent status on Android (real Hermes and a device)
+
+1. In a PC conversation, delegate work to a child. Open the **same parent conversation** on Android
+   after the child starts. The status card should show the child count, goal, and most recent tool
+   from `subagent.list`; the existing background-process card must remain independent.
+2. Delegate another child while Android is already watching. Verify its goal and tool/progress
+   arrive without reopening. Let the parent answer finish while a child still runs: the child
+   must remain visible and must not make the parent answer appear to be generating.
+3. Let a child finish. Verify the result and terminal state remain visible across navigation away
+   and back, then send the next parent prompt. Completed child rows disappear; any still-running
+   child stays. Make a child fail and check the localized `SESS-019` recovery hint without raw
+   backend error text. Check a second conversation to ensure no child crosses session boundaries.
+4. Reconnect Android while a child runs and verify that the roster returns without a duplicate.
+   Repeat after the child finishes: an empty roster must not invent a running child. Record the
+   Hermes version, phone model, and whether `subagent.list` was available. A cold open cannot
+   reconstruct children that finished before Android ever observed them.

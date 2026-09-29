@@ -69,6 +69,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             )
         AppErrorCode.SESSION_CREATE_UNCONFIRMED ->
             localized(language, "新建会话未收到确认，连接正在恢复，请稍后重试。", "New conversation was not confirmed. The connection is recovering; try again shortly.")
+        AppErrorCode.SUBAGENT_UNFINISHED ->
+            localized(language, "子代理未完成，可在输入框重新说明任务。", "Subagent did not finish. Ask again in the composer.")
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->

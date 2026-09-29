@@ -22,7 +22,11 @@ describe("catalog", () => {
   const rows = new Map<string, string[]>();
   for (const line of registry.split("\n")) {
     const m = /^\| `(HR-[A-Z]+-\d+)` \|/.exec(line);
-    if (m) rows.set(m[1]!, line.trim().replace(/^\||\|$/g, "").split(" | ").map((c) => c.trim()));
+    if (m) {
+      const cells = line.trim().replace(/^\||\|$/g, "").split(" | ").map((c) => c.trim());
+      // The later diagnosis table also has HR codes, but only the registry has five columns.
+      if (cells.length === 5) rows.set(m[1]!, cells);
+    }
   }
 
   it.each(Object.entries(CATALOG))(

@@ -307,6 +307,29 @@ class ChatRepositoryTest {
         assertEquals("working", process.outputTail)
     }
 
+    @Test fun subagent_list_uses_parent_handle_and_maps_live_roster() = runTest {
+        val client = mockk<HermesGatewayClient>(relaxed = true)
+        coEvery { client.call("subagent.list", any()) } returns buildJsonObject {
+            put("subagents", buildJsonArray {
+                add(buildJsonObject {
+                    put("subagent_id", "child-1")
+                    put("goal", "审计代码")
+                    put("status", "running")
+                    put("last_tool", "read_file")
+                })
+            })
+        }
+
+        val child = ChatRepository(client).listSubagents("parent-runtime").single()
+
+        assertEquals("child-1", child.id)
+        assertEquals("审计代码", child.goal)
+        assertEquals("read_file", child.lastTool)
+        coVerify { client.call("subagent.list", match {
+            it["session_id"]?.jsonPrimitive?.content == "parent-runtime"
+        }) }
+    }
+
     // Hermes derives the agent's platform — and therefore its system-prompt capability block —
     // from the session's `source`. Sending nothing let Hermes fall back to its environment guess,
     // `tui`, whose prompt block claims there is no attachment channel and that MEDIA: tags are not
