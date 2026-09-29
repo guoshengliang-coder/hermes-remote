@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.Placeholder
@@ -164,7 +165,8 @@ internal fun hermesLinkStyles(): TextLinkStyles {
 @Composable
 private fun rememberLinkIconContent(): MarkdownInlineContent {
     val linkColor = MaterialTheme.colorScheme.primary
-    return remember(linkColor) {
+    val githubColor = MaterialTheme.colorScheme.onSurface
+    return remember(linkColor, githubColor) {
         DefaultMarkdownInlineContent(
             mapOf(
                 MARKDOWN_LINK_ICON_TAG to InlineTextContent(
@@ -175,6 +177,16 @@ private fun rememberLinkIconContent(): MarkdownInlineContent {
                         contentDescription = null,
                         modifier = Modifier.size(with(LocalDensity.current) { 13.sp.toDp() }),
                         tint = linkColor,
+                    )
+                },
+                MARKDOWN_GITHUB_ICON_TAG to InlineTextContent(
+                    Placeholder(17.sp, 17.sp, PlaceholderVerticalAlign.TextCenter),
+                ) {
+                    Icon(
+                        painter = painterResource(com.hermes.client.R.drawable.ic_github_invertocat),
+                        contentDescription = null,
+                        modifier = Modifier.size(with(LocalDensity.current) { 13.sp.toDp() }),
+                        tint = githubColor,
                     )
                 },
             ),
@@ -192,8 +204,13 @@ private fun rememberHermesAnnotator(highlightSearch: Boolean, searchRangeOffset:
     val searchAnnotator = rememberSearchAnnotator(searchRangeOffset)
     return remember(searchAnnotator, highlightSearch) {
         markdownAnnotator(config = if (highlightSearch) searchAnnotator.config else markdownAnnotatorConfig()) { content, child ->
-            if (shouldPrefixLinkIcon(child)) {
-                appendInlineContent(MARKDOWN_LINK_ICON_TAG, "\uFFFC")
+            val iconTag = when (linkIconKind(child, content)) {
+                MarkdownLinkIconKind.EXTERNAL -> MARKDOWN_LINK_ICON_TAG
+                MarkdownLinkIconKind.GITHUB -> MARKDOWN_GITHUB_ICON_TAG
+                null -> null
+            }
+            if (iconTag != null) {
+                appendInlineContent(iconTag, "\uFFFC")
                 // WORD JOINER: without it the line breaker treats the glyph as its own word and
                 // happily leaves it stranded at the end of the previous line.
                 append('\u2060')
@@ -212,6 +229,7 @@ internal fun hermesTableTextStyle(exportScale: Boolean = false): TextStyle =
     )
 
 internal const val MARKDOWN_LINK_ICON_TAG = "hermes-link-icon"
+internal const val MARKDOWN_GITHUB_ICON_TAG = "hermes-github-icon"
 
 /** Table geometry in the conversation, and in the component gallery that mirrors it. */
 internal val CHAT_TABLE_CELL_WIDTH = 110.dp

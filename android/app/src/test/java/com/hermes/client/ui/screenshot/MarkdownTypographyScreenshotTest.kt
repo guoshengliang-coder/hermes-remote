@@ -40,7 +40,7 @@ class MarkdownTypographyScreenshotTest {
 
 ### 二、链接与行内元素
 
-正文中的链接 [Hermes 文档](https://example.com/docs) 现在有颜色和图标，另外还有 `inline code` 与 **加粗** 与 *斜体*。
+正文中的链接 [Hermes 文档](https://example.com/docs) 有外链图标，[PR #465](https://github.com/example/project/pull/465) 有 GitHub 标记，另外还有 `inline code` 与 **加粗** 与 *斜体*。
 
 > 引用块用来检查左侧竖线与内边距。
 
