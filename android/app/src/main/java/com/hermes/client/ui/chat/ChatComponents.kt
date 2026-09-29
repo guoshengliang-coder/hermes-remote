@@ -2216,6 +2216,27 @@ internal fun shouldPrefixLinkIcon(node: ASTNode): Boolean {
     return node.parent?.type !in NESTED_AUTOLINK_PARENTS
 }
 
+internal enum class MarkdownLinkIconKind { EXTERNAL, GITHUB }
+
+/** The GitHub mark identifies a verified GitHub destination, never text that merely resembles one. */
+internal fun linkIconKind(node: ASTNode, content: String): MarkdownLinkIconKind? {
+    if (!shouldPrefixLinkIcon(node)) return null
+    val destination = when (node.type) {
+        MarkdownElementTypes.INLINE_LINK -> node.children
+            .firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION }
+            ?.let { content.substring(it.startOffset, it.endOffset) }
+        MarkdownElementTypes.AUTOLINK, GFMTokenTypes.GFM_AUTOLINK ->
+            content.substring(node.startOffset, node.endOffset)
+        else -> null // Reference links need definition resolution; keep their existing glyph.
+    }?.trim()?.removeSurrounding("<", ">")
+    val uri = destination?.let { runCatching { java.net.URI(it) }.getOrNull() }
+    val scheme = uri?.scheme?.lowercase(java.util.Locale.ROOT)
+    return if (
+        (scheme == "http" || scheme == "https") &&
+        uri?.host?.equals("github.com", ignoreCase = true) == true
+    ) MarkdownLinkIconKind.GITHUB else MarkdownLinkIconKind.EXTERNAL
+}
+
 /** Parents whose GFM_AUTOLINK child is a component of an enclosing link, not a link itself. */
 private val NESTED_AUTOLINK_PARENTS = setOf(
     MarkdownElementTypes.LINK_TEXT,

@@ -7,11 +7,21 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * The external-link glyph is injected per AST node, so the interesting behaviour is "which nodes
- * count as a link". Roborazzi goldens only record here, they never fail a build, so this is the
- * test that actually holds the rule.
+ * Link glyphs are injected per AST node. These tests hold the one-icon-per-link rule and select
+ * the GitHub mark only for a GitHub destination; screenshots cover the rendered shape and spacing.
  */
 class MarkdownLinkIconTest {
+    private fun iconKinds(markdown: String): List<MarkdownLinkIconKind> {
+        val tree = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(markdown)
+        val kinds = mutableListOf<MarkdownLinkIconKind>()
+        fun walk(node: ASTNode) {
+            linkIconKind(node, markdown)?.let(kinds::add)
+            node.children.forEach(::walk)
+        }
+        walk(tree)
+        return kinds
+    }
+
     private fun iconCount(markdown: String): Int {
         val tree = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(markdown)
         var count = 0
@@ -55,5 +65,33 @@ class MarkdownLinkIconTest {
     /** A fenced code block that happens to contain a URL must stay untouched. */
     @Test fun codeFenceUrlGetsNone() {
         assertEquals(0, iconCount("```\ncurl https://example.com\n```"))
+    }
+
+    @Test fun githubPullRequestUsesGitHubMark() {
+        assertEquals(
+            listOf(MarkdownLinkIconKind.GITHUB),
+            iconKinds("见 [PR #465](https://github.com/example/project/pull/465)。"),
+        )
+    }
+
+    @Test fun bareGitHubUrlUsesGitHubMark() {
+        assertEquals(
+            listOf(MarkdownLinkIconKind.GITHUB),
+            iconKinds("见 https://github.com/example/project/pull/465。"),
+        )
+    }
+
+    @Test fun unrelatedAndLookalikeHostsKeepExternalLinkIcon() {
+        assertEquals(
+            listOf(MarkdownLinkIconKind.EXTERNAL, MarkdownLinkIconKind.EXTERNAL),
+            iconKinds("[文档](https://example.com) 与 [伪装](https://github.com.evil.example/pull/465)"),
+        )
+    }
+
+    @Test fun mixedLinksGetOneIconEach() {
+        assertEquals(
+            listOf(MarkdownLinkIconKind.GITHUB, MarkdownLinkIconKind.EXTERNAL),
+            iconKinds("[PR](https://github.com/example/project/pull/465) 与 [说明](https://example.com)"),
+        )
     }
 }
