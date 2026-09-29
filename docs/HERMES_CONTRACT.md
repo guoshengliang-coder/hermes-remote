@@ -483,6 +483,11 @@ roster as historical completion evidence. `process.list` remains the separate ba
 source. An older Hermes without `subagent.list` leaves live events usable, but cannot recover a
 missed child start after reconnect.
 
+This projection is Android-only in this repository: the native Desktop menu-bar app does not
+render conversation status, and the Web client does not consume `subagent.*` or `subagent.list`.
+Neither needs a child-status consumer for this change; the Web error-catalog alignment in this
+branch only keeps its existing error copy consistent with `docs/ERROR_HANDLING.md`.
+
 `session.lifecycle` used to be listed here and is **not a Hermes event**: neither f159e581 nor
 17b5df02 emits or declares it (`git grep -F '"session.lifecycle"'` finds nothing; the loose pattern
 only hits the `session_lifecycle` module, and `contracts/events.py` has no such event). It is this
