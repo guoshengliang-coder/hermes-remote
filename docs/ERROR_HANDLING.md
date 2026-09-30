@@ -59,6 +59,7 @@ reassigned.
 | `NOTIF` | Notification delivery and actions | channel disabled, action/reply failure |
 | `UPDATE` | APK update and installation | manifest, download, hash, certificate, installer |
 | `DESKUPDATE` | Desktop app and managed-release update checking | index fetch, download, verification, replacement |
+| `TEST` | Build/test tooling | JVM test worker exceeded its wall-clock safety limit |
 | `RELEASE` | Server release packaging and candidate gates | build prerequisites, image identity, isolated smoke |
 | `OPS` | Cloud host installation and diagnostics | preflight, artifact integrity, bootstrap, status, doctor |
 | `CONFIG` | Local or deployment configuration | invalid URL, missing field, incompatible setting |
@@ -139,6 +140,7 @@ logs only a route category, phase, elapsed time, and allowlisted transport error
 
 | Code | Condition | Default Chinese explanation | Default English explanation | Retryable |
 |---|---|---|---|---|
+| `HR-TEST-001` | JVM unit-test worker exceeds its wall-clock safety limit; independent watchdog forcibly stops only that worker | 测试进程超时，已强制终止。修复卡住的测试后重试。 | Test worker timed out and was forcibly stopped. Fix the hanging test, then retry. | No (fix test first) |
 | `HR-CONN-001` | Device has no usable network **and the gateway probe also failed** (a capability read alone never decides — see docs/DESIGN.md). Failing link: **the phone's own network** | 手机当前没有可用网络，请检查 Wi-Fi 或移动网络，恢复后会自动重连。 | Your phone has no network. Check Wi-Fi or mobile data; the app reconnects once it's back. | Yes |
 | `HR-CONN-002` | WebSocket connection failed and the bounded diagnosis reached no stronger verdict, so **no single failing link can be named**. The copy says so rather than blaming the network or the server | 连不上服务，自动检测也没能确定原因，请重试。 | Couldn't reach the service, and automatic checks couldn't find the cause. Retry. | Yes |
 | `HR-CONN-003` | `gateway.ready` handshake timed out — the Relay accepted the socket but the session handshake did not finish. Failing link: the **Relay↔Mac handshake**, not the phone's connection | Relay 已连上，但会话握手超时，请重试。 | The Relay connected, but the session handshake timed out. Retry. | Yes |

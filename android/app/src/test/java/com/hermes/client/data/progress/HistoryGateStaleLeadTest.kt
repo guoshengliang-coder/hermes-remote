@@ -11,13 +11,10 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -37,7 +34,7 @@ import org.junit.Test
  * local lead keeps its protection.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class HistoryGateStaleLeadTest {
+class HistoryGateStaleLeadTest : SessionRuntimeTest() {
     private fun event(type: String, sessionId: String, text: String? = null) = ServerEvent(
         type = type,
         sessionId = sessionId,
@@ -63,7 +60,7 @@ class HistoryGateStaleLeadTest {
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         return SessionRuntimeStore(chat, scope, profiles, sessionRepository = sessions) to events
     }
 

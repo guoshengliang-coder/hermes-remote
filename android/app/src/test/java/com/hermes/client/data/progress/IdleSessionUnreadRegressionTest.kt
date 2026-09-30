@@ -7,12 +7,9 @@ import com.hermes.client.data.repository.ProfileManager
 import com.hermes.client.data.repository.SessionReadStore
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -37,7 +34,7 @@ import org.junit.Test
  * reconnecting every five seconds (HG-65), which is why it happened constantly rather than rarely.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class IdleSessionUnreadRegressionTest {
+class IdleSessionUnreadRegressionTest : SessionRuntimeTest() {
     private data class Fixture(
         val store: SessionRuntimeStore,
         val events: MutableSharedFlow<ServerEvent>,
@@ -53,7 +50,7 @@ class IdleSessionUnreadRegressionTest {
         return Fixture(
             SessionRuntimeStore(
                 chatRepository = chat,
-                appScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler)),
+                appScope = eagerAppScope(),
                 profiles = profiles,
             ),
             events,

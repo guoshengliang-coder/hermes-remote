@@ -12,12 +12,9 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -35,7 +32,7 @@ import org.junit.Test
  * without an answer.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class ActivePhaseBackstopTest {
+class ActivePhaseBackstopTest : SessionRuntimeTest() {
     private fun event(type: String, sessionId: String, text: String? = null, running: Boolean? = null) = ServerEvent(
         type = type, sessionId = sessionId,
         payload = buildJsonObject {
@@ -65,7 +62,7 @@ class ActivePhaseBackstopTest {
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
         val clock = Clock()
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = SessionRuntimeStore(chat, scope, profiles, clock = clock, watchdogEnabled = watchdog)
         runCurrent()
         return Fixture(store, events, chat, clock)

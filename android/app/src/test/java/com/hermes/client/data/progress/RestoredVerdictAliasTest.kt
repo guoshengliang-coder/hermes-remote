@@ -9,13 +9,12 @@ import com.hermes.client.data.repository.SessionPhaseRecord
 import com.hermes.client.data.repository.SessionPhaseSnapshot
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -46,7 +45,7 @@ import kotlin.time.Duration.Companion.seconds
  * in another profile or on another Mac.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class RestoredVerdictAliasTest {
+class RestoredVerdictAliasTest : SessionRuntimeTest() {
 
     private class FakePhaseStore(
         private val stored: List<SessionPhaseRecord> = emptyList(),
@@ -74,7 +73,7 @@ class RestoredVerdictAliasTest {
         return Fixture(
             SessionRuntimeStore(
                 chatRepository = chat,
-                appScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler)),
+                appScope = eagerAppScope(),
                 profiles = profiles,
                 phaseStore = phases,
             ),
@@ -133,10 +132,12 @@ class RestoredVerdictAliasTest {
     @Test fun opening_clears_a_restored_verdict_and_its_disk_record() = runTest(timeout = 20.seconds) {
         val phases = FakePhaseStore(listOf(record("s2", null, SessionRunPhase.COMPLETED_UNREAD)))
         val (store, _, _) = fixture(phases)
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         store.markRead(store.key("s2", "default"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         assertEquals(
             SessionRunPhase.IDLE,

@@ -15,14 +15,11 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -59,7 +56,7 @@ import org.junit.Test
  * analysis. They are the definition of done for the fix, not a description of today's behaviour.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SessionStateDesyncRegressionTest {
+class SessionStateDesyncRegressionTest : SessionRuntimeTest() {
 
     /** HG-155: a late WebSocket delta from the completed turn must not restart its clock. */
     @Test fun observedCompletionOutranksLateProgressForTheSameTurn() = runTest {
@@ -209,7 +206,7 @@ class SessionStateDesyncRegressionTest {
         every { chat.connectionState } returns connection
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        val eagerScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val eagerScope = eagerAppScope()
         return Fixture(
             SessionRuntimeStore(
                 chatRepository = chat,
@@ -440,7 +437,8 @@ class SessionStateDesyncRegressionTest {
         events.emit(event("message.start", "s1"))
         events.emit(event("reasoning.delta", "s1", "正在分析"))
         events.emit(event("message.complete", "s1", "完成内容"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         // One accepted pass must end the ladder; a rejected one would fetch on every rung.
         coVerify(exactly = 1) { sessions.history("s1", "personal") }
@@ -470,13 +468,16 @@ class SessionStateDesyncRegressionTest {
         events.emit(event("message.start", "s1"))
         events.emit(event("message.delta", "s1", "第一轮回答"))
         events.emit(event("message.complete", "s1", "第一轮回答"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         // The PC sends the next prompt; the phone only ever hears the lifecycle pair for it.
         store.applyObservedLifecycle(lifecycle("run.started", "s1"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
         store.applyObservedLifecycle(lifecycle("run.completed", "s1"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         val messages = store.runtimes.value.getValue(key).chat.messages
         assertEquals("跨端新轮次必须经对账进入页面（HG-124）", "PC 上发的新问题", messages.last { it.role == Role.USER }.text)
@@ -551,18 +552,21 @@ class SessionStateDesyncRegressionTest {
         val (store, events) = fixture(sessions)
         val key = store.register("s1", "personal")
         store.applyObservedLifecycle(lifecycle("run.started", "s1"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         // The remote run's stream folds a live bubble on the phone; its final turn has not landed.
         events.emit(event("message.start", "s1"))
         events.emit(event("message.delta", "s1", "PC 端正在输出的部分"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
         // A completed earlier turn schedules the reconcile ladder; the run keeps going, so the
         // next message.start re-arms the phase before the ladder's first rung fires.
         events.emit(event("message.complete", "s1", "PC 端第一轮完成"))
         events.emit(event("message.start", "s1"))
         events.emit(event("message.delta", "s1", "第二轮正在输出"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         val runtime = store.runtimes.value.getValue(key)
         assertTrue("运行未结束，阶段应保持活动", runtime.phase.isActive)
@@ -599,12 +603,15 @@ class SessionStateDesyncRegressionTest {
         store.beginPrompt(key, "很早以前的问题")
         events.emit(event("message.start", "s1"))
         events.emit(event("message.complete", "s1", "很早以前的回答"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
         // The long remote run has since pushed both early turns out of the newest page.
         store.applyObservedLifecycle(lifecycle("run.started", "s1"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
         store.applyObservedLifecycle(lifecycle("run.completed", "s1"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         val messages = store.runtimes.value.getValue(key).chat.messages
         assertTrue(
@@ -639,7 +646,8 @@ class SessionStateDesyncRegressionTest {
         // fires, the open path accepts the transcript that now carries the cross-device round.
         runCurrent()
         store.acceptHistory(key, ahead, requestStartedAt = 0L)
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         val messages = store.runtimes.value.getValue(key).chat.messages
         assertTrue("跨端轮次必须留在页面", messages.any { it.text == "对账梯子期间到达的跨端新问题" })

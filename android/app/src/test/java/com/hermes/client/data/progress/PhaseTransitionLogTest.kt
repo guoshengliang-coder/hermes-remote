@@ -12,13 +12,10 @@ import com.hermes.client.domain.Role
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -35,7 +32,7 @@ import org.junit.Test
  * diagnostics off none of it runs — not even the string.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class PhaseTransitionLogTest {
+class PhaseTransitionLogTest : SessionRuntimeTest() {
     @Before fun setUp() { DebugLog.detachStore(); DebugLog.setEnabled(true); DebugLog.clear() }
     @After fun tearDown() { DebugLog.setEnabled(false); DebugLog.clear() }
 
@@ -54,7 +51,7 @@ class PhaseTransitionLogTest {
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        return SessionRuntimeStore(chat, CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler)), profiles, sessionRepository = sessions) to events
+        return SessionRuntimeStore(chat, eagerAppScope(), profiles, sessionRepository = sessions) to events
     }
 
     private fun lines(category: String) = DebugLog.entries.value.filter { it.category == category }.map { it.message }
@@ -85,7 +82,8 @@ class PhaseTransitionLogTest {
         val key = store.register("s1", "personal")
         store.beginPrompt(key, "第一问")
         events.emit(event("message.complete", "s1", "第一答"))
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         assertTrue(lines("history").toString(), lines("history").any { it.contains("rejected: assistantTurns 0<1") })
     }

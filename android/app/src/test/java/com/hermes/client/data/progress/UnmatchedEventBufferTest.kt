@@ -11,12 +11,9 @@ import com.hermes.client.domain.Role
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -33,7 +30,7 @@ import org.junit.Test
  * bounded time and replayed, in order, as soon as an alias for that id appears.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class UnmatchedEventBufferTest {
+class UnmatchedEventBufferTest : SessionRuntimeTest() {
     private fun event(type: String, sessionId: String, text: String? = null) = ServerEvent(
         type = type,
         sessionId = sessionId,
@@ -64,7 +61,7 @@ class UnmatchedEventBufferTest {
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
         val clock = Clock()
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         return Fixture(SessionRuntimeStore(chat, scope, profiles, sessionRepository = sessions, clock = clock), events, clock)
     }
 

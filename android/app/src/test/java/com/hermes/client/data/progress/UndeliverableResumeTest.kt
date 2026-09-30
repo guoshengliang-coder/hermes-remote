@@ -13,11 +13,9 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -39,7 +37,7 @@ import org.junit.Test
  * ceiling does not apply to because REST responses are chunked.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class UndeliverableResumeTest {
+class UndeliverableResumeTest : SessionRuntimeTest() {
     private data class Fixture(
         val store: SessionRuntimeStore,
         val chat: ChatRepository,
@@ -75,7 +73,7 @@ class UndeliverableResumeTest {
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
         val sessions = mockk<SessionRepository>(relaxed = true)
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = SessionRuntimeStore(chat, scope, profiles, sessionRepository = sessions)
         runCurrent()
         return Fixture(store, chat, sessions, connection, events, scope)

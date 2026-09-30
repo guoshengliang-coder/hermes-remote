@@ -8,12 +8,9 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -32,7 +29,7 @@ import org.junit.Test
  * and hundreds of these went past saying "something moved, go and look".
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SessionsChangedProbeTest {
+class SessionsChangedProbeTest : SessionRuntimeTest() {
     private class Fixture(val store: SessionRuntimeStore, val events: MutableSharedFlow<ServerEvent>, val chat: ChatRepository)
 
     private fun kotlinx.coroutines.test.TestScope.fixture(): Fixture {
@@ -44,7 +41,7 @@ class SessionsChangedProbeTest {
         every { profiles.active } returns MutableStateFlow<String?>("personal")
         val store = SessionRuntimeStore(
             chat,
-            CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler)),
+            eagerAppScope(),
             profiles,
         )
         return Fixture(store, events, chat)

@@ -920,6 +920,30 @@ cannot silently produce an APK with an incompatible signature.
 
 See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distributing the derivative app.
 
+### JVM test safety (HG-160)
+
+Every Gradle JVM test task loads the build-only `test-watchdog.jar`; it is never packaged in the
+APK. A separate, small JVM watches each test worker's PID and start time and forcibly stops that
+worker after **600 seconds of real time** with `HR-TEST-001`. It does not stop other Gradle builds,
+Java processes, Hermes, or Connector. It exits when its worker exits, including abnormal exit.
+The budget covers the **entire fork**, not an individual test or compilation. Direct Gradle calls,
+CI and `scripts/package-debug-apk.sh` all use the same protection. For a controlled reproduction,
+use `-PhermesTestWorkerTimeoutSeconds=45`; only positive values are accepted.
+
+Session-runtime tests additionally use a **30-second per-test JUnit timeout**. Their app-lifetime
+jobs use `eagerAppScope()` backed by `runTest.backgroundScope`: event delivery stays eager,
+`advanceUntilIdle()` does not chase continuous polling, and success/failure both cancel the jobs.
+Tests that need delayed persistence or reconciliation explicitly advance a bounded interval
+(`advanceTimeBy` plus `runCurrent`). Repository fixtures explicitly stub empty process and
+subagent snapshots instead of relying on MockK's generic relaxed proxies.
+
+The worker watchdog is the hard stop when interruption or coroutine cancellation cannot finish a
+test. `:verifyTestWatchdog` runs automatically before JVM tests and proves normal exit, forceful
+termination of a JVM stuck in a shutdown hook, and isolation from another JVM. It can also be run
+without Gradle/Android using `python3 android/test-watchdog/test_watchdog.py -v` from the repo root
+(JDK 17+ and Python 3 required). Fix the hanging test before retrying; do not increase heap or
+terminate processes by name. See `docs/DEVICE_TESTING.md` §8 for the incident and reading limits.
+
 ### Optional FCM push (HG-94)
 
 A build carries FCM wake hints only when it is given the four Firebase client values; without them

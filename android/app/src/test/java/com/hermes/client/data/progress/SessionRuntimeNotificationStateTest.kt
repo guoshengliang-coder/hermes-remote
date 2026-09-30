@@ -10,13 +10,10 @@ import com.hermes.client.ui.chat.ClarifyQuestion
 import com.hermes.client.ui.chat.ClarifyRequest
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.addJsonObject
@@ -32,7 +29,7 @@ import org.junit.Test
 
 /** The fields SessionRuntime carries purely for the one-card-per-session notification projection. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SessionRuntimeNotificationStateTest {
+class SessionRuntimeNotificationStateTest : SessionRuntimeTest() {
     private fun event(type: String, sessionId: String, vararg fields: Pair<String, Any?>) = ServerEvent(
         type = type,
         sessionId = sessionId,
@@ -85,7 +82,7 @@ class SessionRuntimeNotificationStateTest {
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         return Fixture(SessionRuntimeStore(chatRepository = chat, appScope = scope, profiles = profiles), events)
     }
 
