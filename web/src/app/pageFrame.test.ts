@@ -12,15 +12,19 @@ import { describe, expect, it } from "vitest";
  * the event half (the reveal pill following the list port, not the window) is in
  * `WebAlignment.test.tsx`, and the pull itself still needs a real iPhone (docs/SMOKE_TEST.md).
  *
- * The patterns read the sheet as text on purpose: happy-dom drops `100dvh` values and
- * `-webkit-overflow-scrolling` from its CSSOM, and both are load-bearing here.
+ * The sheet is read as text on purpose: happy-dom drops `100dvh` values and
+ * `-webkit-overflow-scrolling` from its CSSOM, and both are load-bearing here. The lookups are
+ * plain string searches, not patterns built at runtime — a `new RegExp` over a variable is a
+ * blocking finding for the repository's semgrep gate.
  */
 const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
 function block(selector: string): string {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const body = new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-  return body.replace(/\s+/g, " ").trim();
+  const start = css.indexOf(`\n${selector} {`);
+  if (start < 0) return "";
+  const open = css.indexOf("{", start);
+  const end = css.indexOf("}", open);
+  return css.slice(open + 1, end).replace(/\s+/g, " ").trim();
 }
 
 describe("the document is a frame and every page scrolls in its own port (DESIGN §5.21, HG-173)", () => {
