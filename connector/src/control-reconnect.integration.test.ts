@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 for (const mode of ["legacy", "account"] as const) {
@@ -46,7 +47,7 @@ for (const mode of ["legacy", "account"] as const) {
         });
       });
     });
-    const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname], {
+    const child = spawn(process.execPath, [fileURLToPath(new URL("./index.js", import.meta.url))], {
       env: {
         PATH: process.env.PATH, HOME: root,
         CONNECTOR_MODE: mode, HERMES_MODE: "mock", SESSION_OBSERVER_ENABLED: "0",

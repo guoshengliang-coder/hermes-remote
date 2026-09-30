@@ -77,6 +77,7 @@ test("the app shell is never cached and carries a strict CSP without inline or e
       assert.match(csp, /frame-ancestors 'none'/);
       assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval|https:\/\/|\*/);
       assert.equal(response.headers["x-frame-options"], "DENY");
+      assert.equal(response.headers["permissions-policy"], "camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
       assert.equal(response.headers["x-content-type-options"], "nosniff");
     }
   });

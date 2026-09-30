@@ -8,6 +8,8 @@ import { InMemoryConnectorRegistry } from "./connector-registry.js";
 import type { AccountGatewayControl } from "./account/account-runtime.js";
 import { accountErrors, type AccountPrincipal } from "./account/model.js";
 import type { GatewayPeer } from "./gateway-peer.js";
+import { WebDeviceAccess } from "./account/web-device-access.js";
+import { WebSessionSecurity } from "./account/web-session-security.js";
 import type { IncomingMessage } from "node:http";
 
 test("whole-device grant revocation closes only matching live account tunnels immediately", async () => {
@@ -199,6 +201,24 @@ test("WebSocket authorization routes an active grantee to the owner's Connector 
     new URL("https://gateway.example/v2/devices/hermes-office/voice"),
   ), connector);
   assert.equal(authorizer.consumeAccountAccess(voiceRequest)?.bindingId, "binding-owner");
+  const origin = "https://web.example.test";
+  const browser = { ...grantee, installation: { ...grantee.installation, kind: "browser" as const, platform: "web" as const } };
+  const webAuthorizer = new AppWebSocketAuthorizer({
+    accountControl: { ...control, webDeviceAccess: new WebDeviceAccess({
+      security: new WebSessionSecurity(origin), authenticate: async () => browser, isSessionLive: async () => true,
+    }) } as AccountGatewayControl,
+    connectorRegistry: registry, appToken: "legacy", defaultDeviceId: "legacy", tokensEqual: (a, b) => a === b,
+  });
+  const cookie = `__Host-hermes_go_access=hga_${"a".repeat(43)}`;
+  const voiceUrl = new URL(`${origin}/v2/devices/hermes-office/voice`);
+  const browserRequest = { headers: { cookie, origin } } as unknown as IncomingMessage;
+  assert.equal(await webAuthorizer.authorize(browserRequest, voiceUrl), connector);
+  assert.equal(webAuthorizer.consumeAccountAccess(browserRequest)?.web, true);
+  assert.equal(webAuthorizer.consumeAccountAccess(browserRequest), undefined, "upgrade identity is consumed once");
+  for (const headers of [{ cookie }, { cookie, origin: "https://evil.example.test" }, { cookie, origin, authorization: "Bearer another" }]) {
+    await assert.rejects(webAuthorizer.authorize({ headers } as IncomingMessage, voiceUrl));
+  }
+  await assert.rejects(webAuthorizer.authorize({ headers: { cookie, origin } } as IncomingMessage, new URL(`${voiceUrl}?token=secret`)));
   permitted = false;
   await assert.rejects(
     authorizer.authorize(

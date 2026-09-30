@@ -174,7 +174,8 @@ The account center is not a Hermes client, but the separate Web app at `/app/` i
 `docs/ACCOUNT_PLATFORM_EXPANSION.md` §5). It is served by the Gateway from the same origin and uses
 the same browser session; no new credential type exists. Behind
 `ACCOUNT_WEB_DEVICE_ACCESS_ENABLED`, the Gateway accepts the `__Host-hermes_go_access` cookie on
-`/v2/devices/{deviceId}/api/*`, `/v2/devices/{deviceId}/ws` and `/api/mobile/events*`, for
+`/v2/devices/{deviceId}/api/*`, `/v2/devices/{deviceId}/ws`, `/v2/devices/{deviceId}/voice`
+and `/api/mobile/events*`, for
 `browser/web` installations only:
 
 - reads require `Sec-Fetch-Site: same-origin`, or the exact Origin when Fetch Metadata is absent;
@@ -371,3 +372,16 @@ I0 is accepted only when:
 - logs/diagnostics use allowlists rather than best-effort redaction alone;
 - the old App/Connector Token path cannot grant account-management privileges;
 - no Hermes modification is needed for authentication, routing, diagnostics, or rollback.
+
+#### Browser speech relay (HG-165)
+
+The voice route reuses cookie/exact-Origin authorization and selected-device ownership or operator
+access. It relays binary ASR frames to Doubao instead of forwarding RPC to the Mac. The existing
+server-only key is never included in Web capabilities, static assets or socket URLs. Capture and
+transcripts are not logged or persisted by the relay. The browser bounds capture to 60 seconds,
+startup to ten seconds, final-result wait to eight seconds, pending audio to 512 KiB and parsed
+responses to 256 KiB (including decompressed data). Gateway retains its 16-session, 90-second and
+binary-only limits. The Web shell permits only same-origin microphone use; account-center policy
+remains disabled. Speech sockets capture session/installation/binding identity and handle the
+revocation bus plus immediate and ten-second session-liveness revalidation. Access-token rotation
+does not revoke a live session. Failure or lost access preserves partial text without submitting it.

@@ -123,6 +123,7 @@ export interface AccountRuntime {
 export function createAccountRuntime(
   environment: NodeJS.ProcessEnv,
   release: ServerReleaseManifest = loadServerReleaseManifest(),
+  voiceEnabled = false,
 ): AccountRuntime {
   const enabled = booleanFlag(environment, "ACCOUNT_AUTH_ENABLED", false);
   if (!enabled) {
@@ -394,6 +395,7 @@ export function createAccountRuntime(
   retention.start();
   return {
     controller: new AccountHttpController(true, service, {
+      voiceEnabled,
       trustLoopbackProxy,
       controlEnabled,
       controlService,
