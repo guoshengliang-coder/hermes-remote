@@ -48,6 +48,8 @@ export const CATALOG = {
   "HR-BIND-011": { zh: "此 Mac 已无法由当前账号使用，请选择其他设备。", en: "That Mac is no longer available to this account. Choose another device.", retryable: false, action: "select-device" },
   "HR-RPC-003": { zh: "无法加载模型列表，请重试。", en: "Couldn't load the model list. Retry.", retryable: true, action: "retry" },
   "HR-RPC-004": { zh: "无法切换本会话的模型，请重试。", en: "Couldn't switch this conversation's model. Retry.", retryable: true, action: "retry" },
+  "HR-RPC-005": { zh: "无法设置默认模型，请重试。", en: "Couldn't set the default model. Retry.", retryable: true, action: "retry" },
+  "HR-RPC-008": { zh: "模型切换未收到确认，请查看当前模型后再操作。", en: "The model switch was not confirmed. Check the current model before trying again.", retryable: false, action: "details" },
   "HR-RPC-006": { zh: "无法调整推理强度，请重试。", en: "Couldn't change the reasoning effort. Retry.", retryable: true, action: "retry" },
   "HR-RPC-007": { zh: "Mac 上的 Hermes 无法执行命令，请查看详情。", en: "The Hermes on your Mac can't run commands. See the details.", retryable: false, action: "details" },
   "HR-RPC-001": { zh: "Relay 请求失败，请查看详情后重试。", en: "The Relay request failed. Review the details and retry.", retryable: true, action: "details" },

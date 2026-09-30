@@ -145,6 +145,43 @@ final class DesktopLocalHermesDetectorTests: XCTestCase {
         XCTAssertEqual(home.reason(), .nonStandardLocation)
     }
 
+    /// The port guard has to name the job the owner must unload. On the mini that job was
+    /// `com.hermes.dashboard`, which the original `ai.hermes.` prefix rule alone never looked at,
+    /// so the failure could not say what to do about it.
+    func testTheLaunchAgentHoldingTheLoopbackPortIsNamed() throws {
+        let home = try LocalHermesHome()
+        XCTAssertNil(home.detector().loopbackPortOccupantLabel())
+
+        // Shaped like the real com.hermes.dashboard agent: this Mac's own server, no explicit --port.
+        try home.writeLaunchAgent("com.hermes.dashboard.plist", [
+            "ProgramArguments": [
+                home.path(".hermes/hermes-agent/venv/bin/python"),
+                "-m", "hermes_cli.main", "dashboard", "--no-open",
+            ],
+        ])
+        XCTAssertEqual(home.detector().loopbackPortOccupantLabel(), "com.hermes.dashboard")
+
+        // The gateway agent runs a different service, so it never owns the loopback server port.
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", [
+            "ProgramArguments": [
+                home.path(".hermes/hermes-agent/venv/bin/python"),
+                "-m", "hermes_cli.main", "gateway", "run",
+            ],
+        ])
+        XCTAssertEqual(home.detector().loopbackPortOccupantLabel(), "com.hermes.dashboard")
+    }
+
+    func testAServerOnAnotherPortDoesNotOwnTheLoopbackPort() throws {
+        let home = try LocalHermesHome()
+        try home.writeLaunchAgent("ai.hermes.other.plist", [
+            "ProgramArguments": [
+                home.path(".hermes/hermes-agent/venv/bin/python"),
+                "-m", "hermes_cli.main", "serve", "--port", "9200",
+            ],
+        ])
+        XCTAssertNil(home.detector().loopbackPortOccupantLabel())
+    }
+
     func testAMissingVirtualenvIsIncompleteRatherThanAbsent() throws {
         let home = try LocalHermesHome()
         try FileManager.default.removeItem(atPath: home.path(".hermes/hermes-agent/venv/bin/hermes"))

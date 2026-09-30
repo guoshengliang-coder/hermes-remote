@@ -1084,7 +1084,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 serverRuntimeContract: serverRuntimeContract
             ),
             managedInstallation: scopedManagedInstallation,
-            targetReleaseVersion: selectedTargetReleaseVersion
+            targetReleaseVersion: selectedTargetReleaseVersion,
+            localHermes: await detectLocalHermesInstallation()
         )
         applyManagedBootstrapInstallation(scopedManagedInstallation)
         await refreshHermesInstallOffer(scopedManagedInstallation)
@@ -1445,7 +1446,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             let terminalState = try? managedRecoveryRuntime?.journal.load()?.state
             managedBootstrapPreparation = nil
             managedBootstrapOperation = .failed
-            managedBootstrapIssue = DesktopIssue.migration(error, terminalState: terminalState)
+            managedBootstrapIssue = migrationIssue(error, terminalState: terminalState)
         }
     }
 
@@ -1542,7 +1543,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             componentBootstrapOperation = .idle
         } catch {
             componentBootstrapOperation = .failed
-            componentBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+            componentBootstrapIssue = migrationIssue(error, terminalState: nil)
         }
     }
 
@@ -1574,7 +1575,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 failComponentBootstrap(error)
             } catch {
                 componentBootstrapOperation = .failed
-                componentBootstrapIssue = DesktopIssue.migration(
+                componentBootstrapIssue = migrationIssue(
                     DesktopComponentBootstrapExecutorError.cleanupFailed,
                     terminalState: nil
                 )
@@ -1608,7 +1609,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 componentBootstrapPreparation = nil
             }
             componentBootstrapOperation = .failed
-            componentBootstrapIssue = DesktopIssue.migration(error, terminalState: terminalState)
+            componentBootstrapIssue = migrationIssue(error, terminalState: terminalState)
         }
     }
 
@@ -1624,7 +1625,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 componentBootstrapIssue = nil
                 componentBootstrapOperation = .idle
             } catch {
-                componentBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+                componentBootstrapIssue = migrationIssue(error, terminalState: nil)
             }
             return
         }
@@ -1646,7 +1647,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 .completed(releaseVersion: $0, cleanupPending: false)
             } ?? .idle
         } catch {
-            componentBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+            componentBootstrapIssue = migrationIssue(error, terminalState: nil)
         }
     }
 
@@ -1711,6 +1712,28 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         return managedTargetReleaseVersion
     }
 
+    /// The owner's own Hermes, when Desktop is allowed to reuse it, for the planner's adoption
+    /// branch. Read-only filesystem work, so it runs off the main actor.
+    private func detectLocalHermesInstallation() async -> DesktopLocalHermesInstallation? {
+        guard DesktopLocalHermesRuntimeSetting.isEnabled(), let detector = localHermesDetector else {
+            return nil
+        }
+        return await Task.detached(priority: .userInitiated) { detector.detect().installation }.value
+    }
+
+    /// Every failed setup step becomes a `DesktopIssue`. The port conflict is the one failure that
+    /// can name its cause, and the name is what makes it actionable, so it is the one classification
+    /// that pays for a look at `~/Library/LaunchAgents`.
+    private func migrationIssue(_ error: Error, terminalState: DesktopMigrationState?) -> DesktopIssue {
+        DesktopIssue.migration(
+            error,
+            terminalState: terminalState,
+            occupantLabel: DesktopServiceRecoveryFailure.classification(of: error) == .hermesPortInUse
+                ? localHermesDetector?.loopbackPortOccupantLabel()
+                : nil
+        )
+    }
+
     private func refreshManagedBootstrapPreflight() async -> (
         legacy: LegacyConnectorSnapshot,
         plan: DesktopBootstrapPlan
@@ -1730,7 +1753,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 serverRuntimeContract: currentDesktopBootstrapRuntimeContract
             ),
             managedInstallation: managedInstallation,
-            targetReleaseVersion: managedTargetReleaseVersion
+            targetReleaseVersion: managedTargetReleaseVersion,
+            localHermes: await detectLocalHermesInstallation()
         )
         legacy = observation
         bootstrapPlan = plan
@@ -1781,7 +1805,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             hermesReachable: hermes.level == .healthy || hermes.level == .degraded,
             managedInstallAvailability: .ready,
             managedInstallation: installation,
-            targetReleaseVersion: trustedComponentPreflight?.result.manifest.releaseVersion
+            targetReleaseVersion: trustedComponentPreflight?.result.manifest.releaseVersion,
+            localHermes: await detectLocalHermesInstallation()
         )
         return (observation, plan, installation)
     }
@@ -1794,7 +1819,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
 
     private func failComponentBootstrap(_ error: Error) {
         componentBootstrapOperation = .failed
-        componentBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+        componentBootstrapIssue = migrationIssue(error, terminalState: nil)
     }
 
     private func componentPreparationMayNeedCleanup(_ error: Error) -> Bool {
@@ -1952,13 +1977,13 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         } catch {
             let terminalState = try? runtime.journal.load()?.state
             managedBootstrapOperation = .failed
-            managedBootstrapIssue = DesktopIssue.migration(error, terminalState: terminalState)
+            managedBootstrapIssue = migrationIssue(error, terminalState: terminalState)
         }
     }
 
     private func failManagedBootstrap(_ error: Error) {
         managedBootstrapOperation = .failed
-        managedBootstrapIssue = DesktopIssue.migration(error, terminalState: nil)
+        managedBootstrapIssue = migrationIssue(error, terminalState: nil)
     }
 
     func saveConnectionProfile() async {

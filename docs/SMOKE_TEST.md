@@ -1257,7 +1257,18 @@ version with each result.
     preventDefault on the button and its overlay) is pinned by `Composer.test.tsx` and the
     unselectable declarations by `voiceLongPress.test.ts`; only a real engine proves the OS gesture
     is actually suppressed.
-19. **The page cannot be pulled down (HG-173, 2026-09-30; needs a real iPhone — the point is the OS
+19. **Voice entry from the two-row composer (HG-174, 2026-09-30; needs a real engine — a DOM test
+    cannot see the browser's own focus behaviour).** In a chat whose Mac advertises `voice-input`,
+    tap the input so it grows to two rows (content on top; microphone, model chip, ＋ and
+    send/stop below). One tap on the microphone must reach the voice bar (keyboard / 按住说话 / ＋)
+    on the first try, with no visible intermediate collapsed keyboard row, in both themes and from
+    both the two-row and the single-row composer. Repeat with the keyboard up on the iPhone
+    (Safari and the Home Screen app): the tap must still land the first time. Then deny the
+    microphone permission: the two-row composer keeps its layout and its draft, with `HR-PERM-006`
+    and Retry. `Composer.test.tsx` pins the event order (press → blur with no `relatedTarget` →
+    click); only a real engine proves how the browser moves focus and what the OS permission sheet
+    does to it.
+20. **The page cannot be pulled down (HG-173, 2026-09-30; needs a real iPhone — the point is the OS
     gesture, which no DOM test can hold).** In the Home Screen app and in Safari, on the session
     list and on the archived list, put a finger near the top of the list and drag down past it.
     Expected: the top bar, the 会话/机器人 segments and the status-bar area stay exactly where they
@@ -1428,3 +1439,26 @@ production or microphone verification. Use non-sensitive test speech.
    and no prompt submits. Refreshing access credentials alone must not close a live session.
 6. Check Safari permission and AudioContext resume after switching back from the keyboard, including
    a second recording. Confirm neither raw audio nor transcript content is in Gateway diagnostics.
+
+## HG-166 · Web model alignment
+
+Use the isolated local Web stack or an explicitly authorized staging setup, never a real model
+mutation against production merely to test this change. Automated coverage: precise Gateway route
+and RPC validators, same-origin/CSRF/device checks, Connector metadata stripping, Web session result
+parser and dialog actions. Browser/device acceptance still must prove real Hermes persistence:
+
+1. Card page → default model: current default/provider; select another provider/model. Reopen and
+   verify the new default, create a new chat and verify it uses that default. Existing chats retain
+   their own model. Default picker has no reasoning effort or restore-default action.
+2. Chat → composer model chip: switch, confirm expensive selection or cancel it. Cancel leaves the
+   old model and recent list unchanged. While a reply runs, deferred notice stays visible and current
+   model/recents do not pretend application; next send checks actual session.info.
+3. Change reasoning, switch away/back and verify per-model preset; favorite a model and verify the
+   pinned section; recent chips stay newest-first, maximum five. Restore default changes only this chat.
+4. Model warning or timeout: keep panel open. Timeout displays HR-RPC-008 and no auto retry. A
+   failed default write displays HR-RPC-005 with retry; never show upstream endpoint or warning text.
+5. Switch Mac/profile while reading/saving: old replies do not change the new view. Missing feature
+   flags keep the default row read-only and preserve old session switching. Verify narrow/wide screens,
+   light/dark themes, keyboard and sheet close/back behavior. Model prefs are browser local.
+6. Before release deploy Connector, Gateway, then Web. Verify public source commits separately for
+   each required artifact; merging alone does not establish availability.

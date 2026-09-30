@@ -3,11 +3,12 @@ import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance"
 import { useDefaultModel } from "../app/defaultModel";
 import { useApp } from "../app/store";
 import { useBackClose } from "../app/useBackClose";
+import { ModelSheet } from "./ModelSheet";
 import { ErrorNotice } from "./ErrorNotice";
 import { ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
 
 type Translate = (zh: string, en: string) => string;
-type SheetKind = "theme" | "language" | "fontSize";
+type SheetKind = "theme" | "language" | "fontSize" | "model";
 
 const themeLabel = (mode: ThemeMode, t: Translate) =>
   mode === "system" ? t("跟随系统", "Follow system") : mode === "light" ? t("温润浅色", "Warm light") : t("黑曜石深色", "Obsidian dark");
@@ -87,11 +88,12 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
             </button>
             {app.features.has("default-model") ? (
               <>
-                <div class="drawer-shortcut static" aria-label={t("默认模型", "Default model")}>
+                <button type="button" class={`drawer-shortcut${app.features.has("default-model-write") ? "" : " static"}`} disabled={!app.features.has("default-model-write")} aria-label={t("默认模型", "Default model")} onClick={() => setSheet("model")}>
                   <CubeIcon size={20} />
                   <span class="drawer-shortcut-title">{t("默认模型", "Default model")}</span>
                   <span class="drawer-shortcut-value mono" title={modelValue}>{modelValue}</span>
-                </div>
+                  {app.features.has("default-model-write") ? <ChevronIcon /> : null}
+                </button>
                 {defaultModel.error ? <ErrorNotice error={defaultModel.error} language={app.language} onRetry={defaultModel.retry} variant="inline" /> : null}
               </>
             ) : null}
@@ -119,6 +121,10 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>
       </aside>
+      {sheet === "model" && app.features.has("default-model-write") ? <ModelSheet scope="default"
+        current={{ model: null, provider: null }} profile={null} explicitOverride={false}
+        actions={{ switchModel: async () => { throw new Error("session action in default mode"); }, reasoning: async () => null, setReasoning: async () => {} }}
+        onSwitched={() => defaultModel.retry()} onReasoning={() => {}} onClose={closeSheet} /> : null}
       {sheet === "theme" ? <ChoiceSheet title={t("外观与主题", "Appearance & theme")} options={themeOptions} inUse={app.themeMode}
         onSave={(mode) => { app.setThemeMode(mode); closeSheet(); }} onClose={closeSheet} t={t} /> : null}
       {sheet === "language" ? <ChoiceSheet title={t("语言", "Language")} options={languageOptions} inUse={app.languagePreference}

@@ -26,8 +26,7 @@ and `HEAD` on that exact path and only zero or one validated `profile` query val
 request body, duplicate `profile`, encoded path separators, and any other query key. It continues to
 reject every method on `/api/config` and direct
 browser JSON-RPC reads of configuration. The existing browser cookie, same-origin read rule,
-account/device authorization, and Connector routing run before forwarding. No new browser write
-authority is added.
+account/device authorization, and Connector routing run before forwarding. This original read contract remains unchanged; the HG-166 extension below adds a separate bounded write.
 
 The Connector obtains the profile-scoped default from local Hermes
 `GET /api/model/info?profile=…` using its existing Mac-only Hermes credential. That upstream
@@ -63,7 +62,7 @@ than showing stale data. Diagnostics retain only the error category and selected
    tunneled success body has exactly two string fields and no canary. Cover missing, oversized
    and malformed upstream responses, profile isolation and upstream errors.
 3. Web: display and restore only for the current device/profile; verify stale-response cancellation,
-   the existing session-only slash command, and graceful failure. No global model write is added.
+   the existing session-only slash command, and graceful failure. The read path does not write a model.
 4. Build and test the Web, Gateway and Connector, then run the repository Cloud baseline. Smoke
    test the browser route on an isolated stack before any production rollout.
 
@@ -71,3 +70,24 @@ This design changes a device REST contract. `docs/ACCOUNT_MODE_SECURITY.md`,
 `docs/ACCOUNT_MODE_API.md`, `docs/HERMES_CONTRACT.md`, and the cross-client assessment required by
 `docs/INTEGRATION.md` must be updated with implementation. Merging the PR does not deploy Gateway
 or Connector; production rollout has its own authorization and gate.
+
+## HG-166 bounded main-model write (approved 2026-09-30)
+
+The owner approved complete Web/Android model alignment in the dispatch session. The original
+read remains two-field/no-store. A separate exact `POST /api/hermes-remote/default-model/set` accepts
+only model/provider and optional explicit `confirm_expensive_model:true`, with one validated query
+profile and ≤4 KB JSON. Gateway checks same origin, CSRF and device authorization before forwarding;
+Connector independently checks the path/body, adds `scope:main` and uses its Mac-only credential for
+`POST /api/model/set`. It bounds the response to 16 KB and returns only `{model,provider}` on an
+`ok:true,scope:main` response, or `{confirm_required:true}` on a main-scope confirmation response.
+Upstream endpoints, cron impact, warning prose and credentials never enter the browser response.
+The UI supplies its own bilingual confirmation text and never assumes HTTP 200 means applied.
+
+This extends the previous read-only product decision only for main-model assignment. `/api/config`,
+raw `/api/model/set`, global config RPC, credentials, endpoints and auxiliary assignments stay blocked.
+Changing the default affects new sessions; existing conversations change only through their own
+session selector. Browser favorites and reasoning presets are local and do not sync to Android.
+
+Tests: `connector/src/tunnel-routes.test.ts`, Gateway browser route/RPC tests and disposable-DB
+integration, Web model parser/session/selection/API tests. Required deployment order is Connector,
+Gateway, Web; production remains a separate owner-authorized gate.

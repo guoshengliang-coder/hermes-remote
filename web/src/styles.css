@@ -4605,3 +4605,16 @@ button.chat-workspace:disabled {
   .voice-targets { padding: 0.5rem 0; }
   .voice-listening { display: none; }
 }
+
+/* HG-166: neutral confirmation inside the model sheet; identifiers remain untrusted text. */
+.model-confirmation {
+  border: 1px solid var(--outline-variant);
+  border-radius: 1rem;
+  padding: 0.875rem;
+  margin-block: 0.75rem;
+  background: var(--surface-variant);
+  color: var(--on-surface);
+  overflow-wrap: anywhere;
+}
+.model-confirmation p { margin: 0 0 0.75rem; }
+.model-confirmation .text-button { margin-inline-end: 1rem; }

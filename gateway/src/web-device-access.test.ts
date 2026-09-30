@@ -245,3 +245,13 @@ test("a session PATCH body may only rename, archive or unarchive", () => {
   assert.equal(ok("title"), false);
   assert.equal(browserRouteFor("DELETE", new URL("http://d/api/sessions/abc?profile=work"))!.audit, "session.delete");
 });
+
+test("HG-166 default write cannot modify endpoints, credentials, other slots or profiles", () => {
+  const route = browserRouteFor("POST", new URL("http://d/api/hermes-remote/default-model/set?profile=work"))!;
+  assert.ok(route);
+  const selection = { provider: "openai", model: "Model 6 Pro" };
+  assert.equal(route.body!(selection), true);
+  assert.equal(route.body!({ ...selection, confirm_expensive_model: true }), true);
+  for (const extra of [{ scope: "main" }, { scope: "auxiliary" }, { profile: "other" }, { api_key: "CANARY" }, { base_url: "http://private" }, { reasoning_effort: "high" }, { confirm_expensive_model: 1 }, { model: "m --global" }, { provider: "p x" }]) assert.equal(route.body!({ ...selection, ...extra }), false);
+  for (const path of ["/api/model/set", "/api/hermes-remote/default-model/set?profile=a&profile=b", "/api/hermes-remote/default-model/set?extra=1", "/api/hermes-remote/default-model/set?profile=a%2Fb", "/api/hermes-remote/default-model/set/extra"]) assert.equal(browserRouteAllowed("POST", path), false, path);
+});

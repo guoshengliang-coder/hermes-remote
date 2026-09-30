@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ModelOptionsResponse } from "../api/gateway";
 import { useDefaultModel } from "../app/defaultModel";
 import { toAppError } from "../app/failures";
@@ -7,6 +7,7 @@ import { useApp } from "../app/store";
 import { appError, type AppError } from "../errors";
 import { HermesSocketError } from "../hermes/client";
 import { REASONING_VALUES, type ReasoningValue } from "../hermes/params";
+import { modelIdentifiers, ModelSwitchUnconfirmed, type ModelSwitchResult } from "../hermes/modelSelection";
 import { sessionModelCommand } from "../hermes/slash";
 import { ErrorNotice } from "./ErrorNotice";
 import { ChevronIcon, RefreshIcon, StarIcon } from "./icons";
@@ -14,8 +15,8 @@ import { Sheet } from "./Sheet";
 
 // Model selector (DESIGN §5.17, Android ModelSelector.kt / ModelsViewModel): the current model, a
 // reasoning-effort control, quick switch (recents), favourites and every provider's models. A
-// switch is `/model <m> --provider <p> --session` — this conversation only — and reasoning is the
-// session's `reasoning` key; the Gateway admits exactly those two shapes (Web batch 4).
+// New Gateways admit config.set model in one session-only shape; older ones retain slash.exec.
+// Default editing goes through the Connector's metadata-stripping main-model route.
 
 export const REASONING_LABEL: Record<ReasoningValue, [string, string]> = {
   none: ["关", "Off"],
@@ -39,37 +40,47 @@ export function modelChipLabel(model: string | null, reasoning: string | null, l
 }
 
 export interface ModelActions {
-  switchModel: (provider: string, model: string) => Promise<void>;
+  switchModel: (provider: string, model: string, confirmed?: boolean) => Promise<ModelSwitchResult>;
   reasoning: () => Promise<string | null>;
   setReasoning: (value: ReasoningValue) => Promise<void>;
 }
 
 function switchError(error: unknown): AppError {
+  if (error instanceof ModelSwitchUnconfirmed || (error instanceof HermesSocketError && ["timeout", "closed"].includes(error.kind))) return appError("HR-RPC-008", "Model switch outcome is unconfirmed");
   // A slash worker that never started cannot run ANY command: not retryable (Android HG-28).
   if (error instanceof HermesSocketError && error.kind === "rpc" && error.code === 5030) return appError("HR-RPC-007", error.message);
   return appError("HR-RPC-004", error instanceof Error ? error.message : String(error));
 }
 
-export function ModelSheet({
-  current,
-  profile,
-  explicitOverride,
-  actions,
-  onSwitched,
-  onReasoning,
-  onClose,
-}: {
+interface ModelSheetProps {
   current: { model: string | null; provider: string | null };
   profile: string | null;
   explicitOverride: boolean;
+  scope?: "session" | "default";
   actions: ModelActions;
-  onSwitched: (provider: string, model: string, restored: boolean) => void;
+  onSwitched: (provider: string, model: string, restored: boolean, warning?: boolean) => void;
   onReasoning: (value: string) => void;
   onClose: () => void;
-}) {
+}
+
+// Changing Mac/profile creates fresh state, and pending old requests cannot update the new view.
+export function ModelSheet(props: ModelSheetProps) {
+  const { device } = useApp();
+  return <ModelSheetContent key={JSON.stringify([device?.deviceId, props.profile, props.scope])} {...props} />;
+}
+
+function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride, scope = "session", actions, onSwitched, onReasoning, onClose }: ModelSheetProps) {
   const { t, language, client, device, features } = useApp();
   const deviceId = device?.deviceId ?? "";
   const defaultModel = useDefaultModel(client, deviceId, profile, features.has("default-model"));
+  const editingDefault = scope === "default";
+  const current = editingDefault ? { model: defaultModel.model?.model ?? null, provider: defaultModel.model?.provider ?? null } : sessionCurrent;
+  const live = useRef(true);
+  const locked = useRef(false);
+  const retry = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => { live.current = false; }, []);
+  const [confirmation, setConfirmation] = useState<{ provider: string; model: string; restored: boolean } | null>(null);
+  const [notice, setNotice] = useState<"deferred" | "warning" | null>(null);
   const [providers, setProviders] = useState<NonNullable<ModelOptionsResponse["providers"]> | null>(null);
   const [listError, setListError] = useState<AppError | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -80,29 +91,30 @@ export function ModelSheet({
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
-    let live = true;
+    let active = true;
     setListError(null);
     client.modelOptions(deviceId, profile).then(
       (body) => {
-        if (!live) return;
+        if (!active) return;
         const list = Array.isArray(body?.providers) ? body.providers : [];
         setProviders(list);
         const expanded = list.find((p) => p.slug === current.provider || p.models?.includes(current.model ?? ""))?.slug
           ?? list.find((p) => p.is_current)?.slug;
         if (expanded) setOpen(new Set([expanded]));
       },
-      (e: unknown) => live && setListError({ ...appError("HR-RPC-003", toAppError(e, "device").details ?? null) }),
+      (e: unknown) => active && setListError({ ...appError("HR-RPC-003", toAppError(e, "device").details ?? null) }),
     );
     return () => {
-      live = false;
+      active = false;
     };
-  }, [attempt]);
+  }, [attempt, current.provider]);
 
   useEffect(() => {
-    let live = true;
-    actions.reasoning().then((value) => live && setReasoningState(value), () => undefined);
+    let active = true;
+    if (editingDefault) return;
+    actions.reasoning().then((value) => active && setReasoningState(value), () => undefined);
     return () => {
-      live = false;
+      active = false;
     };
   }, []);
 
@@ -110,52 +122,88 @@ export function ModelSheet({
   const all = useMemo(() => (providers ?? []).flatMap((p) => (p.models ?? []).map((m) => ({ provider: p.slug, providerName: p.name || p.slug, model: m, key: modelKey(p.slug, m) }))), [providers]);
   const byKey = useMemo(() => new Map(all.map((o) => [o.key, o])), [all]);
 
-  async function choose(provider: string, model: string, restored = false) {
-    if (pending) return;
+  function admissible(provider: string, model: string) {
+    return editingDefault || features.has("session-model-config") ? modelIdentifiers(provider, model) : sessionModelCommand(provider, model) !== null;
+  }
+
+  async function choose(provider: string, model: string, restored = false, confirmed = false) {
+    if (locked.current || (confirmation && !confirmed)) return;
+    locked.current = true;
+    retry.current = () => { void choose(provider, model, restored, confirmed); };
     const key = modelKey(provider, model);
     setPending(key);
+    setConfirmation(null);
     setError(null);
+    setNotice(null);
     try {
-      await actions.switchModel(provider, model);
-      if (!restored) recordModelUse(deviceId, key);
-      // The effort last used with this model comes back with it (Android applyReasoningPresetFor).
-      const preset = restored ? null : modelPrefs(deviceId).presets[key];
-      if (isReasoning(preset)) {
-        await actions.setReasoning(preset).then(() => onReasoning(preset), () => undefined);
+      let result: ModelSwitchResult;
+      let appliedProvider = provider;
+      if (editingDefault) {
+        const response = await client.setDefaultModel(deviceId, provider, model, profile, confirmed);
+        if ("confirm_required" in response && response.confirm_required === true) result = { kind: "confirmation" };
+        else if ("model" in response && modelIdentifiers(response.provider, response.model)) {
+          appliedProvider = response.provider;
+          result = { kind: "applied", model: response.model, warning: false };
+        } else throw new Error("invalid default model result");
+      } else result = await actions.switchModel(provider, model, confirmed);
+      if (!live.current) return;
+      if (result.kind === "confirmation") {
+        setConfirmation({ provider, model, restored });
+        return;
       }
-      onSwitched(provider, model, restored);
-      onClose();
+      if (result.kind === "deferred") { setNotice("deferred"); return; }
+
+      let presetFailed = false;
+      if (!editingDefault) {
+        // Storage is best effort and cannot turn an applied model into a failed switch.
+        try { recordModelUse(deviceId, modelKey(provider, result.model)); setPrefs(modelPrefs(deviceId)); } catch { /* local preference only */ }
+        const preset = modelPrefs(deviceId).presets[modelKey(provider, result.model)];
+        if (isReasoning(preset)) {
+          try { await actions.setReasoning(preset); if (live.current) { onReasoning(preset); setReasoningState(preset); } }
+          catch { presetFailed = true; if (live.current) setError(appError("HR-RPC-006")); }
+        }
+      }
+      if (!live.current) return;
+      onSwitched(appliedProvider, result.model, restored, result.warning || presetFailed);
+      if (result.warning) setNotice("warning");
+      else if (!presetFailed) onClose();
     } catch (e) {
-      setError(switchError(e));
+      if (live.current) setError(editingDefault ? appError("HR-RPC-005") : switchError(e));
     } finally {
-      setPending(null);
+      locked.current = false;
+      if (live.current) setPending(null);
     }
   }
 
   async function pickReasoning(value: ReasoningValue) {
+    if (locked.current || confirmation) return;
+    locked.current = true;
+    setPending("reasoning");
+    retry.current = () => { void pickReasoning(value); };
     const before = reasoning;
-    setReasoningState(value); // optimistic, rolled back on failure (Android HR-RPC-006)
+    setReasoningState(value);
     setError(null);
     try {
       await actions.setReasoning(value);
+      if (!live.current) return;
       onReasoning(value);
-      if (currentKey) rememberReasoning(deviceId, currentKey, value);
+      try { if (currentKey) rememberReasoning(deviceId, currentKey, value); setPrefs(modelPrefs(deviceId)); } catch { /* local preference only */ }
     } catch (e) {
-      setReasoningState(before);
-      setError(appError("HR-RPC-006", e instanceof Error ? e.message : String(e)));
-    }
+      if (live.current) { setReasoningState(before); setError(appError("HR-RPC-006")); }
+    } finally { locked.current = false; if (live.current) setPending(null); }
   }
 
   const row = (o: { provider: string; model: string; key: string }) => {
     const selected = o.key === currentKey || (!currentKey && o.model === current.model);
-    const admissible = sessionModelCommand(o.provider, o.model) !== null;
+    const allowed = admissible(o.provider, o.model);
     const fav = prefs.favorites.includes(o.key);
     return (
       <div class={`model-row${selected ? " selected" : ""}`} key={o.key}>
-        <button type="button" class="model-pick" disabled={!admissible || pending !== null} onClick={() => void choose(o.provider, o.model)}>
+        <button type="button" class="model-pick" disabled={!allowed || pending !== null || confirmation !== null} onClick={() => void choose(o.provider, o.model)}>
           <span class="model-row-copy">
             <span class="model-name mono">{o.model}</span>
             <span class="model-provider">{byKey.get(o.key)?.providerName ?? o.provider}</span>
+            {!editingDefault && isReasoning(prefs.presets[o.key]) ? <span class="model-state">{REASONING_LABEL[prefs.presets[o.key] as ReasoningValue][language === "en" ? 1 : 0]}</span> : null}
           </span>
           <span class="model-state">
             {pending === o.key ? t("切换中…", "Switching…") : null}
@@ -178,43 +226,52 @@ export function ModelSheet({
   const favorites = prefs.favorites.map((k) => byKey.get(k)).filter((o): o is NonNullable<typeof o> => Boolean(o));
   const configured = defaultModel.model;
   const overridden = Boolean(configured && (explicitOverride || (current.model !== null && current.model !== configured.model) || (current.provider !== null && current.provider !== configured.provider)));
-  const canRestore = Boolean(overridden && configured && sessionModelCommand(configured.provider, configured.model));
+  const canRestore = Boolean(!editingDefault && overridden && configured && admissible(configured.provider, configured.model));
 
   return (
-    <Sheet title={t("选择模型", "Select model")} closeLabel={t("关闭", "Close")} onClose={onClose} wide
-      headerAction={<button type="button" class="icon-button" aria-label={t("刷新列表", "Refresh list")} onClick={() => setAttempt((n) => n + 1)}><RefreshIcon size={18} /></button>}>
+    <Sheet title={editingDefault ? t("默认模型", "Default model") : t("选择模型", "Select model")} closeLabel={t("关闭", "Close")} onClose={onClose} wide
+      headerAction={<button type="button" class="icon-button" aria-label={t("刷新列表", "Refresh list")} disabled={pending !== null || confirmation !== null} onClick={() => { setAttempt((n) => n + 1); defaultModel.retry(); }}><RefreshIcon size={18} /></button>}>
       <div class="model-status">
         <span class="model-status-content">
           <span class="model-status-title">
             <span class="model-status-name mono">{current.model || t("默认模型", "Default model")}</span>
-            <span class="model-status-label">{t("当前使用", "In use")}</span>
+            <span class="model-status-label">{editingDefault ? t("当前默认", "Current default") : t("当前使用", "In use")}</span>
           </span>
-          <span class="model-status-note">{configured ? (overridden
+          <span class="model-status-note">{editingDefault ? (current.provider || "") : configured ? (overridden
             ? t(`此对话覆盖 · 默认 ${configured.model}`, `Conversation override · default ${configured.model}`)
             : t(`跟随默认 · ${configured.model}`, `Following default · ${configured.model}`))
             : (current.provider ? `${current.provider} · ` : "") + t("当前会话", "Current conversation")}</span>
-          {canRestore && configured ? <button type="button" class="model-restore text-button" disabled={pending !== null}
+          {canRestore && configured ? <button type="button" class="model-restore text-button" disabled={pending !== null || confirmation !== null}
             onClick={() => void choose(configured.provider, configured.model, true)}>{t("恢复默认模型", "Restore default model")}</button> : null}
-          <span class="reasoning-row">
+          {!editingDefault ? <span class="reasoning-row">
             <label class="reasoning-label" for="reasoning-select">{t("推理强度", "Reasoning effort")}</label>
-            <select id="reasoning-select" class="reasoning-select" value={isReasoning(reasoning) ? reasoning : ""}
+            <select id="reasoning-select" class="reasoning-select" disabled={pending !== null || confirmation !== null} value={isReasoning(reasoning) ? reasoning : ""}
               onChange={(e) => { const value = (e.target as HTMLSelectElement).value; if (isReasoning(value)) void pickReasoning(value); }}>
               {!isReasoning(reasoning) ? <option value="">{t("默认", "Default")}</option> : null}
               {REASONING_VALUES.map((v) => <option value={v} key={v}>{REASONING_LABEL[v][language === "en" ? 1 : 0]}</option>)}
             </select>
-          </span>
+          </span> : null}
         </span>
       </div>
-      {error ? <ErrorNotice error={error} language={language} variant="inline" /> : null}
+      {confirmation ? <div class="model-confirmation" role="alertdialog" aria-label={t("确认模型选择", "Confirm model selection")}>
+        <p>{t("所选模型需要确认，可能涉及较高费用或能力限制。是否继续？", "This model needs confirmation and may involve higher costs or capability limits. Continue?")}</p>
+        <p class="mono">{confirmation.model} · {confirmation.provider}</p>
+        <button type="button" class="text-button" onClick={() => setConfirmation(null)}>{t("取消", "Cancel")}</button>
+        <button type="button" class="text-button" onClick={() => void choose(confirmation.provider, confirmation.model, confirmation.restored, true)}>{t("确认切换", "Confirm switch")}</button>
+      </div> : null}
+      {notice ? <p class="picker-note" role="status">{notice === "deferred"
+        ? t("当前回复正在运行，将在下一次发送消息时尝试切换模型。", "A reply is running. The model switch will be attempted on the next message.")
+        : t("模型已切换，但可用性仍需检查。请核对模型后再继续。", "The model changed with a warning. Check its availability before continuing.")}</p> : null}
+      {error ? <ErrorNotice error={error} language={language} onRetry={error.retryable ? () => retry.current?.() : undefined} variant="inline" /> : null}
       {defaultModel.error ? <ErrorNotice error={defaultModel.error} language={language} onRetry={defaultModel.retry} variant="inline" /> : null}
       {listError ? <ErrorNotice error={listError} language={language} onRetry={() => setAttempt(attempt + 1)} /> : null}
       {!providers && !listError ? <div class="center-spinner"><span class="spinner" /></div> : null}
       {providers && all.length === 0 ? <p class="picker-note">{t("暂无可选模型", "No models available")}</p> : null}
-      {recents.length ? (
+      {!editingDefault && recents.length ? (
         <section class="model-recents">
           <div class="search-section-head">{t("快捷切换", "Quick switch")}</div>
           <div class="model-recents-scroll">{recents.slice(0, 5).map((o) => (
-            <button type="button" class="model-recent-chip mono" key={o.key} disabled={pending !== null || sessionModelCommand(o.provider, o.model) === null}
+            <button type="button" class="model-recent-chip mono" key={o.key} disabled={pending !== null || confirmation !== null || !admissible(o.provider, o.model)}
               onClick={() => void choose(o.provider, o.model)}>{o.model}</button>
           ))}</div>
         </section>
@@ -225,7 +282,7 @@ export function ModelSheet({
           {favorites.map((o) => row(o))}
         </section>
       ) : null}
-      {providers?.map((p) => {
+      {providers?.filter((p) => p.models?.length).map((p) => {
         const expanded = open.has(p.slug);
         return (
           <section class="model-provider-group" key={p.slug}>

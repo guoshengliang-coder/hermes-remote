@@ -139,3 +139,41 @@ it("an unanswered permission prompt times out and a late grant cannot enable rec
     expect(h.host.querySelector<HTMLButtonElement>('.composer-voice')!.disabled).toBe(false);
   } finally { vi.useRealTimers(); }
 });
+
+it("one tap on the expanded composer's voice button switches to voice instead of collapsing (HG-174)", async () => {
+  const h = mount();
+  const area = type(h.host, "草稿");
+  const mic = h.host.querySelector<HTMLButtonElement>(".composer-actions .composer-voice")!;
+  // Safari, Firefox and iOS never move focus onto a pressed button, so the textarea blurs with no
+  // relatedTarget before the click arrives — the same shape as a tap on the transcript. The press
+  // is still ours, so the layout and this very button must survive it; otherwise the click lands on
+  // an unmounted node and all the tap does is collapse the composer.
+  act(() => { mic.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+  act(() => area.blur());
+  expect(h.host.querySelector(".composer.expanded")).not.toBeNull();
+  expect(h.host.querySelector(".composer-actions .composer-voice")).toBe(mic);
+  act(() => mic.click());
+  await settle();
+  // Straight to the voice bar: no collapsed keyboard row in between.
+  expect(h.host.querySelector(".voice-hold")).not.toBeNull();
+  expect(h.host.querySelector("textarea")).toBeNull();
+});
+
+it("a denied microphone leaves the expanded composer and its draft where the user had them (HG-174)", async () => {
+  mocks.microphone.mockRejectedValueOnce(new Error("permission denied"));
+  const h = mount();
+  const area = type(h.host, "保留草稿");
+  act(() => h.host.querySelector<HTMLButtonElement>(".composer-actions .composer-voice")!.click());
+  await settle();
+  expect(h.host.textContent).toContain("HR-PERM-006");
+  expect(h.host.querySelector(".composer.expanded")).not.toBeNull();
+  expect(area.value).toBe("保留草稿");
+});
+
+it("a blur no press of ours caused still collapses the composer (HG-174)", () => {
+  const h = mount();
+  const area = type(h.host, "草稿");
+  expect(h.host.querySelector(".composer.expanded")).not.toBeNull();
+  act(() => area.blur());
+  expect(h.host.querySelector(".composer.expanded")).toBeNull();
+});

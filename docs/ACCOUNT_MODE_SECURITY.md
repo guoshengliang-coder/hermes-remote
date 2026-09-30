@@ -203,6 +203,12 @@ and `/api/mobile/events*`, for
   credential, bounds and validates the response, and returns only `model` and `provider`.
   Configuration and other upstream fields never cross the tunnel. The response is `private,
   no-store`; a failure hides the label and restore action rather than using stale data;
+- HG-166 adds only `POST /api/hermes-remote/default-model/set`: exact origin/CSRF/browser session and
+  device access precede a bounded JSON check. Only `model`, `provider`, and an explicitly true
+  `confirm_expensive_model` are admitted; identity is only a single validated query `profile`.
+  Scope, endpoint, API key, auxiliary slots and arbitrary configuration remain forbidden. Connector
+  revalidates and injects `scope:main`, strips upstream endpoint/cron/confirmation text, and returns
+  only model/provider or a confirmation flag; data is never cached;
 - the WebSocket is screened the same way: a browser tunnel forwards only the chat client's JSON-RPC
   methods (`client.capabilities`, `session.create/resume/interrupt`, `prompt.submit`,
   `image.attach`, `file.attach`, `request.answer`, `clarify.lock`, and the older
@@ -210,9 +216,13 @@ and `/api/mobile/events*`, for
   one parameter shape — `session.workspace.move` (`session_key`, an absolute `cwd` ≤ 1024 with no
   control characters, `profile`), `slash.exec` **only** as
   `/model <id> --provider <id> --session` (ids without whitespace, quotes or separators, so nothing
-  can be appended and the switch is never global), `config.get`/`config.set` **only** for the
+  can be appended and the switch is never global), `config.get`/`config.set` for the
   session's `reasoning` key with one of `none/minimal/low/medium/high/xhigh/max/ultra` and no
-  `scope`, `process.list` and `session.access`. An extra key, a wrong type or any other method is
+  `scope`, `process.list` and `session.access`. HG-166 also admits `config.set key:model`, with
+  a mandatory session id and exactly `<model> --provider <provider> --session`; bounded identifiers
+  may contain ordinary model-name spaces but cannot contain switch tokens, quotes or control
+  characters. Optional `confirm_expensive_model` must be true; other keys and global scope remain
+  forbidden. Web presents a localized confirmation before resending that flag. An extra key, a wrong type or any other method is
   answered in-band with a JSON-RPC error carrying `HR-WEB-001` and never reaches the Mac;
   binary or non-JSON frames close the socket. Within those methods the browser has the phone's
   chat authority, including attaching any file path the Mac's Hermes can read;

@@ -1573,6 +1573,45 @@ final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
         XCTAssertFalse(fixture.runner.loadedLabels().contains(DesktopManagedInstallLayout.hermesLabel))
     }
 
+    /// A fresh install has the same hazard as the reload above and one more `state.db` open per
+    /// attempt: on the new Mac mini 9119 belonged to the owner's own `com.hermes.dashboard`, so the
+    /// run would have spent every health poll failing to start and then rolled back. It must refuse
+    /// before it writes the first file, and the error must be the registered `HR-MIGRATE-014`.
+    func testAFreshInstallOnAnOccupiedPortRefusesBeforeWritingAnything() async throws {
+        let fixture = try Fixture(legacyRunning: false, provideLocalHermes: true)
+        defer { fixture.cleanup() }
+        fixture.shutdown.timeOutWaits(1)
+
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrate(
+            manifest: fixture.manifest,
+            sources: fixture.sources,
+            hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: fixture.launchAgentConfiguration,
+            legacy: fixture.legacy,
+            runID: fixture.runID,
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                releaseVersion: fixture.manifest.releaseVersion
+            )
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .hermesPortInUse)
+            let issue = DesktopIssue.migration(error, terminalState: nil)
+            XCTAssertEqual(issue.code.rawValue, "HR-MIGRATE-014")
+            XCTAssertTrue(issue.retryable)
+            XCTAssertTrue(issue.sanitizedDiagnostic.contains("occupant=unknown"))
+        }
+
+        XCTAssertEqual(fixture.shutdown.requestedAttempts(), [1], "one probe, not the full stop wait")
+        XCTAssertNil(try fixture.journal.load(), "the run never begins")
+        XCTAssertEqual(fixture.serviceMutations(), [], "nothing is bootstrapped onto an occupied port")
+        XCTAssertEqual(fixture.runner.loadedLabels(), [])
+        XCTAssertEqual(fixture.readiness.waitCount(), 0, "no health poll is attempted")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.hermesLaunchAgent.path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: fixture.layout.logsRoot.path),
+            "the refusal must not bring the managed tree into existence"
+        )
+    }
+
     func testLocalModeAlsoRejectsAnOrdinaryCrossLayoutUpgrade() async throws {
         let fixture = try Fixture(
             legacyRunning: false,

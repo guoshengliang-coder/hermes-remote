@@ -100,3 +100,33 @@ test("default-model read fails closed on missing, malformed, oversized or failed
     assert.deepEqual(response.body, { error: { code: "HR-WEB-009", message: "Default model unavailable", retryable: true } });
   }
 });
+
+test("HG-166 saves the main model and strips endpoint, cron and confirmation metadata", async () => {
+  const { DEFAULT_MODEL_SET_PATH, setDefaultModelResponse } = await import("./tunnel-routes.js");
+  const calls: unknown[] = [];
+  const result = await setDefaultModelResponse("POST", `${DEFAULT_MODEL_SET_PATH}?profile=work`, Buffer.from('{"model":"Model 6","provider":"openai"}'), async (path, body) => {
+    calls.push([path, JSON.parse(body)]);
+    return Response.json({ ok: true, scope: "main", model: "Model 6", provider: "openai", api_key: "CANARY", base_url: "http://private", cron_model_impact: ["PRIVATE"] });
+  });
+  assert.deepEqual(calls, [["/api/model/set?profile=work", { scope: "main", model: "Model 6", provider: "openai" }]]);
+  assert.deepEqual(result.body, { model: "Model 6", provider: "openai" });
+  assert.equal(result.headers["cache-control"], "private, no-store");
+  const confirmation = await setDefaultModelResponse("POST", DEFAULT_MODEL_SET_PATH, Buffer.from('{"model":"m","provider":"p"}'), async () => Response.json({ scope: "main", confirm_required: true, confirm_message: "CANARY" }));
+  assert.deepEqual(confirmation.body, { confirm_required: true });
+});
+
+test("HG-166 connector rejects extra authority and malformed source without leaking details", async () => {
+  const { DEFAULT_MODEL_SET_PATH: path, setDefaultModelResponse: save } = await import("./tunnel-routes.js");
+  let calls = 0;
+  const source = async () => { calls++; return Response.json({}); };
+  for (const body of [{ model: "m", provider: "p", api_key: "CANARY" }, { scope: "main", model: "m", provider: "p" }, { model: "m --global", provider: "p" }, { model: "m", provider: "p", confirm_expensive_model: false }, null]) {
+    assert.equal((await save("POST", path, Buffer.from(JSON.stringify(body)), source)).status, 400);
+  }
+  assert.equal((await save("POST", `${path}?extra=1`, Buffer.from('{"model":"m","provider":"p"}'), source)).status, 400);
+  assert.equal(calls, 0);
+  for (const upstream of [{ scope: "main", ok: false }, { scope: "auxiliary", ok: true, model: "m", provider: "p" }, { scope: "main", ok: true, model: "m", provider: "" }]) {
+    const result = await save("POST", path, Buffer.from('{"model":"m","provider":"p"}'), async () => Response.json(upstream));
+    assert.equal(result.status, 502);
+    assert.equal((result.body.error as { code: string }).code, "HR-RPC-005");
+  }
+});

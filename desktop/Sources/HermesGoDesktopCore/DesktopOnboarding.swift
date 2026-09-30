@@ -125,7 +125,7 @@ public enum DesktopEntryRouter {
             // Half-installed or inconsistent: the planner already forbids a second install, so
             // onboarding must not offer one. Main shows the problem instead.
             return .main
-        case .readyForManagedInstall, .waitingForSignedRelease:
+        case .readyForManagedInstall, .readyToAdoptLocalHermes, .waitingForSignedRelease:
             switch inputs.record.newMacChoice {
             case .manageOnly:
                 return .main

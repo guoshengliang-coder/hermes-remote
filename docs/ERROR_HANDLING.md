@@ -228,7 +228,7 @@ logs only a route category, phase, elapsed time, and allowlisted transport error
 | `HR-RPC-001` | Gateway RPC returned an unmapped remote error | Relay 请求失败，请查看详情后重试。 | The Relay request failed. Review the details and retry. | Depends |
 | `HR-RPC-002` | Gateway RPC response timed out | Relay 响应超时，请稍后重试。 | The Relay response timed out. Try again shortly. | Yes |
 | `HR-RPC-003` | Model catalog could not be loaded | 无法加载模型列表，请重试。 | Couldn't load the model list. Retry. | Yes |
-| `HR-RPC-004` | The conversation's session model switch was refused (for example bad credentials or unknown model). Android uses `config.set`; Web still uses `slash.exec` | 无法切换本会话的模型，请重试。 | Couldn't switch this conversation's model. Retry. | Yes |
+| `HR-RPC-004` | The conversation's session model switch was refused (for example bad credentials or unknown model). Android and capability-gated Web use `config.set`; older Web Gateways retain `slash.exec` | 无法切换本会话的模型，请重试。 | Couldn't switch this conversation's model. Retry. | Yes |
 | `HR-RPC-005` | Setting the default model failed | 无法设置默认模型，请重试。 | Couldn't set the default model. Retry. | Yes |
 | `HR-RPC-006` | Changing the conversation's reasoning effort failed | 无法调整推理强度，请重试。 | Couldn't change the reasoning effort. Retry. | Yes |
 | `HR-RPC-007` | The Mac's Hermes could not run a slash command at all — its slash worker died on spawn (`slash.exec` 5030). Every slash command is affected, the model switch among them, so this is a broken Hermes install rather than a refused switch, and retrying cannot help | Mac 上的 Hermes 无法执行命令，请查看详情。 | The Hermes on your Mac can't run commands. See the details. | No |

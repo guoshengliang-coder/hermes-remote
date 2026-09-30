@@ -365,3 +365,12 @@ describe("resume() on a cold start", () => {
     expect(signedOut).toHaveBeenCalledTimes(1);
   });
 });
+
+it("HG-166 default writes use the selected device/profile, cookies and CSRF with explicit confirmation only", async () => {
+  const { client, calls } = fake(() => json(200, { model: "m", provider: "p" }));
+  await client.setDefaultModel("Mac a", "p", "m", "工作");
+  expect(calls[0]).toMatchObject({ url: "/v2/devices/Mac%20a/api/hermes-remote/default-model/set?profile=%E5%B7%A5%E4%BD%9C", method: "POST", credentials: "same-origin", body: { provider: "p", model: "m" } });
+  expect(calls[0]!.headers["X-Hermes-CSRF"]).toBe(CSRF);
+  await client.setDefaultModel("Mac a", "p", "m", null, true);
+  expect(calls[1]!.body).toEqual({ provider: "p", model: "m", confirm_expensive_model: true });
+});

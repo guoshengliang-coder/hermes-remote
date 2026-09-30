@@ -242,6 +242,19 @@ public struct DesktopLocalHermesDetector: Sendable {
         return now.timeIntervalSince(modified) < 20 * 60
     }
 
+    /// The launchd label of the job serving this Mac's Hermes loopback port, when one can be named.
+    ///
+    /// Desktop never stops a job it did not create, so when 9119 is already held the operator has to
+    /// release it by hand. "Port 9119 is in use" is not actionable; a label they can boot out is.
+    ///
+    /// Returns nil when no owner job looks like a loopback server, so a listener Desktop cannot
+    /// attribute stays unattributed rather than being blamed on the nearest Hermes-shaped plist.
+    public func loopbackPortOccupantLabel() -> String? {
+        ownerLaunchAgents()
+            .first { servesLoopbackPort($0) }
+            .map { String($0.name.dropLast(".plist".count)) }
+    }
+
     // MARK: - Checks
 
     private func customHermesHome() -> String? {
@@ -376,28 +389,60 @@ public struct DesktopLocalHermesDetector: Sendable {
     private struct OwnerLaunchAgent {
         let name: String
         let program: String?
+        let arguments: [String]
         let environment: [String: String]
     }
 
-    /// Upstream's own services (`ai.hermes.gateway`, `ai.hermes.dashboard`, per-profile variants).
-    /// They are the most reliable record of how the owner actually runs Hermes, because upstream
-    /// wrote them. Read only; a file that cannot be parsed is skipped, not trusted.
+    /// LaunchAgents that run *this Mac's* Hermes — the most reliable record of how the owner
+    /// actually starts it, because upstream wrote them.
+    ///
+    /// Upstream's own services are labelled `ai.hermes.*` (`gateway`, `dashboard`, per-profile
+    /// variants), and for a long time that prefix was also the whole match rule. It is not a
+    /// contract: on a machine whose owner configured the dashboard by hand the job is called
+    /// `com.hermes.dashboard`, and the prefix rule made it invisible. That job held port 9119,
+    /// so Desktop saw a healthy Hermes it could not account for and refused to proceed
+    /// (2026-09-30). A plist therefore also counts when the program it runs lives inside the
+    /// standard checkout, which is the property that actually matters.
+    ///
+    /// Read only; a file that cannot be parsed is skipped, not trusted.
     private func ownerLaunchAgents() -> [OwnerLaunchAgent] {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: paths.launchAgentsRoot.path)
         else { return [] }
-        return names.sorted().compactMap { name in
-            guard name.hasPrefix("ai.hermes."), name.hasSuffix(".plist") else { return nil }
+        var agents: [OwnerLaunchAgent] = []
+        for name in names.sorted() where name.hasSuffix(".plist") {
             let url = paths.launchAgentsRoot.appendingPathComponent(name)
             guard let data = readSmallFile(url),
                   let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)
                     as? [String: Any]
-            else { return nil }
+            else { continue }
+            let arguments = (object["ProgramArguments"] as? [String]) ?? []
+            let program = arguments.first ?? (object["Program"] as? String)
+            let runsCheckout = program.map { isInside($0, paths.checkoutRoot) } ?? false
+            guard name.hasPrefix("ai.hermes.") || runsCheckout else { continue }
             let environment = (object["EnvironmentVariables"] as? [String: Any])?
                 .compactMapValues { $0 as? String } ?? [:]
-            let program = (object["ProgramArguments"] as? [String])?.first
-                ?? (object["Program"] as? String)
-            return OwnerLaunchAgent(name: name, program: program, environment: environment)
+            agents.append(OwnerLaunchAgent(
+                name: name,
+                program: program,
+                arguments: arguments,
+                environment: environment
+            ))
         }
+        return agents
+    }
+
+    /// Upstream's server entry points. `hermes serve` and `hermes dashboard` are the same server
+    /// family and both default to port 9119, so a job invoking one of them without naming another
+    /// port is serving the loopback port.
+    private static let serveSubcommands: Set<String> = ["serve", "dashboard", "gui", "desktop"]
+
+    private func servesLoopbackPort(_ agent: OwnerLaunchAgent) -> Bool {
+        guard !agent.arguments.isEmpty else { return false }
+        if agent.arguments.contains(String(DesktopHermesRuntimeContract.loopbackPort)) { return true }
+        if let index = agent.arguments.firstIndex(of: "--port"), index + 1 < agent.arguments.count {
+            return false
+        }
+        return agent.arguments.contains { Self.serveSubcommands.contains($0) }
     }
 
     // MARK: - Filesystem helpers
