@@ -76,6 +76,11 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const area = useRef<HTMLTextAreaElement>(null);
   const composer = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  // HG-174: set while the pointer is inside the composer's own controls. Safari, Firefox and iOS
+  // never move focus onto a pressed button, so the textarea's blur then arrives with no
+  // relatedTarget — the same shape as a tap on the transcript. The pointerdown is what tells the
+  // two apart; this flag is consumed by the blur it belongs to.
+  const pressedInside = useRef(false);
 
   const [voiceMode, setVoiceMode] = useState(false);
   const [voicePhase, setVoicePhase] = useState<"idle" | "held" | "waiting">("idle");
@@ -95,7 +100,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     if (keep && partial.trim()) { setText((draft) => appendVoiceText(draft, partial)); setVoiceMode(false); setFocused(true); }
   }
   async function enterVoice() {
-    collapse(); setRequestingMic(true);
+    setRequestingMic(true);
     const epoch = ++permissionEpoch.current;
     // getUserMedia may remain unanswered forever: release the UI after ten seconds. Any late
     // permission result still stops its tracks, and cannot switch a new conversation into voice.
@@ -104,7 +109,12 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     }, 10_000);
     try {
       await allowMicrophone();
-      if (permissionEpoch.current === epoch) { setVoiceMode(true); setProblem(null); }
+      // Ask first, move after (HG-174). Collapsing before the grant left the two-row keyboard
+      // composer on screen for the whole permission round trip, and a layout change between the
+      // press and its click unmounts the button the finger is still on. Collapse and switch in one
+      // step instead — the Android composer this mirrors applies collapseComposer() and voiceMode
+      // together — so a denial leaves the composer exactly as the user had it.
+      if (permissionEpoch.current === epoch) { collapse(); setVoiceMode(true); setProblem(null); }
     } catch {
       if (permissionEpoch.current === epoch) setProblem(appError("HR-PERM-006"));
     } finally {
@@ -371,7 +381,11 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
           {t(`正在生成 ${generatingCount} 份对话记录…`, `Preparing ${generatingCount} transcript${generatingCount === 1 ? "" : "s"}…`)}
         </p>
       ) : null}
-      <div ref={composer} class={`composer${focused && !voiceMode ? " expanded" : ""}${voiceMode ? " voice-mode" : ""}`}>
+      <div
+        ref={composer}
+        class={`composer${focused && !voiceMode ? " expanded" : ""}${voiceMode ? " voice-mode" : ""}`}
+        onPointerDown={() => { pressedInside.current = true; }}
+      >
         {[
           { ref: camera, accept: "image/*", capture: "environment" as const, multiple: false },
           { ref: photos, accept: "image/*", capture: undefined, multiple: true },
@@ -408,7 +422,19 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
           placeholder={t("输入消息…", "Type a message…")}
           enterkeyhint={finePointer() ? "send" : "enter"}
           onFocus={() => setFocused(true)}
-          onBlur={(e) => { if (!composer.current?.contains(e.relatedTarget as Node | null)) setFocused(false); }}
+          onBlur={(e) => {
+            // HG-174: a press on one of our own controls must not tear the composer down under
+            // the finger. Collapsing here unmounts the pressed button before its click fires (the
+            // focused and expanded layouts are different elements), so the tap would do nothing
+            // but collapse. That control's own handler decides the move: the voice button switches
+            // input mode, the model chip and add button collapse and open their sheet.
+            const target = e.relatedTarget as Node | null;
+            const ownPress = pressedInside.current;
+            pressedInside.current = false;
+            if (composer.current?.contains(target)) return;
+            if (target === null && ownPress) return;
+            setFocused(false);
+          }}
           onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
           onKeyDown={(e) => {
             if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
