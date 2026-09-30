@@ -1535,6 +1535,21 @@ class ChatViewModel @Inject constructor(
         dispatch(failed.text, failed.attachments)
     }
 
+    /**
+     * Drop a failed turn the user does not want to send after all.
+     *
+     * The bubble goes, and so does the record `UnsentStore` keeps: withdrawing is only real if the
+     * next cold start does not put the same bubble back on screen (HG-162). Nothing is told to the
+     * Mac — an unsent turn never reached it — and a turn that *was* sent is not reachable here,
+     * because the withdraw affordance only exists on a failed bubble.
+     */
+    fun discardFailedSend(messageId: String) {
+        if (!failedSends.containsKey(messageId)) return
+        forgetUnsent(messageId)
+        runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
+            ?: mutateState { it.withoutMessage(messageId) }
+    }
+
     private fun updateDelivery(messageId: String, delivery: com.hermes.client.domain.DeliveryState) {
         runtimeKey?.let { runtimeStore.updateUserDelivery(it, messageId, delivery) }
             ?: mutateState { it.withDelivery(messageId, delivery) }

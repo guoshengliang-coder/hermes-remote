@@ -1520,6 +1520,7 @@ fun ChatScreen(
                         isGenerating = state.isGenerating,
                         onEditResend = { text -> draft = text; focusRequester.requestFocus() },
                         onRetrySend = { vm.retrySend(it) },
+                        onDiscardSend = { vm.discardFailedSend(it) },
                         sendDiagnosticFor = { vm.sendDiagnostic(it) },
                         sendErrorCodeFor = { vm.sendErrorCode(it) },
                         onRegenerate = { vm.regenerate() },

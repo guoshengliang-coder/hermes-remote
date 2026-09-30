@@ -593,6 +593,11 @@ class ScreenshotTest {
                     // SESS-016, is now the one deciding whether the compact code keeps its line.
                     userTurn("u-7", "会话内容过大的消息", com.hermes.client.domain.DeliveryState.FAILED) to
                         com.hermes.client.data.error.AppErrorCode.SESSION_TOO_LARGE,
+                    // HG-162: the restored send whose staged attachments did not survive the
+                    // restart. It withholds the tap AND is the row the 撤回 affordance hangs off,
+                    // so this is the golden that pins both the sentence and the extra action.
+                    userTurn("u-8", "附件丢了的未发送消息", com.hermes.client.domain.DeliveryState.FAILED) to
+                        com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST,
                     userTurn("u-4", "会话已消失的消息", com.hermes.client.domain.DeliveryState.UNDELIVERABLE) to
                         com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND,
                 ).forEach { (msg, code) ->

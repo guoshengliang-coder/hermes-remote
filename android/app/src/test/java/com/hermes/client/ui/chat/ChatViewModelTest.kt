@@ -36,6 +36,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.After
@@ -1064,6 +1065,65 @@ class ChatViewModelTest {
         vm.retrySend("u-withfiles")
         advanceUntilIdle()
         assertTrue("the bubble stays put", vm.state.value.messages.any { it.id == "u-withfiles" })
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    // HG-162: retrying was the only thing a failed bubble offered, so a message the user had given
+    // up on stayed on screen indefinitely — and the record on disk put it back after a restart.
+    // The failure row now carries 撤回, and withdrawing has to be real: the turn goes AND the
+    // record goes, or the next cold start quietly undoes it.
+    @Test fun a_withdrawn_failed_send_leaves_the_transcript_and_the_disk_record() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(5000, "mock: submit refused")
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.send("hello")
+        runCurrent()
+
+        val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, failed.delivery)
+        assertNotNull(
+            "a failed send is persisted, which is what a cold start restores",
+            unsent.peek(draftToken),
+        )
+
+        vm.discardFailedSend(failed.id)
+        runCurrent()
+
+        assertTrue("the bubble goes", vm.state.value.messages.none { it.id == failed.id })
+        assertNull("and so does its diagnostic", vm.sendDiagnostic(failed.id))
+        assertNull(
+            "withdrawing must clear the record, or the next cold start puts the bubble back",
+            unsent.peek(draftToken),
+        )
+        coVerify(exactly = 1) { chatRepo.submit("s1-live", "hello") }
+    }
+
+    // The HG-162 report itself: the send was refused before the app restarted, so the record came
+    // back with its attachments gone and the bubble offered a tap that could only ever fail. The
+    // retry stays withheld (docs/ERROR_HANDLING.md) — but the user must be able to get rid of it.
+    @Test fun a_restored_send_without_its_attachments_can_be_withdrawn() = runTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+            listOf(
+                com.hermes.client.data.repository.UnsentRecord(
+                    token = draftToken, messageId = "u-withfiles", text = "看这几张图",
+                    code = "HR-SESS-007", retryable = true, attachments = 2, updatedAt = 1L,
+                ),
+            ),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+        assertTrue("the bubble is back on screen", vm.state.value.messages.any { it.id == "u-withfiles" })
+
+        vm.discardFailedSend("u-withfiles")
+        advanceUntilIdle()
+
+        assertTrue("withdrawing removes it", vm.state.value.messages.none { it.id == "u-withfiles" })
+        assertNull("and it does not come back on the next cold start", unsent.peek(draftToken))
         coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 

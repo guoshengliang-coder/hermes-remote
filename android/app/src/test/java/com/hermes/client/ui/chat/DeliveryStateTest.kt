@@ -171,6 +171,30 @@ class DeliveryStateTest {
         assertFalse(AppErrorCode.SESSION_OWNED_ELSEWHERE in TERMINAL_SEND_ERROR_CODES)
     }
 
+    // HG-162. Withholding the tap was only half the fix: the sentence that goes with the tap must
+    // be withheld too. A terminal code that fell through to the generic 「未发送 · 点按重试」 told
+    // the user to retry a bubble that would not retry — which is what SESS-015 did, on the
+    // restored send whose staged attachments did not survive the restart.
+    @Test fun every_terminal_send_code_has_its_own_sentence_and_none_offers_a_retry() {
+        val generic = failedSendLabel(AppErrorCode.MESSAGE_SEND_FAILED, AppLanguage.ZH)
+        assertEquals("未发送 · 点按重试", generic)
+
+        for (code in TERMINAL_SEND_ERROR_CODES) {
+            val zh = failedSendLabel(code, AppLanguage.ZH)
+            val en = failedSendLabel(code, AppLanguage.EN)
+            assertNotEquals("$code must not borrow the retry sentence", generic, zh)
+            assertFalse(
+                "$code withholds the tap, so its sentence must not promise one: $zh",
+                zh.contains("点按重试"),
+            )
+            assertTrue("$code needs a Chinese sentence", zh.any { it.code > 0x4E00 })
+            assertNotEquals("$code needs an English one too", zh, en)
+        }
+        // SESS-013 keeps its own sentence as well: it is retryable, but the generic copy would
+        // walk the user straight back into the same refusal while the desktop still holds it.
+        assertNotEquals(generic, failedSendLabel(AppErrorCode.SESSION_OWNED_ELSEWHERE, AppLanguage.ZH))
+    }
+
     @Test fun compact_code_drops_only_the_prefix_and_stays_unique() {
         assertEquals("SESS-007", AppErrorCode.MESSAGE_SEND_FAILED.compact)
         assertEquals("RPC-001", AppErrorCode.RPC_FAILED.compact)
