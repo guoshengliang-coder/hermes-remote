@@ -120,6 +120,23 @@ export const SettingsIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** Card page (DESIGN §4.1): language entry — a globe, same 1.8px stroke as its neighbours. */
+export const GlobeIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17" />
+    <path d="M12 3.5c2.4 2.4 3.7 5.3 3.7 8.5S14.4 18.1 12 20.5C9.6 18.1 8.3 15.2 8.3 12S9.6 5.9 12 3.5z" />
+  </Svg>
+);
+
+/** Card page (DESIGN §4.1): font-size entry — a large and a small A. */
+export const TextSizeIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 18l4.5-12L12 18M4.7 14.2h5.6" />
+    <path d="M14 18l3.2-8.5L20.4 18M15.1 15.4h4.2" />
+  </Svg>
+);
+
 export const CopyIcon = (p: IconProps) => (
   <Svg {...p}>
     <rect x="8" y="8" width="12" height="12" rx="2.5" />
