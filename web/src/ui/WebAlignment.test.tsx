@@ -1,9 +1,11 @@
 import { render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, expect, it } from "vitest";
+import { initialInbox } from "../app/inbox";
 import { AppContext, type AppContextValue } from "../app/store";
 import { AccountDrawer } from "./AccountDrawer";
 import { Composer } from "./Composer";
+import { SessionList } from "./SessionList";
 import { SessionRow } from "./SessionRow";
 
 const hosts: HTMLElement[] = [];
@@ -122,4 +124,41 @@ it("keeps shared settings on the card page and commits a sheet choice only on Sa
   expect(chosen).toEqual(["language:en", "font:xlarge"]);
   expect(sheet("字体大小")).toBeNull();
   expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
+});
+
+it("opens the drawer from a menu glyph and overflows with vertical dots in the list top bar", () => {
+  // HG-170: Web has no profile switching, so the account-initial block is gone — the left slot is a
+  // chrome-tone menu glyph — and the overflow is the Android-style ⋮, not the wide ⋯.
+  const value = {
+    ...context,
+    client: {} as never,
+    sessions: [],
+    needsYou: new Set<string>(),
+    inbox: initialInbox,
+    isPinned: () => false,
+    collapsed: new Set<string>(),
+    toggleGroup: () => {},
+    projectFilter: null,
+    setProjectFilter: () => {},
+    listSegment: "chats",
+    setListSegment: () => {},
+    setSessions: () => {},
+    listSearchSeed: null,
+    setListSearchSeed: () => {},
+    setChatSearchSeed: () => {},
+  } as unknown as AppContextValue;
+  const host = document.createElement("div");
+  document.body.append(host);
+  hosts.push(host);
+  act(() => render(<AppContext.Provider value={value}><SessionList /></AppContext.Provider>, host));
+
+  const trigger = host.querySelector<HTMLElement>("button.drawer-trigger")!;
+  expect(trigger.getAttribute("aria-label")).toBe("打开侧边栏");
+  expect(host.querySelector(".avatar-circle")).toBeNull();
+  expect(trigger.textContent).toBe("");
+  expect(trigger.querySelector("svg")).not.toBeNull();
+
+  const dots = [...host.querySelectorAll('button[aria-label="更多"] circle')]
+    .map((dot) => [dot.getAttribute("cx"), dot.getAttribute("cy")]);
+  expect(dots).toEqual([["12", "5"], ["12", "12"], ["12", "19"]]);
 });

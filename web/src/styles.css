@@ -284,19 +284,6 @@ button:disabled {
   background: var(--surface-container-high);
 }
 
-.avatar-circle {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary-container);
-  color: var(--on-primary-container);
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
 .drawer-scrim {
   position: fixed;
   inset: 0;
