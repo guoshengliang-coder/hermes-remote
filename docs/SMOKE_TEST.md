@@ -1193,7 +1193,8 @@ version with each result.
     chat via its project subtitle. While Android runs a turn in the same conversation, open it on the
     Web: the composer is replaced by `HR-SESS-013` with Retry.
 14. **Font size and the merged card page (2026-09-27; card page merged HG-168).** Open the drawer
-    from the session list's avatar. Expected: the header is only the Hermes GO wordmark — no gear
+    from the session list's menu icon (HG-170: a three-line glyph in chrome tone, no longer the
+    account avatar). Expected: the header is only the Hermes GO wordmark — no gear
     button and no settings sub-page behind it; the rows are 主题 / 默认模型 / 语言 / 字体大小,
     followed by a Hermes GO account card (email, 退出登录, 删除账号) and an About card (Web and
     Gateway versions). Tap 语言 or 字体大小: a bottom sheet opens with one radio per option, using
@@ -1234,6 +1235,15 @@ version with each result.
     maskable one, not a small icon in a white frame). On a foldable, open and close it on a chat and
     in the image editor. None of this has been checked on a physical phone: Chrome is not installed
     on the HONOR test phone, so Android results so far come from the emulator only.
+17. **List top bar icons (HG-170, 2026-09-30; needs a browser — the DOM test cannot see colour).**
+    On the session list, the left slot is a three-line menu glyph in the top bar's own colour
+    (`currentColor`, same tone as the search glyph beside it) — no round coloured block and no
+    account initial — and it opens the same drawer as before. The right-hand overflow is
+    **vertical** dots ⋮ on the list **and** on a chat page's top bar, while the per-answer 「⋯」
+    action line stays horizontal: that split matches Android `MoreVert` / `MoreHoriz`. Check both
+    themes on the iPhone and in Android Chrome; the top bar must not grow taller than before, and the
+    ⋮ must read as three distinguishable dots at the smallest supported width (344px, folded
+    outer screen).
 
 ## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
 

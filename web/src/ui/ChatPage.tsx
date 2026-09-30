@@ -37,7 +37,7 @@ import {
   BranchIcon,
   FolderIcon,
   ListIcon,
-  MoreIcon,
+  MoreVerticalIcon,
   PinOutlineIcon,
   PlusIcon,
   RefreshIcon,
@@ -557,7 +557,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
                   <PlusIcon />
                 </button>
                 <button type="button" class="icon-button" aria-label={t("更多", "More")} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
-                  <MoreIcon />
+                  <MoreVerticalIcon />
                 </button>
               </>
             )}

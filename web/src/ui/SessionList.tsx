@@ -17,7 +17,7 @@ import type { ProfileSessionsResponse, SessionListItem, SessionListResponse } fr
 import { ErrorNotice } from "./ErrorNotice";
 import { AccountDrawer } from "./AccountDrawer";
 import { HealthStrip } from "./HealthStrip";
-import { ArchiveIcon, BotIcon, ChatIcon, CheckIcon, ChevronIcon, ChevronUpIcon, CloseIcon, FolderIcon, MoreIcon, PlusIcon, SearchIcon } from "./icons";
+import { ArchiveIcon, BotIcon, ChatIcon, CheckIcon, ChevronIcon, ChevronUpIcon, CloseIcon, FolderIcon, MenuIcon, MoreVerticalIcon, PlusIcon, SearchIcon } from "./icons";
 import { SearchView } from "./SearchView";
 import { SessionActionSheet } from "./SessionActions";
 import { SessionRow } from "./SessionRow";
@@ -218,8 +218,11 @@ export function SessionList() {
           </div>
         ) : (
           <div class="topbar-row">
-            <button type="button" class="icon-button avatar-trigger" aria-label={t("打开侧边栏", "Open sidebar")} aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
-              <span class="avatar-circle">{(app.account?.displayName?.trim()[0] || app.account?.email?.[0] || "H").toUpperCase()}</span>
+            {/* HG-170: the drawer entry is a menu glyph, not the account avatar. Web has no
+                profile switching, so the lettered block carried an identity with nothing behind
+                it; a three-rule icon in chrome tone says "this opens the sidebar" and no more. */}
+            <button type="button" class="icon-button drawer-trigger" aria-label={t("打开侧边栏", "Open sidebar")} aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
+              <MenuIcon />
             </button>
             <span class="topbar-spacer" />
             <h1 class="topbar-title">{t("会话", "Chats")}</h1>
@@ -227,7 +230,7 @@ export function SessionList() {
               <SearchIcon />
             </button>
             <button type="button" class="icon-button" aria-label={t("更多", "More")} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
-              <MoreIcon />
+              <MoreVerticalIcon />
             </button>
           </div>
         )}

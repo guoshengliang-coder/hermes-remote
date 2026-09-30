@@ -21,7 +21,7 @@ import {
 import { onSpeaking, speakingNow, speechSupported, toggleSpeak } from "../chat/speech";
 import { isAllowedHref, readableText } from "../markdown/render";
 import { ErrorNotice } from "./ErrorNotice";
-import { ChevronIcon, CopyIcon, MoreIcon, RefreshIcon, SpeakerIcon, ThumbDownIcon, ThumbUpIcon } from "./icons";
+import { ChevronIcon, CopyIcon, MoreHorizontalIcon, RefreshIcon, SpeakerIcon, ThumbDownIcon, ThumbUpIcon } from "./icons";
 import type { ViewerImage } from "./ImageViewer";
 import { copyWithFeedback, Markdown } from "./Markdown";
 import { normalizeDisplayPayload } from "../chat/organize";
@@ -369,7 +369,7 @@ function ActionRow({ item, actions }: { item: ChatItem; actions: MessageActions 
       ) : null}
       {actions.onViewSource ? (
         <button type="button" class="icon-button action-button" aria-label={t("查看原文 / 选择", "View source / Select")} onClick={() => actions.onViewSource!(item)}>
-          <MoreIcon size={18} />
+          <MoreHorizontalIcon size={18} />
         </button>
       ) : null}
     </div>
