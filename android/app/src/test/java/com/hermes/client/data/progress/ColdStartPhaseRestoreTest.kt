@@ -14,13 +14,12 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -46,7 +45,7 @@ import kotlin.time.Duration.Companion.seconds
  * what is refused, and what may never be resurrected from disk at all.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class ColdStartPhaseRestoreTest {
+class ColdStartPhaseRestoreTest : SessionRuntimeTest() {
 
     private class FakePhaseStore(
         private val stored: List<SessionPhaseRecord> = emptyList(),
@@ -88,7 +87,7 @@ class ColdStartPhaseRestoreTest {
         // the assertions are about whether resume was ASKED for, not what it answered.
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         return Fixture(
             SessionRuntimeStore(
                 chatRepository = chat,
@@ -306,10 +305,12 @@ class ColdStartPhaseRestoreTest {
     @Test fun markReadRemovesThePersistedVerdict() = runTest(timeout = 20.seconds) {
         val phases = FakePhaseStore(listOf(record("s12", SessionRunPhase.COMPLETED_UNREAD)))
         val (store, _, _, _, _) = fixture(phases)
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
         val key = store.key("s12", "personal")
         store.markRead(key)
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         assertTrue(
             "opening the conversation retires the verdict on disk too",

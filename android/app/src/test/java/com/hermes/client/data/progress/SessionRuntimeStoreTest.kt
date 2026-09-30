@@ -18,15 +18,12 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -35,7 +32,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class SessionRuntimeStoreTest {
+class SessionRuntimeStoreTest : SessionRuntimeTest() {
     private fun event(type: String, sessionId: String, text: String? = null) = ServerEvent(
         type = type,
         sessionId = sessionId,
@@ -99,6 +96,25 @@ class SessionRuntimeStoreTest {
         assertTrue(fixture.store.runtimes.value.getValue(key).chat.subagents.isEmpty())
     }
 
+    @Test fun aLongRunningChildKeepsPollingWithoutPreventingTestCleanup() = runTest {
+        val fixture = fixture()
+        var polls = 0
+        coEvery { fixture.chat.listSubagents("runtime-long") } answers {
+            polls++
+            listOf(SubagentStatus(id = "long-child", goal = "long running task"))
+        }
+        val key = fixture.store.register("long-parent", "personal")
+        fixture.store.bindLiveHandle(key, "runtime-long")
+        runCurrent()
+        advanceUntilIdle() // This used to drain a forever-active poller at CPU speed.
+        assertEquals(1, polls)
+        advanceTimeBy(2 * 60 * 60 * 1_000L)
+        runCurrent()
+        assertEquals(1_441, polls)
+        assertTrue(fixture.store.runtimes.value.getValue(key).hasRunningSubagents)
+        // runTest owns cleanup; no fake terminal event or production polling cutoff is needed.
+    }
+
     private fun lifecycle(
         kind: String,
         sessionId: String = "external",
@@ -131,7 +147,7 @@ class SessionRuntimeStoreTest {
         every { chat.connectionState } returns connection
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        val eagerScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val eagerScope = eagerAppScope()
         return Fixture(
             SessionRuntimeStore(
                 chatRepository = chat,
@@ -478,7 +494,8 @@ class SessionRuntimeStoreTest {
         fixture.connection.value = ConnectionState.Reconnecting
         runCurrent()
         fixture.connection.value = ConnectionState.Connected
-        advanceUntilIdle()
+        advanceTimeBy(20_000)
+        runCurrent()
 
         coVerify(exactly = 0) { sessions.history("idle-but-open", "personal") }
         coVerify(atLeast = 1) { sessions.history("still-running", "personal") }

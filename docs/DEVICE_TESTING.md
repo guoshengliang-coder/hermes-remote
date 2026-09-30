@@ -396,6 +396,16 @@ adb -s <serial> shell rm /sdcard/Pictures/<测试图片>
 
 ## 8. 实测过的结论（别再重复试）
 
+- **Android 单测轮询安全（HG-160）。** 会持续运行的协程应由 `runTest.backgroundScope` 托管；
+  独立 `SupervisorJob()` 既不会随用例清理，又可能让 `advanceUntilIdle()` 追着轮询无限推进虚拟时间。
+  运行态 fixture 使用 `eagerAppScope()`，显式打桩 `listProcesses` / `listSubagents`；需要重试梯子或
+  延迟持久化时，用有限 `advanceTimeBy` + `runCurrent`。JUnit 每用例 30 秒，独立 watchdog 每个
+  Gradle 测试 fork 默认 600 秒真实时间上限；超时强制终止这个 worker，报 `HR-TEST-001`，保留无关
+  JVM。定向诊断可用 `-PhermesTestWorkerTimeoutSeconds=45`，不要用扩大堆或全局杀 Java 代替修复。
+  2026-09-30 在事故后的 `main` 基线，原 `SessionRuntimeStoreTest`、progress 组和全套单测均正常
+  结束，未复现原事故；所以具体事故用例及 GC 异常链仍未独立确认。新增回归覆盖持续两小时虚拟时间
+  的子代理轮询、测试成功/失败后的清理，以及真实 JVM 强制终止和隔离；生产长任务轮询没有加时限。
+
 - **调大 Gradle heap 不会让构建变快。** 把 `org.gradle.jvmargs` 从 `-Xmx2048m` 提到 `-Xmx4096m`
   （写在 `~/.gradle/gradle.properties`，它的优先级高于项目根的 `gradle.properties`，实测生效），
   冷构建 `:app:testDebugUnitTest --rerun-tasks` 从 66 秒变成 67 秒，在误差之内（M4 / 24 GB，2026-09-11）。

@@ -10,14 +10,11 @@ import com.hermes.client.data.repository.SessionReadMarkers
 import com.hermes.client.data.repository.SessionReadStore
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -42,7 +39,7 @@ import kotlin.time.Duration.Companion.seconds
  * a stored verdict whose token is no longer in the read store is retired, not restored.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class RestoredVerdictReadMarkerTest {
+class RestoredVerdictReadMarkerTest : SessionRuntimeTest() {
 
     private class FakePhaseStore(
         var stored: List<SessionPhaseRecord> = emptyList(),
@@ -79,7 +76,7 @@ class RestoredVerdictReadMarkerTest {
         val phases = FakePhaseStore(records)
         val store = SessionRuntimeStore(
             chatRepository = chat,
-            appScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler)),
+            appScope = eagerAppScope(),
             profiles = profiles,
             readStore = FakeReadMarkers(unread),
             phaseStore = phases,

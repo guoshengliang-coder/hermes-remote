@@ -11,10 +11,8 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,7 +30,7 @@ import org.junit.Test
  * asks Hermes what the run did next instead of guessing.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class ServerRequestCancelTest {
+class ServerRequestCancelTest : SessionRuntimeTest() {
 
     private fun approvalRequest(sessionId: String, id: String) =
         ServerRequests.toEvent(
@@ -68,7 +66,7 @@ class ServerRequestCancelTest {
         coEvery { chat.resume(any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = SessionRuntimeStore(chatRepository = chat, appScope = scope, profiles = profiles)
 
         val key = store.register("s1", "personal")
@@ -103,7 +101,7 @@ class ServerRequestCancelTest {
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = SessionRuntimeStore(chatRepository = chat, appScope = scope, profiles = profiles)
 
         val key = store.register("s1", "personal")
@@ -142,7 +140,7 @@ class ServerRequestCancelTest {
      */
     @Test fun a_stale_shade_answer_settles_its_own_approval_not_the_one_now_showing() = runTest {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = storeWith(events, scope)
         val key = store.register("s1", "personal")
         store.beginPrompt(key, "清理")
@@ -163,7 +161,7 @@ class ServerRequestCancelTest {
     /** A lost action is never silent: an expired shade answer leaves its notice in the conversation. */
     @Test fun an_expired_shade_answer_leaves_the_registered_notice_in_the_chat() = runTest {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = storeWith(events, scope)
         val key = store.register("s1", "personal")
         store.beginPrompt(key, "清理")
@@ -191,7 +189,7 @@ class ServerRequestCancelTest {
     /** A clarify answered from an old notification must not touch a different question now showing. */
     @Test fun a_shade_clarify_answer_for_another_request_leaves_the_current_one_alone() = runTest {
         val events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = storeWith(events, scope)
         val key = store.register("s1", "personal")
         store.beginPrompt(key, "部署")

@@ -10,12 +10,9 @@ import com.hermes.client.domain.Role
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -42,7 +39,7 @@ import org.junit.Test
  * none of this was reachable from the existing suite. These tests never send that push.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class StuckRunSelfHealTest {
+class StuckRunSelfHealTest : SessionRuntimeTest() {
     /** What upstream persists for a turn sent with images: the typed text plus its own bookkeeping. */
     private fun withUpstreamImageNote(typed: String) = "$typed [User attached image: /tmp/a.png]"
 
@@ -75,7 +72,7 @@ class StuckRunSelfHealTest {
         every { profiles.active } returns MutableStateFlow<String?>("personal")
         val sessions = mockk<SessionRepository>(relaxed = true)
         val clock = Clock()
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = SessionRuntimeStore(
             chat, scope, profiles,
             sessionRepository = sessions,

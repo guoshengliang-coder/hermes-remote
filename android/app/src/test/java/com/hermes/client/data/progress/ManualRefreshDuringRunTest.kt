@@ -8,12 +8,9 @@ import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -24,7 +21,7 @@ import org.junit.Test
 
 /** A manual refresh during a run refreshes like a reconnect reconcile instead of queueing. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class ManualRefreshDuringRunTest {
+class ManualRefreshDuringRunTest : SessionRuntimeTest() {
     private fun event(type: String, sessionId: String, text: String? = null) = ServerEvent(
         type = type, sessionId = sessionId,
         payload = buildJsonObject {
@@ -40,7 +37,7 @@ class ManualRefreshDuringRunTest {
         every { chat.connectionState } returns MutableStateFlow<ConnectionState>(ConnectionState.Connected)
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        return SessionRuntimeStore(chat, CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler)), profiles) to events
+        return SessionRuntimeStore(chat, eagerAppScope(), profiles) to events
     }
 
     @Test fun aCoveringSnapshotIsAcceptedWhileTheRunIsActiveAndThePhaseIsLeftAlone() = runTest {

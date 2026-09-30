@@ -12,13 +12,10 @@ import com.hermes.client.domain.Role
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -52,7 +49,7 @@ import kotlin.time.Duration.Companion.seconds
  *    message list was itself loaded from REST — hence the tail-shape guard.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class KilledMidRunColdStartTest {
+class KilledMidRunColdStartTest : SessionRuntimeTest() {
 
     private class FakePhaseStore(private val stored: List<SessionPhaseRecord>) : SessionPhaseSnapshot {
         override suspend fun read(): List<SessionPhaseRecord> = stored
@@ -105,7 +102,7 @@ class KilledMidRunColdStartTest {
                 ),
             ),
         )
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         val store = SessionRuntimeStore(
             chatRepository = chat,
             appScope = scope,

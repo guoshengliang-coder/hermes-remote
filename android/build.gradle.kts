@@ -40,3 +40,6 @@ plugins {
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.hilt) apply false
 }
+
+// Applies to every local/CI/package JVM-test entry point, including direct Gradle calls.
+apply(from = "test-watchdog.gradle.kts")

@@ -7,13 +7,10 @@ import com.hermes.client.data.repository.ChatRepository
 import com.hermes.client.data.repository.ProfileManager
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -36,7 +33,7 @@ import org.junit.Test
  * a phantom 思考中 (`IDLE→THINKING cause=input-answered`).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class StalePendingCardTest {
+class StalePendingCardTest : SessionRuntimeTest() {
 
     private fun event(type: String, sessionId: String, text: String? = null) = ServerEvent(
         type = type,
@@ -83,7 +80,7 @@ class StalePendingCardTest {
         every { chat.connectionState } returns connection
         val profiles = mockk<ProfileManager>(relaxed = true)
         every { profiles.active } returns MutableStateFlow<String?>("personal")
-        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        val scope = eagerAppScope()
         return Fixture(
             SessionRuntimeStore(chatRepository = chat, appScope = scope, profiles = profiles),
             events,
