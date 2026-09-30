@@ -55,6 +55,11 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
     { id: "xlarge", label: t("特大", "Larger"), description: t("比默认大 25%", "25% larger than default") },
     { id: "xxlarge", label: t("超大", "Largest"), description: t("比默认大 50%", "50% larger than default") },
   ] as const;
+  const themeOptions = [
+    { id: "system", label: themeLabel("system", t), icon: <MacIcon size={20} />, description: t("根据浏览器的系统外观自动切换", "Follows your browser's system appearance") },
+    { id: "light", label: themeLabel("light", t), icon: <SunIcon size={20} />, description: t("手工纸质柔光，长文案阅读无眩光", "Soft handmade paper for comfortable reading") },
+    { id: "dark", label: themeLabel("dark", t), icon: <MoonIcon size={20} />, description: t("暗夜质感，OLED 省电高对比", "High-contrast obsidian, easy on an OLED panel") },
+  ] as const;
 
   return (
     <>
@@ -119,63 +124,32 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>
       </aside>
-      {sheet === "theme" ? <ThemeSheet inUse={app.themeMode} onSave={(mode) => { app.setThemeMode(mode); closeSheet(); }} onClose={closeSheet} t={t} /> : null}
-      {sheet === "language" ? <ChoiceSheet title={t("语言", "Language")} options={languageOptions} value={app.languagePreference} onChoose={(id) => app.setLanguagePreference(id)} onClose={closeSheet} t={t} /> : null}
-      {sheet === "fontSize" ? <ChoiceSheet title={t("字体大小", "Font size")} options={fontSizeOptions} value={app.fontSize} onChoose={(id) => app.setFontSize(id)} onClose={closeSheet} t={t} /> : null}
-    </>
-  );
-}
-
-function ThemeSheet({ inUse, onSave, onClose, t }: {
-  inUse: ThemeMode;
-  onSave: (mode: ThemeMode) => void;
-  onClose: () => void;
-  t: Translate;
-}) {
-  useBackClose(onClose);
-  const [pending, setPending] = useState<ThemeMode>(inUse);
-  const options = [
-    { id: "system", icon: <MacIcon size={20} />, description: t("根据浏览器的系统外观自动切换", "Follows your browser's system appearance") },
-    { id: "light", icon: <SunIcon size={20} />, description: t("手工纸质柔光，长文案阅读无眩光", "Soft handmade paper for comfortable reading") },
-    { id: "dark", icon: <MoonIcon size={20} />, description: t("暗夜质感，OLED 省电高对比", "High-contrast obsidian, easy on an OLED panel") },
-  ] as const;
-  return (
-    <>
-      <div class="drawer-theme-scrim" onClick={onClose} />
-      <div class="drawer-theme-sheet" role="dialog" aria-modal="true" aria-label={t("外观与主题", "Appearance & theme")}>
-        <div class="sheet-grip" aria-hidden="true" />
-        <div class="drawer-theme-header">
-          <h2>{t("外观与主题", "Appearance & theme")}</h2>
-          <button type="button" class="drawer-theme-close" aria-label={t("关闭", "Close")} onClick={onClose}><CloseIcon size={16} /></button>
-        </div>
-        <div class="drawer-theme-options" role="radiogroup" aria-label={t("主题", "Theme")}>
-          {options.map((option) => <button type="button" key={option.id} class="drawer-theme-option" role="radio"
-            aria-label={themeLabel(option.id, t)} aria-checked={pending === option.id} onClick={() => setPending(option.id)}>
-            <span class="drawer-theme-icon">{option.icon}</span>
-            <span class="drawer-theme-copy"><strong>{themeLabel(option.id, t)}{inUse === option.id ? <em>{t("当前使用", "In use")}</em> : null}</strong><small>{option.description}</small></span>
-            <span class={`drawer-theme-radio${pending === option.id ? " selected" : ""}`} aria-hidden="true" />
-          </button>)}
-        </div>
-        <button type="button" class="drawer-theme-save" onClick={() => onSave(pending)}>{t("保存", "Save")}</button>
-      </div>
+      {sheet === "theme" ? <ChoiceSheet title={t("外观与主题", "Appearance & theme")} options={themeOptions} inUse={app.themeMode}
+        onSave={(mode) => { app.setThemeMode(mode); closeSheet(); }} onClose={closeSheet} t={t} /> : null}
+      {sheet === "language" ? <ChoiceSheet title={t("语言", "Language")} options={languageOptions} inUse={app.languagePreference}
+        onSave={(choice) => { app.setLanguagePreference(choice); closeSheet(); }} onClose={closeSheet} t={t} /> : null}
+      {sheet === "fontSize" ? <ChoiceSheet title={t("字体大小", "Font size")} options={fontSizeOptions} inUse={app.fontSize}
+        onSave={(size) => { app.setFontSize(size); closeSheet(); }} onClose={closeSheet} t={t} /> : null}
     </>
   );
 }
 
 /**
- * The theme sheet's chrome without its Save gate: language and font size change on tap (DESIGN
- * §5.21), matching the immediate apply the settings page had, so the sheet shows the live "in use"
- * marker instead of holding a pending choice.
+ * One sheet for every card-page choice (主题 / 语言 / 字体大小), so all three behave the same:
+ * picking only moves the pending item, 当前使用 keeps marking the value actually in force, and
+ * 「保存」 is what writes it. Scrim, Escape, the close button and system back all cancel the
+ * pending item instead of committing it.
  */
-function ChoiceSheet<T extends string>({ title, options, value, onChoose, onClose, t }: {
+function ChoiceSheet<T extends string>({ title, options, inUse, onSave, onClose, t }: {
   title: string;
-  options: readonly { id: T; label: string; description: string }[];
-  value: T;
-  onChoose: (id: T) => void;
+  options: readonly { id: T; label: string; description: string; icon?: preact.ComponentChildren }[];
+  inUse: T;
+  onSave: (id: T) => void;
   onClose: () => void;
   t: Translate;
 }) {
   useBackClose(onClose);
+  const [pending, setPending] = useState<T>(inUse);
   return (
     <>
       <div class="drawer-theme-scrim" onClick={onClose} />
@@ -187,11 +161,13 @@ function ChoiceSheet<T extends string>({ title, options, value, onChoose, onClos
         </div>
         <div class="drawer-theme-options" role="radiogroup" aria-label={title}>
           {options.map((option) => <button type="button" key={option.id} class="drawer-theme-option" role="radio"
-            aria-label={option.label} aria-checked={value === option.id} onClick={() => onChoose(option.id)}>
-            <span class="drawer-theme-copy"><strong>{option.label}{value === option.id ? <em>{t("当前使用", "In use")}</em> : null}</strong><small>{option.description}</small></span>
-            <span class={`drawer-theme-radio${value === option.id ? " selected" : ""}`} aria-hidden="true" />
+            aria-label={option.label} aria-checked={pending === option.id} onClick={() => setPending(option.id)}>
+            {option.icon ? <span class="drawer-theme-icon">{option.icon}</span> : null}
+            <span class="drawer-theme-copy"><strong>{option.label}{inUse === option.id ? <em>{t("当前使用", "In use")}</em> : null}</strong><small>{option.description}</small></span>
+            <span class={`drawer-theme-radio${pending === option.id ? " selected" : ""}`} aria-hidden="true" />
           </button>)}
         </div>
+        <button type="button" class="drawer-theme-save" onClick={() => onSave(pending)}>{t("保存", "Save")}</button>
       </div>
     </>
   );

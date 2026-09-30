@@ -75,7 +75,7 @@ it("keeps theme changes pending until Save and cancels them without changing the
   expect(chosen).toEqual(["theme:light"]);
 });
 
-it("keeps shared settings on the card page instead of a settings sub-page", () => {
+it("keeps shared settings on the card page and commits a sheet choice only on Save", () => {
   const chosen: string[] = [];
   const value = {
     ...context,
@@ -92,22 +92,34 @@ it("keeps shared settings on the card page instead of a settings sub-page", () =
   act(() => render(<AppContext.Provider value={value}><AccountDrawer onClose={() => {}} /></AppContext.Provider>, host));
   const button = (label: string) => [...host.querySelectorAll("button")].find((node) => node.getAttribute("aria-label") === label || node.textContent === label)!;
   const sheet = (label: string) => host.querySelector(`[role="dialog"][aria-label="${label}"]`);
+  const option = (label: string) => host.querySelector(`[role="dialog"] [role="radio"][aria-label="${label}"]`);
   // The gear and the settings layer are gone: the drawer stays one card page.
   expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
   expect(host.querySelector('button[aria-label="设置"]')).toBeNull();
   expect(host.querySelector('button[aria-label="返回"]')).toBeNull();
-  // Language and font size are card-page rows that open a sheet and apply on tap.
+  // Language: picking only moves the pending item; 当前使用 still marks the applied one.
   act(() => button("语言").click());
   expect(sheet("语言")).not.toBeNull();
   act(() => button("English").click());
+  expect(chosen).toEqual([]);
+  expect(option("English")?.getAttribute("aria-checked")).toBe("true");
+  expect(option("跟随系统")?.getAttribute("aria-checked")).toBe("false");
+  expect(option("跟随系统")?.textContent).toContain("当前使用");
+  act(() => button("保存").click());
   expect(chosen).toEqual(["language:en"]);
-  act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
   expect(sheet("语言")).toBeNull();
-  expect(host.querySelector('.account-drawer')).not.toBeNull();
+  // Font size: Escape cancels the pending choice without writing, and reopening resets it.
   act(() => button("字体大小").click());
   act(() => button("特大").click());
+  expect(chosen).toEqual(["language:en"]);
+  act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+  expect(chosen).toEqual(["language:en"]);
+  expect(sheet("字体大小")).toBeNull();
+  act(() => button("字体大小").click());
+  expect(option("标准")?.getAttribute("aria-checked")).toBe("true");
+  act(() => button("特大").click());
+  act(() => button("保存").click());
   expect(chosen).toEqual(["language:en", "font:xlarge"]);
-  act(() => button("关闭").click());
   expect(sheet("字体大小")).toBeNull();
   expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
 });
