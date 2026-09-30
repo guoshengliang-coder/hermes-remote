@@ -1749,7 +1749,7 @@ entries in the post-switch window. Existing account flags, database schema and p
 configuration were preserved. An unauthenticated same-origin voice upgrade returned 401.
 
 From a clean isolated worktree at that same release source, `WEB_PUBLISH_VERIFY_PUBLIC=1
-scripts/publish-web-app.sh` passed typecheck, 586 tests, build, installation and public index
+scripts/publish-web-app.sh` passed typecheck, 589 tests across 53 files, build, installation and public index
 comparison. Web `0.1.0-80e4985446d8` replaced `0.1.0-8828b05be950`; independent full public reads
 matched the size and SHA-256 of all 13 packaged files, including the AudioWorklet. `/app/` reports
 `microphone=(self)`. Release receipt SHA-256 is
