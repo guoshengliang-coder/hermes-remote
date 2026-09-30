@@ -733,6 +733,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           language={language}
           generating={state.generating}
           disabled={state.terminal || !device}
+          voiceReady={state.connection === "ready"}
           onSend={send}
           onInterrupt={() => void sessionRef.current?.interrupt()}
           draftKey={device ? draftKey(device.deviceId, storedId) : null}

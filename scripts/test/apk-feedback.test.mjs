@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {mkdtempSync, writeFileSync} from 'node:fs';
@@ -16,7 +17,7 @@ import {test} from 'node:test';
  * surfaced when a person went looking for the feature.
  */
 
-const CHECK = new URL('../lib/apk_feedback.py', import.meta.url).pathname;
+const CHECK = fileURLToPath(new URL('../lib/apk_feedback.py', import.meta.url));
 const ENDPOINT = 'https://missiongo.example/api';
 const TOKEN = 'nonsecret-test-token';
 

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,7 +18,7 @@ import { test } from 'node:test';
  * is self-consistent, or derive the dates from `now()` / `Date.now()`.
  */
 
-const GATEWAY_SRC = new URL('../../gateway/src/', import.meta.url).pathname;
+const GATEWAY_SRC = fileURLToPath(new URL('../../gateway/src/', import.meta.url));
 const GUARDED_TABLES = ['device_share_invitations', 'email_otp_challenges'];
 
 /** Every `INSERT INTO <table> (cols) … );` statement in a file, with its line number. */

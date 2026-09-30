@@ -61,7 +61,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
   } = loadGatewayConfig(environment);
   const log = createGatewayLogger(logLevel);
   const lifecycleEvents = new LifecycleEventStore(lifecycleEventStoreFile, maxLifecycleEvents, log);
-  const accountRuntime = createAccountRuntime(environment, release);
+  const accountRuntime = createAccountRuntime(environment, release, Boolean(doubaoAsrApiKey));
   const connectorRegistry = new InMemoryConnectorRegistry<GatewayPeer>();
   const accountConnectorAdmission = new AccountConnectorAdmission(
     maxUnauthenticatedAccountConnectors,
@@ -87,8 +87,10 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     (routingKey) => connectorRegistry.getByRoutingKey(routingKey),
     log,
   );
+  const voiceProxy = new DoubaoVoiceProxy(doubaoAsrApiKey);
   const unsubscribeAccessRevocations = accountRuntime.gatewayControl?.subscribeAccessRevocations?.(
     (event) => {
+      voiceProxy.revoke(event);
       switch (event.kind) {
         case "account": webSocketTunnels.revokeAccount(event.accountId); break;
         case "session": webSocketTunnels.revokeAccountSession(
@@ -129,7 +131,6 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     defaultDeviceId,
     tokensEqual: safeEqual,
   });
-  const voiceProxy = new DoubaoVoiceProxy(doubaoAsrApiKey);
   const legacyControlSessions = new LegacyControlSessionHandler({
     appToken,
     connectorToken,
@@ -230,7 +231,12 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     atWebSocketCapacity: () => webSocketTunnels.atCapacity,
     voiceAvailable: () => voiceProxy.available,
     voiceAtCapacity: () => voiceProxy.atCapacity,
-    openVoiceWebSocket: (socket) => voiceProxy.open(socket),
+    openVoiceWebSocket: (socket, request, connector) => {
+      const access = appWebSocketAuthorizer.consumeAccountAccess(request);
+      voiceProxy.open(socket, access, access
+        ? () => appWebSocketAuthorizer.revalidateAccountConnector(access.principal, connector.deviceId)
+        : undefined);
+    },
     attachLegacyControl: (socket) => legacyControlSessions.attach(socket),
     attachAccountConnector: (socket, sourceIp) => {
       if (accountConnectorSessions) accountConnectorSessions.attach(socket, sourceIp);

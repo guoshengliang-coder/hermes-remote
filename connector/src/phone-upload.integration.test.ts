@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 
 test("Connector accepts a file above the old 6 MiB limit without losing its bytes", {
@@ -71,7 +72,7 @@ test("Connector accepts a file above the old 6 MiB limit without losing its byte
       socket.on("close", (code) => seen.push(`closed:${code}`));
     });
   });
-  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname], {
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./index.js", import.meta.url))], {
     env: {
       PATH: process.env.PATH, HOME: root,
       CONNECTOR_MODE: "legacy", HERMES_MODE: "mock", SESSION_OBSERVER_ENABLED: "0",

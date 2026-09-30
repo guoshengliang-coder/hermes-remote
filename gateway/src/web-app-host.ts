@@ -59,7 +59,7 @@ export class WebAppHost {
       ].join("; "),
       "cross-origin-opener-policy": "same-origin",
       "x-frame-options": "DENY",
-      "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+      "permissions-policy": "camera=(), microphone=(self), geolocation=(), payment=(), usb=()",
     };
   }
 

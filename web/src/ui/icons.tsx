@@ -340,3 +340,7 @@ export const TrashIcon = (p: IconProps) => (
     <path d="M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12M9 7V4h6v3" />
   </Svg>
 );
+
+export const MicIcon = (p: IconProps) => <Svg {...p}><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0014 0v-2M12 19v3M8 22h8" /></Svg>;
+export const KeyboardIcon = (p: IconProps) => <Svg {...p}><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M18 13h.01M7 16h10" /></Svg>;
+export const TextIcon = (p: IconProps) => <Svg {...p}><path d="M4 5h16M12 5v15M8 20h8M4 5v3M20 5v3" /></Svg>;

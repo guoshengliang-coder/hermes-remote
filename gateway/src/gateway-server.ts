@@ -34,7 +34,7 @@ interface GatewayServerOptions<TConnector> {
   ): void;
   voiceAvailable(): boolean;
   voiceAtCapacity(): boolean;
-  openVoiceWebSocket(socket: WebSocket): void;
+  openVoiceWebSocket(socket: WebSocket, request: IncomingMessage, connector: TConnector): void;
   closeDependencies(): Promise<void>;
   reportFailure(message: string, error: unknown): void;
   log: GatewayLogger;
@@ -191,13 +191,13 @@ export class GatewayServer<TConnector> {
           rejectUpgrade(socket, 503, "Voice unavailable");
           return;
         }
-        void this.options.authorizeAppWebSocket(request, url).then(() => {
+        void this.options.authorizeAppWebSocket(request, url).then((connector) => {
           if (this.options.voiceAtCapacity()) {
             rejectUpgrade(socket, 503, "Voice capacity reached");
             return;
           }
           this.voiceWss.handleUpgrade(request, socket, head, (webSocket) => {
-            this.voiceWss.emit("connection", webSocket);
+            this.voiceWss.emit("connection", webSocket, request, connector);
           });
         }).catch((error) => this.options.rejectAppUpgrade(socket, error));
         return;
@@ -243,8 +243,8 @@ export class GatewayServer<TConnector> {
     ) => {
       this.options.openAppWebSocket(socket, request, connector);
     });
-    this.voiceWss.on("connection", (socket: WebSocket) => {
-      this.options.openVoiceWebSocket(socket);
+    this.voiceWss.on("connection", (socket: WebSocket, request: IncomingMessage, connector: TConnector) => {
+      this.options.openVoiceWebSocket(socket, request, connector);
     });
   }
 

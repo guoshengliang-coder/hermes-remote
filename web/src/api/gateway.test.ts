@@ -58,6 +58,7 @@ describe("paths", () => {
 
   it("builds the device WebSocket URL from the page scheme and host", () => {
     expect(paths.deviceWs("d/1", { protocol: "https:", host: "go.example" })).toBe("wss://go.example/v2/devices/d%2F1/ws");
+    expect(paths.deviceVoice("d/1", { protocol: "https:", host: "go.example" })).toBe("wss://go.example/v2/devices/d%2F1/voice");
     expect(paths.deviceWs("d", { protocol: "http:", host: "localhost:8443" })).toBe("ws://localhost:8443/v2/devices/d/ws");
   });
 

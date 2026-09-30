@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {mkdtempSync, writeFileSync} from 'node:fs';
@@ -19,7 +20,7 @@ import {test} from 'node:test';
  * fails here instead of halfway through a catalog mutation.
  */
 
-const REPORT = new URL('../lib/release_catalog_report.py', import.meta.url).pathname;
+const REPORT = fileURLToPath(new URL('../lib/release_catalog_report.py', import.meta.url));
 
 function indexFile(count, {latestOffset = 0} = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'catalog-'));

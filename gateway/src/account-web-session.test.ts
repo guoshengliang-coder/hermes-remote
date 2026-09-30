@@ -1090,3 +1090,13 @@ class MemoryResponse {
     return Array.isArray(value) ? value : value ? [value] : [];
   }
 }
+
+test("Web speech is advertised only with configured speech and enabled browser access", async () => {
+  for (const voiceEnabled of [false, true]) for (const webDeviceAccessEnabled of [false, true]) {
+    const result = await call(new AccountHttpController(true, undefined, {
+      webSessionEnabled: true, webDeviceAccessEnabled, voiceEnabled,
+    }), "GET", "/v2/capabilities");
+    const features = (result.json() as { accountAuth: { webDeviceFeatures?: string[] } }).accountAuth.webDeviceFeatures ?? [];
+    assert.equal(features.includes("voice-input"), voiceEnabled && webDeviceAccessEnabled);
+  }
+});

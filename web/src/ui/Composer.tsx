@@ -16,9 +16,15 @@ import { historyItems } from "../chat/model";
 import { fetchFullHistory } from "../chat/history";
 import { transcriptAttachmentName, transcriptMarkdownForAttachment } from "../chat/transcript";
 import type { SessionListItem } from "../hermes/types";
-import { CameraIcon, ChatIcon, CloseIcon, FileIcon, ImageIcon, ListIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
+import { CameraIcon, KeyboardIcon, MicIcon, ChatIcon, CloseIcon, FileIcon, ImageIcon, ListIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
 import { PromptLibrary, SavedPromptsSheet, SessionPicker } from "./ComposerSheets";
 import { Sheet } from "./Sheet";
+import { paths } from "../api/gateway";
+import { allowMicrophone, voiceCaptureSupported } from "../chat/voiceCapture";
+import { BrowserVoiceSession } from "../chat/voiceSession";
+import { appendVoiceText, type VoiceAction } from "../chat/voiceGesture";
+import { VoiceComposer } from "./VoiceComposer";
+import { useBackClose } from "../app/useBackClose";
 
 // Bottom composer: autosizing textarea, attachments, send / stop. Enter sends on a desktop
 // keyboard (Shift+Enter is a newline); on touch devices only the button sends. IME composition
@@ -39,6 +45,8 @@ export interface ComposerProps {
   chip?: { label: string; onClick: () => void } | null;
   /** Replaces the input: this conversation is running in another client (HR-SESS-013). */
   blocked?: preact.ComponentChildren;
+  /** Voice requires a live conversation socket; reconnecting cannot auto-send speech. */
+  voiceReady?: boolean;
   /** The open conversation, left out of 「添加会话」. */
   sessionId?: string | null;
   /** Tapping an image chip (preview / edit / remove). */
@@ -54,7 +62,7 @@ let seq = 0;
 
 const DRAFT_DEBOUNCE_MS = 400;
 
-export function Composer({ t, language, generating, disabled, onSend, onInterrupt, draftKey = null, seed = null, chip = null, blocked = null, sessionId = null, onOpenAttachment }: ComposerProps) {
+export function Composer({ t, language, generating, disabled, onSend, onInterrupt, draftKey = null, seed = null, chip = null, blocked = null, sessionId = null, voiceReady = true, onOpenAttachment }: ComposerProps) {
   const app = useApp();
   const [sheet, setSheet] = useState<"add" | "prompts" | "library" | "picker" | null>(null);
   const [generatingCount, setGeneratingCount] = useState(0);
@@ -69,11 +77,86 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const composer = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
 
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [voicePhase, setVoicePhase] = useState<"idle" | "held" | "waiting">("idle");
+  const [voiceText, setVoiceText] = useState("");
+  const [requestingMic, setRequestingMic] = useState(false);
+  const voice = useRef<BrowserVoiceSession | null>(null);
+  const permissionEpoch = useRef(0);
+  const intent = useRef<VoiceAction>("send");
+  const latest = useRef({ disabled, blocked, generating, voiceReady, onSend });
+  latest.current = { disabled, blocked, generating, voiceReady, onSend };
+  const voiceAvailable = app.features.has("voice-input") && voiceCaptureSupported();
+  function collapse() { area.current?.blur(); setFocused(false); }
+  function cancelVoice(keep = false) {
+    const partial = voice.current?.cancel() ?? "";
+    voice.current = null;
+    setVoicePhase("idle"); setVoiceText("");
+    if (keep && partial.trim()) { setText((draft) => appendVoiceText(draft, partial)); setVoiceMode(false); setFocused(true); }
+  }
+  async function enterVoice() {
+    collapse(); setRequestingMic(true);
+    const epoch = ++permissionEpoch.current;
+    // getUserMedia may remain unanswered forever: release the UI after ten seconds. Any late
+    // permission result still stops its tracks, and cannot switch a new conversation into voice.
+    const timeout = setTimeout(() => {
+      if (permissionEpoch.current === epoch) { permissionEpoch.current++; setRequestingMic(false); setProblem(appError("HR-PERM-006")); }
+    }, 10_000);
+    try {
+      await allowMicrophone();
+      if (permissionEpoch.current === epoch) { setVoiceMode(true); setProblem(null); }
+    } catch {
+      if (permissionEpoch.current === epoch) setProblem(appError("HR-PERM-006"));
+    } finally {
+      clearTimeout(timeout);
+      if (permissionEpoch.current === epoch) setRequestingMic(false);
+    }
+  }
+  function beginVoice() {
+    if (voice.current || disabled || blocked || generating || !voiceReady || !app.device) return;
+    intent.current = "send"; setVoiceText(""); setVoicePhase("held"); setProblem(null);
+    const deviceId = app.device.deviceId;
+    const recording = new BrowserVoiceSession({
+      endpoint: async () => { await app.client.settled(); return paths.deviceVoice(deviceId); },
+      onEvent: (event) => {
+        if (voice.current !== recording) return;
+        if (event.kind === "partial") { setVoiceText(event.text); return; }
+        if (event.kind === "waiting") { setVoicePhase("waiting"); return; }
+        voice.current = null; setVoicePhase("idle"); setVoiceText("");
+        const state = latest.current;
+        if (event.kind === "failed" || intent.current === "edit" || state.disabled || state.blocked || state.generating || !state.voiceReady) {
+          if (event.text.trim()) { setText((draft) => appendVoiceText(draft, event.text)); setVoiceMode(false); setFocused(true); }
+          if (event.kind === "failed") setProblem(event.error);
+        } else {
+          // A speech message is its own prompt; existing text and attachment drafts stay intact.
+          state.onSend(event.text, []); collapse();
+        }
+      },
+    });
+    voice.current = recording; recording.start();
+  }
+  function releaseVoice(action: VoiceAction) {
+    if (action === "cancel") { cancelVoice(); return; }
+    intent.current = action; voice.current?.finish();
+  }
+  useEffect(() => {
+    if (disabled || blocked || generating || !voiceReady) cancelVoice(true);
+  }, [disabled, blocked, generating, voiceReady]);
+  useEffect(() => {
+    const hide = () => { if (document.visibilityState === "hidden") cancelVoice(true); };
+    document.addEventListener("visibilitychange", hide);
+    return () => { document.removeEventListener("visibilitychange", hide); permissionEpoch.current++; voice.current?.cancel(); voice.current = null; };
+  }, []);
+  useBackClose(() => { if (voice.current) cancelVoice(true); else collapse(); }, (focused || voicePhase !== "idle") && !sheet);
+
   // A different conversation brings its own draft.
   const keyRef = useRef(draftKey);
   useEffect(() => {
     if (keyRef.current === draftKey) return;
     keyRef.current = draftKey;
+    cancelVoice(); permissionEpoch.current++; setRequestingMic(false); setVoiceMode(false); setFocused(false);
+    setAttachments((current) => { current.forEach((a) => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); }); return []; });
+    setProblem(null);
     setText(draftKey ? loadDraft(draftKey) : "");
   }, [draftKey]);
 
@@ -90,11 +173,15 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   }, [seed?.nonce]);
 
   useEffect(() => {
+    if (focused && !voiceMode) area.current?.focus();
+  }, [focused, voiceMode]);
+
+  useEffect(() => {
     const el = area.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
-  }, [text]);
+    el.style.height = `${Math.min(el.scrollHeight, focused ? 168 : 96)}px`;
+  }, [text, focused]);
 
   async function addFiles(list: FileList | null) {
     if (!list || !list.length) return;
@@ -174,13 +261,14 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     if (draftKey) saveDraft(draftKey, "");
     setAttachments([]); // preview URLs now belong to the sent bubble
     setProblem(null);
+    collapse();
   }
 
   if (blocked) return <div class="composer-wrap">{blocked}</div>;
 
   const full = attachments.length >= MAX_ATTACHMENTS;
   const addButton = () => (
-    <button type="button" class="icon-button composer-add" aria-label={t("添加内容", "Add content")} disabled={disabled} onClick={() => { setFocused(false); setSheet("add"); }}>
+    <button type="button" class="icon-button composer-add" aria-label={t("添加内容", "Add content")} disabled={disabled} onClick={() => { collapse(); setSheet("add"); }}>
       <PlusIcon />
     </button>
   );
@@ -243,7 +331,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   return (
     <div class="composer-wrap">
       {sheets}
-      {problem ? <ErrorNotice error={problem} language={language} onDismiss={() => setProblem(null)} variant="inline" /> : null}
+      {problem ? <ErrorNotice error={problem} language={language} onRetry={problem.code === "HR-PERM-006" ? () => void enterVoice() : problem.code.startsWith("HR-VOICE-") ? () => { setProblem(null); setVoiceMode(true); } : undefined} onDismiss={() => setProblem(null)} variant="inline" /> : null}
       {attachments.length ? (
         <div class="attachment-strip">
           {attachments.map((a) => (
@@ -283,7 +371,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
           {t(`正在生成 ${generatingCount} 份对话记录…`, `Preparing ${generatingCount} transcript${generatingCount === 1 ? "" : "s"}…`)}
         </p>
       ) : null}
-      <div ref={composer} class={`composer${focused ? " expanded" : ""}`}>
+      <div ref={composer} class={`composer${focused && !voiceMode ? " expanded" : ""}${voiceMode ? " voice-mode" : ""}`}>
         {[
           { ref: camera, accept: "image/*", capture: "environment" as const, multiple: false },
           { ref: photos, accept: "image/*", capture: undefined, multiple: true },
@@ -305,14 +393,20 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
             }}
           />
         ))}
+        {voiceMode ? <>
+          <button type="button" class="icon-button composer-voice" aria-label={t("切换键盘输入", "Switch to keyboard")} disabled={voicePhase !== "idle"} onClick={() => { cancelVoice(); setVoiceMode(false); setFocused(true); area.current?.focus(); }}><KeyboardIcon /></button>
+          <VoiceComposer t={t} phase={voicePhase} text={voiceText} disabled={disabled || generating || !voiceReady || preparing} onBegin={beginVoice} onRelease={releaseVoice} onCancelWait={() => cancelVoice(true)} />
+          {generating ? sendOrStop() : addButton()}
+        </> : <>
+        {!focused && voiceAvailable ? <button type="button" class="icon-button composer-voice" aria-label={t("切换语音输入", "Switch to voice input")} disabled={disabled || requestingMic} onClick={() => void enterVoice()}>{requestingMic ? <span class="spinner tiny" /> : <MicIcon />}</button> : null}
         <textarea
           ref={area}
           class="composer-input"
           rows={1}
           value={text}
           disabled={disabled}
-          placeholder={focused ? t("输入消息…", "Type a message…") : t("发消息", "Message")}
-          enterkeyhint="send"
+          placeholder={t("输入消息…", "Type a message…")}
+          enterkeyhint={finePointer() ? "send" : "enter"}
           onFocus={() => setFocused(true)}
           onBlur={(e) => { if (!composer.current?.contains(e.relatedTarget as Node | null)) setFocused(false); }}
           onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
@@ -325,8 +419,9 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         />
         {focused ? (
           <div class="composer-actions">
+            {voiceAvailable ? <button type="button" class="icon-button composer-voice" aria-label={t("切换语音输入", "Switch to voice input")} disabled={disabled || requestingMic} onClick={() => void enterVoice()}>{requestingMic ? <span class="spinner tiny" /> : <MicIcon />}</button> : null}
             {chip ? (
-              <button type="button" class="model-chip mono" onClick={() => { setFocused(false); chip.onClick(); }} aria-label={t(`模型：${chip.label}`, `Model: ${chip.label}`)}>
+              <button type="button" class="model-chip mono" onClick={() => { collapse(); chip.onClick(); }} aria-label={t(`模型：${chip.label}`, `Model: ${chip.label}`)}>
                 {chip.label}<span aria-hidden="true">⌄</span>
               </button>
             ) : <span class="composer-action-spacer" />}
@@ -334,6 +429,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
             {sendOrStop()}
           </div>
         ) : generating || canSend || text.trim() || attachments.length ? sendOrStop() : addButton()}
+        </>}
       </div>
       <p class="composer-disclaimer">{t("内容由 AI 生成", "Content generated by AI")}</p>
     </div>

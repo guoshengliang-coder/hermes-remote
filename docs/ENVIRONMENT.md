@@ -59,6 +59,15 @@ The production release environment inspector and candidate renderer preserve thi
 The account-device Nginx route must also include `/v2/devices/{id}/voice` with WebSocket upgrade
 headers (the managed route renderer includes it); the legacy `/api/voice` follows `/api/`.
 
+For Web chat, the same key enables the additive `webDeviceFeatures` entry `voice-input` only
+when account Web sessions and device access are enabled. The same-origin browser socket uses
+the existing HttpOnly session cookie and exact Origin check, never an ASR key or URL token.
+`/app/` permits `microphone=(self)`; the separate account-center shell keeps microphone disabled.
+The browser requires HTTPS (or loopback development), getUserMedia, AudioWorklet and gzip DecompressionStream. No new
+credential or environment variable is required; configuring a production key still needs deployment
+authorization. Account speech sockets receive revocation events and recheck session/binding liveness
+immediately and every ten seconds, with a ten-second recheck deadline.
+
 The Connector accepts the same optional knob as `CONNECTOR_LOG_LEVEL` (default `info`).
 
 Account authentication is an independent, default-off control plane. I1 introduces the following

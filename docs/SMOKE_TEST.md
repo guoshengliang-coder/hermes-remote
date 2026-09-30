@@ -1347,3 +1347,31 @@ test stack; stopping the production Mac service is not part of this check.
    Repeat after the child finishes: an empty roster must not invent a running child. Record the
    Hermes version, phone model, and whether `subagent.list` was available. A cold open cannot
    reconstruct children that finished before Android ever observed them.
+
+## HG-165 Web composer and Doubao acceptance
+
+Automated tests cover capability gating, microphone policy, PCM conversion and V3 framing, bounded
+gzip parsing, session teardown, partial/final/timeout/cancel paths, draft isolation and composer focus.
+The following still require a real browser/device and configured provider; mocked PCM is not
+production or microphone verification. Use non-sensitive test speech.
+
+1. On Android WebView, iPhone Safari/PWA and desktop, check empty, focused, multiline and attachment
+   drafts, long model names, generating Stop and blocked input in light/dark themes and large text.
+   Core buttons stay visible at 353 px; Send closes the keyboard, opening model/attachment sheets
+   releases focus, IME Enter never submits and touch Enter inserts a line break.
+2. Without an ASR key or browser APIs, microphone entry stays hidden. With the key, allow/deny/reset
+   microphone permission; denial shows bilingual `HR-PERM-006` with Retry and preserves the draft.
+   An unanswered prompt times out without locking the UI; late permission cannot affect a new chat.
+3. Hold and speak: timer and partial text update without submission. Release sends only the final
+   transcript, preserving a pre-existing text/attachment draft. Slide above the actual left/right
+   circles to cancel/edit; test short holds, pointer cancellation, rotation and finger returning to
+   the center. Desktop Space/Enter holds, left/right/down choose action and Escape cancels.
+4. Disconnect the provider or wait for timeout: partial text returns to the draft under
+   `HR-VOICE-002`; cancel waiting also keeps partial text, gesture cancel discards it. Verify the
+   microphone indicator disappears on release, background, navigation, sign-out and device switch.
+   Maximum capture is 60 seconds; late results cannot write to another conversation.
+5. Confirm cookie upgrade accepts the exact Origin only; no token/key is present in URLs or JS.
+   Revoke the browser session or device share while recording and confirm the speech socket closes
+   and no prompt submits. Refreshing access credentials alone must not close a live session.
+6. Check Safari permission and AudioContext resume after switching back from the keyboard, including
+   a second recording. Confirm neither raw audio nor transcript content is in Gateway diagnostics.

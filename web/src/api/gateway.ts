@@ -123,7 +123,7 @@ export function supportsWebDeviceAccess(caps: GatewayCapabilities): boolean {
   return caps.accountAuth?.webDeviceAccess === true;
 }
 
-export type WebDeviceFeature = "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "process-list" | "session-access";
+export type WebDeviceFeature = "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "process-list" | "session-access" | "voice-input";
 
 /** Features this Gateway admits for the Web app; an older Gateway lists none, so nothing extra shows. */
 export function webDeviceFeatures(caps: GatewayCapabilities): ReadonlySet<WebDeviceFeature> {
@@ -173,6 +173,9 @@ export const paths = {
   deviceWs(deviceId: string, location: { protocol: string; host: string } = globalThis.location): string {
     const scheme = location.protocol === "http:" ? "ws" : "wss";
     return `${scheme}://${location.host}/v2/devices/${encodePathSegment(deviceId)}/ws`;
+  },
+  deviceVoice(deviceId: string, location: { protocol: string; host: string } = globalThis.location): string {
+    return paths.deviceWs(deviceId, location).replace(/\/ws$/, "/voice");
   },
   inbox(after: number, limit: number): string {
     return `/api/mobile/events?after=${after}&limit=${limit}`;

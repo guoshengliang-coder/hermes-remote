@@ -88,6 +88,7 @@ export class AccountHttpController {
       webAccountCenterEnabled?: boolean;
       webSessionEnabled?: boolean;
       webDeviceAccessEnabled?: boolean;
+      voiceEnabled?: boolean;
       webSessionSecurity?: WebSessionSecurity;
       googleWebClientId?: string;
       multiDeviceEnabled?: boolean;
@@ -120,6 +121,7 @@ export class AccountHttpController {
           Boolean(this.options.desktopComponentInstallEnabled),
           this.options.pushRegistration?.providers ?? [],
           this.options.serverRelease,
+          Boolean(this.options.voiceEnabled),
         ), {
           "cache-control": "public, max-age=60",
         });
@@ -1289,6 +1291,7 @@ function capabilities(
   desktopComponentInstallEnabled: boolean,
   pushProviders: PushProviderName[],
   serverRelease?: ServerReleaseManifest,
+  voiceEnabled = false,
 ): AccountCapabilities {
   return {
     version: 1,
@@ -1305,7 +1308,7 @@ function capabilities(
       webAccountCenter: enabled && webAccountCenterEnabled,
       ...(enabled && webSessionEnabled ? { webSessions: true as const } : {}),
       ...(enabled && webSessionEnabled && webDeviceAccessEnabled
-        ? { webDeviceAccess: true as const, webDeviceFeatures: [...WEB_DEVICE_FEATURES] }
+        ? { webDeviceAccess: true as const, webDeviceFeatures: [...WEB_DEVICE_FEATURES, ...(voiceEnabled ? ["voice-input"] : [])] }
         : {}),
     },
     binding: {

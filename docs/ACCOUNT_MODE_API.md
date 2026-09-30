@@ -163,7 +163,7 @@ Rules:
   absence means the Web app must show its "not available on this Gateway" state instead of calling
   device routes. With it, `webDeviceFeatures` lists what the Gateway admits beyond chat
   (`session-manage`, `session-delete`, `workspace-move`, `model-select`, `process-list`,
-  `session-access`); the Web app shows only listed features, so an older Gateway simply hides them.
+  `session-access`, and `voice-input` when the private Doubao key is configured); the Web app shows only listed features, so an older Gateway simply hides them.
 - `replacement=true` is advertised only when the independently gated binding surface is enabled and
   the replacement/unbind HTTP contract is available. The flag remains false in production while
   `ACCOUNT_BINDING_ENABLED=0`.
@@ -1217,3 +1217,20 @@ semantics come from `ERROR_HANDLING.md`.
 
 No release disables a legacy column merely because the new client has shipped. Retirement follows
 the separate G5 decision in `ACCOUNT_MODE_IMPLEMENTATION_PLAN.md`.
+
+### Web speech input (HG-165)
+
+`WebSocket /v2/devices/{deviceId}/voice` reuses the selected-device authorization from §8,
+including permitted shared devices. The browser supplies its session cookie and the exact Origin;
+query parameters, mixed bearer/cookie credentials and legacy credentials are rejected. Only binary
+Doubao V3 ASR frames are relayed; the provider key stays on Gateway. Browser AudioWorklet capture
+resamples to 16 kHz mono PCM16 little endian in 200 ms packets. Initial sequence is 1, audio starts
+at 2, and the last audio sequence is negative. Recognition responses are capped at 256 KiB after
+decompression. Recording stops at 60 seconds; initialization and final-result waits are bounded.
+Partial text never submits automatically; final text is sent only after release-to-send. Edit or
+cancel-wait returns text to the existing draft, while gesture cancel discards the recording.
+
+Android uses the same existing route and provider protocol; no Android, Desktop, Connector runtime
+or shared wire-protocol change is needed. Old Gateways omit `voice-input`, so Web retains keyboard
+input. Revoked account/session/installation/binding access closes both native and browser speech
+sockets; periodic session-liveness checks tolerate two transient failures and close at the third.
