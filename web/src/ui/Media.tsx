@@ -7,7 +7,7 @@ import { useApp } from "../app/store";
 import type { AppError } from "../errors";
 import type { Attachment } from "../hermes/media";
 import { ErrorNotice } from "./ErrorNotice";
-import { FileIcon } from "./icons";
+import { BrokenImageIcon, FileIcon } from "./icons";
 
 // Mac files referenced by messages (MEDIA:/@image:/@file:). Always fetched through the device
 // files route with the session cookie, turned into blob: URLs — never a cross-origin <img src>.
@@ -73,28 +73,46 @@ export function cachedBlobUrl(
 }
 
 /**
+ * The failed-image cell: the loading placeholder's own box and fill, with one centred
+ * broken-image glyph. Screen readers get the same sentence Android's `contentDescription`
+ * carries; nothing else is drawn (DESIGN §5.21 follows the §5.4 image failure state).
+ */
+function BrokenImageCell() {
+  const { t } = useApp();
+  return (
+    <div class="media-placeholder media-failed" role="img" aria-label={t("图片加载失败", "Image unavailable")}>
+      <BrokenImageIcon size={28} />
+    </div>
+  );
+}
+
+/**
  * An image inside a bubble, which is always the preview (HG-115). The fullscreen viewer fetches
  * the original through `cachedBlobUrl` itself, and `FileCard` below downloads the real file — this
  * component is the only place a downscaled copy is the right answer.
  */
 export function MacImage({ path, name, onOpen }: { path: string; name: string; onOpen?: () => void }) {
-  const { client, device, language, t } = useApp();
+  const { client, device, t } = useApp();
   const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState<AppError | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     if (!device) return;
     let live = true;
-    setError(null);
+    setFailed(false);
     cachedBlobUrl(client, device.deviceId, path, THUMBNAIL_WIDTH).then(
       (u) => live && setUrl(u),
-      (e: unknown) => live && setError(toAppError(e, "download")),
+      () => live && setFailed(true),
     );
     return () => {
       live = false;
     };
-  }, [path, device?.deviceId, attempt]);
-  if (error) return <ErrorNotice error={error} language={language} onRetry={() => setAttempt(attempt + 1)} variant="inline" />;
+  }, [path, device?.deviceId]);
+  // A picture that will not come back keeps its cell and draws the broken-image glyph (§5.4 /
+  // Android `ChatImages.kt`, HG-167). It used to stack one full-width error card per failed image,
+  // so a two-image message read as "the content will not load" instead of two unavailable pictures.
+  // Like Android the cell is inert and carries no prose — only the accessible label — so the reason
+  // (HR-FILE-003 and its "ask Hermes to move the file" advice) is no longer printed inside a chat.
+  if (failed) return <BrokenImageCell />;
   if (!url) return <div class="media-placeholder" aria-label={name} />;
   if (!onOpen) return <img class="media-image" src={url} alt={name} loading="lazy" decoding="async" />;
   return (

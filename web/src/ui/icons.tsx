@@ -306,6 +306,14 @@ export const ImageIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** A picture that cannot be fetched: the frame split by a crack (Android `Icons.Rounded.BrokenImage`, §5.4). */
+export const BrokenImageIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="5" width="16" height="14" rx="2" />
+    <path d="M14.4 5.1l-3 4.6 2.8 2.1-2.6 4.1" />
+  </Svg>
+);
+
 export const PenIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 013 3L8 18.5 4 20z" />
