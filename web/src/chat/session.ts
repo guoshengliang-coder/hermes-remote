@@ -18,6 +18,7 @@ import {
   type ReasoningValue,
 } from "../hermes/params";
 import { interpretAnswer, type AnswerPlan } from "../hermes/requests";
+import { modelSwitchValue, parseModelSwitchResult, type ModelSwitchResult } from "../hermes/modelSelection";
 import { sessionModelCommand } from "../hermes/slash";
 import type {
   FileAttachResult,
@@ -564,13 +565,23 @@ export class ChatSession {
     return { cwd: text("cwd"), branch: text("branch") };
   }
 
-  /** `/model <model> --provider <provider> --session` for this conversation only. */
-  async switchModel(provider: string, model: string): Promise<void> {
-    const command = sessionModelCommand(provider, model);
-    if (!command) throw new Error(`model id not admissible: ${provider}/${model}`);
+  /** Only the current session's model; confirm is sent only after an explicit user decision. */
+  async switchModel(provider: string, model: string, confirmed = false, useConfig = true): Promise<ModelSwitchResult> {
+    const value = modelSwitchValue(provider, model);
+    if (!value) throw new Error("model identifiers are not admissible");
     const id = await this.live();
-    const { method, params } = slashExec(id, command);
-    await this.call(method, params);
+    if (!useConfig) {
+      const command = sessionModelCommand(provider, model);
+      if (!command) throw new Error("legacy model identifiers are not admissible");
+      const { method, params } = slashExec(id, command);
+      await this.call(method, params, 20_000);
+      return { kind: "applied", model, warning: false };
+    }
+    const result = await this.call("config.set", {
+      key: "model", session_id: id, value,
+      ...(confirmed ? { confirm_expensive_model: true } : {}),
+    }, 20_000);
+    return parseModelSwitchResult(result);
   }
 
   async reasoning(): Promise<string | null> {

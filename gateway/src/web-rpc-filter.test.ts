@@ -112,3 +112,16 @@ test("workspace move, process list and session access are admitted with their ow
   assert.equal(forwarded("session.access", { session_id: "s", acquire: true }), false);
   assert.equal(forwarded("session.access", { session_id: "s", profile: "a/b" }), false);
 });
+
+test("HG-166 config.set models admit exact session values and explicit confirmation only", () => {
+  const ok = { key: "model", session_id: "live-1", value: "Model 6 Pro --provider openai --session" };
+  assert.equal(forwarded("config.set", ok), true);
+  assert.equal(forwarded("config.set", { ...ok, profile: "工作", confirm_expensive_model: true }), true);
+  for (const value of ["m", "m --provider p", "m --global --provider p --session", "m --reasoning high --provider p --session", "m --provider p --session\n/reset", "m --provider p --session;", " m --provider p --session", "m --provider p x --session"]) {
+    assert.equal(forwarded("config.set", { ...ok, value }), false, value);
+  }
+  for (const extra of [{ scope: "global" }, { cwd: "/" }, { api_key: "CANARY" }, { confirm_expensive_model: "true" }, { confirm_expensive_model: false }, { session_id: undefined }, { profile: "a/b" }]) {
+    assert.equal(forwarded("config.set", { ...ok, ...extra }), false);
+  }
+  assert.equal(forwarded("config.get", { key: "model", session_id: "live-1" }), false);
+});

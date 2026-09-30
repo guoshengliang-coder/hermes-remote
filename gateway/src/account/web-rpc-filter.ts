@@ -6,8 +6,8 @@
 //
 // Methods that can do more than the Web app needs are admitted in ONE shape only, checked here
 // before anything reaches the Mac (docs/ACCOUNT_MODE_SECURITY.md §4, Web batch 4): `slash.exec`
-// only switches the current session's model, `config.get` / `config.set` only touch the current
-// session's reasoning effort. An extra key or an out-of-range value refuses the whole request.
+// only switches the current session's model; config.get reads session reasoning, and config.set
+// writes only session reasoning or an exactly validated session model value. An extra key or an out-of-range value refuses the whole request.
 
 type ParamsCheck = (params: Record<string, unknown>) => boolean;
 
@@ -18,6 +18,13 @@ const PROFILE = /^[\p{L}\p{N}_. -]{1,64}$/u;
 // Model and provider ids (claude-opus-5, gpt-5.6-sol, openrouter/anthropic/x, qwen2.5:7b). No
 // whitespace, quotes or separators, so nothing can be appended to the command.
 const SESSION_MODEL_COMMAND = /^\/model [A-Za-z0-9._:\/@+-]{1,128} --provider [A-Za-z0-9._-]{1,64} --session$/;
+// A model value is not an arbitrary command: exactly one bounded model, provider and session flag.
+const SESSION_MODEL_VALUE = /^([\p{L}\p{N}._:\/@+ -]{1,128}) --provider [A-Za-z0-9._-]{1,64} --session$/u;
+function modelValue(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const model = SESSION_MODEL_VALUE.exec(value)?.[1];
+  return Boolean(model && model.trim() === model && !model.split(/ +/).some((token) => token.startsWith("--")));
+}
 // Android ui/models/ReasoningEffort.kt: REASONING_OFF plus REASONING_LEVELS.
 const REASONING_VALUES: ReadonlySet<string> = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 
@@ -60,9 +67,13 @@ export const BROWSER_RPC_CHECKS: ReadonlyMap<string, ParamsCheck> = new Map<stri
   // Read / write THIS session's reasoning effort; never another key, never another scope.
   ["config.get", (p) =>
     onlyKeys(p, ["key", "session_id", "profile"]) && p.key === "reasoning" && sessionId(p.session_id) && optionalProfile(p.profile)],
-  ["config.set", (p) =>
-    onlyKeys(p, ["key", "session_id", "value", "profile"]) && p.key === "reasoning" && sessionId(p.session_id) &&
-    typeof p.value === "string" && REASONING_VALUES.has(p.value) && optionalProfile(p.profile)],
+  ["config.set", (p) => {
+    if (!sessionId(p.session_id) || !optionalProfile(p.profile)) return false;
+    if (p.key === "reasoning") return onlyKeys(p, ["key", "session_id", "value", "profile"])
+      && typeof p.value === "string" && REASONING_VALUES.has(p.value);
+    return p.key === "model" && onlyKeys(p, ["key", "session_id", "value", "profile", "confirm_expensive_model"])
+      && modelValue(p.value) && (p.confirm_expensive_model === undefined || p.confirm_expensive_model === true);
+  }],
   // Read-only: the session's background processes, and who owns a session right now.
   ["process.list", (p) => onlyKeys(p, ["session_id", "profile"]) && sessionId(p.session_id) && optionalProfile(p.profile)],
   ["session.access", (p) =>

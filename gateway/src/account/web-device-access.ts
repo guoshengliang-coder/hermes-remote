@@ -91,6 +91,17 @@ function sessionPatch(value: unknown): boolean {
   return "title" in body || "archived" in body;
 }
 
+/** Connector injects scope=main; the browser cannot set credentials, endpoints or other slots. */
+function defaultModelSelection(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  return Object.keys(body).every((key) => ["model", "provider", "confirm_expensive_model"].includes(key))
+    && typeof body.provider === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(body.provider)
+    && typeof body.model === "string" && body.model.length <= 128 && body.model.trim() === body.model
+    && /^[\p{L}\p{N}._:/@+ -]+$/u.test(body.model) && !body.model.split(/ +/).some((token) => token.startsWith("--"))
+    && (body.confirm_expensive_model === undefined || body.confirm_expensive_model === true);
+}
+
 // The Web app is a chat client, not a Mac administration console: it reaches only the routes it
 // renders. Everything else (env, config, cron, skills, messaging, gateway restart, …) stays with the
 // Android and Desktop apps. Routes that change something are admitted in one shape only.
@@ -109,6 +120,7 @@ const BROWSER_ROUTES: ReadonlyArray<BrowserRoute> = [
   // Web batch 4 (docs/ACCOUNT_MODE_SECURITY.md §4): session management and the model list.
   { method: "PATCH", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: [], body: sessionPatch, audit: "session.update" },
   { method: "DELETE", path: new RegExp(`^/api/sessions/${SESSION_ID}$`), query: ["profile"], audit: "session.delete" },
+  { method: "POST", path: /^\/api\/hermes-remote\/default-model\/set$/, query: ["profile"], body: defaultModelSelection },
   { method: "GET", path: /^\/api\/model\/options$/, query: ["profile"] },
   { method: "GET", path: /^\/api\/hermes-remote\/default-model$/, query: ["profile"], noBody: true },
 ];
@@ -118,7 +130,7 @@ export function browserRouteFor(method: string | undefined, url: URL): BrowserRo
   const normalized = method === "HEAD" ? "GET" : method ?? "GET";
   const route = BROWSER_ROUTES.find((candidate) => candidate.method === normalized && candidate.path.test(url.pathname));
   if (!route) return undefined;
-  if (route.noBody && url.searchParams.getAll("profile").length > 1) return undefined;
+  if ((route.noBody || route.body) && url.searchParams.getAll("profile").length > 1) return undefined;
   if (route.query) {
     for (const [key, value] of url.searchParams) {
       if (!route.query.includes(key)) return undefined;
@@ -145,6 +157,8 @@ export const WEB_DEVICE_FEATURES = [
   "workspace-move",
   "model-select",
   "default-model",
+  "default-model-write",
+  "session-model-config",
   "process-list",
   "session-access",
 ] as const;

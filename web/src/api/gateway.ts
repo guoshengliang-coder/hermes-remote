@@ -123,7 +123,7 @@ export function supportsWebDeviceAccess(caps: GatewayCapabilities): boolean {
   return caps.accountAuth?.webDeviceAccess === true;
 }
 
-export type WebDeviceFeature = "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "process-list" | "session-access" | "voice-input";
+export type WebDeviceFeature = "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "default-model-write" | "session-model-config" | "process-list" | "session-access" | "voice-input";
 
 /** Features this Gateway admits for the Web app; an older Gateway lists none, so nothing extra shows. */
 export function webDeviceFeatures(caps: GatewayCapabilities): ReadonlySet<WebDeviceFeature> {
@@ -581,6 +581,12 @@ export class GatewayClient {
 
   defaultModel(deviceId: string, profile?: string | null): Promise<DefaultModelResponse> {
     return this.deviceApi(deviceId, "GET", `hermes-remote/default-model${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`);
+  }
+
+  setDefaultModel(deviceId: string, provider: string, model: string, profile: string | null, confirmed = false): Promise<DefaultModelResponse | { confirm_required: true }> {
+    return this.deviceApi(deviceId, "POST", `hermes-remote/default-model/set${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`, {
+      body: { provider, model, ...(confirmed ? { confirm_expensive_model: true } : {}) },
+    });
   }
 
   // ---- Lifecycle inbox ----

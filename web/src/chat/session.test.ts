@@ -85,6 +85,33 @@ describe("ChatSession", () => {
     return { session, ws: () => ws, actions };
   }
 
+  it("HG-166 sends config.set to the live session and parses confirmation, deferral and canonical results", async () => {
+    const { session, ws } = await readySession();
+    try {
+      const switching = session.switchModel("p", "Model 6 Pro");
+      await tick();
+      const call = ws().last("config.set")!;
+      expect(ws().sent.at(-1)).toMatchObject({ method: "config.set", params: { key: "model", session_id: "live-1", value: "Model 6 Pro --provider p --session" } });
+      expect((ws().sent.at(-1)!.params as Record<string, unknown>).confirm_expensive_model).toBeUndefined();
+      ws().receive({ jsonrpc: "2.0", id: call.id, result: { confirm_required: true, scope: "session" } });
+      expect(await switching).toEqual({ kind: "confirmation" });
+      const confirmed = session.switchModel("p", "Model 6 Pro", true);
+      await tick();
+      expect(ws().sent.at(-1)).toMatchObject({ params: { confirm_expensive_model: true } });
+      ws().receive({ jsonrpc: "2.0", id: ws().last("config.set")!.id, result: { deferred: true, value: "Model 6 Pro", scope: "session" } });
+      expect(await confirmed).toEqual({ kind: "deferred" });
+      const applied = session.switchModel("p", "m");
+      await tick();
+      ws().receive({ jsonrpc: "2.0", id: ws().last("config.set")!.id, result: { value: "canonical", scope: "session" } });
+      expect(await applied).toEqual({ kind: "applied", model: "canonical", warning: false });
+      const legacy = session.switchModel("p", "m", false, false);
+      await tick();
+      expect(ws().last("slash.exec")).toBeDefined();
+      ws().receive({ jsonrpc: "2.0", id: ws().last("slash.exec")!.id, result: {} });
+      expect(await legacy).toEqual({ kind: "applied", model: "m", warning: false });
+    } finally { session.dispose(); }
+  });
+
   it.each([
     [4090, "HR-SESS-013", false],
     [4007, "HR-SESS-001", true],

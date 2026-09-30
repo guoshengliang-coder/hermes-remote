@@ -58,7 +58,7 @@ it("restores the profile default through the session action and hides it on read
     modelOptions: async () => ({ providers: [] }),
   };
   const host = mount(<ModelSheet current={{ model: "custom-id", provider: "provider" }} profile="work" explicitOverride
-    actions={{ switchModel: async (provider, model) => { call.push(`switch:${provider}/${model}`); }, reasoning: async () => null, setReasoning: async () => {} }}
+    actions={{ switchModel: async (provider, model) => { call.push(`switch:${provider}/${model}`); return { kind: "applied", model, warning: false }; }, reasoning: async () => null, setReasoning: async () => {} }}
     onSwitched={(provider, model, restored) => call.push(`done:${provider}/${model}/${restored}`)} onReasoning={() => {}} onClose={() => {}} />,
   context("mac-a", client));
   await act(async () => { await Promise.resolve(); });
@@ -71,7 +71,7 @@ it("restores the profile default through the session action and hides it on read
 
   const failed = { ...client, defaultModel: async () => { throw new Error("token=private-canary"); } };
   const failedHost = mount(<ModelSheet current={{ model: "custom-id", provider: "provider" }} profile="work" explicitOverride
-    actions={{ switchModel: async () => {}, reasoning: async () => null, setReasoning: async () => {} }}
+    actions={{ switchModel: async () => ({ kind: "applied", model: "m", warning: false }), reasoning: async () => null, setReasoning: async () => {} }}
     onSwitched={() => {}} onReasoning={() => {}} onClose={() => {}} />, context("mac-b", failed));
   await act(async () => { await Promise.resolve(); });
   expect(failedHost.textContent).toContain("HR-WEB-009");

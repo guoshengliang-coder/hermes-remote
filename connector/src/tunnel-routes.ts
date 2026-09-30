@@ -11,11 +11,12 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
  * Who answers a tunnelled HTTP request. `contract` and `files` are the Connector's own routes and
  * are never forwarded to Hermes; everything else is.
  */
-export type TunnelHttpRoute = "contract" | "default-model" | "files" | "hermes";
+export type TunnelHttpRoute = "contract" | "default-model" | "default-model-set" | "files" | "hermes";
 
 export function tunnelHttpRoute(path: string): TunnelHttpRoute {
   const pathname = path.split(/[?#]/, 1)[0];
   if (pathname === CONTRACT_REPORT_PATH) return "contract";
+  if (pathname === DEFAULT_MODEL_SET_PATH) return "default-model-set";
   if (pathname === DEFAULT_MODEL_PATH) return "default-model";
   if (path.startsWith("/api/files")) return "files";
   return "hermes";
@@ -85,4 +86,52 @@ export async function defaultModelResponse(
   } finally {
     await upstream?.body?.cancel().catch(() => undefined);
   }
+}
+
+export const DEFAULT_MODEL_SET_PATH = `${DEFAULT_MODEL_PATH}/set`;
+
+/** Save only the main model. Never tunnel upstream endpoints, cron metadata or warning text. */
+export async function setDefaultModelResponse(
+  method: string, path: string, rawBody: Buffer | undefined,
+  save: (path: string, body: string) => Promise<Response>,
+): Promise<LocalJsonResponse> {
+  const headers = { "cache-control": "private, no-store" };
+  const fail = (status: number): LocalJsonResponse => ({ status, headers, body: { error: {
+    code: "HR-RPC-005", message: "无法设置默认模型，请重试。 / Couldn't set the default model. Retry.",
+    retryable: true,
+  } } });
+  if (method !== "POST") return fail(405);
+  let sourcePath: string;
+  let selection: Record<string, unknown>;
+  try {
+    const url = new URL(path, "http://connector.local");
+    if (url.pathname !== DEFAULT_MODEL_SET_PATH || url.hash || url.searchParams.size > 1) return fail(400);
+    const profile = url.searchParams.get("profile");
+    if (url.searchParams.size && (!profile || !PROFILE.test(profile))) return fail(400);
+    if (!rawBody || rawBody.length > 4096) return fail(400);
+    const parsed: unknown = JSON.parse(rawBody.toString("utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return fail(400);
+    selection = parsed as Record<string, unknown>;
+    const { model, provider, confirm_expensive_model } = selection;
+    if (!Object.keys(selection).every((key) => ["model", "provider", "confirm_expensive_model"].includes(key))
+      || typeof provider !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(provider)
+      || typeof model !== "string" || model.length > 128 || model.trim() !== model
+      || !/^[\p{L}\p{N}._:/@+ -]+$/u.test(model) || model.split(/ +/).some((token) => token.startsWith("--"))
+      || (confirm_expensive_model !== undefined && confirm_expensive_model !== true)) return fail(400);
+    sourcePath = `/api/model/set${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`;
+  } catch { return fail(400); }
+  let response: Response | undefined;
+  try {
+    response = await save(sourcePath, JSON.stringify({ scope: "main", ...selection }));
+    if (!response.ok) return fail(502);
+    const body: unknown = JSON.parse(await boundedResponseBody(response, MAX_MODEL_INFO_BYTES));
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return fail(502);
+    const value = body as Record<string, unknown>;
+    if (value.scope !== "main") return fail(502);
+    if (value.confirm_required === true) return { status: 200, headers, body: { confirm_required: true } };
+    if (value.ok !== true || typeof value.model !== "string" || !value.model.trim() || value.model.length > 128 || CONTROL.test(value.model)
+      || typeof value.provider !== "string" || !value.provider.trim() || value.provider.length > 64 || CONTROL.test(value.provider)) return fail(502);
+    return { status: 200, headers, body: { model: value.model, provider: value.provider } };
+  } catch { return fail(502); }
+  finally { await response?.body?.cancel().catch(() => undefined); }
 }

@@ -183,7 +183,7 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     };
     assert.equal(capabilities.accountAuth.webDeviceAccess, true);
     assert.deepEqual(capabilities.accountAuth.webDeviceFeatures, [
-      "session-manage", "session-delete", "workspace-move", "model-select", "default-model", "process-list", "session-access",
+      "session-manage", "session-delete", "workspace-move", "model-select", "default-model", "default-model-write", "session-model-config", "process-list", "session-access",
     ]);
     const shell = await fetch(`${origin}/app/sessions/abc`);
     assert.equal(shell.status, 200);
@@ -265,6 +265,19 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     await expectError(read("/hermes-remote/default-model%2Fconfig", browserAccess), 403, "HR-WEB-001");
     await expectError(write("/hermes-remote/default-model", browserAccess), 403, "HR-WEB-001");
     await expectError(read("/config", browserAccess), 403, "HR-WEB-001");
+
+    const setDefault = await manage("POST", "/hermes-remote/default-model/set?profile=work", '{"provider":"openai","model":"gpt-6"}');
+    assert.equal(setDefault.status, 200);
+    assert.equal(await setDefault.text(), 'account:POST /api/hermes-remote/default-model/set?profile=work {"provider":"openai","model":"gpt-6"}');
+    for (const body of ['{"provider":"p","model":"m","api_key":"CANARY"}', '{"provider":"p","model":"m","scope":"auxiliary"}', 'not json']) {
+      await expectError(manage("POST", "/hermes-remote/default-model/set", body), 403, "HR-WEB-001");
+    }
+    await expectError(manage("POST", "/hermes-remote/default-model/set?profile=a&profile=b", '{"provider":"p","model":"m"}'), 403, "HR-WEB-001");
+    await expectError(fetch(`${origin}/v2/devices/${deviceId}/api/hermes-remote/default-model/set`, {
+      method: "POST", headers: { cookie: cookie(browserAccess), origin: WEB_ORIGIN, "content-type": "application/json" },
+      body: '{"provider":"p","model":"m"}',
+    }), 403, "HR-AUTH-012");
+    await expectError(manage("POST", "/model/set", '{"scope":"main","provider":"p","model":"m"}'), 403, "HR-WEB-001");
 
     // Mac files are never rendered on the Gateway origin.
     const html = await read(`/files?path=${encodeURIComponent("/Users/test/page.html")}`, browserAccess);

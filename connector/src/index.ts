@@ -42,7 +42,7 @@ import { displayVersion } from "./hermes-contract.js";
 import { HermesAuth, boundedResponseBody, fetchHermesOpenApi } from "./hermes-auth.js";
 import { historyProjection } from "./history-preview.js";
 import { hermesUnavailableBody, localHttpFailureFields, localHttpRoute } from "./local-http-failure.js";
-import { contractReportResponse, defaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
+import { contractReportResponse, defaultModelResponse, setDefaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import { ControlReconnectBackoff } from "./control-reconnect.js";
@@ -333,6 +333,9 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
       case "contract":
         await handleContractRequest(socket, request, controller.signal);
         return;
+      case "default-model-set":
+        await handleSetDefaultModelRequest(socket, request, controller.signal);
+        return;
       case "default-model":
         await handleDefaultModelRequest(socket, request, controller.signal);
         return;
@@ -454,6 +457,15 @@ async function handleContractRequest(
     request.method,
     () => contractMonitor.ensureFresh("app_request"),
   );
+  signal.throwIfAborted();
+  sendJsonResponse(socket, request.id, response.status, response.body, response.headers);
+}
+
+async function handleSetDefaultModelRequest(socket: WebSocket, request: TunnelHttpRequest, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  const response = await setDefaultModelResponse(request.method, request.path,
+    request.bodyBase64 ? Buffer.from(request.bodyBase64, "base64") : undefined,
+    (path, body) => hermesAuth.request(path, { method: "POST", headers: { "content-type": "application/json" }, body, signal }));
   signal.throwIfAborted();
   sendJsonResponse(socket, request.id, response.status, response.body, response.headers);
 }
