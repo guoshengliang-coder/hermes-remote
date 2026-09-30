@@ -1738,6 +1738,15 @@ html[data-theme="dark"] .group-header {
   background: var(--surface-container);
 }
 
+/* Image that could not be fetched (Android ChatImages.kt, HG-167): the placeholder's own box with
+   one centred broken-image glyph. The grid rule below gives it the cell's height and radius. */
+.media-placeholder.media-failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--on-surface-variant);
+}
+
 .media-link {
   color: var(--primary);
   word-break: break-all;
