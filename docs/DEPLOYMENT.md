@@ -1786,3 +1786,28 @@ this batch, so the other Hermes GO candidates were left in development complete.
 Desktop and Android code were untouched and nothing was restarted. Real-device acceptance (HG-172's
 long-press sheet on iOS and Android, HG-170's icon colours and HG-171's drawer/FAB behaviour)
 remains per `docs/SMOKE_TEST.md` items 17 and 18; the Web publication does not imply acceptance.
+
+### Web HG-174 publication — 2026-09-30
+
+Owner-authorized Web release (approved in the session that fixed HG-174). From an isolated clean
+worktree at `main f0cf5f8921ea029cad51c4da25850108f67f9957` (PR #504; the range since the previous
+Web publication also carries PRs #501, #502 and #503), `WEB_PUBLISH_VERIFY_PUBLIC=1
+scripts/publish-web-app.sh` passed typecheck, **610 tests across 56 files**, and build. The installer
+reported
+`{"ok":true,"releaseId":"0.1.0-f0cf5f8921ea","installed":true,"previous":"0.1.0-4d81ccc790c7"}`:
+Web `0.1.0-f0cf5f8921ea` replaced `0.1.0-4d81ccc790c7`, which stays installed for
+`scripts/publish-web-app.sh --rollback`. The release manifest's archive SHA-256 is
+`242b102268cb00d6871e1a0f6cbfac7f86ba2414a7d85d4c91cb53701adeee8a`. The publisher's own staging
+directory is removed on exit, so the manifest was repackaged from the same clean tree at the same
+commit: independent public reads then matched the size and SHA-256 of all **13** packaged files,
+and the public `/app/` `index.html` matched the local build byte for byte.
+
+This repo has no `scripts/release-notices.mjs`; matching was done by hand against the released range
+`4d81ccc790c7..f0cf5f8921ea`, which translates this repo's `WEB_RELEASE_OK` credential into a release
+receipt whose SHA-256 is
+`010ade82ff675333929b1f867ec4ef39e16f443fbd6dbe42942b11d78f5cad42`. MissionGo advanced **HG-174**
+to pending verification. No Android, Desktop or SDK artifact was published by this batch, so the
+other Hermes GO candidates were left in development complete. Gateway, Connector, Desktop and Android
+code were untouched and nothing was restarted. Real-browser and real-device acceptance remains per
+`docs/SMOKE_TEST.md` item 19 — the one-step voice entry cannot be proven by the DOM tests alone — and
+the Web publication does not imply acceptance.
