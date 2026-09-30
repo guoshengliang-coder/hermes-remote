@@ -161,6 +161,17 @@ html {
   /* Taps act immediately and double tap does not zoom the page; surfaces with their own pinch
      (viewer, editor) set touch-action: none themselves. */
   touch-action: manipulation;
+  /* The document is a frame, never a page (HG-173). iOS rubber-bands whatever scrolls at the
+     document level, and that dragged the whole screen — top bar and status-bar area included —
+     down when the list was pulled. With the document unable to scroll there is nothing to pull:
+     every page scrolls inside its own port instead (`web/src/styles.css` `.page-scroll`, plus
+     `.messages`, `.login-scroll` and `.full-center`). The declaration also belongs on `html` and
+     not only on `body`: WebKit reads `overscroll-behavior` for the root scroller from the root
+     element, which is why the `body` rule that was here since the web app shipped never stopped
+     the pull on an iPhone. */
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 /* Font size (Settings → 字体大小). Everything below is sized in rem, so scaling the root scales
@@ -173,14 +184,15 @@ html[data-font-size="xxlarge"] { font-size: 150%; }
 
 body {
   margin: 0;
-  min-height: 100dvh;
+  height: 100%;
+  overflow: hidden;
   background: var(--surface);
   color: var(--on-surface);
   font-family: var(--font-sans);
   font-size: 1rem;
   line-height: 1.5;
   -webkit-tap-highlight-color: transparent;
-  overscroll-behavior-y: none;
+  overscroll-behavior: none;
 }
 
 button,
@@ -223,9 +235,21 @@ button:disabled {
 /* ---- page frame ---- */
 
 .page {
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* The one scroll port a page gets: a child sitting beside the top bar, never wrapped around it,
+   so the chrome cannot travel with the content (HG-173). `contain` keeps the bounce inside the
+   port instead of chaining it outward; the chat page's `.messages` already has this shape. */
+.page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .topbar {
@@ -718,11 +742,20 @@ html[data-theme="dark"] .drawer-theme-close svg { border: 1px solid var(--drawer
 }
 
 .full-center {
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* Notices and the boot spinner are short, but a long failure message on a landscape phone is
+     not: this frame is its own port too (HG-173), and `safe` keeps the top of an overflowing
+     notice reachable instead of centring it out of reach. Browsers without `safe` keep the plain
+     centring above. */
+  justify-content: safe center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: calc(1rem + var(--safe-top)) 1rem calc(1rem + var(--safe-bottom));
 }
 
@@ -884,7 +917,8 @@ html[data-theme="dark"] .drawer-theme-close svg { border: 1px solid var(--drawer
 /* ---- login (DESIGN §5.19) ---- */
 
 .login-page {
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   max-width: var(--content-max);
@@ -892,8 +926,14 @@ html[data-theme="dark"] .drawer-theme-close svg { border: 1px solid var(--drawer
   padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
 }
 
+/* The form is the port and the submit bar is the chrome, so a pull on the sign-in fields cannot
+   drag the button (HG-173). */
 .login-scroll {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 12vh 1rem 1rem;
 }
 
@@ -985,8 +1025,8 @@ html[data-theme="dark"] .drawer-theme-close svg { border: 1px solid var(--drawer
 }
 
 .bottom-bar {
-  position: sticky;
-  bottom: 0;
+  /* The last row of the login frame: the form above it is the scroll port, so this never has to
+     stick (HG-173 — before the frame, the document scrolled and it did). */
   padding: 0.5rem 1rem calc(1rem + var(--safe-bottom));
   background: var(--surface);
 }

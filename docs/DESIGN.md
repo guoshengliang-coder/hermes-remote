@@ -2853,6 +2853,15 @@ Web 版是覆盖 iOS 与电脑浏览器的**轻量入口**，只做主链路（�
     `env(safe-area-inset-bottom)`，刘海与 home 条不遮内容。`viewport-fit=cover`。
   - 触控目标不小于 44×44px（iOS HIG；Android 的 48dp 对应物）。图标按钮可视字形 20px。
   - 主屏（standalone）与 Safari 里版式一致，不靠 `display-mode` 分叉布局。
+  - **整页是一个框，不是一份文档（决策 2026-09-30，HG-173）**：`html` / `body` 固定视口高且
+    `overflow: hidden`，文档永不滚动；每个页面自己给出唯一滚动口，且滚动口是页面的**子节点**、
+    不包住顶栏 —— 会话列表与选择 Mac 页用 `.page-scroll`，聊天页用 `.messages`，登录页用
+    `.login-scroll`，启动与错误页用 `.full-center`。滚动口一律
+    `overscroll-behavior: contain`：内容在边界处保留 iOS 原生的轻微回弹，顶栏与状态栏区不动。
+    原由：iPhone 上往下拉列表时，整页（顶栏、状态栏区）被 iOS 的**文档级**橡皮筋一起拉下来；
+    `body { overscroll-behavior-y: none }` 从 Web 版上线起就在，却挡不住它 —— WebKit 对根滚动
+    视图只读根元素上的该属性，所以这条规则同时写在 `html` 上。改之前聊天页已经是这个形状，
+    所以它从没出现过这个现象。
 - **会话列表**：分组顺序、组名、立柱色照 §5.2（需要你处理 → 已置顶 → 今天 → 昨天 → 前 7 天 →
   更早；「需要你处理」立柱/圆点用 `--status-warn-graphic`、组名用 `--status-warn`）。
   会话/机器人分段高度 40px；普通会话行尾只留 28px 状态槽，搜索与归档结果保留时间；
