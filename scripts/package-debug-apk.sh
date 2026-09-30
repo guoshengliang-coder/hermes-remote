@@ -39,9 +39,10 @@ print(match.group(1).lower())
 PY
 )"
 ARTIFACT="$ANDROID_DIR/app/build/outputs/apk/distribution/debug/Hermes-Remote-${VERSION_NAME}-debug.apk"
-REQUIRE_MISSIONGO_CONFIG="${APK_REQUIRE_MISSIONGO_CONFIG:-0}"
-[[ "$REQUIRE_MISSIONGO_CONFIG" == 0 || "$REQUIRE_MISSIONGO_CONFIG" == 1 ]] || {
-  echo "APK_REQUIRE_MISSIONGO_CONFIG must be 0 or 1" >&2
+REQUIRE_MISSIONGO_CONFIG="${APK_REQUIRE_MISSIONGO_CONFIG:-1}"
+# This is always a distribution gate. Plain Gradle is the credential-free development path.
+[[ "$REQUIRE_MISSIONGO_CONFIG" == 1 ]] || {
+  python3 "$ROOT/scripts/lib/android_release_error.py" configuration invalid_distribution_mode
   exit 1
 }
 
@@ -60,18 +61,20 @@ if missing:
 PY
 
 git -C "$ROOT" diff --check
-GRADLE_TASKS=(:app:testDebugUnitTest :app:assembleDebug)
-if [[ "$REQUIRE_MISSIONGO_CONFIG" == 1 ]]; then
-  GRADLE_TASKS+=( :app:verifyMissionGoConfiguration )
+# Verify the actual Gradle configuration, with its property-file/environment precedence, before
+# unit tests or compilation. No configuration-cache reuse and no credential-bearing diagnostics.
+if ! (
+  cd "$ANDROID_DIR"
+  ./gradlew :app:verifyMissionGoConfiguration --no-configuration-cache --console=plain > /dev/null 2>&1
+); then
+  python3 "$ROOT/scripts/lib/android_release_error.py" configuration gradle_configuration_check_failed
+  exit 1
 fi
 (
   cd "$ANDROID_DIR"
-  ./gradlew "${GRADLE_TASKS[@]}" --console=plain
+  ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:verifyMissionGoConfiguration --console=plain
 )
-MISSIONGO_CONFIGURED=false
-if [[ "$REQUIRE_MISSIONGO_CONFIG" == 1 ]]; then
-  MISSIONGO_CONFIGURED=true
-fi
+# Assigned only after both the Gradle check AND the artifact-level check below pass.
 
 if [[ ! -f "$ARTIFACT" ]]; then
   echo "Versioned artifact missing: $ARTIFACT" >&2
@@ -111,6 +114,7 @@ fi
 # artifact. Passing either credential on argv would expose it through the process list.
 BUILD_CONFIG="$ANDROID_DIR/app/build/generated/source/buildConfig/debug/com/hermes/client/BuildConfig.java"
 python3 "$ROOT/scripts/lib/apk_feedback.py" "$ARTIFACT" "$BUILD_CONFIG"
+MISSIONGO_CONFIGURED=true
 
 if command -v shasum >/dev/null 2>&1; then
   SHA_LINE="$(shasum -a 256 "$ARTIFACT")"

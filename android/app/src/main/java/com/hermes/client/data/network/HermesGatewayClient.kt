@@ -905,8 +905,8 @@ open class HermesGatewayClient(
     }
 
     private fun failAllPending(reason: String) {
-        pending.keys.toList().forEach { id ->
-            pending.remove(id)?.deferred?.completeExceptionally(GatewayRpcException(0, reason))
+        drainPendingCalls(pending) { call ->
+            call.deferred.completeExceptionally(GatewayRpcException(0, reason))
         }
     }
 

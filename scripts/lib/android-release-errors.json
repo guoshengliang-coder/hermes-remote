@@ -1,0 +1,26 @@
+{
+  "configuration": {
+    "code": "HR-RELEASE-005",
+    "summaryZh": "Android 发包配置检查未通过，请使用 CI 正式构建，或修正构建环境后重试。",
+    "summaryEn": "Android distribution configuration checks failed. Use the CI release build, or fix the build environment and retry.",
+    "retryable": true,
+    "recoveryAction": "use_ci_or_fix_configuration_and_retry",
+    "stage": "android_feedback_preflight"
+  },
+  "artifact": {
+    "code": "HR-RELEASE-006",
+    "summaryZh": "Android 安装包的反馈配置校验未通过，请重新构建后重试。",
+    "summaryEn": "The Android package failed feedback configuration validation. Rebuild and retry.",
+    "retryable": true,
+    "recoveryAction": "rebuild_without_configuration_cache_and_retry",
+    "stage": "android_feedback_artifact"
+  },
+  "preparation": {
+    "code": "HR-RELEASE-007",
+    "summaryZh": "Android 发布准备未通过，请检查源码、发布说明和开发验证后重试。",
+    "summaryEn": "Android release preparation failed. Check the source, release notes and development checks, then retry.",
+    "retryable": true,
+    "recoveryAction": "fix_preparation_inputs_and_retry",
+    "stage": "android_release_preparation"
+  }
+}

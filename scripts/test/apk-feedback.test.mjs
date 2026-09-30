@@ -3,6 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {mkdtempSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
 
 /**
@@ -16,7 +17,7 @@ import {test} from 'node:test';
  * surfaced when a person went looking for the feature.
  */
 
-const CHECK = new URL('../lib/apk_feedback.py', import.meta.url).pathname;
+const CHECK = fileURLToPath(new URL('../lib/apk_feedback.py', import.meta.url));
 const ENDPOINT = 'https://missiongo.example/api';
 const TOKEN = 'nonsecret-test-token';
 
@@ -60,8 +61,8 @@ test('an APK carrying both generated feedback values passes', () => {
 
 test('either blank generated value fails — the exact 0.1.120 class of bug', () => {
   for (const blank of ['', '   ']) {
-    assert.throws(() => run(apkWith([TOKEN]), {endpoint: blank}), /MISSIONGO_ENDPOINT/);
-    assert.throws(() => run(apkWith([ENDPOINT]), {token: blank}), /MISSIONGO_SDK_TOKEN/);
+    assert.throws(() => run(apkWith([TOKEN]), {endpoint: blank}), /HR-RELEASE-006.*[\s\S]*feedback_value_missing/);
+    assert.throws(() => run(apkWith([ENDPOINT]), {token: blank}), /HR-RELEASE-006.*[\s\S]*feedback_value_missing/);
   }
 });
 
@@ -70,11 +71,11 @@ test('either generated value missing from the artifact fails', () => {
   // configuration-cache entry. Checking inputs alone would call this a pass.
   assert.throws(
     () => run(apkWith([TOKEN])),
-    /MISSIONGO_ENDPOINT.*not present in the APK/s,
+    /feedback_value_absent_from_apk/,
   );
   assert.throws(
     () => run(apkWith([ENDPOINT])),
-    /MISSIONGO_SDK_TOKEN.*not present in the APK/s,
+    /feedback_value_absent_from_apk/,
   );
 });
 
