@@ -41,9 +41,16 @@ export function VoiceComposer({ t, phase, text, disabled, onBegin, onRelease, on
     const r = el.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2, radius: r.width / 2 };
   }
+  // HG-172: a held touch is the control's own gesture. preventDefault on contextmenu stops the
+  // browser's long-press default from running on top of it — Android pops the selection/search
+  // sheet and iOS starts selecting text, and either steals the pointer (cancelling the recording).
+  // The overlay covers the held button, so it carries the same default, and styles.css keeps the
+  // button and overlay unselectable (user-select / -webkit-touch-callout).
+  const blockLongPress = (e: Event) => e.preventDefault();
   return <>
     <button type="button" class="voice-hold" disabled={disabled && !active}
       aria-label={t("按住说话；向左上滑取消，向右上滑转文字", "Hold to talk; slide up left to cancel or up right to edit")}
+      onContextMenu={blockLongPress}
       onPointerDown={(e) => {
         if (e.button !== 0 || gesture.current || disabled) return;
         e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); begin(e.pointerId);
@@ -67,6 +74,7 @@ export function VoiceComposer({ t, phase, text, disabled, onBegin, onRelease, on
       onBlur={() => { if (gesture.current?.id === "keyboard") release("cancel"); }}
     >{phase === "held" ? t("松开发送", "Release to send") : phase === "waiting" ? t("正在完成识别…", "Finishing recognition…") : t("按住说话", "Hold to talk")}</button>
     {active ? <div class="voice-overlay" role="dialog" aria-modal="true" aria-label={t("语音输入", "Voice input")}
+      onContextMenu={blockLongPress}
       onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); phase === "waiting" ? onCancelWait() : release("cancel"); } }}>
       <div class="voice-stage">
         <div class="voice-card">

@@ -99,6 +99,8 @@ it("keeps shared settings on the card page and commits a sheet choice only on Sa
   expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
   expect(host.querySelector('button[aria-label="设置"]')).toBeNull();
   expect(host.querySelector('button[aria-label="返回"]')).toBeNull();
+  // HG-171: the version tile is gone — it only repeated static versions and never changed.
+  expect(host.querySelector('[aria-label="关于"]')).toBeNull();
   // Language: picking only moves the pending item; 当前使用 still marks the applied one.
   act(() => button("语言").click());
   expect(sheet("语言")).not.toBeNull();
@@ -161,4 +163,10 @@ it("opens the drawer from a menu glyph and overflows with vertical dots in the l
   const dots = [...host.querySelectorAll('button[aria-label="更多"] circle')]
     .map((dot) => [dot.getAttribute("cx"), dot.getAttribute("cy")]);
   expect(dots).toEqual([["12", "5"], ["12", "12"], ["12", "19"]]);
+
+  // HG-171: the new-chat FAB is list-page chrome; once the drawer covers the list it is gone.
+  expect(host.querySelector(".fab")).not.toBeNull();
+  act(() => trigger.click());
+  expect(host.querySelector(".account-drawer")).not.toBeNull();
+  expect(host.querySelector(".fab")).toBeNull();
 });

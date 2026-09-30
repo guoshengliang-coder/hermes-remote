@@ -28,7 +28,6 @@ export interface AppContextValue {
   setThemeMode: (mode: ThemeMode) => void;
   fontSize: FontSize;
   setFontSize: (size: FontSize) => void;
-  gatewayVersion: string | null;
   t: Translate;
   account: PublicAccount | null;
   devices: AccountDevice[];

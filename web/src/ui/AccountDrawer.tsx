@@ -1,5 +1,4 @@
 import { useEffect, useState } from "preact/hooks";
-import pkg from "../../package.json";
 import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance";
 import { useDefaultModel } from "../app/defaultModel";
 import { useApp } from "../app/store";
@@ -21,7 +20,8 @@ const fontSizeLabel = (size: FontSize, t: Translate) =>
  * Card page (DESIGN §5.1 / §5.21), with only the controls Web already provides. HG-168 folded the
  * settings sub-page in here: the gear, the back layer and the flat settings list are gone, so the
  * drawer keeps its single layer. Choices follow the card page's row → bottom sheet pattern, and the
- * Hermes GO account and the version block sit in the same hairline tiles as the remote-node card.
+ * Hermes GO account sits in the same hairline tile as the remote-node card. HG-171 removed the
+ * "About" tile: it only ever repeated the static Web bundle version and the Gateway's.
  */
 export function AccountDrawer({ onClose }: { onClose: () => void }) {
   const app = useApp();
@@ -115,11 +115,6 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
               <button type="button" class="drawer-link" onClick={() => { onClose(); void app.signOut(); }}>{t("退出登录", "Sign out")}</button>
               <a class="drawer-link danger" href="/account">{t("删除账号", "Delete account")}</a>
             </div>
-          </section>
-          <section class="drawer-card" aria-label={t("关于", "About")}>
-            <h3 class="drawer-card-title">{t("关于", "About")}</h3>
-            <p class="drawer-card-detail">Web {pkg.version}</p>
-            <p class="drawer-card-detail">Gateway {app.gatewayVersion ?? "—"}</p>
           </section>
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>

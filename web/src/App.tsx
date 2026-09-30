@@ -93,7 +93,6 @@ export function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode);
   const [fontSize, setFontSize] = useState<FontSize>(readFontSize);
   const [systemLanguage, setSystemLanguage] = useState(detectLanguage);
-  const [gatewayVersion, setGatewayVersion] = useState<string | null>(null);
   const language = languagePreference === "system" ? systemLanguage : effectiveLanguage(languagePreference);
   const t = translator(language);
   const [phase, setPhase] = useState<Phase>({ name: "boot" });
@@ -167,7 +166,6 @@ export function App() {
     setPhase({ name: "boot" });
     try {
       const caps = await client.capabilities();
-      setGatewayVersion(caps.server?.version ?? null);
       if (!supportsWebDeviceAccess(caps)) {
         setPhase({ name: "disabled" });
         return;
@@ -385,7 +383,6 @@ export function App() {
     setThemeMode: chooseTheme,
     fontSize,
     setFontSize: chooseFontSize,
-    gatewayVersion,
     t,
     account,
     devices,
