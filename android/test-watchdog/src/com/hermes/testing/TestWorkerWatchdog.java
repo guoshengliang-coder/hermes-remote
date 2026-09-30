@@ -15,8 +15,13 @@ public final class TestWorkerWatchdog {
         ProcessHandle worker = ProcessHandle.current();
         String jar = Path.of(TestWorkerWatchdog.class.getProtectionDomain()
                 .getCodeSource().getLocation().toURI()).toString();
+        String java = Path.of(System.getProperty("java.home"), "bin", "java").toRealPath().toString();
+        // Audited: executable comes from this JVM, jar from this agent's CodeSource, and remaining
+        // dynamic arguments are this worker's identity and a validated numeric deadline. An argv
+        // vector is used, never a shell; no work-item, network or test-content input reaches it.
+        // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         watcher = new ProcessBuilder(
-                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                java,
                 "-Xmx32m", "-XX:+UseSerialGC", "-cp", jar, TestWorkerWatchdog.class.getName(),
                 Long.toString(worker.pid()), worker.info().startInstant().orElseThrow().toString(),
                 Long.toString(timeoutSeconds))

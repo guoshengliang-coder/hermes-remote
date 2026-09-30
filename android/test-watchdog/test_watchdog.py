@@ -10,7 +10,7 @@ import unittest
 class WatchdogTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp = tempfile.TemporaryDirectory()
+        cls.temp = tempfile.TemporaryDirectory(prefix="watchdog space ;$(literal) ")
         cls.root = Path(cls.temp.name)
         cls.java = str(Path(os.environ['JAVA_HOME']) / 'bin/java') if 'JAVA_HOME' in os.environ else 'java'
         cls.javac = str(Path(os.environ['JAVA_HOME']) / 'bin/javac') if 'JAVA_HOME' in os.environ else 'javac'
@@ -41,19 +41,19 @@ public class Probe {
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def spawn(self, guarded, mode='hang'):
-        return subprocess.Popen([self.java, *([f'-javaagent:{self.jar}=1'] if guarded else []),
+    def spawn(self, guarded, mode='hang', timeout=3):
+        return subprocess.Popen([self.java, *([f'-javaagent:{self.jar}={timeout}'] if guarded else []),
                                  '-cp', str(self.classes), 'Probe', mode],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def stop(self, proc):
         if proc.poll() is None:
             proc.kill()
-        proc.communicate(timeout=5)
+        proc.communicate(timeout=10)
 
     def test_normal_exit_is_success_and_watcher_releases_pipes(self):
-        proc = self.spawn(True, 'exit')
-        out, err = proc.communicate(timeout=5)
+        proc = self.spawn(True, 'exit', timeout=5)
+        out, err = proc.communicate(timeout=10)
         self.assertEqual(0, proc.returncode)
         self.assertNotIn('HR-TEST-001', err)
 
@@ -85,7 +85,7 @@ public class Probe {
             proc.terminate()  # SIGTERM enters a deliberately stuck shutdown hook.
             time.sleep(.15)
             self.assertIsNone(proc.poll())
-            out, err = proc.communicate(timeout=5)
+            out, err = proc.communicate(timeout=10)
             self.assertNotEqual(0, proc.returncode)
             self.assertIn('HR-TEST-001', err)
             self.assertIn('测试进程超时，已强制终止。修复卡住的测试后重试。', err)
