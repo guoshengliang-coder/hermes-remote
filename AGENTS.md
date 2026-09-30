@@ -166,7 +166,7 @@ For every APK actually handed to a tester or user — chained end to end by
    0.1.97 were lost. Editing the three files by hand instead is still allowed, and still has to
    produce exactly the same result.
 2. Confirm the version note in `android/README.md` reads the way you want it to.
-3. Run the mandatory release gate from the repository root:
+3. The official `android-release.yml` workflow runs the mandatory release gate from the repository root:
 
    ```bash
    ./scripts/package-debug-apk.sh
@@ -178,10 +178,13 @@ For every APK actually handed to a tester or user — chained end to end by
 
    Feedback-configuration verification exists because 0.1.120 shipped without the in-app
    "反馈与建议" entry and every other check stayed green: the entry is drawn only when the build
-   carried `MISSIONGO_ENDPOINT` and `MISSIONGO_SDK_TOKEN`, which reach a local build through the
-   gitignored `android/missiongo.properties`. A build host without that file therefore cannot
-   produce a distributable APK, and should not try to: let `android-release.yml` build and publish
-   from the repository secrets rather than copying credentials into a release worktree.
+   carried `MISSIONGO_ENDPOINT` and `MISSIONGO_SDK_TOKEN`, which CI receives from repository secrets.
+   Developer worktrees retain the credential-free Gradle path; do not copy feedback credentials or
+   read `environment.md` for local release preparation.
+   `android-release-train.mjs prepare` runs unit tests and lint, opens the release PR and stops without
+   an APK. `publish` remains separately owner-authorized. Let `android-release.yml` build and publish
+   the official package. The package gate checks configuration before tests/compilation, retains the
+   final BuildConfig/dex check, and rejects attempts to disable it.
 4. Deliver only the exact `ARTIFACT=` path printed after `APK_RELEASE_OK`:
    `android/app/build/outputs/apk/distribution/debug/Hermes-Remote-<version>-debug.apk`.
 5. Never hand off, upload, or serve the canonical unversioned `app-debug.apk`.

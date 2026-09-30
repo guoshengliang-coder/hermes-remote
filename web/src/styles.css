@@ -400,26 +400,6 @@ button:disabled {
   font-weight: 600;
 }
 
-.drawer-choices {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.drawer-choices button {
-  flex: 1;
-  min-height: var(--touch);
-  padding: 0 0.25rem;
-  border-radius: 0.625rem;
-  font-size: 0.75rem;
-  color: var(--on-surface-variant);
-}
-
-.drawer-choices button[aria-pressed="true"] {
-  background: var(--surface-container-highest);
-  color: var(--primary);
-  font-weight: 600;
-}
-
 .drawer-detail {
   margin: 0.375rem 0;
   overflow-wrap: anywhere;
@@ -577,33 +557,35 @@ html[data-theme="dark"] .drawer-device { box-shadow: none; }
 }
 .drawer-footer-rule i:last-child { transform: rotate(180deg); }
 
-.settings-body { padding-top: 0.5rem; }
-.drawer-settings-section {
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--drawer-divider);
+/* Settings content that lives on the card page (HG-168): the same hairline tile as the
+   remote-node card, so the drawer keeps one card language instead of a settings list. */
+.drawer-card {
+  margin-top: 1.25rem;
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  border: 1px solid var(--drawer-tile-border);
+  border-radius: 1rem;
+  background: var(--drawer-tile);
+  box-shadow: 0 1px 2px rgba(24, 28, 36, 0.04);
 }
-.drawer-settings-section h3 {
+html[data-theme="dark"] .drawer-card { box-shadow: none; }
+.drawer-card-title {
   margin: 0;
   color: var(--on-surface);
   font-size: 0.90625rem;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.025em;
 }
-.drawer-settings-section p {
-  margin: 0.25rem 0;
+.drawer-card-detail {
+  margin: 0.125rem 0 0;
   overflow-wrap: anywhere;
   color: var(--on-surface-variant);
   font-size: 0.75rem;
 }
-.drawer-choices { margin-top: 0.75rem; }
-.drawer-choices button {
-  min-height: 2.75rem;
-  border-radius: 0.625rem;
-  font-size: 0.75rem;
-}
-.drawer-choices button[aria-pressed="true"] {
-  color: var(--on-surface);
-  background: var(--drawer-tile);
-}
+.drawer-card-actions { margin-top: 0.375rem; display: flex; flex-direction: column; }
+.drawer-card-actions .drawer-link + .drawer-link { border-top: 1px solid var(--drawer-divider); }
 .drawer-link {
   min-height: 2.75rem;
   font-size: 0.875rem;
@@ -2343,6 +2325,14 @@ html[data-theme="dark"] .group-header {
   background: none;
 }
 
+/* A table wider than the card scrolls sideways out of `.table-scroll`; it is never squeezed into
+   the card (HG-164, Android parity). Android gives every chat cell a 110dp floor
+   (`CHAT_TABLE_CELL_WIDTH`) and lets the card slide past it, while an auto-layout table here
+   simply shrank: with `.markdown`'s `word-break` a cell's min-content width is about one
+   character, so a five-column table became five two-character columns with nothing to scroll.
+   Fixed layout is what holds the floor — auto layout ignores a cell width once the table would
+   exceed the card — and `width: max-content` makes the table as wide as its columns, with
+   `min-width: 100%` stretching a table that still fits to the card. */
 .table-scroll {
   overflow-x: auto;
   padding: 0 0.5rem 0.5rem;
@@ -2351,7 +2341,17 @@ html[data-theme="dark"] .group-header {
 .markdown .table-card table {
   margin: 0;
   display: table;
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
   background: var(--surface);
+}
+
+/* 110px = Android's chat cell width; 6.875rem keeps it on the layout scale (108px image grid is
+   6.75rem). Cells wrap inside their column, exactly as Android's fixed cells do. */
+.markdown .table-card th,
+.markdown .table-card td {
+  width: 6.875rem;
 }
 
 .markdown pre code {

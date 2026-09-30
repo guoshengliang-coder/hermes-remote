@@ -19,9 +19,15 @@ import json
 import re
 import sys
 import zipfile
+from android_release_error import report_error
 
 
 FIELDS = ("MISSIONGO_ENDPOINT", "MISSIONGO_SDK_TOKEN")
+
+
+def fail(reason):
+    report_error("artifact", reason)
+    raise SystemExit(1)
 
 
 def dex_contains(apk_path, needle):
@@ -45,7 +51,7 @@ def read_build_config(path):
         with open(path, encoding="utf-8") as stream:
             source = stream.read()
     except OSError:
-        raise SystemExit("The generated BuildConfig is missing; rebuild the APK before packaging.")
+        fail("build_config_missing")
     values = {}
     for field in FIELDS:
         match = re.search(
@@ -54,32 +60,28 @@ def read_build_config(path):
             re.MULTILINE,
         )
         if not match:
-            raise SystemExit(f"The generated BuildConfig is missing {field}.")
+            fail("build_config_field_missing")
         try:
             values[field] = json.loads(f'"{match.group(1)}"')
         except json.JSONDecodeError:
-            raise SystemExit(f"The generated BuildConfig contains an invalid {field} literal.")
+            fail("build_config_literal_invalid")
     return values
 
 
 def main(argv):
     if len(argv) != 3:
-        raise SystemExit('usage: apk_feedback.py <apk> <generated-build-config>')
+        fail("invalid_arguments")
     apk_path, build_config_path = argv[1], argv[2]
     values = read_build_config(build_config_path)
     for field, value in values.items():
         if not value.strip():
-            raise SystemExit(
-                f'This APK was built without {field}, so the in-app feedback entry would be\n'
-                'silently missing or unusable (that is how 0.1.120 lost it). Configure both\n'
-                'MissionGo settings and build again.'
-            )
-        if not dex_contains(apk_path, value):
-            raise SystemExit(
-                f'{field} is nonempty in the generated BuildConfig but is not present in the APK.\n'
-                'The artifact does not match its generated source; rebuild with\n'
-                '--no-configuration-cache.'
-            )
+            fail("feedback_value_missing")
+        try:
+            present = dex_contains(apk_path, value)
+        except (OSError, zipfile.BadZipFile, RuntimeError):
+            fail("apk_unreadable")
+        if not present:
+            fail("feedback_value_absent_from_apk")
     print('FEEDBACK_CONFIG_OK')
 
 

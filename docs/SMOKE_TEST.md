@@ -1115,6 +1115,14 @@ the computed font size of `.row-title` and `.row-subline`, and whether Chrome's 
 is enabled. Compare those values with a fresh Chrome profile before attributing the problem to the
 Web stylesheet.
 
+HG-164 chat table slide (not yet verified on a device): on Android Chrome — the only Android
+browser in scope — open a conversation with a five-column table at a phone width. Expected: every
+column holds a 110px floor, cells wrap inside their column, and the table slides left and right
+inside its card; a two- or three-column table that still fits keeps filling the card width. Off
+device the same stylesheet was measured in headless Chrome at a 353px viewport with a 321px card:
+the five-column table went from 305px wide with 42–79px columns (`scrollWidth == clientWidth`, so
+nothing to drag) to 551px with 110px columns (`scrollWidth 567 > clientWidth 321`).
+
 HG-109 (branch `claude/hg-109-open-latest`, Web only): the mock now pages
 `GET /api/sessions/{id}/messages` the way upstream does (`order=latest` counts back from the newest
 row, each page ascending) and lists a 260-row fixture, 「长会话 · 260 条历史」. Before the fix, opening
@@ -1184,12 +1192,21 @@ version with each result.
     the reasoning effort; confirm on Android that the same conversation shows the new model. Move a
     chat via its project subtitle. While Android runs a turn in the same conversation, open it on the
     Web: the composer is replaced by `HR-SESS-013` with Retry.
-14. **Font size (2026-09-27).** Settings → 字体大小: pick 大 / 特大 / 超大 in Safari and in the Home
-    Screen app. Expected: text, line height, spacing and the 44px touch targets grow together, the
-    page reflows without overlap or clipping, and the choice survives a force-quit (it is per
-    browser, like pins and theme). At 超大 the settings page scrolls to the bottom so 删除账号 and
-    关于 stay reachable; 标准 hands the root size back to the browser's own default. Confirm this is
-    the only way to enlarge the page: the Home Screen app blocks Safari's pinch zoom (`noZoom.ts`).
+14. **Font size and the merged card page (2026-09-27; card page merged HG-168).** Open the drawer
+    from the session list's avatar. Expected: the header is only the Hermes GO wordmark — no gear
+    button and no settings sub-page behind it; the rows are 主题 / 默认模型 / 语言 / 字体大小,
+    followed by a Hermes GO account card (email, 退出登录, 删除账号) and an About card (Web and
+    Gateway versions). Tap 语言 or 字体大小: a bottom sheet opens with one radio per option; tapping
+    an option applies it immediately (no Save, unlike 主题), marks it 当前使用, and scrim / Escape /
+    system back dismiss only the sheet, never the drawer. Then pick 大 / 特大 / 超大 in Safari and in
+    the Home Screen app. Expected: text, line height, spacing and the 44px touch targets grow
+    together, the page reflows without overlap or clipping, and the choice survives a force-quit
+    (it is per browser, like pins and theme). At 超大 the drawer scrolls to the bottom so 删除账号
+    and 关于 stay reachable; 标准 hands the root size back to the browser's own default. **Known at
+    超大, pre-existing and untouched by HG-168:** the remote-node card squeezes its title and name
+    into `远…` / `LGS-` / `MA…`, so read that card's state there before treating 超大 as clean.
+    Confirm this is the only way to enlarge the page: the Home Screen app blocks Safari's pinch
+    zoom (`noZoom.ts`).
     For HG-114 on an isolated stack with a Connector backed by Hermes, check the side drawer's
     read-only default model for two Macs and two profiles. In a conversation using another model,
     tap “恢复默认模型”; only that conversation changes, and the upstream global model stays put.
