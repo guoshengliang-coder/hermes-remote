@@ -1257,6 +1257,18 @@ version with each result.
     preventDefault on the button and its overlay) is pinned by `Composer.test.tsx` and the
     unselectable declarations by `voiceLongPress.test.ts`; only a real engine proves the OS gesture
     is actually suppressed.
+19. **The page cannot be pulled down (HG-173, 2026-09-30; needs a real iPhone — the point is the OS
+    gesture, which no DOM test can hold).** In the Home Screen app and in Safari, on the session
+    list and on the archived list, put a finger near the top of the list and drag down past it.
+    Expected: the top bar, the 会话/机器人 segments and the status-bar area stay exactly where they
+    are; only the rows move, with the short native bounce at the edge. Repeat on the Mac picker and
+    on the sign-in page — the submit button must not travel with the fields. Then pull down at the
+    top of a chat's message list: the top bar and the composer stay put. Also confirm the list still
+    scrolls normally, the 「N 个会话需要处理」 pill still appears when you are scrolled down and
+    clears when you return to the top, the FAB does not cover the last row, and the search field
+    still scrolls into view when the keyboard opens. `pageFrame.test.ts` pins the frame and port
+    declarations and `WebAlignment.test.tsx` pins the pill following the port; neither can prove
+    that iOS stopped rubber-banding the document.
 
 ## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
 

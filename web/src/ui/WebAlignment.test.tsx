@@ -170,3 +170,49 @@ it("opens the drawer from a menu glyph and overflows with vertical dots in the l
   expect(host.querySelector(".account-drawer")).not.toBeNull();
   expect(host.querySelector(".fab")).toBeNull();
 });
+
+it("scrolls the list inside its own port and points the needs-you pill at that port (HG-173)", () => {
+  // The document cannot scroll any more (styles.css: html/body are the frame), so a pill that
+  // watched `window.scrollY` would never appear on the phone. It follows the list port instead,
+  // and the top bar stays outside that port so nothing can pull it down with the rows.
+  const base = {
+    ...context,
+    client: {} as never,
+    sessions: [],
+    needsYou: new Set<string>(),
+    inbox: initialInbox,
+    isPinned: () => false,
+    collapsed: new Set<string>(),
+    toggleGroup: () => {},
+    projectFilter: null,
+    setProjectFilter: () => {},
+    listSegment: "chats",
+    setListSegment: () => {},
+    setSessions: () => {},
+    listSearchSeed: null,
+    setListSearchSeed: () => {},
+    setChatSearchSeed: () => {},
+  } as unknown as AppContextValue;
+
+  const host = document.createElement("div");
+  document.body.append(host);
+  hosts.push(host);
+  const draw = (value: AppContextValue) =>
+    act(() => render(<AppContext.Provider value={value}><SessionList /></AppContext.Provider>, host));
+  draw(base);
+
+  const port = host.querySelector<HTMLElement>(".page-scroll")!;
+  expect(port).not.toBeNull();
+  expect(port.querySelector("main.content")).not.toBeNull();
+  expect(host.querySelector(".page.list-page > .topbar")).not.toBeNull();
+
+  // Reading far down the list, something new needs you: the pill appears…
+  port.scrollTop = 200;
+  draw({ ...base, needsYou: new Set(["s1"]) } as unknown as AppContextValue);
+  expect(host.querySelector(".reveal-pill")?.textContent).toContain("1 个会话需要处理");
+
+  // …and it clears off the port's own scroll event, not the window's.
+  port.scrollTop = 0;
+  act(() => { port.dispatchEvent(new Event("scroll")); });
+  expect(host.querySelector(".reveal-pill")).toBeNull();
+});

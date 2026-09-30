@@ -82,6 +82,8 @@ export function SessionList() {
   const [reveal, setReveal] = useState(0);
   const [actionFor, setActionFor] = useState<SessionListItem | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  /** The list's own scroll port: the page frame never scrolls (HG-173). */
+  const scrollPort = useRef<HTMLDivElement>(null);
   const deviceId = device?.deviceId ?? null;
   const offline = device ? device.connector?.online === false : false;
   const filter = app.projectFilter;
@@ -144,18 +146,21 @@ export function SessionList() {
   }, [app.listSearchSeed]);
 
   // Something new needs you while the reader is scrolled away from the top: a pill, not a jump
-  // (DESIGN §5.2 keep-item, Android NeedsYouReveal). Near the top it is simply visible.
+  // (DESIGN §5.2 keep-item, Android NeedsYouReveal). Near the top it is simply visible. The
+  // distance is the list port's, not the window's: the document cannot scroll any more (HG-173).
   const seenNeedsYou = useRef<ReadonlySet<string>>(app.needsYou);
   useEffect(() => {
     const added = [...app.needsYou].filter((id) => !seenNeedsYou.current.has(id)).length;
     seenNeedsYou.current = app.needsYou;
-    if (added && window.scrollY > 120) setReveal((n) => n + added);
+    if (added && (scrollPort.current?.scrollTop ?? 0) > 120) setReveal((n) => n + added);
   }, [app.needsYou]);
   useEffect(() => {
     if (!reveal) return;
-    const onScroll = () => window.scrollY < 40 && setReveal(0);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    const port = scrollPort.current;
+    if (!port) return;
+    const onScroll = () => port.scrollTop < 40 && setReveal(0);
+    port.addEventListener("scroll", onScroll, { passive: true });
+    return () => port.removeEventListener("scroll", onScroll);
   }, [reveal]);
 
   const listable = useMemo(() => app.sessions.filter((s) => isListable(s) && !isBotSession(s)), [app.sessions]);
@@ -276,93 +281,95 @@ export function SessionList() {
         ) : null}
         {refreshing ? <div class="top-progress" aria-hidden="true" /> : null}
       </header>
-      <main class="content">
-        {!searching ? <HealthStrip /> : null}
-        {offline ? <ErrorNotice error={appError("HR-CONN-005")} language={language} onRetry={() => refresher.current?.now()} variant="banner" /> : null}
-        {searching ? (
-          <SearchView
-            query={query}
-            submitNonce={submitNonce}
-            defaultProject={defaultProject}
-            onOpen={open}
-            onPickRecent={(q) => {
-              setQuery(q);
-              setSubmitNonce((n) => n + 1);
-            }}
-          />
-        ) : segment === "bots" ? (
-          <>
-            {bots.map((section) => {
-              const folded = botFolded.has(section.source);
-              return (
-                <section class="group group-channel" key={section.source}>
-                  <GroupHeader
-                    id="channel"
-                    label={botSourceLabel(section.source)}
-                    count={section.sessions.length}
-                    folded={folded}
-                    onToggle={() =>
-                      setBotFolded((prev) => {
-                        const next = new Set(prev);
-                        if (!next.delete(section.source)) next.add(section.source);
-                        return next;
-                      })
-                    }
-                  />
-                  {folded
-                    ? null
-                    : section.sessions.map((s) => (
-                        <SessionRow key={s.id} session={s} now={now} pinned={app.isPinned(s)} bot={{ statusLine: botStatusLine(s, now, language) }} onOpen={() => open(s.id)} onLongPress={() => setActionFor(s)} />
-                      ))}
-                </section>
-              );
-            })}
-          </>
-        ) : (
-          <>
-            {error && !app.sessions.length ? <ErrorNotice error={error} language={language} onRetry={() => refresher.current?.now()} /> : null}
-            {loading && !error ? <div class="center-spinner"><span class="spinner" /></div> : null}
-            {!loading && !error && groups.length === 0 ? (
-              <div class="empty-state">
-                <p class="empty-line">
-                  {filter ? t("这个项目里没有会话，点右下角在这里新建", "No conversations in this project — start one below") : t("暂无会话", "No sessions yet")}
-                </p>
-                {!filter ? <p class="empty-sub">{t("点击右下角的加号开始对话。", "Tap + at the bottom right to start chatting.")}</p> : null}
-              </div>
-            ) : null}
-            {groups.map((group) => {
-              const folded = app.collapsed.has(group.id);
-              return (
-                <section class={`group group-${group.id}`} key={group.id}>
-                  <GroupHeader id={group.id} label={language === "en" ? GROUP_LABEL[group.id][1] : GROUP_LABEL[group.id][0]} count={group.sessions.length} folded={folded} onToggle={() => app.toggleGroup(group.id)} />
-                  {folded
-                    ? null
-                    : group.sessions.map((session) => (
-                        <SessionRow
-                          key={session.id}
-                          session={session}
-                          now={now}
-                          view={rowView(session.id, app.inbox, app.needsYou)}
-                          pinned={app.isPinned(session)}
-                          draft={drafts.has(session.id)}
-                          inProject={Boolean(filter)}
-                          defaultProject={defaultProject}
-                          onOpen={() => open(session.id)}
-                          onLongPress={app.needsYou.has(session.id) && !app.sessions.some((s) => s.id === session.id) ? undefined : () => setActionFor(session)}
-                        />
-                      ))}
-                </section>
-              );
-            })}
-          </>
-        )}
-      </main>
+      <div class="page-scroll" ref={scrollPort}>
+        <main class="content">
+          {!searching ? <HealthStrip /> : null}
+          {offline ? <ErrorNotice error={appError("HR-CONN-005")} language={language} onRetry={() => refresher.current?.now()} variant="banner" /> : null}
+          {searching ? (
+            <SearchView
+              query={query}
+              submitNonce={submitNonce}
+              defaultProject={defaultProject}
+              onOpen={open}
+              onPickRecent={(q) => {
+                setQuery(q);
+                setSubmitNonce((n) => n + 1);
+              }}
+            />
+          ) : segment === "bots" ? (
+            <>
+              {bots.map((section) => {
+                const folded = botFolded.has(section.source);
+                return (
+                  <section class="group group-channel" key={section.source}>
+                    <GroupHeader
+                      id="channel"
+                      label={botSourceLabel(section.source)}
+                      count={section.sessions.length}
+                      folded={folded}
+                      onToggle={() =>
+                        setBotFolded((prev) => {
+                          const next = new Set(prev);
+                          if (!next.delete(section.source)) next.add(section.source);
+                          return next;
+                        })
+                      }
+                    />
+                    {folded
+                      ? null
+                      : section.sessions.map((s) => (
+                          <SessionRow key={s.id} session={s} now={now} pinned={app.isPinned(s)} bot={{ statusLine: botStatusLine(s, now, language) }} onOpen={() => open(s.id)} onLongPress={() => setActionFor(s)} />
+                        ))}
+                  </section>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              {error && !app.sessions.length ? <ErrorNotice error={error} language={language} onRetry={() => refresher.current?.now()} /> : null}
+              {loading && !error ? <div class="center-spinner"><span class="spinner" /></div> : null}
+              {!loading && !error && groups.length === 0 ? (
+                <div class="empty-state">
+                  <p class="empty-line">
+                    {filter ? t("这个项目里没有会话，点右下角在这里新建", "No conversations in this project — start one below") : t("暂无会话", "No sessions yet")}
+                  </p>
+                  {!filter ? <p class="empty-sub">{t("点击右下角的加号开始对话。", "Tap + at the bottom right to start chatting.")}</p> : null}
+                </div>
+              ) : null}
+              {groups.map((group) => {
+                const folded = app.collapsed.has(group.id);
+                return (
+                  <section class={`group group-${group.id}`} key={group.id}>
+                    <GroupHeader id={group.id} label={language === "en" ? GROUP_LABEL[group.id][1] : GROUP_LABEL[group.id][0]} count={group.sessions.length} folded={folded} onToggle={() => app.toggleGroup(group.id)} />
+                    {folded
+                      ? null
+                      : group.sessions.map((session) => (
+                          <SessionRow
+                            key={session.id}
+                            session={session}
+                            now={now}
+                            view={rowView(session.id, app.inbox, app.needsYou)}
+                            pinned={app.isPinned(session)}
+                            draft={drafts.has(session.id)}
+                            inProject={Boolean(filter)}
+                            defaultProject={defaultProject}
+                            onOpen={() => open(session.id)}
+                            onLongPress={app.needsYou.has(session.id) && !app.sessions.some((s) => s.id === session.id) ? undefined : () => setActionFor(session)}
+                          />
+                        ))}
+                  </section>
+                );
+              })}
+            </>
+          )}
+        </main>
+      </div>
       {reveal && !searching ? (
         <button
           type="button"
           class="reveal-pill"
           onClick={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
+            scrollPort.current?.scrollTo({ top: 0, behavior: "smooth" });
             setReveal(0);
           }}
         >

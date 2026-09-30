@@ -51,27 +51,29 @@ export function ArchivedPage() {
           <span class="topbar-spacer" />
         </div>
       </header>
-      <main class="content">
-        {error ? <ErrorNotice error={error} language={language} onRetry={() => setAttempt(attempt + 1)} /> : null}
-        {!rows && !error ? <div class="center-spinner"><span class="spinner" /></div> : null}
-        {rows && rows.length === 0 ? (
-          <div class="empty-state">
-            <p class="empty-line">{t("暂无归档会话", "No archived conversations")}</p>
-          </div>
-        ) : null}
-        {rows?.map((s) => (
-          <SessionRow
-            showTime
-            key={s.id}
-            session={s}
-            now={now}
-            defaultProject={defaultProject}
-            onOpen={() => navigate({ name: "chat", sessionId: s.id })}
-            onLongPress={() => setActionFor(s)}
-          />
-        ))}
-        {rows?.length ? <p class="list-hint">{t("长按会话可取消归档或删除。", "Press and hold a conversation to unarchive or delete it.")}</p> : null}
-      </main>
+      <div class="page-scroll">
+        <main class="content">
+          {error ? <ErrorNotice error={error} language={language} onRetry={() => setAttempt(attempt + 1)} /> : null}
+          {!rows && !error ? <div class="center-spinner"><span class="spinner" /></div> : null}
+          {rows && rows.length === 0 ? (
+            <div class="empty-state">
+              <p class="empty-line">{t("暂无归档会话", "No archived conversations")}</p>
+            </div>
+          ) : null}
+          {rows?.map((s) => (
+            <SessionRow
+              showTime
+              key={s.id}
+              session={s}
+              now={now}
+              defaultProject={defaultProject}
+              onOpen={() => navigate({ name: "chat", sessionId: s.id })}
+              onLongPress={() => setActionFor(s)}
+            />
+          ))}
+          {rows?.length ? <p class="list-hint">{t("长按会话可取消归档或删除。", "Press and hold a conversation to unarchive or delete it.")}</p> : null}
+        </main>
+      </div>
       {actionFor ? (
         <SessionActionSheet
           session={actionFor}
