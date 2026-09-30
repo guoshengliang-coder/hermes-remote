@@ -313,6 +313,15 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     const refused = JSON.parse(await nextRawMessage(web)) as { id: number; error: { data: { code: string } } };
     assert.equal(refused.id, 2);
     assert.equal(refused.error.data.code, "HR-WEB-001");
+    const sessionModel = { jsonrpc: "2.0", id: 40, method: "config.set", params: {
+      key: "model", session_id: "abc", value: "Model 6 Pro --provider openai --session", profile: "work", confirm_expensive_model: true,
+    } };
+    web.send(JSON.stringify(sessionModel));
+    assert.equal(await nextRawMessage(web), `account:${JSON.stringify(sessionModel)}`);
+    web.send(JSON.stringify({ ...sessionModel, id: 41, params: { ...sessionModel.params, scope: "global" } }));
+    const globalModel = JSON.parse(await nextRawMessage(web)) as { id: number; error: { data: { code: string } } };
+    assert.equal(globalModel.id, 41);
+    assert.equal(globalModel.error.data.code, "HR-WEB-001");
     assert.equal(await rejectedUpgradeStatus(wsUrl, { cookie: cookie(browserAccess) }), 403);
     assert.equal(
       await rejectedUpgradeStatus(wsUrl, { cookie: cookie(browserAccess), origin: "https://evil.example.test" }),
@@ -481,9 +490,10 @@ function attachMockConnector(socket: WebSocket): void {
               "content-disposition": `inline; filename="${name}"`,
             }
           : { "content-type": "text/plain" },
-        // Session-management writes echo the method and the exact body the Gateway forwarded.
+        // Checked JSON writes echo the method and exact body the Gateway forwarded.
         bodyBase64: Buffer.from(
-          message.method === "PATCH" || message.method === "DELETE"
+          message.method === "PATCH" || message.method === "DELETE" ||
+            (message.method === "POST" && message.path.split("?")[0] === "/api/hermes-remote/default-model/set")
             ? `account:${message.method} ${message.path} ${message.bodyBase64 ? Buffer.from(message.bodyBase64, "base64").toString() : ""}`
             : `account:${message.path}`,
         ).toString("base64"),
