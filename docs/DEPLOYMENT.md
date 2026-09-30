@@ -1811,3 +1811,31 @@ other Hermes GO candidates were left in development complete. Gateway, Connector
 code were untouched and nothing was restarted. Real-browser and real-device acceptance remains per
 `docs/SMOKE_TEST.md` item 19 — the one-step voice entry cannot be proven by the DOM tests alone — and
 the Web publication does not imply acceptance.
+
+### Web HG-173 publication — 2026-10-01
+
+Owner-authorized Web release (approved in the session that fixed HG-173). From an isolated clean
+worktree at `main 703546092aac740a2b4c5a30b95cb3164c57bc95` (PR #505; the range since the previous
+Web publication also carries PR #507, which only allocated Gateway 0.4.29 and Connector 0.1.13 and
+touches no Web file), `WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck,
+**614 tests across 57 files**, and build. The installer reported
+`{"ok":true,"releaseId":"0.1.0-703546092aac","installed":true,"previous":"0.1.0-f0cf5f8921ea"}`:
+Web `0.1.0-703546092aac` replaced `0.1.0-f0cf5f8921ea`, which stays installed for
+`scripts/publish-web-app.sh --rollback`. The release manifest's archive SHA-256 is
+`c440f93aa20748132a8cfb2e3969727509f4ddad5a463c1696843fbf06a052f6`. The publisher's own staging
+directory is removed on exit, so the manifest was repackaged from the same clean tree at the same
+commit: independent public reads then matched the size and SHA-256 of all **13** packaged files,
+and the public `/app/` `index.html` matched the local build byte for byte. The live stylesheet
+carries the change — the root element rule is now `overscroll-behavior: none; height: 100%;
+overflow: hidden`, and `.page-scroll` and `.login-scroll` declare `overscroll-behavior: contain`.
+
+This repo has no `scripts/release-notices.mjs`; matching was done by hand against the released range
+`f0cf5f8921ea..703546092aac`, which translates this repo's `WEB_RELEASE_OK` credential into a release
+receipt whose SHA-256 is
+`b61773850449b0960706bd1d8462790759fbb66aaf5c95aebd355fe9e90e1f6c`. MissionGo advanced **HG-173**
+to pending verification. No Android, Desktop or SDK artifact was published by this batch, so the
+other Hermes GO candidates (HG-163, HG-156, HG-162, HG-161, HG-121, HG-155, HG-148, HG-134) were
+left in development complete. Gateway, Connector, Desktop and Android code were untouched and
+nothing was restarted. Real-device acceptance remains per `docs/SMOKE_TEST.md` item 20 — the pull
+gesture cannot be proven by the DOM tests or by a desktop engine — and the Web publication does not
+imply acceptance.
