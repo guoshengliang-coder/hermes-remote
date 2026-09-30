@@ -183,7 +183,7 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     };
     assert.equal(capabilities.accountAuth.webDeviceAccess, true);
     assert.deepEqual(capabilities.accountAuth.webDeviceFeatures, [
-      "session-manage", "session-delete", "workspace-move", "model-select", "default-model", "process-list", "session-access",
+      "session-manage", "session-delete", "workspace-move", "model-select", "default-model", "default-model-write", "session-model-config", "process-list", "session-access",
     ]);
     const shell = await fetch(`${origin}/app/sessions/abc`);
     assert.equal(shell.status, 200);
@@ -266,6 +266,19 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     await expectError(write("/hermes-remote/default-model", browserAccess), 403, "HR-WEB-001");
     await expectError(read("/config", browserAccess), 403, "HR-WEB-001");
 
+    const setDefault = await manage("POST", "/hermes-remote/default-model/set?profile=work", '{"provider":"openai","model":"gpt-6"}');
+    assert.equal(setDefault.status, 200);
+    assert.equal(await setDefault.text(), 'account:POST /api/hermes-remote/default-model/set?profile=work {"provider":"openai","model":"gpt-6"}');
+    for (const body of ['{"provider":"p","model":"m","api_key":"CANARY"}', '{"provider":"p","model":"m","scope":"auxiliary"}', 'not json']) {
+      await expectError(manage("POST", "/hermes-remote/default-model/set", body), 403, "HR-WEB-001");
+    }
+    await expectError(manage("POST", "/hermes-remote/default-model/set?profile=a&profile=b", '{"provider":"p","model":"m"}'), 403, "HR-WEB-001");
+    await expectError(fetch(`${origin}/v2/devices/${deviceId}/api/hermes-remote/default-model/set`, {
+      method: "POST", headers: { cookie: cookie(browserAccess), origin: WEB_ORIGIN, "content-type": "application/json" },
+      body: '{"provider":"p","model":"m"}',
+    }), 403, "HR-AUTH-012");
+    await expectError(manage("POST", "/model/set", '{"scope":"main","provider":"p","model":"m"}'), 403, "HR-WEB-001");
+
     // Mac files are never rendered on the Gateway origin.
     const html = await read(`/files?path=${encodeURIComponent("/Users/test/page.html")}`, browserAccess);
     assert.equal(html.status, 200);
@@ -300,6 +313,15 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     const refused = JSON.parse(await nextRawMessage(web)) as { id: number; error: { data: { code: string } } };
     assert.equal(refused.id, 2);
     assert.equal(refused.error.data.code, "HR-WEB-001");
+    const sessionModel = { jsonrpc: "2.0", id: 40, method: "config.set", params: {
+      key: "model", session_id: "abc", value: "Model 6 Pro --provider openai --session", profile: "work", confirm_expensive_model: true,
+    } };
+    web.send(JSON.stringify(sessionModel));
+    assert.equal(await nextRawMessage(web), `account:${JSON.stringify(sessionModel)}`);
+    web.send(JSON.stringify({ ...sessionModel, id: 41, params: { ...sessionModel.params, scope: "global" } }));
+    const globalModel = JSON.parse(await nextRawMessage(web)) as { id: number; error: { data: { code: string } } };
+    assert.equal(globalModel.id, 41);
+    assert.equal(globalModel.error.data.code, "HR-WEB-001");
     assert.equal(await rejectedUpgradeStatus(wsUrl, { cookie: cookie(browserAccess) }), 403);
     assert.equal(
       await rejectedUpgradeStatus(wsUrl, { cookie: cookie(browserAccess), origin: "https://evil.example.test" }),
@@ -468,9 +490,10 @@ function attachMockConnector(socket: WebSocket): void {
               "content-disposition": `inline; filename="${name}"`,
             }
           : { "content-type": "text/plain" },
-        // Session-management writes echo the method and the exact body the Gateway forwarded.
+        // Checked JSON writes echo the method and exact body the Gateway forwarded.
         bodyBase64: Buffer.from(
-          message.method === "PATCH" || message.method === "DELETE"
+          message.method === "PATCH" || message.method === "DELETE" ||
+            (message.method === "POST" && message.path.split("?")[0] === "/api/hermes-remote/default-model/set")
             ? `account:${message.method} ${message.path} ${message.bodyBase64 ? Buffer.from(message.bodyBase64, "base64").toString() : ""}`
             : `account:${message.path}`,
         ).toString("base64"),

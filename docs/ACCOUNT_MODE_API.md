@@ -1004,6 +1004,7 @@ Allowlisted REST paths: `/api/status`, `/api/hermes-remote/contract`, `/api/sess
 | `DELETE /api/sessions/{id}` | Query only `profile`; no body |
 | `GET /api/model/options` | Query only `profile` |
 | `GET/HEAD /api/hermes-remote/default-model` | Exact Connector-owned read; zero or one validated `profile` query; no body; `GET` returns only `model` and `provider` with `Cache-Control: private, no-store` |
+| `POST /api/hermes-remote/default-model/set` | HG-166: zero or one validated `profile`; JSON body ≤4 KB, exactly `model`, `provider`, optional `confirm_expensive_model:true`. Connector injects `scope:main`, calls `/api/model/set`, and returns only `{model,provider}` or `{confirm_required:true}`; metadata never crosses the tunnel |
 
 Anything else answers `403 HR-WEB-001`. On the WebSocket `client.capabilities`, `session.create`,
 `session.resume`, `prompt.submit`, `session.interrupt`, `image.attach`, `file.attach`,
@@ -1016,6 +1017,7 @@ server requests are forwarded, plus these in one parameter shape each:
 | `slash.exec` | `session_id`, `command` matching `^/model [A-Za-z0-9._:/@+-]{1,128} --provider [A-Za-z0-9._-]{1,64} --session$`, `profile`? |
 | `config.get` | `key: "reasoning"`, `session_id`, `profile`? |
 | `config.set` | `key: "reasoning"`, `session_id`, `value` ∈ `none/minimal/low/medium/high/xhigh/max/ultra`, `profile`? |
+| `config.set` (model) | HG-166: `key:"model"`, required `session_id`, `value:"<model> --provider <provider> --session"`, optional validated `profile`, optional `confirm_expensive_model:true`; no `scope` or `cwd`. Model ≤128 Unicode letters/digits/`._:/@+ -`, no switch tokens; provider ≤64 ASCII letters/digits/`._-` |
 | `process.list` | `session_id`, `profile`? |
 | `session.access` | `session_id`, `profile`?, `live_session_id`? |
 
@@ -1234,3 +1236,12 @@ Android uses the same existing route and provider protocol; no Android, Desktop,
 or shared wire-protocol change is needed. Old Gateways omit `voice-input`, so Web retains keyboard
 input. Revoked account/session/installation/binding access closes both native and browser speech
 sockets; periodic session-liveness checks tolerate two transient failures and close at the third.
+
+### HG-166 model rollout compatibility
+
+Gateway advertises `default-model-write` and `session-model-config` separately. New Web keeps the
+existing read-only default row and legacy slash session selector on older Gateways. Deploy the
+Connector's default write adapter first, then Gateway's validators/features, then Web. No Android
+or Desktop wire changes are required: their existing bearer routes and RPC shapes remain valid.
+A Gateway rollback restores the old feature set and the Web falls back at its next capability read.
+This change requires Connector, Gateway and Web releases, not an Android APK.

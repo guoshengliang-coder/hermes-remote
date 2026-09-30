@@ -826,15 +826,15 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           profile={explicitProfile(row)}
           explicitOverride={explicitModelOverride}
           actions={{
-            switchModel: (provider, model) => sessionRef.current!.switchModel(provider, model),
+            switchModel: (provider, model, confirmed) => sessionRef.current!.switchModel(provider, model, confirmed, app.features.has("session-model-config")),
             reasoning: () => sessionRef.current!.reasoning(),
             setReasoning: (value) => sessionRef.current!.setReasoning(value),
           }}
-          onSwitched={(provider, model, restored) => {
+          onSwitched={(provider, model, restored, warning) => {
             setChosenModel({ provider, model });
             setExplicitModelOverride(!restored);
-            app.flash(restored ? t(`已恢复默认模型 ${model}`, `Restored default model ${model}`) : t(`已切换到 ${model}`, `Switched to ${model}`));
-            if (regenerateAfterSwitch) regenerate();
+            if (!warning) app.flash(restored ? t(`已恢复默认模型 ${model}`, `Restored default model ${model}`) : t(`已切换到 ${model}`, `Switched to ${model}`));
+            if (regenerateAfterSwitch && !warning) regenerate();
             setRegenerateAfterSwitch(false);
           }}
           onReasoning={setReasoning}

@@ -1416,3 +1416,26 @@ production or microphone verification. Use non-sensitive test speech.
    and no prompt submits. Refreshing access credentials alone must not close a live session.
 6. Check Safari permission and AudioContext resume after switching back from the keyboard, including
    a second recording. Confirm neither raw audio nor transcript content is in Gateway diagnostics.
+
+## HG-166 · Web model alignment
+
+Use the isolated local Web stack or an explicitly authorized staging setup, never a real model
+mutation against production merely to test this change. Automated coverage: precise Gateway route
+and RPC validators, same-origin/CSRF/device checks, Connector metadata stripping, Web session result
+parser and dialog actions. Browser/device acceptance still must prove real Hermes persistence:
+
+1. Card page → default model: current default/provider; select another provider/model. Reopen and
+   verify the new default, create a new chat and verify it uses that default. Existing chats retain
+   their own model. Default picker has no reasoning effort or restore-default action.
+2. Chat → composer model chip: switch, confirm expensive selection or cancel it. Cancel leaves the
+   old model and recent list unchanged. While a reply runs, deferred notice stays visible and current
+   model/recents do not pretend application; next send checks actual session.info.
+3. Change reasoning, switch away/back and verify per-model preset; favorite a model and verify the
+   pinned section; recent chips stay newest-first, maximum five. Restore default changes only this chat.
+4. Model warning or timeout: keep panel open. Timeout displays HR-RPC-008 and no auto retry. A
+   failed default write displays HR-RPC-005 with retry; never show upstream endpoint or warning text.
+5. Switch Mac/profile while reading/saving: old replies do not change the new view. Missing feature
+   flags keep the default row read-only and preserve old session switching. Verify narrow/wide screens,
+   light/dark themes, keyboard and sheet close/back behavior. Model prefs are browser local.
+6. Before release deploy Connector, Gateway, then Web. Verify public source commits separately for
+   each required artifact; merging alone does not establish availability.

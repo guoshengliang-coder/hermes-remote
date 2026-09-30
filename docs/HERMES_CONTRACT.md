@@ -29,8 +29,8 @@ shape**, so an upstream change to their params (a renamed key, a new required ke
 values) must update the Gateway validators as well as both clients, or the Web app gets `HR-WEB-001`.
 The Android chat model picker now uses `config.set {key:"model", session_id, value:"<model> --provider <provider> --session"}`
 directly, with `confirm_expensive_model` only after the user confirms. It treats `confirm_required`
-and `deferred` as pending outcomes, and `value` plus `scope` as the applied outcome. The Web app
-still uses its `slash.exec` model path. The upstream model-value parser splits on whitespace and
+and `deferred` as pending outcomes, and `value` plus `scope` as the applied outcome. HG-166 uses the same session `config.set` shape in Web when Gateway advertises
+`session-model-config`, retaining `slash.exec` only for older Gateways. The upstream model-value parser splits on whitespace and
 joins model tokens; Android sends model names with spaces unquoted, and rejects provider slugs with
 spaces or model names containing switch flags rather than sending a different selection.
 For HG-114, the Connector alone reads optional `GET /api/model/info` for the selected profile
@@ -1085,3 +1085,15 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
   an upgrade is detected only by something breaking — or by this checklist. Since 2026-09-21 the
   Connector contract check (§2) catches the REST half at runtime; the WebSocket RPC surface (§3),
   text grammars (§4) and mirrored constants (§5) still have no runtime check.
+
+### HG-166 model-selection source check (2026-09-30)
+
+Checked local upstream `hermes_cli/web_routers/models.py:set_model_assignment` and
+`hermes_cli/web_server_config.py:_apply_main_assignment_sync`: main assignment accepts
+`scope/main`, provider/model and explicit expense confirmation, with optional profile query.
+HTTP 200 may mean `confirm_required:true`; success returns `ok:true,scope:main` with model/provider
+plus endpoint and cron metadata that the Connector must strip. Also checked
+`tui_gateway/methods_config_set.py:_cfgset_model_ok` and `_stash_pending_model_switch`:
+confirmation and deferred flags are pending states, not confirmed model application.
+Web now parses these states and does not update recents before application. No upstream upgrade,
+patch, wire-version change or new Mac credential exposure is part of this work.
