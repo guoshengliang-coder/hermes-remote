@@ -1386,7 +1386,7 @@ production or microphone verification. Use non-sensitive test speech.
 4. Disconnect the provider or wait for timeout: partial text returns to the draft under
    `HR-VOICE-002`; cancel waiting also keeps partial text, gesture cancel discards it. Verify the
    microphone indicator disappears on release, background, navigation, sign-out and device switch.
-   Maximum capture is 60 seconds; late results cannot write to another conversation.
+   At the 60-second capture limit, stop and preserve partial text without automatic submission; late results cannot write to another conversation.
 5. Confirm cookie upgrade accepts the exact Origin only; no token/key is present in URLs or JS.
    Revoke the browser session or device share while recording and confirm the speech socket closes
    and no prompt submits. Refreshing access credentials alone must not close a live session.

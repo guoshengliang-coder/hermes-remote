@@ -72,3 +72,15 @@ it("cancel returns partial text and a late final can no longer send", async () =
   callback({ data: frame("迟到", true) }); await settle();
   expect(h.events.filter((e) => e.kind === "final")).toEqual([]);
 });
+it("a provider final while still holding cannot send and retains text for review", async () => {
+  const h = harness(); await settle(); h.socket.onmessage!({ data: frame("尚未松手", true) }); await settle();
+  expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "尚未松手", error: { code: "HR-VOICE-002" } });
+  expect(h.events.some((e) => e.kind === "final")).toBe(false); expect(h.stop).toHaveBeenCalledOnce();
+});
+it("the recording limit stops capture and keeps partial text instead of sending without release", async () => {
+  const h = harness(); await settle(); h.socket.onopen!(); h.socket.onmessage!({ data: frame("达到录音时限") }); await settle();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(h.stop).toHaveBeenCalledOnce(); expect(h.socket.close).toHaveBeenCalledOnce();
+  expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "达到录音时限", error: { code: "HR-VOICE-002" } });
+  expect(h.events.some((e) => e.kind === "final")).toBe(false);
+});

@@ -31,7 +31,7 @@ export class BrowserVoiceSession {
 
   start(): void {
     this.deadline(10_000, () => this.fail("HR-VOICE-001"));
-    this.deadline(60_000, () => this.finish());
+    this.deadline(60_000, () => this.fail("HR-VOICE-002"));
     // Start capture synchronously in the gesture so AudioContext.resume is allowed on WebKit.
     void (this.options.capture ?? captureVoice)((pcm) => this.onPcm(pcm), this.captureAbort.signal).then((capture) => {
       if (this.ended || this.finishing) capture.stop();
