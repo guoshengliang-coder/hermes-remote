@@ -894,16 +894,27 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 
 ## Build
 
-For local development checks, Gradle remains available directly. For every APK distributed to a
-user or tester, run the repository release gate instead:
+For local development checks, no MissionGo credentials are needed:
 
 ```bash
-cd ..
-./scripts/package-debug-apk.sh
+./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
-The gate runs Android unit tests and `assembleDebug`, then validates the package metadata, version,
-signature, staged filename, and SHA-256 before printing `APK_RELEASE_OK`.
+Assembly still requires the canonical signing identity; do not generate or copy a replacement.
+Without a provisioned signing key, run `:app:testDebugUnitTest :app:lintDebug` instead. Development
+APKs without feedback configuration are for local verification only, never tester distribution.
+
+Official APKs are built by `.github/workflows/android-release.yml` using repository secrets. The
+owner-authorized release train prepares a release PR using unit tests and lint, without building an
+APK; its separate `publish` command triggers the CI build/publish gate. See `../docs/APP_UPDATE.md`.
+Do not copy feedback credentials into a local worktree to run preparation.
+
+CI runs `./scripts/package-debug-apk.sh` from the repository root. This distribution gate verifies
+MissionGo configuration before tests/compilation and fails early with `HR-RELEASE-005` when it cannot
+verify it. It then runs unit tests/assembly and validates the feedback constants in the final APK,
+package metadata, version, signature, staged filename and SHA-256 before printing `APK_RELEASE_OK`.
+Disabling feedback validation is not supported. A successful development build or release PR is not
+an approved distributable APK.
 
 Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. After every debug
 build, the tester-facing APK is staged automatically as:

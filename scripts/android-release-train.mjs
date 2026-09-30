@@ -2,13 +2,13 @@
 // An Android release as two calls with the publish gate between them (docs/APP_UPDATE.md
 // "Publishing", docs/INTEGRATION.md table 3):
 //
-//   prepare  bump-android-release.mjs → package-debug-apk.sh → release PR → merge-when-green.mjs
+//   prepare  bump-android-release.mjs → development checks → release PR → merge-when-green.mjs
 //   publish  check origin/main carries the version → push android-v<version> → wait for
 //            android-release.yml, which builds, uploads and verifies the public APK and index
 //
 // Each step already existed; agents chained them by hand, a dozen tool calls and several polling
 // loops per release. Nothing here replaces a gate: bump still refuses a stale or dirty tree and a
-// taken number, the package gate still has to print APK_RELEASE_OK, the release PR goes through the
+// taken number, CI's package gate still has to print APK_RELEASE_OK, the release PR goes through the
 // merge gate as a red-light change, and `publish` is a separate command the owner authorizes.
 // `publish` is also the only publishing path: pushing the tag after a manual upload of the same
 // version is how android-v0.1.139 failed with "version conflict".
@@ -22,12 +22,15 @@ import {classifyRuns, waitFor} from './merge-when-green.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GRADLE_PATH = 'android/app/build.gradle.kts';
+const PREPARATION_ERROR = JSON.parse(readFileSync(new URL('./lib/android-release-errors.json', import.meta.url), 'utf8')).preparation;
+export const PREPARATION_TASKS = Object.freeze([':app:testDebugUnitTest', ':app:lintDebug']);
 
 const USAGE = `usage:
   node scripts/android-release-train.mjs prepare --notes-file <path> (--summary <text> | --summary-file <path>) [--no-merge]
   node scripts/android-release-train.mjs publish <version>
 
-prepare runs from a clean worktree at origin/main and stops after the release PR is merged.
+prepare runs development checks without release credentials, prepares a CI-built release,
+and stops after the release PR is merged. It does not produce or approve an APK.
 publish is the publish gate: run it only when the project owner has authorized publishing.
 `;
 
@@ -54,14 +57,6 @@ export function parseArgs(argv) {
   throw new Error(USAGE);
 }
 
-// The package gate's stdout contract (scripts/package-debug-apk.sh): APK_RELEASE_OK, then KEY=value.
-export function parseGateOutput(text) {
-  const lines = text.split('\n').map((line) => line.trim());
-  if (!lines.includes('APK_RELEASE_OK')) return null;
-  const value = (key) => lines.find((line) => line.startsWith(`${key}=`))?.slice(key.length + 1) ?? null;
-  return {artifact: value('ARTIFACT'), sha256: value('SHA256'), certSha256: value('CERT_SHA256')};
-}
-
 // What must hold on origin/main before its commit may be tagged for publication.
 export function publishRefusal({version, gradleText, releaseFileExists, tagExists}) {
   const {versionName} = parseGradleVersions(gradleText);
@@ -71,12 +66,12 @@ export function publishRefusal({version, gradleText, releaseFileExists, tagExist
   return null;
 }
 
-export function releasePrBody({version, gate}) {
+export function releasePrBody({version}) {
   return [
     `Allocates Android ${version} for a test package, via \`scripts/android-release-train.mjs prepare\`.`,
     '',
-    `Release gate passed locally from a clean worktree at origin/main: \`APK_RELEASE_OK\`, \`${path.basename(gate.artifact ?? '')}\`,`,
-    `SHA-256 \`${gate.sha256}\`, certificate \`${gate.certSha256}\`.`,
+    'Credential-free development checks passed: Android unit tests and lint (including source compilation).',
+    'No local APK was produced or approved. The android-release workflow must run the full package gate with repository secrets before publishing.',
     '',
     'Red-light change (version truth source): merged by the integration agent with `merge-when-green.mjs --allow-red`.',
     'Not published by this PR. Publishing is `scripts/android-release-train.mjs publish` after the owner authorizes it.',
@@ -90,8 +85,8 @@ function sh(command, args, options = {}) {
 }
 
 // Runs with inherited stdout/stderr so a long step shows progress; returns the exit status.
-function stream(command, args) {
-  return spawnSync(command, args, {cwd: ROOT, stdio: 'inherit'}).status;
+function stream(command, args, cwd = ROOT) {
+  return spawnSync(command, args, {cwd, stdio: 'inherit'}).status;
 }
 
 function fail(code, message) {
@@ -99,23 +94,28 @@ function fail(code, message) {
   process.exitCode = code;
 }
 
+function failPreparation(code, reason) {
+  const error = {...PREPARATION_ERROR, technicalCause: reason};
+  console.error(`${error.code}: ${error.summaryZh}\n${error.summaryEn}`);
+  console.error(JSON.stringify(error));
+  process.exitCode = code;
+}
+
 function prepare(options) {
   sh('git', ['fetch', '--quiet', 'origin']);
-  if (sh('git', ['status', '--porcelain'])) return fail(4, 'REFUSED: worktree is not clean');
-  if (sh('git', ['rev-parse', 'HEAD']) !== sh('git', ['rev-parse', 'origin/main'])) return fail(4, 'REFUSED: HEAD is not origin/main — run from a fresh worktree at origin/main');
+  if (sh('git', ['status', '--porcelain'])) return failPreparation(4, 'worktree_not_clean');
+  if (sh('git', ['rev-parse', 'HEAD']) !== sh('git', ['rev-parse', 'origin/main'])) return failPreparation(4, 'head_not_origin_main');
 
   const bumpArgs = ['scripts/bump-android-release.mjs', '--notes-file', options.notesFile];
   if (options.summary) bumpArgs.push('--summary', options.summary);
   else bumpArgs.push('--summary-file', options.summaryFile);
-  if (stream('node', bumpArgs) !== 0) return fail(1, 'BUMP_FAILED: nothing was written');
+  if (stream('node', bumpArgs) !== 0) return failPreparation(1, 'version_allocation_failed');
   const {versionName: version} = parseGradleVersions(readFileSync(path.join(ROOT, GRADLE_PATH), 'utf8'));
 
-  console.log(`\n== package gate for ${version} ==`);
-  const gateRun = spawnSync('./scripts/package-debug-apk.sh', [], {cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 64 * 1024 * 1024});
-  process.stdout.write(gateRun.stdout ?? '');
-  const gate = gateRun.status === 0 ? parseGateOutput(gateRun.stdout ?? '') : null;
-  if (!gate) {
-    return fail(1, `GATE_FAILED: ${version} is bumped in this worktree but not committed or pushed, so no number is lost. Fix the cause and re-run from a fresh worktree at origin/main.`);
+  console.log(`\n== development checks for CI release ${version} ==`);
+  if (stream('./gradlew', [...PREPARATION_TASKS, '--console=plain'], path.join(ROOT, 'android')) !== 0) {
+    console.log(`${version} remains uncommitted; fix the checks and retry from a fresh worktree at origin/main.`);
+    return failPreparation(1, 'development_checks_failed');
   }
 
   const branch = `release/android-${version}`;
@@ -123,16 +123,16 @@ function prepare(options) {
   sh('git', ['add', GRADLE_PATH, 'android/README.md', `android/releases/${version}.json`]);
   sh('git', ['commit', '-m', `build(android): release ${version}`, '-m', 'Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>']);
   sh('git', ['push', '--quiet', '-u', 'origin', branch]);
-  const url = sh('gh', ['pr', 'create', '--base', 'main', '--head', branch, '--title', `build(android): release ${version}`, '--body', releasePrBody({version, gate})]);
+  const url = sh('gh', ['pr', 'create', '--base', 'main', '--head', branch, '--title', `build(android): release ${version}`, '--body', releasePrBody({version})]);
   const pr = url.split('/').pop();
   console.log(`opened ${url}`);
 
-  if (!options.merge) return fail(0, `PREPARED ${version}: PR #${pr} open, not merged (--no-merge). Local APK: ${gate.artifact}`);
+  if (!options.merge) return fail(0, `PREPARED ${version}: PR #${pr} open, not merged (--no-merge). No APK built; official packaging runs in CI.`);
   const merged = stream('node', ['scripts/merge-when-green.mjs', pr, '--allow-red']);
   if (merged !== 0) return fail(merged, `MERGE_NOT_DONE ${version}: see merge-when-green output above (exit ${merged})`);
   return fail(0, [
     `PREPARED ${version}: release PR #${pr} merged, main green.`,
-    `Local APK for owner install: ${gate.artifact} (SHA-256 ${gate.sha256})`,
+    'No APK built or approved. The CI release workflow runs packaging and public verification.',
     `Publish gate — only with the owner's authorization: node scripts/android-release-train.mjs publish ${version}`,
   ].join('\n'));
 }
@@ -178,6 +178,7 @@ async function main(argv) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2)).catch((error) => {
+    if (process.argv[2] === 'prepare') return failPreparation(4, 'preparation_command_failed');
     console.error(`android-release-train: ${error.stderr?.toString().trim() || error.message}`);
     process.exitCode = 4;
   });

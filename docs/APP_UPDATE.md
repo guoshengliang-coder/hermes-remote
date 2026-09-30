@@ -54,16 +54,22 @@ downgrade is not supported.”
 > *Incident: 0.1.97 was allocated twice and published never* below before bumping anything.
 
 The steps below are chained by `scripts/android-release-train.mjs`; run it rather than the steps by
-hand. `prepare --notes-file <notes> --summary "<README entry>"`, from a fresh worktree at
-`origin/main` (copy the gitignored `android/local.properties` and `android/missiongo.properties` in
-first — the package gate's `apk_feedback.py` fails hard without the latter, which is how 0.1.120 lost
-its feedback entry), runs the bump, the package gate, opens the
-release PR and merges it through `scripts/merge-when-green.mjs --allow-red`, then stops and prints the
-local APK for an owner test install. `publish <version>` is the publish gate and runs only on the
-owner's authorization: it refuses unless `origin/main` carries exactly that version and release file
-and no `android-v<version>` tag exists yet, then pushes the tag and waits for the automatic workflow
-below. Publish each version through one path only — android-v0.1.139 failed with `version conflict`
-because its tag was pushed after the same version had already been uploaded another way.
+hand. `prepare --notes-file <notes> --summary "<README entry>"`, from a fresh, clean worktree at
+`origin/main`, allocates the version, runs credential-free Android unit tests and lint (which compile
+the app), opens the release PR and merges it through `scripts/merge-when-green.mjs --allow-red`.
+It then stops. **Preparation produces no APK and does not satisfy the distribution package gate.**
+Do not copy `android/missiongo.properties`, read `environment.md`, or provision feedback credentials
+to make local preparation pass. Set `ANDROID_HOME` to the local SDK when the new worktree has no
+`android/local.properties`.
+
+`publish <version>` is the separate, owner-authorized publish gate. It refuses unless `origin/main`
+carries exactly that version and release file and no `android-v<version>` tag exists yet, then pushes
+the tag and waits for `android-release.yml`. That trusted CI workflow supplies the existing repository
+secrets, runs **the complete package gate**, publishes and verifies the public APK. A green release
+PR alone never approves a distributable package. If CI is unavailable or its configuration check
+fails, fix that path; do not weaken feedback validation or substitute a local development APK.
+Publish each version through one path only — android-v0.1.139 failed with `version conflict` because
+its tag was pushed after the same version had already been uploaded another way.
 
 1. The integration agent bumps `appVersionName` and `appVersionCode`, updates `android/README.md`, and
    adds `android/releases/<version>.json` containing only channel and release notes. Do this with
@@ -72,18 +78,21 @@ because its tag was pushed after the same version had already been uploaded anot
    that is not the current `origin/main`, and reusing a number an existing release file or `origin`
    tag already carries. It validates the notes against `release-server/src/schema.mjs` at allocation
    time rather than at upload. It deliberately does not commit, tag, build, or publish.
-2. Commit the release, push it to `origin/main`, and confirm the worktree is clean. With the canonical
-   key and a private `android/missiongo.properties` containing both feedback settings provisioned, run
-   `scripts/publish-android-apk.sh`. The publisher refuses a dirty worktree or a
-   `HEAD` different from `origin/main`. Authentication comes only from ssh-agent/key or caller-injected
-   SSH configuration. Supported variables are
-   `RELEASE_SSH_HOST` (fixed `mrlgs.net`), safe `RELEASE_SSH_USER` (default `kkk`),
-   `RELEASE_DATA_ROOT` (fixed `/srv/hermes-releases`), and `RELEASE_PUBLIC_BASE_URL`. Publish only from
-   an isolated worktree with no concurrent writer.
-3. The script first runs `package-debug-apk.sh` with the public-release MissionGo configuration check
-   enabled and consumes its atomically written JSON gate output. The exact Gradle values used by the
-   build must contain both the feedback endpoint and SDK token; the gate records only a boolean proof,
-   never either secret, and the publisher rejects a supplied gate without that proof.
+2. Merge the release PR through the reviewed merge gate and confirm the resulting `main` checks.
+   The normal official build/publish path is the CI workflow triggered by the owner-authorized
+   `android-release-train.mjs publish <version>`. Developer Macs do not need MissionGo credentials.
+   `scripts/publish-android-apk.sh` remains the CI publisher; it requires a clean isolated worktree at
+   current `origin/main` and the existing SSH configuration. Do not run a second publishing path for
+   the same version or copy credentials into a task worktree.
+3. The workflow runs `package-debug-apk.sh` and supplies its atomically written JSON gate output to
+   the publisher. The package gate always checks MissionGo configuration **before** tests/compilation,
+   using the actual Gradle inputs without reusing the configuration cache. Missing configuration or
+   build prerequisites fail with `HR-RELEASE-005`; use the CI release build or repair its inputs.
+   `APK_REQUIRE_MISSIONGO_CONFIG=0` is rejected. The final generated-BuildConfig/dex check remains
+   mandatory (`HR-RELEASE-006`), and only after it passes is `missionGoConfigured: true` recorded.
+   The exact Gradle values used by the build must contain both the feedback endpoint and SDK token;
+   the gate records only a boolean proof, never either secret, and the publisher rejects a supplied
+   gate without that proof.
    The gate reads `minSdk` from the built APK with `aapt` together with package/version/signature data;
    publication metadata must consume that measured value and must never hard-code it. The publisher
    uploads the APK, metadata, and the reviewed `deploy/publish-release.mjs` plus its schema from the
