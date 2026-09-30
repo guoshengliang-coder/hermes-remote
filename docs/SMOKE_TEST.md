@@ -1196,9 +1196,10 @@ version with each result.
     from the session list's avatar. Expected: the header is only the Hermes GO wordmark — no gear
     button and no settings sub-page behind it; the rows are 主题 / 默认模型 / 语言 / 字体大小,
     followed by a Hermes GO account card (email, 退出登录, 删除账号) and an About card (Web and
-    Gateway versions). Tap 语言 or 字体大小: a bottom sheet opens with one radio per option; tapping
-    an option applies it immediately (no Save, unlike 主题), marks it 当前使用, and scrim / Escape /
-    system back dismiss only the sheet, never the drawer. Then pick 大 / 特大 / 超大 in Safari and in
+    Gateway versions). Tap 语言 or 字体大小: a bottom sheet opens with one radio per option, using
+    the same rule as 主题 — picking only moves the pending item, 当前使用 keeps marking the value in
+    force, and 「保存」 is what writes it; scrim, Escape, the close button and system back cancel the
+    pending item and leave the setting alone. Then pick 大 / 特大 / 超大 in Safari and in
     the Home Screen app. Expected: text, line height, spacing and the 44px touch targets grow
     together, the page reflows without overlap or clipping, and the choice survives a force-quit
     (it is per browser, like pins and theme). At 超大 the drawer scrolls to the bottom so 删除账号
