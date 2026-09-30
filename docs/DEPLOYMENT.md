@@ -1762,3 +1762,27 @@ version, minimum SDK and canonical signing certificate; no Android or Desktop ar
 published by this batch. The other eight candidates had no related artifact published here.
 Real microphone/Doubao recognition, iPhone/PWA touch and keyboard behavior, and the other items'
 physical-device acceptance remain unverified; follow their `docs/SMOKE_TEST.md` steps.
+
+### Web HG-171, HG-172 and HG-170 publication — 2026-09-30
+
+Owner-authorized Web release. From an isolated clean worktree at `main
+4d81ccc790c7f961e7644f76cedfb1c0ca3d723f` (PR #500, whose range also carries PR #499),
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **592 tests across 54
+files**, and build. The installer reported
+`{"ok":true,"releaseId":"0.1.0-4d81ccc790c7","installed":true,"previous":"0.1.0-80e4985446d8"}`:
+Web `0.1.0-4d81ccc790c7` replaced `0.1.0-80e4985446d8`, which stays installed for
+`scripts/publish-web-app.sh --rollback`. The release manifest's archive SHA-256 is
+`adefdc45eb4be5fbd51e7191bd81309dcc442b93de442067ca63a6be7dcfce6e`. Independent full public reads
+matched the size and SHA-256 of all **13** packaged files against the manifest, and the public
+`/app/` `index.html` matched the local build byte for byte.
+
+This repo has no `scripts/release-notices.mjs`; matching was done by hand against the released
+range `80e4985446d8..4d81ccc790c7`, which translates this repo's `WEB_RELEASE_OK` credential into a
+release receipt whose SHA-256 is
+`8ffbc4031e08cf4c1148adbe4de6d4cd3752f524cd2e0e75333eefbf74c1d229`. MissionGo advanced **HG-171**,
+**HG-172** and **HG-170** to pending verification — HG-170's PR #499 merged after the previous Web
+publication and is contained in this bundle. No Android, Desktop or SDK artifact was published by
+this batch, so the other Hermes GO candidates were left in development complete. Gateway, Connector,
+Desktop and Android code were untouched and nothing was restarted. Real-device acceptance (HG-172's
+long-press sheet on iOS and Android, HG-170's icon colours and HG-171's drawer/FAB behaviour)
+remains per `docs/SMOKE_TEST.md` items 17 and 18; the Web publication does not imply acceptance.
