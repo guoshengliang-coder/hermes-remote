@@ -153,6 +153,7 @@ import com.hermes.client.domain.ChatFile
 import com.hermes.client.domain.FileTransferState
 import com.hermes.client.ui.components.ExternalLinkIcon
 import com.hermes.client.ui.components.rememberSafeUriHandler
+import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
 import com.hermes.client.ui.localization.localized
 import com.hermes.client.ui.localization.localizedMessage
@@ -454,6 +455,7 @@ fun ChatMessageList(
     isGenerating: Boolean = false,
     onEditResend: (String) -> Unit = {},
     onRetrySend: (String) -> Unit = {},
+    onDiscardSend: (String) -> Unit = {},
     sendDiagnosticFor: (String) -> String? = { null },
     sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode? = { null },
     onRegenerate: () -> Unit = {},
@@ -1167,6 +1169,7 @@ fun ChatMessageList(
                         showAssistantActions,
                         onEditResend,
                         onRetrySend,
+                        onDiscardSend,
                         sendDiagnosticFor,
                         sendErrorCodeFor,
                         onRegenerate,
@@ -1418,6 +1421,7 @@ private fun MessageBubble(
     showAssistantActions: Boolean,
     onEditResend: (String) -> Unit,
     onRetrySend: (String) -> Unit,
+    onDiscardSend: (String) -> Unit,
     sendDiagnosticFor: (String) -> String?,
     sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode?,
     onRegenerate: () -> Unit,
@@ -1444,7 +1448,7 @@ private fun MessageBubble(
         LocalTurnIsCurrentHit provides (searchContext != null && searchContext.currentMessageId == msg.id),
     ) {
         when (msg.role) {
-            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, landingAlpha = landingAlpha, onRetrySend = onRetrySend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
+            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, landingAlpha = landingAlpha, onRetrySend = onRetrySend, onDiscardSend = onDiscardSend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
             else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onOpenImage, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, landingAlpha = landingAlpha)
     }
     }
@@ -1474,6 +1478,43 @@ internal val TERMINAL_SEND_ERROR_CODES = setOf(
     com.hermes.client.data.error.AppErrorCode.SESSION_TOO_LARGE,
 )
 
+/**
+ * The sentence a failed send shows. The code decides it, not the delivery state: `FAILED` covers
+ * several causes and they must not share one sentence, or the user retries into the same refusal
+ * (docs/ERROR_HANDLING.md, docs/DESIGN.md §5.4).
+ *
+ * Every [TERMINAL_SEND_ERROR_CODES] member needs its own branch, because those withhold the tap —
+ * falling through to 「未发送 · 点按重试」 promises a retry the bubble will not perform. HG-162 is
+ * exactly that gap: a send restored after a restart, whose staged attachments did not survive,
+ * printed the retry copy with no retry behind it.
+ * `DeliveryStateTest.every_terminal_send_code_has_its_own_sentence_and_none_offers_a_retry` fails if
+ * a code joins the set without a sentence here.
+ *
+ * The four terminal ones and SESS-013 carry no 「未发送 ·」 prefix: the dimmed bubble and the error
+ * mark already say it did not send, and the prefix pushes the compact code onto a second line at
+ * 360dp / fontScale 1.3.
+ */
+internal fun failedSendLabel(
+    code: com.hermes.client.data.error.AppErrorCode,
+    language: AppLanguage,
+): String = when (code) {
+    com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND ->
+        localized(language, "会话不存在或已被删除", "This conversation no longer exists")
+    com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST ->
+        // Says what is gone and what to do about it, because the tap cannot fix this one.
+        localized(language, "附件已丢失，请重新选择后发送", "Attachments are gone — pick them again")
+    com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING ->
+        // Names the Mac, because that is where the fix is.
+        localized(language, "Mac 缺少 PDF 渲染依赖", "Mac is missing a PDF renderer")
+    com.hermes.client.data.error.AppErrorCode.SESSION_TOO_LARGE ->
+        // Names the conversation rather than the message: the message is not what is too big, the
+        // transcript it lands in is.
+        localized(language, "会话内容过大，无法传输", "Conversation too large to send")
+    com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE ->
+        localized(language, "会话正在另一个客户端运行", "Running on another client")
+    else -> localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun UserBubble(
@@ -1484,6 +1525,7 @@ internal fun UserBubble(
     onFileShare: (ChatFile) -> Unit,
     landingAlpha: Float = 0f,
     onRetrySend: (String) -> Unit = {},
+    onDiscardSend: (String) -> Unit = {},
     sendDiagnostic: String? = null,
     sendErrorCode: com.hermes.client.data.error.AppErrorCode? = null,
 ) {
@@ -1528,24 +1570,7 @@ internal fun UserBubble(
     val failedErrorCode = sendErrorCode
         ?: if (undeliverable) com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
         else com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
-    val failedLabel = when (failedErrorCode) {
-        com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND ->
-            localized(language, "会话不存在或已被删除", "This conversation no longer exists")
-        com.hermes.client.data.error.AppErrorCode.SESSION_OWNED_ELSEWHERE ->
-            // No "未发送 ·" prefix, same as SESS-001: the dimmed bubble and the error mark already
-            // say it did not send, and the prefix pushed the code onto a second line at 360dp/1.3.
-            localized(language, "会话正在另一个客户端运行", "Running on another client")
-        com.hermes.client.data.error.AppErrorCode.PDF_RENDER_DEPENDENCY_MISSING ->
-            // Same shape as SESS-001/013: no "未发送 ·" prefix, because the dimmed bubble and the
-            // error mark already said it did not send, and the prefix costs the code its line at
-            // 360dp / fontScale 1.3. Names the Mac, because that is where the fix is.
-            localized(language, "Mac 缺少 PDF 渲染依赖", "Mac is missing a PDF renderer")
-        com.hermes.client.data.error.AppErrorCode.SESSION_TOO_LARGE ->
-            // Same shape again: no "未发送 ·" prefix. Names the conversation rather than the
-            // message, because the message is not what is too big — the transcript it lands in is.
-            localized(language, "会话内容过大，无法传输", "Conversation too large to send")
-        else -> localized(language, "未发送 · 点按重试", "Not sent · Tap to retry")
-    }
+    val failedLabel = failedSendLabel(failedErrorCode, language)
     val failedCode = failedErrorCode.compact
     // Whether the tap is offered follows the same rule as the copy: the code decides, not the
     // delivery state. `retryable = failed && !undeliverable` was true for every FAILED bubble,
@@ -1691,6 +1716,22 @@ internal fun UserBubble(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     softWrap = false,
+                )
+                // Withdraw sits at the row's end because it is the one thing the failure state
+                // cannot infer: tap on the bubble or this row retries, this discards. An unsent
+                // bubble never reached the Mac, so withdrawing is local — it drops the turn and
+                // clears the record a cold start would otherwise put back on screen (HG-162).
+                Text(
+                    localized(language, "撤回", "Withdraw"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { onDiscardSend(msg.id) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                 )
             }
         }

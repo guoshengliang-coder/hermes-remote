@@ -107,6 +107,20 @@ class HermesRestApi(
             "/api/profiles/sessions",
             "/api/messaging/platforms",
         )
+        /**
+         * Attachment-upload budgets, stated in the order they must bind: connect < write < call.
+         *
+         * [restCall] gives every REST GET a 20s whole-call deadline, but the shared client leaves
+         * OkHttp's 10s connect and 10s write defaults in place. An upload that declared a
+         * 10-minute budget while a 10-second default killed the body write is how the HG-161
+         * attachment send died 10.0s after `submit …` without an outcome line anywhere: the two
+         * bounds disagreed by two orders of magnitude, and the tighter one was accidental. State
+         * all three, so whatever fires is the bound we chose. A stalled VPN write then costs two
+         * minutes and says so, instead of ten seconds and silence.
+         */
+        const val UPLOAD_CONNECT_TIMEOUT_SECONDS = 30L
+        const val UPLOAD_WRITE_TIMEOUT_SECONDS = 120L
+        const val UPLOAD_CALL_TIMEOUT_MINUTES = 10L
         const val CONNECTION_TEST_TIMEOUT_SECONDS = 12L
         /** The contract report is a cached, tiny JSON body; anything slower is a stalled tunnel. */
         const val CONTRACT_TIMEOUT_SECONDS = 5L
@@ -560,23 +574,64 @@ class HermesRestApi(
         return uploadArtifactBody(file.asRequestBody(mimeType.toMediaTypeOrNull()), file.length(), name)
     }
 
+    /**
+     * Upload one attachment and return its remote path.
+     *
+     * Every other REST call in this file writes a `[rest]` outcome line; this one used to write
+     * nothing at all, so a stalled upload left the diagnostics with a single `send(…) failed`
+     * line and no way to tell an upload apart from a submit, a connect failure or a server
+     * refusal (HG-161). Success, HTTP refusal and transport failure all speak now, and the three
+     * timeouts are stated rather than inherited from the client's defaults.
+     */
     private suspend fun uploadArtifactBody(body: okhttp3.RequestBody, expectedSize: Long, name: String): UploadedArtifact =
         withContext(Dispatchers.IO) {
             val encodedName = java.net.URLEncoder.encode(name, "UTF-8")
-            val request = builder("/api/files/upload?name=$encodedName")
+            val target = "/api/files/upload?name=$encodedName"
+            val request = builder(target)
                 .post(body)
                 .build()
-            clientFor(request).newCall(request).apply {
-                timeout().timeout(10, TimeUnit.MINUTES)
-            }.execute().use { response ->
-                val body = response.body.string()
-                if (!response.isSuccessful) {
-                    throw HermesApiException(response.code, body.ifBlank { "HTTP ${response.code}" })
+            val call = clientFor(request).newBuilder()
+                // OkHttp 5 dropped the per-call connect/write overrides, so the budget has to be
+                // stated on a derived client. It shares the pool, dispatcher and thread pools with
+                // the shared one, and uploads are one-per-attachment, so this is cheap.
+                .connectTimeout(UPLOAD_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .writeTimeout(UPLOAD_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .build()
+                .newCall(request)
+                .apply { timeout().timeout(UPLOAD_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES) }
+            val startedAt = System.currentTimeMillis()
+            val response = try {
+                call.execute()
+            } catch (error: Throwable) {
+                val elapsed = System.currentTimeMillis() - startedAt
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "POST $target ✗ ${error.javaClass.simpleName}: ${error.message} (${elapsed}ms) " +
+                        "${expectedSize}b · net=${NetworkTransports.current()}"
                 }
-                val obj = json.parseToJsonElement(body).jsonObject
+                throw error
+            }
+            response.use { resp ->
+                val elapsed = System.currentTimeMillis() - startedAt
+                val text = resp.body.string()
+                if (!resp.isSuccessful) {
+                    com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                        "POST $target ← ${resp.code} (${elapsed}ms) ${expectedSize}b ${text.take(200)}"
+                    }
+                    throw HermesApiException(resp.code, text.ifBlank { "HTTP ${resp.code}" })
+                }
+                val obj = json.parseToJsonElement(text).jsonObject
+                val path = obj["path"]?.jsonPrimitive?.content
+                if (path == null) {
+                    com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                        "POST $target ← ${resp.code} (${elapsed}ms) ${expectedSize}b upload response contained no path"
+                    }
+                    throw HermesApiException(0, "upload response contained no path")
+                }
+                com.hermes.client.data.diagnostics.DebugLog.log("rest") {
+                    "POST $target ← ${resp.code} (${elapsed}ms) ${expectedSize}b → ${File(path).name}"
+                }
                 UploadedArtifact(
-                    path = obj["path"]?.jsonPrimitive?.content
-                        ?: throw HermesApiException(0, "upload response contained no path"),
+                    path = path,
                     name = obj["name"]?.jsonPrimitive?.content ?: name,
                     sizeBytes = obj["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: expectedSize,
                 )
