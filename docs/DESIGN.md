@@ -2946,6 +2946,12 @@ Web 版是覆盖 iOS 与电脑浏览器的**轻量入口**，只做主链路（�
     语言名（无语言写 `code`）或「表格」，右边复制钮；代码逐字复制，表格复制成制表符分隔、可直接
     粘贴为单元格。头栏在已消毒的片段上用 DOM 调用拼出来，不引入任何把消息内容变成 HTML 的路径。
     复制失败显示 `HR-WEB-007`；正文本身始终可以原位长按选字。
+   - **表格比卡片宽时左右滑动**（HG-164，2026-09-30，对齐 Android）：每列保持 110px 地板、单元格在
+     列内换行，放不下的部分横向滚出，而不是把整张表挤进卡片显示区——挤压时列宽只剩一两个字，与
+     Android 明显不一致。规则与 Android `ChatComponents.kt` 的 `CHAT_TABLE_CELL_WIDTH = 110.dp` 相同；
+     仍然放得下的表格照旧铺满卡片宽度。定宽列布局（`table-layout: fixed` + `width: max-content` +
+     `min-width: 100%`）是必要的：自动布局在表格超宽时会忽略列宽，而正文的 `word-break` 会把每列
+     min-content 压到近似一个字。
   - **与 Android 对齐的聊天页**（2026-09-22 第二批，逐项照 `ChatComponents.kt` / `SemanticCards.kt`
     / `TimelineNote.kt` / `ChatUiState.kt` 移植，规则以 Android 为准）：
     - 回答内顺序改为 **思考 → 工具 → 图片 → 正文 → 文件 → 操作行**（原 Web 把工具放在最后）。

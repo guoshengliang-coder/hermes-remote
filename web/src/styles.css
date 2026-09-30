@@ -2343,6 +2343,14 @@ html[data-theme="dark"] .group-header {
   background: none;
 }
 
+/* A table wider than the card scrolls sideways out of `.table-scroll`; it is never squeezed into
+   the card (HG-164, Android parity). Android gives every chat cell a 110dp floor
+   (`CHAT_TABLE_CELL_WIDTH`) and lets the card slide past it, while an auto-layout table here
+   simply shrank: with `.markdown`'s `word-break` a cell's min-content width is about one
+   character, so a five-column table became five two-character columns with nothing to scroll.
+   Fixed layout is what holds the floor — auto layout ignores a cell width once the table would
+   exceed the card — and `width: max-content` makes the table as wide as its columns, with
+   `min-width: 100%` stretching a table that still fits to the card. */
 .table-scroll {
   overflow-x: auto;
   padding: 0 0.5rem 0.5rem;
@@ -2351,7 +2359,17 @@ html[data-theme="dark"] .group-header {
 .markdown .table-card table {
   margin: 0;
   display: table;
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
   background: var(--surface);
+}
+
+/* 110px = Android's chat cell width; 6.875rem keeps it on the layout scale (108px image grid is
+   6.75rem). Cells wrap inside their column, exactly as Android's fixed cells do. */
+.markdown .table-card th,
+.markdown .table-card td {
+  width: 6.875rem;
 }
 
 .markdown pre code {
