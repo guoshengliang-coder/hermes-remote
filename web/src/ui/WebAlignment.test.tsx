@@ -75,7 +75,7 @@ it("keeps theme changes pending until Save and cancels them without changing the
   expect(chosen).toEqual(["theme:light"]);
 });
 
-it("keeps shared settings accessible from the drawer", () => {
+it("keeps shared settings on the card page instead of a settings sub-page", () => {
   const chosen: string[] = [];
   const value = {
     ...context,
@@ -91,11 +91,23 @@ it("keeps shared settings accessible from the drawer", () => {
   hosts.push(host);
   act(() => render(<AppContext.Provider value={value}><AccountDrawer onClose={() => {}} /></AppContext.Provider>, host));
   const button = (label: string) => [...host.querySelectorAll("button")].find((node) => node.getAttribute("aria-label") === label || node.textContent === label)!;
-  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="设置"]')!.click());
+  const sheet = (label: string) => host.querySelector(`[role="dialog"][aria-label="${label}"]`);
+  // The gear and the settings layer are gone: the drawer stays one card page.
+  expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
+  expect(host.querySelector('button[aria-label="设置"]')).toBeNull();
+  expect(host.querySelector('button[aria-label="返回"]')).toBeNull();
+  // Language and font size are card-page rows that open a sheet and apply on tap.
+  act(() => button("语言").click());
+  expect(sheet("语言")).not.toBeNull();
   act(() => button("English").click());
   expect(chosen).toEqual(["language:en"]);
+  act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+  expect(sheet("语言")).toBeNull();
+  expect(host.querySelector('.account-drawer')).not.toBeNull();
+  act(() => button("字体大小").click());
   act(() => button("特大").click());
   expect(chosen).toEqual(["language:en", "font:xlarge"]);
-  act(() => button("返回").click());
+  act(() => button("关闭").click());
+  expect(sheet("字体大小")).toBeNull();
   expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
 });
