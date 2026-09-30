@@ -1727,3 +1727,38 @@ the account Connector online. Its diagnostic screen passed the background Agent,
 Hermes, and end-to-end connection checks with no action required. This is a local internal app
 installation only. The public Desktop app index has not switched; Developer ID signing,
 notarization, stapling, and clean-Mac acceptance remain required for public app distribution.
+
+### Gateway 0.4.28 and Web HG-165 publication — 2026-09-30
+
+The owner authorized merge and production publication, then explicitly approved Gateway 0.4.28
+and its separate version PR #496. Implementation PR #494 and version PR #496 passed their PR and
+main gates. The release source is `80e4985446d87d212b98ce21f09121eefb0b0911`; successful main
+Gateway OCI run `36717124692` supplied the paired image and operator bundles. The earlier attempt
+using 0.4.27 was refused before switching by `deploy_target_must_be_newer`.
+
+Gateway archive SHA-256 `dca306431d2b140a5d487004c0639f4a9574939dbe4bf8e16241a31017b5a97c`
+and operator archive SHA-256 `f9f77658c9a384d2a62e4837a0b9e4dd475036f19614a79438de2d6481ea397f`
+matched locally and after transfer; archive image identity and the extracted operator were verified.
+Host, disk and encrypted off-host backup checks passed. R5-F1 committed run
+`5b448692-05b4-45b5-8591-025a54952de9`, switching from blue to healthy green at
+`releases/0.4.28-80e4985446d8`, with `releases/0.4.27-4aca0885c397` retained for rollback.
+The stopped blue unit recorded exit status 1 during shutdown; it has no running container.
+Independent checks confirmed protected source identity, clean source, readiness, public health,
+capabilities version 0.4.28 and `voice-input`, `nginx -t`, and no warning-or-higher green journal
+entries in the post-switch window. Existing account flags, database schema and private voice-key
+configuration were preserved. An unauthenticated same-origin voice upgrade returned 401.
+
+From a clean isolated worktree at that same release source, `WEB_PUBLISH_VERIFY_PUBLIC=1
+scripts/publish-web-app.sh` passed typecheck, 586 tests, build, installation and public index
+comparison. Web `0.1.0-80e4985446d8` replaced `0.1.0-8828b05be950`; independent full public reads
+matched the size and SHA-256 of all 13 packaged files, including the AudioWorklet. `/app/` reports
+`microphone=(self)`. Release receipt SHA-256 is
+`cba2763f9ad23e0d6ff18d952c7796dd1127932cc0bdf5840562b1fd9e9d3593`.
+
+MissionGo release matching inspected the Hermes GO candidate page, merged PR files and ancestry,
+and advanced HG-165, HG-158, HG-133, HG-132 and HG-131 to pending verification. HG-158's already
+public Android 0.1.159/code 160 was separately downloaded and checked for size, hash, package,
+version, minimum SDK and canonical signing certificate; no Android or Desktop artifact was
+published by this batch. The other eight candidates had no related artifact published here.
+Real microphone/Doubao recognition, iPhone/PWA touch and keyboard behavior, and the other items'
+physical-device acceptance remain unverified; follow their `docs/SMOKE_TEST.md` steps.
