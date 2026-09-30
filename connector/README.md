@@ -3,6 +3,19 @@
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
 
+## Web default-model editing (HG-166, Connector 0.1.13)
+
+The Connector-owned `POST /api/hermes-remote/default-model/set` accepts a bounded model/provider
+selection and optional explicit expensive-model confirmation for one profile. It supplies main
+scope to local Hermes and returns only the applied model/provider or a confirmation flag; endpoint,
+credential, cron and warning metadata stays on the Mac. Publish this signed Connector component
+before Gateway 0.4.29 advertises `default-model-write`. The Web session picker separately uses
+strict session-scoped `config.set model` through Gateway's `session-model-config` capability.
+
+Verify the signed component manifest and public archive, then update the target Mac and check its
+online control connection. A component candidate build alone does not establish publication or
+installation. See `docs/DESKTOP_RELEASE_CHANNEL.md` and `docs/SMOKE_TEST.md` HG-166.
+
 ## Reconnect backoff (HG-147)
 
 A WebSocket upgrade, authentication response, or a briefly usable connection does not reset the
