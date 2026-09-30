@@ -1115,6 +1115,14 @@ the computed font size of `.row-title` and `.row-subline`, and whether Chrome's 
 is enabled. Compare those values with a fresh Chrome profile before attributing the problem to the
 Web stylesheet.
 
+HG-164 chat table slide (not yet verified on a device): on Android Chrome — the only Android
+browser in scope — open a conversation with a five-column table at a phone width. Expected: every
+column holds a 110px floor, cells wrap inside their column, and the table slides left and right
+inside its card; a two- or three-column table that still fits keeps filling the card width. Off
+device the same stylesheet was measured in headless Chrome at a 353px viewport with a 321px card:
+the five-column table went from 305px wide with 42–79px columns (`scrollWidth == clientWidth`, so
+nothing to drag) to 551px with 110px columns (`scrollWidth 567 > clientWidth 321`).
+
 HG-109 (branch `claude/hg-109-open-latest`, Web only): the mock now pages
 `GET /api/sessions/{id}/messages` the way upstream does (`order=latest` counts back from the newest
 row, each page ascending) and lists a 260-row fixture, 「长会话 · 260 条历史」. Before the fix, opening
