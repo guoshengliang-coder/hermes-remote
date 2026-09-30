@@ -117,6 +117,16 @@ was verified on), and again after `main` reached `83031d0`:
 6. **Done (2026-09-22):** retired the bundled copy, `desktop/hermes-patches/`, schema baseline,
    optional first-use runtime and `HR-MIGRATE-006`. New releases contain Node + Connector and use
    install-when-missing/local Hermes as the runtime path.
+7. **Done (2026-09-30, not yet released):** Option C reaches the planner, so "use the Hermes already
+   on this Mac" is a *path* rather than an accident. On a Mac with no Connector of its own but a
+   `.usable` checkout answering on 9119, the planner returns `.readyToAdoptLocalHermes` and setup
+   offers to take it over (Connector + two user-level LaunchAgents, account binding, no second copy,
+   no writes into `~/.hermes`) instead of the read-only "don't overwrite" card. A legacy Connector
+   still migrates instead, and the signed channel is still required. In the same change the
+   coordinator refuses a fresh install on an occupied port with the registered `HR-MIGRATE-014`
+   before writing anything, naming the offending LaunchAgent so the owner can `launchctl bootout`
+   it — Desktop never unloads a job it did not create. Mechanism in `docs/DESKTOP_PHASE0.md`
+   ("Adopting the Mac's own Hermes").
 
 Waiting for upstream PR #116677 before step 5 avoids both degradations; switching earlier is
 possible and costs exactly the two rows marked *Degraded* above.
@@ -283,6 +293,11 @@ we adopt.
 
 Detect a usable Hermes on the machine and connect the Connector to it; install the managed copy only
 when there is none.
+
+**Status 2026-09-30:** delivered as the automatic path on a Mac that already has a usable checkout
+and no Connector of its own (`.readyToAdoptLocalHermes`; Order of work step 7). The objections below
+are answered by Desktop still owning the Connector and the LaunchAgents, and by the local-Hermes
+runtime mode in step 3 — see "How Option C's objections are answered" above.
 
 - **For**: one code, one database. Drift becomes structurally impossible rather than managed.
 - **Against**, and these are not small:

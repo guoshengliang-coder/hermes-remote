@@ -125,6 +125,28 @@ struct SetupConfirmationSheets: ViewModifier {
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    /// The adopt path installs no Hermes — it takes over the copy already on this Mac — so it must
+    /// not promise an install. The plan is what knows that, the same way it knows a run is an
+    /// upgrade (`SecondaryViews` reads `readiness` for `ComponentPreflightView`).
+    private func managedBootstrapConfirmationDetail(
+        _ preparation: DesktopManagedBootstrapPreparation
+    ) -> String {
+        if preparation.intent.isUpgrade {
+            return "继续后会保留当前账号、设备绑定和本机数据，更新两个用户级自动启动项，并短暂重启 Hermes Server 与 Connector。新版本未通过健康检查时会自动恢复旧版本。"
+        }
+        if model.bootstrapPlan.readiness == .readyToAdoptLocalHermes {
+            return "继续后会接管这台 Mac 上已有的 Hermes：不安装第二份代码，也不改动它的 .env 与数据，只新增 Connector 与两个用户级自动启动项，绑定当前账号，并短暂重启这两个服务。开始前请先停掉当前占用 9119 的启动项。"
+        }
+        return "继续后会安装受管 Hermes Server 与 Connector、写入两个用户级自动启动项、绑定当前账号，并短暂重启这两个服务。模型服务凭据和 Hermes 数据仍只保存在这台 Mac。"
+    }
+
+    private func managedBootstrapConfirmLabel(
+        _ preparation: DesktopManagedBootstrapPreparation
+    ) -> String {
+        if preparation.intent.isUpgrade { return "升级并重连" }
+        return model.bootstrapPlan.readiness == .readyToAdoptLocalHermes ? "接管并连接" : "安装并连接"
+    }
+
     private func managedBootstrapConfirmationSheet(
         _ preparation: DesktopManagedBootstrapPreparation
     ) -> some View {
@@ -134,9 +156,7 @@ struct SetupConfirmationSheets: ViewModifier {
                 .foregroundStyle(Color.hermesBlue)
             Text("Hermes Go \(preparation.releaseVersion)")
                 .font(.system(size: 15, weight: .semibold))
-            Text(preparation.intent.isUpgrade
-                ? "继续后会保留当前账号、设备绑定和本机数据，更新两个用户级自动启动项，并短暂重启 Hermes Server 与 Connector。新版本未通过健康检查时会自动恢复旧版本。"
-                : "继续后会安装受管 Hermes Server 与 Connector、写入两个用户级自动启动项、绑定当前账号，并短暂重启这两个服务。模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
+            Text(managedBootstrapConfirmationDetail(preparation))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -160,7 +180,7 @@ struct SetupConfirmationSheets: ViewModifier {
                     }
                     .keyboardShortcut(.cancelAction)
                     Spacer()
-                    Button(preparation.intent.isUpgrade ? "升级并重连" : "安装并连接") {
+                    Button(managedBootstrapConfirmLabel(preparation)) {
                         Task { await model.confirmManagedBootstrap() }
                     }
                     .buttonStyle(.borderedProminent)

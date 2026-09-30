@@ -6,6 +6,7 @@ public enum DesktopBootstrapReadiness: String, Equatable, Sendable {
     case existingServiceNeedsAttention
     case waitingForSignedRelease
     case readyForManagedInstall
+    case readyToAdoptLocalHermes
     case managedUpgradeAvailable
     case managedInstallActive
 }
@@ -15,6 +16,7 @@ public enum DesktopBootstrapStepKind: String, Equatable, Sendable {
     case preserveExisting
     case verifySignedRelease
     case installHermes
+    case adoptLocalHermes
     case configureLocalProvider
     case installConnector
     case bindAccount
@@ -64,7 +66,8 @@ public enum DesktopBootstrapPlanner {
         hermesReachable: Bool,
         managedInstallAvailability: DesktopManagedBootstrapAvailability,
         managedInstallation: DesktopManagedBootstrapInstallationStatus = .absent,
-        targetReleaseVersion: String? = nil
+        targetReleaseVersion: String? = nil,
+        localHermes: DesktopLocalHermesInstallation? = nil
     ) -> DesktopBootstrapPlan {
         switch managedInstallation {
         case .active(let releaseVersion, _, _, _):
@@ -191,11 +194,40 @@ public enum DesktopBootstrapPlanner {
             )
         }
 
+        if let localHermes {
+            guard managedInstallAvailability == .ready else {
+                return plan(
+                    readiness: .waitingForSignedRelease,
+                    title: "已找到本机 Hermes，等待受管通道就绪",
+                    detail: "Desktop 会接管 \(localHermes.checkoutRoot.path) 上的这份 Hermes（\(localHermes.version)），不会安装第二份代码；但受管通道当前不可用，所以还不能安装经过签名的 Connector。",
+                    steps: [.inspectExisting, .preserveExisting, .verifySignedRelease],
+                    canBegin: false
+                )
+            }
+            return plan(
+                readiness: .readyToAdoptLocalHermes,
+                title: "已准备好接管本机 Hermes",
+                detail: "这台 Mac 上已有 Hermes \(localHermes.version)（\(localHermes.checkoutRoot.path)）。Desktop 不会安装第二份代码，也不会改动它的 .env；它只接管 9119，并把 Connector 接到这份 Hermes 上。开始前请先停掉当前占用 9119 的启动项，否则接管会以端口冲突失败。",
+                steps: [
+                    .inspectExisting,
+                    .preserveExisting,
+                    .verifySignedRelease,
+                    .adoptLocalHermes,
+                    .configureLocalProvider,
+                    .installConnector,
+                    .bindAccount,
+                    .enableAutomaticStartup,
+                    .verifyEndToEnd,
+                ],
+                canBegin: true
+            )
+        }
+
         if hermesReachable {
             return plan(
                 readiness: .existingServiceNeedsAttention,
                 title: "检测到未托管的 Hermes 服务",
-                detail: "本机 9119 端口已有 Hermes 响应，但没有可识别的 Connector。Desktop 不会覆盖或停止这个进程，请先确认它的启动方式。",
+                detail: "本机 9119 端口已有 Hermes 响应，但没有可识别的 Connector，也无法把它归到这台 Mac 的标准 Hermes checkout 上。Desktop 不会覆盖或停止这个进程，请先确认它的启动方式。",
                 steps: [.inspectExisting, .preserveExisting],
                 canBegin: false
             )
@@ -265,6 +297,7 @@ public enum DesktopBootstrapPlanner {
         case .preserveExisting: "保留现有 Connector 与配置"
         case .verifySignedRelease: "验证签名、版本与校验和"
         case .installHermes: "原子安装或升级 Hermes Server"
+        case .adoptLocalHermes: "接管本机已有的 Hermes 服务"
         case .configureLocalProvider: "使用本机 Hermes 配置目录"
         case .installConnector: "安装唯一的 Connector"
         case .bindAccount: "将这台 Mac 绑定到当前账号"
@@ -272,7 +305,7 @@ public enum DesktopBootstrapPlanner {
         case .verifyEndToEnd: "运行端到端健康检查"
         }
         let changesMachine: Bool = switch kind {
-        case .installHermes, .configureLocalProvider, .installConnector,
+        case .installHermes, .adoptLocalHermes, .configureLocalProvider, .installConnector,
              .bindAccount, .enableAutomaticStartup:
             true
         case .inspectExisting, .preserveExisting, .verifySignedRelease, .verifyEndToEnd:

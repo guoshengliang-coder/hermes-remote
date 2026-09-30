@@ -216,6 +216,67 @@ final class DesktopBootstrapTests: XCTestCase {
         XCTAssertTrue(plan.detailChinese.contains("candidate_starting"))
     }
 
+    /// The shape that made the new Mac mini unusable: 9119 answers, so the planner used to stop at
+    /// its read-only "unmanaged Hermes" card, while the Hermes on that port was in fact this Mac's
+    /// own checkout and perfectly adoptable.
+    func testAReachableLoopbackHermesThatIsThisMacsOwnCheckoutIsAdoptedNotRefused() {
+        let plan = DesktopBootstrapPlanner.plan(
+            legacy: snapshot(installed: false, running: false),
+            hermesReachable: true,
+            managedInstallAvailability: .ready,
+            localHermes: localHermes()
+        )
+
+        XCTAssertEqual(plan.readiness, .readyToAdoptLocalHermes)
+        XCTAssertTrue(plan.canBegin)
+        XCTAssertTrue(plan.requiresConfirmation)
+        XCTAssertTrue(plan.steps.contains { $0.kind == .adoptLocalHermes })
+        XCTAssertFalse(plan.steps.contains { $0.kind == .installHermes })
+        XCTAssertTrue(plan.detailChinese.contains("不会安装第二份代码"))
+        XCTAssertTrue(plan.detailChinese.contains("/Users/owner/.hermes/hermes-agent"))
+    }
+
+    func testAdoptionWaitsForTheSignedChannelInsteadOfInstallingOnItsOwn() {
+        let plan = DesktopBootstrapPlanner.plan(
+            legacy: snapshot(installed: false, running: false),
+            hermesReachable: false,
+            managedInstallAvailability: .disabled,
+            localHermes: localHermes()
+        )
+
+        XCTAssertEqual(plan.readiness, .waitingForSignedRelease)
+        XCTAssertFalse(plan.canBegin)
+        XCTAssertTrue(plan.steps.contains { $0.kind == .preserveExisting })
+        XCTAssertFalse(plan.steps.contains { $0.kind == .adoptLocalHermes })
+        XCTAssertTrue(plan.detailChinese.contains("不会安装第二份代码"))
+    }
+
+    /// A running Connector of the owner's own is still the migration, not an adoption: it has a
+    /// binding and a configuration to keep, so the earlier branch must keep winning.
+    func testARunningLegacyConnectorIsStillMigratedEvenWithAnAdoptableCheckout() {
+        let plan = DesktopBootstrapPlanner.plan(
+            legacy: snapshot(installed: true, running: true),
+            hermesReachable: true,
+            managedInstallAvailability: .ready,
+            localHermes: localHermes()
+        )
+
+        XCTAssertEqual(plan.readiness, .readyForManagedInstall)
+        XCTAssertTrue(plan.steps.contains { $0.kind == .installHermes })
+        XCTAssertFalse(plan.steps.contains { $0.kind == .adoptLocalHermes })
+    }
+
+    private func localHermes() -> DesktopLocalHermesInstallation {
+        DesktopLocalHermesInstallation(
+            executable: URL(fileURLWithPath: "/Users/owner/.hermes/hermes-agent/venv/bin/hermes"),
+            checkoutRoot: URL(fileURLWithPath: "/Users/owner/.hermes/hermes-agent"),
+            hermesHome: URL(fileURLWithPath: "/Users/owner/.hermes"),
+            commit: "17b5df02f2a729d8f46fbbf78cfc1f5a8cf0f121",
+            version: "0.21.3",
+            identityChangedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+    }
+
     private func snapshot(installed: Bool, running: Bool) -> LegacyConnectorSnapshot {
         LegacyConnectorSnapshot(
             isInstalled: installed,

@@ -68,7 +68,7 @@
 | 1 | `.signedOut` | 任意 | — | **整窗登录页**（§5） |
 | 2 | `.needsSignIn` | 任意 | — | **整窗登录页，带失效原因横幅**（§5.3） |
 | 3 | `.signedIn` | 已装：`.managedInstallActive` / `.managedUpgradeAvailable` | 任意 | **主界面**（现有五项侧边栏） |
-| 4 | `.signedIn` | 没装：`.readyForManagedInstall` / `.waitingForSignedRelease` | 没有 | **新人引导**，从第 2 步开始（§6） |
+| 4 | `.signedIn` | 没装：`.readyForManagedInstall` / `.readyToAdoptLocalHermes` / `.waitingForSignedRelease` | 没有 | **新人引导**，从第 2 步开始（§6） |
 | 5 | `.signedIn` | 没装 | **已有** | **新人引导**，先经过「这台 Mac 怎么用」选择页（§7） |
 | 6 | `.signedIn` | 装了一半 / 不一致：`.existingServiceNeedsAttention` | 任意 | **主界面**，问题卡片置顶（§8） |
 | 6b | `.signedIn` | 现有连接被保留：`.existingServicePreserved`（受管迁移通道不可用） | 任意 | **主界面**，沿用现有兼容观察呈现，不给安装入口（§8） |
@@ -145,7 +145,7 @@
 | 步 | 用户看到的 | 内部对应 | 完成判据 |
 |---|---|---|---|
 | 1 登录 | 邮箱验证码（即 §5.2） | `accountController.signIn` / 邮箱交换 | `accountState == .signedIn` |
-| 2 准备 Hermes | 「检测到你已安装 Hermes，将直接使用」或「这台 Mac 还没有 Hermes，一键安装」 | `hermesInstallPhase`（`HermesInstallCard` 的全部分支，包括本机 Hermes 损坏时的指引 `isFreshInstallBlockedByOwnersHermes`，以及 `bundledHermesChoiceCard`） | 本机 Hermes 可达，或安装成功 |
+| 2 准备 Hermes | 「检测到你已安装 Hermes，将直接使用」（**接管**：复用本机已有的那一份，不装第二份）或「这台 Mac 还没有 Hermes，一键安装」 | `bootstrapPlan.readiness`（`.readyToAdoptLocalHermes` 走 `.adoptLocalHermes` 步骤，`.readyForManagedInstall` 走 `.installHermes`）以及 `hermesInstallPhase`（`HermesInstallCard` 的全部分支，包括本机 Hermes 损坏时的指引 `isFreshInstallBlockedByOwnersHermes`，以及 `bundledHermesChoiceCard`） | 本机 Hermes 可达，或安装成功 |
 | 3 连接这台 Mac | 一个进度条：安装后台服务 → 绑定账号 → 开机自启 → 验证连通 | `inspectExisting` → `verifySignedRelease` → `installHermes`/`configureLocalProvider` → `installConnector` → `bindAccount` → `enableAutomaticStartup` → `verifyEndToEnd`，由现有的准备 → 确认 sheet → 提交流程执行 | `bootstrapPlan.readiness == .managedInstallActive` |
 | 4 连上手机 | 先选手机类型：**Android** 扫码下载 App；**iPhone / iPad** 扫码打开 Web App 并添加到主屏幕（§6.4）。两者都用同一个邮箱登录，检测到后自动打勾 | `AccountDashboard.installations` | 进入第 4 步之后出现新的 `active` 设备，类型为 `phone` 或 `browser`（§6.4）；或用户点「稍后再说」 |
 
@@ -153,6 +153,27 @@
 
 - 第 2 步遵守 `docs/MANAGED_HERMES_STRATEGY.md` 的「一台 Mac 只有一个 Hermes」：本机已有 Hermes 就用
   它，只有没有时才按上游的标准方式安装；引导不提供「另装一份」的选项。
+- **「已有 Hermes」分两种，去向不同**（2026-09-30）：
+  - 本机跑着一个**旧版 Connector**（`legacy.isRunning`）：那是要迁移的既有连接，有绑定和配置要保留，
+    走 `.readyForManagedInstall` 的迁移分支，与今天相同。
+  - 本机没有 Connector，但 9119 上是一个**属于这台 Mac 自己的 Hermes checkout**（本地运行时设置
+    已开，检测 `.usable`）：走新的 `.readyToAdoptLocalHermes`。Desktop 不下载、不复制第二份代码，
+    也不碰它的 `.env` 与数据目录；只装 Connector、写两个用户级自动启动项、绑定当前账号，并短暂重启
+    这两个服务。确认 sheet 的文案与主按钮（「接管并连接」）据此调整，不再承诺「安装」。
+  - 两条路都**仍然要求签名发布通道可用**（`managedInstallAvailability == .ready`）：接管省的只是
+    Hermes 那一份，Connector 与启动项照旧来自签名发布。通道不可用时第 2 步仍显示
+    `.waitingForSignedRelease`，只是说明文案改成「不装第二份代码」。
+  - 9119 上既不是本机 checkout、也不是旧版 Connector 的第三种情况，保持原有的只读「不覆盖」卡片。
+- **端口被占时先报错，不先写盘**（2026-09-30）：接管与全新安装都要在本机 Hermes 上起服务，所以
+  `migrate(candidate:)` 在写入任何文件之前做一次 9119 探测；端口被占立即抛
+  `HR-MIGRATE-014`，而不是等到 75 次健康轮询超时。这一条对全新安装尤其重要——launchd 会把任务反复
+  拉起，每次都先打开共享的 `state.db` 再绑定失败，正是 `reconcileHermesRuntime` 用同一个单次探测挡下的
+  崩溃循环。
+  - Desktop **不会**停掉不是自己创建的 launchd 任务。它只报错并点名：诊断详情里给出占用者的 label，
+    以及可直接粘贴的 `launchctl bootout gui/$(id -u)/<label>`，并提示把
+    `~/Library/LaunchAgents/<label>.plist` 移开以免下次登录又被加载。机主自己执行。
+  - 认不出占用者时（没有任何自有 launchd 任务跑本机 Hermes）退化为
+    `lsof -nP -iTCP:9119 -sTCP:LISTEN` 自查指引。
 - 第 4 步分 Android 与 iPhone / iPad 两种情况，见 §6.4。
 - 整个引导里用户唯一需要输入的是邮箱和验证码。`configureLocalProvider` 只是「使用本机 Hermes
   配置目录」，不要求填写 API Key。
@@ -166,7 +187,8 @@
 - 第 3 步走哪条安装路径（schema-v1 托管发布，或 schema-v2 组件发布），沿用 `DesktopViewModel` 今天
   的可用性判定，引导不新增选择。
 - `.waitingForSignedRelease`（服务端还没有可用的签名发布包）时，第 3 步显示「暂时无法安装」及原因，
-  主按钮变为「重试」；不允许进入主界面假装已完成。
+  主按钮变为「重试」；不允许进入主界面假装已完成。可接管本机 Hermes 但通道未就绪时也落在这一支，
+  说明文案随之改为「不装第二份代码」，但仍不放行。
 - 第 4 步完成或跳过后进入主界面。「稍后再说」之后，概览页应有一个「还没有手机连接」的提示卡，
   而不是再次弹出引导。
 

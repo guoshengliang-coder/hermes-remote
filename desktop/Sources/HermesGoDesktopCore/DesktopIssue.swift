@@ -388,7 +388,8 @@ public struct DesktopIssue: Error, Equatable, Sendable {
 
     public static func migration(
         _ error: Error,
-        terminalState: DesktopMigrationState?
+        terminalState: DesktopMigrationState?,
+        occupantLabel: String? = nil
     ) -> DesktopIssue {
         let classification = DesktopServiceRecoveryFailure.classification(of: error)
         if terminalState == .rollbackAttentionRequired
@@ -402,6 +403,12 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         }
         if let accountError = error as? AccountClientError {
             return account(accountError)
+        }
+        if classification == .hermesPortInUse {
+            return DesktopIssue(
+                code: .managedHermesPortInUse,
+                technicalCause: portInUseCause(occupantLabel: occupantLabel)
+            )
         }
         let candidateFailed: Bool = switch classification {
         case .hermesStopTimedOut, .hermesHealthTimedOut, .healthTimedOut, .commitNotApplied:
@@ -419,6 +426,25 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             .migrationPreflightFailed
         }
         return DesktopIssue(code: code, technicalCause: String(describing: error))
+    }
+
+    /// Why nothing was started, who holds the port when that can be named, and the one command that
+    /// releases it. Only launchd can put the port back the way it found it, and Desktop never
+    /// unloads a job it did not create, so the owner does it — hence the pasteable label.
+    private static func portInUseCause(occupantLabel: String?) -> String {
+        guard let occupantLabel else {
+            return """
+            stage=port-preflight port=9119 occupant=unknown
+            no launchd job in ~/Library/LaunchAgents runs this Mac's Hermes loopback server, \
+            so the process holding 9119 has to be identified by hand: lsof -nP -iTCP:9119 -sTCP:LISTEN
+            """
+        }
+        return """
+        stage=port-preflight port=9119 occupant=\(occupantLabel)
+        release it with: launchctl bootout gui/$(id -u)/\(occupantLabel)
+        if it is set to load at login, also move ~/Library/LaunchAgents/\(occupantLabel).plist \
+        aside, otherwise it will be loaded again on the next login
+        """
     }
 
     public static func updateCheck(_ error: Error) -> DesktopIssue {

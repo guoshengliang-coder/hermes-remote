@@ -27,12 +27,16 @@ not active in I3-A, so the current Connector remains authoritative until the lat
 See `ACCOUNT_MODE_DESIGN.md`.
 
 The default-off E4-D managed setup surface sits directly beneath the account/binding summary. Existing
-Connector installs and unknown Hermes responders remain read-only. Only a clean preflight with matching
+Connector installs and unknown Hermes responders remain read-only. A Hermes that answers on 9119 and
+is provably this Mac's own usable checkout is neither: it is offered for **adoption**, which installs
+no second copy and touches neither `~/.hermes` nor the checkout. Only a clean preflight with matching
 packaged and Gateway runtime contracts shows “下载并验证安装包”. That first action may use network and
 private cache space but cannot change an installation or process. After all signature, artifact,
 checksum, and archive checks pass, a native sheet names the exact release and explains the managed
 Hermes Server, Connector, two user LaunchAgents, account binding, and brief restart effects. Only its
-explicit “安装并连接” action may enter the machine-changing phase. Commit/recovery disables dismissal
+explicit “安装并连接” action may enter the machine-changing phase — and on the adoption path the sheet
+and that action both say what they will actually do instead (“接管并连接”, no Hermes installation);
+the plan's readiness, not the intent, decides which wording applies. Commit/recovery disables dismissal
 and duplicate installation. A successful install with pending temporary cleanup shows only “重试清理”
 and `HR-MIGRATE-005`; it never suggests reinstalling.
 

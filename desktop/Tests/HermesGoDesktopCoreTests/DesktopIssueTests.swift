@@ -227,6 +227,35 @@ final class DesktopIssueTests: XCTestCase {
         XCTAssertEqual(cleanup.recoveryAction, .retry)
     }
 
+    func testPortInUseNamesTheJobToUnloadAndFallsBackToTheListenerLookup() {
+        let named = DesktopIssue.migration(
+            DesktopMigrationCoordinatorError.hermesPortInUse,
+            terminalState: nil,
+            occupantLabel: "com.hermes.dashboard"
+        )
+        XCTAssertEqual(named.code, .managedHermesPortInUse)
+        XCTAssertEqual(named.code.rawValue, "HR-MIGRATE-014")
+        XCTAssertTrue(named.retryable)
+        XCTAssertEqual(named.recoveryAction, .details)
+        XCTAssertTrue(named.detailChinese.contains("9119"))
+        XCTAssertTrue(named.sanitizedDiagnostic.contains("occupant=com.hermes.dashboard"))
+        XCTAssertTrue(
+            named.sanitizedDiagnostic.contains("launchctl bootout gui/$(id -u)/com.hermes.dashboard")
+        )
+        XCTAssertTrue(
+            named.sanitizedDiagnostic.contains("~/Library/LaunchAgents/com.hermes.dashboard.plist")
+        )
+
+        let unnamed = DesktopIssue.migration(
+            DesktopMigrationCoordinatorError.hermesPortInUse,
+            terminalState: nil
+        )
+        XCTAssertEqual(unnamed.code, .managedHermesPortInUse)
+        XCTAssertTrue(unnamed.sanitizedDiagnostic.contains("occupant=unknown"))
+        XCTAssertTrue(unnamed.sanitizedDiagnostic.contains("lsof -nP -iTCP:9119 -sTCP:LISTEN"))
+        XCTAssertFalse(unnamed.sanitizedDiagnostic.contains("launchctl bootout"))
+    }
+
     func testManagedStartupRepairSeparatesConnectorSafetyFromAdvisoryRepairs() {
         let sample = DesktopMigrationJournalError.invalidState
         let connector = DesktopManagedStartupRepairStage.transferredAccountConnector
