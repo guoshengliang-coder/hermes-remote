@@ -4534,7 +4534,7 @@ button.chat-workspace:disabled {
 
 /* HG-165: Android composer state/layout contract; core controls own fixed slots. */
 .composer { min-height: 3.75rem; padding: 0.125rem 0.375rem; }
-.composer.expanded { min-height: 7.875rem; border-radius: 1.75rem; padding: 0.375rem 0.5rem; }
+.composer.expanded { min-height: 7.875rem; border-radius: 1.75rem; padding: 0.375rem 0.5rem; justify-content: space-between; }
 .composer-input { min-width: 0; padding: 0.75rem 0.5rem; }
 .composer.expanded .composer-input { width: 100%; flex: none; }
 .composer-actions { width: 100%; gap: 0; }
@@ -4546,7 +4546,7 @@ button.chat-workspace:disabled {
 .composer .send-button:disabled { color: var(--on-surface-variant); opacity: 0.55; }
 .voice-mode { gap: 0.375rem; }
 .voice-hold { flex: 1; min-width: 0; min-height: 3.25rem; border-radius: 1.125rem; background: var(--surface-variant); font-size: 1rem; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.voice-overlay { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / 45%); pointer-events: none; }
+.voice-overlay { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / 45%); pointer-events: auto; }
 .voice-stage { width: min(100%, 36rem); padding: 1rem 1.5rem calc(5.5rem + env(safe-area-inset-bottom)); color: white; }
 .voice-card { padding: 1rem; border-radius: 1.75rem; color: var(--on-surface); background: var(--surface-container-high); box-shadow: var(--shadow); }
 .voice-card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-size: 0.875rem; }
