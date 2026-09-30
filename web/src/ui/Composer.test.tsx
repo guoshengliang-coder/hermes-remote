@@ -110,6 +110,22 @@ it("keyboard right-arrow changes a held recording to edit and restores textarea 
   expect(document.activeElement).toBe(h.host.querySelector("textarea"));
 });
 
+it("a hold on the hold-to-talk control swallows the browser's long-press default", async () => {
+  // HG-172: the held touch belongs to the control. If `contextmenu` is allowed through, Android's
+  // WebView and iOS run their own selection/sheet gesture on top of it and cancel the recording.
+  const h = mount();
+  act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
+  const hold = h.host.querySelector<HTMLButtonElement>('.voice-hold')!;
+  act(() => { hold.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
+  const overlay = h.host.querySelector<HTMLElement>('.voice-overlay')!;
+  expect(overlay).not.toBeNull();
+  for (const target of [hold, overlay]) {
+    const menu = new Event("contextmenu", { bubbles: true, cancelable: true });
+    act(() => { target.dispatchEvent(menu); });
+    expect(menu.defaultPrevented).toBe(true);
+  }
+});
+
 it("an unanswered permission prompt times out and a late grant cannot enable recording", async () => {
   vi.useFakeTimers(); let grant!: () => void;
   mocks.microphone.mockImplementationOnce(() => new Promise<void>((resolve) => { grant = resolve; }));

@@ -370,7 +370,7 @@ export function SessionList() {
           {t(`${reveal} 个会话需要处理`, `${reveal} need${reveal === 1 ? "s" : ""} you`)}
         </button>
       ) : null}
-      {segment === "chats" && !searching ? (
+      {segment === "chats" && !searching && !drawerOpen ? (
         <button
           type="button"
           class="fab"
