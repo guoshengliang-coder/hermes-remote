@@ -3,10 +3,19 @@
 Release discovery, two-component topology, signing-key rotation, and protected-environment setup
 are documented in [`../docs/DESKTOP_RELEASE_CHANNEL.md`](../docs/DESKTOP_RELEASE_CHANNEL.md).
 
-Published: Desktop app **0.2.30** (build 33), Connector **0.1.12**, and managed component
-release **0.4.7**. HG-151 makes the Desktop health probe name the failing link and makes
-Connector report local Hermes HTTP failures with a request correlation ID; HG-150 prevents a
-Connector prewarm from marking a session unread. Desktop 0.2.30 is an ad-hoc internal test DMG
+Current internal test release candidate: **0.2.31** (build 34). It lets Desktop **adopt the
+Hermes this Mac already runs** on 9119 instead of installing a second copy. A new planner
+readiness (`.readyToAdoptLocalHermes`) is offered ahead of the read-only "unmanaged Hermes"
+card when this Mac's own checkout is usable, the confirmation sheet names the job to unload and
+its action reads 「接管并连接」, and a one-probe port preflight makes a fresh install refuse an
+occupied 9119 with `HR-MIGRATE-014` — naming the launchd label and a pasteable `launchctl
+bootout` in 详情 — rather than ever stopping a job Desktop did not create. Connector **0.1.12**
+and managed component release **0.4.7** are unchanged; these versions remain candidates until
+the signed Desktop release channel publishes them.
+
+0.2.30 (build 33) carried HG-151 (the health probe names the failing link, and Connector
+reports local Hermes HTTP failures with a request correlation ID) and HG-150 (a Connector
+prewarm no longer marks a session unread). It is an ad-hoc internal test DMG
 (`https://mrlgs.net/desktop/apps/0.2.30/Hermes-Go-Desktop-0.2.30-dev.dmg`, published
 2026-09-28, SHA-256 `9d0cd20a…`), without Developer ID signing, notarization, stapling, or an
 app-update index entry — `/desktop/apps/index.json` still answers 404, so the in-app update

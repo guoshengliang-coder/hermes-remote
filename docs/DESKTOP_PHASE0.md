@@ -1084,9 +1084,12 @@ only the offending field.
   drift check stay (the release still carries `hermes_server`); local mode guarantees it is never
   *run* on a Mac that has its own. A connector-only release manifest is the follow-up that stops
   downloading it there.
-- **Installing Hermes when the Mac has none** is implemented since 2026-09-22 (next section). The
-  runtime path still does not know how Hermes got there: detection, not installation, owns the
-  decision.
+- **Installing Hermes when the Mac has none** is implemented since 2026-09-22 (next section), and
+  **adopting the Mac's own Hermes** since 2026-09-30 (the section after it). Detection still owns the
+  decision, but as of 2026-09-30 it feeds it into the planner: a usable checkout on this Mac turns
+  into `.readyToAdoptLocalHermes` rather than the read-only "unmanaged Hermes" card. What is still
+  missing is the *runtime* refusing to write when the port is held by a process nobody can name —
+  the refusal is recorded and actionable, but identifying that process is left to the owner.
 
 Not verified here: any of this against a running service. No LaunchAgent, process, `~/.hermes` file or
 `Managed` file was touched on any machine. What was run on this Mac mini was the detector, the mode
@@ -1230,6 +1233,66 @@ Not verified here: the real installer. No test runs upstream's `install.sh`, tou
 real `~/.hermes`, launchd or `~/Library`; the driver is tested against fake installer scripts run by
 the real process runner in a throwaway home (`DesktopHermesInstallerTests`). The manual run on a clean
 macOS user or VM is in `docs/DESKTOP_TEST_PLAN.md`.
+
+### Adopting the Mac's own Hermes — 2026-09-30
+
+The shape that blocked the new Mac mini: 9119 answers, so the planner stopped at its read-only
+"unmanaged Hermes — nothing will be overwritten" card. But the Hermes on that port was the *Mac's
+own* checkout, which is precisely the one "one Hermes per Mac" says to use. Detection knew that;
+the planner did not ask it. Two changes close the gap, plus the safety net the fresh-install path
+needed anyway.
+
+**The planner asks the detector.** `DesktopBootstrapPlanner.plan` takes an optional
+`localHermes: DesktopLocalHermesInstallation?` and gets a new readiness,
+`.readyToAdoptLocalHermes`, replacing the new step `.adoptLocalHermes` for `.installHermes`. It is
+offered only in the shape that has no connector to keep: the managed installation is `.absent`,
+`legacy.isInstalled` is false, `managedInstallAvailability == .ready`, and the ViewModel supplies a
+`localHermes` — which it does only when the local-runtime setting is on and detection reads this
+Mac's own checkout `.usable`. The branch sits *before* the `hermesReachable` test, so the read-only
+"unmanaged Hermes" card now belongs to exactly one case: 9119 answers and nothing identifies it as
+this Mac's checkout. A running legacy Connector still wins even when an adoptable checkout is
+present — that shape has a binding and a configuration to preserve, so it stays the migration. The
+adopt path still requires the signed channel, because Connector and the two user-level LaunchAgents
+come from the component release; with the channel disabled it degrades to the ordinary
+`.waitingForSignedRelease` card, whose wording changes to "不会安装第二份代码". An occupied port
+that is neither this Mac's checkout nor a legacy Connector keeps the original read-only card.
+
+Nothing is downloaded, copied, or written into `~/.hermes` on this path: `.env`, `state.db`, the
+checkout and `HERMES_HOME` are the owner's and stay untouched. What is created is the Connector and
+the two LaunchAgents, as in any managed setup.
+
+**The confirmation sheet stops promising an install.** `managedBootstrapConfirmationSheet` derives
+its detail and its button from the plan: upgrade → "升级并重连"; adopt → "接管并连接", with wording
+that enumerates only the mutations that path makes. The flavour comes from
+`bootstrapPlan.readiness`, not from a third `DesktopManagedBootstrapIntent` case — the executor's
+switch stays two-way, which is why the change reached the view and not the state machine
+(`SetupConfirmationSheets.swift`; the pattern matches `SecondaryViews.swift`'s
+`ComponentPreflightView`).
+
+**Fresh installs refuse an occupied port before writing anything.** Both the adopt path and the
+fresh-install path start a service on 9119, so `migrate(candidate:)` now probes the port once —
+`waitUntilStopped(.serveV1, maximumAttempts: 1, delayNanoseconds: 0)`, the same one-probe guard
+`reconcileHermesRuntime` already used — immediately after the starting-state guard and before the
+first write. On a hit it throws the existing `DesktopMigrationCoordinatorError.hermesPortInUse`
+(`HR-MIGRATE-014`, registered, `retryable: true`, recovery `.details`). Waiting instead would have
+been worse than slow: launchd restarts a KeepAlive agent, and every restart opens the shared
+`state.db` again before failing to bind — the crash loop that guard exists to avoid. `DesktopIssue
+.migration` maps the classification to `HR-MIGRATE-014` as before; what is new is that it can name
+the occupant. `DesktopIssue.migration` takes an optional `occupantLabel`, and
+`DesktopLocalHermes.loopbackPortOccupantLabel()` supplies it from `~/Library/LaunchAgents` — which
+also required widening `ownerLaunchAgents()` from the `ai.hermes.` prefix to any job whose
+`ProgramArguments` launch this Mac's own `~/.hermes/hermes-agent` (the mini's holder is
+`com.hermes.dashboard`, which the old prefix missed by construction). The label, a pasteable
+`launchctl bootout gui/$(id -u)/<label>`, and the move-aside for its plist land in
+`technicalCause` — the 详情 payload — and nowhere else. **Desktop never unloads a job it did not
+create**; the owner runs the command. With no nameable occupant the cause degrades to an `lsof`
+lookup.
+
+Not verified here: adoption against a real second Mac. The planner, the detector and the refusal are
+covered by unit tests (`DesktopBootstrapTests`, `DesktopLocalHermesTests`,
+`DesktopHermesRuntimeCoordinatorTests`, `DesktopIssueTests`), and the refusal test asserts the
+stronger property — no managed tree, no journal, no LaunchAgent, no health poll, one probe. The
+end-to-end run on the mini is in `docs/DESKTOP_TEST_PLAN.md`.
 
 ### Sign-in gate and first-run onboarding — 2026-09-25 (HG-129)
 

@@ -446,6 +446,7 @@ struct AccountDevicesView: View {
         case .existingServiceNeedsAttention: "exclamationmark.shield"
         case .waitingForSignedRelease: "signature"
         case .readyForManagedInstall: "shippingbox.and.arrow.backward"
+        case .readyToAdoptLocalHermes: "desktopcomputer"
         case .managedUpgradeAvailable: "arrow.triangle.2.circlepath.circle"
         case .managedInstallActive: "checkmark.circle.fill"
         }

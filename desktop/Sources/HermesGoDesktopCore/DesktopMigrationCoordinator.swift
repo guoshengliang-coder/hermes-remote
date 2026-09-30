@@ -426,6 +426,24 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               serviceState.legacyLoaded == legacy.isRunning
         else { throw DesktopMigrationCoordinatorError.invalidStartingState }
 
+        // A fresh install must not start Hermes on a port somebody else already holds. The managed
+        // job is provably unloaded here (the guard above), so anything accepting on 9119 belongs to
+        // another process — the owner's own `hermes serve` or dashboard, say. launchd keeps an agent
+        // alive, so every restart after EADDRINUSE opens the shared `state.db` again before failing
+        // to bind: the crash loop `reconcileHermesRuntime` already refuses to enter with this same
+        // one-probe check. Deciding now, before a single file is written, turns a 75-poll timeout
+        // into one actionable `HR-MIGRATE-014`.
+        guard try await hermesShutdown.waitUntilStopped(
+            contract: .serveV1,
+            maximumAttempts: 1,
+            delayNanoseconds: 0
+        ) else {
+            // Only lands when the managed tree already exists (`DesktopServiceOperationLog` never
+            // creates it), so on a true fresh install the error below is the whole record.
+            operationLog?.record("fresh-install refused reason=port-9119-in-use; nothing written")
+            throw DesktopMigrationCoordinatorError.hermesPortInUse
+        }
+
         let lastKnownGood: DesktopLastKnownGoodMode = legacy.isRunning ? .legacy : .none
         let retryingTerminalBinding = try terminalRetryBinding(lastKnownGood: lastKnownGood)
         let preparation = try await account.beginBinding(
