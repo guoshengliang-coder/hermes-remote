@@ -2020,10 +2020,11 @@ HG-181's registered artifacts are `web` and `gateway`; both are now published. R
 acceptance of the account card, rename and avatar upload remains per `docs/SMOKE_TEST.md`; the
 release does not imply acceptance.
 
-## HG-191 · Optional browser Web Push rollout (not performed)
+## HG-191 · Optional browser Web Push rollout
 
-This change prepares code; it does not turn on production push. Keep current R5-F7/F9 route
-includes byte-identical. In a separately authorized deployment, use the schema-release gate for
+The implementation alone does not authorize enabling production push. The owner-authorized
+publication is recorded below. Keep current R5-F7/F9 route includes byte-identical. For a new
+deployment, use the schema-release gate for
 17 → 18 (verified fresh backup, disposable restore, one migration step, candidate readiness)
 and release the Gateway before Web. Provision stable protected VAPID files and the complete
 optional environment suffix described in `docs/ENVIRONMENT.md`; never enable before provisioning.
@@ -2044,3 +2045,75 @@ PWA using `docs/SMOKE_TEST.md`. No shell/API cache may contain endpoints, keys o
 For disabling, turn off `ACCOUNT_WEB_PUSH_ENABLED` via the candidate/switch gate; preserve the
 schema-18 database and roll forward. Removing the optional edge include needs `nginx -t` and
 explicit reload authorization. Never roll a schema-18 database back by deleting its schema marker.
+
+### HG-188/190/191 publication — Android 0.1.162, Gateway 0.4.31, Web 0.1.1
+
+The owner requested publication in dispatch `b33b8aa9-fea7-4125-b604-f786a7e7daf0` after approving
+the implementation and merge. Implementation PR #531 merged as
+`1f017f5cbdc530070c339e3e91c2a7f11c4c4ca1`; release PR #532 merged as
+`74f4297128de5778c8cf88241a74bc2cca2be97a`. Both passed the repository merge gate, including
+the resulting main checks. All three artifacts below use that exact release source.
+
+Android `0.1.162` / code `163` was published through the official release train and
+`android-release.yml` run [36868341554](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/36868341554).
+Its package gate printed `APK_RELEASE_OK` and the versioned distribution artifact path.
+The complete public [Hermes-Remote-0.1.162-debug.apk](https://mrlgs.net/releases/Hermes-Remote-0.1.162-debug.apk)
+was downloaded independently: 33,160,716 bytes, SHA-256
+`7b5074280a3eb8b3f5dc8772b8f64484b6737baf7768d7316aaef12f2fe491bd`, matching the gate and
+public index. `apksigner verify` passed with canonical certificate SHA-256
+`06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5`; `aapt` confirmed
+`com.hermes.remote`, version/code and minSdk 26. The unversioned release URL returned 404.
+
+Gateway and schema-11 operator bundles came from OCI run
+[36867480077](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/36867480077).
+Gateway archive SHA-256 is
+`134d8c1360d7a8553f426c1726a1424731d1ea3d5ceb52d4dc0a4aded563d111`; operator archive SHA-256 is
+`a8d08cb0cd6ed5c6fd1f38f71d5745793e0edfcabd1b04f2905be5c37fec0d85`. Both were checked locally
+and on HK; the operator was installed at `/opt/hermes-go-ops/74f4297128de` and verified there.
+Fresh schema-17 encrypted generation `20261001T125834805Z-f95fe1fb8559` was restored off-host
+and activated before admission. R5-F8 run `cc2a4762-83a6-4947-9086-4d2275f45e14` committed
+schema **17 → 18**, Gateway **0.4.30 → 0.4.31**, green → blue. `current` points to
+`releases/0.4.31-74f4297128de`; blue is active and green inactive. Loopback readiness reports
+all checks green; protected `/internal/version` reports the exact source, clean build and schema 18;
+public `/v2/capabilities` reports 0.4.31. Schema rollback to 17 is not supported: fix forward.
+
+Stable P-256 VAPID files were provisioned in the protected secrets directory, and the complete
+optional suffix was validated before candidate creation. The new separate `web-push-routes.conf`
+include matches the repository template; `nginx -t` and reload passed. Existing FCM remains enabled
+and independent. Public and loopback GET without a session return 401 `HR-AUTH-003`; cross-Origin
+and invalid-CSRF PUT/DELETE return 403 `HR-AUTH-012`. No subscription endpoints or key values are
+recorded here. Authenticated subscription and physical-device delivery still require acceptance.
+
+All three backup pins were advanced to schema 18, keeping `.pre-schema18` copies. The Mac
+off-host target and LaunchAgent now use the matching 0.4.31 image and operator. Fresh generation
+`20261001T133524047Z-228f55f7974d` passed the real disposable restore and activation; the later
+scheduled generation `20261001T191517026Z-adfb2053396d` also passed. Its encrypted archive has
+2,199,506 bytes and matching on-host/off-host SHA-256
+`5c4ac450015cb5acaf0cc28fa25b477ee06cddbb3e7c98e3da270e8317135057`. The production monitor
+completed with `Result=success`, `ExecMainStatus=0`. Nginx and DERP remain active; Xray remains inactive.
+
+Web publisher installed `0.1.1-74f4297128de`, replacing `0.1.0-19b0c4218528`, after typecheck,
+733 tests and build passed. **Execution deviation:** the Web publisher overlapped the Gateway
+switch instead of waiting for it; its first public check returned 502 after installation. After
+R5-F8 committed, all **14 packaged files** were downloaded in full and their sizes and SHA-256
+matched, then checked again before handoff. The reproducible archive SHA-256 is
+`2cb5e75716752162ebd94fc7778a656515b912a966679044f252cfc7cbec4f1b`. Future coupled releases
+must wait for Gateway commit before starting the Web publisher. No duplicate switch was used
+to hide the failed first check.
+
+Equivalent publication evidence is stored outside the worktree as a canonical
+`hermes-go-batch-release-receipt-v1`, digest
+`a1ac68e9388e3be8c9e2ab63bf3d13815a85b20cf88c580b22fdcec0e08a7c18`.
+The full release-candidate list was checked. HG-189 was already handed to pending verification by
+another session; it was not backfilled again. HG-134 has no macOS publication in this batch.
+HG-148 remains development-complete: its registration names PR #462 / Android only, while the
+independently inspected follow-up PR #465 affects Android and Gateway; manual association correction
+is required. Both PRs are ancestors of the verified release source.
+
+HG-188/190/191 have publication comments but remain in progress because Hermes GO's declared
+MissionGo artifacts omit `androidApp`. The full PR requires Android, Web and Gateway; none was
+omitted or substituted to bypass the registration rule. Product settings must be corrected before
+development-complete / pending-verification handover. This does not undo the actual publication.
+Physical Android vibration, real-browser interaction and installed-iPhone-PWA background push
+remain unverified; see `docs/ANDROID_SMOKE.md` and `docs/SMOKE_TEST.md`. Automated tests, emulator
+screenshots and public artifact checks are not device acceptance.
