@@ -247,7 +247,11 @@ struct AccountDevicesView: View {
         if let issue = model.componentBootstrapIssue {
             accountIssueCard(issue)
         }
-        bootstrapPlanCard(model.bootstrapPlan)
+        if model.serviceRepairNeeded {
+            ManagedServiceRepairCard()
+        } else {
+            bootstrapPlanCard(model.bootstrapPlan)
+        }
         if let issue = model.managedBootstrapIssue {
             accountIssueCard(issue)
         }

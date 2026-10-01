@@ -18,6 +18,14 @@ final class SecretRedactorTests: XCTestCase {
         XCTAssertTrue(redacted.contains("<redacted>"))
     }
 
+    func testRedactsMachinePrivateKeysInAssignmentsAndJSON() {
+        for input in ["privateKey=machine-secret", "PRIVATE_KEY: machine-secret", #"{"privateKey":"machine-secret"}"#] {
+            let redacted = SecretRedactor.redact(input)
+            XCTAssertFalse(redacted.contains("machine-secret"))
+            XCTAssertTrue(redacted.contains("<redacted>"))
+        }
+    }
+
     func testRedactsKnownSecretWithoutChangingSafeStatus() {
         let redacted = SecretRedactor.redact(
             "Gateway heartbeat ok 42 ms; opaque-value",

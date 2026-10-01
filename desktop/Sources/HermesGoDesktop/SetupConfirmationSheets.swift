@@ -10,6 +10,18 @@ struct SetupConfirmationSheets: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(item: Binding(
+                get: { model.serviceRepairPreparation },
+                set: { value in
+                    if value == nil { Task { await model.cancelServiceRepair() } }
+                }
+            )) { plan in
+                ManagedServiceRepairConfirmation(
+                    plan: plan, running: model.isServiceRepairRunning,
+                    cancel: { Task { await model.cancelServiceRepair() } },
+                    confirm: { Task { await model.confirmServiceRepair() } }
+                )
+            }
+            .sheet(item: Binding(
                 get: { model.managedBootstrapPreparation },
                 set: { value in
                     if value == nil, model.managedBootstrapOperation == .awaitingConfirmation {

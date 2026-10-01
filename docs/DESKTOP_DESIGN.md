@@ -1,5 +1,20 @@
 # Hermes Go Desktop design contract
 
+## Repairing a committed installation (HG-175)
+
+A committed `account_active` install with either managed LaunchAgent file missing or job unloaded
+shows “检查并修复受管服务” in Account & Devices and the setup/overview recovery surface. It replaces
+that path's generic ownership alarm with `HR-MIGRATE-019`. Checking is read-only and cancellation
+changes nothing. The 540 pt native confirmation names the original release and file scope, whether
+Hermes uses the Mac's standard installation or the original bundled runtime, and any brief Connector
+restart. It states that the account, binding, credentials and Hermes data are preserved; only
+“修复并连接” changes the machine. Installer/account actions and dismissal are disabled during repair.
+An interrupted repair offers “恢复上次操作”, restores the saved prior state first, and requires a new
+check/confirmation for another attempt. Unsafe records, identity mismatch, unknown jobs or occupied
+9119 show `HR-MIGRATE-020` with a specific next step; failed repair/restoration uses `021`, retains
+any unresolved private snapshot and directs the owner back to the same recovery entry.
+
+
 This document adapts the Android contract in `DESIGN.md` to the native macOS companion. Shared brand
 decisions remain authoritative; macOS-specific navigation and controls follow native platform
 conventions.

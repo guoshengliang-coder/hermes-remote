@@ -1,5 +1,33 @@
 # Hermes Go Desktop test plan
 
+## HG-175 repair acceptance
+
+Automated `DesktopManagedServiceRepairTests` covers the 16 combinations of file presence/job loading,
+read-only preparation/cancellation, same-binding credential/token/journal preservation, stale handles,
+changed release/reference/snapshot/account, unknown/duplicate jobs, occupied port, unsafe files,
+operation lease, local launcher and v2 component reuse, readiness before Connector, fresh cloud health,
+rollback and restart recovery. Error tests cover bilingual summaries, retryability, serialization and
+private-key redaction. Tests use injected commands/probes; they do not modify this Mac's services.
+
+Still requires an explicitly authorized test Mac and real account:
+
+1. Back up its managed agents and installation. With the same committed binding, remove both agents,
+   remove each one separately, and unload a task with its file retained. Verify the repair entry and
+   confirmation name the original version/runtime and exact files; cancel and verify no changes.
+2. Confirm repair. Check existing files remain identical, Hermes is ready before a new Connector,
+   both managed tasks load and the original binding generation returns fresh end-to-end healthy.
+   Verify the phone still reaches existing sessions/files and the Hermes database is untouched.
+3. Repeat with another account, missing credentials, unsafe release evidence, unknown launchd
+   arguments and an unrelated process on 9119. Each must stop before machine changes and explain
+   the recovery step. Do not delete the cloud binding to work around the block.
+4. Interrupt a confirmed repair and simulate a start/health failure. Verify snapshot retention when
+   restoration fails, explicit “恢复上次操作” after reopening, unchanged identity and prior service/file
+   state after successful restoration, then a separately confirmed repair. Check blocked recovery
+   preserves externally changed files/jobs and the snapshot.
+5. Inspect the real repair card/sheet in light/dark mode, long file paths, pending progress and blocked
+   recovery. The isolated confirmation preview is a layout check, not this live acceptance.
+
+
 ## Automated baseline
 
 Run on macOS:

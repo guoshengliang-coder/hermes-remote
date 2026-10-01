@@ -1,5 +1,29 @@
 # Hermes Go Desktop phase 0
 
+## Explicit managed-service repair (HG-175)
+
+A committed `account_active` journal is no longer a dead end when one/both user LaunchAgents are
+missing or their tasks are unloaded. Desktop offers a separate, explicitly confirmed repair;
+startup does not automatically repair this state. It checks the authenticated binding ID/generation,
+credential public-key fingerprint, retained private token, committed release marker/current link or
+v2 component references/receipts/content hashes, fixed executables, private paths and loaded launchd
+arguments. This reuses locally retained installation evidence; it does not download or claim a new
+signature verification of a historical release. Missing or untrusted evidence blocks repair.
+
+Existing files remain byte-for-byte intact. Only missing files (including the standard local Hermes
+launcher when provable) are rebuilt, and no binding/key/token/install journal is replaced. A surviving
+Hermes is kept running. A stopped Hermes is started only after port 9119 is confirmed free and must
+pass fresh log/loopback readiness before Connector starts. Repair also requires a newer authenticated
+end-to-end health timestamp for the same binding. A current standard Hermes takes precedence when
+reconstructing a missing Hermes agent; a v2 install without usable standard Hermes stays blocked.
+
+The operation lease and owner-only `state/service-repair.json` snapshot cover rollback and explicit
+recovery after termination. Rollback removes only newly created files/jobs and restores originally
+loaded services; externally changed files/jobs stop recovery with the snapshot retained. No database,
+Hermes checkout, cloud binding or installer release pointer is changed. See `DESKTOP_TEST_PLAN.md`
+for real-machine acceptance and `HR-MIGRATE-019`–`021` for errors.
+
+
 ## Objective
 
 Prove that a native macOS GUI can observe the current Connector safely, preserve the existing Android,

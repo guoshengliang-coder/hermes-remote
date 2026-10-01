@@ -86,6 +86,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var managedBootstrapOperation: DesktopManagedBootstrapOperation = .idle
     @Published private(set) var managedBootstrapPreparation: DesktopManagedBootstrapPreparation?
     @Published private(set) var managedBootstrapIssue: DesktopIssue?
+    @Published private(set) var serviceRepairNeeded = false
+    @Published private(set) var serviceRepairPreparation: DesktopManagedServiceRepairPreparation?
+    @Published private(set) var serviceRepairIssue: DesktopIssue?
+    @Published private(set) var serviceRepairGuidance: String?
+    @Published private(set) var isServiceRepairPreparing = false
+    @Published private(set) var isServiceRepairRunning = false
     /// Kept apart from `managedBootstrapIssue` on purpose: drift is orthogonal to the bootstrap
     /// Which Hermes the managed service runs is reconciled on every refresh (local runtime mode,
     /// `docs/DESKTOP_PHASE0.md`). Its own slot because it is orthogonal to the bootstrap state
@@ -124,6 +130,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     private let managedBootstrapConfiguration: DesktopManagedBootstrapConfigurationState
     private let componentPreflightConfiguration: DesktopComponentPreflightConfigurationState
     private let managedBootstrapRuntime: DesktopManagedBootstrapRuntime?
+    private let serviceRepair: DesktopManagedServiceRepair<SystemCommandRunner>?
     private let managedRecoveryRuntime: DesktopManagedRecoveryRuntime?
     private let componentBootstrapRuntime: DesktopComponentBootstrapRuntime?
     private let componentEntrypointProbe: DesktopManagedComponentEntrypointProbe
@@ -186,11 +193,15 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         localHermesDetector = (try? DesktopLocalHermesPaths.currentUser())
             .map { DesktopLocalHermesDetector(paths: $0) }
         if let managedPaths {
+            serviceRepair = try? DesktopManagedServiceRepair.system(
+                account: controller, paths: managedPaths, gatewayURL: configuration.gatewayURL
+            )
             managedRecoveryRuntime = try? DesktopManagedRecoveryRuntime(
                 account: controller,
                 paths: managedPaths
             )
         } else {
+            serviceRepair = nil
             managedRecoveryRuntime = nil
         }
         if case .configured(let releaseConfiguration) = bootstrapConfiguration,
@@ -1088,6 +1099,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             localHermes: await detectLocalHermesInstallation()
         )
         applyManagedBootstrapInstallation(scopedManagedInstallation)
+        await refreshServiceRepairOffer()
         await refreshHermesInstallOffer(scopedManagedInstallation)
         await refreshHermesRuntime()
     }
@@ -1101,7 +1113,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             localHermesIssue = nil
             return
         }
-        guard !isManagedServiceOperationInProgress else { return }
+        guard !isManagedServiceOperationInProgress, !serviceRepairNeeded else { return }
         if let retryAfter = hermesRuntimeRetryAfter, Date() < retryAfter { return }
         let enabled = DesktopLocalHermesRuntimeSetting.isEnabled()
         // Setting off: no detection and no errors — unless this Mac is actually in local mode, which
@@ -1665,6 +1677,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         default: false
         }
         return managedLocked || isComponentBootstrapAccountLocked
+            || isServiceRepairPreparing || isServiceRepairRunning || serviceRepairPreparation != nil
     }
 
     private var isComponentBootstrapAccountLocked: Bool {
@@ -1908,6 +1921,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
 
     private func recoverManagedBootstrapAfterRestart() async {
         guard let runtime = managedRecoveryRuntime else { return }
+        await refreshServiceRepairOffer()
+        if serviceRepairNeeded { return }
         var reconciliationIssue: DesktopIssue?
         var reconciliationBlocksUpgrade = false
         do {
@@ -1978,6 +1993,79 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             let terminalState = try? runtime.journal.load()?.state
             managedBootstrapOperation = .failed
             managedBootstrapIssue = migrationIssue(error, terminalState: terminalState)
+        }
+    }
+
+    private func refreshServiceRepairOffer() async {
+        guard !isManagedBootstrapAccountLocked, let repair = serviceRepair else { return }
+        do {
+            serviceRepairNeeded = try await repair.needsRepair()
+            if serviceRepairNeeded {
+                if serviceRepairIssue == nil { serviceRepairIssue = DesktopIssue(code: .managedServicesNeedRepair) }
+                // A repairable committed installation has a dedicated recovery surface; keep the
+                // generic ownership alarm out of its primary copy.
+                if managedBootstrapIssue?.code == .migrationConnectorMismatch { managedBootstrapIssue = nil }
+            } else {
+                serviceRepairIssue = nil
+                serviceRepairGuidance = nil
+            }
+        } catch {
+            serviceRepairNeeded = true
+            showServiceRepairFailure(error, duringCommit: false)
+        }
+    }
+
+    func prepareServiceRepair() async {
+        guard !isManagedBootstrapAccountLocked, !isAccountOperationInProgress, let repair = serviceRepair else { return }
+        isServiceRepairPreparing = true
+        serviceRepairIssue = nil
+        serviceRepairGuidance = nil
+        do { serviceRepairPreparation = try await repair.prepare() }
+        catch { showServiceRepairFailure(error, duringCommit: false) }
+        isServiceRepairPreparing = false
+    }
+
+    func cancelServiceRepair() async {
+        guard !isServiceRepairRunning, let plan = serviceRepairPreparation, let repair = serviceRepair else { return }
+        await repair.cancel(plan)
+        serviceRepairPreparation = nil
+    }
+
+    func confirmServiceRepair() async {
+        guard !isServiceRepairRunning, let plan = serviceRepairPreparation, let repair = serviceRepair else { return }
+        isServiceRepairRunning = true
+        serviceRepairIssue = nil
+        serviceRepairGuidance = nil
+        do { try await repair.commit(plan, confirmed: true) }
+        catch { showServiceRepairFailure(error, duringCommit: true) }
+        serviceRepairPreparation = nil
+        isServiceRepairRunning = false
+        await refreshAccount()
+        await refresh()
+    }
+
+    private func showServiceRepairFailure(_ error: Error, duringCommit: Bool) {
+        serviceRepairIssue = DesktopIssue(
+            code: duringCommit ? .managedServiceRepairFailed : .managedServiceRepairBlocked,
+            technicalCause: "stage=managed-service-repair \(String(describing: error))"
+        )
+        let reason: DesktopManagedServiceRepairError? = error is DesktopManagedInstallError
+            ? .unsafeInstallation : error as? DesktopManagedServiceRepairError
+        switch reason {
+        case .accountOrMachineMismatch:
+            serviceRepairGuidance = "请登录原安装所用的账号，并选择这台 Mac。原机器凭据不匹配或已丢失时，请先恢复原凭据备份；不要删除或替换现有绑定。"
+        case .portOccupied:
+            serviceRepairGuidance = "端口 9119 已被其他进程占用或无法确认空闲。请关闭占用该端口的程序后重新检查；Hermes GO 不会停止未知进程。"
+        case .unknownService:
+            serviceRepairGuidance = "启动任务的身份无法确认或存在旧 Connector。请在诊断中检查启动方式，解决重复或未知任务后重新检查。"
+        case .unsafeInstallation, .installationRecordMissing:
+            serviceRepairGuidance = "原安装资料缺失、权限不安全或运行方式无法确认。请从备份恢复原 Managed 安装目录及机器凭据后重新检查；保留 Hermes 数据和云端绑定。"
+        case .restorationFailed:
+            serviceRepairGuidance = "上次修复的恢复快照已保留。请恢复原账号及安装资料，再点修复入口检查并恢复上次操作；恢复完成后才能再次修复。"
+        case .stalePreparation:
+            serviceRepairGuidance = "预检后的服务或安装状态发生了变化。请重新检查并确认修复范围。"
+        default:
+            serviceRepairGuidance = "请复制诊断并检查服务状态，恢复网络或排除启动问题后重新检查。"
         }
     }
 

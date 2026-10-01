@@ -5,7 +5,7 @@ public enum SecretRedactor {
         pattern: #"(?im)(authorization|cookie|set-cookie|x-hermes-session-token)(\s*:\s*)[^\r\n]+"#
     )
     private static let environmentPattern = try! NSRegularExpression(
-        pattern: #"(?i)(connector_token|app_token|password)(\s*=\s*)([^\s,;]+)"#
+        pattern: #"(?i)(connector_token|app_token|password|private_?key)(["\']?\s*[=:]\s*["\']?)([^\s"\',;]+)"#
     )
     private static let queryPattern = try! NSRegularExpression(
         pattern: #"(?i)([?&](?:token|ticket|password)=)([^&#\s]+)"#

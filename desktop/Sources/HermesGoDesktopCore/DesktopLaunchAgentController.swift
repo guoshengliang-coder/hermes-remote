@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DesktopLaunchAgentServiceState: Equatable, Sendable {
+public struct DesktopLaunchAgentServiceState: Codable, Equatable, Sendable {
     public let legacyLoaded: Bool
     public let accountLoaded: Bool
     public let hermesLoaded: Bool
