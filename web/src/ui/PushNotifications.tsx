@@ -17,6 +17,27 @@ import { GatewayHttpError } from "../api/gateway";
 import { CloseIcon } from "./icons";
 import { ErrorNotice } from "./ErrorNotice";
 
+// Keep diagnostic category/status, never provider endpoints, key material or raw messages.
+function pushCause(error: unknown, stage: string): string {
+  const category =
+    error instanceof GatewayHttpError
+      ? `HTTP ${error.status}`
+      : error instanceof DOMException &&
+          [
+            "NotAllowedError",
+            "AbortError",
+            "InvalidStateError",
+            "NetworkError",
+            "SecurityError",
+            "NotSupportedError",
+          ].includes(error.name)
+        ? error.name
+        : error instanceof TypeError
+          ? "TypeError"
+          : "Error";
+  return `${stage}: ${category}`;
+}
+
 export function PushNotifications({ onClose }: { onClose: () => void }) {
   const { client, language, t, account } = useApp();
   useBackClose(onClose);
@@ -50,7 +71,9 @@ export function PushNotifications({ onClose }: { onClose: () => void }) {
         setStatus("unavailable");
       else {
         setStatus("off");
-        setError(appError("HR-WEB-012", "push state query failed"));
+        setError(
+          appError("HR-WEB-012", pushCause(e, "push state query failed")),
+        );
       }
     }
   }
@@ -99,10 +122,12 @@ export function PushNotifications({ onClose }: { onClose: () => void }) {
         announcePushState(true);
         setStatus("enabled");
       }
-    } catch {
+    } catch (e) {
       if (epoch === currentPushEpoch())
         await resetPushWorker().catch(() => undefined);
-      setError(appError("HR-WEB-012", "push subscription failed"));
+      setError(
+        appError("HR-WEB-012", pushCause(e, "push subscription failed")),
+      );
     } finally {
       setBusy(false);
     }
@@ -113,9 +138,9 @@ export function PushNotifications({ onClose }: { onClose: () => void }) {
     try {
       await disablePush(client);
       setStatus("off");
-    } catch {
+    } catch (e) {
       setStatus("off");
-      setError(appError("HR-WEB-012", "push disable failed"));
+      setError(appError("HR-WEB-012", pushCause(e, "push disable failed")));
     } finally {
       setBusy(false);
     }
