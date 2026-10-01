@@ -84,3 +84,29 @@ it("the recording limit stops capture and keeps partial text instead of sending 
   expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "达到录音时限", error: { code: "HR-VOICE-002" } });
   expect(h.events.some((e) => e.kind === "final")).toBe(false);
 });
+it("reports recording once, only after capture succeeds and nonempty PCM arrives", async () => {
+  const h = harness(); await settle(); expect(h.events).toEqual([]);
+  h.pcm(new Uint8Array(0)); expect(h.events).toEqual([]);
+  h.pcm(new Uint8Array(320)); h.pcm(new Uint8Array(320));
+  expect(h.events).toEqual([{ kind: "recording" }]);
+});
+it.each(["cancel", "finish", "failure"])("ignores PCM after %s, including a late capture resolution", async (ending) => {
+  let pcm!: (bytes: Uint8Array) => void, resolve!: (capture: { stop(): void }) => void;
+  const stop = vi.fn(), events: VoiceEvent[] = [];
+  const s = new BrowserVoiceSession({ endpoint: () => new Promise(() => {}),
+    capture: (callback) => { pcm = callback; return new Promise((done) => resolve = done); }, onEvent: (e) => events.push(e) });
+  sessions.push(s); s.start(); pcm(new Uint8Array(320));
+  expect(events).toEqual([]);
+  if (ending === "cancel") s.cancel();
+  else if (ending === "finish") s.finish();
+  else await vi.advanceTimersByTimeAsync(10_000);
+  resolve({ stop }); await settle(); pcm(new Uint8Array(320));
+  expect(stop).toHaveBeenCalledOnce(); expect(events.some((e) => e.kind === "recording")).toBe(false);
+});
+it("a failed capture never reports recording, even if it supplied PCM before rejecting", async () => {
+  const events: VoiceEvent[] = [];
+  const s = new BrowserVoiceSession({ endpoint: () => new Promise(() => {}),
+    capture: async (pcm) => { pcm(new Uint8Array(320)); throw new Error("capture failed"); }, onEvent: (e) => events.push(e) });
+  sessions.push(s); s.start(); await settle();
+  expect(events).toEqual([expect.objectContaining({ kind: "failed", error: expect.objectContaining({ code: "HR-PERM-006" }) })]);
+});

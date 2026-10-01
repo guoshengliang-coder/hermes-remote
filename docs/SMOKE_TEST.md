@@ -1487,6 +1487,37 @@ production or microphone verification. Use non-sensitive test speech.
 6. Check Safari permission and AudioContext resume after switching back from the keyboard, including
    a second recording. Confirm neither raw audio nor transcript content is in Gateway diagnostics.
 
+## HG-189 · Web voice vibration (Android browser / PWA)
+
+Automated tests cover successful capture plus first nonempty PCM, failed initialization, early
+release/cancel and late callbacks; target entry/exit hysteresis; matching highlights/copy/pulses;
+browser refusal/exception/missing API, preference persistence and Save/cancel; release, background,
+pagehide, conversation change and unmount cleanup. They do not prove physical vibration or audio
+quality. No physical Android device was attached on LGS-MACMINI.local during implementation.
+
+1. On a physical Android Chrome page and separately its installed PWA, allow microphone access,
+   hold and speak. One short cue follows actual capture; permission denial or capture failure has
+   no start cue. Slide to cancel/edit: one cue accompanies the selected target and action text.
+   Stay still: no repeated cues. Return to send: a shorter cue. Exit and re-enter both targets:
+   each real transition cues once. Repeat on the target's lower and lateral edges with small jitter:
+   selection remains stable within the 12 CSS px exit buffer; release executes the displayed action.
+2. In the card page, open Voice vibration, choose Off without saving, then cancel by Close, scrim,
+   Escape or system Back: On remains effective. Save Off, reopen/reload/sign out and back in:
+   Off remains, recording and visuals work without pulses. Save On again. Page/PWA storage may be
+   separate; inspect the actual stored choice in each environment, not assumed sharing.
+3. Release, cancel, navigate away, switch conversations, background, close and reopen the page/PWA:
+   no stale cue and no microphone left open. Repeat while startup is delayed and while awaiting final
+   recognition. Disable site/system vibration: recording, visual cues and sending still work;
+   API availability and a true return value are not proof that hardware vibrated.
+4. On iPhone Safari and Home Screen WebApp, Android Firefox and desktop without a vibration API,
+   the card row reads Unsupported in this browser and cannot open a selection sheet; voice remains
+   usable where its separate capture requirements are met. Verify light/dark, Chinese/English and
+   large text at narrow widths. Test Android WebView separately and record its host/version.
+5. Record device, OS, browser version and page/PWA/WebView mode for each result. Assess whether
+   cues are perceptible and whether motor noise affects capture/transcription with non-sensitive
+   speech. Timing is 25ms at start, 30ms on cancel/edit entry, 10ms on return to send; amplitude is
+   not configurable. Physical tactile/audio acceptance remains pending until these checks run.
+
 ## HG-166 · Web model alignment
 
 Use the isolated local Web stack or an explicitly authorized staging setup, never a real model

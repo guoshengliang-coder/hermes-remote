@@ -10,6 +10,7 @@ import {
   type WebSignInResponse,
 } from "./api/gateway";
 import { toAppError } from "./app/failures";
+import { readVoiceFeedback, saveVoiceFeedback, type VoiceFeedback } from "./app/voiceFeedback";
 import type { GroupId } from "./app/grouping";
 import { detectLanguage, translator } from "./app/i18n";
 import { applyFontSize, applyTheme, effectiveLanguage, readFontSize, readLanguagePreference, readThemeMode, saveFontSize, saveLanguagePreference, saveThemeMode, type FontSize, type LanguagePreference, type ThemeMode } from "./app/appearance";
@@ -94,6 +95,7 @@ export function App() {
   const [languagePreference, setLanguagePreference] = useState<LanguagePreference>(readLanguagePreference);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readThemeMode);
   const [fontSize, setFontSize] = useState<FontSize>(readFontSize);
+  const [voiceFeedback, setVoiceFeedback] = useState<VoiceFeedback>(readVoiceFeedback);
   const [systemLanguage, setSystemLanguage] = useState(detectLanguage);
   const language = languagePreference === "system" ? systemLanguage : effectiveLanguage(languagePreference);
   const t = translator(language);
@@ -141,6 +143,7 @@ export function App() {
 
   function chooseTheme(mode: ThemeMode) { saveThemeMode(mode); setThemeMode(mode); }
   function chooseFontSize(size: FontSize) { saveFontSize(size); setFontSize(size); }
+  function chooseVoiceFeedback(choice: VoiceFeedback) { saveVoiceFeedback(choice); setVoiceFeedback(choice); }
   function chooseLanguage(choice: LanguagePreference) { saveLanguagePreference(choice); setLanguagePreference(choice); }
 
   const currentSessionId = route.name === "chat" ? route.sessionId : null;
@@ -386,6 +389,8 @@ export function App() {
     setThemeMode: chooseTheme,
     fontSize,
     setFontSize: chooseFontSize,
+    voiceFeedback,
+    setVoiceFeedback: chooseVoiceFeedback,
     t,
     account,
     updateAccount: (next) => setAccount(next),

@@ -2,7 +2,7 @@ import { appError, type AppError } from "../errors";
 import { captureVoice, type VoiceCapture } from "./voiceCapture";
 import { parseVoiceFrame, voiceAudioFrame, voiceInitialFrame } from "./voiceProtocol";
 
-export type VoiceEvent = { kind: "waiting" } | { kind: "partial"; text: string } | { kind: "final"; text: string }
+export type VoiceEvent = { kind: "recording" } | { kind: "waiting" } | { kind: "partial"; text: string } | { kind: "final"; text: string }
   | { kind: "failed"; text: string; error: AppError };
 export interface VoiceSessionOptions {
   endpoint: () => Promise<string>;
@@ -19,6 +19,8 @@ export class BrowserVoiceSession {
   private ended = false;
   private finishing = false;
   private ready = false;
+  private receivedPcm = false;
+  private recordingNotified = false;
   private sequence = 2;
   private held: Uint8Array | null = null;
   private pending: Uint8Array[] = [];
@@ -35,7 +37,7 @@ export class BrowserVoiceSession {
     // Start capture synchronously in the gesture so AudioContext.resume is allowed on WebKit.
     void (this.options.capture ?? captureVoice)((pcm) => this.onPcm(pcm), this.captureAbort.signal).then((capture) => {
       if (this.ended || this.finishing) capture.stop();
-      else this.capture = capture;
+      else { this.capture = capture; this.notifyRecording(); }
     }, () => { if (!this.ended && !this.finishing) this.fail("HR-PERM-006"); });
     void this.options.endpoint().then((url) => {
       if (this.ended) return;
@@ -81,11 +83,17 @@ export class BrowserVoiceSession {
   }
   private onPcm(pcm: Uint8Array): void {
     if (this.ended || this.finishing) return;
+    if (pcm.length) { this.receivedPcm = true; this.notifyRecording(); }
     const bytes = new Uint8Array(this.tail.length + pcm.length);
     bytes.set(this.tail); bytes.set(pcm, this.tail.length);
     let offset = 0;
     while (offset + 6400 <= bytes.length) { this.enqueue(bytes.slice(offset, offset + 6400)); offset += 6400; }
     this.tail = bytes.slice(offset);
+  }
+  private notifyRecording(): void {
+    if (this.ended || this.finishing || !this.capture || !this.receivedPcm || this.recordingNotified) return;
+    this.recordingNotified = true;
+    this.options.onEvent({ kind: "recording" });
   }
   private enqueue(pcm: Uint8Array): void {
     if (this.ended) return;

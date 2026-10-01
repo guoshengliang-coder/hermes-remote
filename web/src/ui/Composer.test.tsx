@@ -13,8 +13,8 @@ vi.mock("../chat/voiceSession", () => ({ BrowserVoiceSession: class {
   start() {} finish() { mocks.finish(); mocks.events?.({ kind: "waiting" }); } cancel() { return mocks.cancel(); }
 } }));
 const hosts: HTMLElement[] = [];
-afterEach(() => { hosts.forEach((host) => { act(() => render(null, host)); host.remove(); }); hosts.length = 0; vi.clearAllMocks(); vi.restoreAllMocks(); mocks.events = null; localStorage.clear(); });
-const context = { t: (zh: string) => zh, language: "zh", device: { deviceId: "mac" }, client: { settled: async () => {} }, features: new Set(["voice-input"]) } as unknown as AppContextValue;
+afterEach(() => { hosts.forEach((host) => { act(() => render(null, host)); host.remove(); }); hosts.length = 0; vi.clearAllMocks(); vi.restoreAllMocks(); vi.unstubAllGlobals(); mocks.events = null; localStorage.clear(); });
+const context = { t: (zh: string) => zh, language: "zh", device: { deviceId: "mac" }, client: { settled: async () => {} }, voiceFeedback: "on", features: new Set(["voice-input"]) } as unknown as AppContextValue;
 function mount(overrides: Partial<ComposerProps> = {}) {
   const host = document.createElement("div"); document.body.append(host); hosts.push(host);
   const props: ComposerProps = { t: (zh) => zh, language: "zh", generating: false, disabled: false, onSend: vi.fn(), onInterrupt: vi.fn(), ...overrides };
@@ -133,6 +133,24 @@ it("permission denial shows a bilingual registered recoverable error and keeps t
   act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
   expect(h.host.textContent).toContain("HR-PERM-006"); expect(h.host.textContent).toContain("重试");
   expect(h.host.querySelector("textarea")!.value).toBe("保留草稿");
+});
+it("starts feedback only on the live capture event and ignores old recordings after pagehide or chat changes", async () => {
+  const vibrate = vi.fn((_duration: number) => true);
+  vi.stubGlobal("navigator", { vibrate });
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  const h = mount({ draftKey: "one" });
+  act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
+  const hold = h.host.querySelector<HTMLButtonElement>('.voice-hold')!;
+  act(() => { hold.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
+  expect(vibrate).not.toHaveBeenCalled();
+  const old = mocks.events!;
+  act(() => old({ kind: "recording" })); expect(vibrate).toHaveBeenLastCalledWith(25);
+  act(() => { window.dispatchEvent(new Event("pagehide")); });
+  expect(mocks.cancel).toHaveBeenCalled(); expect(vibrate).toHaveBeenLastCalledWith(0);
+  const count = vibrate.mock.calls.length;
+  act(() => old({ kind: "recording" })); expect(vibrate).toHaveBeenCalledTimes(count);
+  h.update({ draftKey: "two" }); act(() => old({ kind: "recording" }));
+  expect(vibrate).toHaveBeenCalledTimes(count); expect(h.props.onSend).not.toHaveBeenCalled();
 });
 it("partial results never submit, edit appends, and a callback from a previous conversation is ignored", async () => {
   const h = mount({ draftKey: "one" }); type(h.host, "草稿");
