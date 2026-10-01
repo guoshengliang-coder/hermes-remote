@@ -3,6 +3,7 @@ import { act } from "preact/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
 import { Composer, type ComposerProps } from "./Composer";
 import { AppContext, type AppContextValue } from "../app/store";
+import { overlayDepth, resetOverlays } from "../app/overlayHistory";
 import type { VoiceEvent } from "../chat/voiceSession";
 const mocks = vi.hoisted(() => ({ events: null as null | ((e: VoiceEvent) => void), finish: vi.fn(), cancel: vi.fn(() => "半截"), microphone: vi.fn(async () => {}) }));
 vi.mock("../chat/voiceCapture", () => ({ voiceCaptureSupported: () => true, allowMicrophone: mocks.microphone }));
@@ -176,4 +177,26 @@ it("a blur no press of ours caused still collapses the composer (HG-174)", () =>
   expect(h.host.querySelector(".composer.expanded")).not.toBeNull();
   act(() => area.blur());
   expect(h.host.querySelector(".composer.expanded")).toBeNull();
+});
+
+it("a focused text field owns no back step, so leaving the chat is one back press (HG-180)", () => {
+  resetOverlays();
+  const h = mount();
+  const area = type(h.host, "草稿");
+  expect(document.activeElement).toBe(area);
+  expect(h.host.querySelector(".composer.expanded")).not.toBeNull();
+  // The old behaviour armed a same-URL history entry on focus: the first system back only
+  // collapsed the composer (and the keyboard it no longer had) and repainted the chat instead of
+  // leaving, so getting back to the list took two presses. Nothing owns a back step here now.
+  expect(overlayDepth()).toBe(0);
+});
+
+it("an in-progress voice capture still owns the back step that cancels it (HG-180)", async () => {
+  resetOverlays();
+  const h = mount();
+  act(() => h.host.querySelector<HTMLButtonElement>(".composer-voice")!.click()); await settle();
+  expect(overlayDepth()).toBe(0);
+  const hold = h.host.querySelector<HTMLButtonElement>(".voice-hold")!;
+  act(() => { hold.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
+  expect(overlayDepth()).toBe(1);
 });

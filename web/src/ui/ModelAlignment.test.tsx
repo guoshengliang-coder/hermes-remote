@@ -127,3 +127,23 @@ it("drops pending old Mac results instead of changing the newly selected Mac", a
   expect(s.done).not.toHaveBeenCalled(); expect(s.close).not.toHaveBeenCalled(); expect(s.host.textContent).not.toContain("private-a");
   expect(modelPrefs("mac-b").recents).toEqual([]);
 });
+
+// HG-177: the account drawer owns z 44/45 and the shared Sheet is 24/25, so the default-model
+// sheet opened from the card page was painted behind the drawer. It must carry the lift; the same
+// sheet opened over a page (chat composer) must not, or it would rise above overlays it shouldn't.
+it("lifts the default-model sheet above the card page drawer, and only when opened from the card page", async () => {
+  const fromCard = mount(<AccountDrawer onClose={() => {}} />, context(client()));
+  await flush();
+  act(() => fromCard.querySelector<HTMLButtonElement>('[aria-label="默认模型"]')!.click());
+  await flush();
+  const dialog = fromCard.querySelector('[role="dialog"][aria-label="默认模型"]');
+  expect(dialog).not.toBeNull();
+  expect(dialog!.classList.contains("above-drawer")).toBe(true);
+  expect(fromCard.querySelector(".sheet-scrim.above-drawer")).not.toBeNull();
+
+  const direct = sheet(client(), actions(), "default");
+  await flush();
+  expect(direct.host.querySelector('[role="dialog"][aria-label="默认模型"]')).not.toBeNull();
+  expect(direct.host.querySelector(".picker-sheet")?.classList.contains("above-drawer")).toBe(false);
+  expect(direct.host.querySelector(".sheet-scrim.above-drawer")).toBeNull();
+});

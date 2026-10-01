@@ -57,6 +57,8 @@ interface ModelSheetProps {
   profile: string | null;
   explicitOverride: boolean;
   scope?: "session" | "default";
+  /** Set when the sheet is opened from the card page so it paints above the drawer (HG-177). */
+  aboveDrawer?: boolean;
   actions: ModelActions;
   onSwitched: (provider: string, model: string, restored: boolean, warning?: boolean) => void;
   onReasoning: (value: string) => void;
@@ -69,7 +71,7 @@ export function ModelSheet(props: ModelSheetProps) {
   return <ModelSheetContent key={JSON.stringify([device?.deviceId, props.profile, props.scope])} {...props} />;
 }
 
-function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride, scope = "session", actions, onSwitched, onReasoning, onClose }: ModelSheetProps) {
+function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride, scope = "session", aboveDrawer, actions, onSwitched, onReasoning, onClose }: ModelSheetProps) {
   const { t, language, client, device, features } = useApp();
   const deviceId = device?.deviceId ?? "";
   const defaultModel = useDefaultModel(client, deviceId, profile, features.has("default-model"));
@@ -229,7 +231,7 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
   const canRestore = Boolean(!editingDefault && overridden && configured && admissible(configured.provider, configured.model));
 
   return (
-    <Sheet title={editingDefault ? t("默认模型", "Default model") : t("选择模型", "Select model")} closeLabel={t("关闭", "Close")} onClose={onClose} wide
+    <Sheet title={editingDefault ? t("默认模型", "Default model") : t("选择模型", "Select model")} closeLabel={t("关闭", "Close")} onClose={onClose} wide aboveDrawer={aboveDrawer}
       headerAction={<button type="button" class="icon-button" aria-label={t("刷新列表", "Refresh list")} disabled={pending !== null || confirmation !== null} onClick={() => { setAttempt((n) => n + 1); defaultModel.retry(); }}><RefreshIcon size={18} /></button>}>
       <div class="model-status">
         <span class="model-status-content">
