@@ -98,10 +98,45 @@ class OutputHapticPolicyTest {
         assertFalse(viewport.isOutputTailVisible("tail"))
     }
 
-    @Test fun lightConstantsMatchSupportedPlatformLevels() {
-        assertEquals(4, outputHapticConstant(26))
-        assertEquals(9, outputHapticConstant(27))
-        assertEquals(9, outputHapticConstant(33))
-        assertEquals(27, outputHapticConstant(34))
+    @Test fun parsedProseCanAdvanceWhileTheNextInputIsAlreadyAhead() {
+        val viewport = ChatViewportController()
+        val painted = ParsedOutputHapticPresentation()
+        val policy = OutputHapticPolicy()
+        val key = "answer:markdown:0"
+        fun target(text: String) = outputHapticPresentation(ChatMessage("answer", Role.ASSISTANT, text), "接收中")
+
+        viewport.updateOutputParsedContent(key, "已显示")
+        assertFalse(policy.observe("run", painted.read(target("已显示下一批"), viewport).text, true, 0))
+        viewport.updateOutputParsedContent(key, "已显示下一批")
+        assertTrue(policy.observe("run", painted.read(target("已显示下一批还有新输入"), viewport).text, true, 100))
+        // New input alone, without new painted prose, cannot trigger another tick.
+        assertFalse(policy.observe("run", painted.read(target("已显示下一批还有更多新输入"), viewport).text, true, 200))
+        viewport.removeBlock(key)
+        assertEquals("", painted.read(target("已显示下一批"), viewport).text)
+    }
+
+    @Test fun paintedToolPlaceholderIsExcludedAndCacheDoesNotReplayIt() {
+        val viewport = ChatViewportController()
+        val painted = ParsedOutputHapticPresentation()
+        val target = outputHapticPresentation(ChatMessage("a", Role.ASSISTANT, "正文\n\n*接收中*"), "接收中")
+        viewport.updateOutputParsedContent("a:markdown:0", "正文")
+        viewport.updateOutputParsedContent("a:markdown:1", "*接收中*")
+        val first = painted.read(target, viewport)
+        assertEquals("正文", first.text)
+        assertEquals("a:markdown:0", first.tailKey)
+        assertSame(first, painted.read(target, viewport))
+    }
+
+    @Test fun outputTickDoesNotChooseTheTextureEffectThatCanBeSilentOnRealPhones() {
+        // CONTEXT_CLICK / SEGMENT_TICK map to the ordinary system tick; the former
+        // CLOCK_TICK / TEXT_HANDLE_MOVE / SEGMENT_FREQUENT_TICK all use texture tick.
+        // A device supporting ordinary ticks can still omit the texture effect.
+        for (sdk in listOf(26, 27, 33, 34, 36, 37)) {
+            val acceptedByTickOnlyPhone = outputHapticConstant(sdk) in setOf(6, 26)
+            assertTrue("SDK $sdk must request a supported ordinary tick", acceptedByTickOnlyPhone)
+        }
+        assertEquals(6, outputHapticConstant(26))
+        assertEquals(6, outputHapticConstant(33))
+        assertEquals(26, outputHapticConstant(34))
     }
 }

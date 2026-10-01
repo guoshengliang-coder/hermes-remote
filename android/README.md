@@ -859,10 +859,14 @@ revealed assistant answer text produces a light system tick, at most once per 10
 tools and receiving placeholders do not. The chat must be resumed, focused and showing the actual
 end of the prose. Scrolling into history, overlays, tool waits, completion, Stop, navigation,
 backgrounding and locking suspend feedback. Returning establishes a baseline without replay.
-System touch-feedback settings remain authoritative; unsupported effects are skipped rather than
-replaced by a stronger vibration. Read/write failures expose retryable HR-STORE-002 and keep this
-optional feedback disabled. API 34+ uses SEGMENT_FREQUENT_TICK, API 27–33 TEXT_HANDLE_MOVE, API 26
-CLOCK_TICK. Hardware strength and long-answer comfort require the same physical phone comparison
+Feedback reads the prose actually published by the async Markdown renderer, even while that parsed
+snapshot trails the next input; equality with a continuously growing input must not starve ticks.
+System touch-feedback settings remain authoritative; rejected requests are not retried with a
+stronger vibration. Read/write failures expose retryable HR-STORE-002 and keep this optional feedback
+disabled. API 34+ uses SEGMENT_TICK and API 26–33 CONTEXT_CLICK, which request the ordinary system
+tick rather than the texture tick that some phones omit. Diagnostic category `haptics` records gate
+reasons and whether the system accepted a request, without answer text. Acceptance is not proof of
+physical vibration. Hardware strength and long-answer comfort require the same physical phone comparison
 with Grok; 100ms is a prototype throttle, not a claim about Grok. See `docs/SMOKE_TEST.md` HG-187.
 
 ## Runtime language contract

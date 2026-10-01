@@ -251,7 +251,7 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     private val outputTailPositions = mutableMapOf<String, Float>()
     private val outputParsedContent = mutableMapOf<String, String?>()
     fun updateOutputParsedContent(key: String, content: String?) { outputParsedContent[key] = content }
-    fun isOutputSnapshotParsed(key: String, content: String): Boolean = outputParsedContent[key] == content
+    fun parsedOutputContent(key: String): String? = outputParsedContent[key]
     fun updateOutputTail(key: String, y: Float) { outputTailPositions[key] = y }
     fun isOutputTailVisible(key: String): Boolean {
         val viewport = viewportBounds ?: return false
