@@ -3072,7 +3072,10 @@ html[data-theme="dark"] .group-header {
   position: absolute;
   z-index: 11;
   right: calc(1rem + var(--safe-right));
-  bottom: calc(6.5rem + var(--safe-bottom));
+  /* Anchored to the top of `.chat-bottom` (its containing block), not to a fixed distance from
+     the page bottom: the composer grows to two rows or carries attachments, and any hard-coded
+     offset that only fits one row leaves the button overlapping the input (HG-179). */
+  bottom: calc(100% + 0.5rem);
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 999px;
