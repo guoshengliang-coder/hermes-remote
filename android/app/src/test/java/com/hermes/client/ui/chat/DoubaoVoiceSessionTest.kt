@@ -62,6 +62,20 @@ class DoubaoVoiceSessionTest {
         return event
     }
 
+    @Test fun deniedMicrophone_neverAnnouncesCaptureStarted() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(context).denyPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val events = java.util.concurrent.CopyOnWriteArrayList<VoiceEvent>()
+        val session = DoubaoVoiceSession(
+            context = context, scope = testScope,
+            endpoint = { awaitCancellation() }, endpointTimeoutMs = 200,
+        ) { events.add(it) }
+        session.start()
+        assertTrue(awaitEvent({ events.lastOrNull() }) is VoiceEvent.Failed)
+        assertTrue(events.none { it is VoiceEvent.Started })
+        session.cancel()
+    }
+
     @Test fun endpointHang_failsWithTimeoutInsteadOfHangingForever() {
         var event: VoiceEvent? = null
         val session = DoubaoVoiceSession(

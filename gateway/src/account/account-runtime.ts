@@ -41,6 +41,7 @@ import {
   fcmAccessTokenSource,
   parseFcmServiceAccount,
 } from "./push/push-provider.js";
+import { PostgresWebPushStore, WebPushFanout } from "./push/web-push.js";
 import { PostgresPushRegistrationStore } from "./push/push-registration-store.js";
 import type { AccountPrincipal } from "./model.js";
 import type { AccountDevice, BindingProofMaterial, BindingState } from "./account-control-model.js";
@@ -374,6 +375,13 @@ export function createAccountRuntime(
         ]);
       })()
     : undefined;
+  const webPushEnabled = booleanFlag(environment,"ACCOUNT_WEB_PUSH_ENABLED",false);
+  if (webPushEnabled && !webDeviceAccessEnabled) throw new Error("ACCOUNT_WEB_PUSH_ENABLED requires Web device access");
+  const webPushStore = webPushEnabled ? new PostgresWebPushStore(pool) : undefined;
+  const webPushFanout = webPushStore ? new WebPushFanout(webPushStore,
+    requireSecret(environment,"ACCOUNT_WEB_PUSH_PUBLIC_KEY",87),
+    requireSecret(environment,"ACCOUNT_WEB_PUSH_PRIVATE_KEY",43),
+    requireSecret(environment,"ACCOUNT_WEB_PUSH_SUBJECT",8)) : undefined;
   const proofCoordinator = controlEnabled
     ? new ConnectorProofCoordinator(
         controlRepository,
@@ -416,6 +424,7 @@ export function createAccountRuntime(
       desktopManagedInstallEnabled,
       desktopComponentInstallEnabled,
       sharingService,
+      ...(webPushStore && webPushFanout ? { webPush: { store:webPushStore,publicKey:webPushFanout.publicKey } } : {}),
       ...(pushRegistrations && pushFanout ? {
         pushRegistration: { store: pushRegistrations, providers: pushFanout.providerNames },
       } : {}),
@@ -459,7 +468,10 @@ export function createAccountRuntime(
           const { status } = await controlRepository.ingestAccountLifecycleEvent(material, event);
           // Only a newly stored event wakes phones; a duplicate was already pushed. Not awaited:
           // the push is a hint and must never delay or fail the Connector's ack.
-          if (status === "stored") void pushFanout?.notify(material.accountId, event);
+          if (status === "stored") {
+            void pushFanout?.notify(material.accountId,event);
+            void webPushFanout?.notify(event);
+          }
           return status;
         },
         listLifecycleEvents: (principal, after, limit) => controlService.listLifecycleEvents(

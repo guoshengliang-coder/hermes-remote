@@ -2,7 +2,8 @@ import type { AccountDevice } from "../api/gateway";
 import type { Translate } from "../app/i18n";
 import type { AppError, Language } from "../errors";
 import { ErrorNotice } from "./ErrorNotice";
-import { MacIcon } from "./icons";
+import { useBackClose } from "../app/useBackClose";
+import { BackIcon, MacIcon } from "./icons";
 
 // Choose which Mac this browser talks to. The choice is remembered in localStorage (a device id is
 // not a secret); offline Macs stay selectable but say so.
@@ -16,14 +17,16 @@ export interface DevicePickerProps {
   onRetry?: () => void;
   onSelect: (device: AccountDevice) => void;
   onSignOut: () => void;
+  onBack?: () => void;
 }
 
-export function DevicePicker({ devices, selectedId, language, t, error, onRetry, onSelect, onSignOut }: DevicePickerProps) {
+export function DevicePicker({ devices, selectedId, language, t, error, onRetry, onSelect, onSignOut, onBack }: DevicePickerProps) {
+  useBackClose(() => onBack?.(), Boolean(onBack));
   return (
     <div class="page">
       <header class="topbar">
         <div class="topbar-row">
-          <span class="topbar-spacer" />
+          {onBack ? <button type="button" class="icon-button" aria-label={t("返回", "Back")} onClick={onBack}><BackIcon /></button> : <span class="topbar-spacer" />}
           <h1 class="topbar-title">{t("选择 Mac", "Choose a Mac")}</h1>
           <span class="topbar-spacer" />
         </div>

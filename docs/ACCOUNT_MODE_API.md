@@ -1264,3 +1264,40 @@ Connector's default write adapter first, then Gateway's validators/features, the
 or Desktop wire changes are required: their existing bearer routes and RPC shapes remain valid.
 A Gateway rollback restores the old feature set and the Web falls back at its next capability read.
 This change requires Connector, Gateway and Web releases, not an Android APK.
+
+### Browser Web Push (HG-191, schema 18)
+
+`/v2/web/push-subscription` is additive and default-off. It returns 404 unless
+`ACCOUNT_WEB_PUSH_ENABLED=1` and Web device access are enabled. All methods require the
+Web access cookie and a `browser`/`web` installation; PUT/DELETE require the exact Web
+Origin and double-submit CSRF header. Android FCM registration is independent.
+
+- GET returns `{publicKey, registration: {channelId} | null}`; never returns endpoint or keys.
+- PUT accepts `{accountId, channelId, language: "zh" | "en", subscription: {endpoint,
+  keys: {p256dh, auth}}}`. `accountId` must equal the authenticated principal; `channelId`
+  is a fresh UUID. Endpoints are HTTPS Apple Push, Google FCM or Mozilla Push services;
+  arbitrary destinations, custom ports and credentials are rejected.
+- DELETE removes only the authenticated account/installation registration (204).
+
+One browser installation has one subscription bound to its specific refreshable session.
+Logout, session revocation and installation revocation delete its registration. Delivery
+requires an active account, unrevoked installation/session, unexpired unused refresh token,
+and current owner/shared access to the event's Mac. Access-cookie expiry by itself does not
+stop background delivery. Provider 404/410 remove only the matching failed channel; transient
+failure retains it. Delivery timeout is 10 seconds; queued messages expire after 10 minutes.
+
+Only newly persisted `run.completed`, `run.waiting`, `run.interrupted`, `run.unknown` events
+are sent. Encrypted payloads contain routing identifiers and state, with no conversation title
+or transcript. The worker displays a generic localized explanation. Channel-bound IndexedDB
+tracks duplicate event IDs and per-Mac/profile/session unread state; logout clears it before
+network unsubscribe. Foreground receipt and background delivery share deduplication. A click
+opens an allowlisted `/app/` selection link carrying account, Mac, profile and stored session;
+login and Mac access are verified before selecting it. It never performs a conversation action.
+
+The settings sheet requests permission only on the enable button. Ordinary iPhone Safari
+shows Add to Home Screen instructions (iOS 16.4+). Unsupported, denied, server-disabled,
+off and enabled states are distinct; notification and badge visibility remain system-controlled.
+
+HG-190: switching Mac from an authenticated page overlays the picker. Toolbar/system back
+closes it and retains the original page/Mac; first login without a Mac still requires selection
+or sign-out. A Mac removed during refresh cannot be restored by back.

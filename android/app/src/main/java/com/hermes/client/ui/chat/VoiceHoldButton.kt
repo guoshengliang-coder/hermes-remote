@@ -54,6 +54,7 @@ internal fun VoiceHoldButton(
     onRelease: (VoiceReleaseAction) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
+    val exitMargin = with(LocalDensity.current) { 8.dp.toPx() }
     val hitMargin = with(LocalDensity.current) { VOICE_TARGET_HIT_MARGIN.toPx() }
     // The finger arrives in this button's local coordinates while the targets are reported in root
     // coordinates, so the gesture needs this node's own root offset (HG-153).
@@ -91,15 +92,16 @@ internal fun VoiceHoldButton(
                                 change.position.y + originInRoot.y,
                                 currentTargets,
                                 hitMargin,
+                                action,
+                                exitMargin,
                             )
                             if (next != action) {
                                 action = next
                                 onZone(action)
-                                // HG-153: the buzz marks arriving on a target, so the side is
-                                // known without looking. Dropping back to send stays silent.
-                                if (action != VoiceReleaseAction.SEND) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                }
+                                haptic.performHapticFeedback(
+                                    if (action == VoiceReleaseAction.SEND) HapticFeedbackType.TextHandleMove
+                                    else HapticFeedbackType.LongPress,
+                                )
                             }
                             change.consume()
                         }

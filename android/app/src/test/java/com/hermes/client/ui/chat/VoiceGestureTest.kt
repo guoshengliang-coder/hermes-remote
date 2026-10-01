@@ -54,4 +54,10 @@ class VoiceGestureTest {
     @Test fun betweenTheTargets_staysSend() {
         assertEquals(VoiceReleaseAction.SEND, voiceReleaseAction(540f, -400f, targets, margin))
     }
+    @Test fun boundaryJitterRetainsTheCurrentActionUntilExitBufferIsCrossed() {
+        assertEquals(VoiceReleaseAction.CANCEL, voiceReleaseAction(330f, 1880f, targets, margin, VoiceReleaseAction.CANCEL, 24f))
+        assertEquals(VoiceReleaseAction.SEND, voiceReleaseAction(350f, 1880f, targets, margin, VoiceReleaseAction.CANCEL, 24f))
+        assertEquals(VoiceReleaseAction.SEND, voiceReleaseAction(330f, 1880f, targets, margin, VoiceReleaseAction.SEND, 24f))
+        assertEquals(VoiceReleaseAction.EDIT, voiceReleaseAction(888f, 1880f, targets, margin, VoiceReleaseAction.CANCEL, 24f))
+    }
 }

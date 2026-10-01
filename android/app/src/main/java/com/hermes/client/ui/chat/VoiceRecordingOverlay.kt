@@ -137,6 +137,7 @@ internal fun VoiceRecordingOverlay(
             VoiceRecordingCard(
                 language = language,
                 waiting = waiting,
+                action = if (cancelZone) VoiceReleaseAction.CANCEL else if (editZone) VoiceReleaseAction.EDIT else VoiceReleaseAction.SEND,
                 transcript = transcript,
                 elapsedMs = elapsedMs,
             )
@@ -158,6 +159,7 @@ internal fun VoiceRecordingOverlay(
 private fun VoiceRecordingCard(
     language: AppLanguage,
     waiting: Boolean,
+    action: VoiceReleaseAction,
     transcript: String,
     elapsedMs: Long,
 ) {
@@ -197,8 +199,16 @@ private fun VoiceRecordingCard(
                 Text(
                     localized(
                         language,
-                        if (waiting) "点按取消等待" else "松手 发送",
-                        if (waiting) "Tap to stop" else "Release to send",
+                        if (waiting) "点按取消等待" else when (action) {
+                            VoiceReleaseAction.SEND -> "松手发送"
+                            VoiceReleaseAction.CANCEL -> "松手取消"
+                            VoiceReleaseAction.EDIT -> "松手转文字"
+                        },
+                        if (waiting) "Tap to stop" else when (action) {
+                            VoiceReleaseAction.SEND -> "Release to send"
+                            VoiceReleaseAction.CANCEL -> "Release to cancel"
+                            VoiceReleaseAction.EDIT -> "Release to edit"
+                        },
                     ),
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant,

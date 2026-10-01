@@ -1587,3 +1587,36 @@ cannot show where the pill lands on a phone, so the layout itself still needs a 
 Automated evidence covers pacing/no replay, visible-tail geometry, API selection, persistent choice,
 read/write failure recovery and bilingual/redacted errors. Physical haptics and Grok comparison remain
 manual acceptance; test against a locally built APK only, restore local dev routing afterwards.
+
+## HG-190/HG-191 · Web Mac return and PWA push — device/production verification pending
+
+Automated coverage: picker toolbar/history-back and first-selection rules; Origin/CSRF/browser
+and stale-account registration rejection; provider endpoint validation; payload privacy;
+404/410 cleanup; worker deduplication, channel reset, routing and badges. The PostgreSQL
+integration test runs with `ACCOUNT_TEST_DATABASE_URL` (CI uses disposable PostgreSQL 18),
+covering all migrations, owner/shared/unrelated accounts, revoked grants/sessions/installations,
+refreshable access-cookie expiry and stale-channel cleanup. Local tests without that variable
+skip the database test; they do not prove SQL execution.
+
+On iOS 16.4+ with a production HTTPS PWA and explicitly enabled Gateway/VAPID configuration:
+
+1. In ordinary Safari, notification settings must explain Add to Home Screen without prompting.
+   Install, log in and open settings: no prompt until Enable. Test granted, dismissed, denied,
+   Settings re-enable, unsupported environment, server-off and failed/retried registration.
+2. With Mac A active, open another chat/account/list page and Choose Mac; toolbar back and
+   system back return to the exact prior page, retaining A and its drafts. Select B to switch.
+   First login with no active Mac cannot back into chat. Remove/revoke A while picker is open;
+   refresh must require a valid selection rather than restore A.
+3. With the PWA locked/backgrounded, produce completed/waiting/interrupted/unknown on owned
+   and shared Macs, including two profiles and two sessions. Confirm generic text, sound/banner
+   according to OS/Focus settings, and per-session unread badge. Confirm no title or transcript.
+   Repeat an event: one reminder. Foreground receipt must not duplicate its system notification.
+4. Tap each notification while logged in and after access-cookie expiry/login. Verify actual
+   account, Mac, profile and stored session. Invalid/unauthorized/removed Mac must not open.
+   Read one conversation: only that conversation's unread badge clears.
+5. Disable, log out offline, switch accounts, revoke installation/session/grant, and inject a
+   queued old-channel delivery. No old-account banner/click or unread badge may survive. Check
+   provider 410 cleanup; transient provider failure must keep registration for later events.
+
+Actual Apple delivery, background waking, system sound and permission/badge behavior cannot be
+certified by a Service Worker unit test or desktop browser fixture.

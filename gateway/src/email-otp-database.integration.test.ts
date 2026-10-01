@@ -263,7 +263,7 @@ test("PostgreSQL email OTP challenges are race-safe, bounded, and plaintext-free
     assert.notEqual(googleSession.account.id, emailSession.account.id);
     assert.equal((await pool.query<{ version: number }>(
       "SELECT version FROM gateway_schema_state WHERE singleton = true",
-    )).rows[0].version, 17);
+    )).rows[0].version, 18);
   } finally {
     await pool.end();
     await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);

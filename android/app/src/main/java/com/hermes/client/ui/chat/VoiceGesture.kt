@@ -39,10 +39,14 @@ internal fun voiceReleaseAction(
     fingerY: Float,
     targets: VoiceTargets?,
     hitMargin: Float,
+    currentAction: VoiceReleaseAction = VoiceReleaseAction.SEND,
+    exitMargin: Float = 0f,
 ): VoiceReleaseAction = when {
     targets == null -> VoiceReleaseAction.SEND
     targets.cancel.reaches(fingerX, fingerY, hitMargin) -> VoiceReleaseAction.CANCEL
     targets.edit.reaches(fingerX, fingerY, hitMargin) -> VoiceReleaseAction.EDIT
+    currentAction == VoiceReleaseAction.CANCEL && targets.cancel.reaches(fingerX, fingerY, hitMargin + exitMargin) -> currentAction
+    currentAction == VoiceReleaseAction.EDIT && targets.edit.reaches(fingerX, fingerY, hitMargin + exitMargin) -> currentAction
     else -> VoiceReleaseAction.SEND
 }
 

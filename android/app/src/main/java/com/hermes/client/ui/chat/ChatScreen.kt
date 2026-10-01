@@ -896,6 +896,7 @@ fun ChatScreen(
         voiceElapsedMs = 0L
         val session = DoubaoVoiceSession(context, voiceScope, vm::voiceEndpoint) { event ->
             when (event) {
+                VoiceEvent.Started -> if (voiceHeld) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 is VoiceEvent.Partial -> voiceTranscript = event.text
                 is VoiceEvent.Final -> {
                     voiceHeld = false

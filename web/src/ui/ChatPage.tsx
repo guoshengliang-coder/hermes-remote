@@ -83,7 +83,7 @@ function restoreAnchor(el: HTMLElement, anchor: ScrollAnchor | null) {
   if (Math.abs(delta) >= 1) el.scrollTop += delta;
 }
 
-export function ChatPage({ sessionId }: { sessionId: string | null }) {
+export function ChatPage({ sessionId, profileHint }: { sessionId: string | null; profileHint?: string | null }) {
   const app = useApp();
   const { t, language, device, client } = app;
   // HG-183: the new-session greeting names the signed-in Web account (Android uses the profile
@@ -170,7 +170,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
       deviceId: device.deviceId,
       storedSessionId: sessionId,
       cwd: sessionId === null ? newChatProject.current?.path : null,
-      profile: sessionId === null ? null : explicitProfile(app.sessions.find((s) => s.id === sessionId)),
+      profile: sessionId === null ? null : profileHint !== undefined ? profileHint : explicitProfile(app.sessions.find((s) => s.id === sessionId)),
       dispatch,
       onStored: (id) => {
         setStoredId(id);
@@ -194,7 +194,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   }, []);
 
   useEffect(() => {
-    if (storedId) app.markSeen(storedId);
+    if (storedId) app.markSeen(storedId, profileHint !== undefined ? profileHint : explicitProfile(app.sessions.find((s)=>s.id === storedId)));
   }, [storedId, app.inbox.unseen]);
 
   // Opened straight from a URL (or a just-created chat): fetch the list once for the title.

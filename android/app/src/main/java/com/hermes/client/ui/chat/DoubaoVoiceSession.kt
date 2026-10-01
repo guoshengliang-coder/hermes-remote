@@ -28,6 +28,7 @@ import okio.ByteString
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal sealed interface VoiceEvent {
+    data object Started : VoiceEvent
     data class Partial(val text: String) : VoiceEvent
     data class Final(val text: String) : VoiceEvent
     data class Failed(val partialText: String, val reason: VoiceFailure) : VoiceEvent
@@ -165,11 +166,21 @@ internal class DoubaoVoiceSession(
             recorder = audio
             check(audio.state == AudioRecord.STATE_INITIALIZED) { "microphone unavailable" }
             audio.startRecording()
+            check(audio.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "microphone unavailable" }
+            var announced = false
             while (!stopped.get() && kotlinx.coroutines.currentCoroutineContext().isActive) {
                 val buffer = ByteArray(CHUNK_BYTES)
                 val n = audio.read(buffer, 0, buffer.size)
                 if (n < 0) break
-                if (n > 0) chunks.send(buffer.copyOf(n))
+                if (n > 0) {
+                    if (!announced) {
+                        announced = true
+                        withContext(Dispatchers.Main) {
+                            if (!cancelled.get() && !stopped.get()) onEvent(VoiceEvent.Started)
+                        }
+                    }
+                    chunks.send(buffer.copyOf(n))
+                }
             }
         } catch (error: Exception) {
             if (!cancelled.get() && !stopped.get()) {
