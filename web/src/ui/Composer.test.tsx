@@ -246,15 +246,29 @@ it("a blur no press of ours caused still collapses the composer (HG-174)", () =>
   expect(h.host.querySelector(".composer.expanded")).toBeNull();
 });
 
-it("a focused text field owns no back step, so leaving the chat is one back press (HG-180)", () => {
+it("a focused text field owns the first back step, so back exits the input before leaving (HG-180)", async () => {
   resetOverlays();
+  // Drive history like the browser would: happy-dom does not deliver popstate for go().
+  const entries: unknown[] = [null];
+  let index = 0;
+  vi.spyOn(history, "pushState").mockImplementation((state: unknown) => { entries.splice(index + 1); entries.push(state); index++; });
+  vi.spyOn(history, "replaceState").mockImplementation((state: unknown) => { entries[index] = state; });
+  vi.spyOn(history, "go").mockImplementation((delta?: number) => {
+    index = Math.max(0, index + (delta ?? 0));
+    queueMicrotask(() => window.dispatchEvent(new PopStateEvent("popstate", { state: entries[index] })));
+  });
+  vi.spyOn(history, "state", "get").mockImplementation(() => entries[index] ?? null);
+  const back = async () => act(async () => { history.go(-1); await Promise.resolve(); await Promise.resolve(); });
+
   const h = mount();
   const area = type(h.host, "草稿");
   expect(document.activeElement).toBe(area);
   expect(h.host.querySelector(".composer.expanded")).not.toBeNull();
-  // The old behaviour armed a same-URL history entry on focus: the first system back only
-  // collapsed the composer (and the keyboard it no longer had) and repainted the chat instead of
-  // leaving, so getting back to the list took two presses. Nothing owns a back step here now.
+  // The open input owns one back step: the first system back exits the input and returns to the
+  // browsing state — it must not leave the conversation. Only the next back leaves the chat.
+  expect(overlayDepth()).toBe(1);
+  await back();
+  expect(h.host.querySelector(".composer.expanded")).toBeNull();
   expect(overlayDepth()).toBe(0);
 });
 
