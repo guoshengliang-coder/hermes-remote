@@ -1584,16 +1584,42 @@ html[data-theme="dark"] .group-header {
   left: 50%;
   transform: translateX(-50%);
   width: min(calc(100% - 2rem), 42rem);
-  min-height: var(--touch);
-  padding: 0.625rem 1rem;
   border-radius: 0.875rem;
   background: var(--surface-container-lowest);
   box-shadow: var(--shadow);
   display: flex;
   align-items: center;
-  gap: 0.625rem;
   text-align: left;
   font-size: 0.9375rem;
+}
+
+/* The notice body opens the session; the close button sits at the right and dismisses the card
+   without leaving the page (HG-186). Two sibling buttons, never a button inside a button. */
+.toast-main {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--touch);
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.25rem 0.625rem 1rem;
+  border-radius: 0.875rem 0 0 0.875rem;
+}
+
+.toast-close {
+  flex: none;
+  width: var(--touch);
+  height: var(--touch);
+  margin-inline-end: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--on-surface-variant);
+}
+
+.toast-close:active {
+  background: var(--surface-container-high);
 }
 
 .toast-text {
