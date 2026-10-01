@@ -109,6 +109,33 @@ export interface PublicInstallation {
   displayName: string;
 }
 
+/** Longest account display name the Web profile accepts and the column stores (HG-181). */
+export const MAX_ACCOUNT_DISPLAY_NAME = 40;
+
+export type AccountAvatarContentType = "image/png" | "image/jpeg" | "image/webp";
+
+/** A stored Web account profile (account_profiles): the user's own name and avatar (HG-181). */
+export interface StoredAccountProfile {
+  displayName: string;
+  /** Avatar revision (avatar_updated_at, epoch ms) or null when no avatar is stored. */
+  avatarRevision: string | null;
+}
+
+export interface StoredAccountAvatar {
+  data: Buffer;
+  contentType: AccountAvatarContentType;
+}
+
+/**
+ * The name to show before the owner has chosen one: the local part of the sign-in mailbox. Always
+ * non-empty and within MAX_ACCOUNT_DISPLAY_NAME so it satisfies the profile column.
+ */
+export function defaultAccountDisplayName(email?: string | null): string {
+  const local = email?.split("@", 1)[0]?.trim() ?? "";
+  const name = (local || "Hermes GO").slice(0, MAX_ACCOUNT_DISPLAY_NAME);
+  return name.length > 0 ? name : "Hermes GO";
+}
+
 export type SessionCreationResult =
   | {
       status: "created";
@@ -209,6 +236,11 @@ export interface AccountRepository {
     operation: ReauthenticationOperation,
   ): Promise<ReauthenticationResult>;
   listExternalIdentities(accountId: string): Promise<PublicExternalIdentity[]>;
+  /** The stored Web profile (HG-181), or null when the account has none yet. */
+  getAccountProfile(accountId: string): Promise<StoredAccountProfile | null>;
+  setAccountDisplayName(accountId: string, displayName: string): Promise<void>;
+  setAccountAvatar(accountId: string, avatar: StoredAccountAvatar): Promise<void>;
+  getAccountAvatar(accountId: string): Promise<StoredAccountAvatar | null>;
   linkExternalIdentity(
     accountId: string,
     installationId: string,
@@ -417,6 +449,20 @@ export const accountErrors = {
     503,
     "HR-ACCOUNT-010",
     "Secure Web account sessions aren't enabled on this Gateway yet.",
+    false,
+    "none",
+  ),
+  webAccountNameInvalid: () => new AccountModeError(
+    400,
+    "HR-WEB-010",
+    "That name can't be used. Use 1-40 characters without control characters.",
+    false,
+    "none",
+  ),
+  webAvatarUnsupported: () => new AccountModeError(
+    400,
+    "HR-WEB-011",
+    "That image can't be used as an avatar. Choose a PNG, JPEG or WebP image of at most 4 MiB.",
     false,
     "none",
   ),

@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import {
   accountErrors,
+  defaultAccountDisplayName,
+  MAX_ACCOUNT_DISPLAY_NAME,
+  type AccountAvatarContentType,
   type AccountStatus,
   type AccessAuthenticationResult,
   type AccountDeletionResult,
@@ -24,6 +27,8 @@ import {
   type SessionMaterial,
   type SessionMutationResult,
   type SessionRotationResult,
+  type StoredAccountAvatar,
+  type StoredAccountProfile,
   type VerifiedExternalIdentity,
 } from "./model.js";
 import { publishAccountAccessRevocation } from "./postgres-access-revocation-bus.js";
@@ -192,6 +197,15 @@ export class PostgresAccountRepository implements AccountRepository {
           ],
         );
       }
+
+      // HG-181: seed the Web account profile once. DO NOTHING keeps a display name the owner has
+      // already chosen; the value is the identity's own name, else the mailbox local part.
+      await client.query(
+        `INSERT INTO account_profiles (account_id, display_name)
+         VALUES ($1, $2)
+         ON CONFLICT (account_id) DO NOTHING`,
+        [accountId, initialAccountDisplayName(identity)],
+      );
 
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
@@ -629,6 +643,64 @@ export class PostgresAccountRepository implements AccountRepository {
       [accountId],
     );
     return result.rows.map(publicExternalIdentity);
+  }
+
+  async getAccountProfile(accountId: string): Promise<StoredAccountProfile | null> {
+    const result = await this.pool.query<{
+      display_name: string;
+      avatar_updated_at: Date | null;
+    }>(
+      `SELECT display_name, avatar_updated_at
+         FROM account_profiles
+        WHERE account_id = $1`,
+      [accountId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      displayName: row.display_name,
+      avatarRevision: row.avatar_updated_at ? String(row.avatar_updated_at.getTime()) : null,
+    };
+  }
+
+  async setAccountDisplayName(accountId: string, displayName: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO account_profiles (account_id, display_name)
+       VALUES ($1, $2)
+       ON CONFLICT (account_id) DO UPDATE
+         SET display_name = EXCLUDED.display_name,
+             updated_at = now()`,
+      [accountId, displayName],
+    );
+  }
+
+  async setAccountAvatar(accountId: string, avatar: StoredAccountAvatar): Promise<void> {
+    // UPDATE only: the service ensures a profile row (with an effective name) exists first, so a
+    // placeholder name never shadows the identity/default the owner would otherwise see.
+    await this.pool.query(
+      `UPDATE account_profiles
+          SET avatar_data = $2,
+              avatar_content_type = $3,
+              avatar_updated_at = now(),
+              updated_at = now()
+        WHERE account_id = $1`,
+      [accountId, avatar.data, avatar.contentType],
+    );
+  }
+
+  async getAccountAvatar(accountId: string): Promise<StoredAccountAvatar | null> {
+    const result = await this.pool.query<{
+      avatar_data: Buffer | null;
+      avatar_content_type: AccountAvatarContentType | null;
+    }>(
+      `SELECT avatar_data, avatar_content_type
+         FROM account_profiles
+        WHERE account_id = $1`,
+      [accountId],
+    );
+    const row = result.rows[0];
+    if (!row?.avatar_data || !row.avatar_content_type) return null;
+    return { data: row.avatar_data, contentType: row.avatar_content_type };
   }
 
   async linkExternalIdentity(
@@ -1447,6 +1519,13 @@ async function saveMutationReplay(
       idempotency.requestHash, idempotency.responseCiphertext, idempotency.expiresAt,
     ],
   );
+}
+
+/** The name a freshly created profile starts with: the identity's own, else the mailbox local part. */
+function initialAccountDisplayName(identity: VerifiedExternalIdentity): string {
+  const chosen = identity.displayName?.trim();
+  const name = chosen && chosen.length > 0 ? chosen : defaultAccountDisplayName(identity.email);
+  return name.slice(0, MAX_ACCOUNT_DISPLAY_NAME);
 }
 
 async function loadPublicAccount(client: PoolClient, accountId: string): Promise<PublicAccount> {

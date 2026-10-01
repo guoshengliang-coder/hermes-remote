@@ -53,17 +53,17 @@ type Gesture =
 /** Minimum crop side in view pixels (keeps neighbouring 48px hit circles apart). */
 const MIN_CROP_VIEW = 96;
 
-export function ImageEditor({ attachment, onDone, onClose }: { attachment: PendingAttachment; onDone: (next: PendingAttachment) => void; onClose: () => void }) {
+export function ImageEditor({ attachment, onDone, onClose, cropSquare = false }: { attachment: PendingAttachment; onDone: (next: PendingAttachment) => void; onClose: () => void; cropSquare?: boolean }) {
   const { t, language } = useApp();
   const [initial, setInitial] = useState<EditState | null>(null);
   const [state, setState] = useState<EditState | null>(null);
   const [past, setPast] = useState<EditState[]>([]);
   const [future, setFuture] = useState<EditState[]>([]);
-  const [mode, setMode] = useState<Mode>("ink");
+  const [mode, setMode] = useState<Mode>(cropSquare ? "crop" : "ink");
   const [color, setColor] = useState<InkColor>(INK_COLORS[0]);
   const [weight, setWeight] = useState<StrokeWeight>("medium");
   const [brush, setBrush] = useState<BrushSize>("medium");
-  const [aspect, setAspect] = useState<Aspect>("free");
+  const [aspect, setAspect] = useState<Aspect>(cropSquare ? "1:1" : "free");
   const [view, setView] = useState<View>(IDENTITY);
   const [dragging, setDragging] = useState(false);
   const [openError, setOpenError] = useState<AppError | null>(null);
@@ -101,7 +101,8 @@ export function ImageEditor({ attachment, onDone, onClose }: { attachment: Pendi
         const ctx = base.getContext("2d");
         if (!ctx) throw new Error("canvas 2d context unavailable");
         ctx.drawImage(bitmap, 0, 0, size.width, size.height);
-        const first: EditState = { base, ops: [], crop: { left: 0, top: 0, width: size.width, height: size.height } };
+        const full = { left: 0, top: 0, width: size.width, height: size.height };
+        const first: EditState = { base, ops: [], crop: cropSquare ? fitAspect(full, 1, size.width, size.height) : full };
         if (!live) return;
         setInitial(first);
         setState(first);

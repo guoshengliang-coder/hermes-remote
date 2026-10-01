@@ -17,14 +17,19 @@ import { WebSessionSecurity } from "./web-session-security.js";
 import {
   AccountModeError,
   accountErrors,
+  MAX_ACCOUNT_DISPLAY_NAME,
+  type AccountAvatarContentType,
   type AccountPlatform,
   type ReauthenticationScope,
+  type StoredAccountAvatar,
 } from "./model.js";
 
 import type { PushProviderName } from "./push/push-provider.js";
 import type { PushRegistrationStore } from "./push/push-registration-store.js";
 
 const MAX_ACCOUNT_BODY_BYTES = 32 * 1024;
+const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface AccountCapabilities {
@@ -172,7 +177,7 @@ export class AccountHttpController {
           session: principal
             ? {
                 authenticated: true,
-                account: principal.account,
+                account: await this.service.webAccount(principal.account),
                 installation: principal.installation,
               }
             : {
@@ -235,7 +240,7 @@ export class AccountHttpController {
           appVersion: this.options.serverRelease?.serverVersion ?? "web",
           idempotencyKey,
         });
-        sendJson(response, 200, publicWebSession(result), {
+        sendJson(response, 200, publicWebSession({ ...result, account: await this.service.webAccount(result.account) }), {
           "set-cookie": [...state.cookies, ...web.sessionCookies(result.session)],
         });
         return;
@@ -256,7 +261,7 @@ export class AccountHttpController {
           appVersion: this.options.serverRelease?.serverVersion ?? "web",
           idempotencyKey: uuid(firstHeader(request, "idempotency-key"), "Idempotency-Key"),
         });
-        sendJson(response, 200, publicWebSession(result), {
+        sendJson(response, 200, publicWebSession({ ...result, account: await this.service.webAccount(result.account) }), {
           "set-cookie": [...state.cookies, ...web.sessionCookies(result.session)],
         });
         return;
@@ -286,10 +291,42 @@ export class AccountHttpController {
         const web = this.requireWebSession();
         const principal = await this.service.authenticate(web.authorization(request));
         sendJson(response, 200, {
-          account: principal.account,
+          account: await this.service.webAccount(principal.account),
           installation: principal.installation,
           session: { authenticated: true },
         });
+        return;
+      }
+
+      if (url.pathname === "/v2/web/account/profile" && request.method === "PATCH") {
+        const web = this.requireWebSession();
+        web.requireMutation(request);
+        const principal = await this.service.authenticate(web.authorization(request));
+        const body = await readJsonObject(request);
+        const account = await this.service.updateWebDisplayName(
+          principal,
+          accountDisplayName(body.displayName),
+        );
+        sendJson(response, 200, { account });
+        return;
+      }
+
+      if (url.pathname === "/v2/web/account/avatar" && request.method === "PUT") {
+        const web = this.requireWebSession();
+        web.requireMutation(request);
+        const principal = await this.service.authenticate(web.authorization(request));
+        const avatar = await readAvatarImage(request);
+        const account = await this.service.updateWebAvatar(principal, avatar);
+        sendJson(response, 200, { account });
+        return;
+      }
+
+      if (url.pathname === "/v2/web/account/avatar" && request.method === "GET") {
+        const web = this.requireWebSession();
+        const principal = await this.service.authenticate(web.authorization(request));
+        const avatar = await this.service.accountAvatar(principal);
+        if (!avatar) throw accountErrors.resourceNotFound();
+        sendBytes(response, 200, avatar.contentType, avatar.data);
         return;
       }
 
@@ -1376,6 +1413,54 @@ async function readJsonObject(request: IncomingMessage): Promise<Record<string, 
   }
 }
 
+/** The Web account display name (HG-181): trimmed, 1..MAX, no control characters. */
+function accountDisplayName(value: unknown): string {
+  if (typeof value !== "string") throw accountErrors.webAccountNameInvalid();
+  const name = value.trim();
+  if (name.length < 1 || name.length > MAX_ACCOUNT_DISPLAY_NAME
+      || /[\u0000-\u001f\u007f]/.test(name)) {
+    throw accountErrors.webAccountNameInvalid();
+  }
+  return name;
+}
+
+/**
+ * Raw avatar bytes (HG-181). The declared type must be one of the three the profile stores, the
+ * body must be within the cap, and the bytes must actually start like that format, so a renamed
+ * file cannot smuggle another content type into the stored image.
+ */
+async function readAvatarImage(request: IncomingMessage): Promise<StoredAccountAvatar> {
+  const contentType = firstHeader(request, "content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "image/png" && contentType !== "image/jpeg" && contentType !== "image/webp") {
+    throw accountErrors.webAvatarUnsupported();
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.length;
+    if (size > MAX_AVATAR_BYTES) throw accountErrors.webAvatarUnsupported();
+    chunks.push(bytes);
+  }
+  const data = Buffer.concat(chunks);
+  if (data.length === 0 || !matchesImageSignature(contentType, data)) {
+    throw accountErrors.webAvatarUnsupported();
+  }
+  return { data, contentType };
+}
+
+function matchesImageSignature(contentType: AccountAvatarContentType, data: Buffer): boolean {
+  if (contentType === "image/png") {
+    return data.length >= 8 && data.subarray(0, 8).equals(PNG_SIGNATURE);
+  }
+  if (contentType === "image/jpeg") {
+    return data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  }
+  return data.length >= 12
+    && data.subarray(0, 4).toString("ascii") === "RIFF"
+    && data.subarray(8, 12).toString("ascii") === "WEBP";
+}
+
 function accountPlatform(value: unknown): AccountPlatform {
   if (value === "android" || value === "macos") return value;
   throw accountErrors.invalidRequest("platform must be android or macos.");
@@ -1499,6 +1584,23 @@ function sendNoContent(
 ): void {
   response.writeHead(204, { "cache-control": "no-store", ...extraHeaders });
   response.end();
+}
+
+function sendBytes(
+  response: ServerResponse,
+  status: number,
+  contentType: string,
+  body: Buffer,
+): void {
+  if (response.writableEnded) return;
+  response.writeHead(status, {
+    "content-type": contentType,
+    "content-length": String(body.length),
+    // Private + short: the URL carries the avatar revision, so a new upload is a new URL.
+    "cache-control": "private, max-age=300",
+    "x-content-type-options": "nosniff",
+  });
+  response.end(body);
 }
 
 function sendAccountWebShell(response: ServerResponse, googleAuthEnabled: boolean): void {

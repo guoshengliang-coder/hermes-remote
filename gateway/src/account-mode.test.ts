@@ -25,6 +25,8 @@ import type {
   SessionMaterial,
   SessionMutationResult,
   SessionRotationResult,
+  StoredAccountAvatar,
+  StoredAccountProfile,
   VerifiedExternalIdentity,
 } from "./account/model.js";
 import { TokenCodec } from "./account/token-codec.js";
@@ -1397,6 +1399,26 @@ class FakeAccountRepository implements AccountRepository {
 
   async listExternalIdentities(_accountId: string): Promise<PublicExternalIdentity[]> {
     return this.identities;
+  }
+
+  profile: StoredAccountProfile | null = null;
+  avatar: StoredAccountAvatar | null = null;
+
+  async getAccountProfile(_accountId: string): Promise<StoredAccountProfile | null> {
+    return this.profile;
+  }
+
+  async setAccountDisplayName(_accountId: string, displayName: string): Promise<void> {
+    this.profile = { displayName, avatarRevision: this.profile?.avatarRevision ?? null };
+  }
+
+  async setAccountAvatar(_accountId: string, avatar: StoredAccountAvatar): Promise<void> {
+    this.avatar = avatar;
+    this.profile = { displayName: this.profile?.displayName ?? "Hermes GO", avatarRevision: "1" };
+  }
+
+  async getAccountAvatar(_accountId: string): Promise<StoredAccountAvatar | null> {
+    return this.avatar;
   }
 
   async linkExternalIdentity(

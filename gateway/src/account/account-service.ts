@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   accountErrors,
+  defaultAccountDisplayName,
+  MAX_ACCOUNT_DISPLAY_NAME,
   type AccountPlatform,
   type AccountPrincipal,
   type AccountRepository,
@@ -13,6 +15,7 @@ import {
   type ReauthenticationOperation,
   type ReauthenticationScope,
   type SessionCreationOperation,
+  type StoredAccountAvatar,
   type VerifiedExternalIdentity,
 } from "./model.js";
 import { TokenCodec } from "./token-codec.js";
@@ -26,6 +29,8 @@ const REFRESH_LIFETIME_MS = 180 * 24 * 60 * 60 * 1_000;
 const REAUTHENTICATION_LIFETIME_MS = 10 * 60 * 1_000;
 const MUTATION_IDEMPOTENCY_LIFETIME_MS = 24 * 60 * 60 * 1_000;
 const ACCOUNT_DELETION_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
+/** Where the Web app fetches a stored account avatar (HG-181); the revision busts the cache. */
+const WEB_ACCOUNT_AVATAR_PATH = "/v2/web/account/avatar";
 
 export interface AccountSessionResponse {
   account: PublicAccount;
@@ -272,6 +277,59 @@ export class AccountService {
 
   async listExternalIdentities(principal: AccountPrincipal): Promise<PublicExternalIdentity[]> {
     return this.repository.listExternalIdentities(principal.account.id);
+  }
+
+  /**
+   * The Web-facing account (HG-181): the owner's stored name/avatar win, else the identity's own,
+   * else a default from the mailbox. Only the Web endpoints call this, so Android and Desktop keep
+   * seeing the identity's values through `authenticate`.
+   */
+  async webAccount(account: PublicAccount): Promise<PublicAccount> {
+    const profile = await this.repository.getAccountProfile(account.id);
+    const displayName = (
+      profile?.displayName
+      ?? account.displayName?.trim()
+      ?? defaultAccountDisplayName(account.email)
+    ).slice(0, MAX_ACCOUNT_DISPLAY_NAME);
+    const avatarUrl = profile?.avatarRevision
+      ? `${WEB_ACCOUNT_AVATAR_PATH}?rev=${encodeURIComponent(profile.avatarRevision)}`
+      : account.avatarUrl;
+    return {
+      id: account.id,
+      displayName,
+      ...(account.email ? { email: account.email } : {}),
+      ...(avatarUrl ? { avatarUrl } : {}),
+    };
+  }
+
+  async updateWebDisplayName(
+    principal: AccountPrincipal,
+    displayName: string,
+  ): Promise<PublicAccount> {
+    await this.repository.setAccountDisplayName(principal.account.id, displayName);
+    return this.webAccount(principal.account);
+  }
+
+  async updateWebAvatar(
+    principal: AccountPrincipal,
+    avatar: StoredAccountAvatar,
+  ): Promise<PublicAccount> {
+    // A profile row is normally seeded at sign-in; make sure one exists so the UPDATE lands and the
+    // stored name is the effective one rather than a placeholder.
+    if (!(await this.repository.getAccountProfile(principal.account.id))) {
+      const name = principal.account.displayName?.trim()
+        || defaultAccountDisplayName(principal.account.email);
+      await this.repository.setAccountDisplayName(
+        principal.account.id,
+        name.slice(0, MAX_ACCOUNT_DISPLAY_NAME),
+      );
+    }
+    await this.repository.setAccountAvatar(principal.account.id, avatar);
+    return this.webAccount(principal.account);
+  }
+
+  accountAvatar(principal: AccountPrincipal): Promise<StoredAccountAvatar | null> {
+    return this.repository.getAccountAvatar(principal.account.id);
   }
 
   async linkGoogleIdentity(

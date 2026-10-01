@@ -30,6 +30,8 @@ export interface AppContextValue {
   setFontSize: (size: FontSize) => void;
   t: Translate;
   account: PublicAccount | null;
+  /** Replace the signed-in account after the profile page saves a name or avatar (HG-181). */
+  updateAccount: (account: PublicAccount) => void;
   devices: AccountDevice[];
   device: AccountDevice | null;
   chooseDevice: () => void;

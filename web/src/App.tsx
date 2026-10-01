@@ -43,6 +43,7 @@ import {
 import { appError, display, type AppError } from "./errors";
 import type { LifecycleEvent, SessionListItem } from "./hermes/types";
 import { ArchivedPage } from "./ui/ArchivedPage";
+import { AccountPage } from "./ui/AccountPage";
 import { ChatPage } from "./ui/ChatPage";
 import { DevicePicker } from "./ui/DevicePicker";
 import { ErrorNotice } from "./ui/ErrorNotice";
@@ -386,6 +387,7 @@ export function App() {
     setFontSize: chooseFontSize,
     t,
     account,
+    updateAccount: (next) => setAccount(next),
     devices,
     device,
     chooseDevice: () => void loadDevices(true),
@@ -482,6 +484,8 @@ export function App() {
               <ChatPage sessionId={route.name === "chat" ? route.sessionId : null} />
             ) : route.name === "archived" ? (
               <ArchivedPage />
+            ) : route.name === "account" ? (
+              <AccountPage />
             ) : (
               <SessionList />
             )}

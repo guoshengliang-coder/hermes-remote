@@ -128,6 +128,39 @@ it("keeps shared settings on the card page and commits a sheet choice only on Sa
   expect(host.querySelector('.account-drawer')?.getAttribute("aria-label")).toBe("Hermes GO");
 });
 
+it("puts the Hermes GO account card above the remote node and opens the account page (HG-181)", () => {
+  const value = {
+    ...context,
+    account: { id: "account-1", displayName: "芯芯", email: "person@example.com" },
+    themeMode: "system",
+    languagePreference: "system",
+    setThemeMode: () => {},
+    setLanguagePreference: () => {},
+    fontSize: "standard",
+    setFontSize: () => {},
+  } as unknown as AppContextValue;
+  const host = document.createElement("div");
+  document.body.append(host);
+  hosts.push(host);
+  act(() => render(<AppContext.Provider value={value}><AccountDrawer onClose={() => {}} /></AppContext.Provider>, host));
+
+  const card = host.querySelector<HTMLElement>(".drawer-account")!;
+  expect(card).not.toBeNull();
+  expect(card.querySelector(".drawer-account-copy strong")?.textContent).toBe("芯芯");
+  expect(card.querySelector(".drawer-account-copy small")?.textContent).toBe("person@example.com");
+  // The card sits directly under the title, above the remote-node card (Android's identity card).
+  const drawer = host.querySelector<HTMLElement>(".account-drawer")!;
+  const order = [...drawer.querySelectorAll(".drawer-account, .drawer-device")].map((n) => n.className);
+  expect(order[0]).toContain("drawer-account");
+  expect(order[1]).toContain("drawer-device");
+  // The old bottom account tile is gone.
+  expect(host.querySelector(".drawer-card")).toBeNull();
+
+  act(() => card.click());
+  expect(location.pathname).toBe("/app/account");
+  act(() => window.history.replaceState(null, "", "/"));
+});
+
 it("opens the drawer from a menu glyph and overflows with vertical dots in the list top bar", () => {
   // HG-170: Web has no profile switching, so the account-initial block is gone — the left slot is a
   // chrome-tone menu glyph — and the overflow is the Android-style ⋮, not the wide ⋯.

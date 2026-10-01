@@ -88,6 +88,11 @@ export interface SelectDefaultDeviceResponse {
   device: AccountDevice;
 }
 
+/** PATCH /v2/web/account/profile and PUT /v2/web/account/avatar (HG-181). */
+export interface WebAccountResponse {
+  account: PublicAccount;
+}
+
 /** GET /v2/capabilities (`capabilities()` in account-http-controller.ts). */
 export interface GatewayCapabilities {
   version: 1;
@@ -188,6 +193,8 @@ export const paths = {
   refresh: REFRESH_PATH,
   signOut: "/v2/web/auth/sign-out",
   devices: "/v2/web/devices",
+  accountProfile: "/v2/web/account/profile",
+  accountAvatar: "/v2/web/account/avatar",
   selectDefault(deviceId: string): string {
     return `/v2/web/devices/${encodePathSegment(deviceId)}/select-default`;
   },
@@ -525,6 +532,19 @@ export class GatewayClient {
 
   selectDefaultDevice(deviceId: string): Promise<SelectDefaultDeviceResponse> {
     return this.request("POST", paths.selectDefault(deviceId), { idempotent: true });
+  }
+
+  /** HG-181: save the Web account display name. */
+  updateAccountProfile(displayName: string): Promise<WebAccountResponse> {
+    return this.request("PATCH", paths.accountProfile, { body: { displayName } });
+  }
+
+  /** HG-181: upload the Web account avatar (raw image bytes; the caller sets the type). */
+  uploadAccountAvatar(image: Blob): Promise<WebAccountResponse> {
+    return this.request("PUT", paths.accountAvatar, {
+      body: image,
+      headers: { "content-type": image.type || "image/jpeg" },
+    });
   }
 
   capabilities(): Promise<GatewayCapabilities> {
