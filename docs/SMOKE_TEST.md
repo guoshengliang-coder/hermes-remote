@@ -1509,3 +1509,18 @@ parser and dialog actions. Browser/device acceptance still must prove real Herme
    light/dark themes, keyboard and sheet close/back behavior. Model prefs are browser local.
 6. Before release deploy Connector, Gateway, then Web. Verify public source commits separately for
    each required artifact; merging alone does not establish availability.
+
+## HG-185 · Web composer bottom margin on iOS
+
+Automated coverage: `web/src/ui/composerBottom.test.ts` pins the `.composer-wrap` rule to no bottom
+padding and leaves the safe-area inset to `.chat-bottom`. A stylesheet test can hold the rule but
+cannot show where the pill lands on a phone, so the layout itself still needs a real iPhone:
+
+1. Open a conversation on an iPhone (Safari and the Home Screen app) in portrait, keyboard down.
+   The input pill's bottom edge sits about 56 px above the screen bottom — the 34 px home-indicator
+   inset plus the disclaimer line and its 6 px gap — the same gap the Android client shows, and
+   roughly 8 px lower than before this change. The disclaimer never overlaps the home indicator.
+2. Focus the composer and open the keyboard: the compact layout is unchanged and the pill still
+   clears the keyboard. Rotate to landscape: the short-screen rule keeps its own smaller padding.
+3. With the generator line ("正在生成 N 份对话记录…") or an attachment strip above the composer, the
+   composer is pushed up by that row as usual and returns to the same bottom gap once it clears.
