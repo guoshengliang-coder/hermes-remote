@@ -1,0 +1,102 @@
+package com.hermes.client.ui.chat
+
+import android.content.Context
+import android.view.View
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.WindowInfo
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.test.core.app.ApplicationProvider
+import com.hermes.client.domain.ChatMessage
+import com.hermes.client.domain.Role
+import com.hermes.client.ui.theme.HermesTheme
+import com.hermes.client.data.diagnostics.DebugLog
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/** Real list, paced reveal, async Markdown parsing and measured output-tail geometry.
+ * Only the physical window/lifecycle and vibrator boundary are supplied by this test.
+ * Accepted requests prove integration, never actual motor strength or comfort.
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
+class OutputHapticRenderingTest {
+    @get:Rule val compose = createComposeRule()
+    @After fun resetDiagnostics() { DebugLog.setEnabled(false) }
+
+    private class TickOnlyView : View(ApplicationProvider.getApplicationContext<Context>()) {
+        val requests = mutableListOf<Int>()
+        var accepted = 0
+        override fun isShown() = true
+        override fun hasWindowFocus() = true
+        override fun performHapticFeedback(effect: Int): Boolean {
+            requests += effect
+            return (effect == 6 || effect == 26).also { if (it) accepted++ }
+        }
+    }
+
+    private fun settle() {
+        // The renderer works on Dispatchers.Default; give parsing real CPU time as well as frames.
+        repeat(8) {
+            compose.mainClock.advanceTimeBy(80)
+            Thread.sleep(30)
+            compose.waitForIdle()
+        }
+    }
+
+    @Test fun newlyRenderedProseRequestsAnOrdinaryTickAndDisabledOutputStaysSilent() {
+        val view = TickOnlyView()
+        val viewport = ChatViewportController()
+        DebugLog.setEnabled(true)
+        val window = object : WindowInfo { override val isWindowFocused = true }
+        lateinit var registry: LifecycleRegistry
+        val owner = object : LifecycleOwner { override val lifecycle: Lifecycle get() = registry }
+        registry = LifecycleRegistry.createUnsafe(owner).apply { currentState = Lifecycle.State.RESUMED }
+        val enabled = mutableStateOf(true)
+        val answer = mutableStateOf(ChatMessage("answer", Role.ASSISTANT, text = "", isStreaming = true))
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            HermesTheme {
+                CompositionLocalProvider(LocalView provides view, LocalWindowInfo provides window, LocalLifecycleOwner provides owner) {
+                    ChatMessageList(
+                        state = ChatUiState(messages = listOf(ChatMessage("question", Role.USER, text = "测试"), answer.value), isGenerating = true),
+                        sessionId = "haptic-integration", isGenerating = true, outputHapticsEnabled = enabled.value,
+                        viewportController = viewport,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        settle()
+        repeat(5) {
+            compose.runOnIdle { answer.value = answer.value.copy(text = answer.value.text + "新增正文。") }
+            settle()
+        }
+        val key = "answer:markdown:0"
+        assertTrue("rendered prose must request a tick; requests=${view.requests}, mode=${viewport.mode}, " +
+            "visible=${viewport.isOutputTailVisible(key)}, " +
+            "painted=${viewport.parsedOutputContent(key)}; ${DebugLog.export()}", view.accepted > 0)
+        val beforeDisable = view.requests.size
+        compose.runOnIdle { enabled.value = false }
+        settle()
+        compose.runOnIdle { answer.value = answer.value.copy(text = answer.value.text + "关闭后的正文。") }
+        settle()
+        assertEquals("disabled output must not request any platform feedback", beforeDisable, view.requests.size)
+    }
+}

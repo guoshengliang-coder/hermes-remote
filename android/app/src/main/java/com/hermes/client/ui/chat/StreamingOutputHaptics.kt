@@ -18,6 +18,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.ToolStatus
+import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -36,7 +37,7 @@ internal class OutputHapticPolicy(private val intervalMs: Long = 100L) : Default
 
     fun observe(id: String?, text: String, eligible: Boolean, nowMs: Long): Boolean {
         val sameStream = id != null && id == streamId
-        val appended = sameStream && text.startsWith(previous) && text.length > previous.length &&
+        val appended = sameStream && text.length > previous.length && text.startsWith(previous) &&
             text.substring(previous.length).any { !it.isWhitespace() }
         val pulse = appended && eligible && wasEligible &&
             (lastPulse == null || nowMs - lastPulse!! >= intervalMs)
@@ -49,12 +50,18 @@ internal class OutputHapticPolicy(private val intervalMs: Long = 100L) : Default
 }
 
 internal fun outputHapticConstant(sdk: Int): Int = when {
-    sdk >= 34 -> HapticFeedbackConstants.SEGMENT_FREQUENT_TICK
-    sdk >= 27 -> HapticFeedbackConstants.TEXT_HANDLE_MOVE
-    else -> HapticFeedbackConstants.CLOCK_TICK
+    // All three former constants select texture tick in AOSP, which may be silent on
+    // phones that cannot produce that very soft effect. Request the ordinary system
+    // tick instead; View still owns system settings, intensity and device adaptation.
+    sdk >= 34 -> HapticFeedbackConstants.SEGMENT_TICK
+    else -> HapticFeedbackConstants.CONTEXT_CLICK
 }
 
-internal data class OutputHapticPresentation(val text: String, val tailKey: String?, val tailContent: String = "")
+internal data class OutputHapticPresentation(
+    val text: String,
+    val tailKey: String?,
+    val blockKeys: List<String> = emptyList(),
+)
 
 /** The receiving-tool placeholder is presentation chrome, not assistant prose. */
 internal fun outputHapticPresentation(message: ChatMessage?, placeholder: String): OutputHapticPresentation {
@@ -65,8 +72,32 @@ internal fun outputHapticPresentation(message: ChatMessage?, placeholder: String
     return OutputHapticPresentation(
         readableText(prose),
         last.takeIf { it >= 0 }?.let { "${message.id}:markdown:$it" },
-        last.takeIf { it >= 0 }?.let { withCjkEmphasisRepaired(blocks[it]) }.orEmpty(),
+        blocks.indices.filter { blocks[it].trim() != "*$placeholder*" && blocks[it].isNotBlank() }
+            .map { "${message.id}:markdown:$it" },
     )
+}
+
+/** Feedback follows the content the Markdown renderer actually published, which may lag
+ * the next input snapshot indefinitely during continuous output. Requiring exact equality
+ * with that newer input starved all pulses even though parsed prose was visibly growing.
+ */
+internal class ParsedOutputHapticPresentation {
+    private var previousBlocks = emptyList<Pair<String, String>>()
+    private var previous = OutputHapticPresentation("", null)
+
+    fun read(target: OutputHapticPresentation, viewport: ChatViewportController): OutputHapticPresentation {
+        val painted = target.blockKeys.mapNotNull { key ->
+            viewport.parsedOutputContent(key)?.takeIf { it.isNotBlank() }?.let { key to it }
+        }
+        // Do not re-run the full prose extractor on every polling frame while output is paused.
+        if (painted == previousBlocks) return previous
+        previousBlocks = painted
+        previous = OutputHapticPresentation(
+            readableText(painted.joinToString("\n\n") { it.second }),
+            painted.lastOrNull()?.first,
+        )
+        return previous
+    }
 }
 
 @Composable
@@ -83,6 +114,7 @@ internal fun StreamingOutputHaptics(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val window = LocalWindowInfo.current
     val policy = remember(sessionId) { OutputHapticPolicy() }
+    val paintedProse = remember(sessionId) { ParsedOutputHapticPresentation() }
     val presentation = remember(displayed?.id, displayed?.text, displayed?.isError, toolDataPlaceholder) {
         outputHapticPresentation(displayed, toolDataPlaceholder)
     }
@@ -101,21 +133,45 @@ internal fun StreamingOutputHaptics(
     val activeId = source?.takeIf { it.isStreaming }?.id
     LaunchedEffect(sessionId, activeId) {
         // Prime on entry/new turns with what is already painted. No historical output is replayed.
-        policy.observe(activeId, latestPresentation.text, false, SystemClock.uptimeMillis())
+        policy.observe(activeId, paintedProse.read(latestPresentation, viewport).text, false, SystemClock.uptimeMillis())
         if (activeId == null) return@LaunchedEffect
+        var loggedGate: String? = null
+        var loggedGateAt: Long? = null
+        var loggedAcceptance: Boolean? = null
         while (isActive) {
             // Wait for placement of the paced display snapshot, not for a WebSocket packet.
             withFrameNanos { }
-            val current = latestPresentation
+            val target = latestPresentation
+            val current = paintedProse.read(target, viewport)
             val eligible = latestAllowed && lifecycle.currentState == Lifecycle.State.RESUMED &&
                 window.isWindowFocused && view.isShown && view.hasWindowFocus() &&
                 current.tailKey?.let(viewport::isOutputTailVisible) == true
-            // Async Markdown parsing can still be drawing the previous snapshot. Wait for its
-            // actual content; suppressed snapshots must still be consumed to prevent replay.
-            val parsed = current.tailKey?.let { viewport.isOutputSnapshotParsed(it, current.tailContent) } == true
-            if ((!eligible || parsed) && policy.observe(activeId, current.text, eligible, SystemClock.uptimeMillis())) {
+            val now = SystemClock.uptimeMillis()
+            val gate = when {
+                !latestAllowed -> "disabled_or_not_outputting"
+                lifecycle.currentState != Lifecycle.State.RESUMED -> "not_resumed"
+                !window.isWindowFocused || !view.hasWindowFocus() -> "not_focused"
+                !view.isShown -> "view_hidden"
+                current.tailKey == null -> if (target.tailKey == null) "no_prose" else "waiting_for_markdown"
+                !viewport.isOutputTailVisible(current.tailKey) -> "tail_offscreen"
+                else -> "ready"
+            }
+            // Bound diagnostics too: async parse/layout may alternate each display snapshot.
+            if (gate != loggedGate && (loggedGateAt == null || now - loggedGateAt!! >= 1000L)) {
+                DebugLog.log("haptics") { "output gate=$gate sdk=${Build.VERSION.SDK_INT}" }
+                loggedGate = gate
+                loggedGateAt = now
+            }
+            if (policy.observe(activeId, current.text, eligible, now)) {
                 // No ignore-setting flags, VIBRATE permission, waveform, or strong fallback.
-                view.performHapticFeedback(outputHapticConstant(Build.VERSION.SDK_INT))
+                val effect = outputHapticConstant(Build.VERSION.SDK_INT)
+                val accepted = view.performHapticFeedback(effect)
+                if (accepted != loggedAcceptance) {
+                    DebugLog.log("haptics") {
+                        "output request effect=$effect accepted=$accepted viewEnabled=${view.isHapticFeedbackEnabled}"
+                    }
+                    loggedAcceptance = accepted
+                }
             }
             delay(64L)
         }

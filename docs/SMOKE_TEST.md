@@ -1575,15 +1575,19 @@ cannot show where the pill lands on a phone, so the layout itself still needs a 
    the phone during output. All suspend ticks. Return/reopen: existing content is silent. Finish,
    fail, press Stop (including an offline/slow interrupt RPC), or enter approval/clarification:
    no further output ticks for that run.
-6. On API 34+ check the frequent soft tick; on 27–33 check the text-handle tick; on 26 check the
-   clock tick. Check supported vendor ROMs for strength/system-disable behaviour. An unavailable
-   effect must not become a strong or continuous fallback vibration.
+6. On API 34+ check SEGMENT_TICK; on 26–33 check CONTEXT_CLICK. Compare the same phone with
+   0.1.160 and Grok: ordinary ticks must remain light and short without the old texture tick's
+   silent omission. Check supported vendor ROMs for strength/system-disable behaviour. A rejected
+   effect must not become a strong or continuous fallback vibration. If feedback is absent, enable
+   diagnostics and collect `haptics` gate/request lines: `accepted=true` only means the system
+   accepted a request, not that the motor physically ran. No answer text is logged.
 7. Check the setting in Chinese and English, effective light/dark theme (including system light
    with app dark), and fontScale 1.3. Check switch semantics and full-row toggling. Inject a
    preference read/write failure: HR-STORE-002 is localized, Retry repeats the read/exact requested
    write, diagnostics are only behind Details/Copy and redact credentials. Do not present a failed
    save as a successful switch.
 
-Automated evidence covers pacing/no replay, visible-tail geometry, API selection, persistent choice,
+Automated evidence covers the real list's paced reveal/async Markdown/visible tail producing system
+requests, disabled output silence, pacing/no replay, visible-tail geometry, API selection, persistent choice,
 read/write failure recovery and bilingual/redacted errors. Physical haptics and Grok comparison remain
 manual acceptance; test against a locally built APK only, restore local dev routing afterwards.
