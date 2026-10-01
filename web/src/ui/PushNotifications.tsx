@@ -28,6 +28,7 @@ export function PushNotifications({ onClose }: { onClose: () => void }) {
     void refresh();
   }, []);
   async function refresh() {
+    setError(null);
     if (environment !== "supported") {
       setStatus(environment);
       return;
@@ -57,10 +58,10 @@ export function PushNotifications({ onClose }: { onClose: () => void }) {
     // This call must happen directly in the click, before any asynchronous worker/network work.
     const epoch = currentPushEpoch();
     const accountId = account?.id;
-    const permission = Notification.requestPermission();
     setBusy(true);
     setError(null);
     try {
+      const permission = Notification.requestPermission();
       if ((await permission) !== "granted") {
         setStatus(Notification.permission === "denied" ? "denied" : "off");
         return;

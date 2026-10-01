@@ -15,7 +15,7 @@ vi.mock("../app/push", () => ({
   pushWorker: helper.worker,
   currentPushEpoch: () => 0,
   announcePushState: vi.fn(),
-  resetPushWorker: vi.fn(),
+  resetPushWorker: vi.fn(async () => {}),
   disablePush: vi.fn(),
   messagePushWorker: vi.fn(),
   PUSH_PATH: "/v2/web/push-subscription",
@@ -92,4 +92,56 @@ it("denied permission provides settings recovery without another system request"
   expect(host.textContent).toContain("通知权限已拒绝");
   expect(host.textContent).toContain("重新检查");
   expect(requestPermission).not.toHaveBeenCalled();
+});
+
+it("a successful retry clears the previous setup error", async () => {
+  helper.environment.mockReturnValue("supported");
+  helper.bind.mockRejectedValueOnce(new Error("query failed"));
+  helper.worker.mockResolvedValue({
+    pushManager: { getSubscription: async () => null },
+  });
+  vi.stubGlobal("Notification", {
+    permission: "default",
+    requestPermission: vi.fn(),
+  });
+  const host = await mount();
+  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  helper.bind.mockResolvedValue({ registration: null });
+  await act(async () => {
+    Array.from(host.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("重试"))!
+      .click();
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it("a synchronous permission failure is localized and recoverable", async () => {
+  helper.environment.mockReturnValue("supported");
+  helper.bind.mockResolvedValue({ registration: null });
+  helper.worker.mockResolvedValue({
+    pushManager: { getSubscription: async () => null },
+  });
+  vi.stubGlobal("Notification", {
+    permission: "default",
+    requestPermission: () => {
+      throw new Error("private raw cause");
+    },
+  });
+  const host = await mount();
+  await act(async () => {
+    Array.from(host.querySelectorAll("button"))
+      .find((b) => b.textContent === "开启消息通知")!
+      .click();
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+    "HR-WEB-012",
+  );
+  expect(host.querySelector('[role="alert"]')?.textContent).not.toContain(
+    "private raw cause",
+  );
 });
