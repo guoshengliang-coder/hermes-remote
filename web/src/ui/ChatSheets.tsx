@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useBackClose } from "../app/useBackClose";
 import { copyText } from "../app/clipboard";
 import { useApp } from "../app/store";
 import { historySyncError } from "../chat/history";
 import { itemsWithFullHistory, type ChatItem, type ChatState } from "../chat/model";
+import { turnGroups } from "../chat/turns";
 import { formatTimeSeparator, transcriptFileBaseName, transcriptMarkdown, transcriptText } from "../chat/transcript";
 import { appError, diagnostics, type AppError } from "../errors";
 import type { MessageRow } from "../hermes/types";
 import { ErrorNotice } from "./ErrorNotice";
 import { readableText } from "../markdown/render";
-import { ArrowDownIcon, BackIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, SearchIcon } from "./icons";
+import { ArrowDownIcon, BackIcon, ChevronDownIcon, ChevronIcon, ChevronUpIcon, CloseIcon, SearchIcon } from "./icons";
 import { copyWithFeedback } from "./Markdown";
 import { Sheet, SheetAction } from "./Sheet";
 
@@ -183,24 +184,55 @@ export function ChatSearchBar({
 
 // ---- prompts list --------------------------------------------------------------------------
 
-export function PromptsSheet({ items, onJump, onLatest, onClose }: { items: readonly ChatItem[]; onJump: (key: string) => void; onLatest: () => void; onClose: () => void }) {
+export function PromptsSheet({ items, currentKey, bot = false, loading = false, error, onRetry, onJump, onLatest, onClose }: {
+  items: readonly ChatItem[];
+  currentKey?: string | null;
+  bot?: boolean;
+  loading?: boolean;
+  error?: AppError | null;
+  onRetry?: () => void;
+  onJump: (key: string | null) => void;
+  onLatest: () => void;
+  onClose: () => void;
+}) {
   const { t, language } = useApp();
-  const prompts = items.filter((i) => i.role === "user" && !i.note && (i.text.trim() || i.localImages?.length || i.attachments.length));
+  const groups = turnGroups(items);
+  const prompts = items.filter((i) => i.role === "user" && !i.note);
+  const byKey = new Map(prompts.map((item, i) => [item.key, { item, index: i + 1 }]));
+  const rows = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const index = groups.findIndex((g) => g.key === currentKey);
+    const list = rows.current?.closest<HTMLElement>(".picker-list");
+    const above = rows.current?.children[Math.max(0, index - 2)] as HTMLElement | undefined;
+    if (index >= 0 && list && above) list.scrollTop = above.offsetTop - rows.current!.offsetTop;
+  }, [currentKey, loading]);
   return (
-    <Sheet title={t("我的提问", "Your prompts")} closeLabel={t("关闭", "Close")} onClose={onClose} wide>
-      {prompts.length === 0 ? <p class="picker-note">{t("还没有提问。", "No prompts yet.")}</p> : null}
-      {prompts.map((item, i) => (
-        <button type="button" class="prompt-row" key={item.key} onClick={() => onJump(item.key)}>
-          <span class="prompt-index mono">{i + 1}</span>
-          <span class="prompt-text">{item.text.trim() || t("（图片或附件）", "(image or attachment)")}</span>
-          {item.timestampMs !== null ? <span class="prompt-time mono">{formatTimeSeparator(item.timestampMs, language)}</span> : null}
-        </button>
-      ))}
-      <button type="button" class="sheet-action" onClick={onLatest}>
-        <span class="sheet-action-label">
-          <ArrowDownIcon size={16} /> {t("回到最新", "Latest")}
-        </span>
-      </button>
+    <Sheet title={bot ? t("对方的提问", "Their prompts") : t("我的提问", "Your prompts")} closeLabel={t("关闭", "Close")} onClose={onClose} wide className="chat-prompts-sheet"
+      titleAccessory={<span class="prompt-count mono" aria-live="polite">{loading || error ? "…" : t(`${prompts.length} 条`, `${prompts.length} prompts`)}</span>}
+      headerAction={<button type="button" class="icon-button" aria-label={t("回到最新", "Latest")} onClick={onLatest}><ArrowDownIcon /></button>}>
+      {loading ? <p class="picker-note" role="status">{t("正在读取全部提问…", "Loading all prompts…")}</p> : null}
+      {error ? <ErrorNotice error={error} language={language} onRetry={onRetry} /> : null}
+      {prompts.length === 0 && !loading && !error ? <p class="picker-note">{t("还没有提问。", "No prompts yet.")}</p> : null}
+      <div ref={rows}>
+        {groups.map((group) => {
+          const prompt = group.key === null ? undefined : byKey.get(group.key);
+          const item = prompt?.item;
+          const index = prompt?.index ?? null;
+          const current = group.key === currentKey;
+          const summary = group.key === null ? t("会话开始", "Start of chat") : language === "en" ? group.summary.en : group.summary.zh;
+          return (
+            <button type="button" class={`prompt-row${current ? " current" : ""}`} key={group.key ?? "start"} aria-current={current ? "location" : undefined}
+              aria-label={`${index === null ? "" : t(`第 ${index} 条，`, `Prompt ${index}, `)}${summary}${current ? t("，当前位置", ", You are here") : ""}`} onClick={() => onJump(group.key)}>
+              <span class={`prompt-index mono${index === null ? " start" : ""}`} aria-hidden="true">{index}</span>
+              <span class="prompt-content">
+                <span class="prompt-text">{summary}</span>
+                {item?.timestampMs != null ? <span class="prompt-time mono">{formatTimeSeparator(item.timestampMs, language)}</span> : null}
+              </span>
+              <span class="prompt-chevron"><ChevronIcon size={20} /></span>
+            </button>
+          );
+        })}
+      </div>
     </Sheet>
   );
 }

@@ -26,7 +26,7 @@ let ignorePops = 0;
 let installed = false;
 
 function pushEntry(entry: OverlayEntry): void {
-  history.pushState({ [KEY]: entry.id }, "");
+  history.pushState({ ...history.state, [KEY]: entry.id }, "");
   live.push(entry.id);
 }
 
@@ -103,6 +103,14 @@ export function yieldTopEntry(): boolean {
   if (!live.length || stateId() !== live[live.length - 1]) return false;
   live.pop();
   return true;
+}
+
+/** The toolbar leaves the page in one rewind; unmounting its overlays must not rewind again. */
+export function yieldPageEntries(): number {
+  const count = live.length;
+  live.length = 0;
+  waiting.length = 0;
+  return count;
 }
 
 /** Forget everything (tests). */

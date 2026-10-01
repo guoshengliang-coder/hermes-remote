@@ -13,6 +13,8 @@ export function Sheet({
   children,
   wide,
   headerAction,
+  titleAccessory,
+  className,
 }: {
   title?: string;
   closeLabel: string;
@@ -20,6 +22,8 @@ export function Sheet({
   children: ComponentChildren;
   wide?: boolean;
   headerAction?: ComponentChildren;
+  titleAccessory?: ComponentChildren;
+  className?: string;
 }) {
   useBackClose(onClose);
   useEffect(() => {
@@ -30,11 +34,11 @@ export function Sheet({
   return (
     <>
       <div class="sheet-scrim" onClick={onClose} />
-      <div class={`picker-sheet${wide ? " tall" : ""}`} role="dialog" aria-modal="true" aria-label={title ?? closeLabel}>
+      <div class={`picker-sheet${wide ? " tall" : ""}${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-label={title ?? closeLabel}>
         <div class="sheet-grip" aria-hidden="true" />
         {title ? (
           <div class="picker-head">
-            <h2 class="picker-title">{title}</h2>
+            <h2 class="picker-title">{title}{titleAccessory}</h2>
             {headerAction}
             <button type="button" class="icon-button" aria-label={closeLabel} onClick={onClose}>
               <CloseIcon />

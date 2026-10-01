@@ -246,6 +246,17 @@ describe("paged history (HG-104)", () => {
     expect(s.generating).toBe(true);
   });
 
+  it("a late partial page cannot undo the full history loaded for the prompt list", () => {
+    let s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
+    const epoch = s.historyEpoch;
+    s = reduceChat(s, { type: "older-loaded", rows: range(1, 200), hasMore: false, epoch });
+    s = reduceChat(s, { type: "older-loaded", rows: range(21, 100), hasMore: true, epoch });
+    expect(s.historyRows).toHaveLength(200);
+    expect(s.older.hasMore).toBe(false);
+    s = reduceChat(s, { type: "older-failed", error: appError("HR-SYNC-001"), epoch });
+    expect(s.older.error).toBeNull();
+  });
+
   it("a reconnect's newest page merges as the tail and keeps the older pages loaded", () => {
     let s = reduceChat(initialChatState, { type: "history", rows: range(101, 200), hasOlder: true });
     s = reduceChat(s, { type: "older-loaded", rows: range(1, 100), hasMore: false, epoch: s.historyEpoch });

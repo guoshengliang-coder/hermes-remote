@@ -97,6 +97,11 @@ describe("RPC mapping", () => {
 });
 
 describe("HTTP mapping", () => {
+  it.each([[413, "HR-FILE-008", false], [503, "HR-FILE-009", true]] as const)("recognizes large upload error %s / %s", (status, code, retryable) => {
+    const error = fromHttp(status, { error: { code, message: "Authorization: Bearer secret-token", retryable } });
+    expect(error).toMatchObject({ code, retryable, zh: CATALOG[code].zh, en: CATALOG[code].en });
+    expect(error.details).not.toContain("secret-token");
+  });
   it("uses the Gateway's registered code, retryability and action", () => {
     const e = fromHttp(401, { error: { code: "HR-AUTH-004", message: "revoked", retryable: false, recoveryAction: "sign_in", correlationId: "c-1" } });
     expect(e).toMatchObject({ code: "HR-AUTH-004", retryable: false, action: "sign-in" });

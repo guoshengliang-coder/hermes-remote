@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./model";
-import { pillGroup, promptSummary, turnGroups } from "./turns";
+import { currentTurnGroup, pillGroup, promptSummary, turnGroups } from "./turns";
 
 const item = (key: string, role: ChatItem["role"], text: string, extra: Partial<ChatItem> = {}): ChatItem => ({
   key, role, text, attachments: [], images: [], reasoning: "", tools: [], streaming: false, timestampMs: null, ...extra,
@@ -27,8 +27,10 @@ describe("turn groups (TurnJump.kt)", () => {
     const groups = turnGroups([item("u1", "user", "one"), item("a", "assistant", "…"), item("u2", "user", "two")]);
     const tops = new Map([["u1", { top: 0, bottom: 40 }], ["u2", { top: 1000, bottom: 1040 }]]);
     expect(pillGroup(groups, tops, 20)).toBeNull(); // u1's bubble still visible
+    expect(currentTurnGroup(groups, tops, 20)?.key).toBe("u1");
     expect(pillGroup(groups, tops, 500)?.key).toBe("u1"); // scrolled past it, inside its answer
     expect(pillGroup(groups, tops, 1010)).toBeNull(); // u2's bubble on screen
+    expect(currentTurnGroup(groups, tops, 1010)?.key).toBe("u2");
     expect(pillGroup(groups, tops, 1100)?.key).toBe("u2");
   });
 });

@@ -31,7 +31,7 @@ import { clearPrompts } from "./app/prompts";
 import { clearLocalPrefs } from "./app/localPrefs";
 import { clearMediaCache } from "./app/mediaCache";
 import { clearAllPins, loadPins, pinToken, savePins, togglePin } from "./app/pins";
-import { currentRoute, navigate, useRoute, type Route } from "./app/router";
+import { clearPageSnapshots, currentRoute, navigate, useRoute, type Route } from "./app/router";
 import {
   AppContext,
   autoSelectDevice,
@@ -302,6 +302,7 @@ export function App() {
       await clearCaches();
       clearAllPins();
       clearAllDrafts();
+      clearPageSnapshots();
       clearPrompts();
       clearLocalPrefs();
       clearBotNotices();
