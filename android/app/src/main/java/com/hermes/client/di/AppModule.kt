@@ -203,6 +203,15 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideOutputHapticsSettings(
+        settings: com.hermes.client.data.repository.SettingsStore,
+        scope: CoroutineScope,
+    ): com.hermes.client.ui.settings.OutputHapticsSettings =
+        com.hermes.client.ui.settings.OutputHapticsSettings(settings.outputHaptics, settings::setOutputHaptics, scope)
+
+
+    @Provides
+    @Singleton
     fun provideHermesGatewayClient(
         okHttp: OkHttpClient,
         @AccountHttpClient accountOkHttp: OkHttpClient,

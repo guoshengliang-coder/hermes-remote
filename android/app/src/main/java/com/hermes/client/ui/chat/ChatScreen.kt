@@ -177,7 +177,13 @@ fun ChatScreen(
         onDispose { vm.setScreenVisible(sessionId, false) }
     }
     LaunchedEffect(language) { vm.setAppLanguage(language) }
+    val settingsVm: com.hermes.client.ui.settings.SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val outputHaptics by settingsVm.outputHaptics.state.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
+    var outputHapticsStopped by rememberSaveable(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(state.isGenerating) { if (!state.isGenerating) outputHapticsStopped = false }
+    val stopGeneration = { outputHapticsStopped = true; vm.stop() }
+
     val connState by vm.connectionState.collectAsStateWithLifecycle()
     val sessionAccessState by vm.sessionAccessState.collectAsStateWithLifecycle()
     // Null while the connection is fine, and also during a short outage the user should never
@@ -1253,7 +1259,7 @@ fun ChatScreen(
                             onZone = { voiceZone = it },
                             onRelease = { releaseVoice(it) },
                             onAdd = { showAttachSheet = true },
-                            onStop = { vm.stop() },
+                            onStop = stopGeneration,
                         )
                     } else if (composerFocused) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
@@ -1351,7 +1357,7 @@ fun ChatScreen(
                                     modifier = Modifier.size(48.dp),
                                 ) {
                                     when {
-                                        state.isGenerating && sessionWritable -> IconButton(onClick = { vm.stop() }) {
+                                        state.isGenerating && sessionWritable -> IconButton(onClick = stopGeneration) {
                                             Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = MaterialTheme.colorScheme.onPrimary)
                                         }
                                         else -> IconButton(onClick = { submit() }, enabled = canSend) {
@@ -1404,7 +1410,7 @@ fun ChatScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(48.dp),
                                 ) {
-                                    IconButton(onClick = { vm.stop() }) {
+                                    IconButton(onClick = stopGeneration) {
                                         Icon(Icons.Rounded.Stop, contentDescription = localized(language, "停止", "Stop"), tint = MaterialTheme.colorScheme.onPrimary)
                                     }
                                 }
@@ -1504,6 +1510,11 @@ fun ChatScreen(
                     ) {
                     ChatMessageList(
                         state = state,
+                        outputHapticsEnabled = outputHaptics.feedbackEnabled && !outputHapticsStopped &&
+                            state.pendingApproval == null && state.pendingClarify == null &&
+                            !projectSheetOpen && !modelSheetOpen && fullscreenTableRaw == null &&
+                            viewerOwner == null && editAttachmentId == null && !showPromptSheet &&
+                            !showAttachSheet && !showPhotoGallery && !confirmArchive,
                         isNewSession = isNewSession,
                         sessionId = sessionId,
                         listState = listState,

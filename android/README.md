@@ -849,6 +849,19 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   break the connection when Tailscale is disabled. HTTPS hostname and certificate checks remain in place.
 - Relay requests are bounded so a failed endpoint becomes a retryable error instead of an endless spinner.
 
+## Output haptics (HG-187)
+
+Settings → Output haptics defaults on and remembers the explicit device-local choice. Only newly
+revealed assistant answer text produces a light system tick, at most once per 100ms; reasoning,
+tools and receiving placeholders do not. The chat must be resumed, focused and showing the actual
+end of the prose. Scrolling into history, overlays, tool waits, completion, Stop, navigation,
+backgrounding and locking suspend feedback. Returning establishes a baseline without replay.
+System touch-feedback settings remain authoritative; unsupported effects are skipped rather than
+replaced by a stronger vibration. Read/write failures expose retryable HR-STORE-002 and keep this
+optional feedback disabled. API 34+ uses SEGMENT_FREQUENT_TICK, API 27–33 TEXT_HANDLE_MOVE, API 26
+CLOCK_TICK. Hardware strength and long-answer comfort require the same physical phone comparison
+with Grok; 100ms is a prototype throttle, not a claim about Grok. See `docs/SMOKE_TEST.md` HG-187.
+
 ## Runtime language contract
 
 - Chinese remains the default, and changing the in-app language updates Compose screens, widgets,

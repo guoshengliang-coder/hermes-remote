@@ -155,6 +155,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法读取手机图库，请重试。", "Couldn't read the photo gallery. Retry.")
         AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
             localized(language, "无法保存身份设置，请重试。", "Couldn't save the profile settings. Retry.")
+        AppErrorCode.OUTPUT_HAPTICS_SETTINGS_FAILED ->
+            localized(language, "无法读取或保存输出触感设置，请重试。", "Couldn't read or save output haptics settings. Retry.")
         AppErrorCode.SESSION_NOT_FOUND ->
             localized(language, "会话不存在或已被删除。", "The conversation no longer exists or was deleted.")
         AppErrorCode.PROJECT_FOLDER_MISSING ->

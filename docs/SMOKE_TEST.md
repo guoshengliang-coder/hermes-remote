@@ -1524,3 +1524,35 @@ cannot show where the pill lands on a phone, so the layout itself still needs a 
    clears the keyboard. Rotate to landscape: the short-screen rule keeps its own smaller padding.
 3. With the generator line ("正在生成 N 份对话记录…") or an attachment strip above the composer, the
    composer is pushed up by that row as usual and returns to the same bottom gap once it clears.
+
+
+## HG-187 · Android output haptics (physical phone acceptance)
+
+1. On the same Android phone, stream a short answer and a several-minute long answer in Hermes GO
+   and Grok. Record phone model/ROM/SDK, system haptics setting, subjective strength/comfort and
+   chosen spacing. Start Hermes GO at the 100ms minimum interval; tune only with physical evidence.
+   Neither JVM tests nor emulator screenshots prove this sensory comparison.
+2. Confirm Settings → Output haptics defaults on, can be switched off immediately and survives
+   app restart/profile switching. Disable system touch feedback: no output ticks despite app toggle
+   being on. Re-enable system feedback and confirm only subsequent output ticks resume.
+3. Use a bursty stream, then silence, thinking-only output and a running tool. Ticks follow the
+   paced visible answer, with none on silence, reasoning, tools or receiving placeholders. Test
+   a code block/table too. No pulse queue drains after a burst or at message completion.
+4. While streaming a long answer, scroll until its growing end is offscreen (even if the earlier
+   prose is still visible). No ticks. Return to latest: no replay; only further new text ticks.
+5. Open a sheet/fullscreen image/table, leave the chat, switch chats/profiles, switch apps and lock
+   the phone during output. All suspend ticks. Return/reopen: existing content is silent. Finish,
+   fail, press Stop (including an offline/slow interrupt RPC), or enter approval/clarification:
+   no further output ticks for that run.
+6. On API 34+ check the frequent soft tick; on 27–33 check the text-handle tick; on 26 check the
+   clock tick. Check supported vendor ROMs for strength/system-disable behaviour. An unavailable
+   effect must not become a strong or continuous fallback vibration.
+7. Check the setting in Chinese and English, effective light/dark theme (including system light
+   with app dark), and fontScale 1.3. Check switch semantics and full-row toggling. Inject a
+   preference read/write failure: HR-STORE-002 is localized, Retry repeats the read/exact requested
+   write, diagnostics are only behind Details/Copy and redact credentials. Do not present a failed
+   save as a successful switch.
+
+Automated evidence covers pacing/no replay, visible-tail geometry, API selection, persistent choice,
+read/write failure recovery and bilingual/redacted errors. Physical haptics and Grok comparison remain
+manual acceptance; test against a locally built APK only, restore local dev routing afterwards.
