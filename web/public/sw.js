@@ -1,5 +1,6 @@
+importScripts("/app/push-worker.js");
 // Hermes GO Web service worker (scope /app/). It caches only the app shell and hashed assets:
-// never /v2/*, /api/* or any other API or WebSocket traffic, and never anything account-bound.
+// never /v2/*, /api/* or any other API or WebSocket traffic, and never account-bound responses. Push metadata uses separate IndexedDB.
 const SHELL_CACHE = "hermes-go-shell-v1";
 const ASSET_CACHE = "hermes-go-assets-v1";
 const SHELL_URL = "/app/";

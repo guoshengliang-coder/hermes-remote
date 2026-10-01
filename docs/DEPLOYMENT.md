@@ -2019,3 +2019,28 @@ and the production monitor passed (rc=0, `ExecMainStatus=0`). Each pin kept a `.
 HG-181's registered artifacts are `web` and `gateway`; both are now published. Real-browser
 acceptance of the account card, rename and avatar upload remains per `docs/SMOKE_TEST.md`; the
 release does not imply acceptance.
+
+## HG-191 · Optional browser Web Push rollout (not performed)
+
+This change prepares code; it does not turn on production push. Keep current R5-F7/F9 route
+includes byte-identical. In a separately authorized deployment, use the schema-release gate for
+17 → 18 (verified fresh backup, disposable restore, one migration step, candidate readiness)
+and release the Gateway before Web. Provision stable protected VAPID files and the complete
+optional environment suffix described in `docs/ENVIRONMENT.md`; never enable before provisioning.
+
+The new endpoint also needs an edge route: under the production deployment lock, install
+`deploy/nginx-web-push.conf.template` as a separate protected account `web-push-routes.conf`
+include in the existing production server. It uses the existing managed Gateway upstream and
+forwards only `/v2/web/push-subscription`, with an 8k body cap and bounded timeouts. Run `nginx -t`
+before an explicitly authorized reload; preserve every existing route, service and port. This
+separate include is intentional: adding the route to historical R5-F7/F9 renderers would invalidate
+their byte-exact admission checks for already deployed environments.
+
+Before inviting device verification, probe both loopback and public endpoint with the flag on:
+unauthenticated GET returns structured 401; cross-Origin/invalid CSRF PUT/DELETE return structured
+403; authenticated Web GET returns only public key/channel; Android credentials cannot register.
+Verify legitimate subscribe/unsubscribe and queued-old-account cases on a HTTPS installed iPhone
+PWA using `docs/SMOKE_TEST.md`. No shell/API cache may contain endpoints, keys or conversation data.
+For disabling, turn off `ACCOUNT_WEB_PUSH_ENABLED` via the candidate/switch gate; preserve the
+schema-18 database and roll forward. Removing the optional edge include needs `nginx -t` and
+explicit reload authorization. Never roll a schema-18 database back by deleting its schema marker.

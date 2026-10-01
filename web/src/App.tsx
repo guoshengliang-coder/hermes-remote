@@ -26,6 +26,8 @@ import {
   type LiveQuestionReport,
   type LiveSettled,
 } from "./app/inbox";
+import { bindPushWorker, resetPushWorker, clearPushTarget, disablePush, messagePushWorker, pendingPushTarget, rememberPushTarget } from "./app/push";
+import { explicitProfile } from "./app/profile";
 import { clearBotNotices } from "./app/bots";
 import { clearAllDrafts } from "./app/drafts";
 import { clearPrompts } from "./app/prompts";
@@ -62,6 +64,7 @@ type Phase =
   | { name: "pick-device"; error: AppError | null }
   | { name: "ready" };
 
+rememberPushTarget();
 const client = new GatewayClient();
 applyTheme(readThemeMode());
 applyFontSize(readFontSize());
@@ -101,6 +104,10 @@ export function App() {
   const t = translator(language);
   const [phase, setPhase] = useState<Phase>({ name: "boot" });
   const [account, setAccount] = useState<PublicAccount | null>(null);
+  const [pushRoute,setPushRoute] = useState<ReturnType<typeof pendingPushTarget>>(null);
+  const [pushEnabled,setPushEnabled] = useState(false);
+  const [pickingDevice, setPickingDevice] = useState(false);
+  const [pickerError, setPickerError] = useState<AppError | null>(null);
   const [devices, setDevices] = useState<AccountDevice[]>([]);
   const [device, setDevice] = useState<AccountDevice | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
@@ -109,7 +116,7 @@ export function App() {
     open: new Set(),
     settled: new Map(),
   });
-  const [toast, setToast] = useState<{ id: string; title: string; waiting: boolean } | null>(null);
+  const [toast, setToast] = useState<{ id: string; title: string; waiting: boolean; event: LifecycleEvent["event"] } | null>(null);
   const [pinVersion, setPinVersion] = useState(0);
   const [collapsed, setCollapsed] = useState<ReadonlySet<GroupId>>(new Set());
   const [projectFilter, setProjectFilter] = useState<ProjectFilter | null>(null);
@@ -121,6 +128,7 @@ export function App() {
   /** Where the user was headed before sign-in / device choice (select-only, never an action). */
   const intended = useRef<Route>(currentRoute());
   const signingOut = useRef(false);
+  const pickerRequest = useRef(0);
 
   useEffect(() => {
     document.documentElement.lang = language === "en" ? "en" : "zh-CN";
@@ -154,6 +162,21 @@ export function App() {
     try {
       const { items } = await client.devices();
       setDevices(items);
+      const target = pendingPushTarget();
+      const current = await client.webSession();
+      const notificationDevice = target && current.session.authenticated && target.accountId === current.session.account.id ? items.find((d)=>d.deviceId === target.deviceId) : undefined;
+      if (target && notificationDevice) {
+        clearPushTarget();
+        setPushRoute(target);
+        setDevice(notificationDevice);
+        writeStoredDevice(notificationDevice.deviceId);
+        setSessions([]);
+        intended.current = {name:"chat",sessionId:target.sessionId};
+        navigate(intended.current,{replace:true});
+        setPhase({name:"ready"});
+        return;
+      }
+      if (target && current.session.authenticated) clearPushTarget();
       const chosen = preferPicker ? null : autoSelectDevice(items, readStoredDevice());
       if (chosen) {
         setDevice(chosen);
@@ -184,6 +207,7 @@ export function App() {
         web = await client.webSession();
       }
       if (!web.session.authenticated) {
+        void resetPushWorker().catch(()=>undefined);
         setPhase({ name: "signed-out", reason: null });
         return;
       }
@@ -198,6 +222,9 @@ export function App() {
     void boot();
     return client.onSignedOut((error) => {
       if (signingOut.current) return;
+      setPushEnabled(false);
+      void resetPushWorker().catch(()=>undefined);
+      setPickingDevice(false);
       setAccount(null);
       setDevice(null);
       setSessions([]);
@@ -222,6 +249,9 @@ export function App() {
   inboxRef.current = inbox;
   const currentRef = useRef(currentSessionId);
   currentRef.current = currentSessionId;
+  const profileRef = useRef<string | null>(null);
+  profileRef.current = pushRoute && pushRoute.sessionId === currentSessionId && pushRoute.deviceId === device?.deviceId
+    ? pushRoute.profile : explicitProfile(sessions.find((s)=>s.id === currentSessionId));
 
   useEffect(() => {
     if (phase.name !== "ready" || !device) return;
@@ -240,7 +270,12 @@ export function App() {
           const before = inboxRef.current;
           const page = await client.lifecycleEvents(before.cursor, 200);
           apply({ type: "page", events: page.events, nextCursor: page.nextCursor, deviceId, currentSessionId: currentRef.current });
-          if (before.primed) announce(page.events.map((e) => e.event).filter((e) => e?.deviceId === deviceId));
+          if (before.primed) {
+            const events = page.events.map((e)=>e.event).filter((e)=>e?.deviceId === deviceId);
+            const result = pushEnabled && account ? await messagePushWorker({type:"push-foreground",accountId:account.id,
+              currentSessionId:currentRef.current,currentDeviceId:deviceId,currentProfile:profileRef.current,events}).catch(()=>null) : null;
+            if (!stopped) announce(result?.eventIds ? events.filter((e)=>result.eventIds!.includes(e.eventId)) : events);
+          }
           const ids = undeliveredIds(page.events);
           if (ids.length) void client.ackEvents(ids).catch(() => undefined);
           if (!page.hasMore || page.nextCursor <= before.cursor) break;
@@ -261,13 +296,13 @@ export function App() {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [phase.name, device?.deviceId]);
+  }, [phase.name, device?.deviceId,account?.id,pushEnabled]);
 
   function announce(events: LifecycleEvent[]) {
     for (const e of events) {
       if (e.storedSessionId === currentRef.current) continue;
-      if (e.event !== "run.waiting" && e.event !== "run.completed") continue;
-      setToast({ id: e.storedSessionId, title: e.title || t("一个会话", "A conversation"), waiting: e.event === "run.waiting" });
+      if (!["run.waiting","run.completed","run.interrupted","run.unknown"].includes(e.event)) continue;
+      setToast({ id: e.storedSessionId, title: e.title || t("一个会话", "A conversation"), waiting: e.event === "run.waiting",event:e.event });
     }
   }
 
@@ -285,25 +320,43 @@ export function App() {
     document.title = count > 0 ? `(${count}) ${BASE_TITLE}` : BASE_TITLE;
     const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
     try {
+      // The worker owns account-wide unread state when available; selected-Mac polling must not erase it.
+      if (pushEnabled) return;
       if (count > 0) void nav.setAppBadge?.(count)?.catch(() => undefined);
       else void nav.clearAppBadge?.()?.catch(() => undefined);
     } catch {
       /* unsupported */
     }
-  }, [count]);
+  }, [count,pushEnabled]);
+
+  useEffect(() => {
+    if (!account || phase.name !== "ready" || !("serviceWorker" in navigator)) return;
+    let active = true;
+    void bindPushWorker(client).then((config)=>{if(active)setPushEnabled(Boolean(config.registration));},()=>{if(active)setPushEnabled(false);});
+    return () => {active=false;};
+  },[account?.id,phase.name]);
+
+  useEffect(() => {
+    const changed = (event: Event) => setPushEnabled(Boolean((event as CustomEvent).detail));
+    window.addEventListener("hermes-push-state",changed);
+    return () => window.removeEventListener("hermes-push-state",changed);
+  },[]);
 
   // ---- actions ----
 
   const signOut = useCallback(async () => {
     signingOut.current = true;
+    pickerRequest.current++;
     try {
       // Sign-out is a CSRF-checked mutation: make sure the access cookie is fresh first.
       const expires = client.accessExpiresAt;
       if (expires === null || expires - Date.now() < 60_000) {
         await client.refresh().catch(() => undefined);
       }
+      await disablePush(client).catch(() => undefined);
       await client.signOut().catch(() => undefined);
     } finally {
+      clearPushTarget();
       await clearCaches();
       clearAllPins();
       clearAllDrafts();
@@ -314,6 +367,7 @@ export function App() {
       setCollapsed(new Set());
       setProjectFilter(null);
       writeStoredDevice(null);
+      setPickingDevice(false);
       setAccount(null);
       setDevice(null);
       setDevices([]);
@@ -334,18 +388,42 @@ export function App() {
     setLive((prev) => applyLiveReport(prev, id, report, settledMark(inboxRef.current, id)));
   }, []);
 
-  const markSeen = useCallback((id: string) => dispatchInbox({ type: "seen", storedSessionId: id }), []);
+  const markSeen = useCallback((id: string, profile: string | null = null) => {
+    dispatchInbox({ type: "seen", storedSessionId: id });
+    if (device) void messagePushWorker({type:"push-read",deviceId:device.deviceId,sessionId:id,profile:profile ?? "default"}).catch(()=>undefined);
+  },[device?.deviceId]);
 
   function onSignedIn(result: WebSignInResponse) {
     setAccount(result.account);
     void loadDevices();
   }
 
+  async function refreshPicker() {
+    const request = ++pickerRequest.current;
+    try {
+      const { items } = await client.devices();
+      if (request !== pickerRequest.current) return;
+      setDevices(items);
+      setPickerError(null);
+      if (device && !items.some((item) => item.deviceId === device.deviceId)) {
+        setDevice(null);
+        writeStoredDevice(null);
+        setPickingDevice(false);
+        setPhase({ name: "pick-device", error: null });
+      }
+    } catch (error) { if (request === pickerRequest.current) setPickerError(toAppError(error, "account")); }
+  }
+
   function selectDevice(chosen: AccountDevice) {
+    pickerRequest.current++;
+    setPickingDevice(false);
+    if (device?.deviceId === chosen.deviceId) return;
+    setPushRoute(null);
     writeStoredDevice(chosen.deviceId);
     setDevice(chosen);
     setSessions([]);
     setProjectFilter(null);
+    if (device && (route.name === "chat" || route.name === "new")) navigate({name:"list"});
     setPhase({ name: "ready" });
   }
 
@@ -396,7 +474,11 @@ export function App() {
     updateAccount: (next) => setAccount(next),
     devices,
     device,
-    chooseDevice: () => void loadDevices(true),
+    chooseDevice: () => {
+      setPickerError(null);
+      setPickingDevice(true);
+      void refreshPicker();
+    },
     inbox,
     needsYou,
     reportLiveQuestion,
@@ -466,10 +548,15 @@ export function App() {
       case "ready":
         return (
           <>
+            {pickingDevice ? <div class="device-picker-overlay" role="dialog" aria-modal="true" aria-label={t("选择 Mac","Choose a Mac")}><DevicePicker devices={devices} selectedId={device?.deviceId ?? null}
+              language={language} t={t} error={pickerError} onRetry={() => void refreshPicker()}
+              onSelect={selectDevice} onSignOut={() => void signOut()} onBack={() => {pickerRequest.current++;setPickingDevice(false);}} /></div> : null}
+            <div style={{display:"contents"}} inert={pickingDevice}>
             {toast ? (
               <SessionToast
                 title={toast.title}
                 waiting={toast.waiting}
+                event={toast.event}
                 t={t}
                 onOpen={() => {
                   setToast(null);
@@ -484,7 +571,7 @@ export function App() {
               </div>
             ) : null}
             {route.name === "chat" || route.name === "new" ? (
-              <ChatPage sessionId={route.name === "chat" ? route.sessionId : null} />
+              <ChatPage key={device?.deviceId} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile === "default" ? null : pushRoute.profile : undefined} />
             ) : route.name === "archived" ? (
               <ArchivedPage />
             ) : route.name === "account" ? (
@@ -492,6 +579,7 @@ export function App() {
             ) : (
               <SessionList />
             )}
+            </div>
           </>
         );
     }

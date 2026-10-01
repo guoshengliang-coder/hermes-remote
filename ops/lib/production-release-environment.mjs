@@ -9,6 +9,13 @@ const VOICE_FILE = "/run/hermes-go/secrets/doubao-asr-api-key";
 const VOICE_LINE = `${VOICE_KEY}=${VOICE_FILE}\n`;
 const voiceSuffix = (inspected) => inspected?.values?.[VOICE_KEY] === VOICE_FILE ? VOICE_LINE : "";
 
+// Web Push is independent of Android FCM. Preserve an explicitly provisioned suffix through
+// routine releases; older environments stay byte-compatible and default off.
+const WEB_PUSH_KEYS = ["ACCOUNT_WEB_PUSH_ENABLED", "ACCOUNT_WEB_PUSH_PUBLIC_KEY_FILE", "ACCOUNT_WEB_PUSH_PRIVATE_KEY_FILE", "ACCOUNT_WEB_PUSH_SUBJECT"];
+const WEB_PUSH_FILES = ["/run/hermes-go/secrets/web-push-public-key", "/run/hermes-go/secrets/web-push-private-key"];
+const webPushSuffix = (inspected) => inspected?.values?.ACCOUNT_WEB_PUSH_ENABLED !== undefined
+  ? WEB_PUSH_KEYS.map((key) => `${key}=${inspected.values[key]}\n`).join("") : "";
+
 const EMAIL_KEYS = Object.freeze([
   "PORT",
   "HOST",
@@ -194,7 +201,8 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
       || (desktopComponentInstallEnabled && !bindingEnabled)
       || (webDeviceAccessEnabled !== webAppEnabled)
       || (webEnabled && !(sharingEnabled && desktopComponentInstallEnabled))
-      || (pushEnabled && !webEnabled)) {
+      || (pushEnabled && !webEnabled)
+      || (values.ACCOUNT_WEB_PUSH_ENABLED === "1" && !webEnabled)) {
     fail("production_release_email_environment_invalid");
   }
   const expected = {
@@ -243,7 +251,7 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
 export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
-  if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot) + voiceSuffix(inspected);
+  if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot) + webPushSuffix(inspected) + voiceSuffix(inspected);
   if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(inspected?.mode)
       || !inspected.values) {
     fail("production_release_environment_mode_invalid");
@@ -254,7 +262,7 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderBindingRolloutEnvironment(config, slot, inspected) {
@@ -273,7 +281,7 @@ export function renderBindingRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
@@ -290,7 +298,7 @@ export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
@@ -311,7 +319,7 @@ export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderSharingRolloutEnvironment(config, slot, inspected) {
@@ -328,7 +336,7 @@ export function renderSharingRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderComponentRolloutEnvironment(config, slot, inspected) {
@@ -345,7 +353,7 @@ export function renderComponentRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderWebAppRolloutEnvironment(config, slot, inspected) {
@@ -364,7 +372,7 @@ export function renderWebAppRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderPushRolloutEnvironment(config, slot, inspected) {
@@ -382,7 +390,7 @@ export function renderPushRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function sameProductionReleaseEnvironment(left, right) {
@@ -396,6 +404,23 @@ function parseCanonicalEnvironment(content) {
   const lines = content.slice(0, -1).split("\n");
   const hasVoice = lines.at(-1) === VOICE_LINE.trimEnd();
   if (hasVoice) lines.pop();
+  let webPush = null;
+  const suffix = lines.slice(-WEB_PUSH_KEYS.length);
+  if (suffix.some((line) => line.startsWith("ACCOUNT_WEB_PUSH_"))) {
+    webPush = {};
+    suffix.forEach((line,index) => {
+      const separator = line.indexOf("=");
+      if (line.slice(0,separator) !== WEB_PUSH_KEYS[index]) fail("production_release_environment_fields_invalid");
+      webPush[WEB_PUSH_KEYS[index]] = line.slice(separator+1);
+    });
+    if (!["0","1"].includes(webPush.ACCOUNT_WEB_PUSH_ENABLED)
+      || webPush.ACCOUNT_WEB_PUSH_PUBLIC_KEY_FILE !== WEB_PUSH_FILES[0]
+      || webPush.ACCOUNT_WEB_PUSH_PRIVATE_KEY_FILE !== WEB_PUSH_FILES[1]
+      || !/^mailto:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(webPush.ACCOUNT_WEB_PUSH_SUBJECT)) {
+      fail("production_release_email_environment_invalid");
+    }
+    lines.splice(-WEB_PUSH_KEYS.length);
+  }
   const keys = lines.length === EMAIL_KEYS.length
     ? EMAIL_KEYS
     : lines.length === PRE_PUSH_KEYS.length
@@ -421,6 +446,7 @@ function parseCanonicalEnvironment(content) {
   if (values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED === undefined) {
     values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED = "0";
   }
+  if (webPush) Object.assign(values,webPush);
   if (hasVoice) values[VOICE_KEY] = VOICE_FILE;
   return values;
 }

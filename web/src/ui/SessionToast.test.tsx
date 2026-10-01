@@ -11,14 +11,14 @@ afterEach(() => { for (const host of hosts.splice(0)) { render(null, host); host
 
 const t = (zh: string) => zh;
 
-function mount(props: { title: string; waiting: boolean; onOpen?: () => void; onClose?: () => void }) {
+function mount(props: { title: string; waiting: boolean; event?: string; onOpen?: () => void; onClose?: () => void }) {
   const host = document.createElement("div");
   document.body.append(host);
   hosts.push(host);
   const onOpen = props.onOpen ?? (() => {});
   const onClose = props.onClose ?? (() => {});
   act(() => render(
-    <SessionToast title={props.title} waiting={props.waiting} t={t} onOpen={onOpen} onClose={onClose} />,
+    <SessionToast title={props.title} waiting={props.waiting} event={props.event} t={t} onOpen={onOpen} onClose={onClose} />,
     host,
   ));
   return host;
@@ -60,4 +60,12 @@ it("keeps the open and close targets as siblings, never a button inside a button
   const host = mount({ title: "A", waiting: false });
   expect(host.querySelector(".toast-main button") ?? host.querySelector(".toast button button")).toBeNull();
   expect(host.querySelectorAll(".toast > button")).toHaveLength(2);
+});
+
+it("shows interrupted and unknown tasks as warnings instead of completed answers", () => {
+  for (const [event,text] of [["run.interrupted","已中断"],["run.unknown","状态未确认"]]) {
+    const host=mount({title:"任务",waiting:false,event});
+    expect(host.querySelector(".toast-text")?.textContent).toContain(text);
+    expect(host.querySelector(".dot-warn")).not.toBeNull();
+  }
 });

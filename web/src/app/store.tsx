@@ -42,7 +42,7 @@ export interface AppContextValue {
   needsYou: ReadonlySet<string>;
   /** A chat page reports whether its session has an open approval/clarify card. */
   reportLiveQuestion: (storedSessionId: string, report: import("./inbox").LiveQuestionReport) => void;
-  markSeen: (storedSessionId: string) => void;
+  markSeen: (storedSessionId: string, profile?: string | null) => void;
   /** Last loaded list rows, for titles in the chat top bar. */
   sessions: SessionListItem[];
   setSessions: (rows: SessionListItem[]) => void;

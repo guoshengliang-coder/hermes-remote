@@ -395,3 +395,17 @@ binary-only limits. The Web shell permits only same-origin microphone use; accou
 remains disabled. Speech sockets capture session/installation/binding identity and handle the
 revocation bus plus immediate and ten-second session-liveness revalidation. Access-token rotation
 does not revoke a live session. Failure or lost access preserves partial text without submitting it.
+
+### HG-191 · Browser notification isolation
+
+Web Push uses session-bound subscriptions and the existing cookie/Origin/CSRF boundary.
+Registration locks the live browser session/installation against concurrent logout; endpoint
+reassignment and registration commit together. A supplied account identifier prevents a stale
+settings request being registered under a newly signed-in account. Fanout rechecks owner/shared
+Mac access and refreshability; expired/revoked accounts never receive new hints. Provider URLs
+are allowlisted HTTPS services; payloads contain no user title, transcript, credential or action.
+Only generic system notifications are displayed. The Service Worker keeps channel metadata in
+separate IndexedDB, never the shell cache. Logout resets the local channel before network work,
+so queued packets and clicks from an old account are discarded even while offline. Pending
+selection links are bounded identifiers; after login the actual account and Mac list are checked
+before opening the Mac/profile/session. No push payload authorizes a mutation or grants access.

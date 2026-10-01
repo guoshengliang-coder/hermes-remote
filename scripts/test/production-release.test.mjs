@@ -79,6 +79,21 @@ test("R5-F1 admission binds the exact host, confirmation, root, smoke callbacks 
   assert.equal(admitted.runtimeEnvironment.mode, "disabled");
 });
 
+test("HG-191 preserves explicit Web Push provisioning and rejects partial or unsafe configuration", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const suffix = "ACCOUNT_WEB_PUSH_ENABLED=0\nACCOUNT_WEB_PUSH_PUBLIC_KEY_FILE=/run/hermes-go/secrets/web-push-public-key\nACCOUNT_WEB_PUSH_PRIVATE_KEY_FILE=/run/hermes-go/secrets/web-push-private-key\nACCOUNT_WEB_PUSH_SUBJECT=mailto:push@example.invalid\n";
+  const base = await emailEnvironment(config,"blue");
+  const write = (content) => writeFile(environmentPath(config,"blue"),content,{mode:0o600});
+  await write(base+suffix);
+  const inspected = await inspectProductionReleaseEnvironment(config,"blue");
+  assert.ok(renderProductionReleaseEnvironment(config,"green",inspected).endsWith(suffix));
+  for (const invalid of [suffix.replace("ENABLED=0","ENABLED=1"),suffix.replace("/run/hermes-go/secrets/web-push-private-key","/tmp/key"),suffix.split("\n").slice(0,2).join("\n")+"\n"]) {
+    await write(base+invalid);
+    await assert.rejects(()=>inspectProductionReleaseEnvironment(config,"blue"));
+  }
+});
+
 test("R5-F1 preserves the exact email-only runtime while changing only the candidate port", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);

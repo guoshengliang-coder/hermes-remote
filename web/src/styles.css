@@ -4828,3 +4828,9 @@ button.chat-workspace:disabled {
 }
 .model-confirmation p { margin: 0 0 0.75rem; }
 .model-confirmation .text-button { margin-inline-end: 1rem; }
+
+/* A cancellable Mac choice keeps the current page mounted underneath. */
+.device-picker-overlay { position: fixed; inset: 0; z-index: 150; background: var(--surface); }
+
+.push-settings { padding: 0 1.25rem 1.25rem; color: var(--on-surface); }
+.push-settings p { line-height: 1.5; }

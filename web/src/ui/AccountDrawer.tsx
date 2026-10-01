@@ -5,13 +5,14 @@ import { useDefaultModel } from "../app/defaultModel";
 import { navigate } from "../app/router";
 import { useApp } from "../app/store";
 import { useBackClose } from "../app/useBackClose";
+import { PushNotifications } from "./PushNotifications";
 import { AccountAvatar } from "./AccountAvatar";
 import { ModelSheet } from "./ModelSheet";
 import { ErrorNotice } from "./ErrorNotice";
-import { ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MicIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
+import { BellIcon, ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MicIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
 
 type Translate = (zh: string, en: string) => string;
-type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback";
+type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push";
 
 const themeLabel = (mode: ThemeMode, t: Translate) =>
   mode === "system" ? t("跟随系统", "Follow system") : mode === "light" ? t("温润浅色", "Warm light") : t("黑曜石深色", "Obsidian dark");
@@ -101,6 +102,7 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
             <ChevronIcon />
           </button>
           <div class="drawer-shortcuts">
+            <button type="button" class="drawer-shortcut" onClick={() => setSheet("push")}><BellIcon /><span class="drawer-shortcut-title">{t("消息通知","Notifications")}</span><ChevronIcon /></button>
             <button type="button" class="drawer-shortcut" aria-label={t("主题", "Theme")} onClick={() => setSheet("theme")}>
               <MoonIcon size={20} />
               <span class="drawer-shortcut-title">{t("主题", "Theme")}</span>
@@ -141,6 +143,7 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>
       </aside>
+      {sheet === "push" ? <PushNotifications onClose={closeSheet}/> : null}
       {sheet === "model" && app.features.has("default-model-write") ? <ModelSheet scope="default" aboveDrawer
         current={{ model: null, provider: null }} profile={null} explicitOverride={false}
         actions={{ switchModel: async () => { throw new Error("session action in default mode"); }, reasoning: async () => null, setReasoning: async () => {} }}

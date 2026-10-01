@@ -350,3 +350,30 @@ service account needs another writable directory. `OBSERVER_ACTIVE_POLL_MS` defa
 The Relay lifecycle inbox defaults to `/var/lib/hermes-remote/lifecycle-events.json` in production
 and retains at most 10,000 transitions (`MAX_LIFECYCLE_EVENTS`). Docker Compose mounts that directory
 on the `hermes_gateway_data` volume so Relay restarts do not lose pending notifications.
+
+## Optional browser Web Push (HG-191)
+
+Default is off. After a separately authorized schema-18 migration and release, provision a
+stable VAPID P-256 key pair outside source control. Never rotate keys during routine builds.
+The Gateway accepts protected `ACCOUNT_WEB_PUSH_PUBLIC_KEY_FILE` and
+`ACCOUNT_WEB_PUSH_PRIVATE_KEY_FILE` files containing base64url keys (87/43 characters), plus
+`ACCOUNT_WEB_PUSH_SUBJECT` (`mailto:` contact or HTTPS URL for non-managed setups).
+
+For managed releases, append these four lines in this order before the optional voice line:
+
+```text
+ACCOUNT_WEB_PUSH_ENABLED=1
+ACCOUNT_WEB_PUSH_PUBLIC_KEY_FILE=/run/hermes-go/secrets/web-push-public-key
+ACCOUNT_WEB_PUSH_PRIVATE_KEY_FILE=/run/hermes-go/secrets/web-push-private-key
+ACCOUNT_WEB_PUSH_SUBJECT=mailto:<operator-contact>
+```
+
+Replace the contact placeholder with a real contact; the managed inspector requires a mailto
+address and these exact protected paths. Keep Web device access/Web app enabled. Routine
+candidate rendering preserves the complete optional suffix; partial suffixes or unsafe paths
+are rejected. Environments without it retain their existing bytes and default to off. The
+operator provisions the files in the already protected mounted secrets directory; this feature
+adds no new secret mount. Egress HTTPS must reach Apple Push, FCM and Mozilla Push. Neither
+VAPID private keys nor subscription endpoints/keys may appear in application logs or comments.
+Schema migration, flag changes and Gateway restart require explicit production authorization;
+then deploy Gateway before the Web bundle. Disabling the flag restores foreground-only reminders.

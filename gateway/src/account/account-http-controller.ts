@@ -24,6 +24,7 @@ import {
   type StoredAccountAvatar,
 } from "./model.js";
 
+import { parseWebSubscription, type WebPushStore } from "./push/web-push.js";
 import type { PushProviderName } from "./push/push-provider.js";
 import type { PushRegistrationStore } from "./push/push-registration-store.js";
 
@@ -101,6 +102,7 @@ export class AccountHttpController {
       desktopManagedInstallEnabled?: boolean;
       desktopComponentInstallEnabled?: boolean;
       sharingService?: AccountSharingService;
+      webPush?: { store: WebPushStore; publicKey: string };
       pushRegistration?: { store: PushRegistrationStore; providers: PushProviderName[] };
       serverRelease?: ServerReleaseManifest;
     } = {},
@@ -284,6 +286,29 @@ export class AccountHttpController {
           },
           csrfToken: state.csrfToken,
         }, { "set-cookie": [...state.cookies, ...web.sessionCookies(session)] });
+        return;
+      }
+
+      if (url.pathname === "/v2/web/push-subscription" && ["GET","PUT","DELETE"].includes(request.method ?? "")) {
+        const web = this.requireWebSession();
+        if (!this.options.webDeviceAccessEnabled || !this.options.webPush) throw accountErrors.resourceNotFound();
+        if (request.method !== "GET") web.requireMutation(request);
+        const principal = await this.service.authenticate(web.authorization(request));
+        if (principal.installation.kind !== "browser" || principal.installation.platform !== "web") throw accountErrors.webRequestRejected();
+        const push = this.options.webPush;
+        if (request.method === "GET") {
+          sendJson(response,200,{ publicKey:push.publicKey,registration:await push.store.get(principal) });
+        } else if (request.method === "PUT") {
+          const body = await readJsonObject(request);
+          if (body.accountId !== principal.account.id) throw accountErrors.webRequestRejected();
+          const channelId = uuid(body.channelId,"channelId");
+          if (body.language !== "zh" && body.language !== "en") throw accountErrors.invalidRequest("Invalid push language.");
+          await push.store.put(principal,parseWebSubscription(body.subscription),channelId,body.language);
+          sendNoContent(response);
+        } else {
+          await push.store.remove(principal);
+          sendNoContent(response);
+        }
         return;
       }
 

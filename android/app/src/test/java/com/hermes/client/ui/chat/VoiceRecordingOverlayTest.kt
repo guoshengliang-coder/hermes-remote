@@ -78,6 +78,11 @@ class VoiceRecordingOverlayTest {
         held = true, waiting = false, transcript = "",
     )
 
+    @Test fun heldCancelZoneLight() = snap(
+        "voice-recording-held-cancel-zh-360", dark = false, fontScale = 1f,
+        held = true, waiting = false, transcript = "", cancelZone = true,
+    )
+
     @Test fun heldWithTranscriptLight() = snap(
         "voice-recording-held-transcript-zh-360", dark = false, fontScale = 1f,
         held = true, waiting = false, transcript = "把刚才生成的可视化图表发给",

@@ -140,7 +140,7 @@ class VoiceHoldTargetTest {
             moveTo(aim)
         }
         assertEquals(listOf(VoiceReleaseAction.CANCEL), harness.zones)
-        assertEquals(listOf(HapticFeedbackType.Confirm), harness.buzzes)
+        assertEquals(listOf(HapticFeedbackType.LongPress), harness.buzzes)
     }
 
     @Test fun theDrawnTextTargetIsHot() {
@@ -152,10 +152,10 @@ class VoiceHoldTargetTest {
             moveTo(aim)
         }
         assertEquals(listOf(VoiceReleaseAction.EDIT), harness.zones)
-        assertEquals(listOf(HapticFeedbackType.Confirm), harness.buzzes)
+        assertEquals(listOf(HapticFeedbackType.LongPress), harness.buzzes)
     }
 
-    @Test fun droppingBackToSendIsSilentAndReEnteringBuzzesAgain() {
+    @Test fun droppingBackToSendIsLightAndReEnteringBuzzesAgain() {
         val harness = harness()
         val cancel = aimAt("移到这里取消")
         val edit = aimAt("滑到这里转文字")
@@ -171,7 +171,7 @@ class VoiceHoldTargetTest {
             harness.zones,
         )
         assertEquals(
-            listOf(HapticFeedbackType.Confirm, HapticFeedbackType.Confirm),
+            listOf(HapticFeedbackType.LongPress, HapticFeedbackType.TextHandleMove, HapticFeedbackType.LongPress),
             harness.buzzes,
         )
     }
