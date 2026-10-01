@@ -35,6 +35,12 @@ describe("time separators (ChatUiState.showsTimeSeparator)", () => {
 
   it("greets by hour like Android", () => {
     expect([3, 6, 10, 15, 21].map((h) => greetingForHour(h, "zh"))).toEqual(["夜深了", "早上好", "上午好", "下午好", "晚上好"]);
+    // HG-183: the Web account's display name joins the greeting (Android NewChatGreeting.kt);
+    // a blank or missing name leaves the bare greeting.
+    expect(greetingForHour(10, "zh", "芯芯")).toBe("上午好，芯芯");
+    expect(greetingForHour(10, "en", "Xin")).toBe("Hello, Xin");
+    expect(greetingForHour(10, "zh", "  ")).toBe("上午好");
+    expect(greetingForHour(2, "en", undefined)).toBe("Up late");
   });
 });
 

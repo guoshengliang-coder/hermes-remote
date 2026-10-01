@@ -3136,6 +3136,13 @@ html[data-theme="dark"] .group-header {
   text-align: center;
 }
 
+/* HG-183: the new-session greeting carries the account avatar above the greeting, the way Android
+   `NewChatGreeting.kt` puts the identity avatar (64dp) over the greeting group. `.account-avatar`
+   defaults to the 44px card size, so the greeting grows it here. */
+.greeting-avatar { display: inline-flex; margin-bottom: 0.375rem; }
+.greeting-avatar .account-avatar { width: 4rem; height: 4rem; }
+.greeting-avatar .account-avatar-fallback { font-size: 1.5rem; }
+
 .greeting-title {
   margin: 0;
   font-size: 1.375rem;

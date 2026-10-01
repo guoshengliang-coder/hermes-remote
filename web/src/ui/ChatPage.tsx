@@ -19,6 +19,7 @@ import { formatTimeSeparator, greetingForHour, showsTimeSeparator } from "../cha
 import { appError } from "../errors";
 import type { AnswerPlan } from "../hermes/requests";
 import { Composer } from "./Composer";
+import { AccountAvatar } from "./AccountAvatar";
 import { ErrorNotice } from "./ErrorNotice";
 import { Sheet, SheetAction } from "./Sheet";
 import { SessionActionSheet } from "./SessionActions";
@@ -85,6 +86,9 @@ function restoreAnchor(el: HTMLElement, anchor: ScrollAnchor | null) {
 export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const app = useApp();
   const { t, language, device, client } = app;
+  // HG-183: the new-session greeting names the signed-in Web account (Android uses the profile
+  // identity name; Web has no profile switching, so it reads its own account).
+  const accountName = app.account?.displayName?.trim() || app.account?.email?.trim() || null;
   const [state, dispatch] = useReducer(reduceChat, initialChatState);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -670,7 +674,8 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           {state.historyLoaded && state.items.length === 0 ? (
             sessionId === null ? (
               <div class="greeting">
-                <p class="greeting-title">{greetingForHour(new Date().getHours(), language)}</p>
+                <span class="greeting-avatar"><AccountAvatar account={app.account} /></span>
+                <p class="greeting-title">{greetingForHour(new Date().getHours(), language, accountName)}</p>
                 <p class="greeting-sub">
                   {state.connection === "ready" || state.connection === "connecting"
                     ? t("有什么要做的，直接说。", "Whatever you need — just say it.")

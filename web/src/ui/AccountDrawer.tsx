@@ -47,7 +47,10 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
   const closeSheet = () => setSheet(null);
   const online = device?.connector?.online === true;
   const latency = device?.gateway?.latencyMs;
-  const modelValue = defaultModel.model ? `${defaultModel.model.model} · ${defaultModel.model.provider}` :
+  // HG-184: only the model name, never `模型 · 提供商`. The trailing provider pushed the row
+  // past its value slot and ellipsised it, and Android's card page (`CardPage.kt`) shows the same
+  // bare `state.defaultModel`.
+  const modelValue = defaultModel.model ? defaultModel.model.model :
     defaultModel.loading ? t("读取中…", "Loading…") : "—";
   const languageOptions = [
     { id: "system", label: t("跟随系统", "Follow system"), description: t("跟随浏览器的系统语言", "Follows your browser's system language") },
