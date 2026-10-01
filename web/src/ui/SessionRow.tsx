@@ -1,5 +1,5 @@
 import { lastActiveMs, relativeTime } from "../app/grouping";
-import { basename, projectKeyOf } from "../app/projects";
+import { projectKeyOf, projectLabelOfPath } from "../app/projects";
 import type { RowView } from "../app/rowStatus";
 import { useApp } from "../app/store";
 import type { SessionListItem } from "../hermes/types";
@@ -34,10 +34,7 @@ export interface SessionRowProps {
 }
 
 export function projectLabelOf(session: Pick<SessionListItem, "git_repo_root" | "cwd">, defaultProject: string | null | undefined): string | null {
-  const key = projectKeyOf(session);
-  if (!key) return null;
-  if (defaultProject && key === defaultProject.replace(/[/\\]+$/, "")) return null;
-  return basename(key);
+  return projectLabelOfPath(projectKeyOf(session), defaultProject);
 }
 
 export function SessionRow({ session, now, view, pinned, draft, archived, inProject, bot, defaultProject, query = "", divider, showTime = false, onOpen, onLongPress }: SessionRowProps) {

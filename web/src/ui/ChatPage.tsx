@@ -3,8 +3,8 @@ import { BackClose } from "../app/useBackClose";
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 import { botNoticeSeen, botOriginLabel, botSendNoticeBody, botSendNoticeTitle, markBotNoticeSeen } from "../app/bots";
 import { draftKey } from "../app/drafts";
-import { rememberDefaultProject } from "../app/localPrefs";
-import { basename } from "../app/projects";
+import { defaultProjectPath, rememberDefaultProject } from "../app/localPrefs";
+import { isDefaultProjectPath, projectLabelOfPath } from "../app/projects";
 import { explicitProfile } from "../app/profile";
 import { isBotSession } from "../app/sources";
 import { navigate, returnFromChat } from "../app/router";
@@ -22,6 +22,7 @@ import { Composer } from "./Composer";
 import { ErrorNotice } from "./ErrorNotice";
 import { Sheet, SheetAction } from "./Sheet";
 import { SessionActionSheet } from "./SessionActions";
+import { WorkspaceSubtitle } from "./WorkspaceSubtitle";
 import { ModelSheet, modelChipLabel } from "./ModelSheet";
 import { copyWithFeedback } from "./Markdown";
 import { speechSupported, toggleSpeak } from "../chat/speech";
@@ -32,10 +33,8 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   BackIcon,
-  ChevronDownIcon,
   ChevronIcon,
   TerminalIcon,
-  BranchIcon,
   FolderIcon,
   ListIcon,
   MoreVerticalIcon,
@@ -479,7 +478,12 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   // the list row. Display only on the Web — moving a chat is not in the browser allowlist.
   const workspacePath = state.workspace?.cwd ?? row?.git_repo_root ?? row?.cwd ?? null;
   const workspaceBranch = state.workspace ? state.workspace.branch : (row?.git_branch ?? null);
-  const workspaceLabel = workspacePath ? basename(workspacePath.replace(/[/\\]+$/, "")) : null;
+  // The default project shows the house-folder + 「默认项目」, not the launch folder's basename
+  // (DESIGN §5.4, Android WorkspaceSubtitle): a project last opened from the Web saves its cwd as
+  // defaultProjectPath, the same value Android stores.
+  const defaultProject = device ? defaultProjectPath(device.deviceId) : null;
+  const workspaceIsDefault = isDefaultProjectPath(workspacePath, defaultProject);
+  const workspaceLabel = projectLabelOfPath(workspacePath, defaultProject);
   const botRow = row && isBotSession(row) ? row : null;
   const canMove = app.features.has("workspace-move") && !botRow && Boolean(storedId);
   const currentModel = chosenModel ?? { model: state.liveModel ?? row?.model ?? null, provider: row?.provider ?? null };
@@ -542,27 +546,16 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
                 <span class="chat-status">{connectionLine}</span>
               ) : botRow ? (
                 <span class="chat-workspace">{botOriginLabel(botRow, language)}</span>
-              ) : workspaceLabel && !emptyNew ? (
-                // The subtitle is also the way to move the chat (DESIGN §5.4): muted, without the
-                // chevron, while a run is live (Hermes refuses a move then, 4009).
-                <button
-                  type="button"
-                  class={`chat-workspace mono${canMove ? " movable" : ""}`}
-                  disabled={!canMove || state.generating}
-                  aria-label={canMove ? t("所属项目，点按移动", "Project — tap to move") : undefined}
+              ) : (workspaceLabel !== null || workspaceIsDefault) && !emptyNew ? (
+                // The subtitle is also the way to move the chat (DESIGN §5.4); WorkspaceSubtitle
+                // carries the default-project label and the live/branch layout.
+                <WorkspaceSubtitle
+                  projectLabel={workspaceLabel}
+                  branch={workspaceBranch ?? null}
+                  canMove={canMove}
+                  enabled={!state.generating}
                   onClick={() => setManage("move")}
-                >
-                  <FolderIcon size={12} />
-                  <span class="chat-workspace-name">{workspaceLabel}</span>
-                  {workspaceBranch ? (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <BranchIcon size={12} />
-                      <span class="chat-workspace-name">{workspaceBranch}</span>
-                    </>
-                  ) : null}
-                  {canMove && !state.generating ? <ChevronDownIcon size={12} /> : null}
-                </button>
+                />
               ) : null}
             </div>
             {emptyNew ? (
