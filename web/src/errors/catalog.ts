@@ -120,6 +120,9 @@ export const CATALOG = {
   "HR-VOICE-001": { zh: "语音识别暂不可用，请稍后重试或改用键盘。", en: "Voice recognition is unavailable. Retry later or use the keyboard.", retryable: true, action: "retry" },
   "HR-VOICE-002": { zh: "语音识别未完成。如有临时文字，已放入草稿供检查。", en: "Voice recognition did not finish. Any partial text was placed in the draft for review.", retryable: true, action: "retry" },
   "HR-WEB-009": { zh: "无法读取这台 Mac 的默认模型，请重试。", en: "Couldn't read this Mac's default model. Retry.", retryable: true, action: "retry" },
+  // Account profile (HG-181): the name and avatar the Web account page saves.
+  "HR-WEB-010": { zh: "无法保存名字，请使用 1–40 个字符后重试。", en: "Couldn't save that name. Use 1-40 characters and try again.", retryable: true, action: "retry" },
+  "HR-WEB-011": { zh: "头像不符合要求：请选择 PNG、JPEG 或 WebP 图片，且不超过 4 MiB。", en: "That avatar isn't allowed: choose a PNG, JPEG or WebP image of at most 4 MiB.", retryable: false, action: "none" },
 } satisfies Record<string, CatalogEntry>;
 
 export type ErrorCode = keyof typeof CATALOG;

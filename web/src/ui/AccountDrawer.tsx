@@ -1,8 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
 import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance";
 import { useDefaultModel } from "../app/defaultModel";
+import { navigate } from "../app/router";
 import { useApp } from "../app/store";
 import { useBackClose } from "../app/useBackClose";
+import { AccountAvatar } from "./AccountAvatar";
 import { ModelSheet } from "./ModelSheet";
 import { ErrorNotice } from "./ErrorNotice";
 import { ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
@@ -20,9 +22,11 @@ const fontSizeLabel = (size: FontSize, t: Translate) =>
 /**
  * Card page (DESIGN §5.1 / §5.21), with only the controls Web already provides. HG-168 folded the
  * settings sub-page in here: the gear, the back layer and the flat settings list are gone, so the
- * drawer keeps its single layer. Choices follow the card page's row → bottom sheet pattern, and the
- * Hermes GO account sits in the same hairline tile as the remote-node card. HG-171 removed the
- * "About" tile: it only ever repeated the static Web bundle version and the Gateway's.
+ * drawer keeps its single layer. Choices follow the card page's row → bottom sheet pattern.
+ * HG-181 moved the Hermes GO account to an avatar + name + email card directly under the title,
+ * above the remote-node card (Android's identity-card position), opening the /app/account page;
+ * sign-out and delete-account now live there. HG-171 removed the "About" tile: it only ever
+ * repeated the static Web bundle version and the Gateway's.
  */
 export function AccountDrawer({ onClose }: { onClose: () => void }) {
   const app = useApp();
@@ -70,6 +74,14 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
           <h2>Hermes GO</h2>
         </header>
         <div class="drawer-body">
+          <button type="button" class="drawer-account" onClick={() => { onClose(); navigate({ name: "account" }); }}>
+            <AccountAvatar account={app.account} />
+            <span class="drawer-account-copy">
+              <strong>{app.account?.displayName?.trim() || app.account?.email || "—"}</strong>
+              <small>{app.account?.email ?? "—"}</small>
+            </span>
+            <ChevronIcon />
+          </button>
           <button type="button" class="drawer-device" onClick={() => { onClose(); app.chooseDevice(); }}>
             <span class="drawer-device-icon"><MacIcon size={20} /></span>
             <span class="drawer-device-copy">
@@ -110,14 +122,6 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
               <ChevronIcon />
             </button>
           </div>
-          <section class="drawer-card" aria-label={t("Hermes GO 账号", "Hermes GO account")}>
-            <h3 class="drawer-card-title">{t("Hermes GO 账号", "Hermes GO account")}</h3>
-            <p class="drawer-card-detail">{app.account?.email ?? "—"}</p>
-            <div class="drawer-card-actions">
-              <button type="button" class="drawer-link" onClick={() => { onClose(); void app.signOut(); }}>{t("退出登录", "Sign out")}</button>
-              <a class="drawer-link danger" href="/account">{t("删除账号", "Delete account")}</a>
-            </div>
-          </section>
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>
       </aside>

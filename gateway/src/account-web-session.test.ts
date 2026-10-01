@@ -9,7 +9,7 @@ import type { AccountControlService } from "./account/account-control-service.js
 import type { AccountSharingService } from "./account/account-sharing-service.js";
 import type { AccountService, AccountSessionResponse } from "./account/account-service.js";
 import type { EmailOtpService } from "./account/email-otp-service.js";
-import { accountErrors, type AccountPrincipal, type VerifiedExternalIdentity } from "./account/model.js";
+import { accountErrors, type AccountPrincipal, type StoredAccountAvatar, type VerifiedExternalIdentity } from "./account/model.js";
 import { WebSessionSecurity, WEB_COOKIE_NAMES } from "./account/web-session-security.js";
 
 const ORIGIN = "https://accounts.example.test";
@@ -55,6 +55,8 @@ test("Web-session failures keep stable bilingual and recovery contracts", async 
     "HR-ACCOUNT-010",
     "HR-ACCOUNT-011",
     "HR-ACCOUNT-012",
+    "HR-WEB-010",
+    "HR-WEB-011",
   ]) {
     const row = registry.split("\n").find((line) => line.includes(`\`${code}\``));
     assert(row, `missing ${code}`);
@@ -735,6 +737,102 @@ test("Web security routes list installations and redacted audit events, then rev
   });
 });
 
+test("Web account profile saves a trimmed name and rejects an invalid one (HG-181)", async () => {
+  const fixture = controller();
+  const bootstrap = await call(fixture.controller, "GET", "/v2/web/session");
+  const csrf = cookieValue(bootstrap.cookies(), WEB_COOKIE_NAMES.csrf);
+  const cookies = `${requestCookies(bootstrap.cookies())}; ${WEB_COOKIE_NAMES.access}=${ACCESS}`;
+
+  const saved = await call(
+    fixture.controller,
+    "PATCH",
+    "/v2/web/account/profile",
+    mutationHeaders(cookies, csrf),
+    { displayName: "  芯芯  " },
+  );
+  assert.equal(saved.status, 200);
+  assert.equal((saved.json() as { account: { displayName: string } }).account.displayName, "芯芯");
+  assert.deepEqual(fixture.calls.at(-1), { operation: "update_display_name", input: "芯芯" });
+
+  for (const displayName of ["", "   ", "x".repeat(41), "bad\u0000name"]) {
+    const rejected = await call(
+      fixture.controller,
+      "PATCH",
+      "/v2/web/account/profile",
+      mutationHeaders(cookies, csrf),
+      { displayName },
+    );
+    assert.equal(rejected.status, 400, `expected 400 for ${JSON.stringify(displayName)}`);
+    assert.equal((rejected.json() as { error: { code: string } }).error.code, "HR-WEB-010");
+  }
+
+  const noCsrf = await call(
+    fixture.controller,
+    "PATCH",
+    "/v2/web/account/profile",
+    { origin: ORIGIN, "sec-fetch-site": "same-origin", cookie: cookies },
+    { displayName: "Nope" },
+  );
+  assert.equal(noCsrf.status, 403);
+  assert.equal((noCsrf.json() as { error: { code: string } }).error.code, "HR-AUTH-012");
+});
+
+test("Web account avatar stores real image bytes, serves them, and refuses anything else (HG-181)", async () => {
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from([0x00, 0x00, 0x00, 0x0d]),
+  ]);
+  const fixture = controller();
+  const bootstrap = await call(fixture.controller, "GET", "/v2/web/session");
+  const csrf = cookieValue(bootstrap.cookies(), WEB_COOKIE_NAMES.csrf);
+  const cookies = `${requestCookies(bootstrap.cookies())}; ${WEB_COOKIE_NAMES.access}=${ACCESS}`;
+  const auth = { cookie: cookies };
+
+  const empty = await call(fixture.controller, "GET", "/v2/web/account/avatar", auth);
+  assert.equal(empty.status, 404);
+
+  const uploaded = await callRaw(
+    fixture.controller,
+    "PUT",
+    "/v2/web/account/avatar",
+    { ...mutationHeaders(cookies, csrf), "content-type": "image/png" },
+    png,
+  );
+  assert.equal(uploaded.status, 200);
+  assert.match(
+    (uploaded.json() as { account: { avatarUrl: string } }).account.avatarUrl,
+    /^\/v2\/web\/account\/avatar\?rev=/,
+  );
+  assert.deepEqual(fixture.calls.at(-1), {
+    operation: "update_avatar",
+    input: { contentType: "image/png", bytes: png.length },
+  });
+
+  const served = await call(fixture.controller, "GET", "/v2/web/account/avatar", auth);
+  assert.equal(served.status, 200);
+  assert.equal(served.headers["content-type"], "image/png");
+  assert.equal(served.headers["x-content-type-options"], "nosniff");
+  assert(served.bytes.equals(png));
+
+  const cases: Array<{ name: string; contentType: string; bytes: Buffer }> = [
+    { name: "gif", contentType: "image/gif", bytes: png },
+    { name: "spoofed png", contentType: "image/png", bytes: Buffer.from([0xff, 0xd8, 0xff, 0xe0]) },
+    { name: "empty", contentType: "image/png", bytes: Buffer.alloc(0) },
+    { name: "too large", contentType: "image/png", bytes: Buffer.concat([png, Buffer.alloc(4 * 1024 * 1024)]) },
+  ];
+  for (const testCase of cases) {
+    const rejected = await callRaw(
+      fixture.controller,
+      "PUT",
+      "/v2/web/account/avatar",
+      { ...mutationHeaders(cookies, csrf), "content-type": testCase.contentType },
+      testCase.bytes,
+    );
+    assert.equal(rejected.status, 400, `expected 400 for ${testCase.name}`);
+    assert.equal((rejected.json() as { error: { code: string } }).error.code, "HR-WEB-011");
+  }
+});
+
 function controller(
   googleAuthEnabled = true,
   accountDeletionEnabled = false,
@@ -742,8 +840,10 @@ function controller(
 ): {
   controller: AccountHttpController;
   calls: Array<{ operation: string; input?: unknown }>;
+  storedAvatar: { value: StoredAccountAvatar | null };
 } {
   const calls: Array<{ operation: string; input?: unknown }> = [];
+  const storedAvatar: { value: StoredAccountAvatar | null } = { value: null };
   const principal: AccountPrincipal = {
     account: { id: "account-1", email: "person@example.com" },
     installation: {
@@ -770,6 +870,26 @@ function controller(
       calls.push({ operation: "authenticate", input: authorization });
       return principal;
     },
+    // HG-181: resolved account for the Web surface. Not recorded, so call-order assertions above
+    // still see the service call that triggered it (authenticate / exchange) as the last one.
+    webAccount: async (account: AccountPrincipal["account"]) => ({
+      ...account,
+      displayName: account.displayName ?? "Person",
+    }),
+    updateWebDisplayName: async (_principal: AccountPrincipal, displayName: string) => {
+      calls.push({ operation: "update_display_name", input: displayName });
+      return { ...principal.account, displayName };
+    },
+    updateWebAvatar: async (_principal: AccountPrincipal, avatar: { data: Buffer; contentType: string }) => {
+      calls.push({ operation: "update_avatar", input: { contentType: avatar.contentType, bytes: avatar.data.length } });
+      storedAvatar.value = { data: avatar.data, contentType: avatar.contentType as "image/png" };
+      return {
+        ...principal.account,
+        displayName: "Person",
+        avatarUrl: `/v2/web/account/avatar?rev=${avatar.data.length}`,
+      };
+    },
+    accountAvatar: async () => storedAvatar.value,
     exchangeEmailIdentity: async (_identity: VerifiedExternalIdentity, input: unknown) => {
       calls.push({ operation: "exchange", input });
       return session;
@@ -986,6 +1106,7 @@ function controller(
   } as unknown as AccountSharingService;
   return {
     calls,
+    storedAvatar,
     controller: new AccountHttpController(true, service, {
       emailOtpEnabled: true,
       emailOtpService: emailOtp,
@@ -1045,6 +1166,38 @@ function memoryRequest(method: string, headers: Record<string, string>, body: st
   } as unknown as IncomingMessage;
 }
 
+/** A request whose body is raw bytes (avatar upload), not JSON. */
+async function callRaw(
+  controller: AccountHttpController,
+  method: string,
+  path: string,
+  headers: Record<string, string>,
+  bytes: Buffer,
+): Promise<MemoryResponse> {
+  const response = new MemoryResponse();
+  await controller.handle(
+    memoryRequestBytes(method, headers, bytes),
+    response.asServerResponse(),
+    new URL(`https://accounts.example.test${path}`),
+  );
+  return response;
+}
+
+function memoryRequestBytes(
+  method: string,
+  headers: Record<string, string>,
+  bytes: Buffer,
+): IncomingMessage {
+  return {
+    method,
+    headers,
+    socket: { remoteAddress: "127.0.0.1" },
+    async *[Symbol.asyncIterator]() {
+      if (bytes.length) yield bytes;
+    },
+  } as unknown as IncomingMessage;
+}
+
 function requestCookies(cookies: string[]): string {
   return cookies.map((value) => value.split(";", 1)[0]).join("; ");
 }
@@ -1063,6 +1216,7 @@ class MemoryResponse {
   status = 0;
   headers: Record<string, string | string[]> = {};
   body = "";
+  bytes: Buffer = Buffer.alloc(0);
   writableEnded = false;
 
   asServerResponse(): ServerResponse {
@@ -1075,8 +1229,17 @@ class MemoryResponse {
     return this;
   }
 
-  end(value?: string): this {
-    this.body = value ?? "";
+  end(value?: string | Buffer): this {
+    if (value === undefined) {
+      this.body = "";
+      this.bytes = Buffer.alloc(0);
+    } else if (typeof value === "string") {
+      this.body = value;
+      this.bytes = Buffer.from(value);
+    } else {
+      this.bytes = value;
+      this.body = value.toString("utf8");
+    }
     this.writableEnded = true;
     return this;
   }

@@ -409,6 +409,9 @@ POST /v2/web/auth/email/challenges
 POST /v2/web/auth/email/exchange
 POST /v2/web/auth/refresh
 GET  /v2/web/account
+PATCH /v2/web/account/profile
+PUT  /v2/web/account/avatar
+GET  /v2/web/account/avatar
 GET  /v2/web/identities
 POST /v2/web/identities/email/challenges
 POST /v2/web/identities/email
@@ -448,6 +451,15 @@ after an idle tab, missing, already revoked, or the account unavailable), sign-o
 through the refresh cookie instead — revoking its whole refresh family and publishing the session
 revocation, so any open socket closes — and still answers 204 with every cookie expired. Web routes ignore caller-supplied Authorization headers; native routes
 continue to ignore cookies.
+
+`GET /v2/web/account`, `GET /v2/web/session`, and the two exchange answers resolve the account's Web
+profile (HG-181): the owner's saved display name/avatar win, else the sign-in identity's own
+name/avatar, else the mailbox local part as the default display name. `PATCH /v2/web/account/profile`
+saves a 1–40 character display name; `PUT /v2/web/account/avatar` stores raw PNG/JPEG/WebP bytes
+(≤ 4 MiB, checked against the declared type's signature) and `GET /v2/web/account/avatar` serves them
+with a revision query for cache busting. The profile lives in `account_profiles` (avatar as `bytea`)
+and is read only by these Web routes, so native `/v2/account` and Android/Desktop keep seeing the
+identity's own values. A rejected name or avatar answers `HR-WEB-010` / `HR-WEB-011`.
 
 Committed sign-out, revoke-all, identity-session, installation, and sharing revocations emit a
 bounded transaction-scoped PostgreSQL event. Every Gateway indexes active account tunnels by account,
@@ -1082,6 +1094,13 @@ target; the existing lifecycle JSON file is not extended into an account databas
 - `provider`, `issuer`, `subject`
 - display-only `email`, `display_name`, optional `avatar_url`, `claims_updated_at`
 - unique `(provider, issuer, subject)`
+
+`account_profiles`
+
+- `account_id uuid primary key` foreign key to `accounts`, cascaded on deletion
+- the Web-only display name (1–40 characters) and optional avatar (`bytea` + content type +
+  updated timestamp), seeded at sign-in with the identity's name or the mailbox local part;
+  read and written only by the Web account routes (HG-181)
 
 `installations`
 
