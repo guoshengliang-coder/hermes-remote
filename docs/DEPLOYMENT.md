@@ -1963,3 +1963,59 @@ this publish. Real-device acceptance remains per `docs/SMOKE_TEST.md` and each i
 HG-186's toast close, HG-185's iOS composer position, HG-183's account avatar/name in the new-session
 state, HG-184's model-only card row, HG-180's two-step back on HONOR, and HG-182's default-project
 subtitle — and the Web publication does not imply acceptance.
+
+### HG-181 publication — Gateway 0.4.30 (schema 16 → 17) and Web, 2026-10-01
+
+Owner-authorized schema-changing release (approved in the session that implemented HG-181).
+Implementation PR #517 merged as `63096399` (Web account card moved above the remote-node card, a new
+`/app/account` page, and the Web-only account-profile routes backed by migration 017); version PR #518
+merged as `cfa90d2e4d0a5bb3817e1502d768106c3a05db37`. Main CI `36803555742`, Gateway OCI `36803555764`
+and SAST `36803555733` succeeded; the Gateway and schema-11 operator bundles came from OCI run
+`36803555764`.
+
+Artifacts: Gateway `Hermes-Gateway-0.4.30-cfa90d2e4d0a-linux-amd64.tar` (SHA-256
+`f4facd635f06b83119b6061bffdb92d95effe00600512bda535edb9f33882acb`, containerd image
+`sha256:5d8cfe28b1d131da4b2112c0dad364370d16ea754f722075cf3aff204ed92e96`) and operator
+`Hermes-R5D-Ops-cfa90d2e4d0a.tar.gz` (SHA-256
+`057fae5dab105b23e9332fc8bc6a92210149840885751c9d6d4e179fe02148b1`), verified locally, after transfer
+on the HK host, and from the extracted operator at `/opt/hermes-go-ops/cfa90d2e4d0a`.
+
+Backup gate: the active status was stale (2026-09-29), so a fresh HK capture
+`20261001T023213538Z-064bda3ec186` (schema 16) was exported, restore-smoked and activated off-host at
+02:32Z — the Mac's Docker had been off since 2026-09-29 and was started for this run.
+
+R5-F8 run `acb62ec2-f460-487b-bd3b-fcaec3716854` committed: `activeSlot green`, `previousSlot blue`,
+`serverVersion 0.4.30`, source `cfa90d2e4d0a`, database schema 16 → 17, rollback point
+`releases/0.4.29-703546092aac`. After the switch `current` → `releases/0.4.30-cfa90d2e4d0a`, `previous`
+→ `releases/0.4.29-703546092aac`; the green unit is active and blue inactive; loopback readiness
+reports `{"status":"ready",...}` with `migrations: ok`; public `/v2/capabilities` reports 0.4.30 with
+`webDeviceAccess` and the unchanged feature list; `/app/` answers 200.
+
+Web was already published as `0.1.0-19b0c4218528` by the HG-183..HG-186 batch (released range
+`277ab67525f8..19b0c4218528`, which carries PR #517), so HG-181's Web half was live before this
+Gateway switch; it was not republished merely to change its source label. The live stylesheet carries
+the HG-181 account card (`drawer-account`, `account-page`).
+
+**Edge forwarding gap and fix.** The two new Web routes are new paths, and
+`/etc/hermes-go/account/identity-web-routes.conf` — written by the R5-F5-A identity-web rollout, which
+had already committed and never regenerates — only exact-matches `/v2/web/account`. Public
+`/v2/web/account/profile` and `/v2/web/account/avatar` therefore fell through to `location /` and
+answered 404/405, while the same routes on the Gateway loopback answered 401/403. A prefix location
+`location ^~ /v2/web/account/ { … }` (proxy to `hermes_go_gateway_production`, `client_max_body_size
+5m`) was appended to that file (backup `.pre-hg181`) under the deployment lock; `nginx -t` passed and
+nginx was reloaded. Public checks now answer 401 (bare `GET /v2/web/account/avatar`) and 403
+(`PATCH /v2/web/account/profile`, `PUT /v2/web/account/avatar` without CSRF) — the Gateway's shapes,
+not 404. **Follow-up:** `ops/lib/production-identity-web-rollout.mjs` must list these routes so a
+future fresh rollout keeps them.
+
+Backup pins moved to schema 17: the HK capture-schedule configuration
+(`/etc/hermes-go/recovery/postgresql-capture-schedule.json`), the HK production monitor's
+`backup.expectedDatabaseSchemaVersion` (`/etc/hermes-remote/production-monitor.json`), and the Mac
+off-host configuration (schema 17, `targetArtifactManifest` → the 0.4.30 manifest, its LaunchAgent →
+the new operator, and `docker load` of the 0.4.30 image). A fresh capture
+`20261001T023821758Z-efd5a527affc` (schema 17) was exported, restore-smoked and activated at 02:38Z,
+and the production monitor passed (rc=0, `ExecMainStatus=0`). Each pin kept a `.pre-schema17` copy.
+
+HG-181's registered artifacts are `web` and `gateway`; both are now published. Real-browser
+acceptance of the account card, rename and avatar upload remains per `docs/SMOKE_TEST.md`; the
+release does not imply acceptance.
