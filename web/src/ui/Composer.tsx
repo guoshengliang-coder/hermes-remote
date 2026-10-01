@@ -155,11 +155,13 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     document.addEventListener("visibilitychange", hide);
     return () => { document.removeEventListener("visibilitychange", hide); permissionEpoch.current++; voice.current?.cancel(); voice.current = null; };
   }, []);
-  // Leaving the conversation is ONE back press (HG-180). A focused text field used to arm its own
-  // same-URL history step, so the first back only collapsed the composer (and the keyboard it no
-  // longer had) and repainted the chat, and leaving took two. Only a voice capture still has
-  // something back must take care of; the textarea owns no back step.
-  useBackClose(() => { if (voice.current) cancelVoice(true); else collapse(); }, voicePhase !== "idle" && !sheet);
+  // Back leaves the conversation in two steps (HG-180). A focused text field owns a back step of
+  // its own — the first back exits the input and returns to the browsing state; only the next back
+  // leaves the chat for the list/project/archive page it was opened from. An in-progress voice
+  // capture owns the step too, so back first cancels the recording and keeps the partial text.
+  // A sheet on top has its own step and is closed first, so the composer stands down while one is
+  // open (`!sheet`).
+  useBackClose(() => { if (voice.current) cancelVoice(true); else collapse(); }, (focused || voicePhase !== "idle") && !sheet);
 
   // A different conversation brings its own draft.
   const keyRef = useRef(draftKey);
