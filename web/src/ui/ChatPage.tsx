@@ -718,12 +718,15 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           ) : null}
         </div>
       </div>
-      {!atBottom && !searchOpen && state.items.length ? (
-        <button type="button" class="jump-latest" aria-label={t("回到最新消息", "Jump to latest message")} onClick={toLatest}>
-          <ArrowDownIcon size={20} />
-        </button>
-      ) : null}
       <footer class={`chat-bottom${searchOpen ? " hidden" : ""}`}>
+        {/* The jump-latest button is anchored to this footer's top edge, so it clears the composer
+            at any height (a two-row or attachment-bearing composer is far taller than the old
+            6.5rem offset — HG-179). */}
+        {!atBottom && !searchOpen && state.items.length ? (
+          <button type="button" class="jump-latest" aria-label={t("回到最新消息", "Jump to latest message")} onClick={toLatest}>
+            <ArrowDownIcon size={20} />
+          </button>
+        ) : null}
         {open ? (
           <QuestionSheet questions={state.questions} sessionId={sessionRef.current?.answerSessionId() ?? ""} t={t} onAnswer={answer} />
         ) : null}
