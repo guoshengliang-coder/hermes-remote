@@ -1,5 +1,13 @@
 # Hermes Go Desktop
 
+HG-175 adds an explicit **检查并修复受管服务** recovery action for committed installations whose
+LaunchAgent files or loaded tasks are missing. It preserves the existing binding and installation
+identity, validates the retained release/credentials and same signed-in account, and uses confirmation,
+fresh readiness/health, rollback and interruption recovery. Untrusted records, unknown jobs and an
+occupied 9119 remain blocked with recovery guidance. This source change has no new published Desktop
+version; see [`../docs/DESKTOP_TEST_PLAN.md`](../docs/DESKTOP_TEST_PLAN.md) for device acceptance.
+
+
 Release discovery, two-component topology, signing-key rotation, and protected-environment setup
 are documented in [`../docs/DESKTOP_RELEASE_CHANNEL.md`](../docs/DESKTOP_RELEASE_CHANNEL.md).
 

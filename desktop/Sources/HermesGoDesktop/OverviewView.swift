@@ -83,10 +83,15 @@ struct OverviewView: View {
             }
             Spacer(minLength: 12)
             VStack(alignment: .trailing, spacing: 6) {
+                if model.serviceRepairNeeded {
+                    Button("修复受管服务") { Task { await model.prepareServiceRepair() } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isManagedBootstrapAccountLocked)
+                }
                 Button("查看详情") { selection = .pairing }
                     .buttonStyle(.bordered)
                 CopyDiagnosticsButton(
-                    issue: model.managedBootstrapIssue ?? model.componentBootstrapIssue
+                    issue: model.serviceRepairIssue ?? model.managedBootstrapIssue ?? model.componentBootstrapIssue
                 )
             }
         }

@@ -105,6 +105,9 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     /// The installer finished — or the Mac changed before it ran — but detection does not report a
     /// usable standard Hermes. Nothing was switched.
     case hermesInstallNotUsable = "HR-MIGRATE-018"
+    case managedServicesNeedRepair = "HR-MIGRATE-019"
+    case managedServiceRepairBlocked = "HR-MIGRATE-020"
+    case managedServiceRepairFailed = "HR-MIGRATE-021"
     /// A Desktop update check could not fetch or validate the stable index.
     case updateCheckFailed = "HR-DESKUPDATE-001"
     /// This build has no update source configured; checking is unavailable, not failed.
@@ -305,6 +308,12 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         case .hermesInstallerUnsupported:
             // Not retryable: the same download or the same process would fail the same way.
             ("无法使用 Hermes 安装程序", "Can't use the Hermes installer", "Hermes 官方安装程序与 Hermes GO 支持的方式不一致，未做任何安装。请改用 Hermes GO 内置的 Hermes，或更新 Hermes GO。", "The official Hermes installer isn't in a form Hermes GO supports, so nothing was installed. Use the Hermes built into Hermes GO, or update Hermes GO.", false, .details)
+        case .managedServicesNeedRepair:
+            ("受管服务需要修复", "Managed services need repair", "受管启动项缺失或尚未载入，请修复受管服务以恢复连接。", "Managed startup items are missing or unloaded. Repair the managed services to restore the connection.", true, .details)
+        case .managedServiceRepairBlocked:
+            ("暂时无法安全修复", "Service repair is blocked", "暂时无法安全修复受管服务。请查看详情，恢复原账号或缺失的安装资料后重新检查。", "Managed services cannot be repaired safely yet. Review the details and restore the original account or missing installation records, then check again.", false, .details)
+        case .managedServiceRepairFailed:
+            ("受管服务修复未完成", "Service repair did not finish", "受管服务修复未完成，请重新检查后重试；恢复未完成时请查看详情。", "Managed service repair did not finish. Check again before retrying; review the details if restoration is incomplete.", true, .details)
         case .hermesInstallNotUsable:
             ("安装后的 Hermes 无法直接使用", "The installed Hermes can't be used", "Hermes 安装已结束，但这台 Mac 上的 Hermes 不是 Hermes GO 能直接使用的标准形式，未做任何切换。请查看详情，或改用 Hermes GO 内置的 Hermes。", "Hermes finished installing, but it isn't in the standard form Hermes GO can use, so nothing was switched. Review the details, or use the Hermes built into Hermes GO.", false, .details)
         case .updateCheckFailed:

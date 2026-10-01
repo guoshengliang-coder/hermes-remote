@@ -280,12 +280,15 @@ private struct ConnectMacStep: View {
     }
 
     private var issues: [DesktopIssue] {
-        [model.componentBootstrapIssue, model.managedBootstrapIssue, model.localHermesIssue].compactMap { $0 }
+        [model.serviceRepairIssue, model.componentBootstrapIssue, model.managedBootstrapIssue, model.localHermesIssue].compactMap { $0 }
     }
 
     @ViewBuilder
     private var guidance: some View {
-        if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {
+        if model.serviceRepairNeeded, let guidance = model.serviceRepairGuidance {
+            Text(guidance).font(.system(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 12)
+        } else if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {
             HStack(alignment: .top, spacing: 12) {
                 Text("这份 Hermes 是 Hermes GO 之前的安装留下的，没有安装完整。可以改用内置的 Hermes 完成设置；留下的文件保持不动。")
                     .font(.system(size: 12))
@@ -318,6 +321,12 @@ private struct ConnectMacStep: View {
         } else if model.componentCleanupRetryAvailable, model.componentBootstrapOperation == .failed {
             Button("重试清理") { Task { await model.retryComponentBootstrapCleanup() } }
                 .buttonStyle(PrimaryButtonStyle())
+        } else if model.serviceRepairNeeded {
+            Button(model.isServiceRepairPreparing || model.isServiceRepairRunning ? "正在检查或修复…" : "检查并修复受管服务") {
+                Task { await model.prepareServiceRepair() }
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(model.isManagedBootstrapAccountLocked)
         } else if model.isManagedBootstrapAccountLocked {
             Button("正在连接…") {}
                 .buttonStyle(PrimaryButtonStyle())
