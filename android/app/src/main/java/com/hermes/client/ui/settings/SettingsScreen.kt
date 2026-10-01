@@ -13,6 +13,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -24,8 +26,10 @@ import com.hermes.client.ui.localization.localized
 fun SettingsScreen(
     onMenu: () -> Unit,
     onNavigate: (String) -> Unit,
+    vm: SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
 ) {
     val language = LocalAppLanguage.current
+    val outputHaptics by vm.outputHaptics.state.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
@@ -40,6 +44,8 @@ fun SettingsScreen(
             Entry(localized(language, "语言", "Language"), localized(language, "跟随系统、简体中文或 English", "Follow the system, Simplified Chinese or English")) { onNavigate("settings_language") }
             HorizontalDivider()
             Entry(localized(language, "通知", "Notifications"), localized(language, "审批、定时任务和消息提醒", "Approvals, cron, and messaging alerts")) { onNavigate("settings_notifications") }
+            HorizontalDivider()
+            OutputHapticsSetting(outputHaptics, vm.outputHaptics::setEnabled, vm.outputHaptics::retry)
             HorizontalDivider()
             Entry(localized(language, "记忆与预算", "Memory & budgets"), localized(language, "记忆、用户资料和默认模型", "Memory, user profile & default model")) { onNavigate("settings_memory") }
             // Moved here from the card page on 2026-09-11: the drawer's stats card became the

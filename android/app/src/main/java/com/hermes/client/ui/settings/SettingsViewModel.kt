@@ -18,6 +18,7 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsStore,
     private val rest: HermesRestApi,
+    val outputHaptics: OutputHapticsSettings,
 ) : ViewModel() {
     val appLanguage: StateFlow<AppLanguage> =
         settings.appLanguage.stateIn(

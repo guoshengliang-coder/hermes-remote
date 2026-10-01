@@ -80,6 +80,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
@@ -247,7 +248,18 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
         latestLazyItemOffset = offset
     }
     fun updateBlock(key: String, bounds: Rect) { blockBounds[key] = bounds }
-    fun removeBlock(key: String) { blockBounds.remove(key) }
+    private val outputTailPositions = mutableMapOf<String, Float>()
+    private val outputParsedContent = mutableMapOf<String, String?>()
+    fun updateOutputParsedContent(key: String, content: String?) { outputParsedContent[key] = content }
+    fun isOutputSnapshotParsed(key: String, content: String): Boolean = outputParsedContent[key] == content
+    fun updateOutputTail(key: String, y: Float) { outputTailPositions[key] = y }
+    fun isOutputTailVisible(key: String): Boolean {
+        val viewport = viewportBounds ?: return false
+        val y = outputTailPositions[key] ?: return false
+        return mode != ChatViewportMode.OVERLAY_LOCKED && mode != ChatViewportMode.LAYOUT_RESTORING &&
+            y > viewport.top && y <= viewport.bottom
+    }
+    fun removeBlock(key: String) { blockBounds.remove(key); outputTailPositions.remove(key); outputParsedContent.remove(key) }
     fun setPinnedToBottom(value: Boolean) {
         pinnedToBottom = value
         if (mode != ChatViewportMode.OVERLAY_LOCKED && mode != ChatViewportMode.LAYOUT_RESTORING) {
@@ -453,6 +465,7 @@ fun ChatMessageList(
     modifier: Modifier = Modifier,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     isGenerating: Boolean = false,
+    outputHapticsEnabled: Boolean = false,
     onEditResend: (String) -> Unit = {},
     onRetrySend: (String) -> Unit = {},
     onDiscardSend: (String) -> Unit = {},
@@ -1067,6 +1080,15 @@ fun ChatMessageList(
         }
     }
 
+    StreamingOutputHaptics(
+        sessionId = sessionId,
+        source = latestAssistantSource,
+        displayed = displayMessages.lastOrNull()?.takeIf { it.role == Role.ASSISTANT },
+        enabled = outputHapticsEnabled && transcriptAlpha >= 0.99f,
+        generating = isGenerating,
+        viewport = semanticViewport,
+        toolDataPlaceholder = toolDataPlaceholder,
+    )
     CompositionLocalProvider(LocalChatViewportController provides semanticViewport) {
     Box(modifier.fillMaxSize()) {
         LazyColumn(
@@ -2236,11 +2258,20 @@ internal fun AssistantMarkdownBlock(
     // the reader as four literal asterisks. Repaired for display only; copy, share, export and
     // read-aloud all read the original message text. See CjkEmphasis.kt (HG-24).
     val renderable = remember(content) { withCjkEmphasisRepaired(content) }
+    val markdownState = com.mikepenz.markdown.model.rememberMarkdownState(renderable)
+    val parsed by markdownState.state.collectAsState()
+    androidx.compose.runtime.SideEffect {
+        viewport?.updateOutputParsedContent(anchorKey, (parsed as? com.mikepenz.markdown.model.State.Success)?.content)
+    }
     HermesMarkdown(
         surface = MarkdownSurface.CHAT,
-        content = renderable,
+        state = markdownState,
         searchRangeOffset = searchRangeOffset,
-        modifier = modifier.onGloballyPositioned { viewport?.updateBlock(anchorKey, it.boundsInWindow()) },
+        modifier = modifier.onGloballyPositioned {
+            viewport?.updateBlock(anchorKey, it.boundsInWindow())
+            // Use the unclipped bottom: seeing the top of a long answer is not seeing new output.
+            viewport?.updateOutputTail(anchorKey, it.localToWindow(androidx.compose.ui.geometry.Offset(0f, it.size.height.toFloat())).y)
+        },
         typography = markdownTypography(
             h1 = MaterialTheme.typography.headlineSmall.copy(lineHeight = 34.sp),
             h2 = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp, lineHeight = 32.sp),

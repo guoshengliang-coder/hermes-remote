@@ -34,6 +34,7 @@ class SettingsStore(
 ) {
     private val themeKey = stringPreferencesKey("theme_mode")
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
+    private val outputHapticsKey = booleanPreferencesKey("output_haptics")
     private val languageKey = stringPreferencesKey("app_language")
     // Usage page window. A viewing preference, so it stays on the device and is never synced
     // or scoped per profile (DESIGN.md §5.14).
@@ -79,6 +80,13 @@ class SettingsStore(
     suspend fun setUsageRangeDays(days: Int) {
         if (days !in USAGE_RANGE_CHOICES) return
         context.settingsDataStore.edit { it[usageRangeKey] = days.toString() }
+    }
+
+    /** HG-187: a device preference, independent of the selected profile. */
+    val outputHaptics: Flow<Boolean> = context.settingsDataStore.data.map { it[outputHapticsKey] ?: true }
+
+    suspend fun setOutputHaptics(enabled: Boolean) {
+        context.settingsDataStore.edit { it[outputHapticsKey] = enabled }
     }
 
     suspend fun setDebugLogging(enabled: Boolean) {

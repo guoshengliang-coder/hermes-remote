@@ -245,6 +245,7 @@ logs only a route category, phase, elapsed time, and allowlisted transport error
 | `HR-CONFIG-005` | Relay URL and App Token exceed the reliable v1 QR payload limit | Relay 地址和 App Token 过长，无法生成可扫描的二维码。 | The Relay URL and App Token are too long to fit in a scannable QR code. | Yes |
 | `HR-CONFIG-006` | Desktop account mode has no valid Google macOS OAuth client configuration | 此版本尚未配置 Google 登录，请继续使用原有连接。 | Google sign-in is not configured in this build. Continue with the legacy connection. | No (continue legacy) |
 | `HR-STORE-001` | Per-profile identity settings (display name, avatar photo, colour, style) could not be written to DataStore | 无法保存身份设置，请重试。 | Couldn't save the profile settings. Retry. | Yes |
+| `HR-STORE-002` | Android device-local output-haptics preference could not be read or saved; feedback stays disabled until a successful read/save, and Retry repeats the failed operation | 无法读取或保存输出触感设置，请重试。 | Couldn't read or save output haptics settings. Retry. | Yes |
 | `HR-UPDATE-001` | Unmapped update check, download, verification, or installer failure | 更新操作失败，请重试。 | The update operation failed. Retry. | Yes |
 | `HR-UPDATE-002` | Update index could not be fetched or parsed | 无法检查更新，请检查网络后重试。 | Couldn't check for updates. Check your network and retry. | Yes |
 | `HR-UPDATE-003` | DownloadManager job could not be enqueued or persisted | 无法开始下载更新，请重试。 | Couldn't start the update download. Retry. | Yes |
