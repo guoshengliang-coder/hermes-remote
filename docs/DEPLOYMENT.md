@@ -1933,3 +1933,33 @@ code were untouched and nothing was restarted. Real-device acceptance remains pe
 `docs/SMOKE_TEST.md` — HG-179's two-row-composer overlap, HG-178's keyboard-up model chip on Android
 Chrome / iOS Safari, HG-180's system-back-with-keyboard on the HONOR device, and HG-177's
 drawer-overlay layer — and the Web publication does not imply acceptance.
+
+### Web HG-186, HG-185, HG-183, HG-184, HG-180 and HG-182 publication — 2026-10-01
+
+Owner-authorized Web release (approved in the session that fixed HG-183/HG-184). From an isolated
+clean worktree at `main 19b0c4218528be4a312c6118fbbec6ffb82bdbe2` (the merge of PR #522; the range
+since the previous Web publication `277ab67525f8` also carries PRs #516, #517, #519, #520 and #521,
+plus the doc-only HG-179 record #515), `WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh`
+passed typecheck, **677 tests across 68 files**, and build. The installer reported
+`{"ok":true,"releaseId":"0.1.0-19b0c4218528","installed":true,"previous":"0.1.0-277ab67525f8"}`:
+Web `0.1.0-19b0c4218528` replaced `0.1.0-277ab67525f8`, which stays installed for
+`scripts/publish-web-app.sh --rollback`. The release manifest's archive SHA-256 is
+`dea06793251017dbc82f5c41273ca7cec39d1bd444a2eebaa203915125f9aa86`. The publisher's own staging
+directory is removed on exit, so the manifest was repackaged from the same clean tree at the same
+commit: independent public reads then matched the size and SHA-256 of all **13** packaged files, and
+the public `/app/` `index.html` matched the local build byte for byte. The live stylesheet carries
+HG-185's change — `.composer-wrap` no longer declares a bottom padding.
+
+This repo has no `scripts/release-notices.mjs`; matching was done by hand against the released range
+`277ab67525f8..19b0c4218528`, which translates this repo's `WEB_RELEASE_OK` credential into a release
+receipt (kind `hermes-go-web-release-receipt-v1`, SHA-256 over its canonical JSON) whose digest is
+`d661c0ba1a29000227daa2534c7b0ce30ae36d336bdee70bb0efc306c509af95`. MissionGo advanced **HG-186**,
+**HG-185**, **HG-183**, **HG-184**, **HG-180** and **HG-182** to pending verification. **HG-181**
+(PR #517) stays in development complete: its registered artifacts are `gateway` and `web`, this batch
+published only `web`, and the MissionGo tool accepts no `gateway` artifact, so it must not be omitted
+or substituted. The Android/macOS candidates (HG-163, HG-156, HG-162, HG-161, HG-121, HG-155, HG-148,
+HG-134) were untouched. Gateway, Connector, Desktop and Android code were not rebuilt or restarted by
+this publish. Real-device acceptance remains per `docs/SMOKE_TEST.md` and each item's own thread —
+HG-186's toast close, HG-185's iOS composer position, HG-183's account avatar/name in the new-session
+state, HG-184's model-only card row, HG-180's two-step back on HONOR, and HG-182's default-project
+subtitle — and the Web publication does not imply acceptance.
