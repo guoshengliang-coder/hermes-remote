@@ -49,6 +49,7 @@ import { DevicePicker } from "./ui/DevicePicker";
 import { ErrorNotice } from "./ui/ErrorNotice";
 import { Login } from "./ui/Login";
 import { SessionList } from "./ui/SessionList";
+import { SessionToast } from "./ui/SessionToast";
 
 // App shell: capability gate → web session → sign-in → Mac → routes.
 
@@ -461,19 +462,16 @@ export function App() {
         return (
           <>
             {toast ? (
-              <button
-                type="button"
-                class="toast"
-                onClick={() => {
+              <SessionToast
+                title={toast.title}
+                waiting={toast.waiting}
+                t={t}
+                onOpen={() => {
                   setToast(null);
                   navigate({ name: "chat", sessionId: toast.id });
                 }}
-              >
-                <span class={`dot ${toast.waiting ? "dot-warn" : "dot-good"}`} aria-hidden="true" />
-                <span class="toast-text">
-                  {toast.waiting ? t(`「${toast.title}」需要你处理`, `"${toast.title}" needs you`) : t(`「${toast.title}」已完成`, `"${toast.title}" finished`)}
-                </span>
-              </button>
+                onClose={() => setToast(null)}
+              />
             ) : null}
             {flashMessage ? (
               <div class={`flash${flashMessage.error ? " error" : ""}`} role="status" key={flashMessage.id}>
