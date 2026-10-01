@@ -1839,3 +1839,68 @@ left in development complete. Gateway, Connector, Desktop and Android code were 
 nothing was restarted. Real-device acceptance remains per `docs/SMOKE_TEST.md` item 20 — the pull
 gesture cannot be proven by the DOM tests or by a desktop engine — and the Web publication does not
 imply acceptance.
+
+
+### HG-166 publication — Gateway 0.4.29 and Connector 0.1.13, 2026-10-01
+
+The owner explicitly authorized publishing HG-166 (editable default model and session model
+selection). Implementation PR #503 merged as `ce5045110a6436edfc32a8db9e62cef24272d524`;
+version PR #507 merged as `703546092aac740a2b4c5a30b95cb3164c57bc95`. Main CI
+`36743108050`, Gateway OCI `36743107942`, and SAST `36743108065` all succeeded.
+The isolated Mac mini build at that release source passed `npm ci --ignore-scripts`,
+`npm run build`, and `npm test`, including the complete script suite (402 passed, one skipped).
+
+Connector 0.1.13 was packaged on arm64 with Node 22.23.2 from clean current main
+`d9c9713eb325c405aa58d305f20d0b6b6624f9e6` (the only change after 70354609 was the HG-173
+publication record). Both archive build identities name that source. Canonical signing key
+`desktop-internal-2026-a` matched the installed Desktop's trusted public key and previous public
+manifests. The existing Hermes Server 0.21.0 archive remained byte-identical, SHA-256
+`06513b2a2d137d70541d2a7b190ea305365a421f8f90d6e21ebb9e814852dc1e`.
+Both signature verifiers passed locally, and the protected publisher compared every public
+manifest/archive with its local bytes before switching the two stable indexes and pushing
+`desktop-managed-v0.4.8`. Release manifest SHA-256 is
+`eeeaa2305092ded29b6482a39a4ec6b62909afb38c9c36d78d2716830615840c`; component manifest SHA-256 is
+`5fe7a8fe359539c4e70a84dc6cc93b42a372331f95cc035d446c40e0a8411b82`.
+Six exact GET/HEAD Nginx locations were added; prior indexes and immutable artifacts remain available.
+The first SFTP index upload failed before switching; the publisher restored the previous indexes.
+The successful retry used SCP's legacy transport through the same authenticated SSH account and
+unchanged publisher checks. No replacement signing key or hosted-runner secret was provisioned.
+
+The headless upgrade helper could not access the Mac mini login Keychain (`-25308`), including
+after the owner reported unlocking it; no credential was exported or service switched by that helper.
+The owner then updated through Desktop's signed managed prepare/confirm/commit flow. Independent
+reads confirmed `Managed/current -> releases/0.4.8`, `account_active`, bundled layout,
+Connector package version 0.1.13, both managed LaunchAgents running, and unchanged binding generation 7.
+Only this target Mac's installation is verified; publication does not update every user device.
+
+Gateway and operator bundles came from the same successful OCI run. Archive SHA-256 values were
+`ad9342b3cea16fb62b474b23371ded1bc73ff8f269088fae8ecb18216f8f2a7d` and
+`bffe84aadaf3b15fd34bc4c3e37c8f9796af3bcf7fb3275ab751a63c23e76b31`, verified before and
+after transfer and by the extracted operator at `/opt/hermes-go-ops/hg166-703546092aac`.
+Host, disk, and fresh encrypted off-host backup checks passed before and after deployment.
+R5-F1 run `139211ba-574f-4f7f-ad82-124837af4488` committed blue as
+`releases/0.4.29-703546092aac`, retaining green `0.4.28-80e4985446d8` for rollback.
+Authenticated loopback identity independently reported 0.4.29, clean source 70354609, and 342
+artifact files; readiness and database/migration checks passed. Public health and capabilities
+passed, including `default-model-write` and `session-model-config`. The target Mac's generation-7
+account control connection reconnected; the snapshot counted three account-mode connections.
+The internal snapshot stayed publicly inaccessible (404), and the actual model-write device route
+rejected an unauthenticated POST (401). `nginx -t` passed; the production site file stayed
+byte-identical, SHA-256 `8d56d0d406e3b43d87445143fbc108fec9c2fba455bc1deadd718a5c8f3f6e0f`.
+No warning-or-higher blue journal entries were observed in the post-switch window.
+
+Web was already published by the HG-173 release as `0.1.0-703546092aac`, which includes #503.
+An independent build/package of identical Web source reproduced archive SHA-256
+`c440f93aa20748132a8cfb2e3969727509f4ddad5a463c1696843fbf06a052f6`, and complete public reads
+matched all 13 files' sizes and SHA-256 values before and after the Gateway switch. Web was not
+republished merely to change its source label.
+
+Publication evidence SHA-256: `750104d243c171b575a54da30df15cf892f1f2d5c7252e84781204f19876bd91`. The Hermes GO candidate page was read to its end:
+HG-163, HG-156, HG-162, HG-161, HG-121, HG-155, HG-148 require Android App; HG-134 requires
+macOS App. Their merged PR file lists were checked. Neither artifact was published in this batch,
+so no candidate was advanced. HG-166 itself remains `in_progress`: the MCP's required-artifact
+labels cannot represent the separate Gateway runtime and Connector component. Skill 5.16.0
+forbids omitting or mislabelling them; the existing MissionGo issue AND-276 tracks that limitation.
+The publication evidence is written to HG-166's timeline. Real default-model persistence,
+session confirmation/deferred behavior, and mobile/browser visual acceptance remain the HG-166
+steps in `docs/SMOKE_TEST.md`; release checks do not establish acceptance.
