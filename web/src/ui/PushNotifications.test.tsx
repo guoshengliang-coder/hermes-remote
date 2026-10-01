@@ -39,7 +39,7 @@ async function mount() {
     language: "zh",
     t: (zh: string) => zh,
     account: { id: "fixture" },
-  } as AppContextValue;
+  } as unknown as AppContextValue;
   await act(async () => {
     render(
       <AppContext.Provider value={context}>
