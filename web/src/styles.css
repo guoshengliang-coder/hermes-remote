@@ -2560,7 +2560,12 @@ html[data-theme="dark"] .group-header {
 .composer-wrap {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: 0.375rem 0.5rem 0.5rem;
+  /* HG-185: no bottom padding. The disclaimer is the last thing in the block, and the system
+     inset on `.chat-bottom` is the whole bottom margin — the same one-and-only gap the Android
+     client gives (its column padding is 6dp against a 24dp navigation-bar inset). An 8px padding
+     on top of the safe area pushed the input a quarter of a row higher than the phone it was
+     compared against. */
+  padding: 0.375rem 0.5rem 0;
 }
 
 .composer {
