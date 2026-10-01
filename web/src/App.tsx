@@ -417,11 +417,13 @@ export function App() {
   function selectDevice(chosen: AccountDevice) {
     pickerRequest.current++;
     setPickingDevice(false);
+    if (device?.deviceId === chosen.deviceId) return;
     setPushRoute(null);
     writeStoredDevice(chosen.deviceId);
     setDevice(chosen);
     setSessions([]);
     setProjectFilter(null);
+    if (device && (route.name === "chat" || route.name === "new")) navigate({name:"list"});
     setPhase({ name: "ready" });
   }
 
@@ -569,7 +571,7 @@ export function App() {
               </div>
             ) : null}
             {route.name === "chat" || route.name === "new" ? (
-              <ChatPage key={`${device?.deviceId}:${route.name === "chat" ? route.sessionId : "new"}`} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile === "default" ? null : pushRoute.profile : undefined} />
+              <ChatPage key={device?.deviceId} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile === "default" ? null : pushRoute.profile : undefined} />
             ) : route.name === "archived" ? (
               <ArchivedPage />
             ) : route.name === "account" ? (

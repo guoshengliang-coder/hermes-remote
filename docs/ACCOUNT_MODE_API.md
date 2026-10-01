@@ -1300,4 +1300,7 @@ off and enabled states are distinct; notification and badge visibility remain sy
 
 HG-190: switching Mac from an authenticated page overlays the picker. Toolbar/system back
 closes it and retains the original page/Mac; first login without a Mac still requires selection
-or sign-out. A Mac removed during refresh cannot be restored by back.
+or sign-out. A Mac removed during refresh cannot be restored by back. Selecting a different
+Mac from a conversation opens that Mac’s list rather than resuming the old Mac’s session.
+Selecting the already active Mac simply closes the picker. A new conversation adopting its
+stored ID keeps the existing composer/socket; only changing Mac replaces the page instance.
