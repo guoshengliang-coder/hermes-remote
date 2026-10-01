@@ -7,13 +7,14 @@ import { rememberDefaultProject } from "../app/localPrefs";
 import { basename } from "../app/projects";
 import { explicitProfile } from "../app/profile";
 import { isBotSession } from "../app/sources";
-import { navigate } from "../app/router";
+import { navigate, returnFromChat } from "../app/router";
 import { useApp } from "../app/store";
 import type { PendingAttachment } from "../chat/attachments";
 import { hasOpenQuestion, initialChatState, reduceChat, type ChatItem } from "../chat/model";
 import { ChatSession, type BackgroundProcess } from "../chat/session";
 import { followAfterScroll } from "../chat/followBottom";
-import { pillGroup, turnGroups, TURN_PILL_IDLE_HIDE_MS, TURN_PILL_LIST_MIN_GROUPS, type TurnGroup } from "../chat/turns";
+import { usePromptHistory } from "../chat/usePromptHistory";
+import { currentTurnGroup, pillGroup, turnGroups, TURN_PILL_IDLE_HIDE_MS, TURN_PILL_LIST_MIN_GROUPS, type TurnGroup } from "../chat/turns";
 import { formatTimeSeparator, greetingForHour, showsTimeSeparator } from "../chat/transcript";
 import { appError } from "../errors";
 import type { AnswerPlan } from "../hermes/requests";
@@ -104,6 +105,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocus, setSearchFocus] = useState(0);
   const [promptsOpen, setPromptsOpen] = useState(false);
+  const [promptPosition, setPromptPosition] = useState<string | null | undefined>(undefined);
   const [shareOpen, setShareOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [userMenu, setUserMenu] = useState<ChatItem | null>(null);
@@ -304,8 +306,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   // bottom following the stream.
   const [pill, setPill] = useState<TurnGroup | null>(null);
   const pillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function updatePill(el: HTMLDivElement) {
-    const groups = turnGroups(state.items);
+  function groupTops(el: HTMLDivElement, groups: readonly TurnGroup[]) {
     const tops = new Map<string, { top: number; bottom: number }>();
     const base = el.getBoundingClientRect().top - el.scrollTop;
     for (const g of groups) {
@@ -315,6 +316,21 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
       const box = node.getBoundingClientRect();
       tops.set(g.key, { top: box.top - base, bottom: box.bottom - base });
     }
+    return tops;
+  }
+  function openPrompts() {
+    const groups = turnGroups(stateRef.current.items);
+    const el = scroller.current;
+    const current = stick.current ? groups.at(-1) : el ? currentTurnGroup(groups, groupTops(el, groups), el.scrollTop) : undefined;
+    setPromptPosition(current?.key);
+    setPromptsOpen(true);
+  }
+  const promptHistory = usePromptHistory(promptsOpen, Boolean(storedId), state,
+    () => sessionRef.current?.loadFullHistory() ?? Promise.resolve([]),
+    (rows, epoch) => dispatch({ type: "older-loaded", rows, hasMore: false, epoch }));
+  function updatePill(el: HTMLDivElement) {
+    const groups = turnGroups(state.items);
+    const tops = groupTops(el, groups);
     const group = stick.current || searchOpen ? null : pillGroup(groups, tops, el.scrollTop);
     setPill(group);
     if (pillTimer.current) clearTimeout(pillTimer.current);
@@ -517,7 +533,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           />
         ) : (
           <div class="topbar-row">
-            <button type="button" class="icon-button" aria-label={t("返回", "Back")} onClick={() => navigate({ name: "list" })}>
+            <button type="button" class="icon-button" aria-label={t("返回", "Back")} onClick={returnFromChat}>
               <BackIcon />
             </button>
             <div class="chat-title">
@@ -572,9 +588,9 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
                 <SearchIcon size={18} />
                 {t("搜索对话", "Search this chat")}
               </button>
-              <button type="button" role="menuitem" class="menu-item with-icon" onClick={() => { setMenuOpen(false); setPromptsOpen(true); }}>
+              <button type="button" role="menuitem" class="menu-item with-icon" onClick={() => { setMenuOpen(false); openPrompts(); }}>
                 <ListIcon size={18} />
-                {t("我的提问", "Your prompts")}
+                {botRow ? t("对方的提问", "Their prompts") : t("我的提问", "Your prompts")}
               </button>
               <button type="button" role="menuitem" class="menu-item with-icon" disabled={refreshing} onClick={() => { setMenuOpen(false); void refresh(); }}>
                 <RefreshIcon size={18} />
@@ -629,7 +645,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setPill(null);
-                  setPromptsOpen(true);
+                  openPrompts();
                 }}
               >
                 <span class="turn-pill-chip" aria-hidden="true">
@@ -640,7 +656,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
               {turnGroups(state.items).length >= TURN_PILL_LIST_MIN_GROUPS ? (
                 <>
                   <span class="turn-pill-divider" aria-hidden="true" />
-                  <button type="button" class="turn-pill-list" aria-label={t("我的提问", "Your prompts")} onClick={() => { setPill(null); setPromptsOpen(true); }}>
+                  <button type="button" class="turn-pill-list" aria-label={botRow ? t("对方的提问", "Their prompts") : t("我的提问", "Your prompts")} onClick={() => { setPill(null); openPrompts(); }}>
                     <ListIcon size={16} />
                   </button>
                 </>
@@ -784,9 +800,15 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
       {promptsOpen ? (
         <PromptsSheet
           items={state.items}
+          currentKey={promptPosition}
+          bot={Boolean(botRow)}
+          loading={promptHistory.loading}
+          error={promptHistory.error}
+          onRetry={promptHistory.retry}
           onJump={(key) => {
             setPromptsOpen(false);
-            jumpTo(key);
+            if (key) jumpTo(key);
+            else if (scroller.current) { stick.current = false; scroller.current.scrollTop = 0; setAtBottom(false); }
           }}
           onLatest={() => {
             setPromptsOpen(false);

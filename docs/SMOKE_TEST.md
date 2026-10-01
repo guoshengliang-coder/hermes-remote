@@ -1429,6 +1429,36 @@ test stack; stopping the production Mac service is not part of this check.
    Hermes version, phone model, and whether `subagent.list` was available. A cold open cannot
    reconstruct children that finished before Android ever observed them.
 
+## Web / Android alignment follow-up (2026-10-01)
+
+Automated coverage lives in `web/src/chat/attachments.test.ts`, `ui/Composer.test.tsx`,
+`app/routerReturn.test.ts`, `app/useListReturn.test.tsx`, `ui/PromptsSheet.test.tsx`,
+`chat/usePromptHistory.test.tsx`, `chat/model.test.ts` and `errors/errors.test.ts`.
+DOM tests verify behavior and accessible states, not browser layout or physical gestures.
+The browser automation inventory was empty on this host; the following checks remain unverified.
+Use an isolated local stack or explicitly authorized staging, with disposable fixture conversations.
+
+1. Pick and send ordinary PDF/text files at 7 MiB and exactly 50 MiB; bytes reach the Mac unchanged
+   and `file.attach` succeeds. Pick 50 MiB + 1 byte: local `HR-FILE-008`, nothing uploaded. Images
+   remain limited to 6 MiB after processing, at most 9 attachments total. A competing Connector
+   upload shows localized `HR-FILE-009` with Retry. Repeat on Safari/PWA and Android Chrome.
+2. Type text, then immediately tap toolbar Back within 400 ms. Reopen: the latest text remains.
+   Repeat by switching conversation, hiding the tab, backgrounding the PWA, and closing/reopening
+   the browser. Send then leave: no old draft. Sign out then sign in: no old draft restored.
+3. Open a chat from a scrolled archive, then return by toolbar Back and by the system gesture:
+   the archive and position remain. Repeat from title and message search: the original query and
+   result-list position return. Repeat with a focused composer and chat → new chat → first send.
+   A directly opened chat link falls back to the conversation list via toolbar Back.
+4. In a conversation with more than 100 stored messages, scroll to an old turn and open prompts:
+   all prompts are counted, the current row is neutral with a reversed index disc, and two rows
+   remain above it when space permits. Latest and Close stay in the fixed header. Jump to an
+   originally unloaded prompt, an attachment-only prompt and the conversation-start row.
+   Verify bot menu and sheet both say “对方的提问” / “Their prompts”. Test full-history failure
+   and Retry while live responses continue; late partial pages cannot revert the full count.
+5. Check the prompt sheet in light/dark mode, Chinese/English and enlarged text at a narrow mobile
+   width: two-line summaries, time below, neutral active row, accessible current-location state,
+   44 px minimum targets and reachable Latest. Compare against Android `docs/DESIGN.md` §5.4.
+
 ## HG-165 Web composer and Doubao acceptance
 
 Automated tests cover capability gating, microphone policy, PCM conversion and V3 framing, bounded

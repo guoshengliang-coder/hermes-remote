@@ -15,17 +15,19 @@ describe("attachment validation", () => {
     expect(result.rejected.map((r) => r.problem)).toEqual(["too-many", "too-many"]);
   });
 
-  it("refuses non-images over 6 MB and empty files, but keeps large re-encodable images", () => {
+  it("accepts ordinary files through 50 MiB, keeping the 6 MiB image limit", () => {
     const result = checkAttachments(0, [
       file("big.pdf", MAX_ATTACHMENT_BYTES + 1, "application/pdf"),
+      file("limit.txt", 50 * 1024 * 1024, "text/plain"),
+      file("over.pdf", 50 * 1024 * 1024 + 1, "application/pdf"),
       file("empty.txt", 0, "text/plain"),
       file("huge.jpg", MAX_ATTACHMENT_BYTES * 2, "image/jpeg"),
       file("anim.gif", MAX_ATTACHMENT_BYTES + 1, "image/gif"),
       file("ok.pdf", MAX_ATTACHMENT_BYTES, "application/pdf"),
     ]);
-    expect(result.accepted.map((f) => f.name)).toEqual(["huge.jpg", "ok.pdf"]);
+    expect(result.accepted.map((f) => f.name)).toEqual(["big.pdf", "limit.txt", "huge.jpg", "ok.pdf"]);
     expect(result.rejected).toEqual([
-      { name: "big.pdf", problem: "too-large" },
+      { name: "over.pdf", problem: "too-large" },
       { name: "empty.txt", problem: "empty" },
       { name: "anim.gif", problem: "too-large" },
     ]);

@@ -5,6 +5,10 @@
 const KEY = "hermes-go.drafts";
 const MAX_DRAFTS = 50;
 const MAX_CHARS = 8000;
+let epoch = 0;
+
+/** Invalidates mounted writers on sign-out so cleanup cannot restore cleared drafts. */
+export function draftEpoch(): number { return epoch; }
 
 interface DraftRecord {
   text: string;
@@ -68,6 +72,7 @@ export function draftSessions(deviceId: string): Set<string> {
 }
 
 export function clearAllDrafts(): void {
+  epoch++;
   try {
     localStorage.removeItem(KEY);
   } catch {

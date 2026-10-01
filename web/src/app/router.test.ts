@@ -52,7 +52,7 @@ describe("navigate() from an open overlay", () => {
     expect(push).toHaveBeenCalledTimes(1); // the overlay's entry
     navigate({ name: "list" });
     expect(push).toHaveBeenCalledTimes(1);
-    expect(replace).toHaveBeenLastCalledWith(null, "", "/app/");
+    expect(replace).toHaveBeenLastCalledWith(expect.objectContaining({ hrPage: expect.objectContaining({ path: "/app/" }) }), "", "/app/");
     const go = vi.spyOn(history, "go");
     release(); // the overlay unmounts with the old page: nothing left to rewind
     expect(go).not.toHaveBeenCalled();

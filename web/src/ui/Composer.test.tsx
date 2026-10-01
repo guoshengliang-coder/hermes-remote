@@ -5,6 +5,7 @@ import { Composer, type ComposerProps } from "./Composer";
 import { AppContext, type AppContextValue } from "../app/store";
 import { overlayDepth, resetOverlays } from "../app/overlayHistory";
 import type { VoiceEvent } from "../chat/voiceSession";
+import { clearAllDrafts, loadDraft, saveDraft } from "../app/drafts";
 const mocks = vi.hoisted(() => ({ events: null as null | ((e: VoiceEvent) => void), finish: vi.fn(), cancel: vi.fn(() => "半截"), microphone: vi.fn(async () => {}) }));
 vi.mock("../chat/voiceCapture", () => ({ voiceCaptureSupported: () => true, allowMicrophone: mocks.microphone }));
 vi.mock("../chat/voiceSession", () => ({ BrowserVoiceSession: class {
@@ -26,6 +27,72 @@ function type(host: HTMLElement, text: string) {
   return area;
 }
 const settle = async () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
+it.each([7 * 1024 * 1024, 50 * 1024 * 1024])("passes an ordinary %s-byte file to send unchanged", async (size) => {
+  const h = mount(); const file = new File(["fixture"], "report.pdf", { type: "application/pdf" });
+  Object.defineProperty(file, "size", { value: size });
+  const input = h.host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
+  Object.defineProperty(input, "files", { value: [file] });
+  act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); }); await settle();
+  expect(h.host.querySelector(".attachment-file")!.textContent).toContain("report.pdf");
+  act(() => h.host.querySelector<HTMLButtonElement>(".send-button")!.click());
+  expect(h.props.onSend).toHaveBeenCalledWith("", [expect.objectContaining({ file, kind: "file", mimeType: "application/pdf" })]);
+});
+it("rejects an ordinary file above 50 MiB with the registered local error", async () => {
+  const h = mount(); const file = new File(["fixture"], "report.pdf", { type: "application/pdf" });
+  Object.defineProperty(file, "size", { value: 50 * 1024 * 1024 + 1 });
+  const input = h.host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
+  Object.defineProperty(input, "files", { value: [file] });
+  act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); }); await settle();
+  expect(h.host.textContent).toContain("HR-FILE-008");
+  expect(h.host.textContent).toContain("50 MiB");
+  expect(h.host.querySelector(".attachment-file")).toBeNull();
+  expect(h.props.onSend).not.toHaveBeenCalled();
+});
+it("saves when the page becomes hidden", () => {
+  const h = mount({ draftKey: "one" }); type(h.host, "隐藏前输入");
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+  expect(loadDraft("one")).toBe("隐藏前输入");
+});
+it("backgrounding voice after switching chats saves the partial text to the current draft only", async () => {
+  const h = mount({ draftKey: "one" }); type(h.host, "第一份");
+  h.update({ draftKey: "two" }); type(h.host, "第二份");
+  act(() => h.host.querySelector<HTMLButtonElement>(".composer-voice")!.click()); await settle();
+  act(() => { h.host.querySelector<HTMLButtonElement>(".voice-hold")!.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+  expect(loadDraft("one")).toBe("第一份");
+  expect(loadDraft("two")).toBe("第二份\n半截");
+});
+it("flushes the newest draft when leaving within the 400 ms debounce", () => {
+  const h = mount({ draftKey: "one" });
+  type(h.host, "刚输入");
+  act(() => render(null, h.host));
+  expect(loadDraft("one")).toBe("刚输入");
+});
+it("flushes pagehide and conversation changes without copying text to the next draft", () => {
+  saveDraft("two", "第二份");
+  const h = mount({ draftKey: "one" });
+  type(h.host, "第一份");
+  act(() => { window.dispatchEvent(new Event("pagehide")); });
+  expect(loadDraft("one")).toBe("第一份");
+  type(h.host, "第一份更新");
+  h.update({ draftKey: "two" });
+  expect(loadDraft("one")).toBe("第一份更新");
+  expect(h.host.querySelector("textarea")!.value).toBe("第二份");
+  expect(loadDraft("two")).toBe("第二份");
+});
+it("sending or signing out cannot resurrect a draft during unmount", () => {
+  const h = mount({ draftKey: "one" });
+  type(h.host, "发送");
+  act(() => h.host.querySelector<HTMLButtonElement>(".send-button")!.click());
+  act(() => render(null, h.host));
+  expect(loadDraft("one")).toBe("");
+  h.update({}); type(h.host, "退出登录");
+  clearAllDrafts();
+  act(() => render(null, h.host));
+  expect(loadDraft("one")).toBe("");
+});
 it("keeps attach/send fixed beside a long model label and collapses after sending", () => {
   const h = mount({ chip: { label: "long-model-".repeat(40), onClick: () => {} } });
   const area = type(h.host, "你好");

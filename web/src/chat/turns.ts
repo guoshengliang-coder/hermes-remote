@@ -44,16 +44,26 @@ export function pillGroup(
   tops: ReadonlyMap<string, { top: number; bottom: number }>,
   scrollTop: number,
 ): TurnGroup | null {
-  let current: TurnGroup | null = null;
+  const current = currentTurnGroup(groups, tops, scrollTop);
+  if (!current) return null;
+  if (current.key === null) return scrollTop > 0 ? current : null;
+  const anchor = tops.get(current.key);
+  // The bubble is (partly) on screen: the reader can see where this group starts.
+  return !anchor || anchor.bottom > scrollTop ? null : current;
+}
+
+/** Current group also when its prompt is visible (the sheet must highlight it without a pill). */
+export function currentTurnGroup(
+  groups: readonly TurnGroup[],
+  tops: ReadonlyMap<string, { top: number; bottom: number }>,
+  scrollTop: number,
+): TurnGroup | null {
+  let current: TurnGroup | null = groups[0] ?? null;
   for (const group of groups) {
     const top = group.key === null ? 0 : tops.get(group.key)?.top;
     if (top === undefined) continue;
     if (top <= scrollTop + 1) current = group;
     else break;
   }
-  if (!current) return null;
-  if (current.key === null) return scrollTop > 0 ? current : null;
-  const anchor = tops.get(current.key)!;
-  // The bubble is (partly) on screen: the reader can see where this group starts.
-  return anchor.bottom > scrollTop ? null : current;
+  return current;
 }

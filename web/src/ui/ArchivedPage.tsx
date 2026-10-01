@@ -1,4 +1,5 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useState } from "preact/hooks";
+import { useListReturn } from "../app/useListReturn";
 import { hermesPaths } from "../api/gateway";
 import { toAppError } from "../app/failures";
 import { defaultProjectPath } from "../app/localPrefs";
@@ -18,10 +19,12 @@ import { SessionRow } from "./SessionRow";
 export function ArchivedPage() {
   const { t, language, client, device } = useApp();
   const deviceId = device?.deviceId ?? null;
-  const [rows, setRows] = useState<SessionListItem[] | null>(null);
+  const listReturn = useListReturn(`archived:${deviceId}`, { rows: null as SessionListItem[] | null });
+  const [rows, setRows] = useState<SessionListItem[] | null>(listReturn.initial.rows);
   const [error, setError] = useState<AppError | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [actionFor, setActionFor] = useState<SessionListItem | null>(null);
+  useLayoutEffect(() => { listReturn.remember({ rows }); listReturn.restore(); });
 
   useEffect(() => {
     if (!deviceId) return;
@@ -51,7 +54,7 @@ export function ArchivedPage() {
           <span class="topbar-spacer" />
         </div>
       </header>
-      <div class="page-scroll">
+      <div class="page-scroll" ref={listReturn.port}>
         <main class="content">
           {error ? <ErrorNotice error={error} language={language} onRetry={() => setAttempt(attempt + 1)} /> : null}
           {!rows && !error ? <div class="center-spinner"><span class="spinner" /></div> : null}

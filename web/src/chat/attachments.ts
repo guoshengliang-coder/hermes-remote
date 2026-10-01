@@ -1,8 +1,9 @@
-// Outbound attachments: limits from android ui/chat/Attachments.kt (at most 9, 6 MB each), large
+// Outbound attachments: Android limits (at most 9, images 6 MiB, ordinary files 50 MiB), large
 // images re-encoded like AttachmentInput.kt (longest side ≤ 2560 px, JPEG q0.88).
 
 export const MAX_ATTACHMENTS = 9;
 export const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024;
+export const MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 export const MAX_IMAGE_SIDE = 2560;
 export const JPEG_QUALITY = 0.88;
 
@@ -41,7 +42,7 @@ export interface AttachmentCheck {
 /**
  * Which of the picked files fit: count first (existing + new ≤ 9, the rest are refused as
  * too-many), then per-file size. Images over the size cap are accepted when they will be
- * re-encoded, so only non-images are refused for size here.
+ * re-encoded; oversized animated images and ordinary files are refused here.
  */
 export function checkAttachments(existing: number, picked: readonly File[]): AttachmentCheck {
   const accepted: File[] = [];
@@ -59,7 +60,8 @@ export function checkAttachments(existing: number, picked: readonly File[]): Att
       rejected.push({ name: file.name, problem: "empty" });
       continue;
     }
-    if (file.size > MAX_ATTACHMENT_BYTES && !reencodable(file.type)) {
+    const limit = attachmentKind(file.type) === "image" ? MAX_ATTACHMENT_BYTES : MAX_FILE_ATTACHMENT_BYTES;
+    if (file.size > limit && !reencodable(file.type)) {
       rejected.push({ name: file.name, problem: "too-large" });
       continue;
     }

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useListReturn } from "../app/useListReturn";
 import { BackClose } from "../app/useBackClose";
 import { GatewayHttpError, hermesPaths } from "../api/gateway";
 import { botSections, botSourceLabel, botStatusLine } from "../app/bots";
@@ -68,22 +69,27 @@ function GroupHeader({ id, label, count, folded, onToggle }: { id: string; label
 export function SessionList() {
   const app = useApp();
   const { t, language, device, client } = app;
+  const listReturn = useListReturn(`sessions:${device?.deviceId}`, { searching: false, query: "", botFolded: [] as string[] });
   const [loading, setLoading] = useState(app.sessions.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(listReturn.initial.searching);
+  const [query, setQuery] = useState(listReturn.initial.query);
   const [submitNonce, setSubmitNonce] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [projectsOpen, setProjectsOpen] = useState(false);
-  const [botFolded, setBotFolded] = useState<ReadonlySet<string>>(new Set());
+  const [botFolded, setBotFolded] = useState<ReadonlySet<string>>(new Set(listReturn.initial.botFolded));
   const [reveal, setReveal] = useState(0);
   const [actionFor, setActionFor] = useState<SessionListItem | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   /** The list's own scroll port: the page frame never scrolls (HG-173). */
-  const scrollPort = useRef<HTMLDivElement>(null);
+  const scrollPort = listReturn.port;
+  useLayoutEffect(() => {
+    listReturn.remember({ searching, query, botFolded: [...botFolded] });
+    listReturn.restore();
+  });
   const deviceId = device?.deviceId ?? null;
   const offline = device ? device.connector?.online === false : false;
   const filter = app.projectFilter;

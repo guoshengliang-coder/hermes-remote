@@ -387,10 +387,13 @@ export function reduceChat(state: ChatState, action: ChatAction): ChatState {
     case "older-loaded": {
       if (action.epoch !== state.historyEpoch) return { ...state, older: { ...state.older, loading: false } };
       const rows = mergeOlder(state.historyRows, action.rows);
-      return { ...state, historyRows: rows, items: itemsWithRows(state, rows), older: { hasMore: action.hasMore, loading: false, error: null } };
+      // The prompt sheet can finish every page while a previous partial fetch is still travelling.
+      // Within one history epoch, reaching the beginning cannot be undone by that late response.
+      return { ...state, historyRows: rows, items: itemsWithRows(state, rows), older: { hasMore: state.older.hasMore && action.hasMore, loading: false, error: null } };
     }
     case "older-failed":
       if (action.epoch !== state.historyEpoch) return { ...state, older: { ...state.older, loading: false } };
+      if (!state.older.hasMore) return { ...state, older: { ...state.older, loading: false, error: null } };
       return { ...state, older: { ...state.older, loading: false, error: action.error } };
     case "history-missing":
       return { ...state, historyLoaded: true };

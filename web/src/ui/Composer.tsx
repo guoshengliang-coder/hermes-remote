@@ -7,7 +7,7 @@ import {
   prepareImage,
   type PendingAttachment,
 } from "../chat/attachments";
-import { loadDraft, saveDraft } from "../app/drafts";
+import { useDraftText } from "../app/useDraftText";
 import { appError, type AppError, type Language } from "../errors";
 import { ErrorNotice } from "./ErrorNotice";
 import { useApp } from "../app/store";
@@ -53,14 +53,12 @@ export interface ComposerProps {
   onOpenAttachment?: (attachment: PendingAttachment, replace: (next: PendingAttachment) => void, remove: () => void) => void;
 }
 
-/** A transcript attachment is capped like any direct attachment (6 MB, SESSION_EXCHANGE §4.2). */
+/** Generated transcript attachments keep their own 6 MiB cap (SESSION_EXCHANGE §4.2). */
 const MAX_TRANSCRIPT_BYTES = 6 * 1024 * 1024;
 
 const finePointer = () => typeof matchMedia === "function" && matchMedia("(hover: hover) and (pointer: fine)").matches;
 
 let seq = 0;
-
-const DRAFT_DEBOUNCE_MS = 400;
 
 export function Composer({ t, language, generating, disabled, onSend, onInterrupt, draftKey = null, seed = null, chip = null, blocked = null, sessionId = null, voiceReady = true, onOpenAttachment }: ComposerProps) {
   const app = useApp();
@@ -68,7 +66,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const [generatingCount, setGeneratingCount] = useState(0);
   const camera = useRef<HTMLInputElement>(null);
   const photos = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState(() => (draftKey ? loadDraft(draftKey) : ""));
+  const [text, setText, flushDraft] = useDraftText(draftKey);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [problem, setProblem] = useState<AppError | null>(null);
   const [preparing, setPreparing] = useState(false);
@@ -153,7 +151,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     if (disabled || blocked || generating || !voiceReady) cancelVoice(true);
   }, [disabled, blocked, generating, voiceReady]);
   useEffect(() => {
-    const hide = () => { if (document.visibilityState === "hidden") cancelVoice(true); };
+    const hide = () => { if (document.visibilityState === "hidden") { cancelVoice(true); flushDraft(); } };
     document.addEventListener("visibilitychange", hide);
     return () => { document.removeEventListener("visibilitychange", hide); permissionEpoch.current++; voice.current?.cancel(); voice.current = null; };
   }, []);
@@ -171,14 +169,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     cancelVoice(); permissionEpoch.current++; setRequestingMic(false); setVoiceMode(false); setFocused(false);
     setAttachments((current) => { current.forEach((a) => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); }); return []; });
     setProblem(null);
-    setText(draftKey ? loadDraft(draftKey) : "");
   }, [draftKey]);
-
-  useEffect(() => {
-    if (!draftKey) return;
-    const timer = setTimeout(() => saveDraft(draftKey, text), DRAFT_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [text, draftKey]);
 
   useEffect(() => {
     if (!seed) return;
@@ -202,7 +193,8 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     const { accepted, rejected } = checkAttachments(attachments.length, [...list]);
     if (rejected.length) {
       const why = rejected.map((r) => `${r.name}: ${r.problem}`).join("; ");
-      setProblem(appError("HR-WEB-006", `${why} (max ${MAX_ATTACHMENTS} files, 6 MB each)`));
+      const oversizedFile = rejected.some((r) => r.problem === "too-large" && [...list].some((f) => f.name === r.name && attachmentKind(f.type) === "file"));
+      setProblem(appError(oversizedFile ? "HR-FILE-008" : "HR-WEB-006", why));
     } else {
       setProblem(null);
     }
@@ -272,7 +264,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     if (!canSend) return;
     onSend(text.trim(), attachments);
     setText("");
-    if (draftKey) saveDraft(draftKey, "");
+    flushDraft();
     setAttachments([]); // preview URLs now belong to the sent bubble
     setProblem(null);
     collapse();
