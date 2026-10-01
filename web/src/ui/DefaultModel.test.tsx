@@ -44,8 +44,10 @@ it("drops an old Mac's default response and displays only the selected Mac", asy
   act(() => render(<AppContext.Provider value={context("mac-b", client)}><AccountDrawer onClose={() => {}} /></AppContext.Provider>, host));
   await act(async () => { first.resolve({ model: "private-a", provider: "a" }); await first.promise; });
   expect(host.textContent).not.toContain("private-a");
-  await act(async () => { second.resolve({ model: "model-b", provider: "b" }); await second.promise; });
-  expect(host.textContent).toContain("model-b · b");
+  await act(async () => { second.resolve({ model: "model-b", provider: "provider-b" }); await second.promise; });
+  // HG-184: the card page shows the model name only; a provider suffix would be ellipsised away.
+  expect(host.textContent).toContain("model-b");
+  expect(host.textContent).not.toContain("provider-b");
 });
 
 it("restores the profile default through the session action and hides it on read failure", async () => {

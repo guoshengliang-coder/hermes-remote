@@ -29,13 +29,21 @@ export function formatTimeSeparator(ms: number, language: Language, nowMs = Date
   return zh ? `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}` : `${MONTHS[d.getMonth()]} ${d.getDate()} ${d.getFullYear()}, ${hm}`;
 }
 
-export function greetingForHour(hour: number, language: Language): string {
+/**
+ * Time-of-day greeting. A name (the Web account's display name) joins it as "上午好，芯芯",
+ * mirroring Android `NewChatGreeting.greetingForHour(hour, name, language)`; blank names keep the
+ * bare greeting.
+ */
+export function greetingForHour(hour: number, language: Language, name?: string | null): string {
   const zh = language !== "en";
-  if (hour >= 5 && hour <= 8) return zh ? "早上好" : "Good morning";
-  if (hour >= 9 && hour <= 13) return zh ? "上午好" : "Hello";
-  if (hour >= 14 && hour <= 18) return zh ? "下午好" : "Good afternoon";
-  if (hour >= 19 && hour <= 23) return zh ? "晚上好" : "Good evening";
-  return zh ? "夜深了" : "Up late";
+  const base = hour >= 5 && hour <= 8 ? (zh ? "早上好" : "Good morning")
+    : hour >= 9 && hour <= 13 ? (zh ? "上午好" : "Hello")
+      : hour >= 14 && hour <= 18 ? (zh ? "下午好" : "Good afternoon")
+        : hour >= 19 && hour <= 23 ? (zh ? "晚上好" : "Good evening")
+          : zh ? "夜深了" : "Up late";
+  const who = name?.trim();
+  if (!who) return base;
+  return zh ? `${base}，${who}` : `${base}, ${who}`;
 }
 
 function roleLabel(item: ChatItem, language: Language): string {
