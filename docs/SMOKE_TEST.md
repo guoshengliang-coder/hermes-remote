@@ -1084,7 +1084,8 @@ drive against `scripts/dev/web-stack.sh`, 29 checks in Chromium (Android Chrome 
   the preview, back from the preview to the chat with the chip kept. After all of that, one back
   goes to the list — closing overlays with ✕ left no dead history steps.
 - Short screens (915×412 landscape, 412×360 standing in for the keyboard, 852×393 iPhone
-  landscape): the input stops at three lines (76px), the model chip and project line hide, the top
+  landscape): the input stops at three lines (76px), the model chip and project line hide (the
+  chip side of this is superseded by HG-178 below — it now stays), the top
   bar is 40px and the message list keeps 55–67% of the height. A normal portrait input still grows
   to 200px.
 - 344px foldable cover: the crop preset row starts 8px from the left edge and scrolls to its last
@@ -1122,6 +1123,22 @@ inside its card; a two- or three-column table that still fits keeps filling the 
 device the same stylesheet was measured in headless Chrome at a 353px viewport with a 321px card:
 the five-column table went from 305px wide with 42–79px columns (`scrollWidth == clientWidth`, so
 nothing to drag) to 551px with 110px columns (`scrollWidth 567 > clientWidth 321`).
+
+HG-178 expanded-composer uniformity (branch `opencode/hg-178-composer-chip`, Web only): with the
+keyboard up the expanded composer lost its model chip and the control row was right-aligned, so the
+same expanded state looked like two different composers. Both stylesheets that did this
+(`.chat-page.compact-viewport` for the iOS visual viewport, `@media (max-height: 30rem)` for
+landscape and for Chrome shrinking the layout viewport above the keyboard) now leave the chip alone
+and no longer re-align the row. Reproduced and re-checked off device by rendering the real
+`web/src/styles.css` in headless Chromium (Google Chrome, `--headless=new`, 353px-wide composer) in
+three states — 600px viewport (keyboard down), 600px + `.compact-viewport`, and 400px viewport
+(Chrome's shrunken layout viewport). Before: state 1 showed `[mic] [gpt-6.1-sol · 高 ⌄] [＋] [↑]`
+and states 2–3 dropped the chip and clustered `[mic] [＋] [↑]` to the right; after: all three are
+identical. The declarations are pinned by `web/src/ui/ComposerChip.test.ts` (media queries are not
+applied in happy-dom, so the test reads the sheet). **Still needs a real phone**: that Android Chrome
+keeps the chip, unclipped, with the keyboard up at 353px, and that a long model name still ellipsizes
+instead of pushing ＋ / send off screen; the iOS compact path also needs Safari. The composer page
+itself (`scripts/dev/web-stack.sh up`) was not driven for this change.
 
 HG-109 (branch `claude/hg-109-open-latest`, Web only): the mock now pages
 `GET /api/sessions/{id}/messages` the way upstream does (`order=latest` counts back from the newest

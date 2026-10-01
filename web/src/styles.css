@@ -1544,8 +1544,12 @@ html[data-theme="dark"] .group-header {
   --topbar-h: 2.5rem;
 }
 
+/* HG-178: the expanded composer is the same control row whether or not the keyboard is up, so
+   the compact viewport no longer hides the model chip. Hiding it bought no reading room — the
+   chip sits inside the control row that is drawn either way — it only made one expanded state
+   look like a different composer (the report's two screenshots). Only the project / branch line
+   and the progress line go. */
 .chat-page.compact-viewport .chat-title .chat-workspace,
-.chat-page.compact-viewport .model-chip,
 .chat-page.compact-viewport .composer-progress {
   display: none;
 }
@@ -1557,10 +1561,6 @@ html[data-theme="dark"] .group-header {
 .chat-page.compact-viewport .composer-wrap {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
-}
-
-.chat-page.compact-viewport .composer-actions {
-  justify-content: flex-end;
 }
 
 .chat-page.compact-viewport .attachment-strip {
@@ -4540,13 +4540,9 @@ button.chat-workspace:disabled {
     padding-bottom: 0.25rem;
   }
 
-  .model-chip,
+  /* HG-178: the model chip stays, exactly as in the compact viewport above. */
   .composer-progress {
     display: none;
-  }
-
-  .composer-actions {
-    justify-content: flex-end;
   }
 
   .attachment-strip {
