@@ -1904,3 +1904,32 @@ forbids omitting or mislabelling them; the existing MissionGo issue AND-276 trac
 The publication evidence is written to HG-166's timeline. Real default-model persistence,
 session confirmation/deferred behavior, and mobile/browser visual acceptance remain the HG-166
 steps in `docs/SMOKE_TEST.md`; release checks do not establish acceptance.
+
+### Web HG-179, HG-178, HG-180 and HG-177 publication — 2026-10-01
+
+Owner-authorized Web release (approved in the session that fixed HG-179). From an isolated clean
+worktree at `main 277ab67525f8be6c8140a3a2084fa021d07c3d5b` (the merge of PR #513; the range since
+the previous Web publication `703546092aac` also carries PRs #510, #511, #512 and the doc-only
+#508/#509, plus #514, which matched no development-complete candidate), `WEB_PUBLISH_VERIFY_PUBLIC=1
+scripts/publish-web-app.sh` passed typecheck, **656 tests across 63 files**, and build. The installer
+reported
+`{"ok":true,"releaseId":"0.1.0-277ab67525f8","installed":true,"previous":"0.1.0-703546092aac"}`:
+Web `0.1.0-277ab67525f8` replaced `0.1.0-703546092aac`, which stays installed for
+`scripts/publish-web-app.sh --rollback`. The release manifest's archive SHA-256 is
+`21e46f9a90e2f221974aba8221887ffd5b14f35fdbf31ffbf1637850623a689b`. The publisher's own staging
+directory is removed on exit, so the manifest was repackaged from the same clean tree at the same
+commit: independent public reads then matched the size and SHA-256 of all **13** packaged files, and
+the public `/app/` `index.html` matched the local build byte for byte. The live stylesheet carries the
+change — `.jump-latest` now declares `bottom:calc(100% + .5rem)`.
+
+This repo has no `scripts/release-notices.mjs`; matching was done by hand against the released range
+`703546092aac..277ab67525f8`, which translates this repo's `WEB_RELEASE_OK` credential into a release
+receipt whose SHA-256 is
+`22f1c393ca158c0f87e42db9e8165e3efde79648c54e656ff40ff5614efa08fa`. MissionGo advanced **HG-179**,
+**HG-178**, **HG-180** and **HG-177** to pending verification. No Android, Desktop or SDK artifact was
+published by this batch, so the other Hermes GO candidates (HG-163, HG-156, HG-162, HG-161, HG-121,
+HG-155, HG-148, HG-134) were left in development complete. Gateway, Connector, Desktop and Android
+code were untouched and nothing was restarted. Real-device acceptance remains per
+`docs/SMOKE_TEST.md` — HG-179's two-row-composer overlap, HG-178's keyboard-up model chip on Android
+Chrome / iOS Safari, HG-180's system-back-with-keyboard on the HONOR device, and HG-177's
+drawer-overlay layer — and the Web publication does not imply acceptance.
