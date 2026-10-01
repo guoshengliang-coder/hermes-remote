@@ -28,6 +28,24 @@ export function basename(path: string): string {
   return path.split(/[/\\]/).pop() || path;
 }
 
+/** Whether `path` is the default project's folder, ignoring trailing slashes (Android `isDefaultProjectPath`). */
+export function isDefaultProjectPath(path: string | null | undefined, defaultProject: string | null | undefined): boolean {
+  const key = trimPath(path);
+  const base = trimPath(defaultProject);
+  return key !== null && base !== null && key === base;
+}
+
+/**
+ * Display label of a project folder, or `null` when it is the default project (Android
+ * `projectLabelOfPath`). Session rows render nothing for the default project (absence = default);
+ * the chat subtitle spells it out as 「默认项目」.
+ */
+export function projectLabelOfPath(path: string | null | undefined, defaultProject: string | null | undefined): string | null {
+  const key = trimPath(path);
+  if (!key || isDefaultProjectPath(key, defaultProject)) return null;
+  return basename(key);
+}
+
 /** Projects with at least one live (non-archived) session, most recently active first. */
 export function deriveProjects(sessions: readonly SessionListItem[]): DerivedProject[] {
   const byKey = new Map<string | null, DerivedProject>();

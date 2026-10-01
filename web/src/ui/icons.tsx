@@ -170,6 +170,18 @@ export const FolderIcon = (p: IconProps) => (
   </Svg>
 );
 
+/**
+ * The default project's folder (DESIGN §5.4 / §5.21, Android `HomeFolderStrokeIcon`): the same
+ * folder silhouette with a house inside, so the gateway launch directory is recognisable as
+ * 「默认项目」 rather than read as the folder name it happens to sit in.
+ */
+export const HomeFolderIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 7.5a2 2 0 012-2h4l2 2.5h7a2 2 0 012 2v7.5a2 2 0 01-2 2h-13a2 2 0 01-2-2z" />
+    <path d="M9.5 16v-3.2L12 10.7l2.5 2.1V16z" />
+  </Svg>
+);
+
 export const DownloadIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M12 4v11M7 10.5l5 5 5-5M5 20h14" />
