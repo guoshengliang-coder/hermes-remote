@@ -4,6 +4,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -12,6 +13,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.ToolStatus
@@ -19,11 +22,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 /** Consumes every display snapshot, including suppressed ones. There is no pending pulse queue. */
-internal class OutputHapticPolicy(private val intervalMs: Long = 100L) {
+internal class OutputHapticPolicy(private val intervalMs: Long = 100L) : DefaultLifecycleObserver {
     private var streamId: String? = null
     private var previous = ""
     private var wasEligible = false
     private var lastPulse: Long? = null
+
+    // Background frame clocks may stop entirely: reset at the event boundary, even when
+    // there was no suppressed display snapshot to observe before returning.
+    fun resetEligibility() { wasEligible = false }
+    override fun onPause(owner: LifecycleOwner) { resetEligibility() }
+    override fun onResume(owner: LifecycleOwner) { resetEligibility() }
 
     fun observe(id: String?, text: String, eligible: Boolean, nowMs: Long): Boolean {
         val sameStream = id != null && id == streamId
@@ -78,8 +87,17 @@ internal fun StreamingOutputHaptics(
         outputHapticPresentation(displayed, toolDataPlaceholder)
     }
     val latestPresentation by rememberUpdatedState(presentation)
-    val latestAllowed by rememberUpdatedState(enabled && generating && source?.isStreaming == true &&
-        source.tools.none { it.status == ToolStatus.RUNNING })
+    val allowed = enabled && generating && source?.isStreaming == true &&
+        source.tools.none { it.status == ToolStatus.RUNNING }
+    val latestAllowed by rememberUpdatedState(allowed)
+    DisposableEffect(lifecycle, policy) {
+        lifecycle.addObserver(policy)
+        onDispose { lifecycle.removeObserver(policy) }
+    }
+    DisposableEffect(policy, allowed, window.isWindowFocused) {
+        policy.resetEligibility()
+        onDispose { policy.resetEligibility() }
+    }
     val activeId = source?.takeIf { it.isStreaming }?.id
     LaunchedEffect(sessionId, activeId) {
         // Prime on entry/new turns with what is already painted. No historical output is replayed.

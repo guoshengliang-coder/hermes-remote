@@ -1,6 +1,9 @@
 package com.hermes.client.ui.chat
 
 import androidx.compose.ui.geometry.Rect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import org.junit.Assert.*
@@ -48,6 +51,26 @@ class OutputHapticPolicyTest {
         policy.observe("run", "a", false, 0)
         assertFalse(policy.observe("run", "abc", true, 200))
         assertTrue(policy.observe("run", "abcd", true, 300))
+    }
+
+    @Test fun lifecycleReturnDoesNotReplayWhenNoBackgroundFramesWereObserved() {
+        lateinit var registry: LifecycleRegistry
+        val owner = object : LifecycleOwner { override val lifecycle: Lifecycle get() = registry }
+        registry = LifecycleRegistry.createUnsafe(owner)
+        val policy = OutputHapticPolicy()
+        registry.addObserver(policy)
+        registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        policy.observe("run", "a", true, 0)
+        assertTrue(policy.observe("run", "ab", true, 100))
+        registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        // No calls to observe while the frame clock is stopped in the background.
+        registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        assertFalse(policy.observe("run", "abcdef", true, 10000))
+        assertTrue(policy.observe("run", "abcdefg", true, 10100))
+        // Focus / tool / toggle transitions also reset even between sampling frames.
+        policy.resetEligibility()
+        assertFalse(policy.observe("run", "abcdefgh", true, 10200))
+        assertTrue(policy.observe("run", "abcdefghi", true, 10300))
     }
 
     @Test fun onlyVisibleProseIsIncludedNotReasoningToolsOrPlaceholder() {
