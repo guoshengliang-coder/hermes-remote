@@ -1,24 +1,42 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Translate } from "../app/i18n";
 import { voiceActionAt, type VoiceAction, type VoiceTarget } from "../chat/voiceGesture";
+import { VoiceHaptics } from "../chat/voiceHaptics";
 import { CloseIcon, TextIcon } from "./icons";
 
 export interface VoiceComposerProps {
   t: Translate;
   phase: "idle" | "held" | "waiting";
+  recording: boolean;
+  feedbackEnabled: boolean;
   text: string;
   disabled: boolean;
   onBegin: () => void;
   onRelease: (action: VoiceAction) => void;
   onCancelWait: () => void;
 }
-export function VoiceComposer({ t, phase, text, disabled, onBegin, onRelease, onCancelWait }: VoiceComposerProps) {
+export function VoiceComposer({ t, phase, recording, feedbackEnabled, text, disabled, onBegin, onRelease, onCancelWait }: VoiceComposerProps) {
   const [zone, setZone] = useState<VoiceAction>("send");
   const [elapsed, setElapsed] = useState(0);
   const gesture = useRef<{ id: number | "keyboard"; started: number } | null>(null);
   const action = useRef<VoiceAction>("send");
   const cancel = useRef<HTMLButtonElement>(null), edit = useRef<HTMLButtonElement>(null);
   const active = phase !== "idle";
+  const haptics = useRef(new VoiceHaptics());
+  useLayoutEffect(() => {
+    haptics.current.sync(recording && phase === "held" && gesture.current !== null, feedbackEnabled, zone);
+  }, [recording, phase, feedbackEnabled, zone]);
+  useEffect(() => {
+    const reset = () => haptics.current.reset();
+    const hide = () => { if (document.visibilityState === "hidden") reset(); };
+    window.addEventListener("pagehide", reset);
+    document.addEventListener("visibilitychange", hide);
+    return () => {
+      window.removeEventListener("pagehide", reset);
+      document.removeEventListener("visibilitychange", hide);
+      reset();
+    };
+  }, []);
   useEffect(() => {
     if (phase !== "held") return;
     const started = Date.now(); setElapsed(0);
@@ -34,6 +52,7 @@ export function VoiceComposer({ t, phase, text, disabled, onBegin, onRelease, on
     const current = gesture.current;
     if (!current) return;
     gesture.current = null;
+    haptics.current.reset();
     onRelease(force ?? (Date.now() - current.started < 250 ? "cancel" : action.current));
   }
   function target(el: HTMLElement | null): VoiceTarget | null {
@@ -57,7 +76,7 @@ export function VoiceComposer({ t, phase, text, disabled, onBegin, onRelease, on
       }}
       onPointerMove={(e) => {
         if (gesture.current?.id !== e.pointerId) return;
-        const next = voiceActionAt(e.clientX, e.clientY, target(cancel.current), target(edit.current));
+        const next = voiceActionAt(e.clientX, e.clientY, target(cancel.current), target(edit.current), action.current);
         action.current = next; setZone(next);
       }}
       onPointerUp={(e) => { if (gesture.current?.id === e.pointerId) release(); }}

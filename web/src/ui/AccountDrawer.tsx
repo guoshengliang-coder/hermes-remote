@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance";
+import { voiceVibrationSupported } from "../app/voiceFeedback";
 import { useDefaultModel } from "../app/defaultModel";
 import { navigate } from "../app/router";
 import { useApp } from "../app/store";
@@ -7,10 +8,10 @@ import { useBackClose } from "../app/useBackClose";
 import { AccountAvatar } from "./AccountAvatar";
 import { ModelSheet } from "./ModelSheet";
 import { ErrorNotice } from "./ErrorNotice";
-import { ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
+import { ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MicIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
 
 type Translate = (zh: string, en: string) => string;
-type SheetKind = "theme" | "language" | "fontSize" | "model";
+type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback";
 
 const themeLabel = (mode: ThemeMode, t: Translate) =>
   mode === "system" ? t("跟随系统", "Follow system") : mode === "light" ? t("温润浅色", "Warm light") : t("黑曜石深色", "Obsidian dark");
@@ -46,6 +47,11 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
 
   const closeSheet = () => setSheet(null);
   const online = device?.connector?.online === true;
+  const vibrationSupported = voiceVibrationSupported();
+  const feedbackOptions = [
+    { id: "on", label: t("开启", "On"), description: t("语音录制与滑动时震动；浏览器或系统可能限制反馈", "Vibrate during voice recording and sliding; your browser or system may limit feedback") },
+    { id: "off", label: t("关闭", "Off"), description: t("保留语音输入与视觉提示，不使用震动", "Keep voice input and visual cues without vibration") },
+  ] as const;
   const latency = device?.gateway?.latencyMs;
   // HG-184: only the model name, never `模型 · 提供商`. The trailing provider pushed the row
   // past its value slot and ellipsised it, and Android's card page (`CardPage.kt`) shows the same
@@ -124,6 +130,13 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
               <span class="drawer-shortcut-value">{fontSizeLabel(app.fontSize, t)}</span>
               <ChevronIcon />
             </button>
+            <button type="button" class={`drawer-shortcut${vibrationSupported ? "" : " static"}`} aria-label={t("语音震动", "Voice vibration")}
+              disabled={!vibrationSupported} onClick={() => setSheet("voiceFeedback")}>
+              <MicIcon size={20} />
+              <span class="drawer-shortcut-title">{t("语音震动", "Voice vibration")}</span>
+              <span class="drawer-shortcut-value">{!vibrationSupported ? t("当前浏览器不支持", "Unsupported in this browser") : app.voiceFeedback === "off" ? t("关闭", "Off") : t("开启", "On")}</span>
+              {vibrationSupported ? <ChevronIcon /> : null}
+            </button>
           </div>
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>
@@ -138,12 +151,14 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
         onSave={(choice) => { app.setLanguagePreference(choice); closeSheet(); }} onClose={closeSheet} t={t} /> : null}
       {sheet === "fontSize" ? <ChoiceSheet title={t("字体大小", "Font size")} options={fontSizeOptions} inUse={app.fontSize}
         onSave={(size) => { app.setFontSize(size); closeSheet(); }} onClose={closeSheet} t={t} /> : null}
+      {sheet === "voiceFeedback" && vibrationSupported ? <ChoiceSheet title={t("语音震动", "Voice vibration")} options={feedbackOptions} inUse={app.voiceFeedback}
+        onSave={(choice) => { app.setVoiceFeedback(choice); closeSheet(); }} onClose={closeSheet} t={t} /> : null}
     </>
   );
 }
 
 /**
- * One sheet for every card-page choice (主题 / 语言 / 字体大小), so all three behave the same:
+ * One sheet for every card-page choice (主题 / 语言 / 字体大小 / 语音震动):
  * picking only moves the pending item, 当前使用 keeps marking the value actually in force, and
  * 「保存」 is what writes it. Scrim, Escape, the close button and system back all cancel the
  * pending item instead of committing it.

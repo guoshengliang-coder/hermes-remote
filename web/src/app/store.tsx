@@ -6,6 +6,7 @@ import type { SessionListItem } from "../hermes/types";
 import type { GroupId } from "./grouping";
 import type { Translate } from "./i18n";
 import type { FontSize, LanguagePreference, ThemeMode } from "./appearance";
+import type { VoiceFeedback } from "./voiceFeedback";
 import type { InboxState } from "./inbox";
 
 // App-wide state shared through context: the Gateway client, language, the signed-in account,
@@ -28,6 +29,8 @@ export interface AppContextValue {
   setThemeMode: (mode: ThemeMode) => void;
   fontSize: FontSize;
   setFontSize: (size: FontSize) => void;
+  voiceFeedback: VoiceFeedback;
+  setVoiceFeedback: (choice: VoiceFeedback) => void;
   t: Translate;
   account: PublicAccount | null;
   /** Replace the signed-in account after the profile page saves a name or avatar (HG-181). */

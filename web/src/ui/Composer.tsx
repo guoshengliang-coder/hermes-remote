@@ -82,6 +82,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
 
   const [voiceMode, setVoiceMode] = useState(false);
   const [voicePhase, setVoicePhase] = useState<"idle" | "held" | "waiting">("idle");
+  const [voiceRecording, setVoiceRecording] = useState(false);
   const [voiceText, setVoiceText] = useState("");
   const [requestingMic, setRequestingMic] = useState(false);
   const voice = useRef<BrowserVoiceSession | null>(null);
@@ -94,7 +95,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   function cancelVoice(keep = false) {
     const partial = voice.current?.cancel() ?? "";
     voice.current = null;
-    setVoicePhase("idle"); setVoiceText("");
+    setVoicePhase("idle"); setVoiceRecording(false); setVoiceText("");
     if (keep && partial.trim()) { setText((draft) => appendVoiceText(draft, partial)); setVoiceMode(false); setFocused(true); }
   }
   async function enterVoice() {
@@ -122,15 +123,16 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   }
   function beginVoice() {
     if (voice.current || disabled || blocked || generating || !voiceReady || !app.device) return;
-    intent.current = "send"; setVoiceText(""); setVoicePhase("held"); setProblem(null);
+    intent.current = "send"; setVoiceText(""); setVoiceRecording(false); setVoicePhase("held"); setProblem(null);
     const deviceId = app.device.deviceId;
     const recording = new BrowserVoiceSession({
       endpoint: async () => { await app.client.settled(); return paths.deviceVoice(deviceId); },
       onEvent: (event) => {
         if (voice.current !== recording) return;
+        if (event.kind === "recording") { setVoiceRecording(true); return; }
         if (event.kind === "partial") { setVoiceText(event.text); return; }
-        if (event.kind === "waiting") { setVoicePhase("waiting"); return; }
-        voice.current = null; setVoicePhase("idle"); setVoiceText("");
+        if (event.kind === "waiting") { setVoicePhase("waiting"); setVoiceRecording(false); return; }
+        voice.current = null; setVoicePhase("idle"); setVoiceRecording(false); setVoiceText("");
         const state = latest.current;
         if (event.kind === "failed" || intent.current === "edit" || state.disabled || state.blocked || state.generating || !state.voiceReady) {
           if (event.text.trim()) { setText((draft) => appendVoiceText(draft, event.text)); setVoiceMode(false); setFocused(true); }
@@ -152,8 +154,10 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   }, [disabled, blocked, generating, voiceReady]);
   useEffect(() => {
     const hide = () => { if (document.visibilityState === "hidden") { cancelVoice(true); flushDraft(); } };
+    const leave = () => { cancelVoice(true); flushDraft(); };
     document.addEventListener("visibilitychange", hide);
-    return () => { document.removeEventListener("visibilitychange", hide); permissionEpoch.current++; voice.current?.cancel(); voice.current = null; };
+    window.addEventListener("pagehide", leave);
+    return () => { document.removeEventListener("visibilitychange", hide); window.removeEventListener("pagehide", leave); permissionEpoch.current++; voice.current?.cancel(); voice.current = null; };
   }, []);
   // Back leaves the conversation in two steps (HG-180). A focused text field owns a back step of
   // its own — the first back exits the input and returns to the browsing state; only the next back
@@ -407,7 +411,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         ))}
         {voiceMode ? <>
           <button type="button" class="icon-button composer-voice" aria-label={t("切换键盘输入", "Switch to keyboard")} disabled={voicePhase !== "idle"} onClick={() => { cancelVoice(); setVoiceMode(false); setFocused(true); area.current?.focus(); }}><KeyboardIcon /></button>
-          <VoiceComposer t={t} phase={voicePhase} text={voiceText} disabled={disabled || generating || !voiceReady || preparing} onBegin={beginVoice} onRelease={releaseVoice} onCancelWait={() => cancelVoice(true)} />
+          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} disabled={disabled || generating || !voiceReady || preparing} onBegin={beginVoice} onRelease={releaseVoice} onCancelWait={() => cancelVoice(true)} />
           {generating ? sendOrStop() : addButton()}
         </> : <>
         {!focused && voiceAvailable ? <button type="button" class="icon-button composer-voice" aria-label={t("切换语音输入", "Switch to voice input")} disabled={disabled || requestingMic} onClick={() => void enterVoice()}>{requestingMic ? <span class="spinner tiny" /> : <MicIcon />}</button> : null}
