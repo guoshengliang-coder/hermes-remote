@@ -2788,6 +2788,16 @@ html[data-theme="dark"] .group-header {
   animation: sheet-rise 0.22s ease-out;
 }
 
+/* Opened from the card page, a sheet must sit above the drawer (scrim 44 / sheet 45) the way
+   the 主题 / 语言 / 字体大小 choice sheets do (46/47). The shared Sheet is 24/25 for sheets opened
+   over a page, so without this lift the account drawer paints over the default-model sheet. */
+.sheet-scrim.above-drawer {
+  z-index: 46;
+}
+.picker-sheet.above-drawer {
+  z-index: 47;
+}
+
 .picker-head {
   display: flex;
   align-items: center;

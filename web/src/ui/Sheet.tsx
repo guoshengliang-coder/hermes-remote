@@ -13,6 +13,7 @@ export function Sheet({
   children,
   wide,
   headerAction,
+  aboveDrawer,
 }: {
   title?: string;
   closeLabel: string;
@@ -20,6 +21,11 @@ export function Sheet({
   children: ComponentChildren;
   wide?: boolean;
   headerAction?: ComponentChildren;
+  /**
+   * Lift the sheet above the account drawer. The drawer owns z 44/45 while the shared sheet is
+   * 24/25 for in-page use, so a sheet opened from the card page would otherwise paint behind it.
+   */
+  aboveDrawer?: boolean;
 }) {
   useBackClose(onClose);
   useEffect(() => {
@@ -29,8 +35,8 @@ export function Sheet({
   }, [onClose]);
   return (
     <>
-      <div class="sheet-scrim" onClick={onClose} />
-      <div class={`picker-sheet${wide ? " tall" : ""}`} role="dialog" aria-modal="true" aria-label={title ?? closeLabel}>
+      <div class={`sheet-scrim${aboveDrawer ? " above-drawer" : ""}`} onClick={onClose} />
+      <div class={`picker-sheet${wide ? " tall" : ""}${aboveDrawer ? " above-drawer" : ""}`} role="dialog" aria-modal="true" aria-label={title ?? closeLabel}>
         <div class="sheet-grip" aria-hidden="true" />
         {title ? (
           <div class="picker-head">
