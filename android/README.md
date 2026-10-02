@@ -872,6 +872,8 @@ later corrections stay silent. Stop, interruption and errors suppress the remain
 the local Stop latch resets at the next generation, not at completion. Returning establishes a baseline without replay.
 Feedback reads the prose actually published by the async Markdown renderer, even while that parsed
 snapshot trails the next input; equality with a continuously growing input must not starve ticks.
+Loading/processing retains the last published parser success until replacement or block disposal,
+so slower parsing cannot reset the baseline before each new visible snapshot.
 System touch-feedback settings remain authoritative; rejected requests are not retried with a
 stronger vibration. Read/write failures expose retryable HR-STORE-002 and keep this optional feedback
 disabled. API 34+ uses SEGMENT_TICK and API 26–33 CONTEXT_CLICK, which request the ordinary system

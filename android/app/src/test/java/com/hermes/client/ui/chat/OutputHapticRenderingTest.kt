@@ -113,6 +113,7 @@ class OutputHapticRenderingTest {
     }
 
     @Test fun naturalCompletionKeepsFeedbackUntilTheVisibleTailFinishesThenStaysSilent() {
+        DebugLog.setEnabled(true)
         val view = TickOnlyView()
         val viewport = ChatViewportController()
         val window = object : WindowInfo { override val isWindowFocused = true }
@@ -141,7 +142,7 @@ class OutputHapticRenderingTest {
             }
             settle()
         }
-        assertTrue(view.accepted > 0)
+        assertTrue("live output must establish feedback; ${DebugLog.export()}", view.accepted > 0)
         // A final network burst must drain through the real typewriter AND asynchronous parser.
         compose.runOnIdle {
             answer.value = answer.value.copy(text = answer.value.text + "最后一段正文。".repeat(200), isStreaming = false)
