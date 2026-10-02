@@ -1511,6 +1511,7 @@ fun ChatScreen(
                     ) {
                     ChatMessageList(
                         state = state,
+                        outputHapticConfig = outputHaptics.config,
                         outputHapticsEnabled = outputHaptics.feedbackEnabled && !outputHapticsStopped &&
                             state.pendingApproval == null && state.pendingClarify == null &&
                             !projectSheetOpen && !modelSheetOpen && fullscreenTableRaw == null &&

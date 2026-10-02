@@ -2,7 +2,7 @@ package com.hermes.client.ui.chat
 
 import android.os.Build
 import android.os.SystemClock
-import android.view.HapticFeedbackConstants
+import com.hermes.client.data.haptics.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -35,12 +35,12 @@ internal class OutputHapticPolicy(private val intervalMs: Long = 100L) : Default
     override fun onPause(owner: LifecycleOwner) { resetEligibility() }
     override fun onResume(owner: LifecycleOwner) { resetEligibility() }
 
-    fun observe(id: String?, text: String, eligible: Boolean, nowMs: Long): Boolean {
+    fun observe(id: String?, text: String, eligible: Boolean, nowMs: Long, minimumIntervalMs: Long = intervalMs): Boolean {
         val sameStream = id != null && id == streamId
         val appended = sameStream && text.length > previous.length && text.startsWith(previous) &&
             text.substring(previous.length).any { !it.isWhitespace() }
         val pulse = appended && eligible && wasEligible &&
-            (lastPulse == null || nowMs - lastPulse!! >= intervalMs)
+            (lastPulse == null || nowMs - lastPulse!! >= minimumIntervalMs)
         streamId = id
         previous = text
         wasEligible = eligible
@@ -49,13 +49,7 @@ internal class OutputHapticPolicy(private val intervalMs: Long = 100L) : Default
     }
 }
 
-internal fun outputHapticConstant(sdk: Int): Int = when {
-    // All three former constants select texture tick in AOSP, which may be silent on
-    // phones that cannot produce that very soft effect. Request the ordinary system
-    // tick instead; View still owns system settings, intensity and device adaptation.
-    sdk >= 34 -> HapticFeedbackConstants.SEGMENT_TICK
-    else -> HapticFeedbackConstants.CONTEXT_CLICK
-}
+internal fun outputHapticConstant(sdk: Int): Int = systemHapticEffect(OutputHapticType.SYSTEM_TICK, sdk)
 
 internal data class OutputHapticPresentation(
     val text: String,
@@ -107,12 +101,15 @@ internal fun StreamingOutputHaptics(
     displayed: ChatMessage?,
     enabled: Boolean,
     generating: Boolean,
+    config: OutputHapticConfig = OutputHapticConfig(),
     viewport: ChatViewportController,
     toolDataPlaceholder: String,
 ) {
     val view = LocalView.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val window = LocalWindowInfo.current
+    val player = remember(view) { OutputHapticPlayer(AndroidOutputHapticDevice(view)) }
+    val latestConfig by rememberUpdatedState(config.normalized())
     val policy = remember(sessionId) { OutputHapticPolicy() }
     val paintedProse = remember(sessionId) { ParsedOutputHapticPresentation() }
     val presentation = remember(displayed?.id, displayed?.text, displayed?.isError, toolDataPlaceholder) {
@@ -123,12 +120,17 @@ internal fun StreamingOutputHaptics(
         source.tools.none { it.status == ToolStatus.RUNNING }
     val latestAllowed by rememberUpdatedState(allowed)
     DisposableEffect(lifecycle, policy) {
+        val cancellation = object : DefaultLifecycleObserver {
+            override fun onPause(owner: LifecycleOwner) { player.cancel() }
+        }
+        lifecycle.addObserver(cancellation)
         lifecycle.addObserver(policy)
-        onDispose { lifecycle.removeObserver(policy) }
+        onDispose { lifecycle.removeObserver(policy); lifecycle.removeObserver(cancellation); player.cancel() }
     }
-    DisposableEffect(policy, allowed, window.isWindowFocused) {
+    DisposableEffect(policy, allowed, window.isWindowFocused, config) {
         policy.resetEligibility()
-        onDispose { policy.resetEligibility() }
+        player.cancel()
+        onDispose { policy.resetEligibility(); player.cancel() }
     }
     val activeId = source?.takeIf { it.isStreaming }?.id
     LaunchedEffect(sessionId, activeId) {
@@ -137,7 +139,7 @@ internal fun StreamingOutputHaptics(
         if (activeId == null) return@LaunchedEffect
         var loggedGate: String? = null
         var loggedGateAt: Long? = null
-        var loggedAcceptance: Boolean? = null
+        var loggedAcceptance: HapticRequestResult? = null
         while (isActive) {
             // Wait for placement of the paced display snapshot, not for a WebSocket packet.
             withFrameNanos { }
@@ -162,15 +164,14 @@ internal fun StreamingOutputHaptics(
                 loggedGate = gate
                 loggedGateAt = now
             }
-            if (policy.observe(activeId, current.text, eligible, now)) {
-                // No ignore-setting flags, VIBRATE permission, waveform, or strong fallback.
-                val effect = outputHapticConstant(Build.VERSION.SDK_INT)
-                val accepted = view.performHapticFeedback(effect)
-                if (accepted != loggedAcceptance) {
+            if (!eligible) player.cancel()
+            if (policy.observe(activeId, current.text, eligible, now, latestConfig.intervalMs.toLong())) {
+                val result = player.request(latestConfig)
+                if (result != loggedAcceptance) {
                     DebugLog.log("haptics") {
-                        "output request effect=$effect accepted=$accepted viewEnabled=${view.isHapticFeedbackEnabled}"
+                        "output request type=${latestConfig.type} result=$result interval=${latestConfig.intervalMs}"
                     }
-                    loggedAcceptance = accepted
+                    loggedAcceptance = result
                 }
             }
             delay(64L)

@@ -10,6 +10,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OutputHapticPolicyTest {
+    @Test fun savedMinimumIntervalIsAppliedAndChangingParametersDoesNotReplay() {
+        val policy = OutputHapticPolicy()
+        policy.observe("run", "a", true, 0, 40)
+        assertTrue(policy.observe("run", "ab", true, 40, 40))
+        assertFalse(policy.observe("run", "abc", true, 80, 500))
+        assertFalse(policy.observe("run", "abcd", true, 500, 500))
+        assertTrue(policy.observe("run", "abcde", true, 540, 500))
+        policy.resetEligibility()
+        assertFalse(policy.observe("run", "abcdef", true, 1040, 40))
+        assertTrue(policy.observe("run", "abcdefg", true, 1080, 40))
+    }
+
     @Test fun pacedOutputIsBoundedAndNeverQueuesPulses() {
         val policy = OutputHapticPolicy()
         assertFalse(policy.observe("run", "", true, 0))

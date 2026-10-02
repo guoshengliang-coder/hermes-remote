@@ -207,7 +207,7 @@ object AppModule {
         settings: com.hermes.client.data.repository.SettingsStore,
         scope: CoroutineScope,
     ): com.hermes.client.ui.settings.OutputHapticsSettings =
-        com.hermes.client.ui.settings.OutputHapticsSettings(settings.outputHaptics, settings::setOutputHaptics, scope)
+        com.hermes.client.ui.settings.OutputHapticsSettings(settings.outputHaptics, settings::setOutputHaptics, scope, settings.outputHapticConfig, settings::setOutputHapticConfig)
 
 
     @Provides

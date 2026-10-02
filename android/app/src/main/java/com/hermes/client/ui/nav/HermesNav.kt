@@ -682,10 +682,14 @@ fun HermesNav(
                 com.hermes.client.ui.settings.DiagnosticsScreen(
                     onBack = { nav.popBackStack() },
                     onOpenGallery = { nav.navigate("component_gallery") { launchSingleTop = true } },
+                    onOpenHapticTuning = { nav.navigate("settings_haptic_tuning") { launchSingleTop = true } },
                     // TUNING-TEMP: the entry moved here from the settings hub (HG-53); the route
                     // itself is unchanged.
                     onOpenTuning = { nav.navigate("settings_tuning") { launchSingleTop = true } },
                 )
+            }
+            composable("settings_haptic_tuning") {
+                com.hermes.client.ui.settings.OutputHapticTuningScreen(onBack = { nav.popBackStack() })
             }
             composable("component_gallery") {
                 com.hermes.client.ui.gallery.ComponentGalleryScreen(onBack = { nav.popBackStack() })

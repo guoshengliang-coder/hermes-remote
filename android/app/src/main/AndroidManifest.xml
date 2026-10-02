@@ -9,6 +9,8 @@
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Explicit custom touch pulses selected in Diagnostics; never bypass system touch settings. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Explicit because the QR scanner also contributes this permission at manifest merge time.
          Once CAMERA is present in the installed APK, ACTION_IMAGE_CAPTURE requires a runtime grant. -->

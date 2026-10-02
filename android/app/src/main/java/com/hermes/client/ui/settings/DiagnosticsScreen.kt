@@ -43,6 +43,7 @@ import com.hermes.client.ui.localization.l10n
 fun DiagnosticsScreen(
     onBack: () -> Unit,
     onOpenGallery: () -> Unit = {},
+    onOpenHapticTuning: () -> Unit = {},
     // TUNING-TEMP: goes away with ui/tuning/.
     onOpenTuning: () -> Unit = {},
     vm: DiagnosticsViewModel = hiltViewModel(),
@@ -87,6 +88,12 @@ fun DiagnosticsScreen(
                 headlineContent = { Text(l10n("组件展廊", "Component gallery")) },
                 supportingContent = { Text(l10n("用固定假数据渲染聊天组件的各个状态，用于视觉检查。", "Chat components rendered from fixed fake data, for visual checks.")) },
                 modifier = Modifier.clickable(onClick = onOpenGallery),
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text(l10n("输出触觉调参", "Output haptics tuning")) },
+                supportingContent = { Text(l10n("试听反馈类型、间隔、力度与时长，保存为本机默认。", "Preview effects, interval, strength and duration. Save defaults on this device.")) },
+                modifier = Modifier.clickable(onClick = onOpenHapticTuning),
             )
             HorizontalDivider()
             // TUNING-TEMP: a spike panel for dialling in the session list on a device. It sits

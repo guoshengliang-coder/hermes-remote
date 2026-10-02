@@ -9,6 +9,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun hapticPreviewFailureHasStableLocalizedRecoverableRedactedContract() {
+        val error = AppError(AppErrorCode.OUTPUT_HAPTIC_PREVIEW_FAILED, true, "token=secret password=hidden", "output_haptic_preview")
+        assertEquals(error.code, AppErrorCode.fromValue("HR-HAPTIC-001"))
+        assertEquals("无法播放触觉试听，请检查系统触觉设置或更换反馈类型。", error.localizedSummary(AppLanguage.ZH))
+        assertEquals("Couldn't play the haptics preview. Check system haptics settings or choose another effect.", error.localizedSummary(AppLanguage.EN))
+        assertTrue(error.retryable)
+        assertFalse(error.sanitizedDiagnostic().contains("secret"))
+        assertFalse(error.sanitizedDiagnostic().contains("hidden"))
+    }
+
     @Test fun outgoing_upload_errors_are_bilingual_distinct_and_redact_diagnostics() {
         val cases = listOf(
             AppError(AppErrorCode.UPLOAD_TOO_LARGE, retryable = false, technicalCause = "token=secret"),

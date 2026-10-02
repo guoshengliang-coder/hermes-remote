@@ -157,6 +157,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法保存身份设置，请重试。", "Couldn't save the profile settings. Retry.")
         AppErrorCode.OUTPUT_HAPTICS_SETTINGS_FAILED ->
             localized(language, "无法读取或保存输出触感设置，请重试。", "Couldn't read or save output haptics settings. Retry.")
+        AppErrorCode.OUTPUT_HAPTIC_PREVIEW_FAILED ->
+            localized(language, "无法播放触觉试听，请检查系统触觉设置或更换反馈类型。", "Couldn't play the haptics preview. Check system haptics settings or choose another effect.")
         AppErrorCode.SESSION_NOT_FOUND ->
             localized(language, "会话不存在或已被删除。", "The conversation no longer exists or was deleted.")
         AppErrorCode.PROJECT_FOLDER_MISSING ->

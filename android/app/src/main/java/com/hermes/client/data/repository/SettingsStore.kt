@@ -35,6 +35,7 @@ class SettingsStore(
     private val themeKey = stringPreferencesKey("theme_mode")
     private val debugLoggingKey = booleanPreferencesKey("debug_logging")
     private val outputHapticsKey = booleanPreferencesKey("output_haptics")
+    private val outputHapticConfigKey = stringPreferencesKey("output_haptic_parameters_v1")
     private val languageKey = stringPreferencesKey("app_language")
     // Usage page window. A viewing preference, so it stays on the device and is never synced
     // or scoped per profile (DESIGN.md §5.14).
@@ -84,6 +85,14 @@ class SettingsStore(
 
     /** HG-187: a device preference, independent of the selected profile. */
     val outputHaptics: Flow<Boolean> = context.settingsDataStore.data.map { it[outputHapticsKey] ?: true }
+
+    val outputHapticConfig: Flow<com.hermes.client.data.haptics.OutputHapticConfig> = context.settingsDataStore.data.map {
+        com.hermes.client.data.haptics.OutputHapticParameters.decode(it[outputHapticConfigKey])
+    }
+
+    suspend fun setOutputHapticConfig(config: com.hermes.client.data.haptics.OutputHapticConfig) {
+        context.settingsDataStore.edit { it[outputHapticConfigKey] = com.hermes.client.data.haptics.OutputHapticParameters.encode(config) }
+    }
 
     suspend fun setOutputHaptics(enabled: Boolean) {
         context.settingsDataStore.edit { it[outputHapticsKey] = enabled }

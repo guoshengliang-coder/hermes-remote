@@ -1579,7 +1579,7 @@ cannot show where the pill lands on a phone, so the layout itself still needs a 
    0.1.160 and Grok: ordinary ticks must remain light and short without the old texture tick's
    silent omission. Check supported vendor ROMs for strength/system-disable behaviour. A rejected
    effect must not become a strong or continuous fallback vibration. If feedback is absent, enable
-   diagnostics and collect `haptics` gate/request lines: `accepted=true` only means the system
+   diagnostics and collect `haptics` gate/request lines: `result=REQUESTED` only means the system
    accepted a request, not that the motor physically ran. No answer text is logged.
 7. Check the setting in Chinese and English, effective light/dark theme (including system light
    with app dark), and fontScale 1.3. Check switch semantics and full-row toggling. Inject a
@@ -1587,9 +1587,27 @@ cannot show where the pill lands on a phone, so the layout itself still needs a 
    write, diagnostics are only behind Details/Copy and redact credentials. Do not present a failed
    save as a successful switch.
 
+8. Open Diagnostics → Output haptics tuning in Chinese/English, app light/dark and fontScale 1.3.
+   Scroll to all controls/actions. Check default system tick/100ms, soft tick and keyboard tap.
+   If amplitude control is absent, custom pulse is disabled and never falls back to full strength.
+   On a capable physical phone choose custom pulse; tune 40–500ms spacing, 1–30ms duration and
+   1–255 strength. Preview once and Preview 1 second; compare comfort with Grok on the same phone.
+9. During a one-second preview press Stop, change a slider/type, navigate back, switch apps and lock
+   the phone. No queued requests continue. Disable system touch feedback: custom and system previews
+   are suppressed with localized HR-HAPTIC-001 and a working Retry/choose-effect recovery.
+   Details must redact credentials. System effects have no independent duration/strength controls.
+10. Change a draft and leave without saving: chat keeps its previous parameters. Save, force-stop
+    and relaunch (this case does not inspect notifications), then switch profiles: the values persist.
+    Inject a write failure: HR-STORE-002, old chat settings preserved, Retry saves the exact failed
+    choice. Reset only changes the draft. Copy JSON: schemaVersion=1 plus type/interval/duration/
+    amplitude only. Record chosen values for a future built-in-default change; this release must not
+    guess them or enable output for a user who explicitly switched it off.
+
 Automated evidence covers the real list's paced reveal/async Markdown/visible tail producing system
 requests, disabled output silence, pacing/no replay, visible-tail geometry, API selection, persistent choice,
-read/write failure recovery and bilingual/redacted errors. Physical haptics and Grok comparison remain
+read/write failure recovery, versioned parameter persistence/copy, capability gating, finite preview
+cancellation/replacement, saved interval application, scrollable light/dark/large-font controls and
+bilingual/redacted errors. Physical haptics and Grok comparison remain
 manual acceptance; test against a locally built APK only, restore local dev routing afterwards.
 
 ## HG-190/HG-191 · Web Mac return and PWA push — device/production verification pending

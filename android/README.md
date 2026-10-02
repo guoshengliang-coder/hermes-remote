@@ -857,7 +857,8 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 ## Output haptics (HG-187)
 
 Settings → Output haptics defaults on and remembers the explicit device-local choice. Only newly
-revealed assistant answer text produces a light system tick, at most once per 100ms; reasoning,
+revealed assistant answer text produces feedback (built-in default: ordinary system tick, minimum
+100ms interval); reasoning,
 tools and receiving placeholders do not. The chat must be resumed, focused and showing the actual
 end of the prose. Scrolling into history, overlays, tool waits, completion, Stop, navigation,
 backgrounding and locking suspend feedback. Returning establishes a baseline without replay.
@@ -870,6 +871,21 @@ tick rather than the texture tick that some phones omit. Diagnostic category `ha
 reasons and whether the system accepted a request, without answer text. Acceptance is not proof of
 physical vibration. Hardware strength and long-answer comfort require the same physical phone comparison
 with Grok; 100ms is a prototype throttle, not a claim about Grok. See `docs/SMOKE_TEST.md` HG-187.
+
+Diagnostics → Output haptics tuning provides system tick, soft tick, keyboard tap and custom short
+pulse, plus a 40–500ms minimum interval. Only devices with amplitude control can select custom pulse;
+it exposes duration (1–30ms) and strength (1–255). Custom pulses require VIBRATE and use touch/sonification
+attributes; they still respect system touch settings, foreground/focus and all existing chat gates.
+System effects keep device-controlled duration/strength. The minimum interval cannot force feedback
+faster than the actual visible text reveal.
+
+Edits are drafts until Save as device default succeeds. The device-local versioned preference survives
+restart, upgrade and profile switching; output-off remains off. Preview once / Preview 1 second are
+explicit, finite auditions independent of the app toggle. Stop, draft changes, leaving the screen,
+backgrounding or focus loss cancel them; platform suppression/failure has localized, retryable
+HR-HAPTIC-001 with redacted details. Reset restores the built-in **draft**, requiring Save to apply.
+Copy parameters exports a schema-versioned JSON containing only the chosen haptics parameters.
+Freezing a new built-in default happens in a later release, after the user supplies their chosen values.
 
 ## Runtime language contract
 
