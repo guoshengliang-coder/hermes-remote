@@ -62,6 +62,16 @@ class OutputHapticRenderingTest {
         }
     }
 
+    private fun advanceUntil(message: String, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + 10_000_000_000L
+        while (!condition() && System.nanoTime() < deadline) {
+            compose.mainClock.advanceTimeBy(80)
+            Thread.sleep(30)
+            compose.waitForIdle()
+        }
+        assertTrue(message, condition())
+    }
+
     @Test fun newlyRenderedProseRequestsAnOrdinaryTickAndDisabledOutputStaysSilent() {
         val view = TickOnlyView()
         val viewport = ChatViewportController()
@@ -126,6 +136,9 @@ class OutputHapticRenderingTest {
         settle()
         repeat(3) {
             compose.runOnIdle { answer.value = answer.value.copy(text = answer.value.text + "已有正文。") }
+            advanceUntil("the live baseline must actually paint") {
+                viewport.parsedOutputContent("answer:markdown:0") == answer.value.text
+            }
             settle()
         }
         assertTrue(view.accepted > 0)
@@ -135,12 +148,12 @@ class OutputHapticRenderingTest {
             generating.value = false
         }
         val beforeCompletion = view.accepted
-        settle()
-        assertTrue("visible prose must still be draining", viewport.parsedOutputContent("answer:markdown:0")!!.length < answer.value.text.length)
-        assertTrue("network completion must not stop visible-tail feedback", view.accepted > beforeCompletion)
-        repeat(30) {
-            if (viewport.parsedOutputContent("answer:markdown:0") != answer.value.text) settle()
+        advanceUntil("network completion must not stop visible-tail feedback") { view.accepted > beforeCompletion }
+        assertTrue("visible prose must still be draining", viewport.parsedOutputContent("answer:markdown:0").orEmpty().length < answer.value.text.length)
+        advanceUntil("all final prose must paint, including parser-only updates") {
+            viewport.parsedOutputContent("answer:markdown:0") == answer.value.text
         }
+        settle()
         assertEquals(answer.value.text, viewport.parsedOutputContent("answer:markdown:0"))
         compose.onAllNodesWithText(answer.value.text, useUnmergedTree = true).assertCountEquals(1)
         val afterPaint = view.accepted
@@ -177,6 +190,9 @@ class OutputHapticRenderingTest {
         settle()
         repeat(3) {
             compose.runOnIdle { answer.value = answer.value.copy(text = answer.value.text + "已有正文。") }
+            advanceUntil("the live baseline must actually paint") {
+                viewport.parsedOutputContent("answer:markdown:0") == answer.value.text
+            }
             settle()
         }
         assertTrue(view.accepted > 0)
@@ -203,6 +219,9 @@ class OutputHapticRenderingTest {
         settle()
         repeat(3) {
             compose.runOnIdle { answer.value = answer.value.copy(text = answer.value.text + "新一轮正文。") }
+            advanceUntil("each new-run update must paint before the next delta") {
+                viewport.parsedOutputContent("next-answer:markdown:0") == answer.value.text
+            }
             settle()
         }
         assertTrue("a new run must recover after interruption", view.accepted > beforeStop)
