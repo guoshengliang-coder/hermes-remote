@@ -181,7 +181,8 @@ fun ChatScreen(
     val outputHaptics by settingsVm.outputHaptics.state.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
     var outputHapticsStopped by rememberSaveable(sessionId) { mutableStateOf(false) }
-    LaunchedEffect(state.isGenerating) { if (!state.isGenerating) outputHapticsStopped = false }
+    // A stopped visual tail stays silent after its network terminal event.
+    LaunchedEffect(state.isGenerating) { if (state.isGenerating) outputHapticsStopped = false }
     val stopGeneration = { outputHapticsStopped = true; vm.stop() }
 
     val connState by vm.connectionState.collectAsStateWithLifecycle()

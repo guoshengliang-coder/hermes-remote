@@ -2262,8 +2262,11 @@ internal fun AssistantMarkdownBlock(
     val renderable = remember(content) { withCjkEmphasisRepaired(content) }
     val markdownState = com.mikepenz.markdown.model.rememberMarkdownState(renderable)
     val parsed by markdownState.state.collectAsState()
+    // Read during composition, not only inside SideEffect: otherwise the metadata observer
+    // misses parser-only updates even though HermesMarkdown itself displays the final text.
+    val parsedContent = (parsed as? com.mikepenz.markdown.model.State.Success)?.content
     androidx.compose.runtime.SideEffect {
-        viewport?.updateOutputParsedContent(anchorKey, (parsed as? com.mikepenz.markdown.model.State.Success)?.content)
+        viewport?.updateOutputParsedContent(anchorKey, parsedContent)
     }
     HermesMarkdown(
         surface = MarkdownSurface.CHAT,

@@ -1568,13 +1568,16 @@ cannot show where the pill lands on a phone, so the layout itself still needs a 
    being on. Re-enable system feedback and confirm only subsequent output ticks resume.
 3. Use a bursty stream, then silence, thinking-only output and a running tool. Ticks follow the
    paced visible answer, with none on silence, reasoning, tools or receiving placeholders. Test
-   a code block/table too. No pulse queue drains after a burst or at message completion.
+   a code block/table too. Send a large final burst followed immediately by completion: ticks
+   continue with newly painted tail text through the async Markdown renderer, then stop when that
+   text finishes. No independent pulse queue or ticks on later completed-history corrections.
 4. While streaming a long answer, scroll until its growing end is offscreen (even if the earlier
    prose is still visible). No ticks. Return to latest: no replay; only further new text ticks.
 5. Open a sheet/fullscreen image/table, leave the chat, switch chats/profiles, switch apps and lock
-   the phone during output. All suspend ticks. Return/reopen: existing content is silent. Finish,
-   fail, press Stop (including an offline/slow interrupt RPC), or enter approval/clarification:
-   no further output ticks for that run.
+   the phone during output. All suspend ticks. Return/reopen: existing content is silent. Fail,
+   interrupt from another client, press Stop (including an offline/slow interrupt RPC), or enter approval/clarification:
+   no further output ticks for that run, even while the visual buffer drains after its terminal
+   event. Start another run: only its subsequent visible prose can resume feedback.
 6. On API 34+ check SEGMENT_TICK; on 26–33 check CONTEXT_CLICK. Compare the same phone with
    0.1.160 and Grok: ordinary ticks must remain light and short without the old texture tick's
    silent omission. Check supported vendor ROMs for strength/system-disable behaviour. A rejected
