@@ -19,6 +19,8 @@ async function withHost(
   const root = await mkdtemp(join(tmpdir(), "hr-web-app-"));
   const dist = join(root, "dist");
   await mkdir(join(dist, "assets"), { recursive: true });
+  await mkdir(join(dist, "charts"));
+  for (const file of ["chart.html", "engine.js", "chart.js", "chart.css", "other.html"]) await writeFile(join(dist, "charts", file), "fixed fixture");
   await writeFile(join(dist, "index.html"), "<!doctype html><title>Hermes GO</title>");
   await writeFile(join(dist, "assets", "index-abc123.js"), "console.log('app')");
   await writeFile(join(dist, "sw.js"), "self.addEventListener('fetch', () => {})");
@@ -136,5 +138,27 @@ test("path traversal, dotfiles, encoded separators and symlinks out of the build
       assert.notEqual(response.body, "outside the build", path);
       assert.equal(response.status, 404, path);
     }
+  });
+});
+
+
+test("only the four fixed chart resources get the opaque-sandbox exception", async () => {
+  await withHost(async get => {
+    const chart = await get("/app/charts/chart.html");
+    const csp = String(chart.headers["content-security-policy"]);
+    assert.match(csp, /sandbox allow-scripts(?:;|$)/);
+    assert.doesNotMatch(csp, /allow-same-origin|unsafe-inline|unsafe-eval/);
+    assert.match(csp, /connect-src 'none'/);
+    assert.match(csp, /frame-ancestors 'self'/);
+    assert.equal(chart.headers["permissions-policy"], "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    for (const file of ["chart.html", "engine.js", "chart.js", "chart.css"]) {
+      const res = await get(`/app/charts/${file}`);
+      assert.equal(res.headers["cache-control"], "no-cache");
+      assert.equal(res.headers["cross-origin-resource-policy"], "cross-origin");
+    }
+    const other = await get("/app/charts/other.html");
+    assert.equal(other.headers["cross-origin-resource-policy"], "same-origin");
+    assert.equal(other.headers["x-frame-options"], "DENY");
+    assert.match(String((await get("/app/")).headers["content-security-policy"]), /frame-src 'self'/);
   });
 });

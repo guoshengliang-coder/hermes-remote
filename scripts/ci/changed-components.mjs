@@ -38,6 +38,7 @@ export function classifyChangedPaths(paths) {
     // and workspace changes select the Web job only through the files it calls.
     if (
       file.startsWith('web/') ||
+      file.startsWith('android/app/src/main/assets/table-chart/') ||
       WEB_CONTRACT_FILES.includes(file) ||
       /^gateway\/src\/account\/[^/]+-http-controller\.ts$/.test(file)
     ) result.web = true;

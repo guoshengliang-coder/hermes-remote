@@ -45,6 +45,8 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry(localized(language, "通知", "Notifications"), localized(language, "审批、定时任务和消息提醒", "Approvals, cron, and messaging alerts")) { onNavigate("settings_notifications") }
             HorizontalDivider()
+            DataPresentationSetting()
+            HorizontalDivider()
             OutputHapticsSetting(outputHaptics, vm.outputHaptics::setEnabled, vm.outputHaptics::retry)
             HorizontalDivider()
             Entry(localized(language, "记忆与预算", "Memory & budgets"), localized(language, "记忆、用户资料和默认模型", "Memory, user profile & default model")) { onNavigate("settings_memory") }

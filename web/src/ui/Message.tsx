@@ -1,3 +1,4 @@
+import type { ChartContext } from "../charts/card";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { useApp } from "../app/store";
 import { appError } from "../errors";
@@ -376,7 +377,7 @@ function ActionRow({ item, actions }: { item: ChatItem; actions: MessageActions 
   );
 }
 
-export function MessageView({ item, actions = {} }: { item: ChatItem; actions?: MessageActions }) {
+export function MessageView({ item, actions = {}, chartContext }: { item: ChatItem; actions?: MessageActions; chartContext?: ChartContext }) {
   const { language, t } = useApp();
 
   // While streaming, mask unfinished payloads and pull finished ones into cards per snapshot, so
@@ -458,7 +459,7 @@ export function MessageView({ item, actions = {} }: { item: ChatItem; actions?: 
           {blockImages.map((img, i) => <MacImage key={img.path} path={img.path!} name="" onOpen={opener(images.length + i)} />)}
         </div>
       ) : null}
-      {display.text ? <Markdown source={display.text} streaming={item.streaming} /> : null}
+      {display.text ? <Markdown source={display.text} streaming={item.streaming} chartContext={item.role === "assistant" ? chartContext : undefined} /> : null}
       {blockLinks.map((img) => (
         <a class="media-link" href={img.url} target="_blank" rel="noopener noreferrer" key={img.url}>
           {img.url}

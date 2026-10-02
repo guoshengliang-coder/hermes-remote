@@ -1,3 +1,4 @@
+import { clearCharts } from "../charts/model";
 // Small per-Mac preferences kept in this browser and cleared on sign-out: recent searches (Android
 // DataStore `recent_searches`, 8 newest) and the default project's folder, learned from the cwd a
 // top-level `session.create` lands in (Android `project_prefs.default_project_path`).
@@ -63,6 +64,7 @@ export function rememberDefaultProject(deviceId: string, cwd: string | null | un
 
 /** Sign-out: every per-Mac preference in this browser. */
 export function clearLocalPrefs(): void {
+  clearCharts();
   try {
     const doomed: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {

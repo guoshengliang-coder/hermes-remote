@@ -113,7 +113,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const [refreshing, setRefreshing] = useState(false);
   const [userMenu, setUserMenu] = useState<ChatItem | null>(null);
   const [sourceItem, setSourceItem] = useState<ChatItem | null>(null);
-  const [seed, setSeed] = useState<{ text: string; nonce: number } | null>(null);
+  const [seed, setSeed] = useState<{ text: string; nonce: number; append?: boolean } | null>(null);
   const [botNotice, setBotNotice] = useState<{ text: string; attachments: PendingAttachment[] } | null>(null);
   // Web batch 4
   const [manage, setManage] = useState<"archive" | "move" | null>(null);
@@ -692,13 +692,18 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
               <p class="empty-chat">{t("发条消息，开始和 Hermes 对话。", "Send a message to start chatting with Hermes.")}</p>
             )
           ) : null}
-          {state.items.map((item) => {
+          {state.items.map((item, index) => {
             const separator = !item.note && showsTimeSeparator(previousMs, item.timestampMs);
             if (!item.note && item.timestampMs !== null) previousMs = item.timestampMs;
             return (
               <Fragment key={item.key}>
                 {separator ? <div class="time-separator">{formatTimeSeparator(item.timestampMs!, language)}</div> : null}
-                <MessageView item={item} actions={actionsFor(item)} />
+                <MessageView item={item} actions={actionsFor(item)} chartContext={storedId ? {
+                  scope: [location.origin, app.account?.id ?? "", device?.deviceId ?? "", profileHint ?? explicitProfile(app.sessions.find(s => s.id === storedId)) ?? "", storedId, item.key],
+                  prompt: state.items.slice(0, index).reverse().find(row => row.role === "user" && !row.note)?.text ?? "",
+                  source: `${t("会话", "Session")} ${storedId} · ${t("消息", "message")} ${item.key} ${item.text.split(/\r?\n/).filter(line => /来源|数据源|source/i.test(line) && !line.trim().startsWith("|")).join(" ").slice(0, 500)}`,
+                  prepare: text => setSeed({ text, nonce: Date.now(), append: true }),
+                } : undefined} />
               </Fragment>
             );
           })}

@@ -103,8 +103,15 @@ class ChatViewModel @Inject constructor(
     private val draftScope: kotlinx.coroutines.CoroutineScope,
     private val accountSessions: AccountSessionManager? = null,
     private val conversationDevices: ConversationDeviceStore? = null,
+    private val tableCredentials: com.hermes.client.data.auth.CredentialStore? = null,
     private val gatewayForVoice: com.hermes.client.data.network.HermesGatewayClient? = null,
 ) : ViewModel() {
+
+    private val legacyChartOrigin by lazy { runCatching { tableCredentials?.load()?.baseUrl }.getOrNull().orEmpty() }
+    fun chartNamespace(): List<String> {
+        val account = accountSessions?.session?.value
+        return listOf(account?.baseUrl ?: legacyChartOrigin, account?.accountId ?: "legacy", currentDeviceId.orEmpty(), currentProfile.orEmpty(), storedSessionId)
+    }
 
     suspend fun voiceEndpoint(): com.hermes.client.data.network.GatewayWebSocketEndpoint =
         checkNotNull(gatewayForVoice) { "voice connection unavailable" }.voiceEndpoint()

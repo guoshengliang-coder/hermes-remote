@@ -16,6 +16,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
@@ -74,11 +78,20 @@ fun ComponentGalleryScreen(onBack: () -> Unit) {
 
 @Composable
 private fun GalleryTableCard(raw: String) {
-    val fullscreenState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    var fullscreen = fullscreenState.value
-    ChatTableCard(raw, onOpenFullscreen = { fullscreenState.value = true }) { StyledMarkdownTableSample(raw) }
-    if (fullscreenState.value) {
-        com.hermes.client.ui.chat.TableFullscreenDialog(raw) { fullscreenState.value = false }
+    var fullscreen by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf("") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val identity = "gallery:${raw.hashCode()}"
+    val chartScope = remember(raw) {
+        com.hermes.client.ui.chat.TableChartScope(context, listOf("offline-gallery"), { emptyList() },
+            active = { _, _ -> }, fullscreenKey = { if (fullscreen) com.hermes.client.ui.chat.chartKey(listOf("offline-gallery"), identity, raw) else null },
+            prepare = { draft = it; fullscreen = false },
+        )
+    }
+    CompositionLocalProvider(com.hermes.client.ui.chat.LocalTableChartScope provides chartScope) {
+        ChatTableCard(raw, onOpenFullscreen = { fullscreen = true }, chartIdentity = identity) { StyledMarkdownTableSample(raw) }
+        if (fullscreen) com.hermes.client.ui.chat.TableFullscreenDialog(raw, chart = chartScope.get(raw, identity)) { fullscreen = false }
+        if (draft.isNotBlank()) Text(draft, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -119,6 +132,13 @@ private fun sampleTableWide() = l10n(
 private fun galleryTitle(zh: String, en: String): LocalizedText = localizedText(zh, en)
 
 private val gallerySections: List<Pair<LocalizedText, @Composable () -> Unit>> = listOf(
+    galleryTitle("离线图表 · 日期与平台", "Offline chart · dates and platforms") to { GalleryTableCard("""| 日期 | 平台 | 新增人数（人） |
+| --- | --- | --- |
+| 2026-09-01 | 安卓 | 10 |
+| 2026-09-01 | Web | 20 |
+| 2026-09-02 | 安卓 | 15 |
+| 2026-09-02 | Web | 25 |
+| 合计 | 全部 | 70 |""") },
     galleryTitle("运行状态行 · 生成中", "Running status · generating") to {
         RunningStatusLine(streamingMsg(text = l10n("已经有一段输出…", "There is already some output…")))
     },

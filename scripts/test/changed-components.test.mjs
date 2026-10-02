@@ -83,3 +83,11 @@ test('root Node metadata and test scripts select Node checks', () => {
   }
   assert.equal(classifyChangedPaths(['package.json']).desktop, true);
 });
+
+test('offline table-chart assets select both consumers', () => {
+  for (const name of ['chart.html', 'engine.js', 'chart.js', 'chart.css']) {
+    assert.deepEqual(classifyChangedPaths([`android/app/src/main/assets/table-chart/${name}`]), {
+      node: false, android: true, desktop: false, assets: false, web: true,
+    });
+  }
+});

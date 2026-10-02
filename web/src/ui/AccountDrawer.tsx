@@ -1,3 +1,5 @@
+import { preference, savePreference, type Presentation } from "../charts/model";
+import { appError } from "../errors";
 import { useEffect, useState } from "preact/hooks";
 import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance";
 import { voiceVibrationSupported } from "../app/voiceFeedback";
@@ -12,7 +14,7 @@ import { ErrorNotice } from "./ErrorNotice";
 import { BellIcon, ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MicIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
 
 type Translate = (zh: string, en: string) => string;
-type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push";
+type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push" | "dataPresentation";
 
 const themeLabel = (mode: ThemeMode, t: Translate) =>
   mode === "system" ? t("跟随系统", "Follow system") : mode === "light" ? t("温润浅色", "Warm light") : t("黑曜石深色", "Obsidian dark");
@@ -33,6 +35,12 @@ const fontSizeLabel = (size: FontSize, t: Translate) =>
 export function AccountDrawer({ onClose }: { onClose: () => void }) {
   const app = useApp();
   const { t, device } = app;
+  const [dataPresentation, setDataPresentation] = useState<Presentation>(preference);
+  const presentationOptions = [
+    { id: "table", label: t("表格优先", "Table first"), description: t("首先显示原始表格", "Start with the source table") },
+    { id: "chart", label: t("图表优先", "Chart first"), description: t("适合的数据首先显示图表", "Start with charts when data is suitable") },
+    { id: "auto", label: t("自动选择", "Automatic"), description: t("结构明确时显示图表，其余显示表格", "Chart unambiguous data; otherwise show the table") },
+  ] as const;
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const defaultModel = useDefaultModel(app.client, device?.deviceId ?? "", null, app.features.has("default-model"));
   const closeTop = () => {
@@ -102,6 +110,7 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
             <ChevronIcon />
           </button>
           <div class="drawer-shortcuts">
+            <button type="button" class="drawer-shortcut" onClick={() => setSheet("dataPresentation")}><TextSizeIcon size={20}/><span class="drawer-shortcut-title">{t("数据展示方式", "Data presentation")}</span><span class="drawer-shortcut-value">{presentationOptions.find(o => o.id === dataPresentation)?.label}</span><ChevronIcon/></button>
             <button type="button" class="drawer-shortcut" onClick={() => setSheet("push")}><BellIcon /><span class="drawer-shortcut-title">{t("消息通知","Notifications")}</span><ChevronIcon /></button>
             <button type="button" class="drawer-shortcut" aria-label={t("主题", "Theme")} onClick={() => setSheet("theme")}>
               <MoonIcon size={20} />
@@ -143,6 +152,8 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>
       </aside>
+      {sheet === "dataPresentation" ? <ChoiceSheet title={t("数据展示方式", "Data presentation")} options={presentationOptions} inUse={dataPresentation}
+        onSave={choice => { try { savePreference(choice); setDataPresentation(choice); closeSheet(); } catch { app.flash(appError("HR-CHART-002")); } }} onClose={closeSheet} t={t}/> : null}
       {sheet === "push" ? <PushNotifications onClose={closeSheet}/> : null}
       {sheet === "model" && app.features.has("default-model-write") ? <ModelSheet scope="default" aboveDrawer
         current={{ model: null, provider: null }} profile={null} explicitOverride={false}

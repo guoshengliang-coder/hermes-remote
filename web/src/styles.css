@@ -4834,3 +4834,13 @@ button.chat-workspace:disabled {
 
 .push-settings { padding: 0 1.25rem 1.25rem; color: var(--on-surface); }
 .push-settings p { line-height: 1.5; }
+
+/* HG-192: original table and offline chart occupy the same card. */
+.table-view-toggle { display:inline-flex; gap:2px; margin-right:auto; }
+.table-view-toggle button { font:inherit; min-height:44px; padding:4px 10px; background:transparent; color:var(--on-surface-variant); border:0; border-radius:6px; cursor:pointer; }
+.table-view-toggle button[aria-pressed=true] { background:var(--surface-container-high); color:var(--on-surface); }
+.table-view-toggle button:disabled { opacity:.5; cursor:default; }
+.table-chart-host[hidden], .table-scroll[hidden], .chart-notice[hidden] { display:none; }
+.table-chart-frame { display:block; width:100%; height:780px; border:0; }
+.chart-notice { padding:8px 12px; margin:0; font-size:.8125rem; color:var(--on-surface-variant); }
+.table-fullscreen .table-chart-frame { min-height:calc(100dvh - 150px); }
