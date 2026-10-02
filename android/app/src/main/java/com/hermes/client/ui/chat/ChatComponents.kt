@@ -250,7 +250,12 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     fun updateBlock(key: String, bounds: Rect) { blockBounds[key] = bounds }
     private val outputTailPositions = mutableMapOf<String, Float>()
     private val outputParsedContent = mutableMapOf<String, String?>()
-    fun updateOutputParsedContent(key: String, content: String?) { outputParsedContent[key] = content }
+    fun updateOutputParsedContent(key: String, content: String?) {
+        // Loading is not a new parsed presentation. Keep the last published success until
+        // its replacement succeeds or removeBlock disposes it; slow parsing must not erase
+        // the baseline and suppress the first growth of every rendered snapshot.
+        if (content != null) outputParsedContent[key] = content
+    }
     fun parsedOutputContent(key: String): String? = outputParsedContent[key]
     fun updateOutputTail(key: String, y: Float) { outputTailPositions[key] = y }
     fun isOutputTailVisible(key: String): Boolean {

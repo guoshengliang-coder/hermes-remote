@@ -185,4 +185,23 @@ class OutputHapticPolicyTest {
         assertTrue(finalOutputIsPainted(final, viewport))
     }
 
+    @Test fun pendingParseKeepsTheLastPublishedProseAndDisposalClearsIt() {
+        val viewport = ChatViewportController()
+        val painted = ParsedOutputHapticPresentation()
+        val policy = OutputHapticPolicy()
+        val key = "answer:markdown:0"
+        val target = outputHapticPresentation(ChatMessage("answer", Role.ASSISTANT, "已显示后续"), "接收中")
+        viewport.updateOutputParsedContent(key, "已显示")
+        assertFalse(policy.observe("run", painted.read(target, viewport).text, true, 0))
+        // Loading/processing publishes no new content. It must not erase the last success and
+        // reset eligibility before every subsequent successful parser snapshot on a slow host.
+        viewport.updateOutputParsedContent(key, null)
+        assertEquals("已显示", painted.read(target, viewport).text)
+        assertFalse(policy.observe("run", painted.read(target, viewport).text, true, 100))
+        viewport.updateOutputParsedContent(key, "已显示后续")
+        assertTrue(policy.observe("run", painted.read(target, viewport).text, true, 200))
+        viewport.removeBlock(key)
+        assertEquals("", painted.read(target, viewport).text)
+    }
+
 }
