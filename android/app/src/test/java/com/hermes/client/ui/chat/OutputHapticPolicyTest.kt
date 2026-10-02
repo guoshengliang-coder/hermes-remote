@@ -151,4 +151,38 @@ class OutputHapticPolicyTest {
         assertEquals(6, outputHapticConstant(33))
         assertEquals(26, outputHapticConstant(34))
     }
+
+    @Test fun onlyAnObservedLiveRunCanDrainAndTerminalFailuresCannotResumeIt() {
+        val source = ChatMessage("answer", Role.ASSISTANT, "正文", isStreaming = true)
+        val run = OutputHapticRun()
+        assertFalse(run.allows(source.copy(isStreaming = false), false))
+        assertTrue(run.allows(source, true))
+        assertTrue(run.allows(source.copy(isStreaming = false), false))
+        run.finish()
+        assertFalse(run.allows(source.copy(text = "正文校正", isStreaming = false), false))
+        // The same folded assistant turn can start another live segment after a tool.
+        assertTrue(run.allows(source, true))
+        assertFalse(run.allows(source.copy(interrupted = true, isStreaming = false), false))
+        assertFalse(run.allows(source, true))
+        val failed = OutputHapticRun()
+        assertTrue(failed.allows(source, true))
+        assertFalse(failed.allows(source.copy(isError = true, isStreaming = false), false))
+        assertFalse(failed.allows(source.copy(isStreaming = false), false))
+    }
+
+    @Test fun finalDrainWaitsForEveryRepairedMarkdownBlockNotJustTheRevealCount() {
+        val viewport = ChatViewportController()
+        val message = ChatMessage("answer", Role.ASSISTANT, "**中文**尾段\n\n```py\nprint(1)\n```")
+        val final = finalOutputHapticBlocks(message, "接收中")
+        assertFalse(finalOutputIsPainted(final, viewport))
+        val first = final.first()
+        viewport.updateOutputParsedContent(first.first, first.second)
+        assertFalse(finalOutputIsPainted(final, viewport))
+        val last = final.last()
+        viewport.updateOutputParsedContent(last.first, "```py\nprint(")
+        assertFalse(finalOutputIsPainted(final, viewport))
+        viewport.updateOutputParsedContent(last.first, last.second)
+        assertTrue(finalOutputIsPainted(final, viewport))
+    }
+
 }

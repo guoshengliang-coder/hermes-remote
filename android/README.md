@@ -864,8 +864,12 @@ Settings → Output haptics defaults on and remembers the explicit device-local 
 revealed assistant answer text produces feedback (built-in default: ordinary system tick, minimum
 100ms interval); reasoning,
 tools and receiving placeholders do not. The chat must be resumed, focused and showing the actual
-end of the prose. Scrolling into history, overlays, tool waits, completion, Stop, navigation,
-backgrounding and locking suspend feedback. Returning establishes a baseline without replay.
+end of the prose. Scrolling into history, overlays, tool waits, interruption/error, Stop, navigation,
+backgrounding and locking suspend feedback. Natural completion drains feedback with the remaining
+newly revealed prose until the final Markdown is actually painted; network completion alone must
+not end feedback early. Only a live run observed on this screen can drain; completed history and
+later corrections stay silent. Stop, interruption and errors suppress the remainder immediately;
+the local Stop latch resets at the next generation, not at completion. Returning establishes a baseline without replay.
 Feedback reads the prose actually published by the async Markdown renderer, even while that parsed
 snapshot trails the next input; equality with a continuously growing input must not starve ticks.
 System touch-feedback settings remain authoritative; rejected requests are not retried with a

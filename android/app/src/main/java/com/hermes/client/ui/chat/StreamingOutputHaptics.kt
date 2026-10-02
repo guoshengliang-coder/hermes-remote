@@ -94,6 +94,40 @@ internal class ParsedOutputHapticPresentation {
     }
 }
 
+/** A natural completion may still have paced/parsed output. Never admit historical changes. */
+internal class OutputHapticRun {
+    var observedLive = false
+        private set
+    private var finished = false
+    var discarded = false
+        private set
+
+    fun allows(source: ChatMessage?, generating: Boolean): Boolean {
+        if (source == null) return false
+        if (source.isError || source.interrupted) discarded = true
+        if (discarded) return false
+        if (source.isStreaming && generating) {
+            observedLive = true
+            finished = false
+        }
+        return observedLive && !finished && (generating || !source.isStreaming)
+    }
+
+    fun finish() { finished = true }
+}
+
+/** Build final parser inputs once at completion, never on each growing display snapshot. */
+internal fun finalOutputHapticBlocks(message: ChatMessage?, placeholder: String): List<Pair<String, String>> {
+    if (message == null) return emptyList()
+    return markdownRenderBlocks(message.text).mapIndexedNotNull { index, block ->
+        if (block.trim() == "*$placeholder*" || block.isBlank()) null
+        else "${message.id}:markdown:$index" to withCjkEmphasisRepaired(block)
+    }
+}
+
+internal fun finalOutputIsPainted(blocks: List<Pair<String, String>>, viewport: ChatViewportController): Boolean =
+    blocks.all { (key, content) -> viewport.parsedOutputContent(key) == content }
+
 @Composable
 internal fun StreamingOutputHaptics(
     sessionId: String,
@@ -111,13 +145,20 @@ internal fun StreamingOutputHaptics(
     val player = remember(view) { OutputHapticPlayer(AndroidOutputHapticDevice(view)) }
     val latestConfig by rememberUpdatedState(config.normalized())
     val policy = remember(sessionId) { OutputHapticPolicy() }
+    val run = remember(sessionId, source?.id) { OutputHapticRun() }
+    val latestSource by rememberUpdatedState(source)
+    val latestGenerating by rememberUpdatedState(generating)
     val paintedProse = remember(sessionId) { ParsedOutputHapticPresentation() }
     val presentation = remember(displayed?.id, displayed?.text, displayed?.isError, toolDataPlaceholder) {
         outputHapticPresentation(displayed, toolDataPlaceholder)
     }
     val latestPresentation by rememberUpdatedState(presentation)
-    val allowed = enabled && generating && source?.isStreaming == true &&
-        source.tools.none { it.status == ToolStatus.RUNNING }
+    val finalPresentation = remember(source?.id, source?.text, source?.isStreaming, source?.isError, toolDataPlaceholder) {
+        finalOutputHapticBlocks(source?.takeIf { !it.isStreaming }?.organizedForDisplay(), toolDataPlaceholder)
+    }
+    val latestFinalPresentation by rememberUpdatedState(finalPresentation)
+    val runAllowed = run.allows(source, generating)
+    val allowed = enabled && runAllowed && source?.tools?.none { it.status == ToolStatus.RUNNING } == true
     val latestAllowed by rememberUpdatedState(allowed)
     DisposableEffect(lifecycle, policy) {
         val cancellation = object : DefaultLifecycleObserver {
@@ -132,11 +173,11 @@ internal fun StreamingOutputHaptics(
         player.cancel()
         onDispose { policy.resetEligibility(); player.cancel() }
     }
-    val activeId = source?.takeIf { it.isStreaming }?.id
-    LaunchedEffect(sessionId, activeId) {
-        // Prime on entry/new turns with what is already painted. No historical output is replayed.
-        policy.observe(activeId, paintedProse.read(latestPresentation, viewport).text, false, SystemClock.uptimeMillis())
-        if (activeId == null) return@LaunchedEffect
+    val activeId = source?.id
+    LaunchedEffect(sessionId, activeId, source?.isStreaming) {
+        if (activeId == null || !run.observedLive) return@LaunchedEffect
+        // Keep the policy baseline across network completion: only the parser/reveal changes.
+        // New ids and eligibility transitions already establish a silent baseline in observe().
         var loggedGate: String? = null
         var loggedGateAt: Long? = null
         var loggedAcceptance: HapticRequestResult? = null
@@ -145,7 +186,7 @@ internal fun StreamingOutputHaptics(
             withFrameNanos { }
             val target = latestPresentation
             val current = paintedProse.read(target, viewport)
-            val eligible = latestAllowed && lifecycle.currentState == Lifecycle.State.RESUMED &&
+            val eligible = latestAllowed && run.allows(latestSource, latestGenerating) && lifecycle.currentState == Lifecycle.State.RESUMED &&
                 window.isWindowFocused && view.isShown && view.hasWindowFocus() &&
                 current.tailKey?.let(viewport::isOutputTailVisible) == true
             val now = SystemClock.uptimeMillis()
@@ -173,6 +214,12 @@ internal fun StreamingOutputHaptics(
                     }
                     loggedAcceptance = result
                 }
+            }
+            // Consume the final visible growth first, then retire this run. Waiting on exact
+            // repaired parser inputs handles delayed Markdown, code, tables and CJK emphasis.
+            if (run.discarded || (latestSource?.isStreaming == false && finalOutputIsPainted(latestFinalPresentation, viewport))) {
+                run.finish()
+                break
             }
             delay(64L)
         }
