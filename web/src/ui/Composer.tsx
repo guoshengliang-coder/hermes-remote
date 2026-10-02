@@ -40,7 +40,7 @@ export interface ComposerProps {
   /** Where unsent text is kept (app/drafts.ts); null keeps it in memory only. */
   draftKey?: string | null;
   /** Replace the text, e.g. "edit & resend"; a new nonce applies it again. */
-  seed?: { text: string; nonce: number } | null;
+  seed?: { text: string; nonce: number; append?: boolean } | null;
   /** The model chip (`model · effort`), shown when the Gateway admits model selection. */
   chip?: { label: string; onClick: () => void } | null;
   /** Replaces the input: this conversation is running in another client (HR-SESS-013). */
@@ -179,7 +179,8 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
 
   useEffect(() => {
     if (!seed) return;
-    setText(seed.text);
+    setText(current => seed.append && current.trim() ? `${current}\n\n${seed.text}` : seed.text);
+    if (seed.append) { setVoiceMode(false); setFocused(true); requestAnimationFrame(() => area.current?.focus()); }
     area.current?.focus();
   }, [seed?.nonce]);
 

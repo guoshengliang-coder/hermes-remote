@@ -2528,7 +2528,7 @@ private fun chatMarkdownComponents(
             val raw = remember(m.content, m.node) {
                 m.content.substring(m.node.startOffset, m.node.endOffset)
             }
-            ChatTableCard(raw = raw, onOpenFullscreen = { onOpenTableFullscreen(raw) }) {
+            ChatTableCard(raw = raw, chartIdentity = "$anchorPrefix:table:${m.node.startOffset}", onOpenFullscreen = { onOpenTableFullscreen(raw) }) {
                 StyledMarkdownTable(
                     m.content,
                     m.node,
@@ -2733,11 +2733,14 @@ internal fun OffscreenTableExporter(raw: String, action: TableExportAction, onDo
 internal fun ChatTableCard(
     raw: String,
     onOpenFullscreen: () -> Unit,
+    chartIdentity: String = "",
     content: @Composable () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val language = LocalAppLanguage.current
+    val chart = rememberTableChart(raw, chartIdentity)
+    val chartScope = LocalTableChartScope.current
     var exportAction by remember { mutableStateOf<TableExportAction?>(null) }
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -2756,14 +2759,8 @@ internal fun ChatTableCard(
                     .padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Card chrome, not table content: keep "表格" out of a selection across the turn.
-                DisableSelection {
-                    Text(
-                        localized(language, "表格", "Table"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
+                if (chart != null) TableChartToggle(chart, Modifier.weight(1f)) else {
+                    DisableSelection { Text(localized(language, "表格", "Table"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)) }
                 }
                 IconButton(
                     onClick = {
@@ -2801,7 +2798,7 @@ internal fun ChatTableCard(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = onOpenFullscreen, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { chart?.let { it.releaseRendererFocus?.invoke(); chartScope?.active?.invoke(it.key, chartIdentity) }; onOpenFullscreen() }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Rounded.OpenInFull,
                         contentDescription = localized(language, "全屏查看", "View fullscreen"),
@@ -2810,7 +2807,16 @@ internal fun ChatTableCard(
                     )
                 }
             }
-            content()
+            if (chart?.view != "chart") content()
+            chart?.let {
+                TableChartNotice(it)
+                if (it.activated && it.failure?.code != com.hermes.client.data.error.AppErrorCode.CHART_RENDER_FAILED) {
+                    androidx.compose.foundation.text.selection.DisableSelection {
+                        if (chartScope?.fullscreenKey?.invoke() == it.key) Spacer(Modifier.height(if (it.view == "chart") it.contentHeight.dp else 1.dp))
+                        else OfflineTableChart(it, Modifier.fillMaxWidth().height(if (it.view == "chart") it.contentHeight.dp else 1.dp))
+                    }
+                }
+            }
         }
     }
     exportAction?.let { action ->
@@ -2826,7 +2832,7 @@ private tailrec fun android.content.Context.findActivity(): android.app.Activity
 }
 
 @Composable
-internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
+internal fun TableFullscreenDialog(raw: String, chart: TableChartController? = null, onDismiss: () -> Unit) {
     val language = LocalAppLanguage.current
     val activity = LocalContext.current.findActivity()
     var exportAction by remember { mutableStateOf<TableExportAction?>(null) }
@@ -2837,6 +2843,7 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
     // composition-teardown hook also fired during the rotation-triggered Activity recreation and
     // yanked a freshly forced landscape straight back to portrait when auto-rotate was off.
     fun close() {
+        chart?.releaseRendererFocus?.invoke()
         // Opening/closing an overlay must not renegotiate the Activity configuration. Some
         // foldables recreate or remeasure the chat even when UNSPECIFIED is assigned twice. Hand
         // orientation back only when this viewer's rotate button actually took ownership.
@@ -2933,6 +2940,13 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                         )
                     }
                 }
+                if (chart != null) {
+                    TableChartToggle(chart, Modifier.padding(horizontal = 12.dp))
+                    TableChartNotice(chart)
+                }
+                if (chart?.view == "chart") {
+                    OfflineTableChart(chart, Modifier.fillMaxWidth().weight(1f))
+                } else {
                 val columns = remember(raw) { markdownTableColumnCount(raw) }
                 val exportCellWidth = 170
                 val tableWidth = (columns.coerceAtLeast(1) * exportCellWidth + 24).dp
@@ -2971,6 +2985,7 @@ internal fun TableFullscreenDialog(raw: String, onDismiss: () -> Unit) {
                     }
                     }
                     Spacer(Modifier.height(24.dp))
+                }
                 }
                 exportAction?.let { action ->
                     OffscreenTableExporter(raw, action) { exportAction = null }

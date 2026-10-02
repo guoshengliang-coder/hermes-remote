@@ -439,3 +439,13 @@ For every new or changed failure path:
 
 Legacy unstructured errors should be migrated by subsystem. Do not perform blind global string
 replacement: map each failure at its owning boundary so codes remain meaningful and testable.
+
+### Offline table charts (HG-192)
+
+| Code | Condition and recovery | Chinese | English | Retryable |
+|---|---|---|---|---|
+| `HR-CHART-001` | The fixed offline chart renderer failed to load/render or its process exited. Keep the original table; Retry creates a fresh isolated renderer. No message HTML is executed. | 图表暂时无法显示，请重试或查看原始表格。 | The chart couldn't be displayed. Retry or view the original table. | Yes |
+| `HR-CHART-002` | Local chart preferences/state could not be read or saved. Keep the current view and source table; retry the save. No cross-client sync is attempted. | 无法读取或保存图表设置，请重试；原始表格仍可查看。 | Couldn't read or save chart settings. Retry; the original table remains available. | Yes |
+| `HR-CHART-003` | A requested filter extends beyond the source table. Recovery: reset the local filter or prepare a fresh-data question for the user to review and send. This is not a network request. | 所需范围超出原表，请准备重新取数提问并检查后发送。 | The requested range exceeds the table. Prepare a new-data question, review it, then send. | No |
+
+Unsuitable data, ambiguous columns and duplicate dimensions are explanatory empty states, not renderer failures. They never replace the original table. Technical diagnostics contain codes/stages only; table contents and credentials are excluded.

@@ -1025,3 +1025,10 @@ and verifies the complete APK before opening Android's user-confirmed package in
 perform automatic, forced, silent, incremental, or downgrade installs. Release descriptions live in
 `releases/<version>.json`; derived hashes, sizes, timestamps, and signing data are generated only by
 the release gate and publisher. See `../docs/APP_UPDATE.md`.
+
+HG-192 adds local table/chart switching, filters and fullscreen state restoration to completed
+chat tables. The offline renderer assets are also emitted by the Web build; Android's dedicated
+WebView can load only those packaged files and exposes a state/draft bridge without credentials.
+Settings → Data presentation selects table first (default), chart first or automatic on this
+client. Per-table configurations are private local preferences; source data models stay in memory.
+See `../docs/DESIGN.md` §5.22 and `../docs/ANDROID_SMOKE.md` for the approved boundary and verification.

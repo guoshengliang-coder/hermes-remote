@@ -25,7 +25,13 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
 
 // Top-level files the service worker and the manifest must be able to re-fetch fresh: they carry
 // no content hash, so a long cache would pin a stale shell (and block a rollback).
-const REVALIDATED_FILES = new Set(["sw.js", "manifest.webmanifest"]);
+const CHART_FILES = new Set(["charts/chart.html", "charts/engine.js", "charts/chart.js", "charts/chart.css"]);
+const REVALIDATED_FILES = new Set(["sw.js", "manifest.webmanifest", ...CHART_FILES]);
+const CHART_HEADERS = {
+  "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; font-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts",
+  "x-frame-options": "SAMEORIGIN",
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+};
 
 export interface WebAppHostOptions {
   dir: string;
@@ -52,6 +58,7 @@ export class WebAppHost {
         `connect-src 'self'${websocketOrigin ? ` ${websocketOrigin}` : ""}`,
         "font-src 'self'",
         "worker-src 'self'",
+        "frame-src 'self'",
         "manifest-src 'self'",
         "base-uri 'none'",
         "form-action 'self'",
@@ -111,7 +118,9 @@ export class WebAppHost {
       return;
     }
     const headers: Record<string, string> = {
-      ...(relative.endsWith(".html") ? this.documentHeaders : BASE_HEADERS),
+      ...(relative === "charts/chart.html" ? { ...BASE_HEADERS, ...CHART_HEADERS } : relative.endsWith(".html") ? this.documentHeaders : BASE_HEADERS),
+      // An opaque sandbox may fetch ONLY these fixed public resources without CORP blocking.
+      ...(CHART_FILES.has(relative) ? { "cross-origin-resource-policy": "cross-origin" } : {}),
       "content-type": contentType,
       "content-length": String(body.length),
       "cache-control": cacheControl,

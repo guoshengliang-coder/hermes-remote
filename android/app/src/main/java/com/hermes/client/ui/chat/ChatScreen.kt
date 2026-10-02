@@ -240,6 +240,8 @@ fun ChatScreen(
     // Raw markdown of the table currently viewed fullscreen. Hoisted to the SCREEN level (and
     // saveable) because anything living inside the markdown tree vanishes during the re-parse
     // window on rotation, taking a dialog hosted there down with it.
+    var fullscreenTableKey by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var fullscreenTableIdentity by rememberSaveable(sessionId) { mutableStateOf("") }
     var fullscreenTableRaw by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     // Which image is open fullscreen, and in which message. Ids rather than indices: hydration
     // refreshes msg.images, and an index would then point at a different photo. Saveable, because
@@ -1008,7 +1010,23 @@ fun ChatScreen(
         if (unauthorized) onUnauthorized()
     }
 
+    val chartMessages by androidx.compose.runtime.rememberUpdatedState(state.messages)
+    val chartNamespace = vm.chartNamespace()
+    val chartScope = remember(chartNamespace) {
+        TableChartScope(context, chartNamespace, { chartMessages },
+            active = { key, identity -> fullscreenTableKey = key; fullscreenTableIdentity = identity },
+            fullscreenKey = { fullscreenTableKey.takeIf { fullscreenTableRaw != null } },
+            prepare = { text ->
+                fullscreenTableRaw = null
+                viewportController.requestHeldRestore()
+                draft = if (draft.isBlank()) text else "$draft\n\n$text"
+                voiceMode = false
+                composerFocused = true
+            },
+        )
+    }
     androidx.compose.runtime.CompositionLocalProvider(
+        LocalTableChartScope provides chartScope,
         LocalBotOrigin provides botOrigin,
         LocalLocallySentIds provides locallySentIds,
     ) {
@@ -1913,13 +1931,16 @@ fun ChatScreen(
     }
 
     fullscreenTableRaw?.let { raw ->
+        androidx.compose.runtime.CompositionLocalProvider(LocalTableChartScope provides chartScope) {
         com.hermes.client.ui.chat.TableFullscreenDialog(
             raw = raw,
+            chart = fullscreenTableKey?.let { chartScope.get(raw, fullscreenTableIdentity, it) },
             onDismiss = {
                 fullscreenTableRaw = null
                 viewportController.requestHeldRestore()
             },
         )
+        }
     }
 
     if (modelSheetOpen) {

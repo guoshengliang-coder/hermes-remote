@@ -93,3 +93,10 @@ Android 与 Desktop 没有任何代码校验它。
 2. **跨端契约测试** —— Android 侧保存真实 Gateway 响应样本做解析回归，让字段变更在对面直接变红
 
 在这两条落地之前，不要把本文的判定当作完备的安全网。
+
+HG-192 adds a packaged offline table-chart renderer shared by Android and Web at
+`android/app/src/main/assets/table-chart/`. `web/vite.config.ts` emits those exact four files;
+CI selects both clients when that directory changes. Gateway serves the fixed chart document
+with an opaque script-only sandbox and no connect permission; the normal Web shell only adds
+same-origin frame permission. Deploying the Web bundle therefore also requires this Gateway
+CSP change. No shared wire protocol, upstream RPC, Connector or Desktop contract changes.
