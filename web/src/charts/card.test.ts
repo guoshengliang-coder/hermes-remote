@@ -74,6 +74,7 @@ it("only accepts messages from its own iframe and nonce; prepares a draft withou
   );
   const init = post.mock.calls[0]?.[0] as { nonce: string; model: unknown };
   expect(init.model).toBeDefined();
+  expect(post.mock.calls[0]?.[1]).toBe("*"); // Required for the opaque sandbox.
   const query = {
     protocol: 1,
     type: "query",

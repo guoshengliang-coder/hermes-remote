@@ -61,7 +61,11 @@
       ...payload,
     });
     if (root.HermesChartBridge) root.HermesChartBridge.post(message);
-    else root.parent.postMessage(JSON.parse(message), "*");
+    else
+      root.parent.postMessage(
+        JSON.parse(message),
+        new URL(root.location.href).origin,
+      );
   }
   function el(tag, text, cls) {
     const node = document.createElement(tag);
@@ -595,7 +599,11 @@
   }
   root.HermesChartReceive = receive;
   root.addEventListener("message", (event) => {
-    if (event.source === root.parent) receive(event.data);
+    if (
+      event.source === root.parent &&
+      event.origin === new URL(root.location.href).origin
+    )
+      receive(event.data);
   });
   root.addEventListener("error", () => send("error", {}));
   root.addEventListener("unhandledrejection", () => send("error", {}));

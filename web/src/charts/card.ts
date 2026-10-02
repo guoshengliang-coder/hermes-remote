@@ -75,6 +75,11 @@ export function mountChart(
             "No usable time or category dimension.",
           );
   function send(type: string, extra: object = {}) {
+    // The fixed iframe is sandboxed WITHOUT allow-same-origin (its origin is opaque).
+    // Browsers require "*" to address that exact WindowProxy; a URL origin cannot work.
+    // Only source-table/model/state data enter it, never credentials. Fixed scripts/CSP
+    // prevent navigation/network; replies require the same frame, protocol and nonce.
+    // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
     frame?.contentWindow?.postMessage(
       { protocol: 1, nonce, type, ...extra },
       "*",

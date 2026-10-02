@@ -9,9 +9,9 @@ and a reviewed fresh-data draft. No AI inference request or cross-device synchro
   release-server 37 and scripts 405 passed; Gateway 29 and scripts 1 opt-in/environment tests
   skipped by the existing suites. macOS LibreSSL cannot run two existing CMS recovery tests;
   rerunning with Homebrew OpenSSL 3 in PATH passes. No remote production tests were enabled.
-- Web `npm run typecheck && npm test && npm run build`: 80 files / 764 tests passed.
+- Web `npm run typecheck && npm test && npm run build`: 81 files / 765 tests passed.
   New coverage includes three standard data shapes, IDs/units/gaps/totals/duplicates,
-  serialized models, account/session/content cache isolation, iframe sender/nonce validation,
+  serialized models, runtime origin/source validation, account/session/content cache isolation, iframe sender/nonce validation,
   renderer failure/retry, streaming completion, conversation changes, presentation save/cancel,
   and moving/restoring the fullscreen card and ancestor scroll positions.
 - Android `:app:testDebugUnitTest :app:assembleDebug`: 2,388 tests, zero failures/errors/skips.
@@ -27,13 +27,18 @@ the built fixed template was hosted through the actual Gateway WebAppHost in an 
 `allow-scripts` iframe. Series/date filters, horizontal-bar switching, exact original value
 15 人, and emitting a requested-range draft message passed. Cookie access, parent-document
 access and network fetch were blocked. Expected CSP-denial console messages are deliberate
-security probes; no uncaught page errors were observed.
+security probes; no uncaught page errors were observed. Child-to-parent messages target the
+chart URL origin explicitly, and incoming messages require that origin plus the parent window.
+The parent-to-child call uses a narrowly documented Semgrep exception: an opaque sandbox can
+only be addressed with targetOrigin "*". It targets the exact fixed iframe WindowProxy; no
+credentials enter it, fixed code never navigates, CSP blocks network, and replies require source/protocol/nonce.
+See [MDN sandbox communication](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/sandbox) for the opaque-origin constraint.
 
 | Source rows | Parent analysis + iframe reload/controls + two animation frames |
 |---:|---:|
-| 100 | 54 ms |
-| 1,000 | 66 ms |
-| 10,000 | 229 ms |
+| 100 | 52 ms |
+| 1,000 | 67 ms |
+| 10,000 | 212 ms |
 
 These are single local samples with the parent-provided cached model, not statistical
 benchmarks, production latency, Android timing, or a promised generation SLA. All rows remain
