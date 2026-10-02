@@ -13,6 +13,30 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OutputHapticsSettingsTest {
+    @Test fun failedParameterSaveRetriesExactDraftAndOnlySuccessfulSaveChangesChat() = runTest {
+        val stored = MutableStateFlow(com.hermes.client.data.haptics.OutputHapticConfig())
+        var fail = true
+        val writes = mutableListOf<com.hermes.client.data.haptics.OutputHapticConfig>()
+        val settings = OutputHapticsSettings(MutableStateFlow(true), {}, backgroundScope, stored, {
+            writes += it
+            if (fail) throw java.io.IOException("password=hidden")
+            stored.value = it
+        })
+        runCurrent()
+        val draft = stored.value.copy(type = com.hermes.client.data.haptics.OutputHapticType.CUSTOM_PULSE, intervalMs = 75, amplitude = 84)
+        settings.setConfig(draft)
+        assertFalse(settings.state.value.feedbackEnabled)
+        runCurrent()
+        assertEquals(com.hermes.client.data.haptics.OutputHapticConfig(), settings.state.value.config)
+        assertNotNull(settings.state.value.error)
+        assertFalse(settings.state.value.error!!.sanitizedDiagnostic().contains("hidden"))
+        fail = false; settings.retry(); runCurrent()
+        assertEquals(listOf(draft, draft), writes)
+        assertEquals(draft, settings.state.value.config)
+        assertTrue(settings.state.value.feedbackEnabled)
+        assertNull(settings.state.value.error)
+    }
+
     @Test fun waitsForReadAndPropagatesExplicitOffImmediately() = runTest {
         val preferences = MutableStateFlow(true)
         val settings = OutputHapticsSettings(preferences, { preferences.value = it }, backgroundScope)

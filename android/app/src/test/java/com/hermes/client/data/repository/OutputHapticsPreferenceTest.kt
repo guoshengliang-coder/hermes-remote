@@ -24,7 +24,12 @@ class OutputHapticsPreferenceTest {
         }
         val first = SettingsStore(context)
         assertTrue(first.outputHaptics.first())
+        assertEquals(com.hermes.client.data.haptics.OutputHapticConfig(), first.outputHapticConfig.first())
         first.setOutputHaptics(false)
+        assertFalse(SettingsStore(context).outputHaptics.first())
+        val parameters = com.hermes.client.data.haptics.OutputHapticConfig(com.hermes.client.data.haptics.OutputHapticType.CUSTOM_PULSE, 75, 9, 84)
+        first.setOutputHapticConfig(parameters)
+        assertEquals(parameters, SettingsStore(context).outputHapticConfig.first())
         assertFalse(SettingsStore(context).outputHaptics.first())
         first.setOutputHaptics(true)
         assertTrue(SettingsStore(context).outputHaptics.first())
