@@ -584,3 +584,19 @@ and cross-client preference sync are outside the user-approved scope.
 Android focus regression: tap a chart select/input before entering fullscreen, switch to Table,
 close/reopen, and use system Back. Removing a focused AndroidView must not trigger a Compose
 focus search during composition changes; clear renderer focus before changing the view/owner.
+
+## HG-195：流式正文解析期间不闪空
+
+1. 打开一条包含表格、标题与编号列表的长回答，停在最新内容底部，不触摸屏幕，持续观察新增文字。
+   已出现的列表项不得短暂消失，也不得出现整段先向下跳、再向上恢复的情况。
+2. 让回答继续输出来源说明及文件附件；完成时正文、附件和操作行应正常交接。长按已完成正文仍可选字。
+3. 输出中向上翻历史，确认不会被拉回底部；点击回到最新后继续正常跟随。
+4. 浅色、系统浅色但应用深色、字号 1.3 各检查一次；同时确认输出触感没有因等待解析而补播旧文字。
+
+自动化：`StreamingMarkdownPresentationTest` 用阻塞解析的闸门确定性复现旧实现的段落消失，检查等待期间
+正文、回合高度、底部坐标及最终内容。JVM 不能证明厂商设备上的动态观感或真实触感，仍需真机验证。
+
+2026-10-04：L1 阻塞解析回归、Android 单测/构建及 6 项 Markdown 排版截图比对通过；L3
+`StreamingChatPresentationTest` 在 Pixel_9_API_36_1（API 36）浅色/深色下通过，包含真实滑动后完成
+不抢回底部，已抽帧检查录屏。测试使用平台输入注入，避免旧 Espresso 对已移除输入接口的反射。
+L2 无真机连接，触感及厂商动态观感未验；此模拟器低于 targetSdk 37，不覆盖该级别的平台行为。

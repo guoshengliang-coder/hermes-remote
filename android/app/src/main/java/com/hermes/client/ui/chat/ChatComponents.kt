@@ -2265,7 +2265,10 @@ internal fun AssistantMarkdownBlock(
     // the reader as four literal asterisks. Repaired for display only; copy, share, export and
     // read-aloud all read the original message text. See CjkEmphasis.kt (HG-24).
     val renderable = remember(content) { withCjkEmphasisRepaired(content) }
-    val markdownState = com.mikepenz.markdown.model.rememberMarkdownState(renderable)
+    // HG-195: the default clears Success to Loading on every input update. A pending async
+    // parse then removes the already visible block, collapsing its height and bouncing the
+    // bottom-pinned transcript. Keep that presentation until the next Success is ready.
+    val markdownState = com.mikepenz.markdown.model.rememberMarkdownState(renderable, retainState = true)
     val parsed by markdownState.state.collectAsState()
     // Read during composition, not only inside SideEffect: otherwise the metadata observer
     // misses parser-only updates even though HermesMarkdown itself displays the final text.
