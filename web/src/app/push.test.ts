@@ -74,3 +74,9 @@ it("an in-flight old-account config cannot rebind the worker after logout", asyn
   await pending;
   expect(messages).toEqual([{ type: "push-bind", channelId: null }]);
 });
+
+it("missing matchMedia safely falls back to iOS installation guidance", () => {
+  vi.stubGlobal("navigator", { userAgent: "iPhone", platform: "iPhone", maxTouchPoints: 5 });
+  vi.stubGlobal("matchMedia", undefined);
+  expect(pushEnvironment()).toBe("install");
+});

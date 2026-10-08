@@ -42,12 +42,10 @@ it("defaults on and keeps choices pending until Save, including cancel and reope
   act(() => h.host.querySelector<HTMLElement>(".drawer-theme-scrim")!.click());
   expect(readVoiceFeedback()).toBe("off");
 });
-it.each([false, true])("explains missing support in the current language (English %s)", (english) => {
+it.each([false, true])("hides missing vibration support in either language (English %s)", (english) => {
   const h = mount(false, english);
-  const row = h.button(english ? "Voice vibration" : "语音震动");
-  expect(row.disabled).toBe(true);
-  expect(row.textContent).toContain(english ? "Unsupported in this browser" : "当前浏览器不支持");
-  act(() => row.click()); expect(h.host.querySelector(".drawer-theme-sheet")).toBeNull();
+  expect(h.host.querySelector(`button[aria-label="${english ? "Voice vibration" : "语音震动"}"]`)).toBeNull();
+  expect(h.host.querySelector(".drawer-theme-sheet")).toBeNull();
 });
 it.each(["close", "back"])("cancels a pending change through %s and keeps the drawer open", (action) => {
   const h = mount(); const drawerState = history.state;

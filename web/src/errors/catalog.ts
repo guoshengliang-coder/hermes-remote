@@ -119,6 +119,7 @@ export const CATALOG = {
   "HR-CHART-002": { zh: "无法读取或保存图表设置，请重试；原始表格仍可查看。", en: "Couldn't read or save chart settings. Retry; the original table remains available.", retryable: true, action: "retry" },
   "HR-CHART-003": { zh: "所需范围超出原表，请准备重新取数提问并检查后发送。", en: "The requested range exceeds the table. Prepare a new-data question, review it, then send.", retryable: false, action: "composer" },
   "HR-WEB-008": { zh: "无法生成表格图片，请重试或改用复制表格。", en: "Couldn't create the table image. Retry, or copy the table instead.", retryable: true, action: "retry" },
+  "HR-PERM-002": { zh: "通知权限未开启，后台任务可能无法及时提醒。", en: "Notifications are disabled, so background alerts may be delayed.", retryable: true, action: "retry" },
   "HR-PERM-006": { zh: "无法使用麦克风，请检查浏览器权限或改用键盘。", en: "Can't use the microphone. Check browser permissions or use the keyboard.", retryable: true, action: "retry" },
   "HR-VOICE-001": { zh: "语音识别暂不可用，请稍后重试或改用键盘。", en: "Voice recognition is unavailable. Retry later or use the keyboard.", retryable: true, action: "retry" },
   "HR-VOICE-002": { zh: "语音识别未完成。如有临时文字，已放入草稿供检查。", en: "Voice recognition did not finish. Any partial text was placed in the draft for review.", retryable: true, action: "retry" },
