@@ -1,5 +1,19 @@
 # Local relay smoke test
 
+## HG-196 complete voice message — real browser/device check pending
+
+On Android, Safari/Home Screen and Chrome, stage text, an image and a PDF, switch to voice,
+record a question and release. One message must contain the typed text, final transcript and both
+attachments; the composer must clear. Force an upload/submit failure and retry the failed bubble:
+all content must still reach Hermes. Cancel and convert-to-text must retain attachments without
+auto-sending. Empty final results, interrupted recognition and unavailable connections must never
+send an old draft. While a selected attachment is still preparing, keep the speech in the draft
+for review instead of sending a partial attachment set. In a bot conversation, cancel the initial
+send notice and confirm all text/attachments are restored; send again and check the full payload.
+Leave the conversation during recognition: a late result must not send into the next conversation.
+Automated coverage uses simulated final events and mock transport, so it does not prove real
+microphone capture, provider final timing or vendor/browser gestures.
+
 ## Doubao speech relay
 
 With `DOUBAO_ASR_API_KEY_FILE` unset, an authenticated phone upgrade to `/api/voice` or

@@ -1212,20 +1212,95 @@ class ChatViewModelTest {
         runCurrent()
     }
 
-    @Test fun voice_send_preserves_staged_attachment() = kotlinx.coroutines.runBlocking {
+    @Test fun voice_send_consumes_and_uploads_staged_attachment() = kotlinx.coroutines.runBlocking {
+        connectionStateFlow.value = ConnectionState.Connected
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "draft.txt") } returns
+            com.hermes.client.data.repository.AttachedFile("draft.txt", "/tmp/uploaded", "@file:/tmp/uploaded")
         val vm = buildVm()
         vm.open("s1")
         mainDispatcherRule.dispatcher.scheduler.runCurrent()
         vm.stageAttachment("untouched".toByteArray(), "text/plain", "draft.txt")
         assertEquals(1, vm.state.value.pendingAttachments.size)
 
-        vm.sendVoiceText("  语音问题  ")
+        assertTrue(vm.sendVoiceText("  语音问题  ", "已有文字"))
         mainDispatcherRule.dispatcher.scheduler.runCurrent()
 
+        assertTrue(vm.state.value.pendingAttachments.isEmpty())
+        coVerify(exactly = 1) { fileRepo.upload(any(), "draft.txt", "text/plain") }
+        coVerify(exactly = 1) { chatRepo.submit("s1-live", "已有文字\n语音问题\n@file:/tmp/uploaded") }
+    }
+
+    @Test fun voice_send_retries_the_combined_text_image_and_file() = runTest {
+        connectionStateFlow.value = ConnectionState.Connected
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { mediaRepo.cacheOutgoing(any(), any(), any()) } answers {
+            com.hermes.client.domain.ChatImage(firstArg(), mimeType = thirdArg())
+        }
+        coEvery { chatRepo.attachImagePath("s1-live", "/tmp/uploaded") } returns
+            com.hermes.client.data.repository.AttachedImage("/tmp/uploaded")
+        coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "report.pdf") } returns
+            com.hermes.client.data.repository.AttachedFile("report.pdf", "/tmp/uploaded", "@file:/tmp/uploaded")
+        var attempts = 0
+        coEvery { chatRepo.submit("s1-live", any()) } coAnswers {
+            if (attempts++ == 0) throw IllegalStateException("temporary submit failure")
+        }
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.stageAttachment(byteArrayOf(1, 2), "image/png", "photo.png")
+        vm.stageAttachment("%PDF".toByteArray(), "application/pdf", "report.pdf")
+
+        assertTrue(vm.sendVoiceText("语音问题", "已有草稿"))
+        assertTrue(vm.state.value.pendingAttachments.isEmpty())
+        runCurrent()
+        val failed = vm.state.value.messages.last { it.role == Role.USER }
+        assertEquals("已有草稿\n语音问题", failed.text)
+        assertEquals(1, failed.images.size)
+        assertEquals(listOf("report.pdf"), failed.files.map { it.name })
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, failed.delivery)
+        assertTrue(vm.sendDiagnostic(failed.id)!!.contains("HR-SESS-007"))
+
+        vm.retrySend(failed.id)
+        runCurrent()
+        coVerify(exactly = 2) { fileRepo.upload(any(), "photo.png", "image/png") }
+        coVerify(exactly = 2) { fileRepo.upload(any(), "report.pdf", "application/pdf") }
+        coVerify(exactly = 2) { chatRepo.attachImagePath("s1-live", "/tmp/uploaded") }
+        coVerify(exactly = 2) { chatRepo.submit("s1-live", "已有草稿\n语音问题\n@file:/tmp/uploaded") }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, vm.state.value.messages.last { it.role == Role.USER }.delivery)
+        events.emit(event("message.complete", "s1-live", "done"))
+        runCurrent()
+    }
+
+    @Test fun empty_or_offline_voice_final_does_not_consume_the_draft_attachments() = runTest {
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.stageAttachment("keep".toByteArray(), "text/plain", "draft.txt")
+        connectionStateFlow.value = ConnectionState.Connected
+        assertFalse(vm.sendVoiceText("   ", "已有草稿"))
+        connectionStateFlow.value = ConnectionState.Disconnected
+        assertFalse(vm.sendVoiceText("语音", "已有草稿"))
+        runCurrent()
         assertEquals(listOf("draft.txt"), vm.state.value.pendingAttachments.map { it.name })
         coVerify(exactly = 0) { fileRepo.upload(any(), any(), any()) }
-        coVerify(exactly = 1) { chatRepo.submit("s1-live", "语音问题") }
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun voice_final_cannot_consume_attachments_when_another_client_owns_the_session() = runTest {
+        connectionStateFlow.value = ConnectionState.Connected
+        coEvery { chatRepo.sessionAccess(any(), any(), any()) } returns
+            com.hermes.client.data.repository.SessionAccess(
+                state = com.hermes.client.data.repository.SessionAccessState.OWNED_ELSEWHERE,
+                running = false, writable = false, ownerSurface = "desktop",
+            )
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.stageAttachment("keep".toByteArray(), "text/plain", "draft.txt")
+        assertFalse(vm.sendVoiceText("语音", "已有草稿"))
+        assertEquals(1, vm.state.value.pendingAttachments.size)
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 
     // HG-65: a PDF used to go to `pdf.attach`, which rasterises every page and leaves the

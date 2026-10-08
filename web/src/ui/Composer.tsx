@@ -40,7 +40,7 @@ export interface ComposerProps {
   /** Where unsent text is kept (app/drafts.ts); null keeps it in memory only. */
   draftKey?: string | null;
   /** Replace the text, e.g. "edit & resend"; a new nonce applies it again. */
-  seed?: { text: string; nonce: number; append?: boolean } | null;
+  seed?: { text: string; nonce: number; append?: boolean; attachments?: PendingAttachment[] } | null;
   /** The model chip (`model · effort`), shown when the Gateway admits model selection. */
   chip?: { label: string; onClick: () => void } | null;
   /** Replaces the input: this conversation is running in another client (HR-SESS-013). */
@@ -88,8 +88,8 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const voice = useRef<BrowserVoiceSession | null>(null);
   const permissionEpoch = useRef(0);
   const intent = useRef<VoiceAction>("send");
-  const latest = useRef({ disabled, blocked, generating, voiceReady, onSend });
-  latest.current = { disabled, blocked, generating, voiceReady, onSend };
+  const latest = useRef({ disabled, blocked, generating, voiceReady, onSend, text, attachments, preparing, generatingCount });
+  latest.current = { disabled, blocked, generating, voiceReady, onSend, text, attachments, preparing, generatingCount };
   const voiceAvailable = app.features.has("voice-input") && voiceCaptureSupported();
   function collapse() { area.current?.blur(); setFocused(false); }
   function cancelVoice(keep = false) {
@@ -122,7 +122,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     }
   }
   function beginVoice() {
-    if (voice.current || disabled || blocked || generating || !voiceReady || !app.device) return;
+    if (voice.current || disabled || blocked || generating || !voiceReady || preparing || generatingCount > 0 || !app.device) return;
     intent.current = "send"; setVoiceText(""); setVoiceRecording(false); setVoicePhase("held"); setProblem(null);
     const deviceId = app.device.deviceId;
     const recording = new BrowserVoiceSession({
@@ -134,12 +134,13 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         if (event.kind === "waiting") { setVoicePhase("waiting"); setVoiceRecording(false); return; }
         voice.current = null; setVoicePhase("idle"); setVoiceRecording(false); setVoiceText("");
         const state = latest.current;
-        if (event.kind === "failed" || intent.current === "edit" || state.disabled || state.blocked || state.generating || !state.voiceReady) {
+        if (event.kind === "failed" || intent.current === "edit" || state.disabled || state.blocked || state.generating || !state.voiceReady || state.preparing || state.generatingCount > 0) {
           if (event.text.trim()) { setText((draft) => appendVoiceText(draft, event.text)); setVoiceMode(false); setFocused(true); }
           if (event.kind === "failed") setProblem(event.error);
         } else {
-          // A speech message is its own prompt; existing text and attachment drafts stay intact.
-          state.onSend(event.text, []); collapse();
+          // HG-196: final speech completes the same composer as typing. Read the latest stage,
+          // not the render captured when recording began, and never send on an empty final.
+          if (event.text.trim()) sendContent(appendVoiceText(state.text, event.text));
         }
       },
     });
@@ -180,6 +181,10 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   useEffect(() => {
     if (!seed) return;
     setText(current => seed.append && current.trim() ? `${current}\n\n${seed.text}` : seed.text);
+    if (seed.attachments) {
+      const restored = seed.attachments;
+      setAttachments(current => [...restored, ...current.filter(a => !restored.some(r => r.id === a.id))]);
+    }
     if (seed.append) { setVoiceMode(false); setFocused(true); requestAnimationFrame(() => area.current?.focus()); }
     area.current?.focus();
   }, [seed?.nonce]);
@@ -265,16 +270,20 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     });
   }
 
-  const canSend = !disabled && !preparing && (text.trim() !== "" || attachments.length > 0);
+  const canSend = !disabled && !preparing && generatingCount === 0 && (text.trim() !== "" || attachments.length > 0);
 
-  function send() {
-    if (!canSend) return;
-    onSend(text.trim(), attachments);
+  function sendContent(message: string) {
+    const state = latest.current;
+    state.onSend(message.trim(), state.attachments);
     setText("");
     flushDraft();
     setAttachments([]); // preview URLs now belong to the sent bubble
     setProblem(null);
     collapse();
+  }
+
+  function send() {
+    if (canSend) sendContent(text);
   }
 
   if (blocked) return <div class="composer-wrap">{blocked}</div>;
@@ -412,7 +421,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         ))}
         {voiceMode ? <>
           <button type="button" class="icon-button composer-voice" aria-label={t("切换键盘输入", "Switch to keyboard")} disabled={voicePhase !== "idle"} onClick={() => { cancelVoice(); setVoiceMode(false); setFocused(true); area.current?.focus(); }}><KeyboardIcon /></button>
-          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} disabled={disabled || generating || !voiceReady || preparing} onBegin={beginVoice} onRelease={releaseVoice} onCancelWait={() => cancelVoice(true)} />
+          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} disabled={disabled || generating || !voiceReady || preparing || generatingCount > 0} onBegin={beginVoice} onRelease={releaseVoice} onCancelWait={() => cancelVoice(true)} />
           {generating ? sendOrStop() : addButton()}
         </> : <>
         {!focused && voiceAvailable ? <button type="button" class="icon-button composer-voice" aria-label={t("切换语音输入", "Switch to voice input")} disabled={disabled || requestingMic} onClick={() => void enterVoice()}>{requestingMic ? <span class="spinner tiny" /> : <MicIcon />}</button> : null}

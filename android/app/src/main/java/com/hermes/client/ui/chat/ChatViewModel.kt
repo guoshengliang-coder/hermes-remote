@@ -1572,16 +1572,19 @@ class ChatViewModel @Inject constructor(
         dispatch(text, atts)
     }
 
-    /** A dictated turn never consumes typed draft text or staged attachments. */
-    fun sendVoiceText(text: String) {
-        if (_sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE || text.isBlank()) return
-        dispatch(text.trim(), emptyList(), preserveStagedAttachments = true)
+    /** HG-196: final speech completes the composer; rejected auto-sends leave its contents intact. */
+    fun sendVoiceText(text: String, draft: String = ""): Boolean {
+        if (text.isBlank() || _sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE ||
+            connectionState.value !is ConnectionState.Connected || _state.value.isGenerating ||
+            _attachingSessions.value > 0) return false
+        val combined = if (draft.isBlank()) text.trim() else draft.trimEnd() + "\n" + text.trim()
+        send(combined)
+        return true
     }
 
     private fun dispatch(
         text: String,
         atts: List<PendingAttachment>,
-        preserveStagedAttachments: Boolean = false,
     ) {
         val messageId = "u-${java.util.UUID.randomUUID()}"
         val expectedStoredId = storedSessionId
@@ -1629,7 +1632,6 @@ class ChatViewModel @Inject constructor(
                 runtimeKey?.let {
                     runtimeStore.beginPrompt(
                         it, text, outgoingImages, outgoingFiles, messageId,
-                        clearPendingAttachments = !preserveStagedAttachments,
                     )
                 }
                     ?: mutateState { it.withUserMessage(text, outgoingImages, outgoingFiles, messageId) }
