@@ -2166,3 +2166,61 @@ Hermes GO still declares only `web`, `gateway` and `connector`, so Android canno
 substituted at development handover; Web also remains unpublished. Product mapping correction and
 the Web dependency release are outstanding. Physical-device/live speech and real-browser acceptance
 remain unverified; use the HG-196 steps in `docs/ANDROID_SMOKE.md` and `docs/SMOKE_TEST.md`.
+
+### Gateway 0.4.32 and HG-194 Web publication — 2026-10-08 (authorized)
+
+In dispatch `25f8aada-7d6b-4861-807f-d86af169c631`, the owner explicitly authorized
+upgrading Gateway to **0.4.32**, then publishing Web. Version PR
+[#547](https://github.com/guoshengliang-coder/hermes-remote/pull/547) merged as
+`30538deb25872414b741e0014aae3d4fda40bcfa` through the merge gate with green PR/main checks.
+The paired Gateway/operator bundles came from successful main `Gateway OCI` run
+[37756437859](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/37756437859).
+The downloaded ZIP passed its full size/CRC check; both archives passed local and HK hash
+verification, and the extracted operator was verified at `/opt/hermes-go-ops/30538deb2587`.
+Gateway archive SHA-256 is
+`b53ec46ba8693b71d47cbb28f9e754f7dba428a2e47d49e1119d799938265809`;
+operator archive SHA-256 is
+`2aa7f89f43f56f0d92a575fa1decc1661b23fa10a4a75a6f57c88a717522dcbb`.
+
+The new root-only configuration cloned `production-release-b33-031.json`, changing only
+operator identity and target manifest. Official `production-release.mjs --operation deploy`
+committed run **9a77413b-9c81-45c9-8ed5-8fe9658d61ba**, blue → green, with candidate verification,
+private/public smoke and observation gates. `current` → `releases/0.4.32-30538deb2587`;
+`previous` → `releases/0.4.31-74f4297128de`. No schema migration was needed: schema **18**,
+protocols and minimum clients remain unchanged. Independent protected runtime identity checks
+matched version/source, `sourceDirty=false`, readiness/database/migrations/PostgreSQL all passed,
+and Docker was healthy with zero restarts. Nginx site SHA-256 remained byte-identical:
+`1ad309cdd626113a03eb5bbc715bf905801bfa49432832f801ffc9886c72c318`.
+The retained 0.4.31 bundle is the same-schema Gateway rollback target.
+
+After confirming public `/app/` now carried `frame-src 'self'`, the standard Web publisher ran
+with `WEB_PUBLISH_VERIFY_PUBLIC=1` from a clean isolated worktree at that exact `origin/main`.
+Typecheck, **82 files / 805 tests**, and build passed. It installed **0.1.1-30538deb2587**,
+replacing `0.1.1-74f4297128de`; Web's package version remains 0.1.1. All **18** manifest files
+were fully downloaded from public `/app/` and matched their sizes and SHA-256 values.
+The reproducible Web archive SHA-256 is
+`f43d13856dd019110cd2004d2e6f737230c71d6ad4d65c196c37d9d5ce00e39b`.
+All four chart files returned `no-cache` and CORP `cross-origin`; `chart.html` had
+`sandbox allow-scripts`, `frame-ancestors 'self'` and `SAMEORIGIN`. Public capabilities reported
+Gateway 0.4.32 with Web device access; `/relay-health` returned `ok=true` (zero legacy Connectors,
+as before). Final protected checks confirmed both release pointers and Gateway health after Web
+publication. The earlier Web dependency block recorded above is therefore resolved for this
+release, including the already-merged chart and voice-attachment Web code.
+
+Equivalent publication evidence outside the worktree uses canonical
+`hermes-go-batch-release-receipt-v1`, digest
+`cbc5d5331ab29e2e26ac4193e323d8c3e8671cc6897c3e025c65c910d4a40ef3`.
+The complete candidate list contained HG-194, HG-148 and HG-134. HG-194's
+[#544](https://github.com/guoshengliang-coder/hermes-remote/pull/544) merge is an ancestor of the
+verified Web source; its full file set and handover require only Web. After reading the complete
+item/timeline/image and writing release comment `b2e69280-fd16-44d7-82d6-b6c969a78db4`, HG-194
+was moved to **pending verification**. HG-148/HG-134 require Android/macOS artifacts respectively,
+which this release did not publish; their states were unchanged. HG-196's product-mapping issue
+from the earlier record remains outside this handover.
+
+Local Gateway build/component tests and the real loopback network test passed. Two existing
+legacy recovery CMS decrypt cases failed under macOS LibreSSL; the official Linux CI full gate
+passed. Real-browser visual interaction, physical notification permission/background delivery
+and actual vibration remain unverified; use the HG-194 steps in `docs/SMOKE_TEST.md`. Publication
+and pending-verification handover do not constitute device acceptance. No APK, Connector or
+Desktop release was performed in this operation.
