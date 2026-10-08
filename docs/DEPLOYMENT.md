@@ -2117,3 +2117,52 @@ development-complete / pending-verification handover. This does not undo the act
 Physical Android vibration, real-browser interaction and installed-iPhone-PWA background push
 remain unverified; see `docs/ANDROID_SMOKE.md` and `docs/SMOKE_TEST.md`. Automated tests, emulator
 screenshots and public artifact checks are not device acceptance.
+
+### HG-196 Android publication — 2026-10-08, Web dependency pending
+
+The owner authorized merging and publishing the voice-composer fix in dispatch
+`ca6f33d7-cd8b-4fc3-acc3-63dbca6a518f`. Implementation PR #542 merged as
+`d05db5bf3b4de058fb222b43d2d6de4dc7d2c281` through the merge gate with green main checks.
+Android and Web now send the existing draft, final speech and all staged attachments together.
+
+The first Android allocation, **0.1.166 / code 167** (version PR #543), passed the full package
+gate in release run [37750921336](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/37750921336).
+Its publisher refused before upload because concurrent Web PR #544 advanced `origin/main` from
+the release source `c226d5e1` to `0f94ff66`. The public index remained at 0.1.165; 0.1.166 was
+never distributed. Its tag and notes remain as history, and both notes are carried by 0.1.167.
+The source guard was preserved and no alternate publishing path was used. The preparation monitor
+also encountered a GitHub API TLS timeout; both main workflows for #543 were independently confirmed
+successful before its publish attempt.
+
+Version PR #545 allocated **0.1.167 / code 168** from the new green main and merged as
+`de6316e90234fc0c963f96d03dfee0dd563cfd1d` (`MERGED_GREEN`). Preparation ran 2,413 Android unit
+tests and lint successfully. The official release train and
+[android-release run 37753992094](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/37753992094)
+passed the complete package gate, including feedback configuration and canonical signing, then
+uploaded and verified the public artifact. The exact distribution artifact was
+`android/app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.167-debug.apk`.
+
+The complete public [APK](https://mrlgs.net/releases/Hermes-Remote-0.1.167-debug.apk) was independently
+downloaded: **33,290,860 bytes**, SHA-256
+`8d14140a12c4fbf97fb84cb7078c87e57e222b52fa285b0c135f7c61c33db59b`, matching CI's package gate and
+the public index. `apksigner verify` passed with canonical certificate SHA-256
+`06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5`; `aapt` confirmed
+`com.hermes.remote`, version 0.1.167/code 168 and minSdk 26. Both old `app-debug.apk` URLs returned 404.
+
+**Web was not published.** Its current link remains `releases/0.1.1-74f4297128de`; the public shell
+is unchanged. The latest main Web package also contains the previously merged HG-192 chart feature,
+which needs the Gateway chart CSP/header change documented in `docs/INTEGRATION.md`. Public capabilities
+still report Gateway 0.4.31, and `/app/` still has `default-src 'none'` without `frame-src 'self'`.
+The owner was asked to authorize that additional Gateway dependency update or defer Web; no answer
+was received during this Android publication. Gateway, Connector and Desktop were not deployed.
+
+Equivalent publication evidence is stored outside the worktree as a canonical
+`hermes-go-batch-release-receipt-v1`, digest
+`6840bc57b29daade52e2c88c97347f3001f4ef2021a14d51ddd9360b5a935b55`.
+The complete release-candidate metadata list had HG-194 (Web not published), HG-134 (macOS App not
+published) and HG-148 (the historical #462/Android-only registration omits the independently checked
+later #465 Android/Gateway repair). None was automatically transitioned. HG-196 remains in progress:
+Hermes GO still declares only `web`, `gateway` and `connector`, so Android cannot be omitted or
+substituted at development handover; Web also remains unpublished. Product mapping correction and
+the Web dependency release are outstanding. Physical-device/live speech and real-browser acceptance
+remain unverified; use the HG-196 steps in `docs/ANDROID_SMOKE.md` and `docs/SMOKE_TEST.md`.
