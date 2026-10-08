@@ -113,7 +113,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const [refreshing, setRefreshing] = useState(false);
   const [userMenu, setUserMenu] = useState<ChatItem | null>(null);
   const [sourceItem, setSourceItem] = useState<ChatItem | null>(null);
-  const [seed, setSeed] = useState<{ text: string; nonce: number; append?: boolean } | null>(null);
+  const [seed, setSeed] = useState<{ text: string; nonce: number; append?: boolean; attachments?: PendingAttachment[] } | null>(null);
   const [botNotice, setBotNotice] = useState<{ text: string; attachments: PendingAttachment[] } | null>(null);
   // Web batch 4
   const [manage, setManage] = useState<"archive" | "move" | null>(null);
@@ -394,7 +394,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
 
   /** Cancelled: the typed text goes back into the composer instead of being lost. */
   function cancelBotNotice() {
-    if (botNotice?.text) setSeed({ text: botNotice.text, nonce: Date.now() });
+    if (botNotice) setSeed({ text: botNotice.text, attachments: botNotice.attachments, nonce: Date.now() });
     setBotNotice(null);
   }
 

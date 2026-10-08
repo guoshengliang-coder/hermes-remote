@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HermesSocket, type WebSocketLike } from "../hermes/client";
 import { GatewayHttpError, type GatewayClient } from "../api/gateway";
 import { ChatSession } from "./session";
@@ -67,7 +67,8 @@ describe("ChatSession", () => {
     const actions: ChatAction[] = [];
     // One stored row: a conversation with history, so a reclaimed session (4007) stays terminal
     // instead of being silently recreated (that path is covered below).
-    const client = { messages: async () => ({ messages: [{ id: 1, role: "user", content: "earlier", timestamp: 1 }] }), settled: async () => undefined } as unknown as GatewayClient;
+    const upload = vi.fn(async (_device: string, name: string, _file: Blob, _mime: string) => ({ path: `/tmp/${name}` }));
+    const client = { messages: async () => ({ messages: [{ id: 1, role: "user", content: "earlier", timestamp: 1 }] }), settled: async () => undefined, uploadFile: upload } as unknown as GatewayClient;
     const session = new ChatSession({
       client,
       deviceId: "dev-mac",
@@ -82,8 +83,44 @@ describe("ChatSession", () => {
     await tick();
     ws.receive({ jsonrpc: "2.0", id: ws.last("session.resume")!.id, result: { session_id: "live-1" } });
     await tick();
-    return { session, ws: () => ws, actions };
+    return { session, ws: () => ws, actions, upload };
   }
+
+  it("HG-196 retries combined typed/speech text with every image and file after submit failure", async () => {
+    const { session, ws, actions, upload } = await readySession();
+    const photo = new Blob(["image"], { type: "image/png" });
+    const file = new Blob(["pdf"], { type: "application/pdf" });
+    const attachments = [
+      { id: "photo", file: photo, name: "photo.png", mimeType: "image/png", kind: "image" as const },
+      { id: "file", file, name: "report.pdf", mimeType: "application/pdf", kind: "file" as const },
+    ];
+    try {
+      for (const failed of [true, false]) {
+        const sending = session.send("voice-message", "已有草稿\n语音问题", attachments);
+        await tick();
+        const image = ws().last("image.attach")!;
+        expect(image).toBeDefined();
+        ws().receive({ jsonrpc: "2.0", id: image.id, result: { path: "/tmp/photo.png" } });
+        await tick();
+        const document = ws().last("file.attach")!;
+        expect(document).toBeDefined();
+        ws().receive({ jsonrpc: "2.0", id: document.id, result: { ref_text: "@file:/tmp/report.pdf" } });
+        await tick();
+        const prompt = ws().last("prompt.submit")!;
+        expect(ws().sent.at(-1)).toMatchObject({ method: "prompt.submit", params: { session_id: "live-1", text: "已有草稿\n语音问题\n@file:/tmp/report.pdf" } });
+        ws().receive(failed
+          ? { jsonrpc: "2.0", id: prompt.id, error: { code: -32603, message: "temporary failure" } }
+          : { jsonrpc: "2.0", id: prompt.id, result: {} });
+        await sending;
+      }
+      expect(upload.mock.calls).toEqual([
+        ["dev-mac", "photo.png", photo, "image/png"], ["dev-mac", "report.pdf", file, "application/pdf"],
+        ["dev-mac", "photo.png", photo, "image/png"], ["dev-mac", "report.pdf", file, "application/pdf"],
+      ]);
+      expect(actions).toContainEqual(expect.objectContaining({ type: "user-failed", key: "voice-message", error: expect.objectContaining({ code: "HR-SESS-007" }) }));
+      expect(actions).toContainEqual({ type: "user-delivered", key: "voice-message" });
+    } finally { session.dispose(); }
+  });
 
   it("HG-166 sends config.set to the live session and parses confirmation, deferral and canonical results", async () => {
     const { session, ws } = await readySession();

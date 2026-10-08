@@ -75,8 +75,10 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
   uses `file.attach`, so it is delivered as a file without Mac-side rasterization.
 - Chat voice input uses a hold-to-talk composer and Gateway-proxied Doubao streaming recognition.
   The provider key is read only by the Gateway from `DOUBAO_ASR_API_KEY_FILE`; it is never stored
-  in the Android build. Releasing sends the final transcript, sliding up left cancels, and sliding
-  up right inserts editable text. Existing typed drafts and staged attachments stay untouched.
+  in the Android build. Releasing sends the existing typed draft, final transcript and all staged attachments together
+  (HG-196). Sliding up left cancels; sliding up right inserts editable text. Cancelling, failed
+  recognition or an unavailable send keeps the draft and attachments for review; failed delivery
+  retries the complete message.
 - Version 0.1.2 uses a document-style assistant layout with stronger Chinese/Markdown typography,
   compact user bubbles, reply actions, a floating composer, and a WorkBuddy-inspired attachment sheet.
 - Version 0.1.3 extracts JSON/terminal payloads that Hermes flattened into assistant prose and

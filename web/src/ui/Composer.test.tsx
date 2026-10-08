@@ -6,6 +6,8 @@ import { AppContext, type AppContextValue } from "../app/store";
 import { overlayDepth, resetOverlays } from "../app/overlayHistory";
 import type { VoiceEvent } from "../chat/voiceSession";
 import { clearAllDrafts, loadDraft, saveDraft } from "../app/drafts";
+import type { PendingAttachment } from "../chat/attachments";
+import { appError } from "../errors";
 const mocks = vi.hoisted(() => ({ events: null as null | ((e: VoiceEvent) => void), finish: vi.fn(), cancel: vi.fn(() => "半截"), microphone: vi.fn(async () => {}) }));
 vi.mock("../chat/voiceCapture", () => ({ voiceCaptureSupported: () => true, allowMicrophone: mocks.microphone }));
 vi.mock("../chat/voiceSession", () => ({ BrowserVoiceSession: class {
@@ -27,6 +29,86 @@ function type(host: HTMLElement, text: string) {
   return area;
 }
 const settle = async () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
+async function stageFiles(h: ReturnType<typeof mount>, files: File[]) {
+  const input = h.host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
+  Object.defineProperty(input, "files", { value: files });
+  act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); });
+  await settle();
+}
+async function startSpeech(h: ReturnType<typeof mount>) {
+  act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
+  act(() => { h.host.querySelector<HTMLButtonElement>('.voice-hold')!.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
+}
+
+it("hands a mixed image/file stage to voice send exactly once and retains its preview URL (HG-196)", async () => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:photo");
+  const revoke = vi.spyOn(URL, "revokeObjectURL");
+  const h = mount({ draftKey: "one" }); type(h.host, "已有草稿");
+  const photo = new File(["image"], "photo.png", { type: "image/png" });
+  const file = new File(["text"], "notes.txt", { type: "text/plain" });
+  await stageFiles(h, [photo, file]);
+  await startSpeech(h);
+  act(() => { mocks.events?.({ kind: "partial", text: "半句" }); });
+  expect(h.props.onSend).not.toHaveBeenCalled();
+  act(() => { mocks.events?.({ kind: "final", text: "最终语音" }); mocks.events?.({ kind: "final", text: "重复尾包" }); });
+  expect(h.props.onSend).toHaveBeenCalledExactlyOnceWith("已有草稿\n最终语音", [
+    expect.objectContaining({ file: photo, kind: "image", previewUrl: "blob:photo" }),
+    expect.objectContaining({ file, kind: "file" }),
+  ]);
+  expect(revoke).not.toHaveBeenCalled(); // sent bubble owns the preview now
+  expect(h.host.querySelector(".attachment-strip")).toBeNull();
+  expect(loadDraft("one")).toBe("");
+});
+
+it.each(["cancel", "edit", "failed", "offline", "generating", "empty"] as const)(
+  "%s voice result leaves the draft and file available instead of auto-sending (HG-196)", async (outcome) => {
+    const h = mount(); type(h.host, "已有草稿");
+    await stageFiles(h, [new File(["text"], "notes.txt", { type: "text/plain" })]);
+    await startSpeech(h);
+    if (outcome === "cancel") act(() => { h.host.querySelector<HTMLButtonElement>('.voice-hold')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    if (outcome === "edit") act(() => h.host.querySelector<HTMLButtonElement>('[aria-label="转为文字"]')!.click());
+    if (outcome === "offline") h.update({ voiceReady: false });
+    if (outcome === "generating") h.update({ generating: true });
+    act(() => mocks.events?.(outcome === "failed"
+      ? { kind: "failed", text: "临时语音", error: appError("HR-VOICE-002") }
+      : { kind: "final", text: outcome === "empty" ? "  " : "最终语音" }));
+    expect(h.props.onSend).not.toHaveBeenCalled();
+    expect(h.host.querySelector(".attachment-file")!.textContent).toContain("notes.txt");
+    if (h.host.querySelector('.voice-hold')) act(() => h.host.querySelector<HTMLButtonElement>('[aria-label="切换键盘输入"]')!.click());
+    const expected = outcome === "edit" ? "已有草稿\n最终语音" : outcome === "failed" ? "已有草稿\n临时语音"
+      : outcome === "offline" || outcome === "generating" ? "已有草稿\n半截" : "已有草稿";
+    expect(h.host.querySelector("textarea")!.value).toBe(expected);
+  },
+);
+
+it("an image still preparing when final speech arrives leaves the complete composer for review (HG-196)", async () => {
+  let finish!: (value: { width: number; height: number; close: () => void }) => void;
+  vi.stubGlobal("createImageBitmap", () => new Promise(resolve => { finish = resolve; }));
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:photo");
+  const h = mount(); type(h.host, "已有草稿"); await startSpeech(h);
+  await stageFiles(h, [new File(["image"], "photo.png", { type: "image/png" })]);
+  act(() => mocks.events?.({ kind: "final", text: "语音" }));
+  expect(h.props.onSend).not.toHaveBeenCalled();
+  finish({ width: 1, height: 1, close: () => {} }); await settle();
+  expect(h.host.querySelector("textarea")!.value).toBe("已有草稿\n语音");
+  expect(h.host.querySelector(".attachment-chip")).not.toBeNull();
+});
+
+it("voice final uses the newest draft and cancelled bot confirmation restores attachments (HG-196)", async () => {
+  const h = mount({ draftKey: "one" }); type(h.host, "旧草稿");
+  await stageFiles(h, [new File(["text"], "notes.txt", { type: "text/plain" })]);
+  await startSpeech(h);
+  h.update({ seed: { text: "最新草稿", nonce: 1 } });
+  act(() => mocks.events?.({ kind: "final", text: "语音" }));
+  const [message, attachments] = (h.props.onSend as ReturnType<typeof vi.fn>).mock.calls[0] as [string, PendingAttachment[]];
+  expect(message).toBe("最新草稿\n语音");
+  h.update({ seed: { text: message, attachments, nonce: 2 } });
+  act(() => h.host.querySelector<HTMLButtonElement>('[aria-label="切换键盘输入"]')!.click());
+  expect(h.host.querySelector("textarea")!.value).toBe(message);
+  expect(h.host.querySelector(".attachment-file")!.textContent).toContain("notes.txt");
+  act(() => h.host.querySelector<HTMLButtonElement>('.send-button')!.click());
+  expect(h.props.onSend).toHaveBeenLastCalledWith(message, attachments);
+});
 it.each([7 * 1024 * 1024, 50 * 1024 * 1024])("passes an ordinary %s-byte file to send unchanged", async (size) => {
   const h = mount(); const file = new File(["fixture"], "report.pdf", { type: "application/pdf" });
   Object.defineProperty(file, "size", { value: size });
@@ -168,17 +250,23 @@ it("partial results never submit, edit appends, and a callback from a previous c
   act(() => oldCallback({ kind: "final", text: "迟到" }));
   expect(h.host.querySelector("textarea")!.value).toBe(""); expect(h.props.onSend).not.toHaveBeenCalled();
 });
-it("a released voice message sends only recognized speech and preserves an existing text draft", async () => {
-  const h = mount(); type(h.host, "已有草稿");
+it("a released voice message sends the draft, final speech and pending files together (HG-196)", async () => {
+  const h = mount({ draftKey: "one" }); type(h.host, "已有草稿");
+  const file = new File(["fixture"], "report.pdf", { type: "application/pdf" });
+  const input = h.host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
+  Object.defineProperty(input, "files", { value: [file] });
+  act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); }); await settle();
   act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
   const hold = h.host.querySelector<HTMLButtonElement>('.voice-hold')!;
   act(() => { hold.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
   vi.spyOn(Date, "now").mockReturnValueOnce(Date.now() + 400);
   act(() => { hold.dispatchEvent(new KeyboardEvent("keyup", { key: " ", bubbles: true })); });
   act(() => mocks.events?.({ kind: "final", text: "语音消息" }));
-  expect(h.props.onSend).toHaveBeenCalledWith("语音消息", []);
+  expect(h.props.onSend).toHaveBeenCalledWith("已有草稿\n语音消息", [expect.objectContaining({ file, kind: "file" })]);
+  expect(h.host.querySelector(".attachment-strip")).toBeNull();
+  expect(loadDraft("one")).toBe("");
   act(() => h.host.querySelector<HTMLButtonElement>('[aria-label="切换键盘输入"]')!.click());
-  expect(h.host.querySelector("textarea")!.value).toBe("已有草稿");
+  expect(h.host.querySelector("textarea")!.value).toBe("");
   vi.restoreAllMocks();
 });
 

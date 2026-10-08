@@ -449,7 +449,9 @@ fun ChatScreen(
         // before session.access landed so tapping the replacement cannot reopen the IME.
         if (!sessionWritable) collapseComposer()
     }
-    val canSend = canSend(
+    var preparingAttachments by remember(sessionId) { androidx.compose.runtime.mutableIntStateOf(0) }
+    val attachingSessions by vm.attachingSessions.collectAsStateWithLifecycle()
+    val canSend = preparingAttachments == 0 && attachingSessions == 0 && canSend(
         connected,
         draft.isNotBlank(),
         state.pendingAttachments.isNotEmpty(),
@@ -631,6 +633,7 @@ fun ChatScreen(
     }
 
     fun stageUri(uri: Uri, fallbackName: String = "attachment") {
+        preparingAttachments++
         attachScope.launch {
             var stagedFile: java.io.File? = null
             try {
@@ -652,37 +655,44 @@ fun ChatScreen(
                         ).localizedMessage(language)
                     else null,
                 )
+            } finally {
+                preparingAttachments--
             }
         }
     }
 
     fun stagePhotoUrisInOrder(uris: List<Uri>) {
+        preparingAttachments++
         attachScope.launch {
-            var failures = 0
-            for (uri in uris) {
-                var stagedFile: java.io.File? = null
-                try {
-                    val attachment = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        prepareAttachment(context, uri, "photo.jpg")
+            try {
+                var failures = 0
+                for (uri in uris) {
+                    var stagedFile: java.io.File? = null
+                    try {
+                        val attachment = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            prepareAttachment(context, uri, "photo.jpg")
+                        }
+                        stagedFile = attachment.stagedFile
+                        if (attachment.stagedFile != null) vm.stageAttachment(attachment.stagedFile, attachment.mimeType, attachment.name)
+                        else vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
+                        stagedFile = null
+                    } catch (error: Throwable) {
+                        stagedFile?.delete()
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        failures++
                     }
-                    stagedFile = attachment.stagedFile
-                    if (attachment.stagedFile != null) vm.stageAttachment(attachment.stagedFile, attachment.mimeType, attachment.name)
-                    else vm.stageAttachment(attachment.bytes, attachment.mimeType, attachment.name)
-                    stagedFile = null
-                } catch (error: Throwable) {
-                    stagedFile?.delete()
-                    if (error is kotlinx.coroutines.CancellationException) throw error
-                    failures++
                 }
-            }
-            if (failures > 0) {
-                showAttachmentError(
-                    localized(
-                        language,
-                        "$failures 张照片无法读取（HR-FILE-001）",
-                        "$failures photo(s) couldn't be read (HR-FILE-001)",
-                    ),
-                )
+                if (failures > 0) {
+                    showAttachmentError(
+                        localized(
+                            language,
+                            "$failures 张照片无法读取（HR-FILE-001）",
+                            "$failures photo(s) couldn't be read (HR-FILE-001)",
+                        ),
+                    )
+                }
+            } finally {
+                preparingAttachments--
             }
         }
     }
@@ -887,8 +897,22 @@ fun ChatScreen(
             voiceMode = true
         } else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
+    fun submitVoice(text: String) {
+        if (preparingAttachments == 0 && vm.sendVoiceText(text, draft)) {
+            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            draft = ""
+            vm.clearDraft()
+            sendToBottomTick = System.currentTimeMillis()
+            collapseComposer()
+        } else {
+            draft = appendDictation(draft, text)
+            voiceMode = false
+            composerFocused = true
+        }
+    }
     fun beginVoice() {
-        if (voiceSession != null || !connected || state.isGenerating || !sessionWritable) return
+        if (voiceSession != null || !connected || state.isGenerating || !sessionWritable ||
+            preparingAttachments > 0 || attachingSessions > 0) return
         voiceTranscript = ""
         voiceZone = VoiceReleaseAction.SEND
         voiceReleaseIntent = VoiceReleaseAction.SEND
@@ -910,7 +934,7 @@ fun ChatScreen(
                         voiceError(AppErrorCode.VOICE_RECOGNITION_FAILED)
                     } else if (voiceReleaseIntent == VoiceReleaseAction.EDIT
                         || vm.connectionState.value !is ConnectionState.Connected
-                        || vm.state.value.isGenerating) {
+                        || vm.state.value.isGenerating || preparingAttachments > 0 || vm.attachingSessions.value > 0) {
                         draft = appendDictation(draft, text)
                         voiceMode = false
                         composerFocused = true
@@ -918,10 +942,7 @@ fun ChatScreen(
                         pendingVoiceText = text
                         botNoticeOpen = true
                     } else {
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        vm.sendVoiceText(text)
-                        sendToBottomTick = System.currentTimeMillis()
-                        collapseComposer()
+                        submitVoice(text)
                     }
                 }
                 is VoiceEvent.Failed -> {
@@ -1142,7 +1163,6 @@ fun ChatScreen(
                 // HG-38: the chips all arrive at once when the last conversation is rendered, so
                 // this line is the only thing saying work is in flight. Sits above the chip row,
                 // where the chips it is promising will appear.
-                val attachingSessions by vm.attachingSessions.collectAsStateWithLifecycle()
                 if (attachingSessions > 0) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -1263,7 +1283,8 @@ fun ChatScreen(
                         VoiceComposerBar(
                             language = language,
                             holdLabel = localized(language, if (voiceHeld) "松开发送" else "按住说话", if (voiceHeld) "Release to send" else "Hold to talk"),
-                            holdEnabled = connected && !state.isGenerating && !voiceWaiting,
+                            holdEnabled = connected && !state.isGenerating && !voiceWaiting &&
+                                preparingAttachments == 0 && attachingSessions == 0,
                             keyboardEnabled = !voiceHeld && !voiceWaiting,
                             sessionWritable = sessionWritable,
                             isGenerating = state.isGenerating,
@@ -2136,17 +2157,18 @@ fun ChatScreen(
                         botNoticeOpen = false
                         // botNoticeNeeded has not recomposed yet, so go straight to the send
                         // rather than back through submit()'s gate.
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                         val spoken = pendingVoiceText
                         if (spoken != null) {
-                            vm.sendVoiceText(spoken)
+                            submitVoice(spoken)
                             pendingVoiceText = null
                         } else {
+                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                             vm.send(draft)
                             draft = ""
+                            vm.clearDraft()
+                            sendToBottomTick = System.currentTimeMillis()
+                            collapseComposer()
                         }
-                        sendToBottomTick = System.currentTimeMillis()
-                        collapseComposer()
                     },
                 ) { Text(localized(language, "知道了，发送", "Got it, send")) }
             },
