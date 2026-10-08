@@ -21,7 +21,7 @@ export function pushEnvironment(): "supported" | "install" | "unsupported" {
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const standalone =
-    matchMedia("(display-mode: standalone)").matches ||
+    (typeof matchMedia === "function" && matchMedia("(display-mode: standalone)").matches) ||
     (navigator as Navigator & { standalone?: boolean }).standalone;
   if (ios && !standalone) return "install";
   return window.isSecureContext &&

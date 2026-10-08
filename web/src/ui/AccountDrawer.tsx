@@ -2,6 +2,7 @@ import { preference, savePreference, type Presentation } from "../charts/model";
 import { appError } from "../errors";
 import { useEffect, useState } from "preact/hooks";
 import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance";
+import { pushStatusLabel, usePushStatus } from "../app/pushStatus";
 import { voiceVibrationSupported } from "../app/voiceFeedback";
 import { useDefaultModel } from "../app/defaultModel";
 import { navigate } from "../app/router";
@@ -42,6 +43,7 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
     { id: "auto", label: t("自动选择", "Automatic"), description: t("结构明确时显示图表，其余显示表格", "Chart unambiguous data; otherwise show the table") },
   ] as const;
   const [sheet, setSheet] = useState<SheetKind | null>(null);
+  const pushStatus = usePushStatus(app.client, app.account?.id, sheet === "push");
   const defaultModel = useDefaultModel(app.client, device?.deviceId ?? "", null, app.features.has("default-model"));
   const closeTop = () => {
     if (sheet) { setSheet(null); return false; }
@@ -111,7 +113,15 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
           </button>
           <div class="drawer-shortcuts">
             <button type="button" class="drawer-shortcut" onClick={() => setSheet("dataPresentation")}><TextSizeIcon size={20}/><span class="drawer-shortcut-title">{t("数据展示方式", "Data presentation")}</span><span class="drawer-shortcut-value">{presentationOptions.find(o => o.id === dataPresentation)?.label}</span><ChevronIcon/></button>
-            <button type="button" class="drawer-shortcut" onClick={() => setSheet("push")}><BellIcon /><span class="drawer-shortcut-title">{t("消息通知","Notifications")}</span><ChevronIcon /></button>
+            {pushStatus !== "unsupported" ? (
+              <button type="button" class="drawer-shortcut" aria-label={t("消息通知", "Notifications")} onClick={() => setSheet("push")}>
+                <BellIcon size={20} />
+                <span class="drawer-shortcut-title">{t("消息通知", "Notifications")}</span>
+                <span class="drawer-shortcut-value">{pushStatusLabel(pushStatus, t)}</span>
+                <ChevronIcon />
+              </button>
+            ) : null}
+            {pushStatus === "error" ? <ErrorNotice error={appError("HR-WEB-012")} language={app.language} onRetry={() => setSheet("push")} variant="inline" /> : null}
             <button type="button" class="drawer-shortcut" aria-label={t("主题", "Theme")} onClick={() => setSheet("theme")}>
               <MoonIcon size={20} />
               <span class="drawer-shortcut-title">{t("主题", "Theme")}</span>
@@ -141,13 +151,13 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
               <span class="drawer-shortcut-value">{fontSizeLabel(app.fontSize, t)}</span>
               <ChevronIcon />
             </button>
-            <button type="button" class={`drawer-shortcut${vibrationSupported ? "" : " static"}`} aria-label={t("语音震动", "Voice vibration")}
-              disabled={!vibrationSupported} onClick={() => setSheet("voiceFeedback")}>
+            {vibrationSupported ? <button type="button" class="drawer-shortcut" aria-label={t("语音震动", "Voice vibration")}
+              onClick={() => setSheet("voiceFeedback")}>
               <MicIcon size={20} />
               <span class="drawer-shortcut-title">{t("语音震动", "Voice vibration")}</span>
-              <span class="drawer-shortcut-value">{!vibrationSupported ? t("当前浏览器不支持", "Unsupported in this browser") : app.voiceFeedback === "off" ? t("关闭", "Off") : t("开启", "On")}</span>
-              {vibrationSupported ? <ChevronIcon /> : null}
-            </button>
+              <span class="drawer-shortcut-value">{app.voiceFeedback === "off" ? t("关闭", "Off") : t("开启", "On")}</span>
+              <ChevronIcon />
+            </button> : null}
           </div>
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>

@@ -1524,7 +1524,7 @@ quality. No physical Android device was attached on LGS-MACMINI.local during imp
    recognition. Disable site/system vibration: recording, visual cues and sending still work;
    API availability and a true return value are not proof that hardware vibrated.
 4. On iPhone Safari and Home Screen WebApp, Android Firefox and desktop without a vibration API,
-   the card row reads Unsupported in this browser and cannot open a selection sheet; voice remains
+   the card row is hidden and cannot open a selection sheet (HG-194); voice remains
    usable where its separate capture requirements are met. Verify light/dark, Chinese/English and
    large text at narrow widths. Test Android WebView separately and record its host/version.
 5. Record device, OS, browser version and page/PWA/WebView mode for each result. Assess whether
@@ -1659,3 +1659,23 @@ On iOS 16.4+ with a production HTTPS PWA and explicitly enabled Gateway/VAPID co
 
 Actual Apple delivery, background waking, system sound and permission/badge behavior cannot be
 certified by a Service Worker unit test or desktop browser fixture.
+
+## HG-194 · Web notification and voice-vibration settings
+
+Automated tests cover missing-API row hiding, iOS installation guidance, right-side state slots,
+Save/cancel, permission requests originating from Save, and failed/retried state changes.
+Real OS prompts, push delivery and physical vibration still need the actual browser/device.
+
+1. In Android WebView/Firefox and desktop environments without Push/Vibration APIs, unsupported
+   rows are absent. In ordinary iOS Safari the notification row remains, says Add to Home Screen,
+   and opens installation guidance without requesting permission. Record browser, OS and mode.
+2. In a supported browser/PWA, compare notification and voice-vibration rows with Theme in light/dark,
+   Chinese/English, 353px width and enlarged text: values sit right, arrows align at the far edge.
+3. Pick On/Off without Save, cancel via close/scrim/Escape/system Back, reopen: actual state is unchanged.
+   Save On requests OS permission directly; granting, dismissing and denying show their actual states.
+   iOS denial guides system notification settings; Android/desktop guides browser/site settings.
+4. Save Off, reopen and verify state. Fail/retry GET, registration and DELETE: HR-WEB-012 is bilingual,
+   raw provider data is absent, no success close occurs on failure, and repeated Save is blocked while busy.
+   Recheck after changing permissions and inspect server-off guidance.
+5. Actual background notification delivery follows HG-191; actual tactile/audio acceptance follows HG-189.
+   DOM fixtures do not prove either. No production push mutation is authorized by this task.
