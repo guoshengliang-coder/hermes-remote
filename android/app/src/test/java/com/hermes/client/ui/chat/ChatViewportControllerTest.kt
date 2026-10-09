@@ -8,6 +8,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatViewportControllerTest {
+    @Test fun sameWidthRestorationKeepsThePixelAnchorWhileMarkdownHeightChanges() {
+        val controller = ChatViewportController()
+        controller.setPinnedToBottom(false)
+        controller.onViewportWidth(400)
+        controller.updateViewport(Rect(0f, 100f, 400f, 900f))
+        controller.updateBlock("answer", Rect(0f, -200f, 400f, 300f))
+        controller.holdCurrent()
+        controller.updateBlock("answer", Rect(0f, -200f, 400f, 600f))
+        assertEquals(0f, controller.correctionPx()!!, .01f)
+    }
+
+    @Test fun parsingResumesOnlyAnExpiredRestoreAndDoesNotRestartEachActiveScroll() {
+        val controller = ChatViewportController(ChatViewportAnchor("answer:markdown:0", -20f))
+        val initial = controller.restoreGeneration
+        controller.updateOutputParsedContent("answer:markdown:0", null)
+        controller.updateOutputParsedContent("answer:markdown:0", "parsed")
+        assertEquals(initial, controller.restoreGeneration)
+        controller.updateOutputParsedContent("answer:markdown:0", null)
+        controller.waitForPendingParse()
+        controller.updateOutputParsedContent("answer:markdown:0", "parsed")
+        assertEquals(initial + 1, controller.restoreGeneration)
+        controller.updateOutputParsedContent("answer:markdown:0", "parsed again")
+        assertEquals(initial + 1, controller.restoreGeneration)
+    }
+
     @Test fun prefersSpecificMarkdownBlockOverWholeTurn() {
         val controller = ChatViewportController()
         controller.setPinnedToBottom(false)

@@ -184,6 +184,21 @@ class ChatViewModelTest {
         assertEquals("半句话", vm.initialDraft.value)
     }
 
+    @Test fun restoredUiDraftOutranksDiskButStillReceivesAnIncomingShare() = runTest {
+        drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
+            listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "旧的磁盘草稿", updatedAt = 1L)),
+        )
+        val first = buildVm()
+        first.open("s1")
+        runCurrent()
+        assertEquals("最新的草稿", first.initialDraftForComposer("最新的草稿"))
+        pendingShareStore.put("s1", com.hermes.client.share.PendingShare(text = "分享进来的"))
+        val shared = buildVm()
+        shared.open("s1")
+        runCurrent()
+        assertEquals("最新的草稿\n\n分享进来的", shared.initialDraftForComposer("最新的草稿"))
+    }
+
     // HG-40 changed this: a share used to be dropped when a draft existed. Delivering a transcript
     // into a conversation someone had already started typing in must not delete their half
     // sentence — so the two are joined, the user's own words first.
@@ -1368,6 +1383,29 @@ class ChatViewModelTest {
             runtimeJobs.forEach(Job::cancel)
             file.delete()
         }
+    }
+
+    @Test fun leavingAndReturningToChatKeepsItsPendingFileAndDoesNotSubmit() = runTest {
+        val file = java.io.File.createTempFile("hg197", ".pending").apply { writeText("unsent") }
+        try {
+            val runtime = newRuntimeStore()
+            pendingShareStore.put("s1", com.hermes.client.share.PendingShare(stagedFilePath = file.absolutePath, imageMime = "text/plain", attachmentName = "draft.txt"))
+            val first = buildVm(runtimeStore = runtime)
+            first.open("s1")
+            runCurrent()
+            val owner = androidx.lifecycle.ViewModelStore()
+            owner.put("chat", first)
+            owner.clear()
+            assertTrue("navigation must not delete a still-pending file", file.exists())
+            val second = buildVm(runtimeStore = runtime)
+            second.open("s1")
+            runCurrent()
+            assertEquals(listOf("draft.txt"), second.state.value.pendingAttachments.map { it.name })
+            assertEquals(file, second.state.value.pendingAttachments.single().stagedFile)
+            coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+            second.removeAttachment(second.state.value.pendingAttachments.single().id)
+            assertFalse(file.exists())
+        } finally { file.delete() }
     }
 
     @Test fun upload_413_is_the_server_limit_error_and_preserves_the_staged_file() = runTest {

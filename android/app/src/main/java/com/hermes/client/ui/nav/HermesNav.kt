@@ -2,11 +2,14 @@ package com.hermes.client.ui.nav
 
 import android.net.Uri
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.dp
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -24,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -72,6 +76,10 @@ import com.hermes.client.ui.startup.StartupFailure
 import com.hermes.client.ui.startup.StartupDestination
 import com.hermes.client.ui.startup.ForegroundRecoveryCoordinator
 import com.hermes.client.data.diagnostics.CrashReporter
+import com.hermes.client.ui.workspace.ConversationWorkspace
+import com.hermes.client.ui.workspace.LocalWorkspaceSplit
+import com.hermes.client.ui.workspace.SessionUiStateCache
+import com.hermes.client.ui.workspace.SessionState
 
 /** Route for a chat target. [encode] is injectable so the shape is unit-testable off-device. */
 internal fun chatRoute(target: ChatLaunch, encode: (String) -> String = { Uri.encode(it) }): String = buildString {
@@ -340,6 +348,26 @@ fun HermesNav(
     // Drill into a screen from a tab hub (Agent Activity / You).
     val push: (String) -> Unit = { dest -> nav.navigate(dest) { launchSingleTop = true } }
     val openChat: (ChatLaunch) -> Unit = { target -> openCanonicalChat(chatRoute(target)) }
+    val workspaceIdentity by shellVm.workspaceIdentity.collectAsStateWithLifecycle()
+    val defaultDevice by shellVm.defaultDevice.collectAsStateWithLifecycle()
+    LaunchedEffect(hasConfig, repairCompletion) { shellVm.refreshWorkspaceIdentity() }
+    val listStateHolder = androidx.compose.runtime.key(workspaceIdentity) { rememberSaveableStateHolder() }
+    val chatStateHolder = androidx.compose.runtime.key(workspaceIdentity) {
+        rememberSaveable(saver = SessionUiStateCache.Saver) { SessionUiStateCache() }
+    }
+    DisposableEffect(nav, chatStateHolder) {
+        fun identity() = nav.currentBackStackEntry?.let { entry ->
+            listOf(entry.id, entry.arguments?.getString("id"), entry.arguments?.getString("profile"), entry.arguments?.getString("device"))
+        }
+        var previous = identity()
+        val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, _, _ ->
+            val next = identity()
+            if (next != previous) chatStateHolder.captureBeforeNavigation()
+            previous = next
+        }
+        nav.addOnDestinationChangedListener(listener)
+        onDispose { nav.removeOnDestinationChangedListener(listener) }
+    }
 
     // Card page: modal drawer off the session list. Gestures only on the list root so a swipe
     // inside a chat can't accidentally drag it out; the avatar button opens it anywhere it shows.
@@ -402,10 +430,44 @@ fun HermesNav(
             androidx.compose.runtime.CompositionLocalProvider(
                 com.hermes.client.ui.sessions.LocalProjectNames provides nameFor,
             ) {
+            val workspace by shellVm.workspace.choices.state.collectAsStateWithLifecycle()
+            val sessionEntry = remember(backStackEntry) { runCatching { nav.getBackStackEntry("sessions") }.getOrNull() }
+            val isWorkspace = sessionEntry != null && (route == "sessions" || route?.startsWith("chat/") == true)
+            ConversationWorkspace(
+                enabled = isWorkspace,
+                showingList = route == "sessions",
+                preference = workspace,
+                onWidth = shellVm.workspace.choices::width,
+                modifier = contentModifier,
+                list = {
+                    if (sessionEntry != null) listStateHolder.SaveableStateProvider("sessions") {
+                        val vm: SessionsViewModel = hiltViewModel(sessionEntry)
+                        if (route == "sessions") DisposableEffect(foregroundRecovery, vm) {
+                            foregroundRecovery?.register("sessions") { vm.recoverForForeground() }
+                            onDispose { foregroundRecovery?.unregister("sessions") }
+                        }
+                        SessionsScreen(
+                            vm = vm, companion = route != "sessions",
+                            selectedSession = backStackEntry?.arguments?.getString("id"),
+                            selectedDevice = backStackEntry?.arguments?.getString("device") ?: defaultDevice,
+                            selectedProfile = backStackEntry?.arguments?.getString("profile") ?: shellVm.active.value,
+                            onOpen = { target ->
+                                val args = backStackEntry?.arguments
+                                if (args?.getString("id") != target.sessionId || args.getString("device") != target.deviceId || args.getString("profile") != target.profile) openChat(target)
+                            },
+                            onOpenCard = openCard,
+                            onOpenSearch = { nav.navigate("search") { launchSingleTop = true } },
+                            onOpenProjects = { push("projects") }, onOpenArchived = { push("archived") },
+                            onOpenCron = { push("cron") }, onOpenCronJob = { id -> push("cron_detail/$id") },
+                            onOpenMessaging = { push("messaging") }, onUnauthorized = onUnauthorized,
+                        )
+                    }
+                },
+            ) {
             NavHost(
                 navController = nav,
                 startDestination = start,
-                modifier = contentModifier,
+                modifier = Modifier.widthIn(max = if (isWorkspace) androidx.compose.ui.unit.Dp.Infinity else 720.dp).fillMaxSize(),
             ) {
             composable("setup") {
                 com.hermes.client.ui.account.AccountSignInFlow(
@@ -428,23 +490,9 @@ fun HermesNav(
             }
             // ---- Tab roots ----
             composable("sessions") {
-                val vm: SessionsViewModel = hiltViewModel()
-                DisposableEffect(foregroundRecovery, vm) {
-                    foregroundRecovery?.register("sessions") { vm.recoverForForeground() }
-                    onDispose { foregroundRecovery?.unregister("sessions") }
+                if (LocalWorkspaceSplit.current) Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    androidx.compose.material3.Text(localized(language, "选择一个会话开始聊天", "Select a conversation to start chatting"))
                 }
-                SessionsScreen(
-                    vm = vm,
-                    onOpen = openChat,
-                    onOpenCard = openCard,
-                    onOpenSearch = { nav.navigate("search") { launchSingleTop = true } },
-                    onOpenProjects = { push("projects") },
-                    onOpenArchived = { push("archived") },
-                    onOpenCron = { push("cron") },
-                    onOpenCronJob = { id -> push("cron_detail/$id") },
-                    onOpenMessaging = { push("messaging") },
-                    onUnauthorized = onUnauthorized,
-                )
             }
             // Projects and Archived SHARE the Chats ViewModel, deliberately: it owns the socket
             // restore, the event collector and the cross-profile session list, and a second
@@ -509,11 +557,15 @@ fun HermesNav(
                 },
             ) { entry ->
                 val vm: ChatViewModel = hiltViewModel()
+                val uiKey = vm.workspaceUiKey(
+                    entry.arguments?.getString("id").orEmpty(), entry.arguments?.getString("profile"), entry.arguments?.getString("device"),
+                )
                 val recoveryKey = "chat:${entry.arguments?.getString("id").orEmpty()}"
                 DisposableEffect(foregroundRecovery, vm, recoveryKey) {
                     foregroundRecovery?.register(recoveryKey) { vm.recoverForForeground() }
                     onDispose { foregroundRecovery?.unregister(recoveryKey) }
                 }
+                chatStateHolder.SessionState(uiKey) {
                 ChatScreen(
                     sessionId = entry.arguments?.getString("id") ?: "",
                     sessionDeviceId = entry.arguments?.getString("device"),
@@ -538,6 +590,7 @@ fun HermesNav(
                     onOpenDelivered = { target -> openCanonicalChat(chatRoute(target)) },
                     onUnauthorized = onUnauthorized,
                 )
+                }
             }
             composable("models") {
                 val vm: ModelsViewModel = hiltViewModel()
@@ -696,6 +749,7 @@ fun HermesNav(
             }
             composable("settings_about") { AboutScreen(onBack = { nav.popBackStack() }) }
             composable("agents_tools") { AgentsToolsScreen(onMenu = back) }
+            }
             }
             }
         }

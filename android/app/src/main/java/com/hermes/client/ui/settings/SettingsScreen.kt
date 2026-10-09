@@ -30,6 +30,7 @@ fun SettingsScreen(
 ) {
     val language = LocalAppLanguage.current
     val outputHaptics by vm.outputHaptics.state.collectAsStateWithLifecycle()
+    val workspace by vm.workspace.choices.state.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             com.hermes.client.ui.components.HermesTopBar(
@@ -46,6 +47,8 @@ fun SettingsScreen(
             Entry(localized(language, "通知", "Notifications"), localized(language, "审批、定时任务和消息提醒", "Approvals, cron, and messaging alerts")) { onNavigate("settings_notifications") }
             HorizontalDivider()
             DataPresentationSetting()
+            HorizontalDivider()
+            WorkspaceLayoutSetting(workspace, vm.workspace.choices::mode, vm.workspace.choices::resetWidth)
             HorizontalDivider()
             OutputHapticsSetting(outputHaptics, vm.outputHaptics::setEnabled, vm.outputHaptics::retry)
             HorizontalDivider()

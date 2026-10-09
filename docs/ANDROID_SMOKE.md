@@ -604,3 +604,27 @@ focus search during composition changes; clear renderer focus before changing th
 `StreamingChatPresentationTest` 在 Pixel_9_API_36_1（API 36）浅色/深色下通过，包含真实滑动后完成
 不抢回底部，已抽帧检查录屏。测试使用平台输入注入，避免旧 Espresso 对已移除输入接口的反射。
 L2 无真机连接，触感及厂商动态观感未验；此模拟器低于 targetSdk 37，不覆盖该级别的平台行为。
+
+# HG-197：实体大屏与折叠姿态 — 待验
+
+**为什么自动化不能替代**：JVM 可验证宽度、字号、状态和固定铰链区域，但不能证明 OEM 提供的
+实际铰链坐标、系统分屏拖动、触摸命中、浮动键盘与 TalkBack 的设备行为。本机模拟器只是平面窗口。
+
+在平板和真实折叠屏分别打开一条有长历史的会话，向上阅读、写草稿、选一个待发送附件。
+拖动分隔线、收起／展开列表、旋转、调整系统分屏，再折叠／展开，确认阅读位置、草稿、附件、
+搜索命中和运行状态均保持，没有重复发送。大字号下不足以容纳两栏时自动单栏。
+实体遮挡／分隔铰链不能覆盖文字和按钮；固定铰链分隔不提供拖动，单栏使用较大的无障碍区域。
+分别测试软键盘、外接键盘 Left/Right/Home 与 TalkBack 的栏宽调整／恢复默认操作。
+设置选「始终单栏」后无论横竖屏均单栏；重新选自动后恢复保存栏宽。
+退出账号或换 Relay 后不能看到之前的草稿和待发送附件。记录设备型号、系统版本、字号及结果。
+
+2026-10-09 本地验证：L1 `:app:testDebugUnitTest :app:assembleDebug` 通过；
+`ConversationWorkspaceTest` 的 9 项交互／恢复／截图用例在 Roborazzi verify 模式下通过，
+包括浅色、应用深色＋系统浅色＋1.3 字号及窄窗截图。L3 Pixel_API_37（API 37）使用本地 mock
+验证宽窗双栏、选择会话、拖动栏宽、草稿在 A→B→A 与 400dp→1100dp 切换中保留；
+260 条历史的阅读位置在返回与宽窗恢复后逐项核对相同可见文字坐标。没有发送测试草稿。
+模拟器尺寸、密度、栏宽与原本的本地 Relay 配置已恢复，临时 dev stack 已停止。
+L2 无实体设备连接；OEM 铰链、实体折叠过程、TalkBack、厂商键盘与系统分屏仍待验。
+全仓额外截图比对有 16 项旧基线差异，来自 `ScreenshotTest`、`AccountScreensTest` 与
+`CronScreenshotTest.cronDetailFailed`；未改主线
+`3c9c8764` 同样复现，未更新这些基线来消除差异。上述“通过”不指全仓截图全绿。

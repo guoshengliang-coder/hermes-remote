@@ -19,6 +19,7 @@ class SettingsViewModel @Inject constructor(
     private val settings: SettingsStore,
     private val rest: HermesRestApi,
     val outputHaptics: OutputHapticsSettings,
+    val workspace: com.hermes.client.ui.workspace.WorkspacePreferences,
 ) : ViewModel() {
     val appLanguage: StateFlow<AppLanguage> =
         settings.appLanguage.stateIn(

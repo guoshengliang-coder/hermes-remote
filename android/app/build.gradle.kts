@@ -250,6 +250,7 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.material)
     implementation(libs.navigation.compose)
+    implementation("androidx.window:window:1.5.1")
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     // Hilt 2.59.2 bundles kotlin-metadata-jvm capped at metadata 2.3.0, but Kotlin 2.3.10 emits

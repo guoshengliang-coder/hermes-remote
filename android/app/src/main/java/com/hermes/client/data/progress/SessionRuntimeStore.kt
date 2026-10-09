@@ -230,6 +230,17 @@ class SessionRuntimeStore(
 ) {
     private val _runtimes = MutableStateFlow<Map<SessionRuntimeKey, SessionRuntime>>(emptyMap())
     val runtimes: StateFlow<Map<SessionRuntimeKey, SessionRuntime>> = _runtimes.asStateFlow()
+    private var pendingAttachmentOwner: String? = null
+
+    /** Compose calls this only after account storage is available; app startup stays lazy. */
+    fun bindPendingAttachmentOwner(owner: String) {
+        if (pendingAttachmentOwner == owner) return
+        if (pendingAttachmentOwner != null) {
+            _runtimes.value.values.flatMap { it.chat.pendingAttachments }.forEach { it.stagedFile?.delete() }
+            _runtimes.update { map -> map.mapValues { (_, runtime) -> runtime.copy(chat = runtime.chat.copy(pendingAttachments = emptyList())) } }
+        }
+        pendingAttachmentOwner = owner
+    }
     private val _unreadTokens = MutableStateFlow<Set<String>>(emptySet())
     val unreadTokens: StateFlow<Set<String>> = _unreadTokens.asStateFlow()
 
@@ -625,6 +636,7 @@ class SessionRuntimeStore(
     private fun pruneIdleRuntimes(map: Map<SessionRuntimeKey, SessionRuntime>): Map<SessionRuntimeKey, SessionRuntime> {
         val protected = map.values.filter { runtime ->
             runtime.hasActiveWork ||
+                runtime.chat.pendingAttachments.isNotEmpty() ||
                 runtime.phase.isTerminalVerdict ||
                 runtime.key in visible ||
                 SessionReadStore.token(runtime.key.profile, runtime.key.sessionId, runtime.key.deviceId) in _unreadTokens.value
