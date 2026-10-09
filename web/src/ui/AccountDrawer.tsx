@@ -4,6 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance";
 import { pushStatusLabel, usePushStatus } from "../app/pushStatus";
 import { voiceVibrationSupported } from "../app/voiceFeedback";
+import { useWorkspace } from "../app/workspace";
 import { useDefaultModel } from "../app/defaultModel";
 import { navigate } from "../app/router";
 import { useApp } from "../app/store";
@@ -15,7 +16,7 @@ import { ErrorNotice } from "./ErrorNotice";
 import { BellIcon, ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MicIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
 
 type Translate = (zh: string, en: string) => string;
-type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push" | "dataPresentation";
+type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push" | "dataPresentation" | "layout";
 
 const themeLabel = (mode: ThemeMode, t: Translate) =>
   mode === "system" ? t("跟随系统", "Follow system") : mode === "light" ? t("温润浅色", "Warm light") : t("黑曜石深色", "Obsidian dark");
@@ -36,6 +37,11 @@ const fontSizeLabel = (size: FontSize, t: Translate) =>
 export function AccountDrawer({ onClose }: { onClose: () => void }) {
   const app = useApp();
   const { t, device } = app;
+  const workspace = useWorkspace();
+  const layoutOptions = [
+    { id: "auto", label: t("自动适应", "Automatic"), description: t("空间足够时并排显示会话列表与聊天", "Show conversations beside chat when space allows") },
+    { id: "single", label: t("始终单栏", "Always single column"), description: t("所有窗口宽度都使用单栏", "Use a single column at every window size") },
+  ] as const;
   const [dataPresentation, setDataPresentation] = useState<Presentation>(preference);
   const presentationOptions = [
     { id: "table", label: t("表格优先", "Table first"), description: t("首先显示原始表格", "Start with the source table") },
@@ -112,6 +118,8 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
             <ChevronIcon />
           </button>
           <div class="drawer-shortcuts">
+            <button type="button" class="drawer-shortcut" aria-label={t("大屏布局", "Large screen layout")} onClick={() => setSheet("layout")}><MacIcon size={20}/><span class="drawer-shortcut-title">{t("大屏布局", "Large screen layout")}</span><span class="drawer-shortcut-value">{layoutOptions.find(option => option.id === workspace.mode)?.label}</span><ChevronIcon/></button>
+            <button type="button" class="drawer-shortcut" aria-label={t("恢复默认栏宽", "Reset list width")} onClick={() => { workspace.resetWidth(); app.flash(t("已恢复默认栏宽", "List width reset")); }}><TextSizeIcon size={20}/><span class="drawer-shortcut-title">{t("恢复默认栏宽", "Reset list width")}</span></button>
             <button type="button" class="drawer-shortcut" onClick={() => setSheet("dataPresentation")}><TextSizeIcon size={20}/><span class="drawer-shortcut-title">{t("数据展示方式", "Data presentation")}</span><span class="drawer-shortcut-value">{presentationOptions.find(o => o.id === dataPresentation)?.label}</span><ChevronIcon/></button>
             {pushStatus !== "unsupported" ? (
               <button type="button" class="drawer-shortcut" aria-label={t("消息通知", "Notifications")} onClick={() => setSheet("push")}>
@@ -165,6 +173,8 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
       {sheet === "dataPresentation" ? <ChoiceSheet title={t("数据展示方式", "Data presentation")} options={presentationOptions} inUse={dataPresentation}
         onSave={choice => { try { savePreference(choice); setDataPresentation(choice); closeSheet(); } catch { app.flash(appError("HR-CHART-002")); } }} onClose={closeSheet} t={t}/> : null}
       {sheet === "push" ? <PushNotifications onClose={closeSheet}/> : null}
+      {sheet === "layout" ? <ChoiceSheet title={t("大屏布局", "Large screen layout")} options={layoutOptions} inUse={workspace.mode}
+        onSave={choice => { workspace.setMode(choice); closeSheet(); }} onClose={closeSheet} t={t}/> : null}
       {sheet === "model" && app.features.has("default-model-write") ? <ModelSheet scope="default" aboveDrawer
         current={{ model: null, provider: null }} profile={null} explicitOverride={false}
         actions={{ switchModel: async () => { throw new Error("session action in default mode"); }, reasoning: async () => null, setReasoning: async () => {} }}

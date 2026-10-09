@@ -77,6 +77,27 @@ it("direct links fall back to the list without leaving the app", () => {
   expect(currentRoute()).toEqual({ name: "list" });
   expect(history.go).not.toHaveBeenCalled();
 });
+it("selecting a companion-list row waits for the composer's blur rewind", () => {
+  navigate({ name: "chat", sessionId: "one" });
+  const release = pushOverlay(() => undefined);
+  const replace = history.replaceState.bind(history);
+  let land!: () => void;
+  vi.mocked(history.go).mockImplementationOnce(delta => {
+    const destination = index + (delta ?? 0);
+    land = () => {
+      index = destination;
+      const entry = entries[index]!;
+      replace(entry.state, "", entry.path);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: entry.state }));
+    };
+  });
+  release(); // pointerdown blurs the composer before the row's click
+  navigate({ name: "chat", sessionId: "two" });
+  land();
+  expect(currentRoute()).toEqual({ name: "chat", sessionId: "two" });
+  history.go(-1);
+  expect(currentRoute()).toEqual({ name: "list" });
+});
 it("sign-out removes saved searches and rows", () => {
   const key = pageSnapshotKey("sessions:mac"); savePageSnapshot(key, { query: "private" });
   clearPageSnapshots();

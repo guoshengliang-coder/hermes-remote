@@ -8,6 +8,7 @@ import {
   type PendingAttachment,
 } from "../chat/attachments";
 import { useDraftText } from "../app/useDraftText";
+import { useAttachmentDraft } from "../app/conversationMemory";
 import { appError, type AppError, type Language } from "../errors";
 import { ErrorNotice } from "./ErrorNotice";
 import { useApp } from "../app/store";
@@ -67,7 +68,8 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const camera = useRef<HTMLInputElement>(null);
   const photos = useRef<HTMLInputElement>(null);
   const [text, setText, flushDraft] = useDraftText(draftKey);
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const attachmentDraft = useAttachmentDraft(draftKey);
+  const { attachments, set: setAttachments } = attachmentDraft;
   const [problem, setProblem] = useState<AppError | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -174,7 +176,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     if (keyRef.current === draftKey) return;
     keyRef.current = draftKey;
     cancelVoice(); permissionEpoch.current++; setRequestingMic(false); setVoiceMode(false); setFocused(false);
-    setAttachments((current) => { current.forEach((a) => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); }); return []; });
+    setSheet(null); setPreparing(false); setGeneratingCount(0);
     setProblem(null);
   }, [draftKey]);
 
@@ -202,7 +204,8 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
 
   async function addFiles(list: FileList | null) {
     if (!list || !list.length) return;
-    const { accepted, rejected } = checkAttachments(attachments.length, [...list]);
+    const owner = attachmentDraft.capture();
+    const { accepted, rejected } = checkAttachments(owner.value.length, [...list]);
     if (rejected.length) {
       const why = rejected.map((r) => `${r.name}: ${r.problem}`).join("; ");
       const oversizedFile = rejected.some((r) => r.problem === "too-large" && [...list].some((f) => f.name === r.name && attachmentKind(f.type) === "file"));
@@ -217,7 +220,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
       if (kind === "image") {
         const image = await prepareImage(file);
         if (image.blob.size > 6 * 1024 * 1024) {
-          setProblem(appError("HR-WEB-006", `${file.name}: too-large after re-encoding`));
+          if (owner.isCurrent()) setProblem(appError("HR-WEB-006", `${file.name}: too-large after re-encoding`));
           continue;
         }
         prepared.push({ id: `att-${++seq}`, file: image.blob, name: image.name, mimeType: image.mimeType, kind, previewUrl: URL.createObjectURL(image.blob) });
@@ -225,12 +228,13 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         prepared.push({ id: `att-${++seq}`, file, name: file.name, mimeType: file.type || "application/octet-stream", kind });
       }
     }
-    setAttachments((current) => [...current, ...prepared].slice(0, MAX_ATTACHMENTS));
-    setPreparing(false);
+    owner.write((current) => [...current, ...prepared].slice(0, MAX_ATTACHMENTS));
+    if (owner.isCurrent()) setPreparing(false);
   }
 
   /** Each picked conversation becomes its own Markdown chip, all placed together (HG-38). */
   async function attachConversations(picked: SessionListItem[]) {
+    const owner = attachmentDraft.capture();
     setSheet(null);
     const device = app.device;
     if (!device) return;
@@ -251,9 +255,11 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         failed.push(`${title ?? session.id}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    setAttachments((current) => [...current, ...made].slice(0, MAX_ATTACHMENTS));
-    setGeneratingCount(0);
-    if (failed.length) setProblem(appError("HR-SESS-014", `${failed.length} of ${picked.length} failed — ${failed.join("; ")}`));
+    owner.write((current) => [...current, ...made].slice(0, MAX_ATTACHMENTS));
+    if (owner.isCurrent()) {
+      setGeneratingCount(0);
+      if (failed.length) setProblem(appError("HR-SESS-014", `${failed.length} of ${picked.length} failed — ${failed.join("; ")}`));
+    }
   }
 
   function insertPrompt(body: string) {

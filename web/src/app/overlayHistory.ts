@@ -23,6 +23,7 @@ const waiting: OverlayEntry[] = [];
 let seq = 0;
 /** Rewinds of our own whose popstate must not close anything. */
 let ignorePops = 0;
+let afterRewind: (() => void) | null = null;
 let installed = false;
 
 function pushEntry(entry: OverlayEntry): void {
@@ -40,7 +41,12 @@ function onPopState(): void {
     ignorePops--;
     // An overlay that opened while the rewind travelled (viewer → editor) gets its entry now,
     // or the rewind would have landed behind it.
-    if (ignorePops === 0) for (const entry of waiting.splice(0)) if (stack.includes(entry)) pushEntry(entry);
+    if (ignorePops === 0) {
+      for (const entry of waiting.splice(0)) if (stack.includes(entry)) pushEntry(entry);
+      const action = afterRewind;
+      afterRewind = null;
+      action?.();
+    }
     return;
   }
   // The user went back past one or more of our entries: they are gone from history. Close the
@@ -113,12 +119,20 @@ export function yieldPageEntries(): number {
   return count;
 }
 
+/** Blur can start an asynchronous rewind before a row's click. Navigate once it has landed. */
+export function deferUntilOverlayRewind(action: () => void): boolean {
+  if (ignorePops === 0) return false;
+  afterRewind = action; // the latest explicit navigation wins
+  return true;
+}
+
 /** Forget everything (tests). */
 export function resetOverlays(): void {
   stack.length = 0;
   live.length = 0;
   waiting.length = 0;
   ignorePops = 0;
+  afterRewind = null;
 }
 
 export function overlayDepth(): number {

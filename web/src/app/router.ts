@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { yieldPageEntries, yieldTopEntry } from "./overlayHistory";
+import { deferUntilOverlayRewind, yieldPageEntries, yieldTopEntry } from "./overlayHistory";
 
 // A tiny History-API router under /app/. URLs only ever SELECT what to show: nothing reachable
 // from a path, query or hash performs a mutation (docs/ACCOUNT_MODE_SECURITY.md, Web app).
@@ -80,6 +80,7 @@ export function savePageSnapshot(key: string, value: unknown): void {
 export function clearPageSnapshots(): void { snapshots.clear(); knownPages.clear(); }
 
 export function navigate(route: Route, options: { replace?: boolean } = {}): void {
+  if (deferUntilOverlayRewind(() => navigate(route, options))) return;
   const path = routePath(route);
   if (path === location.pathname && !location.search && !location.hash) return;
   const source = pageEntry();
@@ -117,6 +118,7 @@ export function navigate(route: Route, options: { replace?: boolean } = {}): voi
 
 /** Toolbar Back leaves the chat, including composer/other same-page overlay steps. */
 export function returnFromChat(): void {
+  if (deferUntilOverlayRewind(returnFromChat)) return;
   const page = pageEntry();
   if (page.returnSteps) history.go(-(page.returnSteps + yieldPageEntries()));
   else navigate({ name: "list" }, { replace: true });

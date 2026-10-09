@@ -1679,3 +1679,43 @@ Real OS prompts, push delivery and physical vibration still need the actual brow
    Recheck after changing permissions and inspect server-off guidance.
 5. Actual background notification delivery follows HG-191; actual tactile/audio acceptance follows HG-189.
    DOM fixtures do not prove either. No production push mutation is authorized by this task.
+# HG-197 · Hermes GO Web adaptive workspace
+
+Target is `https://mrlgs.net/app/`, confirmed by the owner on 2026-10-09. Use the existing
+authenticated browser; URLs only select a conversation. Do not send a real prompt just to test layout.
+
+1. On Android Chrome (including the HONOR Magic V5 inner/outer screen), iPad/iPhone Safari and
+   Home Screen mode, record device, OS, browser version, root text size and CSS viewport dimensions.
+   At the default root size, a 624px usable container permits two panes; smaller windows use one.
+   Raise browser/app text size and confirm the budget increases, without clipped controls.
+2. Open a long conversation, load older pages and read halfway through a long answer. Type an
+   unsent draft and stage an image plus a file. Fold/unfold, rotate, resize OS split-screen, drag
+   the divider and collapse/reopen the list. Verify the same answer and in-answer offset remain,
+   text/files stay staged, and layout changes do not reconnect, send or interrupt a task.
+3. Select another conversation while the composer is focused, type a different draft, then return.
+   Each conversation must recover its own text, files, search and reading point. Wait for Markdown
+   and images to settle; a short loading placeholder must not move the offset into the next turn.
+   Let an image finish preparing while a different chat is selected; it must return to its owner.
+4. Settings are in the list's sidebar: “Large screen layout” → Automatic / Always single column.
+   Choice changes only on Save; cancel leaves the previous setting. Reload to check mode/width
+   persistence; unsent files and reading/search snapshots are page-memory only. A temporarily
+   narrow window must not overwrite the preferred wide-screen list width. Reset list width there.
+5. Test mouse and touch dragging at both limits, keyboard Left/Right/Shift/Home/End and
+   TalkBack/VoiceOver separator range announcements. Check active-row indication, new-chat FAB and
+   menu placement in the list pane. Each pane scrolls independently; tables/code may scroll inside
+   their own blocks without making the document scroll sideways.
+6. On iPad Safari with the soft keyboard and a large screen, ensure only the chat pane fits the
+   visual viewport; it must not expand across the list. Verify IME composition, attachments,
+   approval/question sheets, models, image viewer and input remain reachable with safe-area insets.
+7. Browser Back first closes the top overlay or focused composer, then returns to the original
+   list/archive. Rapid selection while the composer blurs must land in the clicked conversation.
+   Check notification/deep links and Forward/Back in both one- and two-pane states.
+8. Sign out or revoke the browser session and switch accounts: files/search/reading memory clears,
+   stale async work cannot write into the next owner. Block localStorage and ensure layout choices
+   still work in memory. Browsers without a physical hinge report use the ordinary viewport;
+   real hinge/half-fold behavior remains a device acceptance item.
+
+Automated DOM tests cover pane budgets, saved preferences, stable mounting, dragging/keyboard,
+attachment/draft ownership, reading/search restoration and navigation races. Desktop Chromium and
+WebKit size/keyboard emulation is useful evidence, but does not count as physical Android/iOS,
+TalkBack/VoiceOver or an actual folding gesture.

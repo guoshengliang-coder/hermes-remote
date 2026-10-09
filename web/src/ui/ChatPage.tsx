@@ -51,6 +51,8 @@ import { MessageView, type MessageActions } from "./Message";
 import { QuestionSheet } from "./QuestionSheet";
 import { loadSessions } from "./SessionList";
 import { followChatVisualViewport } from "./chatViewport";
+import { useWorkspace } from "../app/workspace";
+import { conversationScope, readConversationView, viewWriter } from "../app/conversationMemory";
 
 // Chat page for /app/s/<storedSessionId> and /app/new. A new chat keeps the same page (and
 // socket) when its first send gives it a durable id and the URL is replaced.
@@ -65,6 +67,7 @@ interface ScrollAnchor {
   key: string;
   offset: number;
 }
+interface ChatView { anchor: ScrollAnchor | null; following: boolean; searchOpen: boolean; query: string; focus: number }
 
 function readAnchor(el: HTMLElement): ScrollAnchor | null {
   const top = el.getBoundingClientRect().top;
@@ -86,6 +89,7 @@ function restoreAnchor(el: HTMLElement, anchor: ScrollAnchor | null) {
 export function ChatPage({ sessionId, profileHint }: { sessionId: string | null; profileHint?: string | null }) {
   const app = useApp();
   const { t, language, device, client } = app;
+  const workspace = useWorkspace();
   // HG-183: the new-session greeting names the signed-in Web account (Android uses the profile
   // identity name; Web has no profile switching, so it reads its own account).
   const accountName = app.account?.displayName?.trim() || app.account?.email?.trim() || null;
@@ -127,6 +131,34 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const [processesOpen, setProcessesOpen] = useState(false);
   const [ownedElsewhere, setOwnedElsewhere] = useState(false);
 
+  const profile = profileHint !== undefined ? profileHint : explicitProfile(app.sessions.find(row => row.id === sessionId));
+  const viewKey = conversationScope(app.account?.id, device?.deviceId ?? "", profile, sessionId);
+  const restoring = useRef<ScrollAnchor | null>(null);
+  const view = useRef<ChatView>({ anchor: null, following: true, searchOpen: false, query: "", focus: 0 });
+  view.current = { anchor: anchor.current, following: stick.current, searchOpen, query: searchQuery, focus: searchFocus };
+  const previousId = useRef(sessionId);
+  useLayoutEffect(() => {
+    const adopted = previousId.current === null && sessionId !== null && sessionRef.current?.storedSessionId === sessionId;
+    previousId.current = sessionId;
+    if (!adopted) {
+      const saved = readConversationView<ChatView>(viewKey);
+      anchor.current = saved?.anchor ?? null;
+      restoring.current = saved?.following === false ? saved.anchor : null;
+      stick.current = saved?.following ?? true;
+      setAtBottom(stick.current);
+      setSearchOpen(saved?.searchOpen ?? false);
+      setSearchQuery(saved?.query ?? "");
+      setSearchFocus(saved?.focus ?? 0);
+      setSeed(null); setMenuOpen(false); setViewer(null); setPendingImage(null);
+      setPromptsOpen(false); setShareOpen(false); setUserMenu(null); setSourceItem(null);
+      setManage(null); setModelOpen(false); setAnswerMenu(null); setBotNotice(null);
+      setProcesses([]); setProcessesOpen(false); setOwnedElsewhere(false);
+      pendingFiles.current.clear();
+    }
+    const save = viewWriter<ChatView>(viewKey);
+    return () => save({ ...view.current, anchor: restoring.current ?? anchor.current, following: stick.current });
+  }, [viewKey]);
+
   useEffect(() => page.current ? followChatVisualViewport(page.current) : undefined, []);
 
   // Opened from a message-search hit: in-chat search starts pre-filled (Android initialQuery).
@@ -135,7 +167,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     setSearchQuery(app.chatSearchSeed);
     setSearchOpen(true);
     app.setChatSearchSeed(null);
-  }, []);
+  }, [sessionId, app.chatSearchSeed]);
   // A new chat opened from a project-filtered list is created in that project's folder; captured
   // once so changing the filter later cannot move a chat that is being created.
   const newChatProject = useRef(sessionId === null ? app.projectFilter : null);
@@ -155,7 +187,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   }, [listReady, device?.deviceId]);
 
   // One ChatSession per conversation; adopting the id a new chat just got keeps the socket.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!device || !listReady) return;
     const current = sessionRef.current;
     if (current && sessionId !== null && current.storedSessionId === sessionId) return;
@@ -171,8 +203,9 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       storedSessionId: sessionId,
       cwd: sessionId === null ? newChatProject.current?.path : null,
       profile: sessionId === null ? null : profileHint !== undefined ? profileHint : explicitProfile(app.sessions.find((s) => s.id === sessionId)),
-      dispatch,
+      dispatch: action => { if (sessionRef.current === session) dispatch(action); },
       onStored: (id) => {
+        if (sessionRef.current !== session) return;
         setStoredId(id);
         navigate({ name: "chat", sessionId: id }, { replace: true });
       },
@@ -180,7 +213,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       // A top-level create lands in Hermes' launch folder: that is the default project (Android
       // saves the same `info.cwd` as defaultProjectPath).
       onCreated: ({ cwd, requestedCwd }) => {
-        if (!requestedCwd) rememberDefaultProject(device.deviceId, cwd);
+        if (sessionRef.current === session && !requestedCwd) rememberDefaultProject(device.deviceId, cwd);
       },
     });
     sessionRef.current = session;
@@ -226,17 +259,31 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
 
   // Follow the stream while the reader is at the bottom; otherwise keep the turn they are reading
   // where it was when an older page (or its loader) appears above it.
+  function finishReadingRestore(el: HTMLElement): boolean {
+    const saved = restoring.current;
+    if (!saved) return true;
+    // History turns mount before their sanitized Markdown paints. Applying an in-turn offset
+    // to that short placeholder can land in the following turn and overwrite the saved anchor.
+    if (el.querySelector('.markdown[aria-busy="true"]') || !el.querySelector(`[data-key="${CSS.escape(saved.key)}"]`)) return false;
+    restoreAnchor(el, saved);
+    anchor.current = saved;
+    restoring.current = null;
+    return true;
+  }
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    if (stick.current) pinToBottom(el);
+    if (restoring.current) {
+      if (!finishReadingRestore(el)) return;
+    } else if (stick.current) pinToBottom(el);
     else restoreAnchor(el, anchor.current);
     anchor.current = readAnchor(el);
-  }, [state.items, open, state.older.loading, state.older.error]);
+  }, [state.items, open, state.older.loading, state.older.error, workspace.width, workspace.listWidth, workspace.split]);
 
   function onScroll() {
     const el = scroller.current;
     if (!el) return;
+    if (restoring.current) return;
     const decision = followAfterScroll({
       distanceFromBottom: el.scrollHeight - el.scrollTop - el.clientHeight,
       following: stick.current,
@@ -260,6 +307,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   // first second after a load — exactly when the conversation is being pinned to its bottom.
   const userAt = useRef(Number.NEGATIVE_INFINITY);
   const markUser = () => {
+    restoring.current = null;
     userAt.current = performance.now();
   };
   /** scrollHeight at our last pin to the bottom: a different height means content settled since. */
@@ -279,10 +327,14 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     const inner = el?.querySelector(".messages-inner");
     if (!el || !inner || typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver(() => {
+      if (restoring.current) { finishReadingRestore(el); return; }
       if (stick.current && !searchOpenRef.current) pinToBottom(el);
+      else if (!searchOpenRef.current) restoreAnchor(el, restoring.current ?? anchor.current);
     });
     observer.observe(inner);
-    return () => observer.disconnect();
+    const painted = new MutationObserver(() => { if (restoring.current) finishReadingRestore(el); });
+    painted.observe(inner, { subtree: true, attributes: true, attributeFilter: ["aria-busy"] });
+    return () => { observer.disconnect(); painted.disconnect(); };
   }, []);
 
   /** Earlier messages, fetched page by page as the reader reaches the top (HG-104). */
@@ -301,7 +353,9 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   // A page too short to scroll (or still near the top after a prepend) keeps reaching back.
   useEffect(() => {
     const el = scroller.current;
-    if (el) maybeLoadOlder(el);
+    if (restoring.current && state.historyLoaded && state.older.hasMore && !state.older.loading && !state.older.error) loadOlder();
+    else if (el) maybeLoadOlder(el);
+    if (state.historyLoaded && !state.older.hasMore && !state.older.loading && restoring.current && !el?.querySelector(`[data-key="${CSS.escape(restoring.current.key)}"]`)) restoring.current = null;
   }, [state.historyRows, state.older.hasMore, state.older.loading]);
 
   // "Back to this prompt" pill (DESIGN §5.4, Android TurnJump): shown while the list moves, gone
@@ -541,8 +595,10 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           />
         ) : (
           <div class="topbar-row">
-            <button type="button" class="icon-button" aria-label={t("返回", "Back")} onClick={returnFromChat}>
-              <BackIcon />
+            <button type="button" class="icon-button" aria-label={workspace.eligible ? workspace.split ? t("收起会话栏", "Hide conversations") : t("展开会话栏", "Show conversations") : t("返回", "Back")}
+              aria-expanded={workspace.eligible ? workspace.split : undefined} aria-controls={workspace.eligible ? "conversation-list-pane" : undefined}
+              onClick={workspace.eligible ? workspace.toggleList : returnFromChat}>
+              {workspace.eligible ? <ListIcon /> : <BackIcon />}
             </button>
             <div class="chat-title">
               <h1 class={`topbar-title left${title.length > 24 ? " long" : ""}`}>{emptyNew ? t("新会话", "New chat") : title}</h1>
@@ -758,7 +814,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           voiceReady={state.connection === "ready"}
           onSend={send}
           onInterrupt={() => void sessionRef.current?.interrupt()}
-          draftKey={device ? draftKey(device.deviceId, storedId) : null}
+          draftKey={device ? draftKey(device.deviceId, storedId, conversationScope(app.account?.id, device.deviceId, profile, storedId)) : null}
           sessionId={storedId}
           onOpenAttachment={(attachment, replace, remove) => setPendingImage({ attachment, replace, remove, editing: false })}
           seed={seed}

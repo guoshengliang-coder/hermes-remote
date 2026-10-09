@@ -3,7 +3,7 @@ import { useListReturn } from "../app/useListReturn";
 import { BackClose } from "../app/useBackClose";
 import { GatewayHttpError, hermesPaths } from "../api/gateway";
 import { botSections, botSourceLabel, botStatusLine } from "../app/bots";
-import { draftSessions } from "../app/drafts";
+import { DRAFT_CHANGED, draftSessions } from "../app/drafts";
 import { toAppError } from "../app/failures";
 import { groupSessions, type GroupId } from "../app/grouping";
 import { createListRefresher, type ListRefresher } from "../app/listRefresh";
@@ -13,6 +13,7 @@ import { navigate } from "../app/router";
 import { rowView } from "../app/rowStatus";
 import { isBotSession, isListable } from "../app/sources";
 import { useApp } from "../app/store";
+import { useWorkspace } from "../app/workspace";
 import { appError, type AppError } from "../errors";
 import type { ProfileSessionsResponse, SessionListItem, SessionListResponse } from "../hermes/types";
 import { ErrorNotice } from "./ErrorNotice";
@@ -38,7 +39,17 @@ const GROUP_LABEL: Record<GroupId, [string, string]> = {
   older: ["更早", "Earlier"],
 };
 
-export async function loadSessions(client: ReturnType<typeof useApp>["client"], deviceId: string): Promise<SessionListItem[]> {
+const listRequests = new WeakMap<ReturnType<typeof useApp>["client"], Map<string, Promise<SessionListItem[]>>>();
+export function loadSessions(client: ReturnType<typeof useApp>["client"], deviceId: string): Promise<SessionListItem[]> {
+  let requests = listRequests.get(client);
+  if (!requests) { requests = new Map(); listRequests.set(client, requests); }
+  const pending = requests.get(deviceId);
+  if (pending) return pending;
+  const request = loadSessionRows(client, deviceId).finally(() => requests!.delete(deviceId));
+  requests.set(deviceId, request);
+  return request;
+}
+async function loadSessionRows(client: ReturnType<typeof useApp>["client"], deviceId: string): Promise<SessionListItem[]> {
   try {
     const body = await client.deviceApi<ProfileSessionsResponse>(deviceId, "GET", `${hermesPaths.profileSessions}?limit=500&order=recent`);
     return Array.isArray(body?.sessions) ? body.sessions : [];
@@ -69,6 +80,7 @@ function GroupHeader({ id, label, count, folded, onToggle }: { id: string; label
 export function SessionList() {
   const app = useApp();
   const { t, language, device, client } = app;
+  const paneActive = useWorkspace().listVisible !== false;
   const listReturn = useListReturn(`sessions:${device?.deviceId}`, { searching: false, query: "", botFolded: [] as string[] });
   const [loading, setLoading] = useState(app.sessions.length === 0);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,6 +95,15 @@ export function SessionList() {
   const [botFolded, setBotFolded] = useState<ReadonlySet<string>>(new Set(listReturn.initial.botFolded));
   const [reveal, setReveal] = useState(0);
   const [actionFor, setActionFor] = useState<SessionListItem | null>(null);
+  const [draftVersion, setDraftVersion] = useState(0);
+  useEffect(() => {
+    const changed = () => setDraftVersion(value => value + 1);
+    window.addEventListener(DRAFT_CHANGED, changed);
+    return () => window.removeEventListener(DRAFT_CHANGED, changed);
+  }, []);
+  useEffect(() => {
+    if (!paneActive) { setMenuOpen(false); setDrawerOpen(false); setProjectsOpen(false); setActionFor(null); }
+  }, [paneActive]);
   const searchRef = useRef<HTMLInputElement>(null);
   /** The list's own scroll port: the page frame never scrolls (HG-173). */
   const scrollPort = listReturn.port;
@@ -140,7 +161,7 @@ export function SessionList() {
   }, [app.inbox.cursor]);
 
   useEffect(() => {
-    if (searching) searchRef.current?.focus();
+    if (searching && paneActive) searchRef.current?.focus();
   }, [searching]);
 
   // Arrived from a chat's "search all chats": open the search with that query.
@@ -190,7 +211,7 @@ export function SessionList() {
   const projectLabels = useMemo(() => disambiguatedLabels(projects), [projects]);
   const shown = useMemo(() => (filter ? rows.filter((r) => app.needsYou.has(r.id) || inProject(r, filter.path)) : rows), [rows, filter, app.needsYou]);
   const groups = useMemo(() => groupSessions(shown, app.needsYou, now, app.isPinned), [shown, app.needsYou, now, app.isPinned]);
-  const drafts = useMemo(() => (deviceId ? draftSessions(deviceId) : new Set<string>()), [deviceId, app.sessions]);
+  const drafts = useMemo(() => (deviceId ? draftSessions(deviceId, app.account?.id) : new Set<string>()), [deviceId, app.account?.id, app.sessions, draftVersion]);
   const noFolderLabel = t("未指定文件夹", "No folder");
   const projectName = (path: string | null, fallback: string) =>
     path === null ? noFolderLabel : defaultProject && path === defaultProject ? t("默认项目", "Default project") : (projectLabels.get(path) ?? fallback);
@@ -208,7 +229,7 @@ export function SessionList() {
   return (
     <div class="page list-page">
       <header class="topbar">
-        {searching ? <BackClose onClose={closeSearch} /> : null}
+        {searching ? <BackClose onClose={closeSearch} active={paneActive} /> : null}
         {searching ? (
           <div class="topbar-row search-row">
             <button type="button" class="icon-button" aria-label={t("关闭搜索", "Close search")} onClick={closeSearch}>
