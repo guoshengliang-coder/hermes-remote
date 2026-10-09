@@ -2313,3 +2313,53 @@ The complete MissionGo candidate metadata remained one page, HG-148 (`androidApp
 (`macosApp`). Android is still absent from the product's declared `web/gateway/connector`
 artifacts and no macOS package was published, so no candidate status was advanced. Publication
 does not establish installation on the user's phone or device acceptance.
+
+### HG-197 Hermes GO Web adaptive workspace publication — 2026-10-09
+
+The owner confirmed `https://mrlgs.net/app/` as the Web target in this session, superseding
+the item's earlier upstream dashboard/TUI scope. Implementation
+[#555](https://github.com/guoshengliang-coder/hermes-remote/pull/555) merged as
+`96c3413305793346dbee8c7ca725d4aac0dc23ff`; all PR and resulting-main checks passed through
+`merge-when-green.mjs`. This publishes the existing `web/` client, independently of the
+already-published Android 0.1.169; no Gateway, Connector, Desktop or upstream restart occurred.
+
+From a fresh, clean isolated worktree at that exact `origin/main`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **86 files / 823
+tests**, and build. The atomic switch installed **0.1.1-96c341330579**, replacing
+`0.1.1-30538deb2587`, retained as the rollback target. The package version remains 0.1.1;
+the source commit identifies this Web release. The public shell matched the build and its
+`no-store`/self-only script/frame CSP; all **18** manifest files were downloaded in full and
+matched size and SHA-256 (**785,137 bytes** total). The live `current` link was independently
+confirmed. Archive SHA-256:
+`5ece2c43d769a5aaec2a2fb641497098fcddc3fbf06a2be24dedb94a1773206b`.
+Independent publication receipt SHA-256:
+`c4da250eb70429d9bb72803c044d9bf6bb900a93645f6f09e07f8d9ecbff2bd2`.
+Protected evidence is outside Git at `/Users/bs/.codex/artifacts/hg197-web/`.
+
+Automatic layout budgets the actual container and font size: normal 16px root text needs
+624 CSS px for both panes. The divider supports pointer and keyboard adjustment/reset,
+remembered preferred width, temporary list collapse and the always-single setting. Resizing
+preserves the mounted chat; session-scoped drafts, in-memory attachments, search and semantic
+reading anchors survive switching away/back. Unsent attachments do not survive a full reload.
+The change also fixes a delayed overlay-history rewind undoing a clicked session and waits
+for Markdown paint before restoring long-history offsets. Relevant smoke steps and design
+contract were updated with the implementation.
+
+Real-browser automation passed locally and against the **published static bundle** in Chromium
+**156.0.8078.4** and WebKit **27.2**, using intercepted test REST/WebSocket fixtures rather than
+production account/model calls. It exercised 1100/700/400px width changes, pointer clamp,
+keyboard reset, collapse/show, persisted single mode, larger text, dark/light themes, drafts,
+attachments and 260-row history with older-page loading. Reading anchor h-46 retained its
+offset after resize and A→B→A; layout changes kept one socket and the same input DOM, with no
+submit/interrupt calls or page errors. A simulated visualViewport verified the keyboard chat
+stays inside its pane. This is not physical keyboard or foldable acceptance: no device was
+attached; Magic V5 real folding/hinge/OEM keyboard, Android tablet and iPhone/iPad Safari/PWA,
+TalkBack and VoiceOver remain unverified. Follow `docs/SMOKE_TEST.md` on those devices.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor:
+HG-148 requires `androidApp`; HG-134 requires `macosApp`. Neither artifact was published in
+this Web batch, so neither candidate was advanced. HG-197 also requires its Android artifact,
+but the product still declares only `web/gateway/connector`; the missing Android mapping must
+not be omitted or substituted to advance the combined item. HG-197 remains in progress with
+publication evidence in comments, pending mapping correction and human device validation.
+Publication does not establish installation on the user's devices or acceptance.
