@@ -350,6 +350,7 @@ fun HermesNav(
     val openChat: (ChatLaunch) -> Unit = { target -> openCanonicalChat(chatRoute(target)) }
     val workspaceIdentity by shellVm.workspaceIdentity.collectAsStateWithLifecycle()
     val defaultDevice by shellVm.defaultDevice.collectAsStateWithLifecycle()
+    val activeProfile by shellVm.active.collectAsStateWithLifecycle()
     LaunchedEffect(hasConfig, repairCompletion) { shellVm.refreshWorkspaceIdentity() }
     val listStateHolder = androidx.compose.runtime.key(workspaceIdentity) { rememberSaveableStateHolder() }
     val chatStateHolder = androidx.compose.runtime.key(workspaceIdentity) {
@@ -450,7 +451,7 @@ fun HermesNav(
                             vm = vm, companion = route != "sessions",
                             selectedSession = backStackEntry?.arguments?.getString("id"),
                             selectedDevice = backStackEntry?.arguments?.getString("device") ?: defaultDevice,
-                            selectedProfile = backStackEntry?.arguments?.getString("profile") ?: shellVm.active.value,
+                            selectedProfile = backStackEntry?.arguments?.getString("profile") ?: activeProfile,
                             onOpen = { target ->
                                 val args = backStackEntry?.arguments
                                 if (args?.getString("id") != target.sessionId || args.getString("device") != target.deviceId || args.getString("profile") != target.profile) openChat(target)
