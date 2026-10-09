@@ -317,6 +317,8 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.170 fixes HG-198: image previews resolve from the complete displayed assistant answer
+  and keep stable selection across history refresh.
 - Version 0.1.169 Fix Automatic split layout on unfolded phone windows below 840dp by using the
   actual pane width budget; retain drafts and saved width through fold-size changes.
 - Version 0.1.168 adds adaptive tablet/foldable split conversations, adjustable list width and
@@ -1005,7 +1007,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.169-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.170-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
