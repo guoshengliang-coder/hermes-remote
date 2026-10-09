@@ -2,6 +2,11 @@
 
 The selected base is [`adebnar/hermes-android`](https://github.com/adebnar/hermes-android), pinned at tag `v0.1.52` / commit `9f08f39ed2b9fc7cb29a551b1d9b695a409fdb7a`.
 
+Chat image previews resolve from the same displayed conversation turn as the transcript (HG-198).
+An assistant answer split across tool-call records opens all of that answer's cached images in order;
+history message-id replacement retains the viewer through the stable image id. User messages and
+pending attachments keep their own image scope.
+
 The upstream client is Kotlin + Jetpack Compose and already implements Hermes REST, `/api/ws` JSON-RPC, sessions, streaming chat, Markdown, attachments, reconnect, and encrypted credential storage. Hermes Remote retains those foundations and routes them through the HK Relay.
 
 ## First UI pass
