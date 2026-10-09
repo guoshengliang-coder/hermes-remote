@@ -6,7 +6,7 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 
 ## First UI pass
 
-### HG-197 large-screen workspace (development branch)
+### HG-197 large-screen workspace
 
 Settings → Large-screen layout defaults to Automatic and also offers Always single column.
 At 840dp of usable width (or more when large text needs it), Chats and the selected conversation
@@ -18,7 +18,7 @@ fixed, unobstructed regions rather than a draggable division.
 Canonical conversation changes retain account/Relay/Mac/profile/session-scoped draft, search and
 reading state without retaining another chat ViewModel. Pending attachments stay in the existing
 application runtime for the process and are cleaned on removal/send or account/Relay changes.
-This is source work, not a new APK release. Physical foldable posture and vendor keyboard checks
+First distributed in Android 0.1.168 / code 169. Physical foldable posture and vendor keyboard checks
 remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the approved HG-197 plan.
 
 - Application ID: `com.hermes.remote`
