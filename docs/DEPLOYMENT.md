@@ -2224,3 +2224,46 @@ passed. Real-browser visual interaction, physical notification permission/backgr
 and actual vibration remain unverified; use the HG-194 steps in `docs/SMOKE_TEST.md`. Publication
 and pending-verification handover do not constitute device acceptance. No APK, Connector or
 Desktop release was performed in this operation.
+
+
+### HG-197 Android first iteration — 2026-10-09
+
+The owner requested “合并和发布” for the implemented Android iteration. Implementation
+[PR #549](https://github.com/guoshengliang-coder/hermes-remote/pull/549) merged as
+`798e0f8731aea4f1d38522f9340603dc598561b3`. Its first lint check caught a non-observed
+profile StateFlow read; the corrected head passed the merge gate and green main checks.
+Version [PR #550](https://github.com/guoshengliang-coder/hermes-remote/pull/550) allocated
+**0.1.168 / code 169**, then merged as `6ab25329880af96b68f44ea61da393228f8cf502`
+with green PR/main checks. Credential-free preparation ran Android unit tests and lint.
+The standard release train pushed `android-v0.1.168` at that exact source; official
+[Android release run 37896606906](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/37896606906)
+passed the complete package gate, feedback configuration, signing, publication and public checks.
+
+The full public [Hermes-Remote-0.1.168-debug.apk](https://mrlgs.net/releases/Hermes-Remote-0.1.168-debug.apk)
+was independently downloaded: **33,372,835 bytes**, SHA-256
+`6efe98e239321baa2865b67925d5e6a99a7b56f954e1cc09178caecffe49e159`, matching CI and
+public index latest code 169. `aapt` verified `com.hermes.remote`, version/code and measured
+minSdk 26. `apksigner verify` passed with canonical certificate SHA-256
+`06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5`.
+The package-gate artifact was exactly
+`android/app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.168-debug.apk`.
+APK HEAD and release health GET/HEAD returned 200; both unversioned APK URLs, an unregistered
+filename and an encoded traversal path returned 404. The public entry's source and release notes
+matched the tagged source. Independent verification evidence outside the worktree has digest
+`7489c9bc1e8fc2e264f235929a07b244020eea9d3a4de8fe3bdbdc3f5040cbb5`.
+
+Pre-release local validation passed 2,437 Android unit tests, lint and debug assembly, plus all
+nine workspace interaction/restoration checks in Roborazzi verify mode. Sixteen additional
+old global screenshot differences also reproduced on unmodified main; those baselines were
+not rewritten. L3 Pixel_API_37 (API 37), using a local development build and mock service,
+verified wide/narrow transitions, divider dragging, draft continuity and exact long-history
+return coordinates. L2 had no physical device; real fold posture, OEM keyboards, system
+split screen and TalkBack remain unverified in `docs/ANDROID_SMOKE.md`.
+
+Only Android was published. Web's target frontend remains unresolved in HG-197; Gateway,
+Connector and Desktop were not deployed by this operation. HG-197 remains in progress.
+The complete MissionGo release-candidate metadata page contained HG-148 (`androidApp`) and
+HG-134 (`macosApp`); their PRs were independently checked as merged. No macOS artifact was
+published. Android handover remains blocked because Hermes GO currently declares only
+`web`, `gateway` and `connector`; `androidApp` was neither omitted nor substituted to bypass
+that mapping. No candidate status was advanced. Publication does not constitute acceptance.
