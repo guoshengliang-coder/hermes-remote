@@ -102,6 +102,33 @@ class ConversationWorkspaceTest {
     @Test fun tabletAppDarkSystemLightLargeFont() { workspace(mutableStateOf(1100f), true, 1.3f); compose.onRoot().captureRoboImage("screenshots/workspace-tablet-dark-fs13.png") }
     @Test fun narrowChat() { workspace(mutableStateOf(500f)); compose.onRoot().captureRoboImage("screenshots/workspace-narrow.png") }
 
+    @Test fun unfoldedPhoneShowsBothPanesAndFoldCyclesKeepDraftAndSavedWidth() {
+        val width = mutableStateOf(700f)
+        val preference = mutableStateOf(WorkspacePreference(listWidth = 480f))
+        var mounts = 0
+        workspace(width, preference = preference, mounted = { mounts++ })
+        compose.onNodeWithTag("workspace-divider").assertIsDisplayed()
+        compose.onNodeWithText("会话").assertIsDisplayed()
+        compose.onNodeWithTag("draft").performTextReplacement("折叠前未发送的草稿")
+        repeat(2) {
+            compose.runOnIdle { width.value = 400f }
+            compose.onNodeWithTag("workspace-divider").assertDoesNotExist()
+            compose.onNodeWithTag("draft").assertTextEquals("折叠前未发送的草稿")
+            compose.runOnIdle { width.value = 700f }
+            compose.onNodeWithTag("workspace-divider").assertIsDisplayed()
+            compose.onNodeWithText("会话").assertIsDisplayed()
+            compose.onNodeWithTag("draft").assertTextEquals("折叠前未发送的草稿")
+        }
+        assertEquals(1, mounts)
+        assertEquals(480f, preference.value.listWidth, .01f)
+        compose.onNodeWithTag("workspace-divider").performSemanticsAction(SemanticsActions.SetProgress) { assertTrue(it(10000f)) }
+        compose.waitForIdle()
+        assertEquals(316f, preference.value.listWidth, .01f)
+    }
+
+    @Test fun foldableInnerLight() { workspace(mutableStateOf(700f)); compose.onRoot().captureRoboImage("screenshots/workspace-foldable-light.png") }
+    @Test fun foldableInnerAppDarkSystemLight() { workspace(mutableStateOf(700f), true, 1.1f); compose.onRoot().captureRoboImage("screenshots/workspace-foldable-dark-fs11.png") }
+
     @Test fun leavingCompositionSnapshotsBeforeSaveableProvidersUnregister() {
         val route = mutableStateOf("a")
         val entryId = mutableStateOf(0)

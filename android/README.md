@@ -9,7 +9,8 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 ### HG-197 large-screen workspace
 
 Settings → Large-screen layout defaults to Automatic and also offers Always single column.
-At 840dp of usable width (or more when large text needs it), Chats and the selected conversation
+When the usable width fits a 240dp list, 360dp chat and 24dp divider (624dp at standard font scale,
+or more when large text needs it), Chats and the selected conversation
 share one workspace. Drag the divider, use its accessibility actions, or use Left/Right/Home on
 an attached keyboard to resize/reset the list. Collapse is temporary; narrow windows retain the
 saved width. Reading and composer content are capped at 720dp. Separating/occluding hinges use
