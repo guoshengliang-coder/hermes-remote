@@ -107,6 +107,7 @@ export function Markdown({
         fullTable: t("全屏查看", "View fullscreen"),
       });
       ref.current.replaceChildren(fragment);
+      ref.current.setAttribute("aria-busy", "false");
       enhance();
     };
     if (!streaming) {
@@ -160,7 +161,7 @@ export function Markdown({
 
   return (
     <>
-      <div class="markdown" ref={ref} onClick={onClick} />
+      <div class="markdown" ref={ref} aria-busy={last.current.source !== source} onClick={onClick} />
       {fullTable ? (
         <TableFullscreen
           table={fullTable}

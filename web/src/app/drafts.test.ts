@@ -27,4 +27,23 @@ describe("drafts (Android DraftStore, owner decision 2026-09-22)", () => {
     clearAllDrafts();
     expect(localStorage.getItem("hermes-go.drafts")).toBeNull();
   });
+  it("assigns a legacy draft once and isolates new drafts by account and profile", () => {
+    saveDraft(draftKey("mac", "s1"), "legacy");
+    const a = draftKey("mac", "s1", "account-a/default");
+    const b = draftKey("mac", "s1", "account-b/default");
+    const work = draftKey("mac", "s1", "account-a/work");
+    expect(loadDraft(a)).toBe("legacy");
+    expect(loadDraft(b)).toBe("");
+    expect(loadDraft(work)).toBe("");
+    saveDraft(work, "work");
+    expect(loadDraft(a)).toBe("legacy");
+    expect(loadDraft(work)).toBe("work");
+    expect([...draftSessions("mac")]).toEqual(["s1"]);
+  });
+  it("only marks drafts belonging to the current origin and account in a companion list", () => {
+    saveDraft(draftKey("mac", "s1", JSON.stringify([location.origin, "a", "mac", "default", "s1"])), "mine");
+    saveDraft(draftKey("mac", "s2", JSON.stringify([location.origin, "b", "mac", "default", "s2"])), "other");
+    expect([...draftSessions("mac", "a")]).toEqual(["s1"]);
+    expect([...draftSessions("mac", "b")]).toEqual(["s2"]);
+  });
 });

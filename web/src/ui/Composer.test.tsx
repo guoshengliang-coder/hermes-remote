@@ -8,6 +8,7 @@ import type { VoiceEvent } from "../chat/voiceSession";
 import { clearAllDrafts, loadDraft, saveDraft } from "../app/drafts";
 import type { PendingAttachment } from "../chat/attachments";
 import { appError } from "../errors";
+import { clearConversationMemory } from "../app/conversationMemory";
 const mocks = vi.hoisted(() => ({ events: null as null | ((e: VoiceEvent) => void), finish: vi.fn(), cancel: vi.fn(() => "半截"), microphone: vi.fn(async () => {}) }));
 vi.mock("../chat/voiceCapture", () => ({ voiceCaptureSupported: () => true, allowMicrophone: mocks.microphone }));
 vi.mock("../chat/voiceSession", () => ({ BrowserVoiceSession: class {
@@ -15,7 +16,7 @@ vi.mock("../chat/voiceSession", () => ({ BrowserVoiceSession: class {
   start() {} finish() { mocks.finish(); mocks.events?.({ kind: "waiting" }); } cancel() { return mocks.cancel(); }
 } }));
 const hosts: HTMLElement[] = [];
-afterEach(() => { hosts.forEach((host) => { act(() => render(null, host)); host.remove(); }); hosts.length = 0; vi.clearAllMocks(); vi.restoreAllMocks(); vi.unstubAllGlobals(); mocks.events = null; localStorage.clear(); });
+afterEach(() => { hosts.forEach((host) => { act(() => render(null, host)); host.remove(); }); hosts.length = 0; clearConversationMemory(); vi.clearAllMocks(); vi.restoreAllMocks(); vi.unstubAllGlobals(); mocks.events = null; localStorage.clear(); });
 const context = { t: (zh: string) => zh, language: "zh", device: { deviceId: "mac" }, client: { settled: async () => {} }, voiceFeedback: "on", features: new Set(["voice-input"]) } as unknown as AppContextValue;
 function mount(overrides: Partial<ComposerProps> = {}) {
   const host = document.createElement("div"); document.body.append(host); hosts.push(host);
@@ -31,7 +32,7 @@ function type(host: HTMLElement, text: string) {
 const settle = async () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
 async function stageFiles(h: ReturnType<typeof mount>, files: File[]) {
   const input = h.host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
-  Object.defineProperty(input, "files", { value: files });
+  Object.defineProperty(input, "files", { configurable: true, value: files });
   act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); });
   await settle();
 }
@@ -39,6 +40,64 @@ async function startSpeech(h: ReturnType<typeof mount>) {
   act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
   act(() => { h.host.querySelector<HTMLButtonElement>('.voice-hold')!.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
 }
+
+it("conversation switching and remount retain each draft's own attachment stage", async () => {
+  const h = mount({ draftKey: "a" });
+  type(h.host, "A 的草稿");
+  await stageFiles(h, [new File(["A"], "a.txt", { type: "text/plain" })]);
+  h.update({ draftKey: "b" });
+  expect(h.host.querySelector(".attachment-strip")).toBeNull();
+  type(h.host, "B 的草稿");
+  await stageFiles(h, [new File(["B"], "b.txt", { type: "text/plain" })]);
+  h.update({ draftKey: "a" });
+  expect(h.host.querySelector("textarea")!.value).toBe("A 的草稿");
+  expect(h.host.querySelector(".attachment-file")!.textContent).toContain("a.txt");
+  expect(h.host.textContent).not.toContain("b.txt");
+  act(() => render(null, h.host));
+  h.update({ draftKey: "b" });
+  expect(h.host.querySelector("textarea")!.value).toBe("B 的草稿");
+  expect(h.host.querySelector(".attachment-file")!.textContent).toContain("b.txt");
+  expect(h.props.onSend).not.toHaveBeenCalled();
+});
+
+it("an image finishing after switching chats returns only to its original stage", async () => {
+  let finish!: (value: { width: number; height: number; close: () => void }) => void;
+  vi.stubGlobal("createImageBitmap", () => new Promise(resolve => { finish = resolve; }));
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:original");
+  const h = mount({ draftKey: "a" });
+  await stageFiles(h, [new File(["image"], "a.png", { type: "image/png" })]);
+  h.update({ draftKey: "b" });
+  finish({ width: 1, height: 1, close: () => {} }); await settle();
+  expect(h.host.querySelector(".attachment-strip")).toBeNull();
+  h.update({ draftKey: "a" });
+  expect(h.host.querySelector(".attachment-chip")).not.toBeNull();
+  expect(h.props.onSend).not.toHaveBeenCalled();
+});
+
+it("returning before image preparation finishes still updates the owning composer", async () => {
+  let finish!: (value: { width: number; height: number; close: () => void }) => void;
+  vi.stubGlobal("createImageBitmap", () => new Promise(resolve => { finish = resolve; }));
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:original");
+  const h = mount({ draftKey: "a" });
+  await stageFiles(h, [new File(["image"], "a.png", { type: "image/png" })]);
+  h.update({ draftKey: "b" }); h.update({ draftKey: "a" });
+  finish({ width: 1, height: 1, close: () => {} }); await settle();
+  expect(h.host.querySelector(".attachment-chip")).not.toBeNull();
+  expect(h.props.onSend).not.toHaveBeenCalled();
+});
+
+it("sign-out invalidates late preparation and releases its new preview URL", async () => {
+  let finish!: (value: { width: number; height: number; close: () => void }) => void;
+  vi.stubGlobal("createImageBitmap", () => new Promise(resolve => { finish = resolve; }));
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:late");
+  const revoke = vi.spyOn(URL, "revokeObjectURL");
+  const h = mount({ draftKey: "old-account" });
+  await stageFiles(h, [new File(["image"], "a.png", { type: "image/png" })]);
+  clearConversationMemory(); h.update({ draftKey: "new-account" });
+  finish({ width: 1, height: 1, close: () => {} }); await settle();
+  expect(h.host.querySelector(".attachment-chip")).toBeNull();
+  expect(revoke).toHaveBeenCalledWith("blob:late");
+});
 
 it("hands a mixed image/file stage to voice send exactly once and retains its preview URL (HG-196)", async () => {
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:photo");

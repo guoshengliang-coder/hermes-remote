@@ -2,6 +2,7 @@ import { lastActiveMs, relativeTime } from "../app/grouping";
 import { projectKeyOf, projectLabelOfPath } from "../app/projects";
 import type { RowView } from "../app/rowStatus";
 import { useApp } from "../app/store";
+import { useWorkspace } from "../app/workspace";
 import type { SessionListItem } from "../hermes/types";
 import { Highlighted } from "./Highlighted";
 import { BranchIcon, FolderIcon, PinMark } from "./icons";
@@ -40,6 +41,7 @@ export function projectLabelOf(session: Pick<SessionListItem, "git_repo_root" | 
 export function SessionRow({ session, now, view, pinned, draft, archived, inProject, bot, defaultProject, query = "", divider, showTime = false, onOpen, onLongPress }: SessionRowProps) {
   const { guard, ...press } = useLongPress(onLongPress);
   const { t, language } = useApp();
+  const selected = useWorkspace().selectedId === session.id;
   const project = bot || inProject ? null : projectLabelOf(session, defaultProject);
   const model = session.model?.trim() || (bot ? t("模型未知", "Model unknown") : "");
   const lead = inProject ? session.git_branch?.trim() ?? "" : "";
@@ -50,7 +52,8 @@ export function SessionRow({ session, now, view, pinned, draft, archived, inProj
   return (
     <button
       type="button"
-      class={`session-row${divider ? " with-divider" : ""}${unread ? " unread" : ""}${onLongPress ? " holdable" : ""}`}
+      class={`session-row${selected ? " selected" : ""}${divider ? " with-divider" : ""}${unread ? " unread" : ""}${onLongPress ? " holdable" : ""}`}
+      aria-current={selected ? "page" : undefined}
       onClick={guard ? guard(onOpen) : onOpen}
       {...press}
     >

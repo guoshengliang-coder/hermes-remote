@@ -156,6 +156,29 @@ it("return from Mac switching retains the original conversation and draft", asyn
   expect(location.pathname).toBe("/app/s/session-a");
   expect(fixture.mounts).toBe(1);
 });
+it("an unfolded 700px window shows list and chat, and folding retains the mounted draft", async () => {
+  const resize = async (width: number) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    await act(async () => { window.dispatchEvent(new Event("resize")); });
+    await settle();
+  };
+  await resize(700);
+  await mount();
+  expect(host.querySelector('.conversation-workspace[data-split="true"]')).not.toBeNull();
+  expect(host.querySelector('[data-list="mac-a"]')).not.toBeNull();
+  const input = host.querySelector<HTMLInputElement>("input")!;
+  await act(async () => {
+    input.value = "折叠保留草稿";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await resize(400);
+  expect(host.querySelector('.conversation-workspace[data-split="false"]')).not.toBeNull();
+  await resize(700);
+  expect(host.querySelector<HTMLInputElement>("input")).toBe(input);
+  expect(input.value).toBe("折叠保留草稿");
+  expect(fixture.mounts).toBe(1);
+  await resize(1024);
+});
 it("selecting another Mac opens its list instead of resuming the old Mac's session", async () => {
   await mount();
   await click("换 Mac");

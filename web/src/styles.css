@@ -4844,3 +4844,47 @@ button.chat-workspace:disabled {
 .table-chart-frame { display:block; width:100%; height:780px; border:0; }
 .chart-notice { padding:8px 12px; margin:0; font-size:.8125rem; color:var(--on-surface-variant); }
 .table-fullscreen .table-chart-frame { min-height:calc(100dvh - 150px); }
+
+/* HG-197: list and chat have stable slots and independent bounded scroll ports. */
+.conversation-workspace {
+  display: flex;
+  height: 100dvh;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+.workspace-list, .workspace-chat { position: relative; min-width: 0; min-height: 0; flex: 1; }
+.workspace-list[hidden], .workspace-chat[hidden], .workspace-divider[hidden] { display: none; }
+.conversation-workspace[data-split="true"] .workspace-list { flex: 0 0 var(--session-pane-width); }
+.conversation-workspace .page { --safe-left: 0px; --safe-right: 0px; height: 100%; }
+.conversation-workspace .list-page .topbar-row,
+.conversation-workspace .list-page .content,
+.conversation-workspace .list-page .segments { max-width: none; }
+.conversation-workspace .list-page .menu { right: 0.5rem; }
+.conversation-workspace .list-page .fab { position: absolute; right: 1rem; }
+.conversation-workspace .chat-page .menu { right: max(0.5rem, calc(50% - 22.5rem + 0.5rem)); }
+.conversation-workspace .chat-page.keyboard-viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--chat-viewport-top);
+  height: var(--chat-viewport-height);
+}
+.workspace-divider {
+  flex: 0 0 1.5rem;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.workspace-divider::before { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--outline-variant); }
+.workspace-divider > span { position: relative; width: 0.25rem; height: 2rem; border-radius: 1rem; background: var(--outline-variant); }
+.workspace-divider:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.session-row.selected { background: var(--surface-variant); box-shadow: inset 3px 0 var(--primary); }
+.workspace-empty { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1rem; padding: 2rem; text-align: center; color: var(--on-surface-variant); }
+.workspace-empty button { width: auto; padding-inline: 1.5rem; display: inline-flex; align-items: center; gap: 0.5rem; }

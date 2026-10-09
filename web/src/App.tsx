@@ -51,8 +51,9 @@ import { ChatPage } from "./ui/ChatPage";
 import { DevicePicker } from "./ui/DevicePicker";
 import { ErrorNotice } from "./ui/ErrorNotice";
 import { Login } from "./ui/Login";
-import { SessionList } from "./ui/SessionList";
 import { SessionToast } from "./ui/SessionToast";
+import { ConversationWorkspace } from "./ui/ConversationWorkspace";
+import { clearConversationMemory } from "./app/conversationMemory";
 
 // App shell: capability gate → web session → sign-in → Mac → routes.
 
@@ -221,6 +222,7 @@ export function App() {
   useEffect(() => {
     void boot();
     return client.onSignedOut((error) => {
+      clearConversationMemory();
       if (signingOut.current) return;
       setPushEnabled(false);
       void resetPushWorker().catch(()=>undefined);
@@ -360,6 +362,7 @@ export function App() {
       await clearCaches();
       clearAllPins();
       clearAllDrafts();
+      clearConversationMemory();
       clearPageSnapshots();
       clearPrompts();
       clearLocalPrefs();
@@ -570,14 +573,14 @@ export function App() {
                 {flashMessage.text}
               </div>
             ) : null}
-            {route.name === "chat" || route.name === "new" ? (
-              <ChatPage key={device?.deviceId} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile === "default" ? null : pushRoute.profile : undefined} />
-            ) : route.name === "archived" ? (
+            {route.name === "archived" ? (
               <ArchivedPage />
             ) : route.name === "account" ? (
               <AccountPage />
             ) : (
-              <SessionList />
+              <ConversationWorkspace key={`${account?.id}:${device?.deviceId}`} route={route}>
+                {route.name === "chat" || route.name === "new" ? <ChatPage key={device?.deviceId} sessionId={route.name === "chat" ? route.sessionId : null} profileHint={pushRoute && pushRoute.deviceId === device?.deviceId && route.name === "chat" && pushRoute.sessionId === route.sessionId ? pushRoute.profile === "default" ? null : pushRoute.profile : undefined} /> : null}
+              </ConversationWorkspace>
             )}
             </div>
           </>
