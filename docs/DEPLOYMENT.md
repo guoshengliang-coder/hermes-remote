@@ -2267,3 +2267,49 @@ HG-134 (`macosApp`); their PRs were independently checked as merged. No macOS ar
 published. Android handover remains blocked because Hermes GO currently declares only
 `web`, `gateway` and `connector`; `androidApp` was neither omitted nor substituted to bypass
 that mapping. No candidate status was advanced. Publication does not constitute acceptance.
+
+### HG-197 unfolded-phone width correction — 2026-10-09
+
+The user reported HONOR Magic V5 remaining single-column in Android 0.1.168 with Automatic
+selected. The implementation had treated the provisional 840dp tablet threshold as mandatory,
+even when the existing 240dp list, 360dp chat and 24dp divider would fit. The correction derives
+the threshold from those pane minimums (624dp at standard text size), retaining larger-font
+and narrow-window protection. Magic V5's actual window dp and hinge reporting were not measured.
+
+Fix [PR #552](https://github.com/guoshengliang-coder/hermes-remote/pull/552) merged as
+`a22aa0cc75bd7b4b18ed99d09d21afe1927321d1`; version
+[PR #553](https://github.com/guoshengliang-coder/hermes-remote/pull/553) merged as
+`baf7307d2de188a0184224e0257a947aa7fd95c1`. Both passed the PR/main merge gates.
+The standard release train prepared **0.1.169 / code 170** without release credentials, then
+pushed `android-v0.1.169` at that exact source under the existing merge/publication authorization.
+Official [Android release run 37903156351](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/37903156351)
+passed the complete APK package gate (including feedback configuration), signing, upload and
+public verification.
+
+The complete public [Hermes-Remote-0.1.169-debug.apk](https://mrlgs.net/releases/Hermes-Remote-0.1.169-debug.apk)
+was independently downloaded: **33,372,835 bytes**, SHA-256
+`0cdf413bcc95a06dc9a61268cd2d2f9d808d0988935561569b43e510b5d6c744`, matching the official
+gate and public index latest code 170. `aapt` verified `com.hermes.remote`, version/code and
+measured minSdk 26; `apksigner verify` passed with canonical certificate SHA-256
+`06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5`.
+The gate artifact is `android/app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.169-debug.apk`.
+Public source and release notes match the tag; APK HEAD and release health GET/HEAD returned 200,
+and both unversioned APK URLs, an unregistered filename and encoded traversal returned 404.
+The independent verification receipt digest is
+`fb449928552c488262c63d77c195b03c5251e3ddaec4a06247568a0d7364d081`.
+
+L1: full Android unit tests/lint/build passed; release preparation passed **2,441 tests**, zero
+failures/errors/skips. All 20 workspace tests and five workspace Roborazzi snapshots passed
+verify, including new 700dp light and app-dark/system-light images. The old code failed two
+budget tests and the new Compose fold-cycle test. L3 Pixel_API_37 (API 37), using a local
+development build and mock, displayed list/chat at 700dp, collapsed the list at 400dp and
+restored it at 700dp with the unsent draft retained. No test message was sent. Test services
+were stopped and the emulator size, density and original local Relay were restored.
+L2 unavailable: no physical device attached. Magic V5's real folding, hinge behavior, OEM
+keyboard and system split-screen remain to be verified using `docs/ANDROID_SMOKE.md`.
+
+Only Android was published. HG-197 remains in progress; Web is still unresolved/unimplemented.
+The complete MissionGo candidate metadata remained one page, HG-148 (`androidApp`) and HG-134
+(`macosApp`). Android is still absent from the product's declared `web/gateway/connector`
+artifacts and no macOS package was published, so no candidate status was advanced. Publication
+does not establish installation on the user's phone or device acceptance.
