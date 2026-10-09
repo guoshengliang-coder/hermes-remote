@@ -1848,18 +1848,13 @@ fun ChatScreen(
     }
     // Resolved from state every frame rather than captured on open, so a hydration that completes
     // while the viewer is up simply appears, and a deletion that empties the list closes it.
-    val viewerItems = remember(viewerOwner, state.messages, state.pendingAttachments) {
-        when (viewerOwner) {
+    val viewerItems = remember(viewerOwner, viewerImageId, state.messages, state.pendingAttachments) {
+        when (val owner = viewerOwner) {
             null -> emptyList()
             PENDING_VIEWER_OWNER -> state.pendingAttachments
                 .filter { it.kind == AttachmentKind.IMAGE }
                 .map { ImageViewerItem(it.id, ImageSource.Bytes(it.contentKey, it.bytes)) }
-            else -> state.messages.firstOrNull { it.id == viewerOwner }
-                ?.images
-                .orEmpty()
-                .mapNotNull { image ->
-                    image.localPath?.let { ImageViewerItem(image.id, ImageSource.Path(it), image) }
-                }
+            else -> transcriptViewerItems(state.messages, owner, viewerImageId)
         }
     }
     val closeViewer = {
