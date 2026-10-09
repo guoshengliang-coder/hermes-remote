@@ -11,12 +11,27 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class WorkspaceLayoutTest {
     @Test fun containerAndFontScaleMustLeaveRoomForBothPanes() {
-        assertFalse(workspaceBudget(839f, 1f, WorkspacePreference()).split)
-        assertTrue(workspaceBudget(840f, 1f, WorkspacePreference()).split)
+        assertFalse(workspaceBudget(623f, 1f, WorkspacePreference()).split)
+        assertTrue(workspaceBudget(624f, 1f, WorkspacePreference()).split)
         assertFalse(workspaceBudget(840f, 1.5f, WorkspacePreference()).split)
         assertTrue(workspaceBudget(1000f, 1.5f, WorkspacePreference()).split)
         assertFalse(workspaceBudget(1600f, 1f, WorkspacePreference(WorkspaceMode.SINGLE)).split)
         assertEquals(456f, workspaceBudget(840f, 1f, WorkspacePreference(listWidth = 480f)).listWidth, .01f)
+    }
+
+    @Test fun unfoldedPhoneUsesThePaneBudgetRatherThanTheTabletBreakpoint() {
+        for (width in listOf(624f, 673f, 700f, 720f, 800f, 839f)) {
+            val budget = workspaceBudget(width, 1f, WorkspacePreference(listWidth = 480f))
+            assertTrue("An unfolded $width dp window has room for both panes", budget.split)
+            assertTrue(budget.listWidth >= 240f)
+            assertTrue(width - budget.listWidth - 24f >= 360f)
+        }
+        for (width in listOf(344f, 400f, 500f, 623f)) {
+            assertFalse(workspaceBudget(width, 1f, WorkspacePreference()).split)
+        }
+        assertFalse(workspaceBudget(700f, 1.3f, WorkspacePreference()).split)
+        assertTrue(workspaceBudget(804f, 1.3f, WorkspacePreference()).split)
+        assertEquals(316f, workspaceBudget(700f, 1f, WorkspacePreference(listWidth = 480f)).listWidth, .01f)
     }
 
     @Test fun narrowWindowDoesNotRewriteRememberedWidthAndInvalidStorageIsSafe() {

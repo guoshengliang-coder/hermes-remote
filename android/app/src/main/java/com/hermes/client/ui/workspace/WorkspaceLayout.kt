@@ -30,7 +30,8 @@ fun workspaceBudget(width: Float, fontScale: Float, preference: WorkspacePrefere
     val scale = fontScale.coerceAtLeast(1f)
     val minimum = 240f * scale
     val maximum = minOf(480f, width - 360f * scale - 24f).coerceAtLeast(minimum)
-    val split = preference.mode == WorkspaceMode.AUTO && width >= maxOf(840f, 600f * scale + 24f)
+    // Unfolded phones can be below the tablet/expanded 840dp breakpoint while both panes fit.
+    val split = preference.mode == WorkspaceMode.AUTO && width >= minimum + 360f * scale + 24f
     return WorkspaceBudget(split, minimum, maximum, preference.normalized().listWidth.coerceIn(minimum, maximum))
 }
 
