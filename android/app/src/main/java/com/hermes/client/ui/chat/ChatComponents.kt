@@ -103,6 +103,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
@@ -250,11 +251,22 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     fun updateBlock(key: String, bounds: Rect) { blockBounds[key] = bounds }
     private val outputTailPositions = mutableMapOf<String, Float>()
     private val outputParsedContent = mutableMapOf<String, String?>()
+    private val parsingBlocks = mutableSetOf<String>()
+    private var restoreAwaitingParse = false
+    var pendingParses by androidx.compose.runtime.mutableIntStateOf(0)
+        private set
     fun updateOutputParsedContent(key: String, content: String?) {
         // Loading is not a new parsed presentation. Keep the last published success until
         // its replacement succeeds or removeBlock disposes it; slow parsing must not erase
         // the baseline and suppress the first growth of every rendered snapshot.
         if (content != null) outputParsedContent[key] = content
+        val wasPending = parsingBlocks.isNotEmpty()
+        if (content == null) parsingBlocks.add(key) else parsingBlocks.remove(key)
+        pendingParses = parsingBlocks.size
+        if (content != null && wasPending && pendingParses == 0 && restoreAwaitingParse && isRestoring()) {
+            restoreAwaitingParse = false
+            restoreGeneration++
+        }
     }
     fun parsedOutputContent(key: String): String? = outputParsedContent[key]
     fun updateOutputTail(key: String, y: Float) { outputTailPositions[key] = y }
@@ -264,7 +276,11 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
         return mode != ChatViewportMode.OVERLAY_LOCKED && mode != ChatViewportMode.LAYOUT_RESTORING &&
             y > viewport.top && y <= viewport.bottom
     }
-    fun removeBlock(key: String) { blockBounds.remove(key); outputTailPositions.remove(key); outputParsedContent.remove(key) }
+    fun removeBlock(key: String) {
+        blockBounds.remove(key); outputTailPositions.remove(key); outputParsedContent.remove(key)
+        parsingBlocks.remove(key)
+        pendingParses = parsingBlocks.size
+    }
     fun setPinnedToBottom(value: Boolean) {
         pinnedToBottom = value
         if (mode != ChatViewportMode.OVERLAY_LOCKED && mode != ChatViewportMode.LAYOUT_RESTORING) {
@@ -359,6 +375,11 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
         if (anchor.blockKey == BOTTOM_ANCHOR_KEY) return 0f
         val viewport = viewportBounds ?: return null
         val block = blockBounds[anchor.blockKey] ?: return null
+        if (anchor.viewportWidthPx > 0 && lastWidth == anchor.viewportWidthPx) {
+            // A restored Markdown placeholder can briefly change a turn's height at the same
+            // width. Scaling the old fraction by that temporary height moves a whole turn.
+            return block.top - (viewport.top + anchor.offsetFromTopPx)
+        }
         return if (anchor.blockFraction.isFinite() && anchor.viewportFraction.isFinite()) {
             val currentReadingLine = block.top + block.height * anchor.blockFraction
             val desiredReadingLine = viewport.top + viewport.height * anchor.viewportFraction
@@ -372,6 +393,7 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     fun restoringBottom(): Boolean = heldAnchor?.blockKey == BOTTOM_ANCHOR_KEY
 
     fun isRestoring(): Boolean = mode == ChatViewportMode.LAYOUT_RESTORING && heldAnchor != null
+    fun waitForPendingParse() { restoreAwaitingParse = pendingParses > 0 }
 
     fun waitingForExactWidth(): Boolean {
         val anchor = heldAnchor ?: return false
@@ -403,6 +425,7 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     fun cancelRestoreForUser() {
         if (mode != ChatViewportMode.LAYOUT_RESTORING) return
         heldAnchor = null
+        restoreAwaitingParse = false
         mode = ChatViewportMode.BROWSING_HISTORY
         restoreGeneration++
     }
@@ -410,6 +433,7 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     fun finishRestore(generation: Int) {
         if (generation == restoreGeneration) {
             heldAnchor = null
+            restoreAwaitingParse = false
             mode = if (pinnedToBottom) ChatViewportMode.FOLLOWING_LIVE else ChatViewportMode.BROWSING_HISTORY
         }
     }
@@ -508,7 +532,8 @@ fun ChatMessageList(
 ) {
     val language = LocalAppLanguage.current
     val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
-    val configurationWidth = LocalConfiguration.current.screenWidthDp
+    val configurationWidth = com.hermes.client.ui.workspace.LocalChatWidth.current.takeIf { it > 0f }?.toInt()
+        ?: LocalConfiguration.current.screenWidthDp
     androidx.compose.runtime.DisposableEffect(semanticViewport, configurationWidth) {
         val firstIndex = listState.firstVisibleItemIndex
         val firstKey = listState.layoutInfo.visibleItemsInfo
@@ -891,23 +916,29 @@ fun ChatMessageList(
     }
 
     val restoreGeneration = semanticViewport.restoreGeneration
-    LaunchedEffect(restoreGeneration, listState) {
+    LaunchedEffect(restoreGeneration, listState, lazyKeys) {
         if (restoreGeneration <= 0 || !semanticViewport.isRestoring()) return@LaunchedEffect
+        // MutatorMutex cancels the job owning a scroll, including a LaunchedEffect itself. Give
+        // each attempt its own child job: a layout mutation may cancel that attempt, while the
+        // bounded restore survives. Cancelling this effect still cancels its child immediately.
+        suspend fun scrollAttempt(block: suspend () -> Unit): Boolean = kotlinx.coroutines.coroutineScope {
+            val attempt = async { block() }
+            try { attempt.await(); true }
+            catch (stolen: CancellationException) { currentCoroutineContext().ensureActive(); false }
+        }
         var stableFrames = 0
         var coarseTargetApplied = false
+        var offsetTargetApplied = false
         var settled = false
+        var previousLayout: List<Triple<Any, Int, Int>>? = null
+        var geometryFrames = 0
         for (attempt in 0 until VIEWPORT_RESTORE_MAX_FRAMES) {
             androidx.compose.runtime.withFrameNanos { }
             if (!semanticViewport.isRestoring()) return@LaunchedEffect
             if (semanticViewport.restoringBottom()) {
                 if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
                     stableFrames = 0
-                    try {
-                        listState.scrollToItem(0)
-                    } catch (stolen: CancellationException) {
-                        currentCoroutineContext().ensureActive()
-                        return@LaunchedEffect
-                    }
+                    if (!scrollAttempt { listState.scrollToItem(0) }) continue
                 } else {
                     stableFrames++
                     if (stableFrames >= VIEWPORT_RESTORE_STABLE_FRAMES) {
@@ -929,16 +960,30 @@ fun ChatMessageList(
                 if (target == null) continue
                 if (
                     listState.firstVisibleItemIndex != target.index ||
-                    listState.firstVisibleItemScrollOffset != target.offset
+                    listState.firstVisibleItemScrollOffset != 0
                 ) {
-                    try {
-                        listState.scrollToItem(target.index, target.offset)
-                    } catch (stolen: CancellationException) {
-                        currentCoroutineContext().ensureActive()
-                        return@LaunchedEffect
-                    }
+                    // First compose the saved item at offset zero. Applying a large saved offset
+                    // to its short Markdown placeholder skips it before parsing can finish.
+                    if (!scrollAttempt { listState.scrollToItem(target.index, 0) }) continue
                 }
                 coarseTargetApplied = true
+                stableFrames = 0
+                continue
+            }
+            // Parsing a restored turn can change its measured height after the coarse scroll.
+            // The final parse also resumes a restore that outlived the bounded frame budget.
+            if (semanticViewport.pendingParses > 0) { stableFrames = 0; geometryFrames = 0; continue }
+            val layout = listState.layoutInfo.visibleItemsInfo.map { Triple(it.key, it.offset, it.size) }
+            geometryFrames = if (layout == previousLayout) geometryFrames + 1 else 0
+            previousLayout = layout
+            // Parsing completion precedes layout/global-position publication. Correcting against
+            // placeholder measurements can hit the list's end and dispose the saved landmark.
+            if (geometryFrames < VIEWPORT_RESTORE_STABLE_FRAMES) continue
+            if (!offsetTargetApplied) {
+                val target = semanticViewport.restoreTarget(lazyKeys) ?: continue
+                if (!scrollAttempt { listState.scrollToItem(target.index, target.offset) }) continue
+                offsetTargetApplied = true
+                geometryFrames = 0
                 stableFrames = 0
                 continue
             }
@@ -951,14 +996,10 @@ fun ChatMessageList(
                 }
             } else {
                 stableFrames = 0
-                try {
-                    // reverseLayout reverses the scroll axis: a block that moved down by +N pixels
-                    // needs a -N programmatic delta to return to its previous window coordinate.
-                    listState.scrollBy(-correction)
-                } catch (stolen: CancellationException) {
-                    currentCoroutineContext().ensureActive()
-                    return@LaunchedEffect
-                }
+                geometryFrames = 0
+                // reverseLayout reverses the scroll axis: a block moved down by +N pixels
+                // needs a -N programmatic delta to return to its previous window coordinate.
+                if (!scrollAttempt { listState.scrollBy(-correction) }) continue
             }
         }
         // Never discard the semantic anchor merely because async Markdown needed longer than the
@@ -966,6 +1007,8 @@ fun ChatMessageList(
         // and a user drag still cancels it immediately.
         if (settled && semanticViewport.isRestoring()) {
             semanticViewport.finishRestore(restoreGeneration)
+        } else if (semanticViewport.isRestoring()) {
+            semanticViewport.waitForPendingParse()
         }
     }
 
@@ -1001,9 +1044,7 @@ fun ChatMessageList(
     // Keep the transcript fully laid out but invisible behind the skeleton until those coordinates
     // remain unchanged across consecutive frames; otherwise the first visible frame contains a few
     // user bubbles and the next frame snaps to the correctly measured assistant tail.
-    var initialPresentationReady by androidx.compose.runtime.saveable.rememberSaveable(sessionId) {
-        mutableStateOf(!state.historyLoading && !state.historyLoaded)
-    }
+    var initialPresentationReady by com.hermes.client.ui.workspace.rememberConversationState("chat:$sessionId:presentationReady") { !state.historyLoading && !state.historyLoaded }
     LaunchedEffect(
         sessionId,
         state.historyLoading,
@@ -1180,7 +1221,7 @@ fun ChatMessageList(
                 Column(
                     Modifier
                         .padding(top = TURN_SPACING)
-                        .onGloballyPositioned { turnViewport?.updateBlock(turnAnchorKey, it.boundsInWindow()) },
+                        .onGloballyPositioned { turnViewport?.updateBlock(turnAnchorKey, it.boundsInWindow(clipBounds = false)) },
                 ) {
                     if (showsTimeSeparator(previousTs, msg.timestamp)) {
                         Text(
@@ -1590,7 +1631,8 @@ internal fun UserBubble(
     val userShape = RoundedCornerShape(22.dp, 22.dp, 7.dp, 22.dp)
     // Proportional cap instead of a fixed 320dp: a fixed value reads fine on a phone but
     // leaves user bubbles oddly narrow on tablets/landscape. ~82% tracks the Claude app.
-    val bubbleMaxWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
+    val bubbleMaxWidth = ((com.hermes.client.ui.workspace.LocalChatWidth.current.takeIf { it > 0f }
+        ?: LocalConfiguration.current.screenWidthDp.toFloat()) * 0.82f).dp
     val sendingLabel = localized(language, "发送中", "Sending")
     // The status line is driven by the code the send actually failed with, not by the delivery
     // state: FAILED covers several causes and they must not share one sentence. "点按重试" alone
@@ -2281,7 +2323,7 @@ internal fun AssistantMarkdownBlock(
         state = markdownState,
         searchRangeOffset = searchRangeOffset,
         modifier = modifier.onGloballyPositioned {
-            viewport?.updateBlock(anchorKey, it.boundsInWindow())
+            viewport?.updateBlock(anchorKey, it.boundsInWindow(clipBounds = false))
             // Use the unclipped bottom: seeing the top of a long answer is not seeing new output.
             viewport?.updateOutputTail(anchorKey, it.localToWindow(androidx.compose.ui.geometry.Offset(0f, it.size.height.toFloat())).y)
         },
@@ -2333,7 +2375,8 @@ private const val INITIAL_PRESENTATION_STABLE_FRAMES = 4
 // exotic missing landmark cannot keep a frame loop alive indefinitely.
 private const val VIEWPORT_RESTORE_MAX_FRAMES = 90
 private const val VIEWPORT_EXACT_WIDTH_WAIT_FRAMES = 18
-private const val VIEWPORT_RESTORE_STABLE_FRAMES = 4
+// A fresh destination animates in for ~190ms while its Markdown publishes measurements.
+private const val VIEWPORT_RESTORE_STABLE_FRAMES = 12
 private const val VIEWPORT_RESTORE_TOLERANCE_PX = 0.75f
 private val TURN_SPACING = 22.dp
 
@@ -2650,7 +2693,7 @@ private fun SemanticAnchorBox(
     androidx.compose.runtime.DisposableEffect(viewport, anchorKey) {
         onDispose { viewport.removeBlock(anchorKey) }
     }
-    Box(modifier.onGloballyPositioned { viewport.updateBlock(anchorKey, it.boundsInWindow()) }) {
+    Box(modifier.onGloballyPositioned { viewport.updateBlock(anchorKey, it.boundsInWindow(clipBounds = false)) }) {
         content()
     }
 }

@@ -79,6 +79,7 @@ internal fun ChatTopBar(
 ) {
     val language = LocalAppLanguage.current
     var transcriptMenu by remember { mutableStateOf(false) }
+    val toggleSessionPane = com.hermes.client.ui.workspace.LocalToggleSessionPane.current
     Row(
         modifier
             .fillMaxWidth()
@@ -95,6 +96,9 @@ internal fun ChatTopBar(
                 contentDescription = localized(language, "返回", "Back"),
                 modifier = Modifier.offset(x = (-4).dp),
             )
+        }
+        if (toggleSessionPane != null) IconButton(onClick = toggleSessionPane) {
+            com.hermes.client.ui.components.SessionPaneIcon(localized(language, "收起或展开会话栏", "Collapse or expand conversation list"))
         }
         Column(
             Modifier

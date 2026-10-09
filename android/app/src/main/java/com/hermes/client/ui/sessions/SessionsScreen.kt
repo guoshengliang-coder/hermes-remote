@@ -64,6 +64,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -99,6 +102,10 @@ fun SessionsScreen(
     onOpenCronJob: (String) -> Unit = {},
     onOpenMessaging: () -> Unit = {},
     onUnauthorized: () -> Unit = {},
+    companion: Boolean = false,
+    selectedSession: String? = null,
+    selectedDevice: String? = null,
+    selectedProfile: String? = null,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val activeProfile by vm.activeProfile.collectAsStateWithLifecycle()
@@ -151,8 +158,10 @@ fun SessionsScreen(
     // (and its ViewModel) stays alive across navigation, so init() runs only once; without this
     // a session created or updated while in a chat never appears until a profile switch or app
     // restart. Mirrors the same ON_RESUME refresh used by CronScreen.
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-        vm.onVisible()
+    androidx.compose.runtime.key(companion) {
+        androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+            if (!companion) vm.onVisible()
+        }
     }
 
     Scaffold(
@@ -255,7 +264,7 @@ fun SessionsScreen(
                                         // read state, and the heavier title tier is what unread
                                         // MEANS (docs/DESIGN.md §5.2).
                                         SessionRow(
-                                            session = s,
+                                            session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile,
                                             isPinned = isPinned(s),
                                             defaultProjectPath = defaultProjectPath,
                                             onMoveToProject = { moveTarget = s },
@@ -436,7 +445,7 @@ fun SessionsScreen(
                                     if ("needs" !in collapsed) {
                                         items(needsYou, key = { "n-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = isPinned(s), defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = isPinned(s), defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
@@ -462,7 +471,7 @@ fun SessionsScreen(
                                     if ("pinned" !in collapsed) {
                                         items(pinned, key = { "p-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = true, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
@@ -487,7 +496,7 @@ fun SessionsScreen(
                                     if ("today" !in collapsed) {
                                         items(groups.today, key = { "today-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
@@ -512,7 +521,7 @@ fun SessionsScreen(
                                     if ("yesterday" !in collapsed) {
                                         items(groups.yesterday, key = { "yesterday-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
@@ -537,7 +546,7 @@ fun SessionsScreen(
                                     if ("week" !in collapsed) {
                                         items(groups.week, key = { "week-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
@@ -562,7 +571,7 @@ fun SessionsScreen(
                                     if ("earlier" !in collapsed) {
                                         items(groups.earlier, key = { "earlier-${it.profile.orEmpty()}:${it.id}" }) { s ->
                                             SessionRow(
-                                                session = s, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
+                                                session = s, selected = s.id == selectedSession && s.deviceId == selectedDevice && s.profile == selectedProfile, isPinned = false, defaultProjectPath = defaultProjectPath, onMoveToProject = { moveTarget = s },
                                                 runtime = vm.runtimeFor(s, runtimes),
                                                 unread = SessionReadStore.token(s.profile, s.id, s.deviceId) in unreadTokens,
                                                 hasDraft = SessionReadStore.token(s.profile, s.id, s.deviceId) in drafts,
@@ -669,6 +678,7 @@ internal fun SessionRow(
     isBot: Boolean = false,
     /** Only read when [isBot]; passed in rather than read from a clock so the row stays testable. */
     nowMs: Long = 0L,
+    selected: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -707,8 +717,10 @@ internal fun SessionRow(
     Row(
         // The padding sits INSIDE the click, so the ripple covers the whole row rather than only
         // the text.
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent)
+            .semantics { this.selected = selected }
             .combinedClickable(
                 onClick = onOpen,
                 onLongClick = {

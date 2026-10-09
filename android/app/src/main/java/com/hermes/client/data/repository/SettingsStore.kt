@@ -40,6 +40,24 @@ class SettingsStore(
     // Usage page window. A viewing preference, so it stays on the device and is never synced
     // or scoped per profile (DESIGN.md §5.14).
     private val usageRangeKey = stringPreferencesKey("usage_range_days")
+    private val workspaceModeKey = stringPreferencesKey("workspace_mode")
+    private val workspaceWidthKey = stringPreferencesKey("workspace_list_width_dp")
+
+    val workspacePreference: Flow<com.hermes.client.ui.workspace.WorkspacePreference> = context.settingsDataStore.data.map {
+        com.hermes.client.ui.workspace.WorkspacePreference(
+            mode = runCatching { com.hermes.client.ui.workspace.WorkspaceMode.valueOf(it[workspaceModeKey] ?: "AUTO") }
+                .getOrDefault(com.hermes.client.ui.workspace.WorkspaceMode.AUTO),
+            listWidth = it[workspaceWidthKey]?.toFloatOrNull() ?: 300f,
+        ).normalized()
+    }
+
+    suspend fun setWorkspacePreference(value: com.hermes.client.ui.workspace.WorkspacePreference) {
+        val choice = value.normalized()
+        context.settingsDataStore.edit {
+            it[workspaceModeKey] = choice.mode.name
+            it[workspaceWidthKey] = choice.listWidth.toString()
+        }
+    }
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         runCatching { ThemeMode.valueOf(prefs[themeKey] ?: "SYSTEM") }.getOrDefault(ThemeMode.SYSTEM)

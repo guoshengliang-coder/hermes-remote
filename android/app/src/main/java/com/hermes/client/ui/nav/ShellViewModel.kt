@@ -13,9 +13,16 @@ import javax.inject.Inject
 class ShellViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val healthMonitor: com.hermes.client.data.network.GatewayHealthMonitor,
+    val workspace: com.hermes.client.ui.workspace.WorkspacePreferences,
+    private val accountSessions: com.hermes.client.data.auth.AccountSessionManager,
+    private val credentials: com.hermes.client.data.auth.CredentialStore,
+    private val runtimeStore: com.hermes.client.data.progress.SessionRuntimeStore,
+    private val drafts: com.hermes.client.data.repository.DraftStore,
 ) : ViewModel() {
     val profiles: StateFlow<List<ProfileDto>> = profileManager.list
     val active: StateFlow<String?> = profileManager.active
+    val workspaceIdentity = kotlinx.coroutines.flow.MutableStateFlow("")
+    val defaultDevice = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     /** Backend health for the shell's status strip + You-tab badge. */
     val health: StateFlow<com.hermes.client.data.network.GatewayHealth> = healthMonitor.health
@@ -24,7 +31,26 @@ class ShellViewModel @Inject constructor(
     val hermesContract: StateFlow<com.hermes.client.data.network.HermesContractNotice?> =
         healthMonitor.contract
 
-    init { viewModelScope.launch { profileManager.refresh() } }
+    init {
+        viewModelScope.launch { profileManager.refresh() }
+        viewModelScope.launch {
+            accountSessions.session.collect { account ->
+                syncWorkspaceIdentity(account)
+            }
+        }
+    }
+
+    fun refreshWorkspaceIdentity() = syncWorkspaceIdentity(accountSessions.session.value)
+
+    private fun syncWorkspaceIdentity(account: com.hermes.client.data.auth.AccountSession?) {
+        defaultDevice.value = account?.selectedDeviceId
+        val identity = com.hermes.client.ui.workspace.workspaceSessionKey(listOf(
+            account?.baseUrl ?: runCatching { credentials.load()?.baseUrl }.getOrNull(), account?.accountId ?: "legacy",
+        ))
+        runtimeStore.bindPendingAttachmentOwner(identity)
+        drafts.bindOwner(identity)
+        workspaceIdentity.value = identity
+    }
 
     /** Name of the profile a switch just failed for, or null. UI shows a retry affordance and
      *  the active profile is left untouched — switchTo is a gateway write and can fail. */

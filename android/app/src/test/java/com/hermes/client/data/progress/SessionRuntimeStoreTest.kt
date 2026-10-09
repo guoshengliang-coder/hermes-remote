@@ -710,6 +710,25 @@ class SessionRuntimeStoreTest : SessionRuntimeTest() {
         assertTrue(store.runtimes.value.size <= 21)
     }
 
+    @Test fun unsentAttachmentsSurviveIdleCachePressureAndAccountExitCleansThem() = runTest {
+        val (store, _) = fixture()
+        val file = java.io.File.createTempFile("hg197-runtime", ".pending").apply { writeText("draft") }
+        try {
+            store.bindPendingAttachmentOwner("relay/account-a")
+            val key = store.register("draft", "personal", "mac-a")
+            store.updateChat(key) { it.copy(pendingAttachments = listOf(
+                com.hermes.client.ui.chat.PendingAttachment("file", byteArrayOf(), "text/plain", "draft.txt", stagedFile = file),
+            )) }
+            repeat(25) { store.register("other-$it", "personal", "mac-b") }
+            assertEquals(file, store.runtimes.value.getValue(key).chat.pendingAttachments.single().stagedFile)
+            store.bindPendingAttachmentOwner("relay/account-a")
+            assertTrue(file.exists())
+            store.bindPendingAttachmentOwner("relay/account-b")
+            assertFalse(file.exists())
+            assertTrue(store.runtimes.value.getValue(key).chat.pendingAttachments.isEmpty())
+        } finally { file.delete() }
+    }
+
     /**
      * Regression for problem B of the background-connection review. `message.complete` used to
      * clear phone ownership, so a run that finished its message while a background process kept

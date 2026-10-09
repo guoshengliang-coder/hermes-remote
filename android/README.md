@@ -6,6 +6,21 @@ The upstream client is Kotlin + Jetpack Compose and already implements Hermes RE
 
 ## First UI pass
 
+### HG-197 large-screen workspace (development branch)
+
+Settings → Large-screen layout defaults to Automatic and also offers Always single column.
+At 840dp of usable width (or more when large text needs it), Chats and the selected conversation
+share one workspace. Drag the divider, use its accessibility actions, or use Left/Right/Home on
+an attached keyboard to resize/reset the list. Collapse is temporary; narrow windows retain the
+saved width. Reading and composer content are capped at 720dp. Separating/occluding hinges use
+fixed, unobstructed regions rather than a draggable division.
+
+Canonical conversation changes retain account/Relay/Mac/profile/session-scoped draft, search and
+reading state without retaining another chat ViewModel. Pending attachments stay in the existing
+application runtime for the process and are cleaned on removal/send or account/Relay changes.
+This is source work, not a new APK release. Physical foldable posture and vendor keyboard checks
+remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the approved HG-197 plan.
+
 - Application ID: `com.hermes.remote`
 - Default Relay: `https://mrlgs.net` (standard HTTPS/WSS port 443)
 - Default setup uses Hermes GO email + six-digit verification code when the Gateway advertises that

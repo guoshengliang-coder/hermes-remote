@@ -33,6 +33,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import com.hermes.client.ui.workspace.rememberConversationState
+import com.hermes.client.ui.workspace.rememberConversationValue
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -263,15 +266,15 @@ fun ChatScreen(
     val savedPrompts by vm.savedPrompts.collectAsStateWithLifecycle()
     var showPromptSheet by remember { mutableStateOf(false) }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.stopReading() } }
-    var draft by rememberSaveable(sessionId) { mutableStateOf("") }
+    var draft by rememberConversationState("chat:$sessionId:draft") { "" }
     var composerFocused by rememberSaveable(sessionId) { mutableStateOf(false) }
-    var searchOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
-    var query by rememberSaveable(sessionId) { mutableStateOf("") }
-    var currentMatch by rememberSaveable(sessionId) { mutableStateOf(0) }
+    var searchOpen by rememberConversationState("chat:$sessionId:searchOpen") { false }
+    var query by rememberConversationState("chat:$sessionId:query") { "" }
+    var currentMatch by rememberConversationState("chat:$sessionId:match") { 0 }
     // A query handed over from the search screen opens the in-chat search pre-filled; the first
     // hit is positioned by the usual match/highlight flow once history has loaded. Consumed once
     // per chat entry so rotation or returning here does not re-open it.
-    var initialQueryConsumed by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var initialQueryConsumed by rememberConversationState("chat:$sessionId:initialQueryConsumed") { false }
     LaunchedEffect(sessionId, initialQuery) {
         val q = initialQuery?.trim().orEmpty()
         if (q.isNotEmpty() && !initialQueryConsumed) {
@@ -282,14 +285,8 @@ fun ChatScreen(
     }
     // Keyed by session: without the key, opening a different session in this screen slot
     // inherited the previous session's scroll position.
-    val listState = androidx.compose.runtime.saveable.rememberSaveable(
-        sessionId,
-        saver = androidx.compose.foundation.lazy.LazyListState.Saver,
-    ) { androidx.compose.foundation.lazy.LazyListState() }
-    val viewportController = androidx.compose.runtime.saveable.rememberSaveable(
-        sessionId,
-        saver = ChatViewportController.Saver,
-    ) { ChatViewportController() }
+    val listState = rememberConversationValue("chat:$sessionId:list", androidx.compose.foundation.lazy.LazyListState.Saver) { androidx.compose.foundation.lazy.LazyListState() }
+    val viewportController = rememberConversationValue("chat:$sessionId:viewport", ChatViewportController.Saver) { ChatViewportController() }
     LaunchedEffect(refreshingConversation) {
         if (refreshingConversation) viewportController.holdCurrent()
     }
@@ -361,7 +358,11 @@ fun ChatScreen(
     val matches = remember(query, conversationTurns) { searchHits(conversationTurns, query) }
     // Reset the cursor when the QUERY changes — not when `matches` changes: `matches` is a fresh
     // list instance on every streamed token, which would otherwise yank the cursor to 0 mid-search.
-    LaunchedEffect(query, searchOpen) { currentMatch = 0 }
+    var previousQuery by rememberConversationState("chat:$sessionId:previousQuery") { query }
+    LaunchedEffect(query, searchOpen) {
+        if (query != previousQuery) currentMatch = 0
+        previousQuery = query
+    }
     // Coerce currentMatch into range so the highlight stays in sync with the (coerced) counter during
     // the transient window after `matches` shrinks but before the reset effect runs.
     val currentHit = if (searchOpen && matches.isNotEmpty()) matches[currentMatch.coerceAtMost(matches.lastIndex)] else null
@@ -422,7 +423,7 @@ fun ChatScreen(
     }
     val initialDraft by vm.initialDraft.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(initialDraft) {
-        initialDraft?.takeIf { it.isNotEmpty() }?.let { draft = it; vm.clearInitialDraft() }
+        initialDraft?.takeIf { it.isNotEmpty() }?.let { draft = vm.initialDraftForComposer(draft); vm.clearInitialDraft() }
     }
     // Persist the unsent composer text (HG-41). Keyed on the value rather than wired into each
     // assignment: `draft` is written by typing, dictation, slash fill, prompt insert, @-mention
@@ -1152,8 +1153,10 @@ fun ChatScreen(
                 )
                 return@Scaffold
             }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Column(
                 Modifier
+                    .widthIn(max = 720.dp)
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.background)
                     .padding(horizontal = 14.dp, vertical = 6.dp)
@@ -1478,6 +1481,7 @@ fun ChatScreen(
                     modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
                 )
             }
+            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -1545,7 +1549,7 @@ fun ChatScreen(
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    Box(Modifier.weight(1f)) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalHistoryFullRowLoader provides { locator -> vm.fullHistoryRow(locator) },
                     ) {
@@ -1591,7 +1595,7 @@ fun ChatScreen(
                         },
                         onFileOpen = { handleFile(it, share = false) },
                         onFileShare = { handleFile(it, share = true) },
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
                         onBlankAreaTap = {
                             if (composerFocused) {
                                 composerFocused = false

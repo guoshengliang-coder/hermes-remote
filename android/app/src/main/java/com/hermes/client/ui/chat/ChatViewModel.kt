@@ -113,6 +113,13 @@ class ChatViewModel @Inject constructor(
         return listOf(account?.baseUrl ?: legacyChartOrigin, account?.accountId ?: "legacy", currentDeviceId.orEmpty(), currentProfile.orEmpty(), storedSessionId)
     }
 
+    fun workspaceUiKey(id: String, profile: String?, device: String?): String {
+        val account = accountSessions?.session?.value
+        val resolvedProfile = profile ?: profileManager.active.value
+        val resolvedDevice = device ?: account?.let { conversationDevices?.resolve(it.accountId, resolvedProfile, id) } ?: account?.selectedDeviceId
+        return com.hermes.client.ui.workspace.workspaceSessionKey(listOf(account?.baseUrl ?: legacyChartOrigin, account?.accountId ?: "legacy", resolvedDevice, resolvedProfile, id))
+    }
+
     suspend fun voiceEndpoint(): com.hermes.client.data.network.GatewayWebSocketEndpoint =
         checkNotNull(gatewayForVoice) { "voice connection unavailable" }.voiceEndpoint()
 
@@ -426,10 +433,17 @@ class ChatViewModel @Inject constructor(
     // from a share (Share-to-Hermes). ChatScreen pre-fills the composer with it once.
     private val _initialDraft = MutableStateFlow<String?>(null)
     val initialDraft: StateFlow<String?> = _initialDraft.asStateFlow()
-    fun clearInitialDraft() { _initialDraft.value = null }
+    private var initialSharedText: String? = null
+    fun initialDraftForComposer(current: String): String = when {
+        current.isEmpty() -> _initialDraft.value.orEmpty()
+        !initialSharedText.isNullOrBlank() -> composerSeed(current, initialSharedText) ?: current
+        else -> current // A live/restored draft is newer than an asynchronous disk snapshot.
+    }
+    fun clearInitialDraft() { _initialDraft.value = null; initialSharedText = null }
 
     /** [SessionReadStore.token] for the open conversation; null until [open] resolves the profile. */
     private var draftToken: String? = null
+    private var conversationDrafts: com.hermes.client.data.repository.DraftSnapshot = draftStore
     private var draftSaveJob: kotlinx.coroutines.Job? = null
     /**
      * Guards the composer-versus-disk race at open. The composer starts empty and only fills in
@@ -452,10 +466,11 @@ class ChatViewModel @Inject constructor(
         val token = draftToken ?: return
         if (!draftSeeded && text.isBlank()) return
         draftTouched = true
+        val drafts = conversationDrafts
         draftSaveJob?.cancel()
         draftSaveJob = draftScope.launch {
             kotlinx.coroutines.delay(DRAFT_SAVE_DEBOUNCE_MS)
-            draftStore.save(token, text)
+            drafts.save(token, text)
         }
     }
 
@@ -463,7 +478,8 @@ class ChatViewModel @Inject constructor(
     fun clearDraft() {
         val token = draftToken ?: return
         draftSaveJob?.cancel()
-        draftScope.launch { draftStore.clear(token) }
+        val drafts = conversationDrafts
+        draftScope.launch { drafts.clear(token) }
     }
 
     val favorites: kotlinx.coroutines.flow.StateFlow<Set<String>> =
@@ -751,6 +767,10 @@ class ChatViewModel @Inject constructor(
         val resolvedDevice = requestedDeviceId?.takeIf { it.isNotBlank() }
             ?: account?.let { conversationDevices?.resolve(it.accountId, profile, id) }
             ?: account?.selectedDeviceId
+        val owner = com.hermes.client.ui.workspace.workspaceSessionKey(listOf(
+            account?.baseUrl ?: legacyChartOrigin, account?.accountId ?: "legacy",
+        ))
+        runtimeStore.bindPendingAttachmentOwner(owner)
         if (account != null && resolvedDevice != null) {
             conversationDevices?.bind(account.accountId, profile, id, resolvedDevice)
             if (accountSessions.routeToDevice(resolvedDevice)) chat.reconnect()
@@ -851,6 +871,8 @@ class ChatViewModel @Inject constructor(
         // handoff — in practice they never compete, since a share only ever lands on the session
         // it just created, but if they ever did, the user's own unsent words are the ones to keep.
         val token = SessionReadStore.token(profile, id, currentDeviceId)
+        val drafts = draftStore.forOwner(owner)
+        conversationDrafts = drafts
         draftToken = token
         draftSeeded = false
         draftTouched = false
@@ -861,10 +883,11 @@ class ChatViewModel @Inject constructor(
         failedSends.clear()
         seedUnsent(token, id, key)
         val ps = pendingShareStore.take(id)
+        initialSharedText = ps?.text
         viewModelScope.launch {
-            val saved = draftStore.read(token)
+            val saved = drafts.read(token)
             if (storedSessionId != id) return@launch
-            if (!draftTouched) composerSeed(saved, ps?.text)?.let { _initialDraft.value = it }
+            if (!draftTouched || !ps?.text.isNullOrBlank()) composerSeed(saved, ps?.text)?.let { _initialDraft.value = it }
             draftSeeded = true
         }
         com.hermes.client.data.diagnostics.DebugLog.log("session", "open($id)")
@@ -2240,7 +2263,8 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         runtimeKey?.let { runtimeStore.setVisible(it, false) }
-        _state.value.pendingAttachments.forEach { it.stagedFile?.delete() }
+        // Pending files belong to the application-scoped runtime, not this navigation entry.
+        // Switching A → B must leave A's unsent attachments available when returning.
         failedSends.values.flatMap { it.attachments }.forEach { it.stagedFile?.delete() }
     }
 
