@@ -95,6 +95,10 @@ class MergedAnswerImageViewerTest {
         compose.onRoot().performTouchInput { swipeRight() }
         compose.onNodeWithText("1 / 2").assertIsDisplayed()
         compose.onNodeWithContentDescription("关闭").performClick()
+        // Closing recreates the thumbnails; their IO decodes are not Compose idle work.
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithContentDescription("聊天图片").fetchSemanticsNodes().size == 2
+        }
         compose.onAllNodesWithContentDescription("聊天图片")[0].assertIsDisplayed()
     }
 
