@@ -86,3 +86,60 @@ validation, localized errors, cookie attributes, omitted contact and regular-for
 - No Android/Desktop/Web App source change, version allocation, package delivery or production
   deployment occurred. Mainland/overseas networks, physical installation and public website TLS
   remain the publication acceptance gate above.
+
+## First production publication — 2026-10-11
+
+The owner authorized publication after implementation
+[#571](https://github.com/guoshengliang-coder/hermes-remote/pull/571) merged as
+`7ee61c4de3432099cffff3d16543be39a523205b`; its main Website, SAST and CI workflows passed.
+A fresh, clean isolated worktree at that commit passed website syntax checks and **15 tests**.
+Only the **website** artifact was deployed, identified as **0.1.0-7ee61c4de343**. No Android
+package, Desktop package, existing Web App bundle, Gateway or Connector was published.
+
+- Origin: **https://go.mrlgs.net**. Cloudflare holds an A record for `go` pointing to the existing
+  HK host, in DNS-only mode. No CDN or mainland-hosting guarantee is claimed.
+- Immutable release: `/opt/hermes-go/website-releases/7ee61c4de3432099cffff3d16543be39a523205b`;
+  `/opt/hermes-go/website` links to its `website` directory, preserving the sibling release schema.
+  All **13** deployed files matched the source manifest by size and SHA-256.
+- Service: `hermes-go-website.service`, enabled, running as the dedicated `hermes-website` user,
+  listening only on **127.0.0.1:4174**. Protected configuration is `/etc/hermes-go/website.env`
+  (root-owned `0600`); invitation and session secret values are not recorded here. Support email
+  remains unset and the contact block is hidden.
+- Edge: `/etc/nginx/conf.d/hermes-go-website.conf`, with a dedicated TLS virtual host, overwritten
+  X-Real-IP, body/time limits and access logging disabled. `X-Hermes-Website-Commit` identifies the
+  served source commit. Nginx configuration checks passed; changes used graceful reloads.
+- TLS: dedicated `go.mrlgs.net` Let's Encrypt certificate, valid until **2027-01-09**. Its separate
+  config/work/log roots are `/etc/letsencrypt-hermes-website`,
+  `/var/lib/letsencrypt-hermes-website` and `/var/log/letsencrypt-hermes-website`.
+  Webroot validation uses `/var/lib/hermes-go-website-acme`; the existing DERP HTTP redirect
+  forwards challenges to the HTTPS virtual host. No DERP stop or existing certificate hook ran.
+  `hermes-go-website-cert-renew.timer` schedules independent twice-daily renewal with a randomized
+  delay; the certificate-specific deploy hook checks and reloads Nginx.
+
+Independent public verification from this Mac matched all **three assets** in full and exercised
+the four content pages, health, robots and sitemap. Wrong invitation, blocked unsigned download,
+Secure/HttpOnly/host-only cookie, successful unlock, exact versioned Android redirect, cross-origin
+rejection and no-JavaScript form flow passed. The full existing Android **0.1.171** APK download
+matched **33,374,063 bytes** and SHA-256
+`2263c3c79e9a826929166c72d697215fb4094f5440dc4104dd561886b3f6b8b6`.
+Desktop remains explicitly unpublished. Existing `/app/` and `/relay-health` returned 200;
+HK public health and invitation throttling passed, including spoofed X-Real-IP attempts.
+
+Archive SHA-256: `dcbfb3b408b8baceadbf2d313c680c902063222914636deda745aa5611d9086d`.
+Public verification receipt SHA-256:
+`c20c90d385dc4ca904ffbb4d8c2fb1f8e4c722406dedc65a40a3749e6e2084bc`.
+Evidence and local operator scripts are outside Git at
+`/Users/bs/.codex/artifacts/hg200-website-release/`.
+
+The Mac's direct HTTPS probes passed. Its existing system-proxy route to the new hostname
+terminated the connection; the same proxy succeeded when the origin IP was supplied explicitly.
+This remains a client proxy/DNS-path limitation, not a successful Chrome acceptance result.
+Physical Android/iPhone Safari/PWA, mainland mobile and a separate overseas client network
+remain unverified. Publication does not establish device installation or acceptance.
+
+Rollback for this first release: retain the valid dedicated TLS virtual host and ACME challenge
+location, replace only its website proxy location with a localized `HR-SITE-006` maintenance
+503, check/reload Nginx, then stop only `hermes-go-website.service`. Keep the DNS record and
+certificate-renewal timer. For later releases, switch the website symlink to the retained prior
+immutable release and restart only the website service. Never restore the bootstrap virtual
+host's temporary certificate or change the existing Web App/Gateway/release routes.
