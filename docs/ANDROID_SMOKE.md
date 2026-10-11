@@ -568,7 +568,8 @@ failAllPending`；在途调用正常结束为已有连接失败状态，恢复�
    shows reliable line/bar data, with Adjust and Exact values collapsed and no initial filters.
 2. Open Adjust to change metric/type/series or date/category filters. Check the visible filter
    range and Restore all. Large plots have explicit 100-point pages and counts; every plot point
-   and exact value remains reachable. Long labels wrap in horizontal bars; no guessed aggregation.
+   and exact value remains reachable. Drag horizontally across the canvas on a phone to reveal
+   later points within the current page. Long labels wrap in horizontal bars; no guessed aggregation.
 3. Switch to Source table and inspect every column by scrolling, then Chart. Copy/export still uses
    the complete source. Rotate, Close/system Back, reopen and restart: per-table choices persist,
    panels reopen collapsed, and the original chat table and reading position restore.
