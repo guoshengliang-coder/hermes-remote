@@ -76,6 +76,10 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const area = useRef<HTMLTextAreaElement>(null);
   const composer = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  // iOS maps data to the document picker directly; an unrestricted input also offers Photos.
+  // iPadOS can identify as a desktop Mac. This changes the picker hint, never the file's MIME type.
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   // HG-174: set while the pointer is inside the composer's own controls. Safari, Firefox and iOS
   // never move focus onto a pressed button, so the textarea's blur then arrives with no
   // relatedTarget — the same shape as a tap on the transcript. The pointerdown is what tells the
@@ -407,7 +411,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         {[
           { ref: camera, accept: "image/*", capture: "environment" as const, multiple: false },
           { ref: photos, accept: "image/*", capture: undefined, multiple: true },
-          { ref: picker, accept: undefined, capture: undefined, multiple: true },
+          { ref: picker, accept: ios ? "application/octet-stream" : undefined, capture: undefined, multiple: true },
         ].map((input, i) => (
           <input
             key={i}

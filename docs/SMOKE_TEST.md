@@ -1166,6 +1166,30 @@ native scroll anchoring, which Safari lacks).
 
 ### Still needs a real iPhone — none of this has been verified on a device
 
+**HG-202 file picker (required before publishing this change).** In both physical iPhone Safari
+and the installed Home Screen WebApp, open a chat and tap **+ → Files**. Expect the Files picker
+directly, without the Photos/Camera/Choose Files source menu. Record the model, iOS version,
+browser/standalone mode and tested commit for each result. Repeat on iPadOS with desktop browsing
+enabled when an iPad is available. Check all of the following in each iPhone mode:
+
+- Pick PNG, TXT, ZIP and a non-executable unknown-extension file together using multiple selection.
+  Expect four pending chips; the PNG is an image, and the other three keep their filenames/types.
+  Send and confirm the actual attachments reach the conversation through the real Connector.
+- Cancel an empty pick, then cancel with an existing text draft and pending attachment. Nothing
+  sends, disappears or raises an error. Remove/send a file, then pick the exact same file again;
+  it must stage again. Repeat opening and closing the picker.
+- Pick an iCloud Drive file that is not downloaded locally. Wait for its provider download and
+  confirm it stages and sends with intact bytes, filename and MIME type.
+- **+ → Photos** still offers the system sources and opens Photos Library with image multi-select;
+  **+ → Camera** still captures one image. Confirm both stage and send normally. No new video entry.
+- Smoke Android Chrome and desktop Files: their unrestricted picker and multi-select are unchanged.
+
+Evidence boundary: the prior iPhone 17 Pro / iOS 26.5 Simulator Safari experiment verified a plain
+`application/octet-stream` multiple input opens Files directly and returns PNG/TXT/ZIP/unknown files.
+Composer DOM tests verify the shipped configuration and attachment staging, not native system UI,
+iCloud access or successful transport on a physical phone. Physical Safari/Home Screen results remain
+pending until recorded here; do not publish based on the simulator experiment alone.
+
 Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
 simulator and Playwright WebKit do not exercise them faithfully. Record the iPhone model and iOS
 version with each result.
