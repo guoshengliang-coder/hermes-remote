@@ -32,7 +32,7 @@ def unique_object(pairs):
     return result
 
 
-def private_json(path: Path):
+def private_bytes(path: Path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
@@ -42,9 +42,13 @@ def private_json(path: Path):
         raw = os.read(fd, MAX_JSON + 1)
         if len(raw) > MAX_JSON:
             raise Refused("oversize_record")
-        return json.loads(raw, object_pairs_hook=unique_object)
+        return raw
     finally:
         os.close(fd)
+
+
+def private_json(path: Path):
+    return json.loads(private_bytes(path), object_pairs_hook=unique_object)
 
 
 def durable_json(path: Path, value):
@@ -109,7 +113,7 @@ def validate_git_configuration(root: Path):
             raise Refused("unsupported_git_configuration")
 
 
-def verify_source(root: Path, commit: str):
+def verify_source(root: Path, commit: str, *, installation=False):
     validate_git_configuration(root)
     if git(root, "rev-parse", "HEAD").decode().strip() != commit:
         raise Refused("source_moved")
@@ -132,7 +136,22 @@ def verify_source(root: Path, commit: str):
             expected[path] = blob.decode()
     # The takeover's import graph reaches other upstream packages (for example utils). Check the
     # whole snapshot so an ignored helper outside hermes_cli/pm cannot enter that graph either.
-    actual = {str(p.relative_to(root)) for p in root.rglob("*.py")}
+    # A live checkout additionally contains PM state and the retained legacy venv. These are
+    # dependency closures, not source imports; their independent certification remains required.
+    excluded = {".git", ".hermes", "venv", ".venv"} if installation else {".git"}
+    actual = set()
+    for directory, children, files in os.walk(root, followlinks=False):
+        if Path(directory) == root:
+            if any((root / name / entry).exists() for name in ("venv", ".venv")
+                   for entry in ("__init__.py", "__init__.pyc")):
+                raise Refused("unexpected_source")
+            children[:] = [name for name in children if name not in excluded]
+        if installation and str(Path(directory).relative_to(root)) in (".", "ui-tui", "web", "apps/desktop"):
+            children[:] = [name for name in children if name != "node_modules"]
+        for name in children:
+            if (Path(directory) / name).is_symlink():
+                raise Refused("unsafe_source")
+        actual.update(str((Path(directory) / name).relative_to(root)) for name in files if name.endswith(".py"))
     if actual != set(expected):
         raise Refused("unexpected_source")
     for relative, blob in expected.items():
@@ -241,7 +260,184 @@ def validate_target_tag(source: Path, root: Path, version: str, commit: str):
     return tag_ref
 
 
-def update(config, root: Path, home: Path, run: Path):
+def validate_finish_handoff(config, root: Path, home: Path, run: Path):
+    """Only a completed PM handoff BEFORE finish effects can be replayed automatically.
+
+    Read this run's unique archive, never latest.json. A terminal or advanced receipt is evidence
+    to reconcile, not permission to erase debts or replay service/migration effects.
+    """
+    context = private_json(run / "official-context.json")
+    checkpoint = private_json(run / "official-finish-state.json")
+    if (not isinstance(checkpoint, dict) or type(checkpoint.get("schema")) is not int
+            or checkpoint != finish_checkpoint(config, root, run, "ready")):
+        raise Refused("finish_checkpoint_not_ready")
+    keys = {"root", "update_id", "receipt", "assume_yes", "gateway_mode", "desktop",
+            "pre_update_version", "plan", "pm_receipt"}
+    if (not isinstance(context, dict) or set(context) != keys or context["root"] != str(root)
+            or context["update_id"] != config["upstreamUpdateID"]
+            or context["assume_yes"] is not True or context["gateway_mode"] is not False
+            or context["desktop"] is not False or context["pre_update_version"] != config["preUpdateVersion"]
+            or context["plan"] != config["plan"]):
+        raise Refused("finish_handoff_mismatch")
+    receipt, pm = context["receipt"], context["pm_receipt"]
+    pre = {"sha": config["sourceCommit"], "version": config["preUpdateVersion"]}
+    def valid_receipt(value):
+        return (isinstance(value, dict) and type(value.get("schema")) is int and value["schema"] == 1
+                and value.get("update_id") == config["upstreamUpdateID"]
+                and value.get("correlation_id") == config["runID"] and value.get("pre_update") == pre
+                and value.get("outcome") == "running" and value.get("finished_at") is None
+                and isinstance(value.get("started_at"), str) and bool(value["started_at"])
+                and type(value.get("pid")) is int and value["pid"] > 0
+                and value.get("post_update") == {} and value.get("steps") == []
+                and value.get("skips") == [] and value.get("stages", []) == []
+                and value.get("gateway_restart") == {} and value.get("fleet") == []
+                and not any(value.get(key) for key in ("followups", "user_action", "pending_manual_serves",
+                                                       "carried_manual_serves", "stop_reason")))
+    if (not valid_receipt(receipt) or not isinstance(pm, dict)
+            or type(pm.get("schema")) is not int or pm["schema"] != 1
+            or pm.get("update_id") != config["upstreamUpdateID"] or pm.get("kind") != "sync"
+            or pm.get("outcome") != "ok" or type(pm.get("exit_code")) is not int or pm["exit_code"] != 0
+            or not isinstance(pm.get("finished_at"), str) or not pm["finished_at"]
+            or not isinstance(pm.get("venv_rebuild"), dict) or pm["venv_rebuild"].get("ok") is not True
+            or pm.get("refusal")):
+        raise Refused("finish_handoff_incomplete")
+    # Validate every parent before opening the bounded private archive; no symlink redirects.
+    canonical_directory(str(home / "logs"))
+    directory = canonical_directory(str(home / "logs/update_receipts"))
+    records = []
+    for index, path in enumerate(directory.iterdir()):
+        if index >= 512:
+            raise Refused("receipt_inventory_unbounded")
+        if path.name.startswith("update_") and path.name.endswith("_" + config["upstreamUpdateID"] + ".json"):
+            records.append(path)
+    if len(records) > 1:
+        raise Refused("finish_receipt_custody_unknown")
+    if records:
+        archived = private_json(records[0])
+        if (not valid_receipt(archived) or any(archived.get(key) != value for key, value in receipt.items())):
+            raise Refused("finish_receipt_advanced")
+    if (run / "official-result.json").exists() or (run / "official-result.json").is_symlink():
+        raise Refused("finish_result_already_present")
+    return context
+
+
+def finish_checkpoint(config, root: Path, run: Path, phase: str):
+    return {"schema": 1, "runID": config["runID"], "upstreamUpdateID": config["upstreamUpdateID"],
+            "checkout": str(root), "targetCommit": config["targetCommit"], "phase": phase,
+            "contextSHA256": hashlib.sha256(private_bytes(run / "official-context.json")).hexdigest()}
+
+
+def initial_context(config, root: Path):
+    previous = {"update_id": config["upstreamUpdateID"], "correlation_id": config["runID"],
+                "pre_update": {"sha": config["sourceCommit"], "version": config["preUpdateVersion"]}}
+    return {"root": str(root), "update_id": config["upstreamUpdateID"], "receipt": previous,
+            "assume_yes": True, "gateway_mode": False, "desktop": False,
+            "pre_update_version": config["preUpdateVersion"], "plan": config["plan"]}
+
+
+def prepare_handoff(config, root: Path, run: Path):
+    """Actual official preparation, plus GO's durable pre-finish effect boundary.
+
+    Legacy -S interpreters can lack ruamel when upstream best-effort persists a running archive.
+    A ready checkpoint therefore proves no finish was started even if that archive is absent.
+    Both paths must write finishing BEFORE spawning any official finish effects.
+    """
+    from hermes_cli import update_receipt
+    from hermes_cli import _update_takeover as official
+    request = private_json(run / "official-context.json")
+    if (not isinstance(request, dict) or request != initial_context(config, root)
+            or request.get("assume_yes") is not True or request.get("gateway_mode") is not False
+            or request.get("desktop") is not False):
+        raise Refused("initial_handoff_mismatch")
+    if any((run / name).exists() or (run / name).is_symlink()
+           for name in ("official-result.json", "official-finish-state.json")):
+        raise Refused("retained_context_present")
+    durable_json(run / "official-finish-state.json", finish_checkpoint(config, root, run, "preparing"))
+    update_receipt.begin_update_receipt(previous=request["receipt"], correlation_id=config["upstreamUpdateID"])
+    try:
+        python, environment = official.prepare(request)
+        receipt = update_receipt._current.get()
+        if receipt is None or request["update_id"] != config["upstreamUpdateID"]:
+            raise Refused("finish_receipt_unavailable")
+        request["receipt"] = receipt.data
+        durable_json(run / "official-context.json", request)
+        durable_json(run / "official-finish-state.json", finish_checkpoint(config, root, run, "ready"))
+        return request, python, environment
+    except Exception:
+        official._record_failure(request, run / "official-result.json", 1, "GO official preparation did not finish")
+        raise
+
+
+FINISH_PROBE = r'''
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1]); sys.path.insert(0, str(root))
+from pm.client import venv_is_current
+from hermes_cli._launchers import resolve_store_python
+from pm.environments import activation_environment
+if not venv_is_current(project_root=root): raise SystemExit(2)
+python = resolve_store_python(root)
+if python is None: raise SystemExit(2)
+environment = activation_environment(root)
+environment['HERMES_DISABLE_LAZY_INSTALLS'] = '1'
+print(json.dumps({'python': str(python), 'environment': environment}), flush=True)
+'''
+
+
+def finish_environment(root: Path):
+    # PM resolves registry/facts through module origin as well as explicit project_root. Probe in
+    # an isolated child importing the verified LIVE tree, never the immutable asset snapshot.
+    # venv_is_current uses bootstrap=False; this child cannot provision a cold PM runtime.
+    from hermes_cli.update_custody import popen_post_commit
+    with popen_post_commit([sys.executable, "-I", "-S", "-B", "-c", FINISH_PROBE, str(root)],
+                          label="GO official finish currency probe", cwd=str(root),
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as child:
+        raw = child.stdout.read(MAX_JSON + 1)
+        if len(raw) > MAX_JSON:
+            child.stdout.close()  # drain is bounded; do not wait with a full writer pipe
+        code = child.wait()
+    if code or len(raw) > MAX_JSON:
+        raise Refused("finish_dependencies_changed")
+    result = json.loads(raw, object_pairs_hook=unique_object)
+    if (not isinstance(result, dict) or set(result) != {"python", "environment"}
+            or not isinstance(result["python"], str) or not Path(result["python"]).is_absolute()
+            or not isinstance(result["environment"], dict)
+            or not all(isinstance(k, str) and isinstance(v, str) for k, v in result["environment"].items())
+            or result["environment"].get("HERMES_DISABLE_LAZY_INSTALLS") != "1"
+            or any(result["environment"].get(key) != os.environ.get(key)
+                   for key in ("HOME", "HERMES_HOME", "HERMES_UPDATE_CORRELATION_ID"))):
+        raise Refused("finish_environment_unavailable")
+    return Path(result["python"]), result["environment"]
+
+
+def resume_finish(config, root: Path, home: Path, run: Path):
+    validate_journal(config, root)
+    validate_update_plan(config)
+    verify_source(root, config["targetCommit"], installation=True)
+    source = canonical_directory(config["sourceRoot"])
+    verify_source(source, config["targetCommit"])
+    validate_target_tag(source, root, config["targetVersion"], config["targetCommit"])
+    context = validate_finish_handoff(config, root, home, run)
+    python, environment = finish_environment(root)
+    # The probe must not permit a changed handoff. Keep the original bytes; finish only reads it.
+    if validate_finish_handoff(config, root, home, run) != context:
+        raise Refused("finish_handoff_changed")
+    validate_journal(config, root)
+    verify_source(root, config["targetCommit"], installation=True)
+    validate_target_tag(source, root, config["targetVersion"], config["targetCommit"])
+    from hermes_cli.update_custody import popen_post_commit
+    durable_json(run / "official-finish-state.json", finish_checkpoint(config, root, run, "finishing"))
+    with popen_post_commit([str(python), "-I", "-B", "-X", "utf8", str(root / "hermes_cli/update_finish.py"),
+                           str(run / "official-context.json"), str(run / "official-result.json")],
+                          label="GO official finish resume", cwd=str(root), env=environment,
+                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                          start_new_session=True) as child:
+        emit("updating", pid=child.pid)
+        code = child.wait()
+    emit("finished", exitCode=code)
+
+
+def update(config, root: Path, home: Path, run: Path, configuration_path: Path | None = None):
     validate_journal(config, root)
     validate_git_configuration(root)
     head = git(root, "rev-parse", "HEAD").decode().strip()
@@ -249,6 +445,9 @@ def update(config, root: Path, home: Path, run: Path):
         # Do not replace an existing receipt/PM context with a fresh minimal one after commit.
         # A recovery adapter must reconcile the retained official tail and receipt custody first.
         raise Refused("committed_resume_requires_reconciliation")
+    if any((run / name).exists() or (run / name).is_symlink()
+           for name in ("official-context.json", "official-result.json", "official-finish-state.json")):
+        raise Refused("retained_context_present")
     if head not in (config["sourceCommit"], config["targetCommit"]) or git(root, "status", "--porcelain=v1", "--untracked-files=normal"):
         raise Refused("checkout_changed")
     if any(row and row[:1] != b"H" for row in git(root, "ls-files", "-v", "-z").split(b"\0")):
@@ -288,14 +487,10 @@ def update(config, root: Path, home: Path, run: Path):
     # The official historical takeover provisions PM and invokes update_finish in the selected
     # interpreter; both children inherit the upstream checkout lock. No DIY dependency installer.
     context = run / "official-context.json"
-    result = run / "official-result.json"
-    previous = {"update_id": config["upstreamUpdateID"], "correlation_id": config["runID"],
-                "pre_update": {"sha": config["sourceCommit"], "version": config["preUpdateVersion"]}}
-    durable_json(context, {"root": str(root), "update_id": config["upstreamUpdateID"], "receipt": previous,
-                          "assume_yes": True, "gateway_mode": False, "desktop": False,
-                          "pre_update_version": config["preUpdateVersion"], "plan": config["plan"]})
-    with popen_post_commit([sys.executable, "-I", "-S", "-B", str(root / "hermes_cli/_update_takeover.py"),
-                           str(context), str(result)], label="GO official takeover", cwd=str(root),
+    durable_json(context, initial_context(config, root))
+    with popen_post_commit([sys.executable, "-I", "-S", "-B", str(Path(__file__).resolve()),
+                           "--official-handoff", str(configuration_path or run / "worker-configuration.json")],
+                          label="GO official takeover", cwd=str(root),
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            start_new_session=True) as child:
         emit("updating", pid=child.pid)
@@ -309,14 +504,28 @@ def main():
     # The official children also invoke Git; protect their commit/ancestry views, not just ours.
     os.environ["GIT_NO_REPLACE_OBJECTS"] = "1"
     os.environ["GIT_GRAFT_FILE"] = os.devnull
-    config = private_json(Path(sys.argv[1]))
+    handoff_child = len(sys.argv) == 3 and sys.argv[1] == "--official-handoff"
+    config = private_json(Path(sys.argv[2] if handoff_child else sys.argv[1]))
     source, root, home, run = validate_configuration(config)
-    sys.path.insert(0, str(source))
+    if handoff_child:
+        validate_journal(config, root)
+        verify_source(root, config["targetCommit"], installation=True)
+    sys.path.insert(0, str(root if handoff_child else source))
     from hermes_cli.update_lock import UpdateLock
     lock = UpdateLock(path=home / ".hermes-update-in-progress", install_root=root)
     if not lock.acquire():
         raise Refused("concurrent_update")
     try:
+        if handoff_child:
+            from hermes_cli import _update_takeover as official
+            request, python, environment = prepare_handoff(config, root, run)
+            durable_json(run / "official-finish-state.json", finish_checkpoint(config, root, run, "finishing"))
+            try:
+                return official._run_finish_child(request, run / "official-context.json",
+                                                  run / "official-result.json", python, environment)
+            except Exception:
+                official._record_owed_finish(request, run / "official-result.json", "GO official finish could not run")
+                return 0
         emit("locked")
         line = sys.stdin.buffer.readline(4097)
         if not line:
@@ -326,9 +535,13 @@ def main():
         command = json.loads(line, object_pairs_hook=unique_object)
         if command == {"command": "release", "runID": config["runID"]}:
             return 0
-        if command != {"command": "update", "runID": config["runID"]}:
+        if command not in ({"command": "update", "runID": config["runID"]},
+                           {"command": "resume-finish", "runID": config["runID"]}):
             raise Refused("invalid_command")
-        update(config, root, home, run)
+        if command["command"] == "update":
+            update(config, root, home, run, Path(sys.argv[1]).resolve())
+        else:
+            resume_finish(config, root, home, run)
         # Do not free the checkout between PM completion and GO's independent boot/receipt checks.
         line = sys.stdin.buffer.readline(4097)
         if line and json.loads(line, object_pairs_hook=unique_object) != {"command": "release", "runID": config["runID"]}:

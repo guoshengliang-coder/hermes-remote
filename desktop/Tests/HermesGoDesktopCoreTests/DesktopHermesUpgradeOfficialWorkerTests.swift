@@ -43,6 +43,28 @@ final class DesktopHermesUpgradeOfficialWorkerTests: XCTestCase {
         XCTAssertEqual(exit, 0)
         try worker.release()
     }
+    func testFinishResumeUsesTheSameIDsAndCannotShareAHandleWithAnotherMutation() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let worker = try launch(fixture)
+        let exit = try await worker.resumeOfficialFinish()
+        XCTAssertEqual(exit, 0)
+        do { _ = try await worker.runOfficialUpdate(); XCTFail("update followed finish on the same lock") }
+        catch { XCTAssertEqual(error as? DesktopHermesUpgradeError, .recoveryRequired) }
+        try worker.release()
+        let command = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture.run.appendingPathComponent("command.json"))) as! [String: String]
+        XCTAssertEqual(command, ["command": "resume-finish", "runID": fixture.runID])
+    }
+    func testRefusedFinishResumeUsesRegisteredRecoveryFailure() async throws {
+        let fixture = try Fixture(script: """
+        import json, sys
+        print(json.dumps({'schema':1,'event':'locked'}), flush=True)
+        json.loads(sys.stdin.readline())
+        print(json.dumps({'schema':1,'event':'refused','reason':'finish_receipt_advanced'}), flush=True)
+        """); defer { fixture.remove() }
+        let worker = try launch(fixture)
+        do { _ = try await worker.resumeOfficialFinish(); XCTFail("advanced receipt resumed") }
+        catch { XCTAssertEqual(error as? DesktopHermesUpgradeError, .recoveryRequired) }
+    }
     func testResumingRequiresExactlyTheSameFrozenConfiguration() throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let worker = try launch(fixture)
@@ -103,7 +125,8 @@ private final class Fixture {
         pathlib.Path(cfg['runDirectory'], 'environment.json').write_text(json.dumps(dict(os.environ)))
         print(json.dumps({'schema':1, 'event':'locked'}), flush=True)
         cmd = json.loads(sys.stdin.readline())
-        if cmd['command'] == 'update':
+        pathlib.Path(cfg['runDirectory'], 'command.json').write_text(json.dumps(cmd))
+        if cmd['command'] in ('update', 'resume-finish'):
             print(json.dumps({'schema':1, 'event':'updating'}), flush=True)
             time.sleep(.05)
             print(json.dumps({'schema':1, 'event':'finished', 'exitCode':0}), flush=True)

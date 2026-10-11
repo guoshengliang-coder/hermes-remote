@@ -20,6 +20,11 @@ and actual recovery controls still require a certified concrete adapter; they ar
 The packaged execution worker adds no visible action until that certification. A target already moved
 on disk requires reconciliation of its retained official receipt/tail; the product must not label a
 fresh retry or an exit-zero receipt with owed work as a completed upgrade.
+The backend-only finish resume accepts a successful PM handoff with a durable ready checkpoint and
+an unfinished original receipt; any existing official archive must agree and have no finish effects.
+Missing/unsafe checkpoints, advanced/terminal receipts and service
+debts keep the registered recovery-required error (`HR-HERMESUPDATE-003`); no new recovery action
+or automatic retry is exposed until the full machine adapter is certified.
 Displayed completion requires the receipt's version and fixed commit to agree; a tagless checkout
 whose official version stamp says unknown must remain pending even if its dependency sync succeeded.
 Maintenance admission/service restoration remains backend-only until full certification. It adds no

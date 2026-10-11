@@ -57,6 +57,34 @@ cover duplicate JSON, private/link ownership, journal/source/target/version/back
 ignored Python overlays across the snapshot, executable Git filters/rewrites and refusal to overwrite committed context.
 IPC lines over 4096 bytes are rejected even when a newline arrives in the same read. Release-tag tests
 require a tag that peels to the pinned commit and retain conflicting owner tags without fetching.
+Finish-resume automation adds immutable original handoff/ID/plan/PM validation, private write-ahead
+preparing→ready→finishing checkpoints, context hash binding, original-context retention, refusal for
+prepare failures, existing result, duplicate/linked/unbounded archives, probe-time changes, advanced
+or terminal debt, and a single mutation per Swift lock handle. A live source check permits root PM
+state/legacy venv and known Node dependency directories while still refusing ignored Python overlays
+and an importable venv package. Invalid/oversized currency replies cannot choose an interpreter. Stable recovery-required
+mapping is reused; raw refusal details never become a primary message.
+
+`scripts/compat/hermes-finish-resume-rehearsal.py` is opt-in on macOS/Python 3.11+ with a pinned
+candidate source and an explicitly marked disposable `/private/tmp/hg199-*` tool/cache seed. It
+creates a fresh target checkout and synthetic GO journal/backup receipt, calls actual official PM
+prepare through the packaged worker helper, SIGKILLs that isolated preparer at the durable ready
+handoff, then sends `resume-finish` to the packaged worker. Kernel policy denies all signals, service
+tools and writes outside the new fixture. This tests the actual PM/finish handoff ONLY: it does not
+prove an old→new source move, backup validity, genuine history, cold tool provisioning, GO writer
+retirement, original service restoration or a certified upgrade. Inspect the reported fixture/logs;
+never point it at the owner's data. Terminal service debt must remain and a second finish resume
+must refuse without changing the original context/receipt.
+`--mode update` additionally starts a synthetic source checkout at 17b5df02 and exercises the normal
+fixed-target source move/packaged child entry without killing prepare. It uses an external Python
+3.11 test interpreter, warm tools and injected journal/backup, not a genuine installed old venv.
+Local 2026-10-11 runs passed both paths: SIGKILL after PM ready→official finish, and ordinary source
+update→official prepare/finish; same IDs/target version and original-context/terminal-debt retention
+passed. Read-only verification independently rejects the finishing checkpoint before any replay.
+Official maintenance attempted to extend shallow history and left partial-clone config; the
+packaged worker's additional config guard refuses a repeat too. Do not remove those flags/guards
+to simulate recovery. Supporting the official partial-clone shape remains an uncertified boundary.
+Both fixtures keep gateway restart owed; neither certifies services, backups, business or GO completion.
 A retired external WAL-writer regression reproduces Apple SQLite's missing-sidecar backup failure;
 only a source with no pending WAL/rollback pages gets immutable reading. Nonempty WAL coverage remains.
 

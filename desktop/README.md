@@ -1,5 +1,11 @@
 # Hermes Go Desktop
 
+HG-199's backend worker now supports a narrow interrupted PM handoff recovery: a durable ready
+checkpoint permits the same official finish to continue without redoing PM or replacing the original
+context. Advanced/terminal receipts remain blocked, and the product upgrade/recovery controls remain
+disabled until the machine adapter and end-to-end certification are complete. See
+[`../docs/HERMES_UPGRADE.md`](../docs/HERMES_UPGRADE.md).
+
 HG-175 adds an explicit **检查并修复受管服务** recovery action for committed installations whose
 LaunchAgent files or loaded tasks are missing. It preserves the existing binding and installation
 identity, validates the retained release/credentials and same signed-in account, and uses confirmation,

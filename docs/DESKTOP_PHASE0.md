@@ -6,8 +6,11 @@ fresh ACK proves only Connector drainage. Independent full-profile/cron/backgrou
 admission and retirement evidence remains required. Configuring the mailbox is explicit and default
 nil; this increment does not rewrite or restart installed agents. Restore preserves original
 loaded/unloaded jobs, checks the actual Hermes boot commit before Connector, and resumes already
-restored jobs. Full machine Operating, external interpreter closure and official committed-tail
-reconciliation remain pending; execution stays disabled. See `HERMES_UPGRADE.md` for the boundaries.
+restored jobs. The worker can now resume an exact, completed-PM handoff before finish effects,
+using the original context and ready checkpoint (any existing official archive must agree). Full
+machine Operating, external interpreter closure, advanced/terminal-tail reconciliation remain pending;
+execution stays disabled.
+See `HERMES_UPGRADE.md` for the boundaries.
 
 ## HG-199 stage one: upstream identity and discovery
 
@@ -31,7 +34,7 @@ The bundled fixed-source worker now owns the real official lock and invokes hist
 finish, with immutable launcher/upstream IDs, pinned commit/tag/version and private IPC configuration. Actual macOS process tests
 prove cross-home exclusion and surviving-child lock custody. Retired sidecar-free WAL snapshots use
 immutable reads only when there are no pending WAL/rollback bytes. Concrete idle/retirement, service
-and committed-tail recovery adapters remain unenabled; see `HERMES_UPGRADE.md` for evidence and gates.
+and full committed-tail recovery adapters remain unenabled; see `HERMES_UPGRADE.md` for evidence and gates.
 
 ## Explicit managed-service repair (HG-175)
 

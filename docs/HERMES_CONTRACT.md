@@ -1137,6 +1137,7 @@ These are not upstream's stable public API and must be rechecked in source befor
 | Safe Git invocation and inherited child custody | `hermes_cli/update_custody.py` `run_git`, `popen_post_commit` | Fixed object, no hook/helper fallback, no signal on Desktop exit |
 | Durable source-tail/fleet/pull intent before files move | `hermes_cli/venv_sync.py` `arm_completion`, `update_host_obligation.py` `arm_host_obligation`, `update_cmd_commit.py` `arm_tree_move`, `tree_whole_at` | Caller must already prove all writers retired and store its backup/journal |
 | Historical interpreter bootstrap, PM-selected environment and finish handoff | `hermes_cli/_update_takeover.py`, `hermes_cli/update_finish.py` | Exact root/update_id/pre-update/plan context; no DIY dependency installer |
+| Completed-PM handoff resumed before finish effects | `_update_takeover.prepare`, `_run_finish_child`, `update_finish.main`, `pm.client.venv_is_current`, `_launchers.resolve_store_python`, `pm.environments.activation_environment` | Durable GO preparing/ready/finishing boundary plus same original context/IDs; existing archive must be unique and unfinished; no PM replay on resume |
 | Launcher versus official/PM correlation | `hermes_cli/update_receipt.py`, `pm/receipt.py` | GO `HERMES_UPDATE_CORRELATION_ID` binds `correlation_id`; separately recorded official UUID binds `update_id` |
 | Release identity stamped by finish | `hermes_cli/version_info.py` `get_code_identity`, release tag `v<version>` | Snapshot and installed tag must peel to the same pinned object; receipt must match both version and SHA |
 
@@ -1150,6 +1151,25 @@ Git config and unknown layout fail closed. `UpdateLock` is not writer admission:
 not acquire this checkout lock on every ordinary launch. GO must independently inventory, retire and
 fence all writers before an upgrade can become available. Process-level lock tests do not certify
 service restoration or make 0.21.6 a recommended target.
+
+In the pinned source, `begin_update_receipt(previous=...)` carries previous fields forward and
+resets outcome/finished_at; it does not mean a terminal receipt's obligations were discharged.
+The worker therefore accepts only the pre-finish PM handoff with a private ready checkpoint binding
+context hash, installation, target and both IDs, and matching original empty steps,
+stages, fleet and restart effects, no followups/manual obligations, and no existing result. It reads
+the per-update archive when present (unique, never the replaceable latest pointer), verifies the live Python graph
+excluding only root dependency state/venvs and the known root/ui-tui/web/apps/desktop Node dependency
+directories, and rechecks journal/source/tag/handoff after the official
+non-bootstrapping currency probe in an isolated child importing the live tree: PM registry/facts also
+depend on module origin, even when project_root is explicit. The original context is never rewritten
+by resume. Initial preparation uses official helpers with GO checkpoints: preparing before PM,
+ready after a durable PM handoff, and finishing before any finish child. Historical `-S` interpreters
+may lack ruamel needed by process_identity→utils, so upstream's best-effort running archive can be
+absent; only the GO ready checkpoint proves finish never started in that case. Never synthesize a
+ready checkpoint for old transactions. `update_finish` inherits
+the official checkout lock and performs the official build/maintenance/fleet work; its exit zero
+still cannot certify GO completion. PM handoff loss, partially executed finish, and terminal fleet
+debt remain unsupported automatic recovery boundaries.
 
 ### Connector maintenance refusal (HG-199)
 

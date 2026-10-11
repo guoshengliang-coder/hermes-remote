@@ -149,6 +149,16 @@ public final class DesktopHermesUpgradeOfficialWorker: DesktopHermesUpgradeLockH
     /// Exactly one update command per lock handle. The durable GO journal is checked again by the
     /// child before mutation. The caller still owns stopped-writer/backup and completion checks.
     public func runOfficialUpdate() async throws -> Int32 {
+        try await run(command: "update")
+    }
+
+    /// Resume only a retained completed-PM handoff with an unfinished official receipt. Machine
+    /// admission/backup and independent completion/service checks still belong to the caller.
+    public func resumeOfficialFinish() async throws -> Int32 {
+        try await run(command: "resume-finish")
+    }
+
+    private func run(command: String) async throws -> Int32 {
         try state.withLock {
             guard !closed, !busy, !executed else { throw DesktopHermesUpgradeError.recoveryRequired }
             busy = true; executed = true
@@ -156,7 +166,7 @@ public final class DesktopHermesUpgradeOfficialWorker: DesktopHermesUpgradeLockH
         defer { state.withLock { busy = false } }
         return try await Task.detached { [self] in
             do {
-                try send("update")
+                try send(command)
                 while true {
                     let event = try nextEvent(timeout: nil)
                     switch event.event {

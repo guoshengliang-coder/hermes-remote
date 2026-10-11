@@ -65,11 +65,36 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
   从独立快照加载的 `update_host_obligation` 以 `__file__` 推导安装 key；worker 在预写义务时临时
   将模块 origin 指向确认的 live checkout，并在 finally 恢复，确保预写与收尾记录同一安装。
   不修改任何上游源码；此私有内部约定必须随每个认证目标重新审计，实际矩阵验证 key 与 origin 恢复。
-  当前 worker 对已经位于目标提交的重试明确拒绝，不用新空白 receipt 覆盖上次上下文；
-  该阶段的真实收尾续作仍须机器适配器先核验并接入官方恢复路径。
+  普通 update 对已经位于目标提交的重试仍拒绝，不用新空白 receipt 覆盖上次上下文。
+  独立 `resume-finish` 仅接受同一 run/官方 update_id 的完整 PM handoff：checkout/tag/全部源码
+  Python blob 仍为固定目标，PM 回执已成功，私有 `official-finish-state.json` 处于 ready 且绑定
+  原始上下文 hash/安装/目标/两种 ID。若本次私有 archive 存在，必须唯一且与上下文一致，官方回执
+  尚未终结且尚无 finish 步骤/阶段、服务效果、followups 或人工恢复义务。查询本次 archive 而非
+  latest.json；checkpoint 缺失、重复 archive、链接、已有 result、PM/身份/plan 不符及探测期间变化全部拒绝。
+  使用官方只读 `venv_is_current` 核验当前依赖，官方 `resolve_store_python` 和
+  `activation_environment` 选择解释器（隔离子进程从 live checkout 导入，不能用快照 origin 查安装
+  registry/facts），再以继承 checkout custody 的官方 `update_finish.py` 续作，
+  不重跑 takeover/PM，不改写原始 handoff，子进程禁止 lazy install。返回码仍须独立完成判定。
+  PM 提交后 handoff 尚未落盘、finish 已产生步骤/副作用、或终态 receipt 仍欠 fleet 恢复的情况
+  尚未接入自动续作；不能删除回执/债务使其重新变成可重试。具体机器适配器仍须先证明所有
+  writers 停止、备份及外部解释器闭包有效；此 backend seam 未启用产品按钮。
+  正常升级的受锁子进程调用官方 `prepare`/finish helper；preparing 在 PM 前落盘，完整 handoff
+  fsync 后写 ready，正常执行及恢复执行均先写 finishing 才启动 finish。历史 `-S` 解释器可能缺少
+  ruamel，导致官方 best-effort running archive 未落盘：只有 GO 的 ready 记录才能证明这种缺失
+  不代表 finish 已执行，不能给旧日志补造 ready。若 preparing/finishing 时中断，仍需专门恢复。
 - 上游 update_id 随第一份 GO journal 固化；重启续作不能换用另一官方工作链。
   Swift 等待任务取消不会杀死 worker，提交后的 takeover/finish 继承上游 checkout 锁，
   Desktop 退出只关闭控制管道，不向已提交的子进程发送信号。进程退出码仍交给独立完成判定。
+- 官方收尾隔离演练使用暖工具缓存和合成 journal/backup：SIGKILL 于 ready 后的同一事务
+  `eb39aa59-aec7-4f7c-902d-7810aac7ab61`（官方 ID `295aca08-62fc-4ce9-adbe-de57a1989151`）
+  经 `resume-finish` 进入真实官方 finish，原 handoff 字节和身份保留。另一个合成 checkout 的
+  普通 update `64b9f2c1-757b-4eed-881d-e3fdfb0dd64c`（官方 ID
+  `fbc10770-831c-405e-ab97-6c850dcff0b5`）实际执行固定 17b5df02→818c13be 移动及新的官方
+  prepare/finish 子进程入口，均 exit 0、版本 0.21.6，但 sandbox-denied gateway_restart 仍欠账。
+  finishing checkpoint 独立拒绝重放；两次 CLI 重试还被 Git 配置检查拒绝，官方维护的历史
+  扩展尝试留下 partial-clone 元数据。该标准上游形态目前仍未认证支持，不能删除 flag 绕过门禁。
+  这些新演练没有真实旧 venv、实际一致备份、用户历史、GO 服务或业务验收；注入备份 hash
+  只测试 worker 的 journal 绑定，不是有效恢复点。原完整旧 venv/合成历史演练见下文。
 - 真实 macOS 进程矩阵已验证：GO bridge 排斥另一个官方 updater，同 checkout 的不同 home
   及共享 Git common dir 的 linked worktree 也不能绕过；真实锁主进程被终止后，官方 post-commit 子进程仍持有 checkout/delegate custody，
   子进程退出后锁可重新领取。CI 将同一矩阵运行在 Ubuntu 和 macOS；这不等于完整升级终止矩阵。
