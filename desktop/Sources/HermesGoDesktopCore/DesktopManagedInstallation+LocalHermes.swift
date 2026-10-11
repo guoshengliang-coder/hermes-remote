@@ -76,7 +76,7 @@ extension DesktopManagedInstaller {
         else { throw DesktopManagedInstallError.unsafeFilesystemObject }
         let executable = arguments[1]
         guard DesktopLocalHermesDetector.isScriptSafePath(executable),
-              executable.hasSuffix("/venv/bin/hermes"),
+              (executable.hasSuffix("/venv/bin/hermes") || executable.hasSuffix("/.hermes/bin/hermes")),
               URL(fileURLWithPath: executable).standardizedFileURL.path == executable
         else { throw DesktopManagedInstallError.unsafeFilesystemObject }
         let plist = try loadManagedLaunchAgent(

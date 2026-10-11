@@ -1,5 +1,21 @@
 # Hermes Go Desktop phase 0
 
+## HG-199 stage one: upstream identity and discovery
+
+Desktop now recognizes the owner's legacy venv and committed PM-generation installations with
+one detector. A PM launcher is used without an inherited VIRTUAL_ENV; a broken PM layout cannot
+silently fall back to an old venv. Runtime records track commit, entry, home and dependency identity,
+including same-commit environment changes. Activation input timestamps are compared exactly.
+Version comes from a matching source stamp or exact release tag; unknown identity stays unsupported.
+Upstream v2 live/delegate update markers never age out while their process identity survives.
+
+The separate Settings Hermes card fetches official stable release metadata and resolves the tag's
+actual commit. It displays the local installation, upstream latest, GO-verified recommendation and
+check time. GO and Hermes checks run independently; a build without GO indexes can still manually
+check Hermes. There are currently no certified upgrade targets and no execution action. This is
+stage one of HG-199, not a completed one-stop updater. Transactional backup, fixed-target official
+update, interruption recovery and running-process acceptance remain in `HERMES_UPGRADE.md`.
+
 ## Explicit managed-service repair (HG-175)
 
 A committed `account_active` journal is no longer a dead end when one/both user LaunchAgents are

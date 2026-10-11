@@ -1,4 +1,5 @@
 import { boundedResponseBody } from "./hermes-auth.js";
+import { projectHermesDisplay } from "./hermes-display.js";
 
 const MESSAGES = /^\/api\/sessions\/[^/]+\/messages$/;
 const MAX_PAGE_BYTES = 8 * 1024 * 1024;
@@ -65,6 +66,7 @@ export async function historyProjection(
     const offset = Number(url.searchParams.get("offset") ?? "0");
     if (!Number.isSafeInteger(offset) || offset < 0) return failure(400);
     for (const row of result.page.messages) {
+      row.hr_display = projectHermesDisplay(row);
       if (!Number.isSafeInteger(row.id) || (row.id as number) <= 0) continue;
       const fields: string[] = [];
       const toolRole = ["tool", "function", "tool_result", "tool_call"].includes(String(row.role).toLowerCase());
@@ -100,7 +102,7 @@ export async function historyProjection(
     const result = await readPage(candidate);
     if (result instanceof Response) return result;
     const row = result.page.messages.find((item) => item.id === Number(fullId));
-    if (row) return Response.json({ messages: [row] }, { headers: { "cache-control": "private, no-store" } });
+    if (row) return Response.json({ messages: [{ ...row, hr_display: projectHermesDisplay(row) }] }, { headers: { "cache-control": "private, no-store" } });
   }
   return failure(404);
 }

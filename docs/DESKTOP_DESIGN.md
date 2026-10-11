@@ -1,5 +1,16 @@
 # Hermes Go Desktop design contract
 
+## HG-199: separate Hermes version card
+
+Settings adds a “本机 Hermes” card after the GO app/component update card, using existing setting
+rows, card spacing and native bordered small controls. “安装版本” and “代码提交” describe disk evidence;
+they must not imply a checked boot version. “上游稳定版本” and “GO 验证推荐” are separate rows. Unknown
+recommendation reads “尚无验证结果”; unverified latest explains that execution is unavailable.
+“检查 Hermes 版本” remains available without configured GO update indexes. During a request it reads
+“正在检查…” and is disabled. Failed checks clear earlier success and show `HR-HERMESUPDATE-001`
+through GateIssueBanner, keeping raw technical causes behind details. No upgrade confirmation or
+execution button is exposed until the official adapter/recovery certification in stage two.
+
 ## Repairing a committed installation (HG-175)
 
 A committed `account_active` install with either managed LaunchAgent file missing or job unloaded

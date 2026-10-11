@@ -52,11 +52,10 @@ class MultimodalContentMappingTest {
     }
 
     /**
-     * Upstream owns this shape and we cannot version-negotiate it, so an unfamiliar block is skipped
-     * rather than thrown on — the cost of guessing wrong has to stay "one block missing", never
-     * "the transcript is gone".
+     * Upstream owns this shape and we cannot version-negotiate it, so an unfamiliar block retains its payload
+     * without making the transcript unreadable or hiding the unfamiliar data.
      */
-    @Test fun unknownBlockTypesAreSkippedRatherThanThrownOn() {
+    @Test fun unknownBlockTypesKeepTheirPayloadWithoutBreakingTheTranscript() {
         val exotic = """
             {"messages":[{"id":9,"role":"user","content":[
               {"type":"text","text":"看这个"},
@@ -68,7 +67,10 @@ class MultimodalContentMappingTest {
 
         val messages = json.decodeFromString(MessagesDto.serializer(), exotic).messages
 
-        assertEquals("看这个\n谢谢", messages[0].content)
+        assertTrue(messages[0].content!!.startsWith("看这个"))
+        assertTrue(messages[0].content!!.contains("something_we_have_never_seen"))
+        assertTrue(messages[0].content!!.contains("\"nested\":true"))
+        assertTrue(messages[0].content!!.endsWith("谢谢"))
     }
 
     @Test fun anAttachmentOnlyTurnFlattensToNothingRatherThanAnEmptyStringOfPunctuation() {

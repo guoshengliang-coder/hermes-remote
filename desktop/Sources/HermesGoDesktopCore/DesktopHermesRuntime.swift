@@ -76,7 +76,7 @@ public enum DesktopLocalHermesLauncher {
         esac
         HERMES_DASHBOARD_SESSION_TOKEN="$token"
         export HERMES_DASHBOARD_SESSION_TOKEN
-        unset token PYTHONPATH PYTHONHOME
+        unset token PYTHONPATH PYTHONHOME VIRTUAL_ENV
         exec "$@"
 
         """
@@ -132,8 +132,10 @@ public struct DesktopLocalHermesLaunchAgent: Sendable {
         )
         let venvBin = installation.executable.deletingLastPathComponent().standardizedFileURL.path
         environment["PATH"] = venvBin + ":" + DesktopHermesRuntimeContract.searchPath
-        environment["VIRTUAL_ENV"] = installation.executable
-            .deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
+        if installation.environmentIdentity == nil {
+            environment["VIRTUAL_ENV"] = installation.executable
+                .deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
+        }
         return environment
     }
 
@@ -170,6 +172,7 @@ public struct DesktopLocalHermesRuntimeRecord: Codable, Equatable, Sendable {
     public let executable: String
     public let commit: String
     public let version: String
+    public let runtimeIdentity: String?
     /// Lower bound: taken immediately before `launchctl bootstrap` (or the process start, when
     /// adopted).
     public let launchedAt: Date
@@ -184,19 +187,21 @@ public struct DesktopLocalHermesRuntimeRecord: Codable, Equatable, Sendable {
         version: String,
         launchedAt: Date,
         processStartedAt: Date? = nil,
-        recentLaunches: [Date] = []
+        recentLaunches: [Date] = [],
+        runtimeIdentity: String? = nil
     ) {
         schemaVersion = 1
         self.executable = executable
         self.commit = commit
         self.version = version
+        self.runtimeIdentity = runtimeIdentity
         self.launchedAt = launchedAt
         self.processStartedAt = processStartedAt
         self.recentLaunches = recentLaunches
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, executable, commit, version, launchedAt, processStartedAt, recentLaunches
+        case schemaVersion, executable, commit, version, launchedAt, processStartedAt, recentLaunches, runtimeIdentity
     }
 
     public init(from decoder: Decoder) throws {
@@ -205,6 +210,7 @@ public struct DesktopLocalHermesRuntimeRecord: Codable, Equatable, Sendable {
         executable = try container.decode(String.self, forKey: .executable)
         commit = try container.decode(String.self, forKey: .commit)
         version = try container.decode(String.self, forKey: .version)
+        runtimeIdentity = try container.decodeIfPresent(String.self, forKey: .runtimeIdentity)
         launchedAt = try container.decode(Date.self, forKey: .launchedAt)
         processStartedAt = try container.decodeIfPresent(Date.self, forKey: .processStartedAt)
         recentLaunches = try container.decodeIfPresent([Date].self, forKey: .recentLaunches) ?? []
@@ -533,6 +539,9 @@ public enum DesktopHermesRuntimePlanner {
             // restart every refresh.
             return .keep
         case .stopped, .notLoaded:
+            if installation.environmentIdentity != nil, let blocked = dependencyBlock(installation, observation) {
+                return blocked
+            }
             let recent = (observation.record?.recentLaunches ?? [])
                 .filter { observation.now.timeIntervalSince($0) < launchWindow }
             if recent.count >= maximumLaunches {
@@ -564,8 +573,12 @@ public enum DesktopHermesRuntimePlanner {
     ) -> DesktopHermesRuntimePlan? {
         guard !installation.dependenciesConsistent else { return nil }
         let detail = "checkout \(installation.version), \(installation.installedDistribution.summary)"
-        if case .version = installation.installedDistribution,
-           observation.now.timeIntervalSince(installation.identityChangedAt) < dependencyGrace {
+        let mayBeSyncing: Bool
+        switch installation.installedDistribution {
+        case .version, .managedGeneration: mayBeSyncing = true
+        default: mayBeSyncing = false
+        }
+        if mayBeSyncing && observation.now.timeIntervalSince(installation.identityChangedAt) < dependencyGrace {
             return .wait(.dependenciesPending)
         }
         return .surface(.dependenciesInconsistent(detail: detail))
@@ -594,6 +607,9 @@ public enum DesktopHermesRuntimePlanner {
         let executable = installation.executable.standardizedFileURL.path
         if let record, record.executable == executable, record.describes(processStartedAt: started) {
             guard record.commit == installation.commit else { return .stale }
+            if let identity = record.runtimeIdentity {
+                guard identity == installation.runtimeIdentity else { return .stale }
+            } else if installation.environmentIdentity != nil { return .stale }
             return .current(adopt: record.processStartedAt == nil
                 ? record.adopting(processStartedAt: started, commit: installation)
                 : nil)
@@ -605,7 +621,8 @@ public enum DesktopHermesRuntimePlanner {
             version: installation.version,
             launchedAt: started,
             processStartedAt: started,
-            recentLaunches: record?.recentLaunches ?? []
+            recentLaunches: record?.recentLaunches ?? [],
+            runtimeIdentity: installation.runtimeIdentity
         ))
     }
 }
@@ -619,7 +636,8 @@ extension DesktopLocalHermesRuntimeRecord {
             version: installation.version,
             launchedAt: launchedAt,
             processStartedAt: started,
-            recentLaunches: recentLaunches
+            recentLaunches: recentLaunches,
+            runtimeIdentity: installation.runtimeIdentity
         )
     }
 }

@@ -20,7 +20,10 @@ describe("flattenContent", () => {
       { type: "text", text: "  " },
       { type: "text", text: "twice" },
     ]);
-    expect(flat).toEqual({ text: "look\ntwice", images: [{ url: "https://cdn.example/a.png" }, { path: "/Users/me/a.jpg" }] });
+    expect(flat.text).toContain('"type":"mystery","foo":1');
+    expect(flat.text).toMatch(/^look/);
+    expect(flat.text).toMatch(/twice$/);
+    expect(flat.images).toEqual([{ url: "https://cdn.example/a.png" }, { path: "/Users/me/a.jpg" }]);
   });
 
   it("accepts a single block object and blank-only lists", () => {

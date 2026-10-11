@@ -6,6 +6,10 @@ import com.hermes.client.domain.Role
 import com.hermes.client.domain.toDomain
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -13,6 +17,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimelineNoteTest {
+    @Test fun sharedHermesDisplayContractSamples() {
+        val json = Json { ignoreUnknownKeys = true }
+        val samples = javaClass.classLoader!!.getResourceAsStream("hermes-display-v1.json")!!
+            .bufferedReader().use { json.parseToJsonElement(it.readText()).jsonArray }
+        samples.forEach { sample ->
+            val value = sample.jsonObject
+            val row = json.decodeFromJsonElement(MessageDto.serializer(), value.getValue("row"))
+            val message = row.toDomain().organizedForDisplay()
+            assertEquals(value.getValue("name").jsonPrimitive.content, value.getValue("body").jsonPrimitive.content, message.text)
+            assertEquals(value["note"]?.jsonPrimitive?.contentOrNull, timelineNoteFor(message)?.zh)
+        }
+    }
+    @Test fun standaloneSkillsNoticeKeepsRealPromptAndRemainsExpandable() {
+        val notice = COMPRESSION_SKILLS_HEADER + "\nReload the skill before acting."
+        assertEquals("上下文已压缩", timelineNoteFor(msg(notice))?.zh)
+        assertEquals(notice, msg(notice).organizedForDisplay().text)
+        assertEquals("继续分析", msg("继续分析\n\n$notice").organizedForDisplay().text)
+        assertNull(timelineNoteFor(msg("继续分析\n\n$notice")))
+    }
     private fun msg(
         text: String = "",
         role: Role = Role.USER,

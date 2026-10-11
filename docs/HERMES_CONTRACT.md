@@ -732,7 +732,7 @@ not something the person said, and the app renders them as one-line timeline not
 | `[Your active task list was preserved across context compression]` | `tools/todo_tool.py` `TODO_INJECTION_HEADER` | **See the hazard below.** |
 | `[PRIOR CONTEXT — for reference only; not a new message]` | `agent/context_compressor.py` `_MERGED_PRIOR_CONTEXT_HEADER` | Context-compaction carrier. Projected by `domain/CompactionCarrier.kt`, see §5. |
 | `[CONTEXT COMPACTION …` / `[CONTEXT SUMMARY]` | same file | Pure handoff; the turn is dropped when nothing real is merged in. |
-| `[Skills pruned during compression — reload before acting on these tasks]` | `agent/conversation_compression.py` `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` | Only ever appended after the header above (`todo_snapshot = f"{todo_snapshot}\n\n{_reload_notice}"`), never alone, so cutting at that header removes both. |
+| `[Skills pruned during compression — reload before acting on these tasks]` | `agent/conversation_compression.py` `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` | 0.21.3 appends it to the TODO snapshot. In 0.21.6 `_salvage_reduce_todo_snapshot` can emit it independently; both headers are recognized, including a suffix appended to real user text. |
 | `[The user sent a document: …]`, `[The user sent a text document: …]` | `gateway/run.py` `_build_document_context_note`, composed in `gateway/run_inbound.py` `_prepend_inbound_document_notes` | Attachment context note. See the attachment hazard below. |
 | `[The user sent an audio file attachment: …]`, `[The user sent a video attachment: …]` | `gateway/run_inbound.py` `_prepend_inbound_media_file_notes` | Same family, same shape. |
 | `[The user sent a voice message: /path (duration: …)]` | `gateway/run_inbound.py`, the branch taken when STT is disabled | Same family. |
@@ -961,9 +961,9 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
    must return the `hermes_remote` text and must leave the `desktop`/`tui` defaults untouched.
    Without it this app's platform silently has no capability block at all.
 6. Diff upstream `tools/todo_tool.py` `TODO_INJECTION_HEADER` against `COMPRESSION_SNAPSHOT_HEADER`
-   (section 4b), and re-check that the skills-reload notice is still appended after it rather than
-   emitted on its own. A silent reword here brings the scaffolding back into the transcript as a
-   user bubble.
+   (section 4b) and `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` against both client parsers. Test each
+   header alone and appended to real user text; 0.21.6 can emit the skills notice independently.
+   Run the shared display samples, not only a literal-constant comparison.
 7. Confirm the `messages` table still exposes `timestamp` (section 1b): `sqlite3 ~/.hermes/state.db
    ".schema messages"`. A rename silently empties every history timestamp again.
 8. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
@@ -1097,3 +1097,31 @@ plus endpoint and cron metadata that the Connector must strip. Also checked
 confirmation and deferred flags are pending states, not confirmed model application.
 Web now parses these states and does not update recents before application. No upstream upgrade,
 patch, wire-version change or new Mac credential exposure is part of this work.
+
+
+## HG-199 · GO compatibility projection (first stage)
+
+The existing Connector contract endpoint also returns optional `capabilities` schema 1, scoped by
+`?profile=` and Connector connection generation. Ordinary RPC/REST traffic supplies passive evidence
+for chat, history, images, approval, clarify and cron; the monitor never sends a write probe, drops
+unknown params or retries a rejected write. States are `supported`, `unsupported`, `unknown`, `fault`.
+An absent legacy method does not disable an alternate transport; `unsupported` requires absence
+observed for all relevant alternatives. A missing history row is a fault, not an absent history API.
+Unscoped traffic cannot populate another profile. Evidence expires after five minutes and resets on reconnect/installation change. This stage exposes
+the report; profile-aware feature controls in Android/Web remain a later stage of HG-199.
+
+OpenAPI verdicts also expire after five minutes even if the display version did not change.
+A bounded, owner-checked installation fingerprint includes Git commit/ref, source inputs and PM
+selection facts without importing Hermes or reading `.env`. It is disk evidence, never proof of the
+running process's boot commit. An unreachable current probe returns unknown instead of advertising
+a cached compatible verdict.
+
+Opt-in history previews/full-row reads attach `hr_display: {schema: 1, kind, body}` beside the original
+message. Explicit upstream `display_kind` has priority; fallback recognizes both compression notice
+headers. Mixed rows retain real user text and keep the raw content available. Schema 1 is consumed
+by Android/Web; unknown schemas fall back to the upstream row. Unknown non-image content blocks
+retain a JSON payload instead of disappearing. Existing inline-image handling is preserved.
+`protocol/fixtures/hermes-display-v1.json` exercises all three parsers; fixture-only changes select
+Node, Android and Web CI. Legacy forwarding and the browser route allowlist are unchanged.
+
+See `HERMES_UPGRADE.md` for the staged implementation and verification limits.

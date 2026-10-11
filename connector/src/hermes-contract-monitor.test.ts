@@ -37,6 +37,28 @@ class FakeProbe implements HermesContractProbe {
   }
 }
 
+test("a successful report expires even at the same Hermes version", async () => {
+  const probe = new FakeProbe();
+  const time = clock();
+  const monitor = new HermesContractMonitor(probe, { now: time.now, maximumAgeMs: 60_000 });
+  await monitor.refresh("startup");
+  probe.openapi = { kind: "ok", body: missingRequired };
+  time.advance(60_000);
+  assert.equal((await monitor.ensureFresh("app_request")).status, "breaking");
+  assert.equal(probe.openApiCalls, 2);
+});
+
+test("commit or PM generation changes invalidate a same-version report", async () => {
+  const probe = new FakeProbe();
+  let identity = "commit-a:g1";
+  const monitor = new HermesContractMonitor(probe, { fetchRuntimeIdentity: async () => identity });
+  await monitor.refresh("startup");
+  identity = "commit-a:g2";
+  probe.openapi = { kind: "ok", body: missingRequired };
+  assert.equal((await monitor.ensureFresh("app_request")).status, "breaking");
+  assert.equal(probe.openApiCalls, 2);
+});
+
 function clock(start = Date.parse("2026-09-21T12:00:00.000Z")) {
   let now = start;
   return { now: () => new Date(now), advance: (ms: number) => { now += ms; } };
@@ -139,7 +161,7 @@ test("an unknown result is retried once it is stale, not on every request", asyn
   assert.equal(probe.openApiCalls, 2);
 });
 
-test("an unreachable Hermes keeps the last result instead of guessing", async () => {
+test("an unreachable Hermes reports an unknown current check instead of cached compatibility", async () => {
   const probe = new FakeProbe();
   const monitor = new HermesContractMonitor(probe);
   await monitor.refresh("startup");
@@ -147,7 +169,8 @@ test("an unreachable Hermes keeps the last result instead of guessing", async ()
   probe.statusReachable = false;
   const report = await monitor.ensureFresh("app_request");
 
-  assert.equal(report.status, "compatible");
+  assert.equal(report.status, "unknown");
+  assert.equal(report.reason, "openapi_unreachable");
   assert.equal(probe.openApiCalls, 1);
 });
 
@@ -194,4 +217,22 @@ test("a result is logged when it changes, and never carries the probe's error te
   assert.equal(report.status, "unknown");
   assert.doesNotMatch(JSON.stringify(lines), /abc123|ECONNREFUSED/);
   assert.doesNotMatch(JSON.stringify(report), /abc123|ECONNREFUSED/);
+});
+
+
+test("installation changes invalidate capability evidence through the same freshness check", async () => {
+  const probe = new FakeProbe();
+  let identity = "g1";
+  let resets = 0;
+  const monitor = new HermesContractMonitor(probe, {
+    fetchRuntimeIdentity: async () => identity,
+    onIdentityChanged: () => { resets++; },
+  });
+  await monitor.ensureFresh("first");
+  assert.equal(resets, 0);
+  identity = "g2";
+  await monitor.ensureFresh("changed");
+  assert.equal(resets, 1);
+  await monitor.ensureFresh("unchanged");
+  assert.equal(resets, 1);
 });

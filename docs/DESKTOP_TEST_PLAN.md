@@ -1,5 +1,24 @@
 # Hermes Go Desktop test plan
 
+## HG-199 first-stage verification
+
+Automated coverage: legacy and PM layouts, missing/broken committed generation, stale stamp,
+same-commit generation changes, exact input timestamps, PM launcher environment, v2 live locks
+older than 20 minutes/delegates/PID reuse, annotated release tag resolution, target decoding,
+latest versus exact-commit certification, and bilingual error catalog. The source matrix separately
+checks pinned old/new contracts and synthetic DB old→new→old reads/writes plus backup recovery to
+another file. It is not an official updater/service recovery or production-data rehearsal.
+
+Local baseline: `desktop:assets:test`, `desktop:test`, `desktop:app`; the app is ad-hoc only and
+has no Developer ID/notarization claim. A migration test now uses its fixture shutdown probe rather
+than probing the owner's real 9119 when checking the 75-poll cold-start budget.
+
+Still needs physical Mac acceptance: light/dark card layout, independent GO/Hermes checks when the
+GO index is absent, network failure clearing old success, unrecognized layouts, very long version
+strings and stable release with no certified recommendation. Do not launch a test app against the
+owner's services to satisfy this checklist; use an isolated Mac/home with managed fixtures.
+HG-199 stays in progress until stage-two upgrade/recovery and stage-three cross-client acceptance.
+
 ## HG-175 repair acceptance
 
 Automated `DesktopManagedServiceRepairTests` covers the 16 combinations of file presence/job loading,

@@ -19,6 +19,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             installer: fixture.installer,
             launchAgent: controller,
             hermesReadiness: readiness,
+            hermesShutdown: fixture.shutdown,
             healthPollDelayNanoseconds: 0
         )
 

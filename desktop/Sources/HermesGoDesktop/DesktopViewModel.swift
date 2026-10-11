@@ -116,6 +116,11 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var componentBootstrapIssue: DesktopIssue?
     /// Per-account onboarding facts (`DesktopOnboardingRecord`); reloaded when the account changes.
     @Published private(set) var onboardingRecord = DesktopOnboardingRecord()
+    @Published private(set) var hermesUpgradeReport: DesktopHermesUpgradeReport?
+    @Published private(set) var hermesUpgradeIssue: DesktopIssue?
+    @Published private(set) var isCheckingHermesUpgrade = false
+    private let hermesUpgradeChecker = DesktopHermesUpgradeChecker()
+
     @Published private(set) var updateCheckState: DesktopUpdateCheckState = .idle
     @Published var isUpdateSheetPresented = false
     @Published private(set) var isAppUpdateInstalling = false
@@ -388,6 +393,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func checkForUpdates(manual: Bool) async {
+        async let hermes: Void = checkHermesUpdates()
+        async let go: Void = checkGOUpdates(manual: manual)
+        _ = await (hermes, go)
+    }
+
+    private func checkGOUpdates(manual: Bool) async {
         guard isUpdateConfigured else {
             let issue = DesktopIssue(code: .updateNotConfigured)
             updateCheckState = .failed(issue)
@@ -428,6 +439,21 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             let issue = DesktopIssue.updateCheck(error)
             updateCheckState = .failed(issue)
             if manual { appUpdateIssue = issue }
+        }
+    }
+
+    func checkHermesUpdates() async {
+        guard !isCheckingHermesUpgrade, let detector = localHermesDetector else { return }
+        isCheckingHermesUpgrade = true
+        hermesUpgradeIssue = nil
+        defer { isCheckingHermesUpgrade = false }
+        let detection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
+        do {
+            hermesUpgradeReport = try await hermesUpgradeChecker.check(installation: detection)
+        } catch {
+            // A failed check cannot keep advertising an earlier successful verdict.
+            hermesUpgradeReport = nil
+            hermesUpgradeIssue = (error as? DesktopHermesUpgradeError ?? .checkFailed).issue
         }
     }
 

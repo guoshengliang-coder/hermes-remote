@@ -163,6 +163,7 @@ export interface HermesContractReport {
   reason?: UnknownReason;
   httpStatus?: number;
   checkedAt: string;
+  capabilities?: import("./hermes-capabilities.js").HermesCapabilities;
 }
 
 export type OpenApiFetchResult =

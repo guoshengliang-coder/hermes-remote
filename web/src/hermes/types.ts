@@ -77,6 +77,7 @@ export interface MessageRow {
   tool_name?: string | null;
   /** Connector opt-in projection; absent on older Connectors and unabridged reads. */
   hr_preview?: { fields: string[]; offset: number; sessionId: string; profile?: string | null };
+  hr_display?: { schema: number; kind?: string | null; body?: string | null };
 }
 
 export interface HistoryLocator {

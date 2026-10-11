@@ -1058,7 +1058,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 version: previous?.version ?? installation.version,
                 launchedAt: previous?.launchedAt ?? launchedAt,
                 processStartedAt: previous?.processStartedAt,
-                recentLaunches: launches
+                recentLaunches: launches,
+                runtimeIdentity: previous?.runtimeIdentity
             ))
         }
         try launchAgent.startHermes(plistURL: installer.managedHermesLaunchAgentURL)
@@ -1082,7 +1083,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 version: installation.version,
                 launchedAt: launchedAt,
                 processStartedAt: started.flatMap { $0 >= launchedAt.addingTimeInterval(-1) ? $0 : nil },
-                recentLaunches: installer.readLocalHermesRuntimeRecord()?.recentLaunches ?? [launchedAt]
+                recentLaunches: installer.readLocalHermesRuntimeRecord()?.recentLaunches ?? [launchedAt],
+                runtimeIdentity: installation.runtimeIdentity
             ))
         }
     }

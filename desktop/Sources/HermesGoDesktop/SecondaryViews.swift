@@ -1314,6 +1314,39 @@ struct SettingsView: View {
                 .hermesCard()
 
                 VStack(alignment: .leading, spacing: 10) {
+                    Text("本机 Hermes")
+                        .font(.system(size: 16, weight: .bold))
+                    if let report = model.hermesUpgradeReport {
+                        if let installation = report.installation.installation {
+                            settingRow("安装版本", installation.version)
+                            settingRow("代码提交", String(installation.commit.prefix(12)))
+                        } else {
+                            Text("尚未识别出可管理的本机 Hermes")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                        settingRow("上游稳定版本", report.latestStable.version)
+                        settingRow("GO 验证推荐", report.verifiedRecommendation?.version ?? "尚无验证结果")
+                        settingRow("检查时间", report.checkedAt.formatted(date: .abbreviated, time: .shortened))
+                        Text(report.latestStableIsVerified
+                             ? "已通过 GO 兼容验证，可继续检查升级条件。"
+                             : "这个上游版本尚未通过 GO 升级验证，暂不能在此执行升级。")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    } else {
+                        Text("检查本机 Hermes 与官方稳定发布。")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    Button(model.isCheckingHermesUpgrade ? "正在检查…" : "检查 Hermes 版本") {
+                        Task { await model.checkHermesUpdates() }
+                    }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .disabled(model.isCheckingHermesUpgrade)
+                    if let issue = model.hermesUpgradeIssue { GateIssueBanner(issue: issue) }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .hermesCard()
+
+                VStack(alignment: .leading, spacing: 10) {
                     Text("安全边界")
                         .font(.system(size: 16, weight: .bold))
                     Text("Desktop 当前不会停止旧 Connector、修改 Hermes、导入明文凭据或开放本机端口。")

@@ -44,6 +44,8 @@ import { historyProjection } from "./history-preview.js";
 import { hermesUnavailableBody, localHttpFailureFields, localHttpRoute } from "./local-http-failure.js";
 import { contractReportResponse, defaultModelResponse, setDefaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
+import { readHermesInstallationIdentity } from "./hermes-installation-identity.js";
+import { HermesCapabilityMonitor } from "./hermes-capabilities.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import { ControlReconnectBackoff } from "./control-reconnect.js";
 import {
@@ -354,6 +356,7 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
       signal: controller.signal,
     });
     controller.signal.throwIfAborted();
+    capabilityMonitor.http(request.method, request.path, response.status);
     sendControl(socket, {
       type: "tunnel.http.response.start",
       version: PROTOCOL_VERSION,
@@ -455,7 +458,10 @@ async function handleContractRequest(
   signal.throwIfAborted();
   const response = await contractReportResponse(
     request.method,
-    () => contractMonitor.ensureFresh("app_request"),
+    async () => ({
+      ...await contractMonitor.ensureFresh("app_request"),
+      capabilities: capabilityMonitor.report(new URL(request.path, "http://connector.local").searchParams.get("profile") ?? "default"),
+    }),
   );
   signal.throwIfAborted();
   sendJsonResponse(socket, request.id, response.status, response.body, response.headers);
@@ -1028,6 +1034,7 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
     });
     local.on("message", (data, isBinary) => {
       const buffer = rawDataToBuffer(data);
+      capabilityMonitor.response(request.id, buffer, isBinary);
       const stats = tunnelStats.get(request.id);
       if (stats) stats.framesToApp += 1;
       const tracked = pendingForegroundRpcs.get(request.id);
@@ -1083,6 +1090,7 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       });
     });
     local.on("close", (code, reason) => {
+      capabilityMonitor.close(request.id);
       if (localSockets.get(request.id) === local) localSockets.delete(request.id);
       pendingSocketFrames.delete(request.id);
       const stats = tunnelStats.get(request.id);
@@ -1185,6 +1193,7 @@ function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
     return;
   }
   local.send(frame.binary ? data : data.toString("utf8"), { binary: frame.binary });
+  capabilityMonitor.request(frame.id, data, frame.binary);
   const rpc = trackedForegroundRpcRequest(data, frame.binary);
   if (rpc) {
     pendingForegroundRpcs.get(frame.id)?.set(rpc.id, { method: rpc.method, startedAt: Date.now() });
@@ -1193,6 +1202,7 @@ function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
 }
 
 function closeTunnelSocket(id: string, code?: number, reason?: string): void {
+  capabilityMonitor.close(id);
   pendingSocketFrames.delete(id);
   const local = localSockets.get(id);
   if (!local) return;
@@ -1288,6 +1298,7 @@ const hermesAuth = new HermesAuth({
   password: process.env.HERMES_BASIC_AUTH_PASSWORD,
 });
 
+const capabilityMonitor = new HermesCapabilityMonitor();
 const contractMonitor = new HermesContractMonitor(
   {
     fetchOpenApi: () => fetchHermesOpenApi(hermesAuth),
@@ -1297,7 +1308,11 @@ const contractMonitor = new HermesContractMonitor(
       return status.version;
     },
   },
-  { log: (level, kind, fields) => log[level](kind, fields) },
+  {
+    fetchRuntimeIdentity: () => readHermesInstallationIdentity(),
+    onIdentityChanged: () => capabilityMonitor.reset(),
+    log: (level, kind, fields) => log[level](kind, fields),
+  },
 );
 
 connect();
@@ -1335,7 +1350,10 @@ function startLifecycleObserver(): void {
     onObservation: (observation) => log.info("lifecycle.observed", { ...observation }),
     // A fresh socket to Hermes is the only sign of a Hermes restart this process gets —
     // `hermes update` kickstarts the serve job onto new code without changing anything else here.
-    onHermesConnected: () => { void contractMonitor.refresh("hermes_connected"); },
+    onHermesConnected: () => {
+      capabilityMonitor.reset();
+      void contractMonitor.refresh("hermes_connected");
+    },
   });
   void lifecycleObserver.start().catch((error) => {
     console.error("Unable to start Hermes lifecycle observer", safeError(error));

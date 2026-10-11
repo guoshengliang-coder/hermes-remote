@@ -128,6 +128,15 @@ data. Never log a secret merely because the error path is exceptional.
 
 ## Registry
 
+### Upstream Hermes maintenance (HG-199)
+
+| Code | Condition | Chinese explanation | English explanation | Retry |
+|---|---|---|---|---|
+| `HR-HERMESUPDATE-001` | Official release or running-version check failed or returned an unknown shape; no current-version verdict is issued | 无法核实 Hermes 更新信息，请重新检查。 | Hermes update information could not be verified. Check again. | Yes |
+| `HR-HERMESUPDATE-002` | Upgrade preflight refuses dirty source, active work, unknown ownership/layout, a concurrent operation, changed target or an unverified updater adapter | 暂时无法安全升级 Hermes，请查看升级条件后重新检查。 | Hermes cannot be upgraded safely yet. Review the upgrade conditions and check again. | No |
+| `HR-HERMESUPDATE-003` | An interrupted or failed maintenance operation requires recovery; automatic mutation stays paused and the private backup/journal is retained | Hermes 升级未完成，需要恢复上次操作。请查看详情。 | Hermes upgrade did not finish. Recover the previous operation and review the details. | No |
+| `HR-HERMESUPDATE-004` | Official update completed but runtime identity, services or compatibility acceptance did not match the confirmed target; latest data is never overwritten automatically | Hermes 升级后的验证未通过，已保留备份并暂停继续升级。请查看详情。 | Hermes did not pass verification after upgrade. The backup was retained and further upgrades paused. Review the details. | No |
+
 Add a row before introducing a code. Keep the explanation stable after release; clarification may be
 expanded without changing the underlying meaning.
 
