@@ -1,0 +1,32 @@
+# Install only as part of an explicitly authorized deployment. Supply the actual TLS paths.
+server {
+    listen 443 ssl;
+    server_name go.mrlgs.net;
+    ssl_certificate /protected/tls/fullchain.pem;
+    ssl_certificate_key /protected/tls/privkey.pem;
+    client_max_body_size 1k;
+    client_body_timeout 10s;
+
+    # Do not log invitation bodies/cookies. This intentionally avoids the shared access log.
+    access_log off;
+    error_page 400 413 414 =400 /__website_request_failure;
+    error_page 502 503 504 =503 /__website_service_failure;
+    location = /__website_request_failure {
+        internal;
+        default_type "text/plain; charset=utf-8";
+        return 400 "HR-SITE-005 请求无法处理，请返回下载页重新操作。 This request couldn't be processed. Return to Downloads and try again. https://go.mrlgs.net/download/";
+    }
+    location = /__website_service_failure {
+        internal;
+        default_type "text/plain; charset=utf-8";
+        return 503 "HR-SITE-006 官网暂时无法处理请求，请稍后再试。 The website couldn't process this request. Please try again later. https://go.mrlgs.net/download/";
+    }
+    location / {
+        proxy_pass http://127.0.0.1:4174;
+        proxy_set_header Host go.mrlgs.net;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 15s;
+        proxy_send_timeout 10s;
+    }
+}

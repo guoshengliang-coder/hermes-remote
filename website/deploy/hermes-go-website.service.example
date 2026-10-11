@@ -1,0 +1,23 @@
+[Unit]
+Description=Hermes GO official website
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hermes-website
+WorkingDirectory=/opt/hermes-go/website
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/hermes-go/website.env
+ExecStart=/usr/bin/node src/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
