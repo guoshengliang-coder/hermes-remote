@@ -1703,6 +1703,43 @@ Real OS prompts, push delivery and physical vibration still need the actual brow
    Recheck after changing permissions and inspect server-off guidance.
 5. Actual background notification delivery follows HG-191; actual tactile/audio acceptance follows HG-189.
    DOM fixtures do not prove either. No production push mutation is authorized by this task.
+
+# HG-204 · Web cold-start brand gate
+
+Use the deployed `/app/` in iPhone Safari and Home Screen, Android Chrome, and a desktop browser.
+Local mocked browser runs do not replace physical-device or production acceptance.
+
+Local evidence on 2026-10-11: Web typecheck, all 879 Vitest cases and build passed. The built bundle
+ran with the production CSP in headless Chromium 156.0.8078.4 and WebKit 27.2: phone 390×844,
+landscape 844×390, desktop 1280×900, light/dark and 150% text; delayed capabilities/history, stored
+chat/list/new/archive/account routes, signed-out login, warm visibility/online changes, history
+failure and missing-main-script timeout/reload passed without page errors. These use local fixture
+responses, not production accounts or physical iPhone/Android devices. Screenshots and the QA report
+are local session artifacts; the physical matrix below remains open.
+
+1. Open a fresh document in light/dark/system themes, Chinese/English and standard/extra-large font.
+   The first content is the transparent Hermes mark and wordmark, with the selected background;
+   no blank application frame or theme flash. Check phone portrait, short landscape and desktop;
+   brand and Retry fit or scroll without crossing safe areas.
+2. On a fast connection, entry does not wait for the status or a brand animation. Throttle a cold
+   request: status and the indeterminate strip appear after 700ms, never a fictitious percentage.
+3. Test `/app/`, `/app/s/<known-id>`, `/app/new`, `/app/archived` and `/app/account`. Entry waits
+   only for that screen's first usable content; a ready split sidebar cannot dismiss a chat gate.
+   The visible chat has already painted its first history. Background model/inbox/older history
+   loading does not hold entry. The target stays mounted through the transition.
+4. Signed out, cold-open a chat URL: enter login. Sign in and select a Mac; return to that target.
+   With no Mac, enter the usable device picker. Test expired access/valid refresh cookies as well.
+5. Block the main app JS while allowing the tiny `assets/startup-*.js`: after 15s, see the localized
+   `HR-WEB-013` and Reload/Retry. Unblock and retry. Also hang an API/first-history request, retry,
+   then release the old response: it must not dismiss the new gate or overwrite its target.
+6. Fail a first API/history request: retain its original localized HR code; hide the progress strip,
+   and use Retry or Reload where offered. Details stay collapsed and credentials remain redacted.
+7. After entry, type a draft, switch tabs, return and briefly disconnect/reconnect. Keep the chat,
+   reading position and draft; the brand gate must not reappear. Navigate within the app similarly.
+8. With reduced motion enabled, the strip is static and entry switches directly. Keyboard/screen
+   reader focus cannot reach the page hidden underneath; loading is announced only after the delay.
+   Failure focuses its recovery action; recovery exposes the target's controls.
+
 # HG-197 · Hermes GO Web adaptive workspace
 
 Target is `https://mrlgs.net/app/`, confirmed by the owner on 2026-10-09. Use the existing

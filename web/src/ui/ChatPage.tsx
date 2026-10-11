@@ -1,4 +1,5 @@
 import { Fragment } from "preact";
+import { useStartupPage } from "../startup/readiness";
 import { BackClose } from "../app/useBackClose";
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 import { botNoticeSeen, botOriginLabel, botSendNoticeBody, botSendNoticeTitle, markBotNoticeSeen } from "../app/bots";
@@ -98,6 +99,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   stateRef.current = state;
   const anchor = useRef<ScrollAnchor | null>(null);
   const page = useRef<HTMLDivElement>(null);
+  useStartupPage(sessionId === null ? "new" : "chat", state.historyLoaded && (sessionId !== null || state.connection === "ready"), state.notice, page);
   const sessionRef = useRef<ChatSession | null>(null);
   const [storedId, setStoredId] = useState<string | null>(sessionId);
   const scroller = useRef<HTMLDivElement>(null);

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useListReturn } from "../app/useListReturn";
+import { useStartupPage } from "../startup/readiness";
 import { BackClose } from "../app/useBackClose";
 import { GatewayHttpError, hermesPaths } from "../api/gateway";
 import { botSections, botSourceLabel, botStatusLine } from "../app/bots";
@@ -39,25 +40,35 @@ const GROUP_LABEL: Record<GroupId, [string, string]> = {
   older: ["更早", "Earlier"],
 };
 
-const listRequests = new WeakMap<ReturnType<typeof useApp>["client"], Map<string, Promise<SessionListItem[]>>>();
+const listRequests = new WeakMap<ReturnType<typeof useApp>["client"], Map<string, { promise: Promise<SessionListItem[]>; controller: AbortController }>>();
+/** A failed cold attempt must not lend a hung single-flight request to its retry. */
+export function cancelSessionLoads(client: ReturnType<typeof useApp>["client"]) {
+  const requests = listRequests.get(client);
+  if (!requests) return;
+  for (const request of requests.values()) request.controller.abort();
+  requests.clear();
+}
 export function loadSessions(client: ReturnType<typeof useApp>["client"], deviceId: string): Promise<SessionListItem[]> {
   let requests = listRequests.get(client);
   if (!requests) { requests = new Map(); listRequests.set(client, requests); }
   const pending = requests.get(deviceId);
-  if (pending) return pending;
-  const request = loadSessionRows(client, deviceId).finally(() => requests!.delete(deviceId));
-  requests.set(deviceId, request);
-  return request;
+  if (pending) return pending.promise;
+  const controller = new AbortController();
+  const promise = loadSessionRows(client, deviceId, controller.signal).finally(() => {
+    if (requests!.get(deviceId)?.promise === promise) requests!.delete(deviceId);
+  });
+  requests.set(deviceId, { promise, controller });
+  return promise;
 }
-async function loadSessionRows(client: ReturnType<typeof useApp>["client"], deviceId: string): Promise<SessionListItem[]> {
+async function loadSessionRows(client: ReturnType<typeof useApp>["client"], deviceId: string, signal: AbortSignal): Promise<SessionListItem[]> {
   try {
-    const body = await client.deviceApi<ProfileSessionsResponse>(deviceId, "GET", `${hermesPaths.profileSessions}?limit=500&order=recent`);
+    const body = await client.deviceApi<ProfileSessionsResponse>(deviceId, "GET", `${hermesPaths.profileSessions}?limit=500&order=recent`, { signal });
     return Array.isArray(body?.sessions) ? body.sessions : [];
   } catch (error) {
     // Older Hermes without the cross-profile list: fall back to the default profile's.
-    if (error instanceof GatewayHttpError && error.status === 404) {
+    if (!signal.aborted && error instanceof GatewayHttpError && error.status === 404) {
       // Upstream `/api/sessions` rejects limit > 100 (422).
-      const body = await client.deviceApi<SessionListResponse>(deviceId, "GET", `${hermesPaths.sessions}?limit=100&offset=0&order=recent`);
+      const body = await client.deviceApi<SessionListResponse>(deviceId, "GET", `${hermesPaths.sessions}?limit=100&offset=0&order=recent`, { signal });
       return Array.isArray(body?.sessions) ? body.sessions : [];
     }
     throw error;
@@ -83,8 +94,10 @@ export function SessionList() {
   const paneActive = useWorkspace().listVisible !== false;
   const listReturn = useListReturn(`sessions:${device?.deviceId}`, { searching: false, query: "", botFolded: [] as string[] });
   const [loading, setLoading] = useState(app.sessions.length === 0);
+  const disposed = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
+  useStartupPage("list", !loading, error);
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searching, setSearching] = useState(listReturn.initial.searching);
@@ -122,13 +135,14 @@ export function SessionList() {
     if (app.sessions.length) setRefreshing(true);
     try {
       const rows = await loadSessions(client, deviceId);
+      if (disposed.current) return;
       app.setSessions(rows);
       setNow(Date.now());
     } catch (e) {
+      if (disposed.current) return;
       setError(toAppError(e, "device"));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!disposed.current) { setLoading(false); setRefreshing(false); }
     }
   }
 
@@ -138,6 +152,7 @@ export function SessionList() {
   const refresher = useRef<ListRefresher | null>(null);
 
   useEffect(() => {
+    disposed.current = false;
     const scheduler = createListRefresher(() => refreshRef.current());
     refresher.current = scheduler;
     scheduler.now();
@@ -147,6 +162,7 @@ export function SessionList() {
     document.addEventListener("visibilitychange", onVisible);
     const tick = setInterval(() => setNow(Date.now()), 60_000);
     return () => {
+      disposed.current = true;
       scheduler.dispose();
       if (refresher.current === scheduler) refresher.current = null;
       document.removeEventListener("visibilitychange", onVisible);

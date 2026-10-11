@@ -42,3 +42,12 @@ HG-203 aligns the session-list new-chat FAB with Android's themed M3 shape: a 56
 with 22px corners at the default root size, using rem for both dimensions and corners. Light/dark
 and single/split layouts share the shape. The Android and Web rules in `../docs/DESIGN.md` and the
 repository design-system prose now reflect it; physical browser checks are in `../docs/SMOKE_TEST.md`.
+
+HG-204 puts a branded cold-start gate in the initial HTML. A small hashed classic script restores
+appearance before paint and keeps a 15-second timeout/reload action working even without the main
+bundle. The target mounts once underneath the gate: lists wait for their first result, stored chats
+for history and Markdown paint, new chats for a live connection. Login, Mac choice and account pages
+enter when usable. Background data never blocks entry. The 700ms status delay and 180ms transition
+add no minimum hold; reduced motion uses a direct switch. Warm resume and reconnect stay on the page.
+`HR-WEB-013` is Web-only; no Gateway, Connector, Android or Desktop contract changes are required.
+Physical Safari/Home Screen and Android Chrome acceptance remains in `../docs/SMOKE_TEST.md`.

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "preact/hooks";
 import { useListReturn } from "../app/useListReturn";
+import { useStartupPage } from "../startup/readiness";
 import { hermesPaths } from "../api/gateway";
 import { toAppError } from "../app/failures";
 import { defaultProjectPath } from "../app/localPrefs";
@@ -22,6 +23,7 @@ export function ArchivedPage() {
   const listReturn = useListReturn(`archived:${deviceId}`, { rows: null as SessionListItem[] | null });
   const [rows, setRows] = useState<SessionListItem[] | null>(listReturn.initial.rows);
   const [error, setError] = useState<AppError | null>(null);
+  useStartupPage("archived", rows !== null, error);
   const [attempt, setAttempt] = useState(0);
   const [actionFor, setActionFor] = useState<SessionListItem | null>(null);
   useLayoutEffect(() => { listReturn.remember({ rows }); listReturn.restore(); });
