@@ -16,8 +16,12 @@ public struct DesktopHermesUpgradeService: Codable, Equatable, Sendable {
     public let label: String
     public let wasLoaded: Bool
     public let configurationDigest: String
-    public init(label: String, wasLoaded: Bool, configurationDigest: String) {
+    public let processID: Int32?
+    public let processStartedAt: Date?
+    public init(label: String, wasLoaded: Bool, configurationDigest: String,
+                processID: Int32? = nil, processStartedAt: Date? = nil) {
         self.label = label; self.wasLoaded = wasLoaded; self.configurationDigest = configurationDigest
+        self.processID = processID; self.processStartedAt = processStartedAt
     }
 }
 
@@ -63,7 +67,9 @@ public struct DesktopHermesUpgradeJournal: Codable, Equatable, Sendable {
               Self.path(checkout), Self.path(hermesHome),
               checkout == hermesHome + "/hermes-agent", services.count <= 32,
               Set(services.map(\.label)).count == services.count,
-              services.allSatisfy({ $0.label.range(of: "^[a-zA-Z0-9][a-zA-Z0-9.-]{0,127}$", options: .regularExpression) != nil && Self.digest($0.configurationDigest) }),
+              services.allSatisfy({ $0.label.range(of: "^[a-zA-Z0-9][a-zA-Z0-9.-]{0,127}$", options: .regularExpression) != nil && Self.digest($0.configurationDigest)
+                  && (($0.processID == nil && $0.processStartedAt == nil)
+                      || ($0.wasLoaded && $0.processID.map({ $0 > 0 }) == true && $0.processStartedAt?.timeIntervalSince1970.isFinite == true)) }),
               originalChannel == nil || ["stable", "main"].contains(originalChannel!),
               updatedAt.timeIntervalSince1970.isFinite,
               backup == nil || (backup?.runID == runID && Self.digest(backup!.manifestSHA256)),

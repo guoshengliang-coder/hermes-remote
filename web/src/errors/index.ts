@@ -121,6 +121,9 @@ export interface SocketErrorLike {
 
 export function fromSocketError(error: SocketErrorLike, context: RpcContext = "generic"): AppError {
   const details = `${error.method ?? "rpc"}: ${error.message}`;
+  if ((error.kind === "closed" || error.kind === "not-connected") && error.message === "HR-HERMESUPDATE-005") {
+    return appError("HR-HERMESUPDATE-005", details);
+  }
   switch (error.kind) {
     case "rpc":
       return fromRpcError(error.code ?? 0, `${error.method ?? ""} ${error.message}`.trim(), context, error.data);

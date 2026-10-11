@@ -76,6 +76,33 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 - 退休后的 WAL 数据库可能没有侧文件，但主库头仍标记 WAL。Apple SQLite 只读 backup 曾因此
   失败；仅当 WAL/rollback journal 均无内容时使用 immutable 只读 URI，非空 WAL 仍用正常 backup。
   专项回归复现旧行为失败，原有非空 WAL 合并及后续写入保护测试继续通过。
+- Connector 现有入口已接入可选的本机私有维护 mailbox：HTTP、上传 start、WebSocket open 和
+  legacy chat command 在每次接入前检查同一 pause；已接收的 HTTP/上传/连接继续排空，取消和 ACK
+  仍可送达，不重放请求。observer 停止并在 release 后重连，状态/契约后台探测也受维护门禁控制。
+  请求 0600、目录 0700；软链/硬链/重复键/未知 schema/不可读记录拒绝接入，不以超时或删除解除。
+  损坏记录使当前 Connector 进程保持拒绝接入；纠正私有记录后还需明确恢复/重启该受管进程，不能
+  靠替换 release 文件隐式解除故障。本轮没有为此执行现用服务操作。
+  ACK 固化 PID、进程 instance UUID、run/source identity、请求字节 hash 和活动数量；Desktop 要求
+  同次 run、同一进程和 5 秒内的零活动 ACK。ACK 仅证明 Connector 已排空，不证明 CLI/cron 空闲。
+  `HERMES_GO_MAINTENANCE_DIRECTORY` 只在显式准备的新版 Connector LaunchAgent 中配置；默认 nil，
+  现用 plists 不被自动改写或重启。旧 Connector 没有 ACK 时升级必须阻断，不能按版本猜支持。
+- 新服务恢复模块在 home 外按 run 保存原两个 GO LaunchAgent 的完整私有字节、digest、原加载状态、
+  PID 与 kernel birth；同次备份不可替换。具体 launchd driver 只操作预先验证的两个 GO label，
+  `print` 未知失败不视作 unloaded，拒绝 PID 再用、外部 job、legacy 重复 Connector 和修改过的 plist。
+  停止前逐次要求全 profile 的新鲜 idle/独立 writer admission 证据，停止后仍要求退休证明；没有
+  实际清点适配器时这些证据不能由版本、源码或 ACK 代替。恢复保留四种 loaded/unloaded 组合，
+  Hermes 先恢复并独立核实实际 boot commit，再恢复原已加载 Connector。已恢复的服务续作不重复 bootstrap。
+  本模块不覆盖上游自建服务、服务定义变化或 home 外解释器闭包，尚未接成生产 Operating 适配器。
+- 本地恢复/PM/boot 与无欠账证据齐全后，verifying 阶段可显式 release 接入以获取新鲜 Cloud/业务
+  验收；验收失败需重新 pause 同一 run，并保留期间的新写入。取消必须恢复原服务并先记 cancelled
+  才 release；关闭窗口、过期或删除文件都不是 release。维护拒绝使用已登记双语 `HR-HERMESUPDATE-005`，
+  Android/Web 的历史、新建和发送入口识别它并不提供立即重试；Android 上传保留结构化 code，日志不记录原响应正文。
+
+维护增量自动验证使用真实临时文件和真实 Connector 子进程/loopback Relay/HTTP：启动时暂停四类新
+请求，维护开始后已接收的流式响应继续完成且 ACK 在结束前非零；原入口回归在 73746f52 上失败，
+新入口通过。Swift/Node 共享同一请求 fixture 校对字节，验证过期/跨 run/跨进程 ACK、私有权限、
+全部 profile/cron/后台任务/未知 writer 阻断，以及各原加载组合、取消、服务恢复失败续作和错误 boot。
+launchd 操作与 writer/boot 证据使用注入 runner/适配，不是对真实服务的停止、重启或联合回退验收。
 
 2026-10-11 隔离 macOS 演练：在一次性 HOME/HERMES_HOME、清空继承凭据、固定 818c13be 源码下，
 实际执行官方 `_update_takeover.prepare`（PM）与 `update_finish`。PM 选中 Python 3.14.7 managed
@@ -103,7 +130,8 @@ GO run `61676BC5-EFE5-40FB-A8A8-6B75C64C794D`、官方 update
 
 以下执行适配与验收仍待实现/验证，HG-199 保持进行中：
 
-备份工具当前覆盖 Hermes home 内的文件，完整恢复点还须由适配器保存原 LaunchAgent/启动状态，
+备份工具当前覆盖 Hermes home 内的文件；原 GO LaunchAgent/加载状态的私有快照与恢复模块已具备，
+完整恢复点仍须由机器适配器接入并验证所有实际运行服务，
 并验证或另存 home 外的解释器依赖闭包（旧 venv 可能链接到用户 uv 的 Python）。保存链接本身
 不能保证外部解释器以后仍存在。因此单独的 home 备份不构成代码/依赖/服务联合回退认证。
 
@@ -140,3 +168,8 @@ python -I -B scripts/compat/hermes-update-lock-matrix.py --candidate-root <pinne
 脚本拒绝当前用户 `~/.hermes` 内的源码路径。数据库只在随机临时 home 中创建，所有子进程清除
 继承凭据/配置；备份恢复使用另一个文件，不覆盖迁移后的样本。源码检查覆盖 42 个 REST 路径、
 29 个 RPC 参数集合与两个显示常量；它不启动服务器，不证明实际服务、业务语义或全量真实数据安全。
+
+维护期间，已连接的 JSON-RPC 通道也拒绝新任务（Connector `-32002` / `HR-HERMESUPDATE-005`）。
+既有任务的回答、审批和中断仍可继续；整个通道到实际关闭前一直计入 busy，不会因“当前没有请求”就
+宣称已排空。不能解析或关联的帧不转发，保留通道以接收既有任务事件；正式升级适配器仍需让客户端
+结束连接并独立确认全部 Hermes 写入者已经退出。

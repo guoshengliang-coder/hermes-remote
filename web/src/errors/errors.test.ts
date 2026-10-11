@@ -17,6 +17,16 @@ import {
 } from "./index";
 
 describe("catalog", () => {
+  it("maintenance maps HTTP, RPC and socket refusals to the same localized non-retryable explanation", () => {
+    const socket = fromSocketError({ kind: "closed", message: "HR-HERMESUPDATE-005" });
+    expect(socket.code).toBe("HR-HERMESUPDATE-005"); expect(socket.retryable).toBe(false);
+    expect(socket.zh).toContain("维护"); expect(socket.en).toContain("maintenance");
+    expect(socket.action).toBe("open-mac");
+    expect(fromHttp(503, { error: { code: "HR-HERMESUPDATE-005", message: "secret", retryable: false } }).code).toBe(socket.code);
+    expect(display(socket, "zh")).not.toContain("secret");
+    expect(fromRpcError(-32002, "HR-HERMESUPDATE-005", "submit", { code: "HR-HERMESUPDATE-005" }))
+      .toMatchObject({ code: socket.code, retryable: false, action: "open-mac" });
+  });
   // Every entry must match docs/ERROR_HANDLING.md word for word.
   const registry = readFileSync(resolve(process.cwd(), "../docs/ERROR_HANDLING.md"), "utf8");
   const rows = new Map<string, string[]>();

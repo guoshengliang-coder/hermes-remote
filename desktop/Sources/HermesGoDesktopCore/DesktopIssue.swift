@@ -19,6 +19,7 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     case hermesUpdateBlocked = "HR-HERMESUPDATE-002"
     case hermesUpdateRecoveryRequired = "HR-HERMESUPDATE-003"
     case hermesUpdateVerificationFailed = "HR-HERMESUPDATE-004"
+    case hermesMaintenance = "HR-HERMESUPDATE-005"
     case connectionFailed = "HR-CONN-002"
     case connectorOffline = "HR-CONN-005"
     case hermesUnavailable = "HR-CONN-006"
@@ -191,6 +192,8 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("Hermes 升级需要恢复", "Hermes upgrade needs recovery", "Hermes 升级未完成，需要恢复上次操作。请查看详情。", "Hermes upgrade did not finish. Recover the previous operation and review the details.", false, .details)
         case .hermesUpdateVerificationFailed:
             ("Hermes 升级验证未通过", "Hermes verification failed", "Hermes 升级后的验证未通过，已保留备份并暂停继续升级。请查看详情。", "Hermes did not pass verification after upgrade. The backup was retained and further upgrades paused. Review the details.", false, .details)
+        case .hermesMaintenance:
+            ("Hermes 正在维护", "Hermes maintenance", "这台 Mac 的 Hermes 正在维护，暂不接受新操作。请在 Mac 上查看进度或恢复操作。", "Hermes on this Mac is undergoing maintenance and cannot accept new operations. Check progress or recovery on the Mac.", false, .details)
         case .connectionFailed:
             ("无法连接 Relay", "Couldn't connect to the Relay", "连接失败，请检查网络和地址。", "Connection failed. Check the network and URL.", true, .retry)
         case .connectorOffline:

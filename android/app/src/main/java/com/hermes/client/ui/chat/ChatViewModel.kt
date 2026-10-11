@@ -1731,12 +1731,15 @@ class ChatViewModel @Inject constructor(
                 // each read — so it is the same bytes on every attempt and grows from here. The tap
                 // is withheld for the same reason as 5028, and the copy names the conversation.
                 val responseTooLarge = rpcCode == RELAY_RESPONSE_TOO_LARGE_CODE
+                val maintenance = (rpcCode in setOf(0, -32002) && e.message == "HR-HERMESUPDATE-005") ||
+                    ((e as? UploadHttpFailure)?.response?.errorCode == "HR-HERMESUPDATE-005")
                 val serverUploadLimit = (e as? UploadHttpFailure)?.response?.code == 413
                 val uploadBusy = (e as? UploadHttpFailure)?.response?.let {
                     it.code == 503 && it.message?.contains("HR-FILE-009") == true
                 } == true
                 val error = com.hermes.client.data.error.AppError(
                     when {
+                        maintenance -> com.hermes.client.data.error.AppErrorCode.HERMES_MAINTENANCE
                         serverUploadLimit -> com.hermes.client.data.error.AppErrorCode.UPLOAD_SERVER_LIMIT
                         uploadBusy -> com.hermes.client.data.error.AppErrorCode.UPLOAD_BUSY
                         gone -> com.hermes.client.data.error.AppErrorCode.SESSION_NOT_FOUND
@@ -1749,7 +1752,7 @@ class ChatViewModel @Inject constructor(
                     },
                     // Decided per code, not by one predicate: every new terminal failure that gets
                     // folded in here has to say so itself, or it inherits a tap it cannot honour.
-                    retryable = !gone && !pdfDependencyMissing && !responseTooLarge && !serverUploadLimit,
+                    retryable = !maintenance && !gone && !pdfDependencyMissing && !responseTooLarge && !serverUploadLimit,
                     // Keep the numeric code in the copyable diagnostic, not only in DebugLog below:
                     // upstream's prose is the part that can change under us, the number is the part
                     // we classify on, and the user pasting a diagnostic should be handing us both.

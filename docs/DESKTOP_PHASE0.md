@@ -1,5 +1,14 @@
 # Hermes Go Desktop phase 0
 
+HG-199 now includes an opt-in private local Connector admission mailbox and exact GO service
+snapshots/launchd driver. Pause precedes writer retirement; a run/source/request/PID/instance-bound
+fresh ACK proves only Connector drainage. Independent full-profile/cron/background/kernel writer
+admission and retirement evidence remains required. Configuring the mailbox is explicit and default
+nil; this increment does not rewrite or restart installed agents. Restore preserves original
+loaded/unloaded jobs, checks the actual Hermes boot commit before Connector, and resumes already
+restored jobs. Full machine Operating, external interpreter closure and official committed-tail
+reconciliation remain pending; execution stays disabled. See `HERMES_UPGRADE.md` for the boundaries.
+
 ## HG-199 stage one: upstream identity and discovery
 
 Desktop now recognizes the owner's legacy venv and committed PM-generation installations with

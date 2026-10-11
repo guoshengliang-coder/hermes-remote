@@ -1150,3 +1150,17 @@ Git config and unknown layout fail closed. `UpdateLock` is not writer admission:
 not acquire this checkout lock on every ordinary launch. GO must independently inventory, retire and
 fence all writers before an upgrade can become available. Process-level lock tests do not certify
 service restoration or make 0.21.6 a recommended target.
+
+### Connector maintenance refusal (HG-199)
+
+Opt-in local maintenance refuses new HTTP/upload/chat/WebSocket admissions. On an already open
+JSON-RPC channel, Connector uses its reserved implementation-defined `-32002` and exact message
+`HR-HERMESUPDATE-005`, with the registered structured error in `error.data`. Android maps both
+that refusal and a socket closed with the exact code; Web maps the structured RPC error or close
+reason. Unknown/new methods are refused during maintenance. `session.interrupt`,
+`approval.respond`, `clarify.respond`, `clarify.lock`, `request.answer`, and server-request response
+frames remain available to finish existing turns; queued frames are checked again before forwarding.
+Malformed, duplicate envelope keys, binary frames and notifications that cannot receive a correlated
+error are dropped without closing the channel. The entire connection remains busy in the ACK until
+actually closed, so this allowance cannot be treated as permission to stop Hermes. This code belongs
+to Connector, not upstream Hermes; existing RPC method semantics above remain upstream-owned.

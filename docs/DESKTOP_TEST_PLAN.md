@@ -1,5 +1,20 @@
 # Hermes Go Desktop test plan
 
+HG-199 maintenance automation adds real Connector process/loopback HTTP admission and streamed-body
+drain and existing-channel prompt/answer/interrupt tests (old entry fails), Swift/Node shared private-request fixture, zero-count ACK binding to
+run/source/request/PID/instance and freshness, permission/link/duplicate/schema refusal, persistent
+pause across restart/deletion, all-profile idle/cron/background/unknown-writer refusal, service
+snapshots, all four original load sets, cancel/restore/resume, PID reuse/legacy conflict/unknown print,
+and wrong boot rejection. Service commands/boot/writer evidence use injected runners, not real
+launchd or full writer discovery. Android L1 tests cover maintenance history/create/unsent send and
+structured upload code/log redaction; Web HTTP/RPC/socket mappings share the registered bilingual code.
+L2 A5DN9X4708H02629 is currently ADB unauthorized; L3 Pixel_API_37 is available but not exercised
+for this error/admission change. No new visual layout or targetSdk behavior is introduced.
+Still required on a disposable Mac: admission preparation with the published matching Connector,
+active local CLI/cron and all profile writers, actual retirement, exact service load-set restoration,
+external dependency closure, cold official update and committed-tail recovery, fresh same-binding
+Cloud/business acceptance, and maintenance/recovery copy on Android/Web. The upgrade button stays off.
+
 ## HG-199 first-stage verification
 
 Automated coverage: legacy and PM layouts, missing/broken committed generation, stale stamp,
@@ -679,3 +694,9 @@ Manual, on a real Mac (not reproducible in CI):
 The asset equality gate checks the canonical Android image and Desktop packaging copy. On a
 physical Mac, inspect the built app in the Dock in light and dark appearance; the faceted H should
 retain its colors without an opaque white square. The local ad-hoc build is not a signed release.
+
+维护模式手工验收（尚未执行）：在隔离测试环境配置私有 mailbox，保持一个有正在运行任务的 RPC
+通道，然后暂停接单。新提示应显示 `HR-HERMESUPDATE-005`，原任务事件、审批/澄清回答和停止仍可
+使用；未关闭通道时 ACK 必须保持 busy。关闭通道后才可取得 Connector 排空证明，仍不能替代 cron、
+CLI、其他 profile 和内核进程身份检查。服务恢复的 launchd 命令测试使用注入 runner；本轮未对真实
+LaunchAgent 执行 stop/start。

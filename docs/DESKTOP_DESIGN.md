@@ -22,6 +22,10 @@ on disk requires reconciliation of its retained official receipt/tail; the produ
 fresh retry or an exit-zero receipt with owed work as a completed upgrade.
 Displayed completion requires the receipt's version and fixed commit to agree; a tagless checkout
 whose official version stamp says unknown must remain pending even if its dependency sync succeeded.
+Maintenance admission/service restoration remains backend-only until full certification. It adds no
+execution control. A maintenance refusal uses bilingual `HR-HERMESUPDATE-005` in the existing error
+surface and directs the owner to Mac progress/recovery, with no immediate Retry. Private mailbox,
+process and plist details stay behind diagnostics. Existing admitted work is allowed to finish.
 
 ## Repairing a committed installation (HG-175)
 
