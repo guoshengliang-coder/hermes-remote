@@ -509,3 +509,17 @@ it("an in-progress voice capture still owns the back step that cancels it (HG-18
   act(() => { hold.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
   expect(overlayDepth()).toBe(1);
 });
+
+it.each(["完整语音", ""])("limit completion stays in the draft with attachments, with accurate notice (%s)", async (speech) => {
+  const h = mount(); type(h.host, "已有草稿");
+  await stageFiles(h, [new File(["file"], "keep.txt", { type: "text/plain" })]);
+  await startSpeech(h);
+  act(() => mocks.events?.({ kind: "waiting", limited: true }));
+  act(() => { mocks.events?.({ kind: "final", text: speech, limited: true }); mocks.events?.({ kind: "final", text: "重复尾包", limited: true }); });
+  await settle();
+  expect(h.props.onSend).not.toHaveBeenCalled();
+  expect(h.host.querySelector("textarea")!.value).toBe(speech ? "已有草稿\n完整语音" : "已有草稿");
+  expect(h.host.textContent).toContain("keep.txt");
+  expect(h.host.textContent).toContain(speech ? "文字已放入输入框" : "没有识别到文字");
+  expect(h.host.querySelector(".error-notice")).toBeNull();
+});

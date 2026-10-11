@@ -69,3 +69,17 @@ it.each(["missing", "false", "throw", "disabled"])("keeps gestures and visual cu
   expect(h.host.textContent).toContain("松手取消");
   h.pointer("pointercancel"); expect(h.props.onRelease).toHaveBeenCalledWith("cancel");
 });
+
+it("starts the visible clock with real capture and shows the last 15 seconds without releasing again", async () => {
+  vi.useFakeTimers();
+  try {
+    const h = mount(); await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(h.host.textContent).toContain("00:00 / 05:00");
+    h.update({ recording: true }); await act(async () => { await vi.advanceTimersByTimeAsync(285_000); });
+    expect(h.host.textContent).toContain("04:45 / 05:00");
+    expect(h.host.textContent).toContain("还可录 15 秒，到时转为草稿");
+    h.update({ phase: "waiting", recording: false, limited: true });
+    expect(h.host.textContent).toContain("05:00 / 05:00"); h.pointer("pointerup"); h.pointer("pointercancel");
+    expect(h.props.onRelease).not.toHaveBeenCalled();
+  } finally { vi.useRealTimers(); }
+});

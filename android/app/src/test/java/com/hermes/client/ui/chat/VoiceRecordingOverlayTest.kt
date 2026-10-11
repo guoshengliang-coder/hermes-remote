@@ -45,23 +45,25 @@ class VoiceRecordingOverlayTest {
         transcript: String,
         cancelZone: Boolean = false,
         editZone: Boolean = false,
+        elapsedMs: Long = 12_400L,
+        language: AppLanguage = AppLanguage.ZH,
     ) {
         compose.setContent {
             HermesTheme(darkTheme = dark) {
                 val density = LocalDensity.current
                 CompositionLocalProvider(
-                    LocalAppLanguage provides AppLanguage.ZH,
+                    LocalAppLanguage provides language,
                     LocalDensity provides Density(density.density, fontScale),
                 ) {
                     Surface {
                         VoiceRecordingOverlay(
-                            language = AppLanguage.ZH,
+                            language = language,
                             held = held,
                             waiting = waiting,
                             transcript = transcript,
                             cancelZone = cancelZone,
                             editZone = editZone,
-                            elapsedMs = 12_400L,
+                            elapsedMs = elapsedMs,
                             onDismissWaiting = {},
                             onTargetsMeasured = {},
                         )
@@ -101,6 +103,15 @@ class VoiceRecordingOverlayTest {
     @Test fun waitingDarkLargeFont() = snap(
         "voice-recording-waiting-dark-zh-360-fs13", dark = true, fontScale = 1.3f,
         held = false, waiting = true, transcript = "今天下午的会议",
+    )
+
+    @Test fun countdownLight() = snap(
+        "voice-recording-countdown-zh-360", dark = false, fontScale = 1f,
+        held = true, waiting = false, transcript = "最后十五秒", elapsedMs = 285_000L,
+    )
+    @Test fun countdownDarkEnglishLargeFont() = snap(
+        "voice-recording-countdown-dark-en-360-fs13", dark = true, fontScale = 1.3f,
+        held = true, waiting = false, transcript = "Final seconds", elapsedMs = 299_000L, language = AppLanguage.EN,
     )
 
     private fun overlay(held: Boolean, waiting: Boolean, transcript: String, onDismiss: () -> Unit) {

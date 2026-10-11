@@ -51,6 +51,9 @@ When `DOUBAO_ASR_API_KEY_FILE` is present, authenticated phones can open the Gat
 `/api/voice` (legacy) or `/v2/devices/{id}/voice` (account) WebSocket. The Gateway relays
 binary audio and recognition frames to Volcengine without exposing the key to the phone. Without
 the private key file, these routes return 503. The service never logs speech frames or the key.
+HG-206 bounds each speech socket to 330 seconds, allowing the clients' five-minute actual-audio
+limit plus startup/final-result headroom. Deploy this Gateway change before the updated clients;
+the configured provider's continuous five-minute behavior still requires device verification.
 Provisioning that file and restarting Gateway is a separate, explicitly authorized deployment step.
 For the managed container release, the canonical environment line is
 `DOUBAO_ASR_API_KEY_FILE=/run/hermes-go/secrets/doubao-asr-api-key`; the file lives in the

@@ -2,12 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Translate } from "../app/i18n";
 import { voiceActionAt, type VoiceAction, type VoiceTarget } from "../chat/voiceGesture";
 import { VoiceHaptics } from "../chat/voiceHaptics";
+import { VOICE_RECORDING_LIMIT_MS } from "../chat/voicePolicy";
 import { CloseIcon, TextIcon } from "./icons";
 
 export interface VoiceComposerProps {
   t: Translate;
   phase: "idle" | "held" | "waiting";
   recording: boolean;
+  limited?: boolean;
   feedbackEnabled: boolean;
   text: string;
   disabled: boolean;
@@ -15,7 +17,7 @@ export interface VoiceComposerProps {
   onRelease: (action: VoiceAction) => void;
   onCancelWait: () => void;
 }
-export function VoiceComposer({ t, phase, recording, feedbackEnabled, text, disabled, onBegin, onRelease, onCancelWait }: VoiceComposerProps) {
+export function VoiceComposer({ t, phase, recording, limited, feedbackEnabled, text, disabled, onBegin, onRelease, onCancelWait }: VoiceComposerProps) {
   const [zone, setZone] = useState<VoiceAction>("send");
   const [elapsed, setElapsed] = useState(0);
   const gesture = useRef<{ id: number | "keyboard"; started: number } | null>(null);
@@ -38,11 +40,13 @@ export function VoiceComposer({ t, phase, recording, feedbackEnabled, text, disa
     };
   }, []);
   useEffect(() => {
-    if (phase !== "held") return;
+    if (phase === "idle") { setElapsed(0); return; }
+    if (phase === "waiting" && limited) { setElapsed(VOICE_RECORDING_LIMIT_MS); return; }
+    if (phase !== "held" || !recording) return;
     const started = Date.now(); setElapsed(0);
-    const timer = setInterval(() => setElapsed(Date.now() - started), 120);
+    const timer = setInterval(() => setElapsed(Math.min(VOICE_RECORDING_LIMIT_MS, Date.now() - started)), 120);
     return () => clearInterval(timer);
-  }, [phase]);
+  }, [phase, recording, limited]);
   useEffect(() => { if (phase === "idle") gesture.current = null; }, [phase]);
   function begin(id: number | "keyboard") {
     if (disabled || phase !== "idle" || gesture.current) return;
@@ -53,6 +57,7 @@ export function VoiceComposer({ t, phase, recording, feedbackEnabled, text, disa
     if (!current) return;
     gesture.current = null;
     haptics.current.reset();
+    if (phase !== "held") return;
     onRelease(force ?? (Date.now() - current.started < 250 ? "cancel" : action.current));
   }
   function target(el: HTMLElement | null): VoiceTarget | null {
@@ -97,9 +102,10 @@ export function VoiceComposer({ t, phase, recording, feedbackEnabled, text, disa
       onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); phase === "waiting" ? onCancelWait() : release("cancel"); } }}>
       <div class="voice-stage">
         <div class="voice-card">
-          <div class="voice-card-head"><span class="voice-clock mono">{`${Math.floor(elapsed / 60000).toString().padStart(2, "0")}:${Math.floor(elapsed / 1000 % 60).toString().padStart(2, "0")}`}</span>
+          <div class="voice-card-head"><span class="voice-clock mono">{`${Math.floor(elapsed / 60000).toString().padStart(2, "0")}:${Math.floor(elapsed / 1000 % 60).toString().padStart(2, "0")} / 05:00`}</span>
             <span>{phase === "waiting" ? t("正在完成识别…", "Finishing recognition…") : zone === "cancel" ? t("松手取消", "Release to cancel") : zone === "edit" ? t("松手转文字", "Release to edit") : t("松手发送", "Release to send")}</span></div>
           <div class="voice-wave" aria-hidden="true">{Array.from({ length: 21 }, (_, i) => <i key={i} style={{ height: `${12 + 32 * Math.abs(Math.sin(i * 1.7 + elapsed / 400))}px` }} />)}</div>
+          {phase === "held" && elapsed >= VOICE_RECORDING_LIMIT_MS - 15_000 ? <p role="status">{t(`还可录 ${Math.ceil((VOICE_RECORDING_LIMIT_MS - elapsed) / 1000)} 秒，到时转为草稿`, `Remaining: ${Math.ceil((VOICE_RECORDING_LIMIT_MS - elapsed) / 1000)}s; then save to draft`)}</p> : null}
           <p class="voice-transcript" role="status">{text || t("正在聆听…", "Listening…")}</p>
         </div>
         <div class="voice-targets">
