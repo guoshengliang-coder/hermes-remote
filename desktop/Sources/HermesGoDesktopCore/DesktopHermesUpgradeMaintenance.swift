@@ -281,7 +281,15 @@ public struct DesktopHermesUpgradeServiceRestorer<Driver: DesktopHermesUpgradeSe
                     if label == DesktopManagedInstallLayout.hermesLabel {
                         try await driver.requireHermesReady(commit: originalInstallation ? journal.sourceCommit : journal.target.commit)
                     }
-                } // An originally unloaded job stays unloaded; no stop of a new owner is implied.
+                } else {
+                    // A job can appear after the initial inventory (for example during boot proof).
+                    // Detect it without stopping or adopting it as the owner's original load set.
+                    try requireOwnedState(journal, label: label, configuration: configurations[label]!)
+                }
+            }
+            for label in ordered {
+                try requireOwnedState(journal, label: label, configuration: configurations[label]!,
+                                      requireLoaded: journal.services.first(where: { $0.label == label })!.wasLoaded)
             }
         } catch { throw DesktopHermesUpgradeError.recoveryRequired }
     }
@@ -373,7 +381,9 @@ public struct DesktopHermesUpgradeLaunchdServices<Runner: OutputCommandRunning &
         try await wait(label: label, loaded: false)
     }
     public func start(label: String, configuration data: Data) async throws {
-        guard try configuration(label: label) == data, try observe(label: label) == .unloaded else { throw DesktopHermesUpgradeError.recoveryRequired }
+        guard let original = originals.first(where: { $0.label == label }), original.wasLoaded,
+              UpgradePrivateFiles.hash(data) == original.configurationDigest,
+              try configuration(label: label) == data, try observe(label: label) == .unloaded else { throw DesktopHermesUpgradeError.recoveryRequired }
         try noLegacyConnector()
         guard command(["bootstrap", "gui/\(userID)", try path(label).path]).status == 0 else { throw DesktopHermesUpgradeError.recoveryRequired }
         try await wait(label: label, loaded: true)

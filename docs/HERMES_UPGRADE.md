@@ -91,7 +91,8 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
   `print` 未知失败不视作 unloaded，拒绝 PID 再用、外部 job、legacy 重复 Connector 和修改过的 plist。
   停止前逐次要求全 profile 的新鲜 idle/独立 writer admission 证据，停止后仍要求退休证明；没有
   实际清点适配器时这些证据不能由版本、源码或 ACK 代替。恢复保留四种 loaded/unloaded 组合，
-  Hermes 先恢复并独立核实实际 boot commit，再恢复原已加载 Connector。已恢复的服务续作不重复 bootstrap。
+  Hermes 先恢复并独立核实实际 boot commit，再恢复原已加载 Connector。已恢复的服务续作不重复 bootstrap；
+  恢复期间新出现的原 unloaded job 或最终加载集合变化会保留恢复游标，不接管、不停止该新服务。
   本模块不覆盖上游自建服务、服务定义变化或 home 外解释器闭包，尚未接成生产 Operating 适配器。
 - 本地恢复/PM/boot 与无欠账证据齐全后，verifying 阶段可显式 release 接入以获取新鲜 Cloud/业务
   验收；验收失败需重新 pause 同一 run，并保留期间的新写入。取消必须恢复原服务并先记 cancelled

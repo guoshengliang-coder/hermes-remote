@@ -44,6 +44,27 @@ final class DesktopHermesUpgradeMaintenanceTests: XCTestCase {
         XCTAssertFalse(runner.calls.contains(where: { ["disable", "enable", "kickstart"].contains($0.first ?? "") }))
         XCTAssertThrowsError(try driver.observe(label: "ai.hermes.unknown"))
     }
+    func testDriverCannotBootstrapAnOriginallyUnloadedJob() async throws {
+        let f = try MaintenanceFixture(); defer { f.remove() }
+        let layout = try DesktopManagedInstallLayout(root: f.root.appendingPathComponent("managed"), launchAgentsRoot: f.root)
+        for (label, data) in f.configurations { try UpgradePrivateFiles.write(data, to: f.root.appendingPathComponent(label + ".plist")) }
+        let runner = MaintenanceLaunchdRunner(); runner.status = 113
+        let driver = DesktopHermesUpgradeLaunchdServices(runner: runner, layout: layout, approved: f.configurations,
+            originals: f.journal(hermesLoaded: false).services, startDate: { _ in Date(timeIntervalSince1970: 1_700_000_000) }, ready: { _ in })
+        do { try await driver.start(label: f.hermes, configuration: f.configurations[f.hermes]!); XCTFail("originally unloaded job started") } catch {}
+        XCTAssertFalse(runner.calls.contains(where: { $0.first == "bootstrap" }))
+    }
+    func testAJobAppearingDuringRestoreCannotBeClaimedAsOriginalUnloadedState() async throws {
+        let f = try MaintenanceFixture(); defer { f.remove() }
+        let journal = f.journal(connectorLoaded: false)
+        try f.snapshots.capture(journal, configurations: f.configurations)
+        let restoring = try f.phase(journal, .restoringServices)
+        f.driver.appearedWhenReadyLabel = f.connector
+        do { try await f.restorer.restore(restoring, originalInstallation: false); XCTFail("new job ignored") } catch {}
+        XCTAssertFalse(f.driver.effects.contains("stop:\(f.connector)"))
+        XCTAssertFalse(f.driver.effects.contains("start:\(f.connector)"))
+        XCTAssertEqual(try f.store.loadReadOnly()?.phase, .restoringServices)
+    }
     func testConcreteDriverRefusesChangedPlistAndDuplicateLegacyConnector() async throws {
         let f = try MaintenanceFixture(); defer { f.remove() }
         let layout = try DesktopManagedInstallLayout(root: f.root.appendingPathComponent("managed"), launchAgentsRoot: f.root)
@@ -251,6 +272,7 @@ private final class MaintenanceDriver: DesktopHermesUpgradeServicesOperating, @u
     var effects: [String] = []
     var failedLabel: String?
     var readyFails = false
+    var appearedWhenReadyLabel: String?
     init(_ configurations: [String: Data]) { self.configurations = configurations }
     func configuration(label: String) throws -> Data { try XCTUnwrap(configurations[label]) }
     func observe(label: String) throws -> DesktopHermesUpgradeServiceObservation { observations[label] ?? .unloaded }
@@ -264,6 +286,7 @@ private final class MaintenanceDriver: DesktopHermesUpgradeServicesOperating, @u
         observations[label] = loaded(label)
     }
     func requireHermesReady(commit: String) async throws {
+        if let label = appearedWhenReadyLabel { observations[label] = loaded(label) }
         effects.append("ready:\(commit)"); if readyFails { throw DesktopHermesUpgradeError.verificationFailed }
     }
 }

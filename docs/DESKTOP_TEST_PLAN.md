@@ -1,11 +1,13 @@
 # Hermes Go Desktop test plan
 
 HG-199 maintenance automation adds real Connector process/loopback HTTP admission and streamed-body
-drain and existing-channel prompt/answer/interrupt tests (old entry fails), Swift/Node shared private-request fixture, zero-count ACK binding to
+drain and existing-channel prompt/answer/interrupt tests (old entry fails), Swift/Node shared
+private-request fixture, zero-count ACK binding to
 run/source/request/PID/instance and freshness, permission/link/duplicate/schema refusal, persistent
 pause across restart/deletion, all-profile idle/cron/background/unknown-writer refusal, service
 snapshots, all four original load sets, cancel/restore/resume, PID reuse/legacy conflict/unknown print,
-and wrong boot rejection. Service commands/boot/writer evidence use injected runners, not real
+wrong boot rejection, originally-unloaded bootstrap refusal, and jobs appearing during restore.
+Service commands/boot/writer evidence use injected runners, not real
 launchd or full writer discovery. Android L1 tests cover maintenance history/create/unsent send and
 structured upload code/log redaction; Web HTTP/RPC/socket mappings share the registered bilingual code.
 L2 A5DN9X4708H02629 is currently ADB unauthorized; L3 Pixel_API_37 is available but not exercised
