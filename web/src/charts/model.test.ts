@@ -4,8 +4,6 @@ import {
   storageKey,
   restore,
   persist,
-  preference,
-  savePreference,
   clearCharts,
   queryPrompt,
 } from "./model";
@@ -39,7 +37,7 @@ describe("HG-192 shared offline engine", () => {
     const m = engine.analyze(rows.map((r) => [...r]));
     expect(m.automatic).toBe(true);
     expect(m.defaults.type).toBe(type);
-    expect(engine.initial(m, null, "auto", "").view).toBe("chart");
+    expect(engine.initial(m, null).view).toBe("chart");
   });
   it("renders a cached model after structured clone or JSON bridge serialization", () => {
     const m = JSON.parse(JSON.stringify(engine.analyze(platforms)));
@@ -102,7 +100,7 @@ describe("HG-192 shared offline engine", () => {
   ])("keeps unsuitable data in the table %#", (...rows) => {
     const m = engine.analyze(rows as string[][]);
     expect(m.eligible).toBe(false);
-    expect(engine.initial(m, null, "chart", "请画图表").view).toBe("table");
+    expect(engine.initial(m, null).view).toBe("table");
   });
   it("excludes ID metrics, leaves percentage values as supplied and keeps units separate", () => {
     const m = engine.analyze([
@@ -124,17 +122,27 @@ describe("HG-192 shared offline engine", () => {
       ["A", "2"],
     ]);
     expect(m.automatic).toBe(false);
-    expect(engine.initial(m, null, "auto", "").view).toBe("table");
+    expect(engine.initial(m, null).view).toBe("table");
     expect(engine.points(m, m.defaults).error).toBe("duplicates");
   });
-  it("respects all defaults and explicit request overrides", () => {
+  it("chooses fullscreen automatically and ignores legacy defaults or prompt mentions", () => {
     const m = engine.analyze(channels);
-    expect(engine.initial(m, null, "table", "").view).toBe("table");
-    expect(engine.initial(m, null, "chart", "").view).toBe("chart");
-    expect(engine.initial(m, null, "chart", "请用表格展示").view).toBe("table");
-    expect(engine.initial(m, null, "table", "请画横向条形图").type).toBe(
-      "horizontal",
-    );
+    localStorage.setItem("hermes-go.table-charts.preference", "table");
+    expect(engine.initial(m, null).view).toBe("chart");
+    expect(
+      engine.analyze([
+        ["产品", "销量"],
+        ["很长的分类名称需要完整显示", "10"],
+        ["第二个分类名称同样很长", "20"],
+      ]).defaults.type,
+    ).toBe("horizontal");
+    const multiple = engine.analyze([
+      ["渠道", "收入（元）", "转化率（%）"],
+      ["A", "20", "5%"],
+      ["B", "30", "10%"],
+    ]);
+    expect(multiple.automatic).toBe(true);
+    expect(engine.initial(multiple, null).metric).toBe(1);
   });
   it("restores chart/filter state and invalidates changes across every identity boundary", () => {
     const scope = [
@@ -150,9 +158,7 @@ describe("HG-192 shared offline engine", () => {
       m = engine.analyze(dates),
       state = { ...m.defaults, view: "chart" as const, from: "2026-09-02" };
     persist(key, state);
-    expect(engine.initial(m, restore(key), "table", "").from).toBe(
-      "2026-09-02",
-    );
+    expect(engine.initial(m, restore(key)).from).toBe("2026-09-02");
     scope.forEach((_, i) =>
       expect(
         storageKey(
@@ -162,10 +168,10 @@ describe("HG-192 shared offline engine", () => {
       ).not.toBe(key),
     );
     expect(storageKey(scope, [...dates, ["2026-09-04", "2"]])).not.toBe(key);
-    savePreference("auto");
+    localStorage.setItem("hermes-go.table-charts.preference", "chart");
     clearCharts();
     expect(restore(key)).toBeNull();
-    expect(preference()).toBe("auto");
+    expect(engine.initial(m, restore(key)).view).toBe("chart");
   });
   it("parses escaped pipes and formatted headers without executing HTML", () => {
     expect(
@@ -207,9 +213,8 @@ it("reports storage read failures while preserving a usable table fallback", () 
   const get = vi.spyOn(localStorage, "getItem").mockImplementation(() => {
     throw new Error("unavailable");
   });
-  expect(preference(failed)).toBe("table");
   expect(restore("key", failed)).toBeNull();
-  expect(failed).toHaveBeenCalledTimes(2);
+  expect(failed).toHaveBeenCalledTimes(1);
   get.mockRestore();
 });
 it("excludes short numeric order and student identifiers from metrics", () => {

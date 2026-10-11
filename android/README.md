@@ -1071,9 +1071,12 @@ perform automatic, forced, silent, incremental, or downgrade installs. Release d
 `releases/<version>.json`; derived hashes, sizes, timestamps, and signing data are generated only by
 the release gate and publisher. See `../docs/APP_UPDATE.md`.
 
-HG-192 adds local table/chart switching, filters and fullscreen state restoration to completed
-chat tables. The offline renderer assets are also emitted by the Web build; Android's dedicated
-WebView can load only those packaged files and exposes a state/draft bridge without credentials.
-Settings → Data presentation selects table first (default), chart first or automatic on this
-client. Per-table configurations are private local preferences; source data models stay in memory.
-See `../docs/DESIGN.md` §5.22 and `../docs/ANDROID_SMOKE.md` for the approved boundary and verification.
+HG-205 keeps completed chat tables in their source form with a single Expand entry. Fullscreen
+uses a local chart only for reliable dimensions and metrics; other tables stay as tables. Adjust
+is collapsed until requested, all valid data is selected initially, and applied filters show a
+range and Restore all. Large plots use explicit 100-point pages with access to every point;
+source rows and exact values remain complete. Closing restores the chat table and reading position.
+Per-table settings are local and scoped; the global Data presentation setting and legacy defaults
+are no longer used. The shared renderer remains isolated without credentials or network access.
+See `../docs/DESIGN.md` §5.22, `../docs/ANDROID_SMOKE.md` and
+`../docs/TABLE_CHART_FULLSCREEN_VERIFICATION.md`.

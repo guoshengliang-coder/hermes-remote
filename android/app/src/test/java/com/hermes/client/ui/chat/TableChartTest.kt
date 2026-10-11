@@ -43,12 +43,13 @@ class TableChartTest {
         TableChartIsolation.FILES.forEach { file -> assertEquals(file, TableChartIsolation.file("${TableChartIsolation.ORIGIN}/$file")) }
         listOf("http://chart.hermes.invalid/chart.html", "https://example.com/chart.html", "file:///chart.html", "content://chart.html", "javascript:alert(1)", "${TableChartIsolation.ORIGIN}/../engine.js", "${TableChartIsolation.ORIGIN}/%65ngine.js", "${TableChartIsolation.ORIGIN}/engine.js?token=secret", "https://user:secret@chart.hermes.invalid/chart.html", "${TableChartIsolation.ORIGIN}/arbitrary.html").forEach { assertNull(it, TableChartIsolation.file(it)) }
     }
-    @Test fun localPresentationHasThreeChoicesAndDefaultsToTable() {
+    @Test fun oldPreferencesAndOldTableFiltersDoNotChangeFirstFullscreen() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        context.getSharedPreferences("table_charts", Context.MODE_PRIVATE).edit().clear().commit()
-        val prefs = ChartPreferences(context)
-        assertEquals("table", prefs.preference())
-        listOf("table", "chart", "auto").forEach { prefs.setPreference(it); assertEquals(it, ChartPreferences(context).preference()) }
+        context.getSharedPreferences("table_charts", Context.MODE_PRIVATE).edit().putString("presentation", "table").putString("legacy", "{\"view\":\"table\",\"from\":\"2026-01-01\"}").commit()
+        val controller = TableChartController("legacy", "raw", "", "", ChartPreferences(context))
+        assertEquals("chart", controller.view)
+        assertNull(controller.state)
+        assertFalse(controller.eligible) // Until the full-screen renderer confirms reliable data.
     }
     @Test fun errorsAreBilingualAndDiagnosticsNeverContainCredentials() {
         listOf(AppErrorCode.CHART_RENDER_FAILED, AppErrorCode.CHART_SETTINGS_FAILED, AppErrorCode.CHART_RANGE_EXCEEDED).forEach { code ->

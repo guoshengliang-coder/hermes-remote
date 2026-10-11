@@ -1806,3 +1806,11 @@ not proof of an iPhone's actual event sequence. No physical iPhone result is rec
    delete still require their separate confirmation. Never confirm deletion on valuable sessions.
 4. Recheck VoiceOver activation and keyboard Enter/Space, Escape/system Back, and desktop right
    click followed by a normal menu click. The menu must remain reachable with these inputs.
+
+## HG-205 — Web fullscreen charts
+
+Run the HG-205 cases in `ANDROID_SMOKE.md` in Chrome and mobile Safari/Home Screen: source-only
+chat, fullscreen recommendation, collapsed Adjust, filter/reset, complete source and exact values,
+100-point page navigation, long labels, resizing, close/reopen and scroll restore. Unsuitable tables
+must expand without required setup. Verify live Gateway CSP, storage denial, renderer retry and
+account/session isolation. DOM and local Chrome checks do not prove Safari or live-account behavior.

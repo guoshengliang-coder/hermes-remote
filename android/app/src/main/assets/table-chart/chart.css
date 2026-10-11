@@ -125,3 +125,34 @@ canvas {
     flex-wrap: wrap;
   }
 }
+
+h2 {
+  font-size: 1.1rem;
+  margin: 0 0 8px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 10px 4px;
+  color: var(--accent);
+}
+details {
+  margin-bottom: 8px;
+}
+.plot-scroll {
+  overflow: auto;
+  max-height: 700px;
+}
+.plot-pages,
+.active-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.plot-pages span {
+  flex: 1 1 100%;
+  font-size: 0.867rem;
+}

@@ -104,7 +104,7 @@ export function Markdown({
         copyCode: t("复制代码", "Copy code"),
         copyTable: t("复制表格", "Copy table"),
         saveTable: t("保存为图片", "Save as image"),
-        fullTable: t("全屏查看", "View fullscreen"),
+        fullTable: t("展开", "Expand"),
       });
       ref.current.replaceChildren(fragment);
       ref.current.setAttribute("aria-busy", "false");

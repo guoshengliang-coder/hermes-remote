@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { mountChart } from "./card";
+import { mountChart, setTableFullscreen } from "./card";
 import { decorateBlocks, renderMarkdownFragment } from "../markdown/render";
-import { engine, restore, savePreference, storageKey } from "./model";
+import { engine, restore, storageKey } from "./model";
 const disposers: (() => void)[] = [];
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -44,11 +44,15 @@ function mount() {
   return { host, table, prepare, flash, context };
 }
 it("uses the same renderer when switching and preserves the original full table", () => {
-  const h = mount(),
-    buttons = h.host.querySelectorAll<HTMLButtonElement>(
-      ".table-view-toggle button",
-    );
+  const h = mount();
   expect(h.host.querySelector("iframe")).toBeNull();
+  expect(h.host.querySelector<HTMLElement>(".table-view-toggle")!.hidden).toBe(
+    true,
+  );
+  setTableFullscreen(h.table, true);
+  const buttons = h.host.querySelectorAll<HTMLButtonElement>(
+    ".table-view-toggle button",
+  );
   buttons[1]!.click();
   const frame = h.host.querySelector("iframe");
   expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
@@ -62,9 +66,9 @@ it("uses the same renderer when switching and preserves the original full table"
   expect(h.host.querySelector("iframe")).toBe(frame);
 });
 it("only accepts messages from its own iframe and nonce; prepares a draft without sending", () => {
-  savePreference("chart");
-  const h = mount(),
-    frame = h.host.querySelector("iframe")!,
+  const h = mount();
+  setTableFullscreen(h.table, true);
+  const frame = h.host.querySelector("iframe")!,
     post = vi.spyOn(frame.contentWindow!, "postMessage");
   window.dispatchEvent(
     new MessageEvent("message", {
@@ -112,8 +116,8 @@ it("only accepts messages from its own iframe and nonce; prepares a draft withou
 });
 it("falls back to the original table with a registered error and a working retry", () => {
   vi.useFakeTimers();
-  savePreference("chart");
   const h = mount();
+  setTableFullscreen(h.table, true);
   vi.advanceTimersByTime(10001);
   expect(h.host.querySelector(".table-scroll")?.hasAttribute("hidden")).toBe(
     false,
@@ -123,4 +127,29 @@ it("falls back to the original table with a registered error and a working retry
   expect(
     h.host.querySelector(".table-chart-host")?.hasAttribute("hidden"),
   ).toBe(false);
+});
+
+it("closing fullscreen restores the complete source and removes the renderer, then reopens the same view", () => {
+  const h = mount();
+  setTableFullscreen(h.table, true);
+  const frame = h.host.querySelector("iframe");
+  expect(frame).not.toBeNull();
+  setTableFullscreen(h.table, false);
+  expect(h.host.querySelector("iframe")).toBeNull();
+  expect(h.host.querySelector<HTMLElement>(".table-scroll")!.hidden).toBe(
+    false,
+  );
+  expect(h.host.querySelector<HTMLElement>(".table-view-toggle")!.hidden).toBe(
+    true,
+  );
+  setTableFullscreen(h.table, true);
+  expect(h.host.querySelector("iframe")).not.toBeNull();
+  h.host
+    .querySelectorAll<HTMLButtonElement>(".table-view-toggle button")[0]!
+    .click();
+  setTableFullscreen(h.table, false);
+  setTableFullscreen(h.table, true);
+  expect(h.host.querySelector<HTMLElement>(".table-scroll")!.hidden).toBe(
+    false,
+  );
 });
