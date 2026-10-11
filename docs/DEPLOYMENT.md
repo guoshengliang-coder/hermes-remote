@@ -2363,3 +2363,37 @@ but the product still declares only `web/gateway/connector`; the missing Android
 not be omitted or substituted to advance the combined item. HG-197 remains in progress with
 publication evidence in comments, pending mapping correction and human device validation.
 Publication does not establish installation on the user's devices or acceptance.
+
+### HG-201 Web session long-press release-click isolation — 2026-10-11
+
+The owner authorized publication of the iOS WebApp long-press fix. Implementation
+[#561](https://github.com/guoshengliang-coder/hermes-remote/pull/561) merged as
+`b5731db47f9d63eee05bc47dcd7b06f7c2b6902c`; PR and resulting-main checks passed through
+`merge-when-green.mjs`. From a fresh, clean isolated worktree at that exact `origin/main`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **87 files / 844
+tests**, build, installer verification and the public shell gate. It atomically installed
+**0.1.1-b5731db47f9d**, replacing `0.1.1-96c341330579`, retained as the rollback target.
+The package version remains 0.1.1; the source commit identifies this Web release. Only Web
+was published; no Gateway, Connector, Desktop or upstream service restart occurred.
+
+Independent public verification downloaded all **18** manifest files in full and matched
+every size and SHA-256 (**785,822 bytes** total). `/app/` returned 200 with the matching
+shell, `no-store` and self-only script CSP; the live `current` link and previous release
+directory were confirmed. `/relay-health` returned 200 with `ok=true`. Archive SHA-256:
+`b70317fe1db77b1a156442628fdde258de36be7d919953f47f391be3d4782489`.
+Independent publication receipt SHA-256:
+`a18318be17435893db584eebcafd1f6e2e4215a6b1bb390affbc0e709403fec6`.
+Evidence is outside Git at `/Users/bs/.codex/artifacts/hg201-web/`.
+
+The long press now consumes its release click even when the click targets the newly opened
+menu or scrim, or the source row unmounts. A subsequent independent pointer or keyboard
+interaction resumes normal activation. The 21 focused regressions cover these boundaries,
+ordinary/bot/archived sessions, prolonged holding, scrolling and native context-menu behavior.
+No physical iPhone was attached; Safari/PWA native event sequences and VoiceOver remain
+unverified. Use the HG-201 steps in `docs/SMOKE_TEST.md` for device verification.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor.
+HG-201's required `web` artifact matched this verified publication; a release comment was
+written and the item moved to **pending verification**. HG-148 requires `androidApp` and
+HG-134 requires `macosApp`; neither artifact was published in this batch, so those candidates
+were left unchanged. Publication does not establish device acceptance.
