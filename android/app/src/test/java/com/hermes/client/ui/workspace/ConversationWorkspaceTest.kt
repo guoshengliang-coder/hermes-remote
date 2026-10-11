@@ -176,6 +176,7 @@ class ConversationWorkspaceTest {
             val paneWidth = mutableStateOf(720f)
             lateinit var list: androidx.compose.foundation.lazy.LazyListState
             lateinit var scope: kotlinx.coroutines.CoroutineScope
+            lateinit var viewport: com.hermes.client.ui.chat.ChatViewportController
             val messages = (1..80).map { n -> com.hermes.client.domain.ChatMessage(
                 id = "message-$n", role = if (n % 2 == 0) com.hermes.client.domain.Role.ASSISTANT else com.hermes.client.domain.Role.USER,
                 text = if (n % 2 == 0) "第 $n 答。\n\n保留当前阅读位置。\n\n- 要点一\n- 要点二\n- 要点三" else "第 $n 问：如何适应当前窗口？",
@@ -189,7 +190,7 @@ class ConversationWorkspaceTest {
                             repeat(12) { withFrameNanos { } }
                         }
                     }
-                    val viewport = rememberConversationValue("chat:viewport", com.hermes.client.ui.chat.ChatViewportController.Saver) { com.hermes.client.ui.chat.ChatViewportController() }
+                    viewport = rememberConversationValue("chat:viewport", com.hermes.client.ui.chat.ChatViewportController.Saver) { com.hermes.client.ui.chat.ChatViewportController() }
                     CompositionLocalProvider(LocalChatWidth provides paneWidth.value) {
                         com.hermes.client.ui.chat.ChatMessageList(
                             state = com.hermes.client.ui.chat.ChatUiState(messages = if (loading.value) emptyList() else messages, historyLoaded = !loading.value, historyLoading = loading.value),
@@ -200,6 +201,7 @@ class ConversationWorkspaceTest {
                 } } else Text("another conversation")
             } }
             compose.waitForIdle()
+            compose.waitUntil(5_000) { viewport.pendingParses == 0 }
             compose.runOnIdle { scope.launch { list.scrollToItem(1, 130) } }
             compose.waitForIdle()
             val index = list.firstVisibleItemIndex
@@ -227,6 +229,10 @@ class ConversationWorkspaceTest {
                 }
             }
             compose.waitUntil(5_000) { compose.onAllNodes(hasText("第 80 答。")).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitForIdle()
+            // A visible Markdown node precedes the asynchronous parse/layout restoration.
+            // Wait for the production transaction to finish; keep exact geometry assertions.
+            compose.waitUntil(5_000) { viewport.pendingParses == 0 && !viewport.isRestoring() }
             compose.waitForIdle()
             assertEquals(titleTop, title.fetchSemanticsNode().boundsInRoot.top, 1f)
             assertEquals(index, list.firstVisibleItemIndex)

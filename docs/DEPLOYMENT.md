@@ -2517,3 +2517,101 @@ The complete Hermes GO release-candidate metadata contained one page without a n
 HG-204's required `web` artifact matched this publication. HG-148 requires `androidApp`;
 HG-134 requires `macosApp`. Neither artifact was published in this batch, so neither
 candidate is eligible for advancement by this publication.
+
+### HG-205 fullscreen charts and HG-206 five-minute voice publication — 2026-10-11 (authorized)
+
+The owner requested publication of HG-205 and then explicitly approved the additional
+Gateway 0.4.33 prerequisite and HG-206 notes in Codex chat
+`01a129b5-ff1c-7102-8bb7-f76ac5379ed0`. Publication order was Gateway → Web → Android.
+HG-205 [#569](https://github.com/guoshengliang-coder/hermes-remote/pull/569) and its touch
+follow-up [#570](https://github.com/guoshengliang-coder/hermes-remote/pull/570), plus HG-206
+[#572](https://github.com/guoshengliang-coder/hermes-remote/pull/572), are ancestors of the
+published source. Android allocation [#573](https://github.com/guoshengliang-coder/hermes-remote/pull/573)
+reserved **0.1.171 / code 172**. Version/complete-note
+[#574](https://github.com/guoshengliang-coder/hermes-remote/pull/574) merged through the red-light
+gate as **5438b4ef8cc498a6cda228efb9fd2273de8d0b72**, with every applicable PR/main check green.
+It advances Gateway 0.4.32 → **0.4.33** and adds the five-minute voice Android note; it changes
+no protocol, schema, client minimum or Connector/Desktop package version.
+
+Paired Gateway/operator archives came from successful main
+[Gateway OCI run 38124705290](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/38124705290).
+Both archive hashes and the OCI/config identity passed local checks; the same pair passed HK
+hash checks and validation from the freshly extracted operator at
+`/opt/hermes-go-ops/5438b4ef8cc4`. Gateway archive SHA-256:
+`b29ffad6a7a5f9086e385ac86a597e1c1e48c8d59a91b0de7fb91a442044f201`;
+operator archive SHA-256:
+`0a3eb27f9cea3429508d940ca9352beb95ce5135a3c11c605937a58c9ec56abd`.
+The new root-only release configuration cloned the live 0.4.32 configuration and changed only
+operator identity and target manifest. The official production entrypoint committed run
+**39a4fe62-f390-4085-9aaf-a2e4f1db31a1**, **green → blue**, including candidate readiness,
+private/public smoke and observation gates. `current` → `releases/0.4.33-5438b4ef8cc4`;
+`previous` → `releases/0.4.32-30538deb2587`, the same-schema rollback target. Independent
+protected runtime identity and public capability/health checks passed: exact clean source,
+schema **18**, healthy Docker with zero restarts, unchanged protocols/minimum clients.
+Nginx site SHA-256 remained
+`1ad309cdd626113a03eb5bbc715bf905801bfa49432832f801ffc9886c72c318`.
+The voice proxy deadline is now **330 seconds**, covering 300 seconds of actual recording plus
+connection/final-result time. No schema migration or Connector/Desktop release was performed.
+
+Web was first published for HG-205 as `0.1.1-7ee61c4de343`, then republished after Gateway to
+**0.1.1-5438b4ef8cc4** so HG-206 is included too. The official publisher ran from the clean
+isolated release worktree at exact `origin/main`, with typecheck, **91 files / 897 tests**,
+build, atomic installation and public index verification. All **20** public files were fully
+downloaded and matched manifest size/SHA-256; archive SHA-256:
+`b18cb57a1a62a4dcadbc679a3b98412843ff80cbb9ae6887c576fb62e347c195`.
+Chrome public `/app/` returned HTTP 200, displayed the login screen, and had no page errors.
+This checks shell startup, not an authenticated chat or microphone session. Public chart headers
+also retained `frame-src 'self'`, sandboxed framing, no-cache and cross-origin CORP.
+
+The official Android release train pushed `android-v0.1.171` at the same clean source.
+[Android release run 38125315368](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/38125315368)
+attempt 2 passed the complete package gate (`APK_RELEASE_OK`), feedback-configuration proof,
+canonical signing, upload and public readback. Independent full public download verified
+**0.1.171 / code 172**, package `com.hermes.remote`, internal channel, measured minSdk **26**,
+33,374,063 bytes, SHA-256
+`2263c3c79e9a826929166c72d697215fb4094f5440dc4104dd561886b3f6b8b6`,
+and the sole canonical certificate from `docs/SIGNING.md`. The public index's latest code,
+source and all three release notes matched, and unversioned/unregistered APK URLs returned 404.
+The deliverable is https://mrlgs.net/releases/Hermes-Remote-0.1.171-debug.apk .
+
+The first Android CI attempt stopped before APK upload: the existing
+`ConversationWorkspaceTest.restoredTranscriptWaitsForMarkdownParsingBeforeSettlingItsPosition`
+asserted a visible Markdown node's position while asynchronous restoration was still active.
+Its unchanged isolated test reproduced a 131 px mismatch locally. Waiting for the parse queue
+and restoration transaction to finish retained all exact geometry/index/offset assertions and
+passed the complete 12-case class plus the 2,463-test full Android baseline and debug build
+with canonical signing verification. A single official retry at the original release source ran
+every package/publication gate again. The test synchronization fix in
+[#575](https://github.com/guoshengliang-coder/hermes-remote/pull/575) is merged with this
+publication record only after the public release, and does not change product code or
+require a new APK version.
+
+Equivalent evidence outside the worktree uses `hermes-go-batch-release-receipt-v1`,
+SHA-256 `77b324f560001090825c333ebb5e8544444ef367fad60e8fe6cf9023f6327190`.
+All three published sources independently contain the relevant feature
+merges; all public bytes/runtime identities were checked before handover. The complete one-page
+candidate snapshot had **five** items: HG-200, HG-206, HG-205, HG-148 and HG-134. Full PR files
+were independently mapped to artifacts, including the shared Android chart assets consumed by
+Web. HG-205/HG-206 descriptions, all nine pre-release events and unchanged attachments were
+fully read (HG-206 image 1 was viewed). Release comments
+`582cd635-cc6c-4e1c-b4cc-b9e829dc6b3f` / `9adfaef5-94c3-4078-b3e2-2f77272a3b29` were written
+first, then both items moved to **pending verification** with the receipt digest and every
+required artifact source/version. HG-148 stays development complete because its formal
+handover still identifies #462/Android only while its independently verified #465 repair also
+requires Gateway; the item explicitly documents the missing association. No correction or
+acceptance was attempted. HG-200 requires a Website artifact and HG-134 a macOS artifact,
+which this batch did not publish. Their statuses were unchanged.
+
+Local release preparation build/tests passed: Protocol 16, Connector 125, Gateway 202
+(29 database cases skipped), Release Server 37, scripts 405 (one skipped). The scripts gate used
+Homebrew OpenSSL 3, and the official Linux release CI ran its complete Node gate too.
+Verification limits remain explicit. HG-205 implementation ran Android L1 screenshots and L3
+Pixel_API_37 / emulator-5554 / API 37 gallery scenarios; Chrome template interaction and the
+real CDP touch regression passed. HG-206 implementation reported 2,462 Android JVM tests,
+voice L1 screenshots and its own Web/Gateway regressions; the release gates above validate the
+combined source. L2 device `A5DN9X4708H02629` remains USB-unauthorized. Safari/Home Screen,
+TalkBack, real-account history/rotation, continuous five-minute recordings against the actual
+provider, background/lock-screen and repeated-recording behavior remain for manual validation
+in `docs/SMOKE_TEST.md`, `docs/ANDROID_SMOKE.md` and
+`docs/TABLE_CHART_FULLSCREEN_VERIFICATION.md`. HG-206 did not run L3; no targetSdk change.
+Publication and pending-verification handover do not constitute device installation or acceptance.
