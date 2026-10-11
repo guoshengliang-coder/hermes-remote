@@ -220,6 +220,9 @@ class ConversationWorkspaceTest {
                 compose.runOnIdle { entry.value++; loading.value = true; visible.value = true }
                 compose.waitForIdle()
                 compose.runOnIdle { loading.value = false }
+                // Dispatch the cold-to-content recomposition/layout before waiting on a latch
+                // owned by the background parser. The latch itself does not synchronize Compose.
+                compose.waitForIdle()
                 if (blockParsing) {
                     compose.waitUntil(5_000) { entered.count == 0L }
                     compose.mainClock.advanceTimeBy(500)

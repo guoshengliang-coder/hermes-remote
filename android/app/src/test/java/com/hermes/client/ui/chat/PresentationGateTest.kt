@@ -35,11 +35,23 @@ class PresentationGateTest {
         )
     }
 
-    @Test fun `a live run is never masked`() {
+    @Test fun `a live run before its first content can paint the running indicator`() {
         assertEquals(
             true,
             immediatePresentationDecision(isGenerating = true, historyLoading = true, historyLoaded = false),
         )
+    }
+
+    @Test fun `reopening a running answer waits for its first layout`() {
+        assertNull(immediatePresentationDecision(
+            isGenerating = true, historyLoading = true, historyLoaded = false, hasTranscript = true,
+        ))
+    }
+
+    @Test fun `cached rows do not wait for the history loaded flag`() {
+        assertNull(immediatePresentationDecision(
+            isGenerating = false, historyLoading = true, historyLoaded = false, hasTranscript = true,
+        ))
     }
 
     @Test fun `a visible live answer stays visible while completion history is loading`() {
