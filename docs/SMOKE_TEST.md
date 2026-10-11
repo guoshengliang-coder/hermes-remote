@@ -224,6 +224,23 @@ logs `refused 4000` — a line that must never appear while using the app.
 
 For a deployed relay, set `PUBLIC_GATEWAY_URL` and `APP_TOKEN` in the invoking shell before running the same script. Keep the token out of command history and source control. A successful real-Hermes run accepts `gateway.ready` and any non-error result from `session.create`.
 
+## Android conversation re-entry (2026-10-11, 0.1.170 recording)
+
+L1 covers paused real Markdown parsing, saved reading positions and the actual reveal executor.
+The following navigation/visual checks still need a physical device; the attached phone was USB
+unauthorized on the development host, so no L2 result is claimed.
+
+1. Open a long completed answer with headings, a table and lists. Scroll into its middle, return
+   to the chat list and reopen it repeatedly. The first visible transcript must keep the saved
+   reading position, with no short placeholder, height collapse or replay of completed text.
+2. Repeat while the answer is streaming. Stay on the list while more text arrives, then reopen:
+   all text already present on return appears together; only subsequent output is paced.
+3. Leave while a large burst is still being visually revealed, let the run finish on the list,
+   then reopen. The completed answer must appear in full rather than drain the old reveal cursor.
+4. Send another prompt without leaving the page. New text still uses typewriter pacing, and
+   completion drains that current reveal without hiding the transcript. Repeat in app dark mode
+   with the system light and enlarged text.
+
 ## Attachment and large-response smoke test
 
 With Gateway and Connector running locally and `FILES_ROOT` pointing at a dedicated test directory:

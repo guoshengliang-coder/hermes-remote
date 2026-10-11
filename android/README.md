@@ -983,6 +983,18 @@ Freezing a new built-in default happens in a later release, after the user suppl
   `Your AI agent, in your pocket.` in English; operational status and recovery actions still follow
   the in-app language setting.
 
+## Conversation entry
+
+Transcript presentation readiness is local to each mounted conversation. Cached completed and live
+answers wait for their initial Markdown parsing, saved reading position and layout to settle before
+reveal, without waiting for a network refresh or showing a cold-load skeleton. Once revealed, the
+same mounted transcript stays visible through refresh and completion. Regression tests pause real
+parsing on re-entry and check the intermediate rendered frame as well as the restored item/offset.
+The reveal cursor is also local to the mounted page. The first non-empty transcript establishes the
+entry baseline even if the ViewModel initially emitted an empty loading state: existing live text
+is shown in full, including text generated while away. Completed answers never resume an old cursor.
+Subsequent live output and its final completion still use paced reveal.
+
 ## Build
 
 For local development checks, no MissionGo credentials are needed:
