@@ -23,7 +23,45 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 
 本阶段的 verifiedTargets 默认空。源码兼容检查或样本数据库检查通过，均不足以加入推荐列表。
 
-## 阶段二：升级执行和恢复（待实现）
+## 阶段二：升级执行和恢复（事务基础已实现，执行适配未开放）
+
+目前产品增加只读“检查升级条件”：识别 dirty/unknown 工作树、官方更新进行中、未完成或
+不可读的 GO 升级日志，检查过程中不修改 Git index。它不是任务退休/停写证明，不授权执行。
+
+已实现的核心边界：
+
+- `DesktopHermesUpgradeCoordinator` 串行化点击，并在每个副作用前持久化意图；来源 commit →
+  目标 version/commit 必须属于已验证升级路径，不能仅凭目标版本兼容就允许任意来源升级。
+  实际操作由 `DesktopHermesUpgradeOperating` 提供；当前没有启用的生产适配器或已认证路径。
+- owner-only `hermes-upgrade-state.json` 采用有界严格解码、原子替换和 fsync。阶段表示可能已经
+  开始的工作。重启后按同一 run/目标续作，适配器须重查 receipt custody、工作树和未知新写入；
+  不能把失败步骤直接当成未发生。损坏/未知 schema/软链日志同样阻止自动修复。
+- 共用 migration operation lease；未完成日志在 lease 获取及运行协调的最前面阻止迁移、组件更新、
+  服务修复、token/PATH 重启、bundled 未加载时的拉起，以及安装 Hermes。关闭本机运行设置也不绕过。
+- 取消只在停写/备份阶段接受，恢复原服务后才记录 cancelled。源码变更后保留固定目标继续收尾；
+  关闭 UI 取消等待任务不会取消事务子任务。进程真正死亡则留下恢复游标。
+- `DesktopHermesUpgradeBackupStore` 需要调用方持有锁并在前后证明 writers 停止。完整 home 包含
+  checkout、venv/PM tools、profiles/config/cron；软链只保存链接本身。SQLite 用 backup API 合并
+  已提交 WAL 数据并 quick_check，输出不依赖 WAL/SHM。源指纹与归档 hash 复核、空间检查、0700/0600
+  私有权限及 fsync 后才出具 receipt。同一 run 的已完成备份可验证后复用，源数据变化则拒绝。
+  SQLite 恢复只导出到新目录，绝不覆盖原 home 或已存在的恢复目录；新增会话留在原库。
+- 完成判定同时要求当前 run 的官方终态 receipt、无 followups/未恢复服务、PM 同步成功、
+  输入有效、精确磁盘/boot commit、原 loaded/unloaded 状态及无 completion/fleet 欠账。
+  不能仅凭 exit 0、success 字段或“Update complete”文案宣称成功。
+
+2026-10-11 隔离 macOS 演练：在一次性 HOME/HERMES_HOME、清空继承凭据、固定 818c13be 源码下，
+实际执行官方 `_update_takeover.prepare`（PM）与 `update_finish`。PM 选中 Python 3.14.7 managed
+环境并完成同步；finish 完成构建/维护后 exit 0、receipt outcome=success，但 gateway_restart.incomplete
+及 gateway_restart followup 仍存在。沙箱显式禁止所有信号、launchctl/osascript 及临时目录外写入，
+所以服务恢复被按预期拒绝；这验证欠账识别，不证明真实服务恢复成功。首次使用了不匹配的 PM
+correlation id 被官方收尾拒绝；修正为同一 update_id 后完成该演练。该临时 home 没有真实旧 venv
+或用户数据，不能称为完整 0.21.3 → 0.21.6 升级验收，也没有认证该目标或执行现用安装升级。
+
+以下执行适配与验收仍待实现/验证，HG-199 保持进行中：
+
+备份工具当前覆盖 Hermes home 内的文件，完整恢复点还须由适配器保存原 LaunchAgent/启动状态，
+并验证或另存 home 外的解释器依赖闭包（旧 venv 可能链接到用户 uv 的 Python）。保存链接本身
+不能保证外部解释器以后仍存在。因此单独的 home 备份不构成代码/依赖/服务联合回退认证。
 
 1. 用户确认精确目标 version + commit；继续前重查身份、工作树、运行中请求、未知服务/布局、
    空间和并发操作。默认发现 stable，保留用户已有更新频道设置；远程发起另行授权。

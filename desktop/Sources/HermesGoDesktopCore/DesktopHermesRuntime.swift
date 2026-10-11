@@ -428,6 +428,7 @@ public enum DesktopHermesRuntimePlan: Equatable, Sendable {
 }
 
 public enum DesktopHermesRuntimeAttention: Equatable, Sendable {
+    case upgradeRecoveryRequired
     case unsupported(DesktopLocalHermesUnsupportedReason, detail: String)
     /// Local mode is configured but the owner's Hermes is gone and there is no usable bundled agent
     /// to return to.
@@ -747,6 +748,8 @@ public extension DesktopIssue {
     static func hermesRuntime(_ reconciliation: DesktopHermesRuntimeReconciliation) -> DesktopIssue? {
         guard case .unchanged(.surface(let attention)) = reconciliation else { return nil }
         switch attention {
+        case .upgradeRecoveryRequired:
+            return DesktopHermesUpgradeError.recoveryRequired.issue
         case .unsupported(let reason, let detail):
             return DesktopIssue(code: .localHermesUnsupported, technicalCause: "reason=\(reason.rawValue) \(detail)")
         case .localHermesMissingWithoutFallback:
@@ -787,6 +790,7 @@ public extension DesktopIssue {
     /// otherwise; either way the cause names the operation, the original error and
     /// the recovery error (`DesktopServiceRecoveryFailure`).
     static func hermesRuntimeFailure(_ error: Error) -> DesktopIssue {
+        if let upgrade = error as? DesktopHermesUpgradeError { return upgrade.issue }
         let code: DesktopIssueCode = switch DesktopServiceRecoveryFailure.classification(of: error) {
         case .hermesReloadFailed: .managedHermesNotLoaded
         case .hermesPortInUse: .managedHermesPortInUse

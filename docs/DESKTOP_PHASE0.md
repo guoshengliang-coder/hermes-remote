@@ -13,8 +13,13 @@ The separate Settings Hermes card fetches official stable release metadata and r
 actual commit. It displays the local installation, upstream latest, GO-verified recommendation and
 check time. GO and Hermes checks run independently; a build without GO indexes can still manually
 check Hermes. There are currently no certified upgrade targets and no execution action. This is
-stage one of HG-199, not a completed one-stop updater. Transactional backup, fixed-target official
-update, interruption recovery and running-process acceptance remain in `HERMES_UPGRADE.md`.
+stage one of HG-199, not a completed one-stop updater. The stage-two transaction foundation now
+adds durable write-ahead phases, a shared operation lease, cancellation/resume boundaries, private
+WAL-safe full-home backups, database export to a new directory and exact-run completion evaluation.
+Pending/unsafe upgrade journals block startup repair even with local runtime disabled or bundled
+Hermes unloaded, and block new Hermes installation. Settings offers an inert local-condition check.
+Concrete idle/retirement, upstream-lock custody, fixed-source official execution and service adapters
+remain unenabled; see `HERMES_UPGRADE.md` for the sandboxed PM/owed-restart evidence and remaining gates.
 
 ## Explicit managed-service repair (HG-175)
 

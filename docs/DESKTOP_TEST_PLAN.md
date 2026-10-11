@@ -19,6 +19,25 @@ strings and stable release with no certified recommendation. Do not launch a tes
 owner's services to satisfy this checklist; use an isolated Mac/home with managed fixtures.
 HG-199 stays in progress until stage-two upgrade/recovery and stage-three cross-client acceptance.
 
+Stage-two foundation automation covers write-ahead order, immutable targets/channels, tested
+source→target gating, source movement between inventory and lock, concurrent clicks, failure at each
+effect and reconstruction of a coordinator for resume, safe cancellation, UI task cancellation after
+commit, malformed/future/dangling journals, and startup/migration/repair lease guards. Effect failures
+are injected, not actual process-kill tests against the full updater. Git fixtures check tracked and
+untracked modifications and unchanged index timestamps. SQLite fixtures verify committed WAL data,
+private config/cron snapshots, repeatable backup receipts, source changes/tampering, symlink preservation,
+separate-directory DB export and preservation of later live writes. Completion tests reject exit-zero
+success with followups and require independent service/boot/environment evidence.
+
+The local macOS official PM + finish experiment runs only in a temporary home with a kernel sandbox
+denying signals, launchctl/osascript and writes elsewhere. It proves PM provisioning and the owed-work
+receipt shape; denied service restoration prevents certification. It has no genuine old venv/history.
+Still needed: actual clean old→fixed target upgrade, upstream lock inheritance across parent death,
+real stopped-writer inventory/retirement, process-kill boundary matrix, original service restoration,
+full history/Q&A/stream/cancel/attachment/approval/clarify/cron acceptance and physical Mac UI review.
+The new condition rows also need light/dark review on that isolated Mac. Do not launch this app against
+the owner's production services merely to satisfy the visual check.
+
 ## HG-175 repair acceptance
 
 Automated `DesktopManagedServiceRepairTests` covers the 16 combinations of file presence/job loading,

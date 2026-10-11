@@ -1498,6 +1498,26 @@ final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
 
     /// A bundled job that launchd does not have loaded is loaded again, with or without the
     /// setting, instead of being "left alone" forever.
+    func testInterruptedHermesUpgradePreventsBundledReloadAndTokenOrPathRepair() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        fixture.runner.replaceLoaded(with: [DesktopManagedInstallLayout.connectorLabel])
+        let pending = fixture.journal.hermesUpgradeJournal.journalURL
+        try Data("{}".utf8).write(to: pending)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: pending.path)
+        let previous = fixture.serviceMutations().count
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            XCTFail("pending journal must be checked before runtime detection")
+            return try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }
+        XCTAssertEqual(result, .unchanged(.surface(.upgradeRecoveryRequired)))
+        XCTAssertEqual(DesktopIssue.hermesRuntime(result)?.code, .hermesUpdateRecoveryRequired)
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage())
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileCommittedHermesSearchPath())
+        XCTAssertEqual(fixture.serviceMutations().count, previous)
+    }
+
     func testABundledJobThatIsNotLoadedIsLoadedAgain() async throws {
         for enabled in [true, false] {
             let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)

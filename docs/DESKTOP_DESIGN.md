@@ -11,6 +11,13 @@ recommendation reads “尚无验证结果”; unverified latest explains that e
 through GateIssueBanner, keeping raw technical causes behind details. No upgrade confirmation or
 execution button is exposed until the official adapter/recovery certification in stage two.
 
+After a successful version check, “检查升级条件” uses the same small bordered control. It adds
+“本地修改”, “升级恢复”, and “其他更新” rows; dirty files are explained without printing filenames or
+private content. This check does not stop services or modify data and does not certify execution.
+An unfinished/unsafe upgrade journal keeps `HR-HERMESUPDATE-003` visible after another version check
+and pauses automatic recovery, including when the local-runtime setting is off. Execution/confirmation
+and actual recovery controls still require a certified concrete adapter; they are not exposed yet.
+
 ## Repairing a committed installation (HG-175)
 
 A committed `account_active` install with either managed LaunchAgent file missing or job unloaded
