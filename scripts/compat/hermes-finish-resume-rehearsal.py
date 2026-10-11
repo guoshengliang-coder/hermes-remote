@@ -149,6 +149,9 @@ def main(source, seed, mode):
     assert receipt["pm_sync_outcome"] == "ok" and receipt["post_update"]["sha"] == COMMIT
     assert receipt["post_update"]["version"] == "0.21.6" and receipt["outcome"] == "success"
     assert receipt["gateway_restart"]["incomplete"] and any(row["step"] == "gateway_restart" for row in receipt["followups"])
+    original_config = (root / ".git/config").read_bytes()
+    go.verify_source(root, COMMIT, installation=True)
+    assert (root / ".git/config").read_bytes() == original_config
     try:
         go.validate_finish_handoff(cfg, root, home, run)
     except go.Refused as error:
@@ -156,7 +159,7 @@ def main(source, seed, mode):
     else:
         raise AssertionError("finishing checkpoint allowed a second effect")
     refused = command("resume-finish")
-    assert refused["event"] == "refused", "terminal service debt was replayed"
+    assert refused == {"schema": 1, "event": "refused", "reason": "finish_checkpoint_not_ready"}, "terminal service debt was replayed or source validation did not reach its checkpoint"
     assert context.read_bytes() == before and archived[0].read_bytes() == saved_receipt
     print(json.dumps({"fixture": str(base), "mode": mode,
         "official_prepare_killed": "passed" if mode == "resume" else "not exercised",
@@ -164,6 +167,7 @@ def main(source, seed, mode):
         "normal_update_entry": "passed" if mode == "update" else "not exercised",
         "original_handoff_and_ids": "passed", "terminal_debt_not_replayed": "passed",
         "checkpoint_replay_guard": "passed", "worker_repeat_refusal": refused.get("reason"),
+        "post_finish_source_validation": "passed; original Git config retained",
         "go_completion": "blocked: sandbox-denied service recovery", "backup": "injected fixture; not verified"}))
 
 

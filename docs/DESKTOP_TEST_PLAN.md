@@ -82,8 +82,21 @@ Local 2026-10-11 runs passed both paths: SIGKILL after PM ready→official finis
 update→official prepare/finish; same IDs/target version and original-context/terminal-debt retention
 passed. Read-only verification independently rejects the finishing checkpoint before any replay.
 Official maintenance attempted to extend shallow history and left partial-clone config; the
-packaged worker's additional config guard refuses a repeat too. Do not remove those flags/guards
-to simulate recovery. Supporting the official partial-clone shape remains an uncertified boundary.
+previous packaged worker's config guard also refused the repeat. Do not remove those flags/guards
+to simulate recovery. The subsequent worker increment accepts only the standard live origin/blob:none
+pair (optional old extensions.partialclone=origin), leaving frozen candidates strict. Unit fixtures
+cover absent commit/tree/Python and non-Python blobs, missing historical blobs, duplicate/nonstandard
+metadata and VCS helpers. Missing objects cannot launch a planted promisor helper; transport denial
+also holds when the no-lazy-fetch variable is deliberately ignored. Inherited Git path/config
+overrides are cleared; only explicit verified-snapshot fetch admits file transport. The currency
+probe also denies Git transports, without imposing that temporary fence on finish's explicit fetch.
+Read-only checks of both retained official partial checkouts passed without altering Git config.
+The opt-in rehearsal now requires a post-finish offline source check and the actual repeat command
+to reach finish_checkpoint_not_ready, not just fail at the old partial-config guard. Full upgrades,
+other partial layouts and missing-object repair remain uncertified.
+Both fresh follow-up modes passed: official finish left origin/blob:none metadata, post-finish
+offline source validation kept the config intact, and the actual repeat command reached
+finish_checkpoint_not_ready while preserving context/receipt/debt. Exact IDs are in HERMES_UPGRADE.md.
 Both fixtures keep gateway restart owed; neither certifies services, backups, business or GO completion.
 A retired external WAL-writer regression reproduces Apple SQLite's missing-sidecar backup failure;
 only a source with no pending WAL/rollback pages gets immutable reading. Nonempty WAL coverage remains.

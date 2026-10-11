@@ -54,7 +54,13 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 - 新增随 app 打包的 `hermes-upgrade-worker.py` 和 Swift IPC 驱动。驱动清空继承环境，只传
   明确的 home、缓存、关联身份及选定代理；私有配置先落盘，同一 run 不允许替换配置。
   worker 验证固定 Git 源快照全部 Python blob，拒绝隐藏 index 修改、额外 Python 模块、可执行
-  Git filter/include/URL 重写或部分克隆配置，然后调用目标源码的真实 `UpdateLock`。
+  Git filter/include/URL 重写，然后调用目标源码的真实 `UpdateLock`。冻结源快照仍拒绝 partial-clone
+  元数据；实际安装仅接受 origin 的单一 `promisor=true` / `partialclonefilter=blob:none` 配对
+  （旧 Git 的 `extensions.partialclone=origin` 可同时存在）。其他 filter、remote、重复/缺失键、
+  自定义 VCS helper 均拒绝。固定当前版本的 commit、所有 tree 和全部文件 blob 必须在本地，
+  清单最多 32768 项；历史旧 blob 可缺失。GO Git 查询清除继承的 Git 环境，禁用 lazy fetch
+  并禁止所有传输，缺对象保持恢复状态，不能自动下载；仅已校验本地快照的显式 fetch 允许 file。
+  官方 PM currency 子进程也禁止 Git 传输；该临时限制不传入执行显式历史补全的 finish 环境。
   获取锁只写官方锁记录；停写和备份由机器适配器提供，写入 updating 意图后才可执行。
   源码移动使用固定对象的 fast-forward/精确 detached checkout，先持久化官方 completion、fleet
   和 interrupted-pull 义务，再调用官方 historical takeover → PM → finish。没有 pip/reset/stash 回退。
@@ -92,9 +98,16 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
   `fbc10770-831c-405e-ab97-6c850dcff0b5`）实际执行固定 17b5df02→818c13be 移动及新的官方
   prepare/finish 子进程入口，均 exit 0、版本 0.21.6，但 sandbox-denied gateway_restart 仍欠账。
   finishing checkpoint 独立拒绝重放；两次 CLI 重试还被 Git 配置检查拒绝，官方维护的历史
-  扩展尝试留下 partial-clone 元数据。该标准上游形态目前仍未认证支持，不能删除 flag 绕过门禁。
+  扩展尝试留下 partial-clone 元数据。当时的旧 guard 拒绝该配置；后续只读验证已接受上述
+  标准形态，不删除 flag，也不允许校验阶段补对象。完整升级认证仍待完成。
   这些新演练没有真实旧 venv、实际一致备份、用户历史、GO 服务或业务验收；注入备份 hash
   只测试 worker 的 journal 绑定，不是有效恢复点。原完整旧 venv/合成历史演练见下文。
+  partial-clone 增量后的两个新隔离 run `e0ffce7a-d439-430a-87d7-b6cf5911258a`
+  （官方 `2845d36d-23d0-41f3-86bb-0d78377c73d1`，SIGKILL→resume）和
+  `c798cc95-04bd-4517-b9d7-e82a3e86fe73`（官方 `c8e3c98a-f2fc-4d7a-9837-1bf0eed48bde`，
+  普通 update）均完成真实官方 PM/finish；收尾实际留下 origin/blob:none 配置。随后源码离线
+  校验通过且配置原样保留，真实 CLI 重试到达 `finish_checkpoint_not_ready`，原上下文/回执
+  和 gateway_restart 欠账保留。仍采用上述暖缓存/注入 journal/backup 边界，不认证机器恢复。
 - 真实 macOS 进程矩阵已验证：GO bridge 排斥另一个官方 updater，同 checkout 的不同 home
   及共享 Git common dir 的 linked worktree 也不能绕过；真实锁主进程被终止后，官方 post-commit 子进程仍持有 checkout/delegate custody，
   子进程退出后锁可重新领取。CI 将同一矩阵运行在 Ubuntu 和 macOS；这不等于完整升级终止矩阵。

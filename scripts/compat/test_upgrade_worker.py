@@ -107,6 +107,111 @@ class WorkerBoundaryTest(unittest.TestCase):
             self.git("config", "--unset", key)
         worker.verify_source(self.root, commit)
 
+    def partial_clone(self):
+        self.git("config", "remote.origin.promisor", "true")
+        self.git("config", "remote.origin.partialclonefilter", "blob:none")
+
+    def test_standard_partial_live_tree_is_accepted_without_changing_config(self):
+        commit = self.repository(); self.partial_clone()
+        before = (self.root / ".git/config").read_bytes()
+        worker.verify_source(self.root, commit, installation=True)
+        self.assertEqual((self.root / ".git/config").read_bytes(), before)
+        # Frozen candidate assets still require a self-contained source, not a promisor.
+        with self.assertRaises(worker.Refused): worker.verify_source(self.root, commit)
+        self.git("config", "core.repositoryformatversion", "1")
+        self.git("config", "extensions.partialclone", "origin")
+        before = (self.root / ".git/config").read_bytes()
+        worker.verify_source(self.root, commit, installation=True)
+        self.assertEqual((self.root / ".git/config").read_bytes(), before)
+
+    def test_nonstandard_partial_metadata_and_helpers_are_refused(self):
+        commit = self.repository(); self.partial_clone()
+        for key, value in [("remote.origin.partialclonefilter", "tree:0"),
+                           ("remote.origin.promisor", "false"),
+                           ("remote.other.promisor", "true"),
+                           ("extensions.partialclone", "other"),
+                           ("remote.origin.vcs", "fixture")]:
+            self.git("config", key, value)
+            with self.assertRaises(worker.Refused, msg=key):
+                worker.verify_source(self.root, commit, installation=True)
+            self.git("config", "--unset-all", key)
+            self.partial_clone()
+        self.git("config", "--add", "remote.origin.promisor", "true")
+        with self.assertRaises(worker.Refused): worker.verify_source(self.root, commit, installation=True)
+        self.git("config", "--unset-all", "remote.origin.promisor")
+        for key in ["remote.origin.promisor", "remote.origin.partialclonefilter"]:
+            self.partial_clone(); self.git("config", "--unset-all", key)
+            with self.assertRaises(worker.Refused): worker.verify_source(self.root, commit, installation=True)
+
+    def test_missing_tip_objects_never_launch_a_promisor_helper(self):
+        self.repository()
+        (self.root / "README.md").write_text("non-Python object must also be local\n")
+        self.git("add", "README.md"); self.git("commit", "-qm", "extra object")
+        commit = self.git("rev-parse", "HEAD").decode().strip()
+        self.partial_clone()
+        probe = self.root / ".git/probe"; probe.mkdir()
+        marker = probe / "invoked"
+        helper = probe / "git-remote-fixture"
+        helper.write_text("#!/bin/sh\n/usr/bin/touch '" + str(marker) + "'\nexit 1\n")
+        helper.chmod(0o700)
+        self.git("config", "remote.origin.url", "fixture::unused")
+        for revision in [commit, commit + "^{tree}", commit + ":README.md", commit + ":hermes_cli/code.py"]:
+            oid = self.git("rev-parse", revision).decode().strip()
+            path = self.root / ".git/objects" / oid[:2] / oid[2:]
+            saved = path.read_bytes(); path.unlink()
+            try:
+                with mock.patch.dict(os.environ, {"PATH": str(probe) + ":/usr/bin:/bin",
+                        "GIT_NO_LAZY_FETCH": "0", "GIT_ALLOW_PROTOCOL": "fixture"}):
+                    with self.assertRaisesRegex(worker.Refused, "source_objects_unavailable", msg=revision):
+                        worker.verify_source(self.root, commit, installation=True)
+                self.assertFalse(marker.exists(), revision)
+                self.assertFalse(path.exists(), revision)
+            finally:
+                path.write_bytes(saved)
+
+    def test_git_reads_deny_transports_and_only_snapshot_fetch_allows_file(self):
+        commit = self.repository()
+        with mock.patch.object(worker.subprocess, "run", return_value=types.SimpleNamespace(stdout=b"")) as call:
+            with mock.patch.dict(os.environ, {"GIT_CONFIG_COUNT": "1", "GIT_DIR": "/foreign"}):
+                worker.git(self.root, "rev-parse", "HEAD")
+            self.assertEqual(call.call_args.kwargs["env"]["GIT_ALLOW_PROTOCOL"], "")
+            self.assertEqual(call.call_args.kwargs["env"]["GIT_NO_LAZY_FETCH"], "1")
+            self.assertNotIn("GIT_CONFIG_COUNT", call.call_args.kwargs["env"])
+            self.assertNotIn("GIT_DIR", call.call_args.kwargs["env"])
+            worker.git(self.root, "fetch", str(self.root), commit, snapshot_fetch=True)
+            self.assertEqual(call.call_args.kwargs["env"]["GIT_ALLOW_PROTOCOL"], "file")
+        with self.assertRaises(worker.Refused):
+            worker.git(self.root, "status", snapshot_fetch=True)
+
+    def test_partial_history_may_omit_old_blobs_but_not_the_current_tree(self):
+        self.repository()
+        old = self.git("rev-parse", "HEAD:hermes_cli/code.py").decode().strip()
+        (self.root / "hermes_cli/code.py").write_text("VALUE = 3\n")
+        self.git("add", "."); self.git("commit", "-qm", "current tree")
+        commit = self.git("rev-parse", "HEAD").decode().strip()
+        self.partial_clone()
+        (self.root / ".git/objects" / old[:2] / old[2:]).unlink()
+        worker.verify_source(self.root, commit, installation=True)
+
+    def test_transport_denial_still_holds_when_no_lazy_fetch_is_ignored(self):
+        commit = self.repository(); self.partial_clone()
+        oid = self.git("rev-parse", "HEAD:hermes_cli/code.py").decode().strip()
+        (self.root / ".git/objects" / oid[:2] / oid[2:]).unlink()
+        probe = self.root / ".git/probe"; probe.mkdir()
+        marker = probe / "invoked"; helper = probe / "git-remote-fixture"
+        helper.write_text("#!/bin/sh\n/usr/bin/touch '" + str(marker) + "'\nexit 1\n")
+        helper.chmod(0o700)
+        self.git("config", "remote.origin.url", "fixture::unused")
+        actual_run = subprocess.run
+        def ignore_no_lazy(*args, **kwargs):
+            kwargs["env"] = {**kwargs["env"], "GIT_NO_LAZY_FETCH": "0"}
+            return actual_run(*args, **kwargs)
+        with mock.patch.dict(os.environ, {"PATH": str(probe) + ":/usr/bin:/bin"}), \
+                mock.patch.object(worker.subprocess, "run", side_effect=ignore_no_lazy):
+            with self.assertRaisesRegex(worker.Refused, "source_objects_unavailable"):
+                worker.verify_source(self.root, commit, installation=True)
+        self.assertFalse(marker.exists())
+
     def test_committed_source_never_replaces_retained_official_context(self):
         commit = self.repository()
         run, upstream = str(uuid.uuid4()), str(uuid.uuid4())
@@ -309,6 +414,8 @@ class WorkerBoundaryTest(unittest.TestCase):
             with mock.patch.dict("sys.modules", {"hermes_cli.update_custody": custody}):
                 with self.assertRaises(worker.Refused): worker.finish_environment(self.root)
         child.stdout.close.assert_called_once()
+        self.assertEqual(custody.popen_post_commit.call_args.kwargs["env"]["GIT_ALLOW_PROTOCOL"], "")
+        self.assertEqual(custody.popen_post_commit.call_args.kwargs["env"]["GIT_NO_LAZY_FETCH"], "1")
 
     def test_missing_or_stale_plan_never_becomes_an_empty_safe_fleet(self):
         cfg = {"sourceCommit": "a" * 40, "preUpdateVersion": "0.21.3"}

@@ -10,6 +10,9 @@ restored jobs. The worker can now resume an exact, completed-PM handoff before f
 using the original context and ready checkpoint (any existing official archive must agree). Full
 machine Operating, external interpreter closure, advanced/terminal-tail reconciliation remain pending;
 execution stays disabled.
+Standard origin/blob:none live checkouts are now admitted only when the pinned tip's commit, trees
+and all blobs are local; GO validation denies lazy fetching and all transports. Frozen candidate
+assets still reject partial metadata. This does not enable execution or broaden tail replay.
 See `HERMES_UPGRADE.md` for the boundaries.
 
 ## HG-199 stage one: upstream identity and discovery

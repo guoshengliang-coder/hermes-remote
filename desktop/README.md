@@ -5,6 +5,9 @@ checkpoint permits the same official finish to continue without redoing PM or re
 context. Advanced/terminal receipts remain blocked, and the product upgrade/recovery controls remain
 disabled until the machine adapter and end-to-end certification are complete. See
 [`../docs/HERMES_UPGRADE.md`](../docs/HERMES_UPGRADE.md).
+Live standard origin/blob:none checkouts are now checked offline against every pinned tip object;
+missing objects remain blocked and frozen source assets still require no partial metadata. The
+worker retains upstream's Git flags rather than removing them to pass recovery checks.
 
 HG-175 adds an explicit **检查并修复受管服务** recovery action for committed installations whose
 LaunchAgent files or loaded tasks are missing. It preserves the existing binding and installation

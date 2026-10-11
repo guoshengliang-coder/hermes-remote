@@ -91,32 +91,85 @@ def object_id(text):
     return isinstance(text, str) and len(text) in (40, 64) and all(c in "0123456789abcdef" for c in text)
 
 
-def git(root: Path, *arguments, check=True):
+def git(root: Path, *arguments, check=True, input=None, snapshot_fetch=False):
     # No hooks, helpers, filters via global/system config, replace objects, fsmonitor or background gc.
     command = ["/usr/bin/git", "--no-replace-objects", "--no-optional-locks", "-c", "core.fsmonitor=false",
                "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "gc.auto=0",
                "-c", "maintenance.auto=false", "-C", str(root), *arguments]
-    return subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+    if snapshot_fetch and (not arguments or arguments[0] != "fetch"):
+        raise Refused("invalid_snapshot_fetch")
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                        "GIT_GRAFT_FILE": os.devnull, "GIT_NO_LAZY_FETCH": "1",
+                        "GIT_ALLOW_PROTOCOL": "file" if snapshot_fetch else ""})
+    # Transport denial also protects Git versions that do not understand GIT_NO_LAZY_FETCH.
+    # Only the explicit fetch from an already verified local snapshot admits the file transport.
+    return subprocess.run(command, stdin=subprocess.DEVNULL if input is None else None,
+                          input=input, env=environment, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL, timeout=120, check=check).stdout
 
 
-def validate_git_configuration(root: Path):
+def validate_git_configuration(root: Path, *, installation=False):
     # Read without expanding includes. Reject executable filters and URL rewriting BEFORE status,
     # fetch or checkout can invoke them; disabling hooks alone does not close these paths.
+    partial = {}
     for entry in git(root, "config", "--local", "--no-includes", "--null", "--list").split(b"\0"):
-        key = entry.split(b"\n", 1)[0].lower()
+        if not entry:
+            continue
+        key, _, value = entry.partition(b"\n")
+        key = key.lower()
         if (key.startswith((b"filter.", b"include.", b"includeif.", b"url.", b"protocol.", b"alias.", b"submodule."))
                 or key in (b"core.attributesfile", b"core.sshcommand", b"core.gitproxy",
-                           b"extensions.partialclone", b"extensions.worktreeconfig")):
+                           b"extensions.worktreeconfig")):
             raise Refused("unsupported_git_configuration")
-        if key.startswith(b"remote.") and key.endswith((b".promisor", b".partialclonefilter")):
+        if key.startswith(b"remote.") and key.endswith(b".vcs"):
             raise Refused("unsupported_git_configuration")
+        if key == b"extensions.partialclone" or (key.startswith(b"remote.")
+                and key.endswith((b".promisor", b".partialclonefilter"))):
+            if key in partial:
+                raise Refused("unsupported_git_configuration")
+            partial[key] = value
+    standard = {b"remote.origin.promisor": b"true", b"remote.origin.partialclonefilter": b"blob:none"}
+    if partial and (not installation or partial not in
+                    (standard, {**standard, b"extensions.partialclone": b"origin"})):
+        raise Refused("unsupported_git_configuration")
+
+
+def local_source_tree(root: Path, commit: str):
+    """Require the pinned tip's commit, trees and ALL blobs locally, not all historical blobs.
+
+    Promisor metadata is never proof of object availability. Reading the tree and checking objects
+    uses the transport-denied Git helper; missing objects cannot start an implicit remote fetch.
+    """
+    try:
+        rows = git(root, "ls-tree", "-r", "-t", "-z", commit).split(b"\0")
+        objects = {commit: b"commit"}
+        if len(rows) > 32768:
+            raise Refused("source_inventory_unbounded")
+        for row in rows:
+            if not row:
+                continue
+            meta, _ = row.split(b"\t", 1)
+            _, kind, oid = meta.split()
+            if kind not in (b"tree", b"blob"):
+                raise Refused("unsupported_source_object")
+            objects[oid.decode()] = kind
+        tree = git(root, "rev-parse", "--verify", commit + "^{tree}").decode().strip()
+        objects[tree] = b"tree"
+        response = git(root, "cat-file", "--batch-check=%(objectname) %(objecttype)",
+                       input=("\n".join(objects) + "\n").encode()).splitlines()
+        if response != [oid.encode() + b" " + kind for oid, kind in objects.items()]:
+            raise Refused("source_objects_unavailable")
+        return rows
+    except subprocess.SubprocessError:
+        raise Refused("source_objects_unavailable") from None
 
 
 def verify_source(root: Path, commit: str, *, installation=False):
-    validate_git_configuration(root)
+    validate_git_configuration(root, installation=installation)
     if git(root, "rev-parse", "HEAD").decode().strip() != commit:
         raise Refused("source_moved")
+    rows = local_source_tree(root, commit)
     if git(root, "status", "--porcelain=v1", "--untracked-files=normal"):
         raise Refused("dirty_source")
     if any(row and row[:1] != b"H" for row in git(root, "ls-files", "-v", "-z").split(b"\0")):
@@ -124,7 +177,7 @@ def verify_source(root: Path, commit: str, *, installation=False):
     # Git status can hide assume-unchanged/skip-worktree edits. Check Python blobs directly before
     # importing the official graph, including ignored/untracked modules that could shadow it.
     expected = {}
-    for row in git(root, "ls-tree", "-r", "-z", commit).split(b"\0"):
+    for row in rows:
         if not row:
             continue
         meta, name = row.split(b"\t", 1)
@@ -380,6 +433,7 @@ python = resolve_store_python(root)
 if python is None: raise SystemExit(2)
 environment = activation_environment(root)
 environment['HERMES_DISABLE_LAZY_INSTALLS'] = '1'
+environment.pop('GIT_ALLOW_PROTOCOL', None)  # probe-only transport fence, not finish's explicit fetch
 print(json.dumps({'python': str(python), 'environment': environment}), flush=True)
 '''
 
@@ -391,6 +445,7 @@ def finish_environment(root: Path):
     from hermes_cli.update_custody import popen_post_commit
     with popen_post_commit([sys.executable, "-I", "-S", "-B", "-c", FINISH_PROBE, str(root)],
                           label="GO official finish currency probe", cwd=str(root),
+                          env={**os.environ, "GIT_ALLOW_PROTOCOL": "", "GIT_NO_LAZY_FETCH": "1"},
                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as child:
         raw = child.stdout.read(MAX_JSON + 1)
         if len(raw) > MAX_JSON:
@@ -439,7 +494,7 @@ def resume_finish(config, root: Path, home: Path, run: Path):
 
 def update(config, root: Path, home: Path, run: Path, configuration_path: Path | None = None):
     validate_journal(config, root)
-    validate_git_configuration(root)
+    validate_git_configuration(root, installation=True)
     head = git(root, "rev-parse", "HEAD").decode().strip()
     if head == config["targetCommit"]:
         # Do not replace an existing receipt/PM context with a fresh minimal one after commit.
@@ -448,10 +503,9 @@ def update(config, root: Path, home: Path, run: Path, configuration_path: Path |
     if any((run / name).exists() or (run / name).is_symlink()
            for name in ("official-context.json", "official-result.json", "official-finish-state.json")):
         raise Refused("retained_context_present")
-    if head not in (config["sourceCommit"], config["targetCommit"]) or git(root, "status", "--porcelain=v1", "--untracked-files=normal"):
+    if head != config["sourceCommit"]:
         raise Refused("checkout_changed")
-    if any(row and row[:1] != b"H" for row in git(root, "ls-files", "-v", "-z").split(b"\0")):
-        raise Refused("hidden_index_edits")
+    verify_source(root, head, installation=True)
     validate_update_plan(config)
     source = canonical_directory(config["sourceRoot"])
     verify_source(source, config["targetCommit"])
@@ -467,7 +521,8 @@ def update(config, root: Path, home: Path, run: Path, configuration_path: Path |
         shallow = git(root, "rev-parse", "--is-shallow-repository").strip() == b"true"
         depth = ["--deepen=1024"] if shallow else []
         git(root, "fetch", "--update-shallow", *depth, "--no-tags", "--no-write-fetch-head",
-            "--no-recurse-submodules", config["sourceRoot"], config["targetCommit"], tag_ref + ":" + tag_ref)
+            "--no-recurse-submodules", config["sourceRoot"], config["targetCommit"], tag_ref + ":" + tag_ref,
+            snapshot_fetch=True)
         if git(root, "rev-parse", "--verify", tag_ref + "^{commit}").decode().strip() != config["targetCommit"]:
             raise Refused("target_tag_moved")
         git(root, "merge-base", "--is-ancestor", head, config["targetCommit"])
@@ -504,6 +559,7 @@ def main():
     # The official children also invoke Git; protect their commit/ancestry views, not just ours.
     os.environ["GIT_NO_REPLACE_OBJECTS"] = "1"
     os.environ["GIT_GRAFT_FILE"] = os.devnull
+    os.environ["GIT_NO_LAZY_FETCH"] = "1"
     handoff_child = len(sys.argv) == 3 and sys.argv[1] == "--official-handoff"
     config = private_json(Path(sys.argv[2] if handoff_child else sys.argv[1]))
     source, root, home, run = validate_configuration(config)

@@ -25,6 +25,9 @@ an unfinished original receipt; any existing official archive must agree and hav
 Missing/unsafe checkpoints, advanced/terminal receipts and service
 debts keep the registered recovery-required error (`HR-HERMESUPDATE-003`); no new recovery action
 or automatic retry is exposed until the full machine adapter is certified.
+Standard blob:none metadata alone is not an error when the fixed current source is locally whole.
+Missing source objects keep recovery-required guidance; checking must not trigger background Git
+downloads. This backend change adds no recovery control and does not relabel service debt as success.
 Displayed completion requires the receipt's version and fixed commit to agree; a tagless checkout
 whose official version stamp says unknown must remain pending even if its dependency sync succeeded.
 Maintenance admission/service restoration remains backend-only until full certification. It adds no

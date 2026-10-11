@@ -1135,6 +1135,7 @@ These are not upstream's stable public API and must be rechecked in source befor
 |---|---|---|
 | v2 marker plus Git-common-dir checkout lock; inheritable POSIX custody | `hermes_cli/update_lock.py` `UpdateLock(path, install_root)` | Hold through backup, takeover and independent verification; a separate home cannot bypass the checkout lock |
 | Safe Git invocation and inherited child custody | `hermes_cli/update_custody.py` `run_git`, `popen_post_commit` | Fixed object, no hook/helper fallback, no signal on Desktop exit |
+| Depth-limited full clone conversion, including failed fetch | `hermes_cli/gitlock.py` `fetch_full_commit_graph` | Can leave origin promisor/blob:none metadata before fetch completes; retain it, require the pinned tip's local commit/tree/all blobs and deny transport during GO validation |
 | Durable source-tail/fleet/pull intent before files move | `hermes_cli/venv_sync.py` `arm_completion`, `update_host_obligation.py` `arm_host_obligation`, `update_cmd_commit.py` `arm_tree_move`, `tree_whole_at` | Caller must already prove all writers retired and store its backup/journal |
 | Historical interpreter bootstrap, PM-selected environment and finish handoff | `hermes_cli/_update_takeover.py`, `hermes_cli/update_finish.py` | Exact root/update_id/pre-update/plan context; no DIY dependency installer |
 | Completed-PM handoff resumed before finish effects | `_update_takeover.prepare`, `_run_finish_child`, `update_finish.main`, `pm.client.venv_is_current`, `_launchers.resolve_store_python`, `pm.environments.activation_environment` | Durable GO preparing/ready/finishing boundary plus same original context/IDs; existing archive must be unique and unfinished; no PM replay on resume |
@@ -1151,6 +1152,17 @@ Git config and unknown layout fail closed. `UpdateLock` is not writer admission:
 not acquire this checkout lock on every ordinary launch. GO must independently inventory, retire and
 fence all writers before an upgrade can become available. Process-level lock tests do not certify
 service restoration or make 0.21.6 a recommended target.
+
+Live installations accept only a single origin `promisor=true` / `partialclonefilter=blob:none`
+pair, optionally with the old `extensions.partialclone=origin`. Other partial layouts and duplicate
+keys fail closed; frozen source assets still reject any partial metadata. GO's Git helper clears
+inherited Git configuration/path overrides, sets `GIT_NO_LAZY_FETCH=1` and denies all transports,
+including on Git versions ignoring the lazy-fetch variable. Only the verified snapshot fetch admits
+file transport. The pinned tip commit, trees and every blob must be available locally (bounded
+32768-entry tree); historical blobs need not be. Python disk bytes are still checked against the
+same pinned tree. The currency probe has the same temporary transport fence, removed from its finish
+activation environment. Explicit official maintenance fetches remain upstream behavior, not a
+validation-time fallback. See [Git's no-lazy-fetch option](https://git-scm.com/docs/git#Documentation/git.txt---no-lazy-fetch).
 
 In the pinned source, `begin_update_receipt(previous=...)` carries previous fields forward and
 resets outcome/finished_at; it does not mean a terminal receipt's obligations were discharged.
