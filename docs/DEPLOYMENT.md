@@ -2435,3 +2435,40 @@ The complete Hermes GO release-candidate metadata contained one page without a n
 HG-202's required `web` artifact matched this publication; a release comment was written and
 the item moved to **pending verification**. HG-148 requires `androidApp`; HG-134 requires
 `macosApp`. Neither artifact was published in this batch, so neither candidate was advanced.
+
+### HG-203 Web new-session FAB shape publication — 2026-10-11
+
+The owner authorized publication of the Web FAB shape alignment. Implementation
+[#564](https://github.com/guoshengliang-coder/hermes-remote/pull/564) merged as
+`2b249067f9902a02e3be3db67b3e608dc606ccf8`, with PR and resulting-main checks green.
+From a fresh, clean isolated worktree at `origin/main` commit
+`c9ec9e596f36fed3310d3a0753f69463f65d87c8`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **88 files / 853
+tests**, build, installer verification and public shell comparison. It atomically installed
+**0.1.1-c9ec9e596f36**, replacing **0.1.1-85605faa8f7d**, retained as the rollback target.
+The package version remains 0.1.1; the source commit identifies this Web release. Only Web
+was published; no service restart was performed.
+
+Independent complete public reads matched all **18** manifest files by size and SHA-256
+(**785,965 bytes** total). `/app/` returned 200 with matching HTML, `no-store` and self-only
+script CSP; `/relay-health` returned 200 with `ok=true`. The remote `current` symlink and
+`.previous` release-ID file were confirmed; the previous release's on-disk index and main JS
+hashes matched its manifest. The published CSS sets `.fab` to a 3.5rem square with a 1.375rem
+corner radius, matching Android's 56dp / 22dp shape at the default root font size.
+
+Archive SHA-256:
+`59642c9d87ceb115f5cf9bc0ac53a6c86f56f805d9ae0acabfb752308b7a9dfc`.
+Independent publication receipt SHA-256:
+`5291443a31c8da8a255c2059a083ee53c1613fb2fa67e4f38f515e56ed08fe3a`.
+Evidence is outside Git at `/Users/bs/.codex/artifacts/hg203-web-release/`.
+
+Refresh the browser or close and reopen the Home Screen app to load the new release.
+Physical Android Chrome and iPhone Safari/PWA appearance remains unverified; follow the
+HG-203 checks in `docs/SMOKE_TEST.md` for light/dark, single/split layouts, larger text and
+new-session activation. Publication does not establish device acceptance. Android L1/L2/L3
+were not run because Android runtime code and APK artifacts were unchanged.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor.
+HG-203's required `web` artifact matched this publication; a release comment was written and
+the item moved to **pending verification**. HG-148 requires `androidApp`; HG-134 requires
+`macosApp`. Neither artifact was published in this batch, so neither candidate was advanced.
