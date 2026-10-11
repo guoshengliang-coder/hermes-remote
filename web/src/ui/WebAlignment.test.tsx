@@ -199,6 +199,9 @@ it("opens the drawer from a menu glyph and overflows with vertical dots in the l
 
   // HG-171: the new-chat FAB is list-page chrome; once the drawer covers the list it is gone.
   expect(host.querySelector(".fab")).not.toBeNull();
+  act(() => host.querySelector<HTMLButtonElement>(".fab")!.click());
+  expect(location.pathname).toBe("/app/new");
+  act(() => window.history.replaceState(null, "", "/"));
   act(() => trigger.click());
   expect(host.querySelector(".account-drawer")).not.toBeNull();
   expect(host.querySelector(".fab")).toBeNull();

@@ -1728,6 +1728,11 @@ authenticated browser; URLs only select a conversation. Do not send a real promp
    TalkBack/VoiceOver separator range announcements. Check active-row indication, new-chat FAB and
    menu placement in the list pane. Each pane scrolls independently; tables/code may scroll inside
    their own blocks without making the document scroll sideways.
+   HG-203: in light/dark themes and single/split layouts, compare the new-chat FAB with Android:
+   a 56px rounded square with 22px corners at the default root size, retaining the dark outline.
+   Increase text size and confirm the size/corners scale together. Click/tap it to open the new-chat
+   composer; the route itself must not send a prompt. Record physical Android Chrome and
+   iPhone Safari/PWA results separately from desktop browser emulation.
 6. On iPad Safari with the soft keyboard and a large screen, ensure only the chat pane fits the
    visual viewport; it must not expand across the list. Verify IME composition, attachments,
    approval/question sheets, models, image viewer and input remain reachable with safe-area insets.
