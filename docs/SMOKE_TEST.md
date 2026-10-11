@@ -1,5 +1,32 @@
 # Local relay smoke test
 
+## Account Connector health resilience — production verification pending
+
+Automated tests cover the local deadline, auth cancellation, credential proof, stale replies,
+degraded routing and recovery, including a real Connector process on loopback. After a separately
+authorized Connector/Gateway rollout, use a disposable account binding to verify:
+
+1. Delay the protected Hermes health read by 6 seconds. Proof still completes within 5 seconds;
+   the health result succeeds within the Connector's 10-second / Gateway's 15-second budget,
+   without a `4408` disconnect. Do not delay the key-possession handshake.
+2. Stall that read past 10 seconds, or return 401 while public `/api/health` still returns 200.
+   Expect `connectorOnline=true`, `hermesReachable=false`, new REST/WS requests returning retryable
+   HTTP 502 `HR-CONN-006`, and no control reconnect loop. Existing tunnels retain authorization
+   checks. A pending binding must not activate on this result.
+3. Restore the protected read. The next non-overlapping probe starts 20 seconds after the previous
+   health write completes; successful health restores new routing on the same socket. Observe
+   `connector.hermes_health` state changes and request latency without collecting response bodies.
+4. Close control during a stalled read. Confirm the local request closes promptly, no old result
+   revives health, and normal reconnect/backoff remains active. Separately verify heartbeat failure
+   still reconnects; Hermes degradation does not replace transport failure detection.
+5. Check mixed versions with disposable fixtures: an old Connector can answer the unchanged v2
+   probe after 15 seconds; Gateway must ignore that stale ID, retain control and recheck. A new
+   Connector on an old Gateway still has the old 5-second cutoff. Exercise 404/405 fallback for
+   older Hermes without permitting fallback on 401/5xx.
+
+On the actual Mac, record probe latency/timeout rate under representative load and after sleep/wake.
+Loopback and fake clocks do not verify CPU starvation, packet loss or the production rollout.
+
 ## HG-196 complete voice message — real browser/device check pending
 
 On Android, Safari/Home Screen and Chrome, stage text, an image and a PDF, switch to voice,

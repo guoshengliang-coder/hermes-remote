@@ -3,6 +3,39 @@
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
 
+## Account-mode Hermes health and control readiness
+
+The unauthenticated key proof still expires after 5 seconds. Once authenticated, a local Hermes
+health probe has one 10-second budget, including Basic Auth login, retries and response-body reads;
+Gateway waits up to 15 seconds. Closing the control socket or replacing its probe cancels that
+probe's local HTTP work. A cancelled probe does not cancel a shared login still needed by another
+request. Probes have a 64 KiB response limit.
+
+The Connector prefers public `GET /api/health` (`ok: true`, optional `version`), then verifies any
+configured credentials with protected `GET /api/profiles/active`. The public response alone cannot
+prove credentials. A missing route (404/405) falls back to `/api/status` or `/api/sessions?limit=1`,
+respectively; authentication errors and server failures do not fall back. Profile/session contents
+remain on the Mac. This avoids the full status route's platform/MCP work on supported Hermes.
+
+A failed or expired health probe records the authenticated Connector as online with Hermes
+unreachable. Gateway retains the control socket and checks again 20 seconds after each completed
+probe/write, with only one probe outstanding. New account-mode REST requests and WebSocket upgrades
+receive the existing retryable HTTP 502 `HR-CONN-006`; existing tunnels still enforce account and
+binding authorization without being closed solely by this health observation. A successful recheck
+restores routing on the same socket. A pending binding still needs healthy verification to activate.
+
+The existing v2 preflight messages are reused, so Gateway and Connector can be rolled out separately.
+An older Connector can still take its original 60 seconds; Gateway ignores stale reply IDs. Only a
+new Connector supplies the 10-second deadline and cancellation. A new Connector against an older
+Gateway remains subject to that Gateway's original 5-second preflight cutoff. Deploy Connector
+first, then Gateway, after separately authorized releases. Legacy mode and transport heartbeat
+timeouts retain their existing behavior.
+
+`connector.hermes_health` Gateway logs report initial health, state changes and probe timeouts with
+`reachable`, `timedOut` and `durationMs`, without credentials or upstream response bodies. These
+budgets are initial operating values: observe timeout rate and latency under production load before
+tuning them. They do not repair event-loop starvation or packet loss.
+
 ## Web default-model editing (HG-166, Connector 0.1.13)
 
 The Connector-owned `POST /api/hermes-remote/default-model/set` accepts a bounded model/provider
@@ -74,6 +107,13 @@ sockets, stale/missing pongs, the stability threshold, per-attempt isolation, an
 `control-reconnect.integration.test.ts` launches the real Connector against a loopback WebSocket
 server in both legacy and account modes: repeated ready-then-close cycles must increase the actual
 time between connection attempts. The old open-time reset fails those regression cases.
+
+`connector-health.test.ts` covers the bounded lightweight probe, protected credential proof,
+older-Hermes fallbacks, timeout, replacement and cancellation. `connector-health.integration.test.ts`
+launches the real Connector to verify degraded/recovered health on one authenticated socket,
+HTTP forwarding after recovery, and cancellation of a stalled upstream read on socket close.
+Gateway's account-session and authorizer tests cover the 15-second deadline, stale results,
+periodic recovery, authorization checks and new-request `HR-CONN-006` responses.
 
 After a separately authorized Connector release, verify with a disposable test binding:
 

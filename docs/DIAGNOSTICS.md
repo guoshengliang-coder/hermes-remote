@@ -244,6 +244,7 @@ sudo docker logs --since 2026-09-05T10:20:00Z hermes-go-gateway-blue 2>&1 | grep
 
 | kind | 回答什么 |
 |---|---|
+| `connector.hermes_health` | 账号模式 Connector 的首次预检、健康状态变化或 15 秒网关探测超时；`reachable` 与 `timedOut` 区分失败和超时，`durationMs` 是网关等待耗时。新版本保留已认证控制连接，20 秒后复检；新业务请求在 Hermes 不健康时返回 HTTP 502 `HR-CONN-006`。旧版网关仍可能以 `4408 preflight timeout` 在 5 秒断开。探测降级不解释 `1006` 或心跳超时，应另查网络、Mac 负载与事件循环 |
 | `app.tunnel.open` / `app.tunnel.close` | 手机 socket 何时开、何时关、关时连接器是否在线、双向各跑了多少帧——"终止事件发出时有没有人在听"就看这两行 |
 | `app.tunnel.revalidation_failed` / `app.tunnel.revalidation_exhausted` | 手机隧道的会话与绑定重验为何失败（HG-140 起）：空闲查询每 5 秒启动一次，单个查询超过 10 秒即以可重试 `1013` 关闭，不积压并发查询；使用升级时记录的 session，而非已轮换或过期的旧 bearer；`failureKind` 区分 `transient`（连接器瞬断、数据库抖动——容忍不踢）/`authorization`/`binding`（终态，立即 4403）/`configuration`，`accountErrorCode` 是 `HR-*` 码；`exhausted` 表示连续三次临时失败或单次超时后以 `1013` 关闭。2026-09-26 事件的 `4403 account authorization changed` 误踢在旧版无任何日志可查，这两行就是补上的审计 |
 | `lifecycle.received`（`lagMs`） | 连接器→网关的延迟（实测恒 ≤1s） |
