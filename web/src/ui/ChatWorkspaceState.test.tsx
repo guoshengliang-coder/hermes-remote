@@ -9,8 +9,9 @@ import { resetOverlays } from "../app/overlayHistory";
 import type { ChatSessionOptions } from "../chat/session";
 import { ChatPage } from "./ChatPage";
 import { useState } from "preact/hooks";
+import { StartupContext } from "../startup/readiness";
 
-const fixture = vi.hoisted(() => ({ connections: [] as { id: string | null; options: ChatSessionOptions; dispose: ReturnType<typeof vi.fn> }[], deferPaint: false, variedHeights: false, paints: [] as (() => void)[] }));
+const fixture = vi.hoisted(() => ({ connections: [] as { id: string | null; options: ChatSessionOptions; dispose: ReturnType<typeof vi.fn> }[], deferStart: false, deferPaint: false, variedHeights: false, paints: [] as (() => void)[] }));
 vi.mock("./Markdown", async importOriginal => {
   const original = await importOriginal<typeof import("./Markdown")>();
   function Deferred({ source }: { source: string }) {
@@ -25,6 +26,7 @@ vi.mock("../chat/session", () => ({ ChatSession: class {
   dispose = vi.fn();
   constructor(private options: ChatSessionOptions) { this.storedSessionId = options.storedSessionId; fixture.connections.push({ id: this.storedSessionId, options, dispose: this.dispose }); }
   start() {
+    if (fixture.deferStart) return;
     const base = this.storedSessionId === "a" ? 0 : 100;
     this.options.dispatch({ type: "history", rows: Array.from({ length: 24 }, (_, i) => ({ id: base + i + 1, role: i % 2 ? "assistant" : "user", content: `${this.storedSessionId} 文字 ${i}`, timestamp: i + 1 })) });
     this.options.dispatch({ type: "connection", state: "ready" });
@@ -35,15 +37,17 @@ const app = { t: (zh: string) => zh, language: "zh", account: { id: "account" },
   sessions: [{ id: "a", title: "A" }, { id: "b", title: "B" }], inbox: initialInbox, markSeen: () => {}, reportLiveQuestion: () => {},
   isPinned: () => false, chatSearchSeed: null, setChatSearchSeed: () => {} } as unknown as AppContextValue;
 let width: number;
+const startupReport = vi.fn();
 async function draw(id: string) {
   await act(async () => {
-    render(<AppContext.Provider value={app}><WorkspaceContext.Provider value={{ mode: "auto", setMode: () => {}, eligible: true, split: width >= 624, width, listWidth: 300, selectedId: id, toggleList: () => {}, resetWidth: () => {} }}>
+    render(<StartupContext.Provider value={{ target: "chat", report: startupReport }}><AppContext.Provider value={app}><WorkspaceContext.Provider value={{ mode: "auto", setMode: () => {}, eligible: true, split: width >= 624, width, listWidth: 300, selectedId: id, toggleList: () => {}, resetWidth: () => {} }}>
       <ChatPage sessionId={id}/>
-    </WorkspaceContext.Provider></AppContext.Provider>, host);
+    </WorkspaceContext.Provider></AppContext.Provider></StartupContext.Provider>, host);
   });
 }
 beforeEach(() => {
   width = 1000; fixture.connections.length = 0; fixture.deferPaint = false; fixture.variedHeights = false; fixture.paints = []; localStorage.clear(); clearConversationMemory();
+  fixture.deferStart = false; startupReport.mockClear();
   host = document.createElement("div"); document.body.append(host);
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(300);
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function(this: HTMLElement) { return this.classList.contains("messages") ? fixture.variedHeights ? 7200 : 2400 : 0; });
@@ -56,6 +60,16 @@ beforeEach(() => {
     const top = index >= 0 ? turns.slice(0, index).reduce((sum, node) => sum + heightOf(node), 0) - (port?.scrollTop ?? 0) : 0;
     return { x: 0, y: top, top, bottom: top + height, left: 0, right: width, width, height, toJSON: () => {} };
   });
+});
+it("cold entry waits for real first history and Markdown paint, without requiring a socket to read it", async () => {
+  fixture.deferStart = true; fixture.deferPaint = true;
+  await draw("a");
+  expect(startupReport).not.toHaveBeenCalled();
+  await act(async () => fixture.connections[0]!.options.dispatch({ type: "history", rows: [{ id: 1, role: "assistant", content: "首屏历史", timestamp: 1 }] }));
+  expect(host.querySelector('.markdown[aria-busy="true"]')).not.toBeNull();
+  expect(startupReport).not.toHaveBeenCalled();
+  await act(async () => fixture.paints.splice(0).forEach(paint => paint()));
+  expect(startupReport).toHaveBeenCalledWith();
 });
 it("waits for delayed Markdown before applying an offset deep inside an answer", async () => {
   fixture.variedHeights = true;

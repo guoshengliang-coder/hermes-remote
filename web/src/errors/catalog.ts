@@ -128,6 +128,7 @@ export const CATALOG = {
   "HR-WEB-010": { zh: "无法保存名字，请使用 1–40 个字符后重试。", en: "Couldn't save that name. Use 1-40 characters and try again.", retryable: true, action: "retry" },
   "HR-WEB-011": { zh: "头像不符合要求：请选择 PNG、JPEG 或 WebP 图片，且不超过 4 MiB。", en: "That avatar isn't allowed: choose a PNG, JPEG or WebP image of at most 4 MiB.", retryable: false, action: "none" },
   "HR-WEB-012": { zh: "消息通知设置未完成，请检查网络后重试。", en: "Notification setup did not complete. Check your connection and retry.", retryable: true, action: "retry" },
+  "HR-WEB-013": { zh: "网页启动超时，请检查网络后重试。", en: "The web app took too long to start. Check your connection and retry.", retryable: true, action: "reload" },
 } satisfies Record<string, CatalogEntry>;
 
 export type ErrorCode = keyof typeof CATALOG;

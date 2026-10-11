@@ -1,4 +1,5 @@
 import { render } from "preact";
+import "./startup/early.js";
 import { App } from "./App";
 import { blockPageZoom } from "./app/noZoom";
 import "./styles.css";

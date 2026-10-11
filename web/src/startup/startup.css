@@ -1,0 +1,48 @@
+/* First-frame shell: no application JS, fonts, inline styles or third-party resources needed. */
+:root { --startup-bg: #faf9f5; --startup-ink: #1b1c1a; --startup-muted: #777268; --startup-error: #ba1a1a; --startup-track: #e9e8e4; }
+html[data-theme="dark"] { --startup-bg: #0f1217; --startup-ink: #e2e0db; --startup-muted: #a8a49c; --startup-error: #ffb4ab; --startup-track: #262c35; }
+html[data-font-size="large"] { font-size: 112.5%; }
+html[data-font-size="xlarge"] { font-size: 125%; }
+html[data-font-size="xxlarge"] { font-size: 150%; }
+html, body { margin: 0; background: var(--startup-bg); }
+.startup-screen, .startup-screen * { box-sizing: border-box; }
+.startup-screen {
+  position: fixed; inset: 0; z-index: 1000; overflow: auto; overscroll-behavior: contain;
+  background: var(--startup-bg); color: var(--startup-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  padding: max(1.5rem, env(safe-area-inset-top)) max(1.5rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
+}
+.startup-screen [hidden], .startup-screen[hidden] { display: none !important; }
+.startup-brand { padding-top: max(0px, calc(22.5vh - 1.5rem)); text-align: center; max-width: 28rem; margin: 0 auto; }
+.startup-icon { display: block; width: 9rem; height: 9rem; margin: 0 auto .75rem; object-fit: contain; }
+.startup-word { margin: 0; font-size: 2rem; line-height: 1.3; font-weight: 700; letter-spacing: .16em; }
+.startup-line { margin: .5rem 0 0; font-size: .875rem; line-height: 1.5; color: var(--startup-muted); }
+.startup-state { margin-top: 2.75rem; min-height: 3rem; }
+.startup-loading { opacity: 0; transition: opacity 150ms; }
+.startup-loading.visible { opacity: 1; }
+.startup-status { margin: 0; font-size: .8125rem; line-height: 1.5; color: var(--startup-muted); }
+.startup-track { width: 9rem; height: .1875rem; border-radius: 1rem; overflow: hidden; margin: .75rem auto 0; background: var(--startup-track); }
+.startup-track::after { content: ""; display: block; width: 100%; height: 100%; background: linear-gradient(90deg, #2563eb, #059669, #fbbf24); animation: startup-sweep 1800ms ease-in-out infinite; }
+@keyframes startup-sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+.startup-summary { margin: 0 auto; max-width: 20rem; font-size: .875rem; line-height: 1.6; color: var(--startup-error); }
+.startup-code { margin: .625rem 0 1rem; color: var(--startup-muted); font: .75rem/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+.startup-retry { display: block; margin: 0 auto; width: min(15rem, 100%); min-height: 2.75rem; padding: .75rem 1rem; border: 0; border-radius: 1.5rem; background: var(--startup-ink); color: var(--startup-bg); font: inherit; cursor: pointer; }
+.startup-retry:focus-visible, .startup-details summary:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.startup-details { margin: .5rem auto 0; max-width: 24rem; font-size: .8125rem; color: var(--startup-muted); }
+.startup-details summary { cursor: pointer; min-height: 2.75rem; padding: .75rem; }
+.startup-details pre { white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
+html[data-startup="loading"] #app, html[data-startup="failed"] #app { visibility: hidden; }
+html[data-startup="done"] .startup-screen { opacity: 0; transform: scale(.98); transition: opacity 180ms, transform 180ms; pointer-events: none; }
+html[data-startup="done"] #app { animation: startup-enter 180ms ease-out; }
+@keyframes startup-enter { from { opacity: 0; transform: translateY(1rem); } to { opacity: 1; transform: translateY(0); } }
+@media (max-height: 560px) {
+  .startup-brand { padding-top: max(0px, calc(10vh - 1.5rem)); }
+  .startup-lockup { display: flex; align-items: center; justify-content: center; gap: .75rem; text-align: left; }
+  .startup-icon { width: 6rem; height: 6rem; margin: 0; flex-shrink: 0; }
+  .startup-word { font-size: 1.5rem; }
+  .startup-state { margin-top: 1.25rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup-loading, html[data-startup="done"] .startup-screen { transition: none; }
+  .startup-track::after, html[data-startup="done"] #app { animation: none; }
+}

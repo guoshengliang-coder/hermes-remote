@@ -7,12 +7,20 @@ import { useApp } from "./app/store";
 import { navigate, clearPageSnapshots } from "./app/router";
 import { resetOverlays } from "./app/overlayHistory";
 import { rememberPushTarget, clearPushTarget } from "./app/push";
+import { useStartupPage } from "./startup/readiness";
+import { installStartup } from "./startup/fixture";
+import { GatewayNetworkError } from "./api/gateway";
 const fixture = vi.hoisted(() => ({
   mounts: 0,
+  pageReady: true,
+  pageSignals: {} as Record<string, () => void>,
   client: {
     capabilities: vi.fn(),
     webSession: vi.fn(),
     devices: vi.fn(),
+    resume: vi.fn(),
+    requestEmailChallenge: vi.fn(),
+    exchangeEmail: vi.fn(),
     onSignedOut: () => () => {},
     lifecycleEvents: async () => ({
       events: [],
@@ -29,8 +37,12 @@ vi.mock("./api/gateway", async (importOriginal) => ({
   }),
 }));
 vi.mock("./ui/SessionList", () => ({
+  cancelSessionLoads: vi.fn(),
   SessionList: () => {
     const app = useApp();
+    const [ready, setReady] = useState(fixture.pageReady);
+    fixture.pageSignals.list = () => setReady(true);
+    useStartupPage("list", ready);
     return (
       <div data-list={app.device?.deviceId}>
         <button onClick={app.chooseDevice}>换 Mac</button>
@@ -48,6 +60,9 @@ vi.mock("./ui/ChatPage", () => ({
   }) => {
     const app = useApp();
     const [draft, setDraft] = useState("");
+    const [ready, setReady] = useState(fixture.pageReady);
+    fixture.pageSignals.chat = () => setReady(true);
+    useStartupPage(sessionId === null ? "new" : "chat", ready);
     useEffect(() => {
       fixture.mounts++;
     }, []);
@@ -77,12 +92,16 @@ const device = (deviceId: string, isDefault = false) => ({
   isDefault,
 });
 let host: HTMLElement;
+let shell: ReturnType<typeof installStartup> | null = null;
 beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   resetOverlays();
   clearPageSnapshots();
   fixture.mounts = 0;
+  fixture.pageReady = true;
+  fixture.pageSignals = {};
+  fixture.client.resume.mockResolvedValue(false);
   history.replaceState({}, "", "/app/s/session-a");
   fixture.client.capabilities.mockResolvedValue({
     accountAuth: { webDeviceAccess: true },
@@ -101,11 +120,13 @@ beforeEach(() => {
 });
 afterEach(() => {
   act(() => render(null, host));
+  shell?.cleanup(); shell = null;
   host.remove();
   resetOverlays();
   clearPageSnapshots();
   clearPushTarget();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 async function settle() {
   await act(async () => {
@@ -273,4 +294,110 @@ it("a removed original Mac cannot be restored by backing out of the refreshed pi
     host.querySelector('[aria-label="返回"],[aria-label="Back"]'),
   ).toBeNull();
   expect(host.querySelector("[data-chat]")).toBeNull();
+});
+
+it("cold chat waits for its content; a ready split sidebar does not release the gate", async () => {
+  fixture.pageReady = false;
+  shell = installStartup(host);
+  await mount();
+  expect(shell.controller.pending).toBe(true);
+  if (fixture.pageSignals.list) act(() => fixture.pageSignals.list!());
+  expect(shell.controller.pending).toBe(true);
+  await act(async () => fixture.pageSignals.chat!());
+  expect(document.documentElement.dataset.startup).toBe('done');
+  expect(location.pathname).toBe('/app/s/session-a');
+  expect(fixture.mounts).toBe(1);
+});
+it("cold list waits for its first response and keeps the same mounted page on entry", async () => {
+  history.replaceState({}, '', '/app/');
+  fixture.pageReady = false;
+  shell = installStartup(host);
+  await mount();
+  const list = host.querySelector('[data-list]');
+  expect(shell.controller.pending).toBe(true);
+  await act(async () => fixture.pageSignals.list!());
+  expect(document.documentElement.dataset.startup).toBe('done');
+  expect(host.querySelector('[data-list]')).toBe(list);
+});
+it("signed-out cold start enters login and preserves its intended chat after sign-in", async () => {
+  fixture.client.webSession.mockResolvedValueOnce({ session: { authenticated: false } });
+  shell = installStartup(host);
+  await act(async () => render(<App />, host));
+  await settle();
+  expect(location.pathname).toBe('/app/login');
+  expect(shell.controller.pending).toBe(false);
+  expect(host.querySelector('input[type="email"]')).not.toBeNull();
+  fixture.client.requestEmailChallenge.mockResolvedValue({ challenge: { challengeId: 'fixture-challenge', resendAfter: new Date(Date.now() + 60000).toISOString() } });
+  fixture.client.exchangeEmail.mockResolvedValue({ account: { id: 'account-a', displayName: 'Fixture' } });
+  await act(async () => {
+    const email = host.querySelector<HTMLInputElement>('input[type="email"]')!;
+    email.value = 'fixture@example.invalid'; email.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  await settle();
+  await act(async () => {
+    const code = host.querySelector<HTMLInputElement>('.code-input')!;
+    code.value = '123456'; code.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await settle();
+  expect(location.pathname).toBe('/app/s/session-a');
+  expect(host.querySelector('[data-chat]')).not.toBeNull();
+  expect(document.documentElement.dataset.startup).toBe('done');
+});
+it("initial Mac choice is usable without waiting for nonexistent chat data", async () => {
+  fixture.client.devices.mockResolvedValue({ items: [] });
+  shell = installStartup(host);
+  await mount();
+  expect(shell.controller.pending).toBe(false);
+  expect(host.querySelector('.device-list')).not.toBeNull();
+});
+it("initial account route enters as soon as the authenticated account is available", async () => {
+  history.replaceState({}, '', '/app/account');
+  shell = installStartup(host);
+  await act(async () => render(<App />, host));
+  await settle();
+  expect(shell.controller.pending).toBe(false);
+  expect(location.pathname).toBe('/app/account');
+});
+it("startup network failure preserves its code and retries the boot without reloading", async () => {
+  fixture.client.capabilities.mockRejectedValueOnce(new GatewayNetworkError(new Error('unreachable'), '/v2/capabilities'));
+  shell = installStartup(host);
+  await act(async () => render(<App />, host));
+  await settle();
+  expect(document.documentElement.dataset.startup).toBe('failed');
+  expect(shell.gate.querySelector('#startup-code')!.textContent).toBe('HR-WEB-003');
+  await act(async () => shell!.gate.querySelector<HTMLButtonElement>('#startup-retry')!.click());
+  await settle();
+  expect(document.documentElement.dataset.startup).toBe('done');
+  expect(host.querySelector('[data-chat]')).not.toBeNull();
+});
+it("timeout invalidates a delayed boot response and provides a document reload for recovery", async () => {
+  vi.useFakeTimers();
+  let finish!: (value: unknown) => void;
+  fixture.client.capabilities.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  shell = installStartup(host);
+  await act(async () => render(<App />, host));
+  await act(async () => { await vi.advanceTimersByTimeAsync(15050); });
+  expect(shell.gate.querySelector('#startup-code')!.textContent).toBe('HR-WEB-013');
+  await act(async () => finish({ accountAuth: { webDeviceAccess: false } }));
+  expect(document.documentElement.dataset.startup).toBe('failed');
+  expect(host.querySelector('.notice-page')).toBeNull();
+  const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {});
+  await act(async () => shell!.gate.querySelector<HTMLButtonElement>('#startup-retry')!.click());
+  expect(reload).toHaveBeenCalledOnce();
+  reload.mockRestore();
+});
+it("returning to a tab or navigating keeps the page and draft without another brand gate", async () => {
+  shell = installStartup(host);
+  await mount();
+  const input = host.querySelector<HTMLInputElement>('input')!;
+  act(() => { input.value = '原有草稿'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('online'));
+    navigate({ name: 'chat', sessionId: 'session-b' });
+  });
+  expect(document.documentElement.dataset.startup).toBe('done');
+  expect(host.querySelector<HTMLInputElement>('input')!.value).toBe('原有草稿');
+  expect(fixture.mounts).toBe(1);
 });
