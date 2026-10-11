@@ -23,3 +23,9 @@ Unsent attachment Blobs and reading/search snapshots survive conversation switch
 only and clear on sign-out/revocation. Reading restores after Markdown paints; pane navigation waits
 for any composer blur history rewind. No Gateway/Connector contract or upstream Hermes change is needed.
 Real folding, Android Chrome and iPhone/iPad Safari keyboard/accessibility checks remain in the smoke plan.
+
+HG-201 isolates the gesture that opens a session action sheet: its release click cannot activate
+the newly covered menu or scrim. The next independent primary press or keyboard action restores
+pointer clicks immediately; non-pointer keyboard/assistive activation remains available. The guard
+survives a source row refresh and does not expire while a finger is still held. DOM regressions
+cover ordinary, bot and archived rows; iPhone Safari/PWA verification remains in the smoke plan.
