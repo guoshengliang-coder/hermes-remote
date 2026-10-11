@@ -87,6 +87,20 @@ correlation id 被官方收尾拒绝；修正为同一 update_id 后完成该演
 或用户数据，不能称为完整 0.21.3 → 0.21.6 升级验收，也没有认证该目标或执行现用安装升级。
 完成回执测试保留此次演练的字段样本，验证缺少 GO correlation_id 和补齐关联后的恢复欠账均被拒绝。
 
+随后完成真实旧安装的隔离源码/依赖/历史演练：官方旧 installer 在一次性 home 中创建 0.21.3
+venv（Python 3.11），仅加入合成会话；旧安装先经本仓库完整 home 备份，再由 worker 移至
+818c13be，保留 `hg199-fixture-stable` 分支，官方 takeover 选中 Python 3.14.7 并完成 PM/finish。
+首轮 tagless 快照产生 unknown 版本，修复后从官方精确 tag 补齐版本身份。修复后的重跑使用
+已封存的真实旧安装备份及公开工具缓存，不是冷缓存安装或外部解释器联合恢复认证。
+GO run `61676BC5-EFE5-40FB-A8A8-6B75C64C794D`、官方 update
+`5D560FC1-B77B-44D9-A493-00EE464789CC` 的终态回执版本/提交/PM 均匹配。
+升级后的首个检查脚本因遗漏新版 `hermes_bootstrap` 环境激活而失败；补上官方激活入口后，
+`HG199_REHEARSAL_VERIFY_ONLY=1` 沿用同一已提交事务、回执和密封备份继续验收，没有重跑或替换
+官方上下文。旧历史读取、新历史写入、独立目录备份导出及原库新增会话保留均通过。
+这两段执行验证了源码/依赖/历史路径，不是一次从头全绿的冷安装测试。整个更新链都处于
+禁止信号、服务工具及 home 外写入的沙箱；gateway_restart 欠账和 GO updating 日志明确保留。
+服务恢复、boot/业务链路仍未认证，生产认证列表继续为空，现用 Hermes 没有被升级或重启。
+
 以下执行适配与验收仍待实现/验证，HG-199 保持进行中：
 
 备份工具当前覆盖 Hermes home 内的文件，完整恢复点还须由适配器保存原 LaunchAgent/启动状态，
@@ -100,7 +114,7 @@ correlation id 被官方收尾拒绝；修正为同一 update_id 后完成该演
 3. 暂停 Connector 接入，验证所有 Hermes writer 真正空闲并停止。备份整个数据/config/cron/profile
    及启动状态；SQLite backup 必须包含 WAL 已提交数据，独立校验 hash/quick_check/会话数量。
 4. 旧 0.21.3 CLI 没有安全的精确目标参数。固定官方 source commit 后，0.21.6 的 historical
-   takeover/PM/completion worker 已实现，仍须完整演练及机器适配认证，不能替换成 pip + Git。官方 exit 0 可能仍欠
+   takeover/PM/completion worker 已实现，隔离源码/依赖/历史路径已演练，仍须完整机器适配认证，不能替换成 pip + Git。官方 exit 0 可能仍欠
    completion/fleet followups，必须核验 receipt、激活代次、boot commit 与兼容验收。
 5. 恢复原先加载的已识别服务，验证历史、发送/流式/取消、附件、approval/clarify、cron 和端到端
    连接。按安全阶段取消；中断后从同一日志恢复。代码或数据库已变更后不自动覆盖新写入；旧代码

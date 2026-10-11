@@ -34,6 +34,27 @@ final class DesktopHermesUpgradeRehearsalTests: XCTestCase {
             "TMPDIR": root.appendingPathComponent("tmp").path, "XDG_CACHE_HOME": root.appendingPathComponent("cache").path,
             "UV_CACHE_DIR": root.appendingPathComponent("cache/uv").path, "GIT_CONFIG_GLOBAL": "/dev/null",
             "GIT_CONFIG_NOSYSTEM": "1", "NO_COLOR": "1"]
+        if ProcessInfo.processInfo.environment["HG199_REHEARSAL_VERIFY_ONLY"] == "1" {
+            // Resume only the isolated test's verification. Never re-execute or replace a committed
+            // official updater context; no product recovery adapter is enabled by this switch.
+            let store = DesktopHermesUpgradeJournalStore(root: run)
+            guard let pending = try store.loadReadOnly(), pending.phase == .updating,
+                  pending.sourceCommit == oldCommit, pending.target.commit == newCommit,
+                  pending.target.version == "0.21.6", let updateID = pending.upstreamUpdateID,
+                  let backup = pending.backup else { throw DesktopHermesUpgradeError.recoveryRequired }
+            let backups = DesktopHermesUpgradeBackupStore(root: root.appendingPathComponent("backups"))
+            try backups.verify(backup)
+            let savedHead = try String(contentsOf: root.appendingPathComponent("backups/\(backup.runID)")
+                .appendingPathComponent("home/hermes-agent/.git/HEAD"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard savedHead.hasPrefix("ref: refs/heads/") else { throw DesktopHermesUpgradeError.recoveryRequired }
+            print("HG199_REHEARSAL verification-only original-run=\(pending.runID)")
+            try verifyCommitted(root: root, home: home, checkout: checkout, python: python,
+                sandbox: sandbox, environment: environment, runID: pending.runID, updateID: updateID,
+                newCommit: newCommit, originalBranch: String(savedHead.dropFirst(5)),
+                journal: store, backups: backups, backup: backup)
+            return
+        }
         XCTAssertEqual(try command("/usr/bin/git", ["-C", checkout.path, "rev-parse", "HEAD"], environment), oldCommit)
         let originalBranch = try command("/usr/bin/git", ["-C", checkout.path, "symbolic-ref", "-q", "HEAD"], environment)
         _ = try command(python.path, ["-I", "-B", "-c", """
@@ -74,6 +95,16 @@ final class DesktopHermesUpgradeRehearsalTests: XCTestCase {
         print("HG199_REHEARSAL official-update")
         let exit = try await worker.runOfficialUpdate()
         XCTAssertEqual(exit, 0)
+        try verifyCommitted(root: root, home: home, checkout: checkout, python: python,
+            sandbox: sandbox, environment: environment, runID: runID, updateID: updateID,
+            newCommit: newCommit, originalBranch: originalBranch, journal: journal, backups: backups, backup: backup)
+    }
+    private func verifyCommitted(root: URL, home: URL, checkout: URL, python: URL, sandbox: URL,
+                                 environment: [String: String], runID: String, updateID: String,
+                                 newCommit: String, originalBranch: String,
+                                 journal: DesktopHermesUpgradeJournalStore,
+                                 backups: DesktopHermesUpgradeBackupStore, backup: DesktopHermesUpgradeBackup) throws {
+        print("HG199_REHEARSAL verifying-receipt")
         XCTAssertEqual(try command("/usr/bin/git", ["-C", checkout.path, "rev-parse", "HEAD"], environment), newCommit)
         XCTAssertEqual(try command("/usr/bin/git", ["-C", checkout.path, "symbolic-ref", "-q", "HEAD"], environment), originalBranch)
         _ = try command(python.path, ["-I", "-B", "-c", """
@@ -99,6 +130,7 @@ final class DesktopHermesUpgradeRehearsalTests: XCTestCase {
         _ = try command("/usr/bin/sandbox-exec", ["-f", sandbox.path, newPython, "-I", "-B", "-c", """
         import sys
         sys.path.insert(0, \(String(reflecting: checkout.path)))
+        import hermes_bootstrap  # Activate the selected PM generation exactly as official launchers do.
         from hermes_cli.version_info import get_code_identity
         from hermes_state import SessionDB
         identity = get_code_identity(refresh=True)

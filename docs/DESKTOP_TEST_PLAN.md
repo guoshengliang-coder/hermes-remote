@@ -56,8 +56,18 @@ official installer, restrict writes/signals/service execution with a kernel sand
 marked home and verified source outside the owner's installation. The opt-in test checks original
 branch preservation, actual official IDs/version/PM receipt, owed service recovery, old history,
 new history and separate backup export. It intentionally leaves GO's journal pending.
+Local 2026-10-11 evidence: official old installer produced a genuine 0.21.3 venv; the worker moved
+that backed-up installation to 818c13be and official PM/finish completed with version 0.21.6, retaining
+the original branch and distinct GO/upstream IDs. The post-check initially omitted official PM
+activation; after adding `hermes_bootstrap`, `HG199_REHEARSAL_VERIFY_ONLY=1` continued verification of
+the same committed run and sealed backup. Old history, new writes, separate export and preservation
+of later live writes passed. This split run used a warm tool cache, not a fresh all-green cold-install
+test. Sandbox-denied gateway restart remains owed; the GO journal stays updating. See the exact IDs
+and limitations in `HERMES_UPGRADE.md`.
+The version-completion regression demonstrably accepted missing/unknown/old version before the fix;
+afterwards all three fail with `HR-HERMESUPDATE-004` even when the commit and other evidence match.
 
-Still needed: actual clean old→fixed target upgrade,
+Still needed: a fresh uninterrupted cold old→fixed target run and
 real stopped-writer inventory/retirement, process-kill boundary matrix, original service restoration,
 full history/Q&A/stream/cancel/attachment/approval/clarify/cron acceptance and physical Mac UI review.
 The new condition rows also need light/dark review on that isolated Mac. Do not launch this app against
