@@ -133,9 +133,10 @@ Public verification receipt SHA-256:
 Evidence and local operator scripts are outside Git at
 `/Users/bs/.codex/artifacts/hg200-website-release/`.
 
-The Mac's direct HTTPS probes passed. Its existing system-proxy route to the new hostname
-terminated the connection; the same proxy succeeded when the origin IP was supplied explicitly.
-This remains a client proxy/DNS-path limitation, not a successful Chrome acceptance result.
+The Mac's direct HTTPS probes passed. Its system-proxy route initially terminated the connection
+to the new hostname; the same proxy succeeded with the origin IP supplied explicitly. A later
+Chrome reload displayed the production homepage successfully without changes to proxy settings.
+The transient route failure's specific cause was not established.
 Physical Android/iPhone Safari/PWA, mainland mobile and a separate overseas client network
 remain unverified. Publication does not establish device installation or acceptance.
 
