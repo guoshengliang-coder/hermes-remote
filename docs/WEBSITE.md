@@ -115,6 +115,8 @@ package, Desktop package, existing Web App bundle, Gateway or Connector was publ
   forwards challenges to the HTTPS virtual host. No DERP stop or existing certificate hook ran.
   `hermes-go-website-cert-renew.timer` schedules independent twice-daily renewal with a randomized
   delay; the certificate-specific deploy hook checks and reloads Nginx.
+  The isolated `certbot renew --dry-run --run-deploy-hooks --no-directory-hooks` rehearsal
+  passed, including HTTP challenge validation and the Nginx check/reload hook.
 
 Independent public verification from this Mac matched all **three assets** in full and exercised
 the four content pages, health, robots and sitemap. Wrong invitation, blocked unsigned download,
