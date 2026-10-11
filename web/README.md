@@ -29,3 +29,11 @@ the newly covered menu or scrim. The next independent primary press or keyboard 
 pointer clicks immediately; non-pointer keyboard/assistive activation remains available. The guard
 survives a source row refresh and does not expire while a finger is still held. DOM regressions
 cover ordinary, bot and archived rows; iPhone Safari/PWA verification remains in the smoke plan.
+
+HG-202 sets only the iOS chat Files input to `accept="application/octet-stream"` so WebKit opens
+the document picker directly; iPadOS desktop user agents are included. Files still supports multiple
+selection and the actual selected MIME types, existing attachment validation and input reset.
+Camera and Photos keep their existing inputs, and other platforms keep unrestricted Files selection.
+Composer regressions cover platform routing, mixed files, cancellation and same-file reselection.
+Physical iPhone Safari/Home Screen and iCloud checks in `../docs/SMOKE_TEST.md` are required before
+publication; the iOS 26.5 Safari simulator picker experiment is not physical-device verification.
