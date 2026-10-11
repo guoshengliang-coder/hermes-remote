@@ -2472,3 +2472,48 @@ The complete Hermes GO release-candidate metadata contained one page without a n
 HG-203's required `web` artifact matched this publication; a release comment was written and
 the item moved to **pending verification**. HG-148 requires `androidApp`; HG-134 requires
 `macosApp`. Neither artifact was published in this batch, so neither candidate was advanced.
+
+### HG-204 Web branded cold-start publication — 2026-10-11
+
+The owner authorized publication after implementation
+[#567](https://github.com/guoshengliang-coder/hermes-remote/pull/567) merged as
+`c511c06aad76dfcf50de84a89109b9dd48b7b809`, with PR and resulting-main checks green.
+From a fresh, clean isolated worktree at that exact `origin/main`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **90 files / 879
+tests**, build, installer verification and public shell comparison. It atomically installed
+**0.1.1-c511c06aad76**, replacing **0.1.1-c9ec9e596f36**, retained as the rollback target.
+The package version remains 0.1.1; the source commit identifies this Web release. Only Web
+was published; no service restart was performed.
+
+Independent complete public reads matched all **20** manifest files by size and SHA-256
+(**837,697 bytes** total). `/app/` returned 200 with matching HTML, `no-store` and self-only
+script CSP; `/relay-health` returned 200 with `ok=true`. The remote `current` symlink and
+`.previous` release-ID file were confirmed, and the previous release's on-disk index and main
+JS hashes matched its manifest. The independent startup asset is
+`assets/startup-198f0d29bf12.js`; initial HTML includes the brand gate and inert app root.
+
+Read-only live checks in full Chromium 156.0.8078.4 and WebKit 27.2 at 390×844 passed:
+light/dark appearance, a delayed real capabilities response showing the startup feedback,
+entry to the signed-out login screen, and warm visibility/online events without reopening
+the gate. There were no application page errors or CSP violations in those runs. No email
+code or chat message was sent. Chromium used the full browser because the headless-shell
+runner terminated on the existing Service Worker's BadgeService IPC; WebKit screenshots
+were omitted because Playwright's screenshot sync injects an inline style rejected by CSP.
+Neither observation required changing the application or its CSP.
+
+Archive SHA-256:
+`5a7a7cb5629b52092840612613c8f158328d88de618f5b21501907be84f70d8e`.
+Independent publication receipt SHA-256:
+`dd35a596f33ff80b5c5c0d87f69276e4b1d3b458959d0360ac8fa3becde5d4fa`.
+Evidence is outside Git at `/Users/bs/.codex/artifacts/hg204-web-release/`.
+
+Refresh the browser or close and reopen the Home Screen app to load the new release.
+Physical iPhone Safari/Home Screen, Android Chrome, and authenticated production-chat
+acceptance remain unverified; follow HG-204 in `docs/SMOKE_TEST.md`. Publication does not
+establish device acceptance. Android L1/L2/L3 were not run because Android runtime code and
+APK artifacts were unchanged.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor.
+HG-204's required `web` artifact matched this publication. HG-148 requires `androidApp`;
+HG-134 requires `macosApp`. Neither artifact was published in this batch, so neither
+candidate is eligible for advancement by this publication.
