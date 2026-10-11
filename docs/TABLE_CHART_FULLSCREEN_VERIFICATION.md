@@ -50,3 +50,18 @@ The existing 0.1.170 number labels only this local developer build. Publishable 
 both product artifacts `web` and `androidApp` (declared in MissionGo); Gateway, Connector and Desktop
 need no new artifact because their contracts and CSP are unchanged. Publication stays a separate
 owner-authorized gate. Code completion is not release or acceptance.
+
+## Touch follow-up
+
+Real Chrome CDP touch input exposed a canvas gesture constraint on dense plots: a 3,200px plot
+inside a 388px viewport stayed at scrollLeft 0. Allowing native touch gestures restores horizontal
+panning. `web/scripts/check-chart-touch.mjs` serves only the packaged fixture/assets on loopback
+and applies a real Chromium touch gesture; it fails on the old CSS and passes after the change.
+The test uses an external Playwright install and Chromium binary; it does not add shipped
+dependencies. Run `node web/scripts/check-chart-touch.mjs <absolute-playwright-index.mjs>
+<chromium-binary>`. Physical Android/Safari gesture behavior remains in the smoke plan.
+
+The follow-up repeats Web typecheck/test/build (91 files / 886 tests on the merged main base)
+and Android unit/build baselines (2,452 tests). L1/L3 feature
+checks above were performed before this one-line gesture adjustment; the additional gesture test
+uses real headless Chrome input, not a physical phone or Android emulator touch check.
