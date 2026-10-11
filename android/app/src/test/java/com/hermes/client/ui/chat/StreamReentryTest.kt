@@ -65,6 +65,13 @@ class StreamReentryTest {
                         ChatMessage("a", Role.ASSISTANT, fullText, isStreaming = true)))
                 }
                 compose.mainClock.advanceTimeBy(256)
+                // Publish the async reveal snapshot through a bounded number of Compose frames
+                // before waiting on the parser's external signal with the clock frozen.
+                repeat(4) {
+                    compose.mainClock.advanceTimeBy(64)
+                    Thread.sleep(30)
+                    compose.waitForIdle()
+                }
                 compose.waitUntil(5_000) { parsed.get().isNotEmpty() }
                 assertTrue("new output must still be paced", parsed.get().length < fullText.length)
                 compose.runOnIdle { shown.value = false }
