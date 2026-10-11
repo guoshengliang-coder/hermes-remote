@@ -319,6 +319,8 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
 - Version 0.1.171 moves automatic table charts into fullscreen with collapsed adjustments,
   source-table chat cards, per-table preferences, complete-data pages and touch panning (HG-205).
+  It also adds five-minute voice input, a final countdown, draft retention at the limit and clearer
+  failure messages (HG-206); Gateway 0.4.33 must be deployed before this package.
 - Version 0.1.170 fixes HG-198: image previews resolve from the complete displayed assistant answer
   and keep stable selection across history refresh.
 - Version 0.1.169 Fix Automatic split layout on unfolded phone windows below 840dp by using the
