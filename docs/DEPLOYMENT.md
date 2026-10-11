@@ -2397,3 +2397,41 @@ HG-201's required `web` artifact matched this verified publication; a release co
 written and the item moved to **pending verification**. HG-148 requires `androidApp` and
 HG-134 requires `macosApp`; neither artifact was published in this batch, so those candidates
 were left unchanged. Publication does not establish device acceptance.
+
+### HG-202 iOS Web Files picker publication — 2026-10-11
+
+After receiving the disclosure that physical iPhone Safari/Home Screen/iCloud and attachment
+transport checks were still pending, the owner instructed publication. Implementation
+[#563](https://github.com/guoshengliang-coder/hermes-remote/pull/563) merged as
+`85605faa8f7d99c7519480d8e87c0345397879c8`, with PR and resulting-main checks green.
+From a fresh, clean isolated worktree at that exact `origin/main`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **87 files / 852
+tests**, build, installer verification and public shell comparison. It atomically installed
+**0.1.1-85605faa8f7d**, replacing **0.1.1-b5731db47f9d**, retained as the rollback target.
+The package version remains 0.1.1; the source commit identifies this Web release. Only Web
+was published; no service restart was performed.
+
+Independent complete public reads matched all **18** manifest files by size and SHA-256
+(**785,960 bytes** total). `/app/` returned 200 with matching HTML, `no-store` and self-only
+script CSP; `/relay-health` returned 200 with `ok=true`. The remote `current` and `.previous`
+links were confirmed; the previous release's on-disk index and main JS hashes matched its
+manifest. The old hashed JS URL returned 404 under the current public route, so retained
+rollback files must not be described as continued public access to old assets. Refresh Safari
+or close and reopen the Home Screen app to load the new release.
+
+Archive SHA-256:
+`217920e6e6637a4e3f9f51c9ca6e20556f591b73146f5d24aa761705e1bf2c82`.
+Independent publication receipt SHA-256:
+`1e02c1486e123114782dcb772ffd26d0498ea71e816d8caedf7a3416fa4c126b`.
+Evidence is outside Git at `/Users/bs/.codex/artifacts/hg202-web/`.
+
+iOS Files now receives the `application/octet-stream` picker hint, including desktop-mode
+iPadOS, with multiple selection and actual file MIME types preserved. Photos and Camera keep
+their prior mechanisms. Physical iPhone Safari/Home Screen, iCloud provider downloads, native
+picker behavior and real Connector attachment sends remain unverified. Publication does not
+satisfy those checks or establish acceptance; follow the HG-202 steps in `docs/SMOKE_TEST.md`.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor.
+HG-202's required `web` artifact matched this publication; a release comment was written and
+the item moved to **pending verification**. HG-148 requires `androidApp`; HG-134 requires
+`macosApp`. Neither artifact was published in this batch, so neither candidate was advanced.
