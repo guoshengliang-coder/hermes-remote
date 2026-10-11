@@ -6,6 +6,7 @@ on:
       - 'protocol/fixtures/**'
       - 'docs/hermes-rpc-params.json'
       - 'connector/src/hermes-*.ts'
+      - 'desktop/Sources/HermesGoDesktopCore/Resources/hermes-upgrade-worker.py'
       - '.github/workflows/hermes-upstream-compat.yml'
   workflow_dispatch:
   schedule:
@@ -41,6 +42,26 @@ jobs:
         run: python -I -B -m unittest discover -s scripts/compat -p 'test_*.py'
       - name: Check pinned source contracts and synthetic history recovery
         run: python -I -B scripts/compat/hermes-matrix.py --old-root .upstream/current --candidate-root .upstream/candidate
+      - name: Check real upstream checkout lock and surviving child custody
+        run: python -I -B scripts/compat/hermes-update-lock-matrix.py --candidate-root .upstream/candidate
+  upstream-lock-matrix-macos:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 818c13be1dc4fd28987e1e881a9408224afd4535
+          path: .upstream/candidate
+          persist-credentials: false
+      - name: Check real upstream checkout lock and surviving child custody on macOS
+        run: python -I -B scripts/compat/hermes-update-lock-matrix.py --candidate-root .upstream/candidate
   upstream-main-warning:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest

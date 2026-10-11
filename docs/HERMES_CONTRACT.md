@@ -1125,3 +1125,28 @@ retain a JSON payload instead of disappearing. Existing inline-image handling is
 Node, Android and Web CI. Legacy forwarding and the browser route allowlist are unchanged.
 
 See `HERMES_UPGRADE.md` for the staged implementation and verification limits.
+
+### HG-199 · pinned official updater bridge
+
+The bundled worker consumes internal APIs from **818c13be1dc4fd28987e1e881a9408224afd4535 only**.
+These are not upstream's stable public API and must be rechecked in source before changing targets:
+
+| Contract | Official source | GO boundary |
+|---|---|---|
+| v2 marker plus Git-common-dir checkout lock; inheritable POSIX custody | `hermes_cli/update_lock.py` `UpdateLock(path, install_root)` | Hold through backup, takeover and independent verification; a separate home cannot bypass the checkout lock |
+| Safe Git invocation and inherited child custody | `hermes_cli/update_custody.py` `run_git`, `popen_post_commit` | Fixed object, no hook/helper fallback, no signal on Desktop exit |
+| Durable source-tail/fleet/pull intent before files move | `hermes_cli/venv_sync.py` `arm_completion`, `update_host_obligation.py` `arm_host_obligation`, `update_cmd_commit.py` `arm_tree_move`, `tree_whole_at` | Caller must already prove all writers retired and store its backup/journal |
+| Historical interpreter bootstrap, PM-selected environment and finish handoff | `hermes_cli/_update_takeover.py`, `hermes_cli/update_finish.py` | Exact root/update_id/pre-update/plan context; no DIY dependency installer |
+| Launcher versus official/PM correlation | `hermes_cli/update_receipt.py`, `pm/receipt.py` | GO `HERMES_UPDATE_CORRELATION_ID` binds `correlation_id`; separately recorded official UUID binds `update_id` |
+| Release identity stamped by finish | `hermes_cli/version_info.py` `get_code_identity`, release tag `v<version>` | Snapshot and installed tag must peel to the same pinned object; receipt must match both version and SHA |
+
+Source snapshots must contain the objects required for a fixed-source fetch/ancestry proof, not just
+a tarball or a commit-only partial graph, and must retain the official exact release tag for finish's
+version stamp. Frozen `update_host_obligation` derives its installation key from its module origin;
+pre-move invocation temporarily projects that origin to the live checkout and restores it in finally.
+That private implementation detail needs source review for every certified target. Dirty/hidden source,
+foreign Python overlays anywhere in the snapshot, executable local
+Git config and unknown layout fail closed. `UpdateLock` is not writer admission: legacy 0.21.3 CLI does
+not acquire this checkout lock on every ordinary launch. GO must independently inventory, retire and
+fence all writers before an upgrade can become available. Process-level lock tests do not certify
+service restoration or make 0.21.6 a recommended target.

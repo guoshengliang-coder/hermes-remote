@@ -33,6 +33,7 @@ public struct DesktopHermesUpgradeBackup: Codable, Equatable, Sendable {
 public struct DesktopHermesUpgradeJournal: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let runID: String
+    public let upstreamUpdateID: String?
     public let target: DesktopHermesUpgradeTarget
     public let sourceCommit: String
     public let sourceIdentity: String
@@ -46,8 +47,9 @@ public struct DesktopHermesUpgradeJournal: Codable, Equatable, Sendable {
 
     public init(runID: String = UUID().uuidString, target: DesktopHermesUpgradeTarget,
                 installation: DesktopLocalHermesInstallation, services: [DesktopHermesUpgradeService],
-                originalChannel: String?, now: Date = Date()) {
+                originalChannel: String?, upstreamUpdateID: String? = nil, now: Date = Date()) {
         schemaVersion = 1; self.runID = runID; self.target = target
+        self.upstreamUpdateID = upstreamUpdateID
         sourceCommit = installation.commit; sourceIdentity = installation.runtimeIdentity
         checkout = installation.checkoutRoot.path; hermesHome = installation.hermesHome.path
         self.services = services; self.originalChannel = originalChannel
@@ -56,6 +58,7 @@ public struct DesktopHermesUpgradeJournal: Codable, Equatable, Sendable {
 
     fileprivate func validate() throws {
         guard schemaVersion == 1, UUID(uuidString: runID) != nil,
+              upstreamUpdateID == nil || UUID(uuidString: upstreamUpdateID!) != nil,
               DesktopLocalHermesDetector.isObjectID(sourceCommit), Self.digest(sourceIdentity),
               Self.path(checkout), Self.path(hermesHome),
               checkout == hermesHome + "/hermes-agent", services.count <= 32,
@@ -103,7 +106,7 @@ public final class DesktopHermesUpgradeJournalStore: @unchecked Sendable {
         guard let data = try? FileHandle(fileDescriptor: fd, closeOnDealloc: false).read(upToCount: 64 * 1024 + 1),
               data.count <= 64 * 1024,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(object.keys).isSubset(of: ["schemaVersion", "runID", "target", "sourceCommit", "sourceIdentity", "checkout", "hermesHome", "services", "originalChannel", "phase", "backup", "updatedAt"]),
+              Set(object.keys).isSubset(of: ["schemaVersion", "runID", "upstreamUpdateID", "target", "sourceCommit", "sourceIdentity", "checkout", "hermesHome", "services", "originalChannel", "phase", "backup", "updatedAt"]),
               let journal = try? JSONDecoder().decode(DesktopHermesUpgradeJournal.self, from: data)
         else { throw DesktopHermesUpgradeError.recoveryRequired }
         try journal.validate()
@@ -145,7 +148,9 @@ public final class DesktopHermesUpgradeJournalStore: @unchecked Sendable {
         let temporary = directory.appendingPathComponent(".archive-\(UUID().uuidString).tmp")
         let fd = Darwin.open(temporary.path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { throw DesktopHermesUpgradeError.recoveryRequired }
-        defer { Darwin.close(fd); try? FileManager.default.removeItem(at: temporary) }
+        // rename already consumed this pathname on success. Native unlink tolerates ENOENT
+        // without creating a Cocoa exception that obscures a later recovery error in diagnostics.
+        defer { Darwin.close(fd); Darwin.unlink(temporary.path) }
         try FileHandle(fileDescriptor: fd, closeOnDealloc: false).write(contentsOf: data)
         guard fsync(fd) == 0 else { throw DesktopHermesUpgradeError.recoveryRequired }
         // macOS exclusive rename is atomic and leaves no second hard link if the app dies here.
@@ -232,7 +237,7 @@ public struct DesktopHermesUpgradePreflight: Sendable {
 /// No adapter is enabled by default: source/DB compatibility alone does not certify an updater.
 public protocol DesktopHermesUpgradeOperating: Sendable {
     func preflight(target: DesktopHermesUpgradeTarget, confirmedIdentity: String) async throws -> DesktopHermesUpgradePreflight
-    func acquireUpstreamLock(checkout: URL, hermesHome: URL) async throws -> any DesktopHermesUpgradeLockHolding
+    func acquireUpstreamLock(runID: String, checkout: URL, hermesHome: URL) async throws -> any DesktopHermesUpgradeLockHolding
     func validateResume(_ journal: DesktopHermesUpgradeJournal) async throws
     func quiesce(_ journal: DesktopHermesUpgradeJournal) async throws
     func backup(_ journal: DesktopHermesUpgradeJournal) async throws -> DesktopHermesUpgradeBackup
@@ -240,7 +245,12 @@ public protocol DesktopHermesUpgradeOperating: Sendable {
     func restoreServices(_ journal: DesktopHermesUpgradeJournal, originalInstallation: Bool) async throws
     func verify(_ journal: DesktopHermesUpgradeJournal) async throws
 }
-public protocol DesktopHermesUpgradeLockHolding: AnyObject, Sendable {}
+public protocol DesktopHermesUpgradeLockHolding: AnyObject, Sendable {
+    var upstreamUpdateID: String? { get }
+}
+public extension DesktopHermesUpgradeLockHolding {
+    var upstreamUpdateID: String? { nil }
+}
 
 /// Certification applies to a tested source → target path, never to every older/newer installation
 /// merely because the destination passed a source contract check.
@@ -285,7 +295,8 @@ public actor DesktopHermesUpgradeCoordinator {
                   initial.installation.commit != target.commit,
                   !DesktopLocalHermesDetector.version(target.version, isOlderThan: initial.installation.version)
             else { throw DesktopHermesUpgradeError.preflightBlocked }
-            let upstream = try await operations.acquireUpstreamLock(checkout: initial.installation.checkoutRoot,
+            let runID = UUID().uuidString
+            let upstream = try await operations.acquireUpstreamLock(runID: runID, checkout: initial.installation.checkoutRoot,
                                                                    hermesHome: initial.installation.hermesHome)
             defer { withExtendedLifetime(upstream) {} }
             // A CLI update or git checkout may have raced the initial inventory.
@@ -293,8 +304,8 @@ public actor DesktopHermesUpgradeCoordinator {
             guard checked.installation == initial.installation, checked.services == initial.services,
                   checked.originalChannel == initial.originalChannel else { throw DesktopHermesUpgradeError.preflightBlocked }
             if cancelRequested { throw DesktopHermesUpgradeError.preflightBlocked }
-            let journal = DesktopHermesUpgradeJournal(target: target, installation: checked.installation,
-                services: checked.services, originalChannel: checked.originalChannel)
+            let journal = DesktopHermesUpgradeJournal(runID: runID, target: target, installation: checked.installation,
+                services: checked.services, originalChannel: checked.originalChannel, upstreamUpdateID: upstream.upstreamUpdateID)
             try store.begin(journal)
             // An unstructured task does not inherit cancellation of the UI's awaiting task. Once the
             // durable intent exists, only requestCancellation() may cancel at a safe phase boundary.
@@ -322,9 +333,10 @@ public actor DesktopHermesUpgradeCoordinator {
             }
             // The adapter must prove receipt custody, source state and absence of new/unowned writers.
             try await operations.validateResume(journal)
-            let upstream = try await operations.acquireUpstreamLock(checkout: URL(fileURLWithPath: journal.checkout),
+            let upstream = try await operations.acquireUpstreamLock(runID: journal.runID, checkout: URL(fileURLWithPath: journal.checkout),
                                                                    hermesHome: URL(fileURLWithPath: journal.hermesHome))
             defer { withExtendedLifetime(upstream) {} }
+            guard upstream.upstreamUpdateID == journal.upstreamUpdateID else { throw DesktopHermesUpgradeError.recoveryRequired }
             try await operations.validateResume(journal)
             let execution = Task { try await self.finish(journal, progress: progress) }
             return try await execution.value

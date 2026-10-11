@@ -35,7 +35,7 @@ public enum DesktopHermesUpgradeCompletionVerifier {
         let pm_exit_code: Int
         let pm_venv_rebuild: Rebuild
     }
-    private struct Identity: Decodable { let sha: String }
+    private struct Identity: Decodable { let sha: String; let version: String }
     private struct Stage: Decodable { let name: String; let outcome: String }
     private struct Followup: Decodable {}
     private struct Rebuild: Decodable { let ok: Bool }
@@ -60,7 +60,7 @@ public enum DesktopHermesUpgradeCompletionVerifier {
               receipt.update_id == upstreamUpdateID, receipt.correlation_id == runID,
               receipt.outcome == "success", validTimestamp(receipt.finished_at),
               receipt.exit_code == nil || receipt.exit_code == 0,
-              receipt.post_update.sha == target.commit,
+              receipt.post_update.sha == target.commit, receipt.post_update.version == target.version,
               receipt.stages.last(where: { $0.name == "build" })?.outcome == "success",
               (receipt.followups ?? []).isEmpty, receipt.user_action == nil,
               (receipt.pending_manual_serves ?? []).isEmpty,

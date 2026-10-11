@@ -55,7 +55,7 @@ public struct DesktopHermesUpgradeBackupStore: Sendable {
         }
         let staging = root.appendingPathComponent(".\(runID)-\(UUID().uuidString)")
         try privateDirectory(staging)
-        defer { try? FileManager.default.removeItem(at: staging) }
+        defer { if exists(staging) { try? FileManager.default.removeItem(at: staging) } }
         let tree = staging.appendingPathComponent("home")
         try privateDirectory(tree)
         for entry in original where !sidecars.contains(entry.path) {
@@ -209,11 +209,11 @@ public struct DesktopHermesUpgradeBackupStore: Sendable {
     private func backupSQLite(from: URL, to: URL) throws {
         guard isSQLite(from), !exists(to) else { throw DesktopHermesUpgradeError.recoveryRequired }
         var source: OpaquePointer?, destination: OpaquePointer?
-        guard sqlite3_open_v2(from.path, &source, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(try readOnlySQLiteURI(from), &source, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOFOLLOW | SQLITE_OPEN_URI, nil) == SQLITE_OK else {
             sqlite3_close(source); throw DesktopHermesUpgradeError.recoveryRequired
         }
         defer { sqlite3_close(source) }
-        guard sqlite3_open_v2(to.path, &destination, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(try sqlitePath(to), &destination, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOFOLLOW, nil) == SQLITE_OK else {
             sqlite3_close(destination); throw DesktopHermesUpgradeError.recoveryRequired
         }
         defer { sqlite3_close(destination) }
@@ -235,11 +235,38 @@ public struct DesktopHermesUpgradeBackupStore: Sendable {
     private func checkSQLite(_ url: URL) throws {
         var database: OpaquePointer?, statement: OpaquePointer?
         defer { sqlite3_finalize(statement); sqlite3_close(database) }
-        guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+        guard sqlite3_open_v2(try readOnlySQLiteURI(url), &database, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOFOLLOW | SQLITE_OPEN_URI, nil) == SQLITE_OK,
               sqlite3_prepare_v2(database, "PRAGMA quick_check", -1, &statement, nil) == SQLITE_OK,
               sqlite3_step(statement) == SQLITE_ROW, let text = sqlite3_column_text(statement, 0),
               String(cString: text) == "ok", sqlite3_step(statement) == SQLITE_DONE
         else { throw DesktopHermesUpgradeError.recoveryRequired }
+    }
+    private func sqlitePath(_ url: URL) throws -> String {
+        // Keep the native parent path as a String, including Darwin's standard /tmp alias.
+        guard let parent = realpath(url.deletingLastPathComponent().path, nil) else {
+            throw DesktopHermesUpgradeError.recoveryRequired
+        }
+        defer { free(parent) }
+        return String(cString: parent) + "/" + url.lastPathComponent
+    }
+    private func readOnlySQLiteURI(_ url: URL) throws -> String {
+        let path = try sqlitePath(url)
+        var components = URLComponents(); components.path = path
+        // Apple's readonly WAL reader cannot open a retired WAL-mode database with no sidecars.
+        // With no WAL/rollback bytes, all committed pages are already in the main file. The
+        // stopped-writer proof and before/after fingerprint make immutable reading safe here.
+        // Never use immutable on a nonempty WAL: doing so would silently omit committed pages.
+        var hasPendingPages = false
+        for suffix in ["-wal", "-journal"] {
+            var info = stat()
+            if lstat(path + suffix, &info) == 0 {
+                guard info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid(), info.st_nlink == 1 else {
+                    throw DesktopHermesUpgradeError.recoveryRequired
+                }
+                hasPendingPages = hasPendingPages || info.st_size > 0
+            } else if errno != ENOENT { throw DesktopHermesUpgradeError.recoveryRequired }
+        }
+        return "file:" + components.percentEncodedPath + (hasPendingPages ? "" : "?immutable=1")
     }
     private func checkDirectory(_ url: URL) throws {
         var info = stat()

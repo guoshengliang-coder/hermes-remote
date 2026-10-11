@@ -4,6 +4,37 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesUpgradeBackupTests: XCTestCase {
+    func testRetiredExternalWALWriterWithoutSidecarsCanBeBackedUp() throws {
+        let root = URL(fileURLWithPath: "/tmp/hg199-sqlite-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resolved = try XCTUnwrap(realpath(home.path, nil)); defer { free(resolved) }
+        let seed = Process()
+        seed.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        seed.arguments = [String(cString: resolved) + "/state.db",
+            "PRAGMA journal_mode=WAL; CREATE TABLE sessions(id TEXT); INSERT INTO sessions VALUES('before'); PRAGMA wal_checkpoint(TRUNCATE);"]
+        seed.standardOutput = FileHandle.nullDevice; seed.standardError = FileHandle.nullDevice
+        try seed.run(); seed.waitUntilExit()
+        XCTAssertEqual(seed.terminationStatus, 0)
+        // The retired writer has checkpointed all pages. Some Apple shell builds persist empty
+        // sidecars; remove only those fixture files to reproduce Python's last-connection close.
+        let wal = home.appendingPathComponent("state.db-wal")
+        if FileManager.default.fileExists(atPath: wal.path) {
+            XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: wal.path)[.size] as? NSNumber)?.intValue, 0)
+            try FileManager.default.removeItem(at: wal)
+        }
+        let shm = home.appendingPathComponent("state.db-shm")
+        if FileManager.default.fileExists(atPath: shm.path) { try FileManager.default.removeItem(at: shm) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("state.db-wal").path))
+        let store = DesktopHermesUpgradeBackupStore(root: root.appendingPathComponent("backups"))
+        let receipt = try store.create(home: home, runID: UUID().uuidString) {}
+        try store.verify(receipt)
+        let recovery = root.appendingPathComponent("recovered")
+        try store.exportDatabases(receipt, to: recovery)
+        XCTAssertEqual(count(recovery.appendingPathComponent("state.db")), 1)
+    }
     func testWALCommitsAndPrivateConfigurationAreBackedUpAndNewWritesAreNeverOverwritten() throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let live = try fixture.openDatabase()

@@ -3,6 +3,26 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesUpgradeTransactionTests: XCTestCase {
+    func testOfficialIdentityIsDurableAndCannotChangeWhenResuming() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let upstreamID = UUID().uuidString
+        await fixture.operations.setUpstreamID(upstreamID)
+        await fixture.operations.fail(at: "install")
+        do { _ = try await fixture.coordinator.start(target: fixture.target, confirmedIdentity: fixture.installation.runtimeIdentity); XCTFail() }
+        catch { XCTAssertEqual(error as? DesktopHermesUpgradeError, .recoveryRequired) }
+        let pending = try XCTUnwrap(fixture.migration.hermesUpgradeJournal.loadReadOnly())
+        XCTAssertEqual(pending.upstreamUpdateID, upstreamID)
+        XCTAssertNotEqual(pending.runID, upstreamID)
+        await fixture.operations.fail(at: nil)
+        await fixture.operations.setUpstreamID(UUID().uuidString)
+        do { _ = try await fixture.coordinator.resume(runID: pending.runID); XCTFail("new upstream receipt custody was accepted") }
+        catch { XCTAssertEqual(error as? DesktopHermesUpgradeError, .recoveryRequired) }
+        XCTAssertEqual(try fixture.migration.hermesUpgradeJournal.loadReadOnly(), pending)
+        await fixture.operations.setUpstreamID(upstreamID)
+        let completed = try await fixture.coordinator.resume(runID: pending.runID)
+        XCTAssertEqual(completed.phase, .completed)
+        XCTAssertEqual(completed.upstreamUpdateID, upstreamID)
+    }
     func testUncertifiedTargetHasNoEffectsAndCreatesNoJournal() async throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let coordinator = DesktopHermesUpgradeCoordinator(migration: fixture.migration, operations: fixture.operations)
@@ -230,18 +250,23 @@ private struct Fixture {
     }
     func remove() { try? FileManager.default.removeItem(at: root) }
 }
-private final class Lock: DesktopHermesUpgradeLockHolding, @unchecked Sendable {}
+private final class Lock: DesktopHermesUpgradeLockHolding, @unchecked Sendable {
+    let upstreamUpdateID: String?
+    init(_ id: String? = nil) { upstreamUpdateID = id }
+}
 private actor Operations: DesktopHermesUpgradeOperating {
     let installation: DesktopLocalHermesInstallation
     let store: DesktopHermesUpgradeJournalStore
     var calls: [String] = []
     var failure: String?
     var moved = false
+    var upstreamID: String?
     var hook: (@Sendable (String) async -> Void)?
     init(installation: DesktopLocalHermesInstallation, store: DesktopHermesUpgradeJournalStore) {
         self.installation = installation; self.store = store
     }
     func fail(at effect: String?) { failure = effect }
+    func setUpstreamID(_ id: String?) { upstreamID = id }
     func changeIdentityOnSecondPreflight() { moved = true }
     func setHook(_ hook: @escaping @Sendable (String) async -> Void) { self.hook = hook }
     func effect(_ name: String, phase: DesktopHermesUpgradePhase? = nil) async throws {
@@ -260,8 +285,8 @@ private actor Operations: DesktopHermesUpgradeOperating {
         return .init(installation: selected, services: [.init(label: "com.hermesgo.hermes-server", wasLoaded: true,
             configurationDigest: String(repeating: "d", count: 64))], originalChannel: "main")
     }
-    func acquireUpstreamLock(checkout: URL, hermesHome: URL) async throws -> any DesktopHermesUpgradeLockHolding {
-        try await effect("lock"); return Lock()
+    func acquireUpstreamLock(runID: String, checkout: URL, hermesHome: URL) async throws -> any DesktopHermesUpgradeLockHolding {
+        try await effect("lock"); return Lock(upstreamID)
     }
     func validateResume(_ journal: DesktopHermesUpgradeJournal) async throws { try await effect("resume") }
     func quiesce(_ journal: DesktopHermesUpgradeJournal) async throws { try await effect("quiesce", phase: .quiescing) }

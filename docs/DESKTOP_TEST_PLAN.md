@@ -34,7 +34,30 @@ finish additionally runs in a kernel sandbox denying signals, launchctl/osascrip
 Completion tests preserve the observed receipt fields and reject missing launcher correlation and
 remaining debt after correlation is supplied. The experiment proves PM provisioning and the owed-work
 receipt shape; denied service restoration prevents certification. It has no genuine old venv/history.
-Still needed: actual clean old→fixed target upgrade, upstream lock inheritance across parent death,
+The bundled Swift/Python worker adds private configuration/environment, exact single command, task
+cancellation, malformed IPC, symlink refusal and immutable upstream-ID journal tests. Python boundaries
+cover duplicate JSON, private/link ownership, journal/source/target/version/backup binding, hidden index edits,
+ignored Python overlays across the snapshot, executable Git filters/rewrites and refusal to overwrite committed context.
+IPC lines over 4096 bytes are rejected even when a newline arrives in the same read. Release-tag tests
+require a tag that peels to the pinned commit and retain conflicting owner tags without fetching.
+A retired external WAL-writer regression reproduces Apple SQLite's missing-sidecar backup failure;
+only a source with no pending WAL/rollback pages gets immutable reading. Nonempty WAL coverage remains.
+
+`scripts/compat/hermes-update-lock-matrix.py` runs actual pinned official classes in disposable homes:
+GO bridge exclusion, cross-home/linked-worktree exclusion in real Git fixtures, SIGKILL of the isolated official lock owner while
+its inherited-custody child survives, reclaim after child exit, and pre-move debt keyed to the live
+installation with the frozen helper's original module origin restored. Local macOS passed; CI covers
+macOS/Ubuntu. This deliberately does not terminate the owner's services or a whole PM transaction.
+`DesktopHermesUpgradeRehearsalTests` is opt-in via an explicitly marked disposable `/tmp/hg199-*` home
+and an independently pinned source checkout; ordinary baseline skips it. It is not production approval.
+The source snapshot must include the exact official release tag and a self-contained bounded Git graph,
+not just a detached commit or partial-clone metadata. Provision the disposable old venv using the old
+official installer, restrict writes/signals/service execution with a kernel sandbox, and keep the
+marked home and verified source outside the owner's installation. The opt-in test checks original
+branch preservation, actual official IDs/version/PM receipt, owed service recovery, old history,
+new history and separate backup export. It intentionally leaves GO's journal pending.
+
+Still needed: actual clean old→fixed target upgrade,
 real stopped-writer inventory/retirement, process-kill boundary matrix, original service restoration,
 full history/Q&A/stream/cancel/attachment/approval/clarify/cron acceptance and physical Mac UI review.
 The new condition rows also need light/dark review on that isolated Mac. Do not launch this app against

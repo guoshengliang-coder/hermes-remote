@@ -7,7 +7,7 @@ final class DesktopHermesUpgradeCompletionTests: XCTestCase {
     private var target: DesktopHermesUpgradeTarget { try! .init(version: "0.21.6", commit: String(repeating: "a", count: 40)) }
     private var receipt: [String: Any] {
         ["schema": 1, "update_id": runID, "correlation_id": runID, "outcome": "success",
-         "finished_at": "2026-10-11T04:47:40.505360+00:00", "post_update": ["sha": target.commit],
+         "finished_at": "2026-10-11T04:47:40.505360+00:00", "post_update": ["sha": target.commit, "version": target.version],
          "stages": [["name": "build", "outcome": "success"]], "pm_sync_outcome": "ok",
          "pm_exit_code": 0, "pm_venv_rebuild": ["ok": true],
          "gateway_restart": ["incomplete": false, "failed_units": [], "phase_error": ""]]
@@ -23,6 +23,15 @@ final class DesktopHermesUpgradeCompletionTests: XCTestCase {
             runID: runID, upstreamUpdateID: upstreamUpdateID ?? runID, target: target, expectedRunningServices: 1, evidence: evidence ?? self.evidence())
     }
     func testVerifiedTerminalRunAndExactBootIdentityAreAccepted() throws { try verify(receipt) }
+    func testPinnedCommitWithUnknownMissingOrWrongVersionDoesNotComplete() throws {
+        for identity in [["sha": target.commit], ["sha": target.commit, "version": "unknown"],
+                         ["sha": target.commit, "version": "0.21.3"]] {
+            var changed = receipt; changed["post_update"] = identity
+            XCTAssertThrowsError(try verify(changed)) {
+                XCTAssertEqual($0 as? DesktopHermesUpgradeError, .verificationFailed)
+            }
+        }
+    }
     func testLauncherCorrelationAndUpstreamPMUpdateIDAreSeparateIdentities() throws {
         var distinct = receipt
         let upstreamID = UUID().uuidString
@@ -72,7 +81,8 @@ final class DesktopHermesUpgradeCompletionTests: XCTestCase {
     }
     func testObservedOfficialFinishReceiptRemainsIncompleteDespiteSuccessfulPMAndProcess() throws {
         // Selected fields from the isolated 818c13be official finish on 2026-10-11. No real
-        // credentials/history were used. The positive control below only removes synthetic debt;
+        // credentials/history were used. The positive control below supplies a synthetic version
+        // and removes debt;
         // it is parser coverage, not evidence that a real service was restored.
         let observed = Data(#"""
         {
@@ -109,6 +119,8 @@ final class DesktopHermesUpgradeCompletionTests: XCTestCase {
         var restart = try XCTUnwrap(object["gateway_restart"] as? [String: Any])
         restart["incomplete"] = false; restart["phase_error"] = ""
         object["gateway_restart"] = restart
-        try check(object) // Verify the observed field types parse once only the debt is removed.
+        XCTAssertThrowsError(try check(object)) // Commit alone still does not prove target version.
+        object["post_update"] = ["sha": fixedTarget.commit, "version": fixedTarget.version]
+        try check(object) // Parser control only: no real service/version certification.
     }
 }

@@ -51,6 +51,31 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
   不能仅凭 exit 0、success 字段或“Update complete”文案宣称成功。
   receipt 的 correlation_id 绑定 GO launcher run，update_id 绑定官方/PM 工作链；两者分别核对，
   不要求它们相同。适配器必须在执行前记录上游 update_id 并传递 HERMES_UPDATE_CORRELATION_ID。
+- 新增随 app 打包的 `hermes-upgrade-worker.py` 和 Swift IPC 驱动。驱动清空继承环境，只传
+  明确的 home、缓存、关联身份及选定代理；私有配置先落盘，同一 run 不允许替换配置。
+  worker 验证固定 Git 源快照全部 Python blob，拒绝隐藏 index 修改、额外 Python 模块、可执行
+  Git filter/include/URL 重写或部分克隆配置，然后调用目标源码的真实 `UpdateLock`。
+  获取锁只写官方锁记录；停写和备份由机器适配器提供，写入 updating 意图后才可执行。
+  源码移动使用固定对象的 fast-forward/精确 detached checkout，先持久化官方 completion、fleet
+  和 interrupted-pull 义务，再调用官方 historical takeover → PM → finish。没有 pip/reset/stash 回退。
+  深度一的旧克隆只从验证过的本地快照有界补齐祖先；缺少对象或不能证明 fast-forward 则拒绝。
+  固定 release tag 必须解引用到同一目标 commit，随对象导入而不强制覆盖已有 tag；缺失、漂移或
+  本机同名 tag 冲突均拒绝。仅有 commit 的源码快照会使官方 finish stamp 的 version 成为 unknown，
+  不能作为完整版本结果。完成检查使用 `version_info.get_code_identity`，不依赖旧 lazy `__version__`。
+  从独立快照加载的 `update_host_obligation` 以 `__file__` 推导安装 key；worker 在预写义务时临时
+  将模块 origin 指向确认的 live checkout，并在 finally 恢复，确保预写与收尾记录同一安装。
+  不修改任何上游源码；此私有内部约定必须随每个认证目标重新审计，实际矩阵验证 key 与 origin 恢复。
+  当前 worker 对已经位于目标提交的重试明确拒绝，不用新空白 receipt 覆盖上次上下文；
+  该阶段的真实收尾续作仍须机器适配器先核验并接入官方恢复路径。
+- 上游 update_id 随第一份 GO journal 固化；重启续作不能换用另一官方工作链。
+  Swift 等待任务取消不会杀死 worker，提交后的 takeover/finish 继承上游 checkout 锁，
+  Desktop 退出只关闭控制管道，不向已提交的子进程发送信号。进程退出码仍交给独立完成判定。
+- 真实 macOS 进程矩阵已验证：GO bridge 排斥另一个官方 updater，同 checkout 的不同 home
+  及共享 Git common dir 的 linked worktree 也不能绕过；真实锁主进程被终止后，官方 post-commit 子进程仍持有 checkout/delegate custody，
+  子进程退出后锁可重新领取。CI 将同一矩阵运行在 Ubuntu 和 macOS；这不等于完整升级终止矩阵。
+- 退休后的 WAL 数据库可能没有侧文件，但主库头仍标记 WAL。Apple SQLite 只读 backup 曾因此
+  失败；仅当 WAL/rollback journal 均无内容时使用 immutable 只读 URI，非空 WAL 仍用正常 backup。
+  专项回归复现旧行为失败，原有非空 WAL 合并及后续写入保护测试继续通过。
 
 2026-10-11 隔离 macOS 演练：在一次性 HOME/HERMES_HOME、清空继承凭据、固定 818c13be 源码下，
 实际执行官方 `_update_takeover.prepare`（PM）与 `update_finish`。PM 选中 Python 3.14.7 managed
@@ -75,7 +100,7 @@ correlation id 被官方收尾拒绝；修正为同一 update_id 后完成该演
 3. 暂停 Connector 接入，验证所有 Hermes writer 真正空闲并停止。备份整个数据/config/cron/profile
    及启动状态；SQLite backup 必须包含 WAL 已提交数据，独立校验 hash/quick_check/会话数量。
 4. 旧 0.21.3 CLI 没有安全的精确目标参数。固定官方 source commit 后，0.21.6 的 historical
-   takeover/PM/completion 路径是需要演练的适配候选，不能替换成 pip + Git。官方 exit 0 可能仍欠
+   takeover/PM/completion worker 已实现，仍须完整演练及机器适配认证，不能替换成 pip + Git。官方 exit 0 可能仍欠
    completion/fleet followups，必须核验 receipt、激活代次、boot commit 与兼容验收。
 5. 恢复原先加载的已识别服务，验证历史、发送/流式/取消、附件、approval/clarify、cron 和端到端
    连接。按安全阶段取消；中断后从同一日志恢复。代码或数据库已变更后不自动覆盖新写入；旧代码
@@ -95,6 +120,7 @@ Android/Web 按 profile 消费能力并逐项降级，及 Mac/手机验收。主
 ```bash
 python -I -B scripts/compat/hermes-matrix.py --old-root <downloaded-old-source> --candidate-root <downloaded-target-source>
 python -I -B -m unittest discover -s scripts/compat -p 'test_*.py'
+python -I -B scripts/compat/hermes-update-lock-matrix.py --candidate-root <pinned-target-git-checkout>
 ```
 
 脚本拒绝当前用户 `~/.hermes` 内的源码路径。数据库只在随机临时 home 中创建，所有子进程清除

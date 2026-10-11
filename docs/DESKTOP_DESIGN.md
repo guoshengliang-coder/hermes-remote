@@ -17,6 +17,11 @@ private content. This check does not stop services or modify data and does not c
 An unfinished/unsafe upgrade journal keeps `HR-HERMESUPDATE-003` visible after another version check
 and pauses automatic recovery, including when the local-runtime setting is off. Execution/confirmation
 and actual recovery controls still require a certified concrete adapter; they are not exposed yet.
+The packaged execution worker adds no visible action until that certification. A target already moved
+on disk requires reconciliation of its retained official receipt/tail; the product must not label a
+fresh retry or an exit-zero receipt with owed work as a completed upgrade.
+Displayed completion requires the receipt's version and fixed commit to agree; a tagless checkout
+whose official version stamp says unknown must remain pending even if its dependency sync succeeded.
 
 ## Repairing a committed installation (HG-175)
 

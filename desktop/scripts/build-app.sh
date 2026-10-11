@@ -40,6 +40,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 install -m 755 "$bin_dir/HermesGoDesktop" "$app/Contents/MacOS/HermesGoDesktop"
 install -m 644 "$desktop_dir/Packaging/Info.plist" "$app/Contents/Info.plist"
+cp -R "$bin_dir/HermesGoDesktop_HermesGoDesktopCore.bundle" "$app/Contents/Resources/"
 
 if [ "$(plutil -extract CFBundleIconFile raw "$app/Contents/Info.plist")" != "AppIcon" ]; then
   echo "Packaged Desktop app must declare AppIcon as its bundle icon." >&2

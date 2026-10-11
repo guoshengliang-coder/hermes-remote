@@ -18,8 +18,11 @@ adds durable write-ahead phases, a shared operation lease, cancellation/resume b
 WAL-safe full-home backups, database export to a new directory and exact-run completion evaluation.
 Pending/unsafe upgrade journals block startup repair even with local runtime disabled or bundled
 Hermes unloaded, and block new Hermes installation. Settings offers an inert local-condition check.
-Concrete idle/retirement, upstream-lock custody, fixed-source official execution and service adapters
-remain unenabled; see `HERMES_UPGRADE.md` for the sandboxed PM/owed-restart evidence and remaining gates.
+The bundled fixed-source worker now owns the real official lock and invokes historical takeover/PM/
+finish, with immutable launcher/upstream IDs, pinned commit/tag/version and private IPC configuration. Actual macOS process tests
+prove cross-home exclusion and surviving-child lock custody. Retired sidecar-free WAL snapshots use
+immutable reads only when there are no pending WAL/rollback bytes. Concrete idle/retirement, service
+and committed-tail recovery adapters remain unenabled; see `HERMES_UPGRADE.md` for evidence and gates.
 
 ## Explicit managed-service repair (HG-175)
 
