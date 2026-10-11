@@ -1555,8 +1555,9 @@ private fun MessageBubble(
  * "an offer that cannot work is worse than none, because the user keeps paying for it" (HG-29).
  * A code lands here when no amount of tapping on this phone can change the answer:
  *  - SESS-001, the conversation is gone upstream and could not be silently replaced;
- *  - SESS-015, the restored send's staged attachments did not survive the restart, so replaying it
- *    would deliver less than the user meant;
+ *  - SESS-015, the restored send's attachment files did not survive to be read back (the disk
+ *    copies were evicted, or the record predates the paths — HG-208), so replaying it would
+ *    deliver less than the user meant;
  *  - SESS-016, the Mac's Hermes cannot reach its PDF rendering dependency (HG-58) — the fix is on
  *    the Mac, and until it happens every attempt repeats the same 5028;
  *  - SESS-017, the conversation's own answer is larger than the relay can carry, and it only ever

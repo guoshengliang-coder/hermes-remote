@@ -1054,10 +1054,11 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    // Attachments are in-memory bytes and are deliberately not persisted (the same ruling drafts
-    // get). Sending the text alone would deliver less than the user meant, so the restored turn
-    // takes HR-SESS-015 and the tap is withheld — docs/ERROR_HANDLING.md: an offer that cannot
-    // work is worse than none.
+    // A record whose attachments left no readable disk copy — a v1 record (HG-49 era, paths were
+    // not recorded) or one whose cache entries were evicted. Sending the text alone would deliver
+    // less than the user meant, so the restored turn takes HR-SESS-015 and the tap is withheld —
+    // docs/ERROR_HANDLING.md: an offer that cannot work is worse than none. Since HG-208 this is
+    // the degradation, not the default; the default is the disk-copy replay above.
     @Test fun a_restored_send_that_had_attachments_says_so_and_refuses_the_retry() = runTest {
         unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
             listOf(
@@ -1139,6 +1140,132 @@ class ChatViewModelTest {
 
         assertTrue("withdrawing removes it", vm.state.value.messages.none { it.id == "u-withfiles" })
         assertNull("and it does not come back on the next cold start", unsent.peek(draftToken))
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    // HG-208, the report itself: an image send died of an upload timeout, the user switched
+    // conversations (the nav-scoped ViewModel went with it), and the retry they found on coming
+    // back said 附件已丢失 — because the record kept a count, the bytes were ViewModel memory,
+    // and every attachment-carrying failure degraded to HR-SESS-015 the moment the screen was
+    // left. The fix has two halves, tested separately: this one writes the disk copies and the
+    // record that points at them at the moment the send fails; the two restores below read them
+    // back after the ViewModel — or the whole process — is gone. One test spanning both halves
+    // would have to advanceUntilIdle past a failed send, which hands the runtime store's process
+    // polling an endless hasActiveWork budget under virtual time (five minutes of GC storm per
+    // run, in practice); the halves are equivalent combined and each stays fast.
+    @Test fun a_failed_image_send_records_where_its_bytes_are_cached() = runTest {
+        val cached = java.io.File.createTempFile("hg208-image", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        try {
+            coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+            coEvery { mediaRepo.cacheOutgoing(any(), any(), any()) } answers {
+                com.hermes.client.domain.ChatImage(firstArg(), mimeType = thirdArg(), localPath = cached.absolutePath)
+            }
+            coEvery { fileRepo.upload(any(), any(), any()) } throws java.net.SocketTimeoutException("timeout")
+
+            val vm = buildVm()
+            vm.open("s1")
+            runCurrent()
+            vm.stageAttachment(cached.readBytes(), "image/jpeg", "shot.jpg")
+            vm.send("看图")
+            runCurrent()
+
+            val record = unsent.peek(draftToken)
+            assertNotNull("a failed send is persisted", record)
+            assertEquals(1, record!!.attachments)
+            assertEquals(1, record.attachmentMeta.size)
+            assertEquals("the record points at the media-cache copy", cached.absolutePath, record.attachmentMeta[0].path)
+            assertEquals("shot.jpg", record.attachmentMeta[0].name)
+            assertEquals(
+                "the failure stays retryable — it is a network refusal, not a lost attachment",
+                com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+                vm.sendErrorCode(record.messageId),
+            )
+        } finally {
+            cached.delete()
+        }
+    }
+
+    // The other half: the record above is what a fresh ViewModel — or a cold-started process —
+    // restores from. With every listed file readable the turn replays whole: the original error
+    // code survives, the tap is real, and the retry uploads the image and submits the text.
+    @Test fun a_restored_send_whose_attachment_files_survived_replays_with_them() = runTest {
+        val cached = java.io.File.createTempFile("hg208-image", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        try {
+            unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+                listOf(
+                    com.hermes.client.data.repository.UnsentRecord(
+                        token = draftToken, messageId = "u-att", text = "看图",
+                        code = "HR-SESS-007", retryable = true, attachments = 1,
+                        attachmentMeta = listOf(
+                            com.hermes.client.data.repository.UnsentAttachment(
+                                id = "att-1", name = "shot.jpg", mimeType = "image/jpeg",
+                                path = cached.absolutePath, sizeBytes = cached.length(),
+                            ),
+                        ),
+                        updatedAt = 1L,
+                    ),
+                ),
+            )
+            coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+            coEvery { mediaRepo.cacheOutgoing(any(), any(), any()) } answers {
+                com.hermes.client.domain.ChatImage(firstArg(), mimeType = thirdArg())
+            }
+            coEvery { chatRepo.attachImagePath("s1-live", "/tmp/uploaded") } returns
+                com.hermes.client.data.repository.AttachedImage("/tmp/uploaded")
+            val vm = buildVm()
+            vm.open("s1")
+            advanceUntilIdle()
+
+            assertEquals(
+                "the upload timeout is what the restored bubble reports — not 附件丢失",
+                com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+                vm.sendErrorCode("u-att"),
+            )
+
+            vm.retrySend("u-att")
+            runCurrent()
+            coVerify(exactly = 1) { fileRepo.upload(any(), "shot.jpg", "image/jpeg") }
+            coVerify(exactly = 1) { chatRepo.attachImagePath("s1-live", "/tmp/uploaded") }
+            coVerify(exactly = 1) { chatRepo.submit("s1-live", "看图") }
+
+            events.emit(event("message.complete", "s1-live", "done"))
+            runCurrent()
+        } finally {
+            cached.delete()
+        }
+    }
+
+    // The disk copy is a cache entry, not a promise: the media cache evicts by size and age, and
+    // the staged file can be gone for the same reasons. A record whose files did not survive
+    // degrades exactly as v1 records do — HR-SESS-015, tap withheld, nothing half-sent.
+    @Test fun a_restored_send_whose_disk_copies_were_evicted_still_refuses_the_retry() = runTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
+            listOf(
+                com.hermes.client.data.repository.UnsentRecord(
+                    token = draftToken, messageId = "u-att", text = "看图",
+                    code = "HR-SESS-007", retryable = true, attachments = 1,
+                    attachmentMeta = listOf(
+                        com.hermes.client.data.repository.UnsentAttachment(
+                            id = "att-1", name = "shot.jpg", mimeType = "image/jpeg",
+                            path = "/nonexistent/cache/att-1.jpg", sizeBytes = 3L,
+                        ),
+                    ),
+                    updatedAt = 1L,
+                ),
+            ),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        val vm = buildVm()
+        vm.open("s1")
+        advanceUntilIdle()
+
+        assertEquals(
+            com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST,
+            vm.sendErrorCode("u-att"),
+        )
+        vm.retrySend("u-att")
+        advanceUntilIdle()
+        assertTrue("the bubble stays put", vm.state.value.messages.any { it.id == "u-att" })
         coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 
