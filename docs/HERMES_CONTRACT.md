@@ -279,16 +279,26 @@ Deliberately **not** in the table, because upstream's `openapi.json` cannot vouc
 
 #### Connector contract check (added 2026-09-21)
 
+The account-mode health probe prefers optional `GET /api/health` (`ok`, `version`, `auth_required`)
+and then, with configured credentials, protected `GET /api/profiles/active`. Checked against the
+Mac's upstream `hermes_cli/web_routers/status.py`, `profiles.py`, and the authentication middleware:
+health is public; the profile read returns only the active/current names via filesystem reads and
+does not enumerate MCP/platform status. Only 404/405 selects the older-Hermes fallbacks
+`/api/status` and `/api/sessions?limit=1`. Both reads share the probe's 10-second deadline and
+64 KiB body ceiling. These optional routes add no required OpenAPI surface; profile/session body
+contents are not forwarded. Clients keep their existing `/api/status` behavior.
+
 Hermes GO no longer decides which Hermes runs (`docs/MANAGED_HERMES_STRATEGY.md`, principle 2), so
 the Connector checks this table against the running Hermes instead of trusting a pin:
 
 1. **What it fetches.** `GET /openapi.json` — FastAPI's default schema URL, outside `/api/`, sent
    with the same credentials as every other Connector→Hermes call (session token and/or Basic Auth
-   cookie; `HermesAuth.openApiDocument`) — and the `version` from the public `GET /api/status`.
+   cookie; `HermesAuth.openApiDocument`) — and the `version` from the lightweight health probe
+   (public `GET /api/health`, or `/api/status` for older Hermes).
    0.21.3 publishes ~250 KB; the Connector refuses a body over 8 MiB.
 2. **When.** At Connector startup, every time the session observer's socket to Hermes opens (a
    Hermes restart — `hermes update` kickstarts the serve job — looks exactly like that from the
-   Connector), and whenever `/api/status` reports a different `version` than the cached result was
+   Connector), and whenever the health probe reports a different `version` than the cached result was
    taken against (read cheaply on each phone request, on each Relay reconnect and in the account
    preflight). Otherwise the result is cached: `openapi.json` is not fetched per request. A cached
    `unknown` is retried after 60 s. A trigger that arrives while a check is running queues one

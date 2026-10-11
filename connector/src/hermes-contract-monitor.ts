@@ -9,7 +9,8 @@ export interface HermesContractProbe {
   /** `GET /openapi.json`, authenticated like every other Connector→Hermes call. Never throws. */
   fetchOpenApi(): Promise<OpenApiFetchResult>;
   /**
-   * The `version` from `GET /api/status`. `undefined` when Hermes answered without one; throws when
+   * The `version` from the lightweight health probe (or `/api/status` on older Hermes).
+   * `undefined` when Hermes answered without one; throws when
    * Hermes could not be reached at all.
    */
   fetchStatusVersion(): Promise<string | undefined>;
@@ -82,7 +83,7 @@ export class HermesContractMonitor {
   }
 
   /**
-   * The report to serve now. Reads `/api/status` (small, public) and re-checks only when the
+   * The report to serve now. Reads the health probe and re-checks only when the
    * version moved, nothing is cached yet, or a cached `unknown` has gone stale.
    */
   async ensureFresh(trigger: string): Promise<HermesContractReport> {
@@ -102,7 +103,7 @@ export class HermesContractMonitor {
     return cached;
   }
 
-  /** A version learned elsewhere (the account preflight's `/api/status`). Re-checks if it moved. */
+  /** A version learned elsewhere (the account preflight). Re-checks if it moved. */
   observeVersion(version: string | undefined, trigger: string): void {
     const cached = this.report;
     if (cached && !this.isStale(cached, version)) return;
