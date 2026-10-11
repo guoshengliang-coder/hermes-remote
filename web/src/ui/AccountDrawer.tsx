@@ -1,4 +1,3 @@
-import { preference, savePreference, type Presentation } from "../charts/model";
 import { appError } from "../errors";
 import { useEffect, useState } from "preact/hooks";
 import type { FontSize, LanguagePreference, ThemeMode } from "../app/appearance";
@@ -16,7 +15,7 @@ import { ErrorNotice } from "./ErrorNotice";
 import { BellIcon, ChevronIcon, CloseIcon, CubeIcon, GlobeIcon, MacIcon, MicIcon, MoonIcon, SunIcon, TextSizeIcon } from "./icons";
 
 type Translate = (zh: string, en: string) => string;
-type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push" | "dataPresentation" | "layout";
+type SheetKind = "theme" | "language" | "fontSize" | "model" | "voiceFeedback" | "push" | "layout";
 
 const themeLabel = (mode: ThemeMode, t: Translate) =>
   mode === "system" ? t("跟随系统", "Follow system") : mode === "light" ? t("温润浅色", "Warm light") : t("黑曜石深色", "Obsidian dark");
@@ -41,12 +40,6 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
   const layoutOptions = [
     { id: "auto", label: t("自动适应", "Automatic"), description: t("空间足够时并排显示会话列表与聊天", "Show conversations beside chat when space allows") },
     { id: "single", label: t("始终单栏", "Always single column"), description: t("所有窗口宽度都使用单栏", "Use a single column at every window size") },
-  ] as const;
-  const [dataPresentation, setDataPresentation] = useState<Presentation>(preference);
-  const presentationOptions = [
-    { id: "table", label: t("表格优先", "Table first"), description: t("首先显示原始表格", "Start with the source table") },
-    { id: "chart", label: t("图表优先", "Chart first"), description: t("适合的数据首先显示图表", "Start with charts when data is suitable") },
-    { id: "auto", label: t("自动选择", "Automatic"), description: t("结构明确时显示图表，其余显示表格", "Chart unambiguous data; otherwise show the table") },
   ] as const;
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const pushStatus = usePushStatus(app.client, app.account?.id, sheet === "push");
@@ -120,7 +113,6 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
           <div class="drawer-shortcuts">
             <button type="button" class="drawer-shortcut" aria-label={t("大屏布局", "Large screen layout")} onClick={() => setSheet("layout")}><MacIcon size={20}/><span class="drawer-shortcut-title">{t("大屏布局", "Large screen layout")}</span><span class="drawer-shortcut-value">{layoutOptions.find(option => option.id === workspace.mode)?.label}</span><ChevronIcon/></button>
             <button type="button" class="drawer-shortcut" aria-label={t("恢复默认栏宽", "Reset list width")} onClick={() => { workspace.resetWidth(); app.flash(t("已恢复默认栏宽", "List width reset")); }}><TextSizeIcon size={20}/><span class="drawer-shortcut-title">{t("恢复默认栏宽", "Reset list width")}</span></button>
-            <button type="button" class="drawer-shortcut" onClick={() => setSheet("dataPresentation")}><TextSizeIcon size={20}/><span class="drawer-shortcut-title">{t("数据展示方式", "Data presentation")}</span><span class="drawer-shortcut-value">{presentationOptions.find(o => o.id === dataPresentation)?.label}</span><ChevronIcon/></button>
             {pushStatus !== "unsupported" ? (
               <button type="button" class="drawer-shortcut" aria-label={t("消息通知", "Notifications")} onClick={() => setSheet("push")}>
                 <BellIcon size={20} />
@@ -170,8 +162,7 @@ export function AccountDrawer({ onClose }: { onClose: () => void }) {
         </div>
         <footer class="drawer-footer"><span class="drawer-footer-rule" aria-hidden="true"><i />✦<i /></span><span>Your AI Agent, in Your Pocket</span></footer>
       </aside>
-      {sheet === "dataPresentation" ? <ChoiceSheet title={t("数据展示方式", "Data presentation")} options={presentationOptions} inUse={dataPresentation}
-        onSave={choice => { try { savePreference(choice); setDataPresentation(choice); closeSheet(); } catch { app.flash(appError("HR-CHART-002")); } }} onClose={closeSheet} t={t}/> : null}
+
       {sheet === "push" ? <PushNotifications onClose={closeSheet}/> : null}
       {sheet === "layout" ? <ChoiceSheet title={t("大屏布局", "Large screen layout")} options={layoutOptions} inUse={workspace.mode}
         onSave={choice => { workspace.setMode(choice); closeSheet(); }} onClose={closeSheet} t={t}/> : null}

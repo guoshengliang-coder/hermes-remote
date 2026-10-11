@@ -1,10 +1,12 @@
-
-HG-192 table charts use the fixed, dependency-free renderer packaged under Android's
-`app/src/main/assets/table-chart/`; Vite emits the same files at `/app/charts/`. LocalStorage holds
-only presentation/filter configuration, scoped to the conversation and table fingerprint. Original
-tables remain intact. The Gateway chart CSP changes are required alongside this bundle; ordinary
-message HTML remains disabled. See `../docs/DESIGN.md` §5.22 and `../docs/ANDROID_SMOKE.md` for behavior
-and device checks. No AI chart-generation requests are made.
+HG-205 keeps chat tables as source tables and creates the shared offline chart only inside
+fullscreen. Reliable time/category data gets a local recommendation; unsuitable data stays a table.
+Adjust is collapsed, initial data is unfiltered, and applied filters show a range and Restore all.
+Long labels use horizontal bars; explicit 100-point pages retain access to every plot point and
+exact value. Closing restores the same card and ancestor scroll. The global Data presentation
+setting is removed; versioned per-table preferences remain local and scoped. Vite emits the fixed
+Android assets at `/app/charts/`; the existing opaque sandbox and CSP stay in force. No AI generation
+request is made. See `../docs/DESIGN.md` §5.22 and
+`../docs/TABLE_CHART_FULLSCREEN_VERIFICATION.md`.
 
 HG-196 makes voice auto-send use the complete composer: existing text first, then final speech,
 plus every pending image/file. The composer clears after handing the message to send; retry keeps

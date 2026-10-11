@@ -2813,9 +2813,7 @@ internal fun ChatTableCard(
                     .padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (chart != null) TableChartToggle(chart, Modifier.weight(1f)) else {
-                    DisableSelection { Text(localized(language, "表格", "Table"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)) }
-                }
+                DisableSelection { Text(localized(language, "表格", "Table"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)) }
                 IconButton(
                     onClick = {
                         clipboard.setText(AnnotatedString(markdownTableToTsv(raw)))
@@ -2855,22 +2853,13 @@ internal fun ChatTableCard(
                 IconButton(onClick = { chart?.let { it.releaseRendererFocus?.invoke(); chartScope?.active?.invoke(it.key, chartIdentity) }; onOpenFullscreen() }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Rounded.OpenInFull,
-                        contentDescription = localized(language, "全屏查看", "View fullscreen"),
+                        contentDescription = localized(language, "展开", "Expand"),
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            if (chart?.view != "chart") content()
-            chart?.let {
-                TableChartNotice(it)
-                if (it.activated && it.failure?.code != com.hermes.client.data.error.AppErrorCode.CHART_RENDER_FAILED) {
-                    androidx.compose.foundation.text.selection.DisableSelection {
-                        if (chartScope?.fullscreenKey?.invoke() == it.key) Spacer(Modifier.height(if (it.view == "chart") it.contentHeight.dp else 1.dp))
-                        else OfflineTableChart(it, Modifier.fillMaxWidth().height(if (it.view == "chart") it.contentHeight.dp else 1.dp))
-                    }
-                }
-            }
+            content()
         }
     }
     exportAction?.let { action ->
@@ -2998,11 +2987,14 @@ internal fun TableFullscreenDialog(raw: String, chart: TableChartController? = n
                     TableChartToggle(chart, Modifier.padding(horizontal = 12.dp))
                     TableChartNotice(chart)
                 }
-                if (chart?.view == "chart") {
-                    OfflineTableChart(chart, Modifier.fillMaxWidth().weight(1f))
-                } else {
+                // Only fullscreen loads the renderer. Keep a hidden instance for source-table
+                // switching/initial recognition; the chat card never mounts a WebView.
+                if (chart != null && chart.failure?.code != com.hermes.client.data.error.AppErrorCode.CHART_RENDER_FAILED) {
+                    OfflineTableChart(chart, if (chart.view == "chart") Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(1.dp))
+                }
+                if (chart?.view != "chart") {
                 val columns = remember(raw) { markdownTableColumnCount(raw) }
-                val exportCellWidth = 170
+                val exportCellWidth = maxOf(170, (LocalConfiguration.current.screenWidthDp - 24) / columns.coerceAtLeast(1))
                 val tableWidth = (columns.coerceAtLeast(1) * exportCellWidth + 24).dp
                 Column(
                     Modifier

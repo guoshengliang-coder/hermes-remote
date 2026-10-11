@@ -48,7 +48,10 @@
     state,
     hits = [],
     currentData = [],
-    selectedRow = null;
+    selectedRow = null,
+    adjustmentOpen = false,
+    pointListOpen = false,
+    page = 0;
   const host = document.getElementById("chart");
   function t(zh, en) {
     return config?.language === "en" ? en : zh;
@@ -101,6 +104,7 @@
           ? [...select.selectedOptions].map((o) => o.value)
           : select.value,
       );
+      page = 0;
       render();
       notify();
     });
@@ -113,6 +117,23 @@
       host.append(el("p", t(...TEXT[model.reason]), "empty"));
       return;
     }
+    const title = el(
+      "h2",
+      model.columns[state.metric].header +
+        (model.columns[state.metric].unit &&
+        !model.columns[state.metric].header.includes(
+          model.columns[state.metric].unit,
+        )
+          ? " · " + model.columns[state.metric].unit
+          : ""),
+    );
+    host.append(title);
+    const adjustments = el("details", undefined, "adjustments");
+    adjustments.open = adjustmentOpen;
+    adjustments.append(el("summary", t("调整", "Adjust")));
+    adjustments.addEventListener("toggle", () => {
+      adjustmentOpen = adjustments.open;
+    });
     const controls = el("div", undefined, "controls");
     controls.append(
       optionControl(
@@ -179,20 +200,7 @@
         (v) => (state.type = v),
       ),
     );
-    host.append(
-      controls,
-      el(
-        "p",
-        t(...TEXT[model.reason]) +
-          (model.excluded
-            ? t(
-                ` 已排除 ${model.excluded} 行合计。`,
-                ` ${model.excluded} total rows excluded.`,
-              )
-            : ""),
-        "reason",
-      ),
-    );
+    adjustments.append(controls);
     const dimension = model.columns[state.dimension];
     const range = dimension.values.filter(
       (x) => x !== null && !MISSING.test(String(x)),
@@ -203,7 +211,7 @@
             .sort((a, b) => a - b)
             .map((x) => new Date(x).toISOString().slice(0, 10))
         : [...new Set(range)];
-    host.append(
+    adjustments.append(
       el(
         "p",
         t("原表范围：", "Source range: ") +
@@ -255,6 +263,7 @@
             return;
           }
           state[key] = input.value;
+          page = 0;
           render();
           notify();
         });
@@ -267,23 +276,30 @@
       state.from = "";
       state.to = "";
       selectedRow = null;
+      page = 0;
       render();
       notify();
     };
     filter.append(reset);
-    host.append(filter);
-    host.append(
-      el(
-        "p",
-        t("当前筛选：", "Current filters: ") +
-          (state.categories.join("、") || t("全部分类", "All categories")) +
-          " · " +
-          (state.from || t("起始", "Start")) +
-          " — " +
-          (state.to || t("结束", "End")),
-        "reason",
-      ),
-    );
+    adjustments.append(filter);
+    if (state.categories.length || state.from || state.to) {
+      const current = el("div", undefined, "active-filter");
+      current.append(
+        el(
+          "p",
+          t("当前筛选：", "Current filters: ") +
+            (state.categories.join("、") || t("全部分类", "All categories")) +
+            " · " +
+            (state.from || t("起始", "Start")) +
+            " — " +
+            (state.to || t("结束", "End")),
+        ),
+      );
+      const all = el("button", t("恢复全部", "Show all"));
+      all.onclick = reset.onclick;
+      current.append(all);
+      host.append(current);
+    }
     const result = points(model, state);
     currentData = result.data;
     const ambiguous =
@@ -338,7 +354,38 @@
           detail();
         }
       };
-      host.append(canvas);
+      const viewport = el("div", undefined, "plot-scroll");
+      viewport.append(canvas);
+      host.append(viewport);
+      const pages = Math.ceil(currentData.length / 100);
+      page = Math.min(page, Math.max(0, pages - 1));
+      if (pages > 1) {
+        const paging = el("nav", undefined, "plot-pages");
+        paging.setAttribute("aria-label", t("绘图分页", "Plot pages"));
+        paging.append(
+          el(
+            "span",
+            t(
+              `显示 ${page * 100 + 1}–${Math.min((page + 1) * 100, currentData.length)} / 共 ${currentData.length} 个数据点`,
+              `Showing ${page * 100 + 1}–${Math.min((page + 1) * 100, currentData.length)} of ${currentData.length} data points`,
+            ),
+          ),
+        );
+        for (const [delta, label] of [
+          [-1, t("上一页", "Previous")],
+          [1, t("下一页", "Next")],
+        ]) {
+          const button = el("button", label);
+          button.disabled = page + delta < 0 || page + delta >= pages;
+          button.onclick = () => {
+            page += delta;
+            render();
+          };
+          paging.append(button);
+        }
+        host.append(paging);
+      }
+
       const colors = palette(),
         cats = [...new Set(currentData.map((p) => p.category))];
       const legend = el("div", undefined, "legend");
@@ -350,7 +397,13 @@
         legend.append(node);
       });
       host.append(legend);
-      host.append(
+      const exact = el("details", undefined, "exact-values");
+      exact.open = pointListOpen;
+      exact.append(el("summary", t("查看精确值", "Exact values")));
+      exact.addEventListener("toggle", () => {
+        pointListOpen = exact.open;
+      });
+      exact.append(
         optionControl(
           t("数据点（精确值）", "Data points (exact values)"),
           [
@@ -366,6 +419,7 @@
           },
         ),
       );
+      host.append(exact);
       const d = el("p", "", "detail");
       d.id = "detail";
       host.append(d);
@@ -393,7 +447,7 @@
       else input.focus();
     };
     fetch.append(label, button);
-    host.append(
+    adjustments.append(
       fetch,
       el(
         "p",
@@ -404,6 +458,18 @@
         "reason",
       ),
     );
+    host.insertBefore(adjustments, title.nextSibling);
+    if (model.excluded)
+      host.append(
+        el(
+          "p",
+          t(
+            `绘图已排除 ${model.excluded} 行合计；原表保留全部行。`,
+            `${model.excluded} total rows excluded from the chart; all source rows are retained.`,
+          ),
+          "reason",
+        ),
+      );
   }
   function detail() {
     const p = currentData.find((p) => p.row === selectedRow),
@@ -419,33 +485,90 @@
       : ["#2563EB", "#059669", "#9333EA", "#B45309", "#0891B2", "#C2410C"];
   }
   function draw(canvas) {
-    const w = Math.max(260, canvas.clientWidth),
-      h = 300,
-      dpr = Math.min(root.devicePixelRatio || 1, 3);
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
+    const data = currentData.slice(page * 100, (page + 1) * 100);
+    const fontScale = Math.max(
+      1,
+      (parseFloat(getComputedStyle(document.documentElement).fontSize) || 15) /
+        15,
+    );
+    const horizontal = state.type === "horizontal";
+    const available =
+      canvas.parentElement.clientWidth || root.innerWidth || 360;
+    const w = Math.max(
+      260,
+      available,
+      horizontal
+        ? 0
+        : data.length * (state.type === "line" ? 12 : 32) * fontScale,
+    );
+    const viewportHeight = Math.max(
+      300,
+      Math.min(700, (root.innerHeight || 500) - 190),
+    );
+    // Android may resize a hidden 1dp WebView while CSS viewport units stay stale.
+    // Use the same live viewport for the plot and its scroll container.
+    canvas.parentElement.style.maxHeight = viewportHeight + "px";
+    let h = Math.max(
+      viewportHeight,
+      horizontal ? data.length * 56 * fontScale + 80 : 0,
+    );
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       send("error", {});
       return;
     }
+    const left = horizontal
+      ? Math.min(w * 0.48, 260 * fontScale)
+      : 60 * fontScale;
+    ctx.font = `${12 * fontScale}px system-ui`;
+    function wrap(label) {
+      const lines = [];
+      let line = "";
+      for (const c of label) {
+        if (line && ctx.measureText(line + c).width > left - 14) {
+          lines.push(line);
+          line = "";
+        }
+        line += c;
+      }
+      if (line) lines.push(line);
+      return lines;
+    }
+    const rowLines = data.map((p) =>
+      wrap(p.label + (p.category ? " · " + p.category : "")),
+    );
+    const rowHeights = rowLines.map((lines) =>
+      Math.max(44 * fontScale, lines.length * 15 * fontScale + 16),
+    );
+    const rowOffsets = [];
+    let rowsHeight = 0;
+    rowHeights.forEach((height) => {
+      rowOffsets.push(rowsHeight);
+      rowsHeight += height;
+    });
+    if (horizontal) h = Math.max(h, rowsHeight + 75);
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    const dpr = Math.min(root.devicePixelRatio || 1, 3);
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
+    ctx.font = `${12 * fontScale}px system-ui`;
     hits = [];
-    const data = currentData,
-      vals = data.filter((p) => p.value !== null).map((p) => p.value),
+    const vals = currentData
+        .filter((p) => p.value !== null)
+        .map((p) => p.value),
       lo = Math.min(0, ...vals),
       hi = Math.max(0, ...vals),
       span = hi - lo || 1;
-    const left = 60,
-      right = w - 16,
+    const right = w - 16,
       top = 20,
       bottom = h - 55,
       color = getComputedStyle(document.documentElement);
-    ctx.font = "11px system-ui";
+    ctx.font = `${12 * fontScale}px system-ui`;
     ctx.fillStyle = color.getPropertyValue("--muted");
     ctx.strokeStyle = color.getPropertyValue("--grid");
     ctx.lineWidth = 1;
-    const horizontal = state.type === "horizontal";
     for (let i = 0; i <= 4; i++) {
       const value = lo + (span * i) / 4;
       const p = horizontal
@@ -507,14 +630,16 @@
           ctx.fill();
           previous = { x, y };
         } else if (horizontal) {
-          const slot = (bottom - top) / data.length;
-          y = top + (rowIndex.get(p.row) + 0.5) * slot;
+          const index = rowIndex.get(p.row);
+          const ratio = (bottom - top) / rowsHeight;
+          const slot = rowHeights[index] * ratio;
+          y = top + (rowOffsets[index] + rowHeights[index] / 2) * ratio;
           x = valueX(p.value);
           ctx.fillRect(
             Math.min(x, valueX(0)),
-            y - slot * 0.35,
+            y - Math.min(slot * 0.35, 18 * fontScale),
             Math.abs(x - valueX(0)),
-            Math.max(1, slot * 0.7),
+            Math.max(1, Math.min(slot * 0.7, 36 * fontScale)),
           );
         } else {
           const slot = (right - left) / labels.length / categories.length;
@@ -533,12 +658,16 @@
     ctx.fillStyle = color.getPropertyValue("--muted");
     if (horizontal) {
       data.forEach((p, i) => {
-        if (i % Math.max(1, Math.ceil(data.length / 8)) === 0)
+        const y =
+          top +
+          ((rowOffsets[i] + rowHeights[i] / 2) * (bottom - top)) / rowsHeight;
+        rowLines[i].forEach((text, j) =>
           ctx.fillText(
-            timeDimension ? p.label.slice(5) : p.label.slice(0, 8),
+            text,
             2,
-            top + ((i + 0.5) * (bottom - top)) / data.length + 4,
-          );
+            y + (j - (rowLines[i].length - 1) / 2) * 15 * fontScale + 4,
+          ),
+        );
       });
     } else
       labels.forEach((x, i) => {
@@ -548,7 +677,7 @@
         ) {
           const p = data.find((p) => p.x === x);
           ctx.fillText(
-            p.label.slice(0, 12),
+            p.label,
             Math.min(right - 55, Math.max(left - 15, position(p) - 20)),
             bottom + 20,
           );
@@ -574,7 +703,9 @@
         message.model ||
         model ||
         analyze(message.rows || parseMarkdown(message.raw || ""));
-      state = initial(model, message.state, message.preference, message.prompt);
+      state = initial(model, message.state);
+      adjustmentOpen = false;
+      pointListOpen = false;
       render();
       notify();
     } else if (

@@ -1,7 +1,6 @@
 import {
   engine,
   persist,
-  preference,
   queryPrompt,
   restore,
   storageKey,
@@ -24,21 +23,15 @@ export function mountChart(
 ): () => void {
   const t = (zh: string, en: string) => (language === "en" ? en : zh);
   const card = table.closest<HTMLElement>(".table-card")!,
-    head = card.querySelector(".block-head")!,
     body = card.querySelector<HTMLElement>(".table-scroll")!;
   const rows = tableRows(table).map((r) => r.cells),
     model = engine.analyze(rows),
     key = storageKey(context.scope, rows);
   const storageFailure = () => flash(appError("HR-CHART-002"));
-  let state = engine.initial(
-      model,
-      restore(key, storageFailure),
-      preference(storageFailure),
-      context.prompt,
-    ),
+  let state = engine.initial(model, restore(key, storageFailure)),
     frame: HTMLIFrameElement | null = null,
     timeout: ReturnType<typeof setTimeout> | null = null,
-    ready = false,
+    fullscreen = false,
     error = false;
   const nonce = crypto.randomUUID(),
     toggle = document.createElement("span");
@@ -48,32 +41,20 @@ export function mountChart(
   const tableButton = document.createElement("button"),
     chartButton = document.createElement("button");
   for (const [button, name] of [
-    [tableButton, t("表格", "Table")],
+    [tableButton, t("原表", "Source table")],
     [chartButton, t("图表", "Chart")],
   ] as const) {
     button.type = "button";
     button.textContent = name;
     toggle.append(button);
   }
-  head.querySelector(".block-label")?.replaceWith(toggle);
+  card.insertBefore(toggle, body);
   const notice = document.createElement("p");
   notice.className = "chart-notice";
   card.append(notice);
   const chartHost = document.createElement("div");
   chartHost.className = "table-chart-host";
   card.append(chartHost);
-  const reason = () =>
-    model.rows.length < 2
-      ? t("至少需要两行数据。", "At least two data rows are needed.")
-      : !model.metrics.length
-        ? t(
-            "没有可确认的数值列；ID 与混合单位不能作为指标。",
-            "No reliable numeric metric; IDs and mixed units are excluded.",
-          )
-        : t(
-            "没有可用的时间或分类维度。",
-            "No usable time or category dimension.",
-          );
   function send(type: string, extra: object = {}) {
     // The fixed iframe is sandboxed WITHOUT allow-same-origin (its origin is opaque).
     // Browsers require "*" to address that exact WindowProxy; a URL origin cannot work.
@@ -94,7 +75,6 @@ export function mountChart(
   }
   function fail() {
     error = true;
-    ready = false;
     if (timeout) clearTimeout(timeout);
     state.view = "table";
     paint();
@@ -128,14 +108,14 @@ export function mountChart(
     timeout = setTimeout(fail, 10000);
   }
   function paint() {
-    const chart = state.view === "chart" && model.eligible && !error;
+    const chart =
+      fullscreen && state.view === "chart" && model.eligible && !error;
     body.hidden = chart;
     chartHost.hidden = !chart;
     tableButton.setAttribute("aria-pressed", String(!chart));
     chartButton.setAttribute("aria-pressed", String(chart));
-    chartButton.disabled = !model.eligible;
-    notice.hidden = model.eligible && !error;
-    if (!model.eligible) notice.textContent = reason();
+    toggle.hidden = !fullscreen || !model.eligible;
+    notice.hidden = !fullscreen || !error;
     if (chart) ensureFrame();
   }
   tableButton.onclick = () => {
@@ -165,8 +145,6 @@ export function mountChart(
         rows,
         model,
         state,
-        preference: preference(),
-        prompt: context.prompt,
         source: context.source,
         language,
         theme:
@@ -178,8 +156,7 @@ export function mountChart(
     }
     if (m.nonce !== nonce) return;
     if (m.type === "state" && m.state && typeof m.state === "object") {
-      state = engine.initial(model, m.state, preference(), context.prompt);
-      ready = true;
+      state = engine.initial(model, m.state);
       if (timeout) clearTimeout(timeout);
       paint();
       save();
@@ -188,7 +165,7 @@ export function mountChart(
       typeof m.height === "number" &&
       Number.isFinite(m.height)
     )
-      frame.style.height = `${Math.max(320, Math.min(2048, m.height))}px`;
+      frame.style.height = `${Math.max(window.innerHeight - 170, 320, Math.min(12000, m.height))}px`;
     else if (m.type === "error") fail();
     else if (m.type === "range") flash(appError("HR-CHART-003"));
     else if (
@@ -213,12 +190,37 @@ export function mountChart(
     attributes: true,
     attributeFilter: ["data-theme", "data-font-size"],
   });
+  function onFullscreen(event: Event) {
+    fullscreen = (event as CustomEvent<boolean>).detail;
+    if (!fullscreen) {
+      if (timeout) clearTimeout(timeout);
+      frame?.remove();
+      frame = null;
+    }
+    paint();
+  }
+  table.addEventListener("table-fullscreen", onFullscreen);
   window.addEventListener("message", onMessage);
   paint();
   return () => {
     appearance.disconnect();
     if (timeout) clearTimeout(timeout);
     window.removeEventListener("message", onMessage);
+    table.removeEventListener("table-fullscreen", onFullscreen);
+    toggle.remove();
+    notice.remove();
+    chartHost.remove();
+    body.hidden = false;
     frame?.remove();
   };
+}
+
+/** Fullscreen owns chart visibility; inline cards always remain source tables. */
+export function setTableFullscreen(
+  table: HTMLTableElement,
+  expanded: boolean,
+): void {
+  table.dispatchEvent(
+    new CustomEvent("table-fullscreen", { detail: expanded }),
+  );
 }

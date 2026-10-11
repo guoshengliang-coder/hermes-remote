@@ -1,3 +1,4 @@
+import { setTableFullscreen } from "../charts/card";
 import { useEffect, useRef } from "preact/hooks";
 import { useBackClose } from "../app/useBackClose";
 import { useApp } from "../app/store";
@@ -36,12 +37,14 @@ export function TableFullscreen({
     if (card && host.current) {
       placeholder.style.height = `${card.getBoundingClientRect().height}px`;
       card.replaceWith(placeholder);
-      host.current.append(card); // move the live iframe: its model and filters stay intact
+      host.current.append(card);
+      setTableFullscreen(table, true);
     } else host.current?.replaceChildren(table.cloneNode(true));
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
+      setTableFullscreen(table, false);
       if (card && placeholder.parentNode) placeholder.replaceWith(card);
       positions.forEach(({ element, top, left }) => {
         element.scrollTop = top;

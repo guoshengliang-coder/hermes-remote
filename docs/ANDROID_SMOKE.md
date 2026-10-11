@@ -561,33 +561,29 @@ failAllPending`；在途调用正常结束为已有连接失败状态，恢复�
 核对中央“松手发送/取消/转文字”与最终操作同步。在系统关闭触摸反馈、无振动器和不同
 厂商设备上检查系统策略；不使用自建 Vibrator 波形覆盖用户设置。模拟器不能验证真实力度。
 
-## HG-192 — offline table charts (Android and Web)
+## HG-205 — fullscreen table charts (Android and Web)
 
-Use completed responses containing (1) 日期＋新增人数, (2) 渠道＋收入（元）, and
-(3) 日期＋平台＋新增人数. Check local line/bar recommendations, series and category/date
-filters, exact-value selection, metric/unit/type selectors, and the complete source table after
-switching back. Copy/export must still use the original table. Open fullscreen from either view,
-filter, rotate explicitly, then Close/system Back: the original chat anchor and filters must return.
-Reopen history/restart the client, then change Mac/profile/account to check isolation.
+1. Complete responses with 日期＋新增人数, 渠道＋收入（元）, 日期＋平台＋新增人数.
+   Chat shows the source table and Expand, without a chart toggle or controls. Expand directly
+   shows reliable line/bar data, with Adjust and Exact values collapsed and no initial filters.
+2. Open Adjust to change metric/type/series or date/category filters. Check the visible filter
+   range and Restore all. Large plots have explicit 100-point pages and counts; every plot point
+   and exact value remains reachable. Long labels wrap in horizontal bars; no guessed aggregation.
+3. Switch to Source table and inspect every column by scrolling, then Chart. Copy/export still uses
+   the complete source. Rotate, Close/system Back, reopen and restart: per-table choices persist,
+   panels reopen collapsed, and the original chat table and reading position restore.
+4. New tables remain independent. Change Mac/profile/account to check isolation. Settings and the
+   Web drawer have no Data presentation entry; legacy defaults do not affect the new behavior.
+5. Text-only/single-value/ID/mixed-unit/ambiguous data and unresolved duplicates expand as tables
+   without required setup. Check gaps/totals/percentages; source rows remain complete. Fresh-data
+   questions append to an editable draft and never send automatically.
+6. Focus a chart selector/input, switch to Source table, close/reopen and use system Back: no Compose
+   focus-search crash. Renderer failures retain HR-CHART-001 + Retry, storage denial HR-CHART-002.
+   Existing container isolation blocks HTML, navigation, network, forms and permissions.
 
-Set each presentation choice, cancel an unsaved choice, then save it; explicit “请用表格” /
-“请画折线图” takes priority on a new table. Test text-only/single-value data, gaps, totals,
-IDs, percentages, mixed currencies and repeated dimensions. Unclear headers require confirmation;
-duplicate dimensions require series selection instead of a guessed sum. Source-range inputs must
-reject dates outside coverage. Prepare a new-data question with an existing draft: it appends
-source/columns/requested range, remains editable, and never sends automatically.
-
-Renderer load/process failures keep the table with HR-CHART-001 + Retry. Denied local writes show
-HR-CHART-002. Injected HTML, links, network fetches, file/content URLs, redirects, forms and
-permissions must be blocked in the chart container; no real credentials belong in fixtures.
-Verify light/dark, 360px width, large text and TalkBack data-point selection. Run on an attached
-physical phone when available; emulator and Roborazzi results do not count as L2. Record client,
-device/ROM, row count, measured stage, response/paint time and remaining gaps. AI-assisted inference
-and cross-client preference sync are outside the user-approved scope.
-
-Android focus regression: tap a chart select/input before entering fullscreen, switch to Table,
-close/reopen, and use system Back. Removing a focused AndroidView must not trigger a Compose
-focus search during composition changes; clear renderer focus before changing the view/owner.
+Check light/dark, narrow width, large text and TalkBack. Run on an authorized physical phone;
+emulator and Roborazzi do not count as L2. Record results and gaps in
+`TABLE_CHART_FULLSCREEN_VERIFICATION.md`. AI inference and cross-client sync remain outside scope.
 
 ## HG-195：流式正文解析期间不闪空
 
