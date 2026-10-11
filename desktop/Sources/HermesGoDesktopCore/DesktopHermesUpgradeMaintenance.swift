@@ -43,7 +43,7 @@ public struct DesktopHermesUpgradeMaintenanceMailbox: Sendable {
     }
 
     /// An explicit terminal cursor releases admission; deleting a pause never releases it.
-    /// Pre-commit cancellation must first restore original services and reach .cancelled.
+    /// Pending-phase reopening requires one of the dedicated evidence-gated methods below.
     public func release(_ journal: DesktopHermesUpgradeJournal) throws {
         guard journal.phase.terminal else { throw DesktopHermesUpgradeError.recoveryRequired }
         try write(journal, mode: "release")
@@ -59,6 +59,19 @@ public struct DesktopHermesUpgradeMaintenanceMailbox: Sendable {
               evidence.diskCommit == journal.target.commit, evidence.dependencyInputsCurrent,
               !evidence.sourceCompletionPending, !evidence.fleetRestartPending, evidence.servicesMatchOriginalLoadState,
               evidence.bootCommits.count == expected, evidence.bootCommits.allSatisfy({ $0 == journal.target.commit })
+        else { throw DesktopHermesUpgradeError.recoveryRequired }
+        try write(journal, mode: "release")
+    }
+
+    /// Cancellation has no source move. Reopen after independent original-source/service proof,
+    /// before the coordinator records cancelled; a failed business check pauses this run again.
+    public func releaseForCancellationVerification(_ journal: DesktopHermesUpgradeJournal,
+                                                    evidence: DesktopHermesUpgradeCompletionEvidence) throws {
+        let expected = journal.services.filter { $0.label == DesktopManagedInstallLayout.hermesLabel && $0.wasLoaded }.count
+        guard journal.phase == .cancelling, evidence.processExitCode == 0,
+              evidence.diskCommit == journal.sourceCommit, evidence.dependencyInputsCurrent,
+              !evidence.sourceCompletionPending, !evidence.fleetRestartPending, evidence.servicesMatchOriginalLoadState,
+              evidence.bootCommits.count == expected, evidence.bootCommits.allSatisfy({ $0 == journal.sourceCommit })
         else { throw DesktopHermesUpgradeError.recoveryRequired }
         try write(journal, mode: "release")
     }

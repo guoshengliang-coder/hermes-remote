@@ -95,6 +95,44 @@ final class DesktopHermesUpgradeOfficialWorkerTests: XCTestCase {
         XCTAssertThrowsError(try launch(fixture))
         XCTAssertEqual(try String(contentsOf: external), "retain")
     }
+    func testRetainedConfigurationRoundTripsWithoutLaunchingProcesses() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        try UpgradePrivateFiles.write(fixture.configuration.json(), to: fixture.run.appendingPathComponent("worker-configuration.json"))
+        XCTAssertEqual(try DesktopHermesUpgradeOfficialWorker.Configuration.retained(in: fixture.run).json(), try fixture.configuration.json())
+    }
+    func testRetainedConfigurationRejectsAlteredSchemaMissingExtraAndDuplicateFields() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let path = fixture.run.appendingPathComponent("worker-configuration.json")
+        let valid = try fixture.configuration.json()
+        let base = try XCTUnwrap(JSONSerialization.jsonObject(with: valid) as? [String: Any])
+        for mutation in ["schema", "missing", "extra", "directory", "bool"] {
+            var object = base
+            switch mutation {
+            case "schema": object["schema"] = 2
+            case "missing": object.removeValue(forKey: "runID")
+            case "extra": object["unexpected"] = "value"
+            case "directory": object["runDirectory"] = fixture.home.path
+            default: object["schema"] = true
+            }
+            try UpgradePrivateFiles.write(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), to: path)
+            XCTAssertThrowsError(try DesktopHermesUpgradeOfficialWorker.Configuration.retained(in: fixture.run), mutation)
+        }
+        let duplicate = Data(("{\"schema\":1," + String(decoding: valid, as: UTF8.self).dropFirst()).utf8)
+        try UpgradePrivateFiles.write(duplicate, to: path)
+        XCTAssertThrowsError(try DesktopHermesUpgradeOfficialWorker.Configuration.retained(in: fixture.run))
+    }
+    func testRetainedConfigurationRejectsSymlinkAndPublicPermissions() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let path = fixture.run.appendingPathComponent("worker-configuration.json")
+        let external = fixture.root.appendingPathComponent("external.json")
+        try UpgradePrivateFiles.write(fixture.configuration.json(), to: external)
+        try FileManager.default.createSymbolicLink(at: path, withDestinationURL: external)
+        XCTAssertThrowsError(try DesktopHermesUpgradeOfficialWorker.Configuration.retained(in: fixture.run))
+        try FileManager.default.removeItem(at: path)
+        try UpgradePrivateFiles.write(fixture.configuration.json(), to: path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path.path)
+        XCTAssertThrowsError(try DesktopHermesUpgradeOfficialWorker.Configuration.retained(in: fixture.run))
+    }
     private func launch(_ fixture: Fixture, configuration: DesktopHermesUpgradeOfficialWorker.Configuration? = nil) throws -> DesktopHermesUpgradeOfficialWorker {
         guard FileManager.default.isExecutableFile(atPath: python.path) else { throw XCTSkip("system Python unavailable") }
         return try DesktopHermesUpgradeOfficialWorker.launch(configuration: configuration ?? fixture.configuration,

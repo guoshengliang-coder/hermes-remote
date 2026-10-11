@@ -17,6 +17,30 @@ active local CLI/cron and all profile writers, actual retirement, exact service 
 external dependency closure, cold official update and committed-tail recovery, fresh same-binding
 Cloud/business acceptance, and maintenance/recovery copy on Android/Web. The upgrade button stays off.
 
+The Machine Operating composition adds 16 tests using real private journal/mailbox/service snapshot
+files and home backup/hash verification. Worker execution, service commands, process/plan/dependency/
+boot/receipt and business evidence are synthetic: no live Hermes or launchd is controlled. Coverage
+includes full normal flow/worker lease teardown, terminal cursor archive retention, run-root/home
+URL alias refusal, uncertified refusal, official-plan races and invalid profiles before effects, drained ACK with unknown writers, unavailable external closure, safe cancel,
+wrong cancellation boot, cancellation business failure/re-pause/verification-only retry, original-ID
+finish resume, target business failure retaining later history, receipt debt and damaged archives
+before service restoration, and changed retained configuration before new worker acquisition.
+Three additional private-configuration tests cover exact round-trip, missing/extra/duplicate/schema/
+directory mutations, and symlink/public-permission refusal without launching a process. The focused
+Machine/OfficialWorker/Maintenance suites contain 47 tests. Run with:
+
+```bash
+swift test --package-path desktop --filter 'DesktopHermesUpgrade(Machine|OfficialWorker|Maintenance)Tests'
+```
+
+Acceptance on a disposable Mac still requires a production live collector with independently
+verified full writer inventory and external closure recovery, then the actual full coordinator flow
+and process-death matrix. Confirm original IDs/configuration survive relaunch, the original loaded
+service set and boot identity are restored, admission opens only for proof-backed business checks,
+and failed checks re-pause without overwriting newly written history. Exercise cancellation failure
+and retry with the original installation as well. No product upgrade/recovery control is enabled
+by these fixture results.
+
 ## HG-199 first-stage verification
 
 Automated coverage: legacy and PM layouts, missing/broken committed generation, stale stamp,

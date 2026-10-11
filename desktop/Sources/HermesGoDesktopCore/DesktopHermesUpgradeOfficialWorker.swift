@@ -3,7 +3,14 @@ import Foundation
 
 /// A process owns upstream's real marker + checkout lock. Its fixed-target takeover children
 /// inherit that lock; dropping the UI/Swift handle never sends them a signal after commit.
-public final class DesktopHermesUpgradeOfficialWorker: DesktopHermesUpgradeLockHolding, @unchecked Sendable {
+public protocol DesktopHermesUpgradeWorkerHolding: DesktopHermesUpgradeLockHolding {
+    var runID: String { get }
+    func runOfficialUpdate() async throws -> Int32
+    func resumeOfficialFinish() async throws -> Int32
+    func release() throws
+}
+
+public final class DesktopHermesUpgradeOfficialWorker: DesktopHermesUpgradeWorkerHolding, @unchecked Sendable {
     public struct Configuration: Sendable {
         public let runID: String
         public let upstreamUpdateID: String
@@ -26,7 +33,7 @@ public final class DesktopHermesUpgradeOfficialWorker: DesktopHermesUpgradeLockH
             self.journal = journal; self.sourceCommit = sourceCommit; self.targetCommit = targetCommit
             self.targetVersion = targetVersion; self.preUpdateVersion = preUpdateVersion; self.plan = plan
         }
-        fileprivate func json() throws -> Data {
+        func json() throws -> Data {
             guard UUID(uuidString: runID) != nil, UUID(uuidString: upstreamUpdateID) != nil,
                   DesktopLocalHermesDetector.isObjectID(sourceCommit), DesktopLocalHermesDetector.isObjectID(targetCommit),
                   plan.count <= 32 * 1024, let object = try JSONSerialization.jsonObject(with: plan) as? [String: Any]
@@ -38,6 +45,24 @@ public final class DesktopHermesUpgradeOfficialWorker: DesktopHermesUpgradeLockH
                 "sourceCommit": sourceCommit, "targetCommit": targetCommit,
                 "targetVersion": targetVersion,
                 "preUpdateVersion": preUpdateVersion, "plan": object], options: [.sortedKeys])
+        }
+        /// Only the canonical, private configuration written by this worker can reconstruct a run.
+        static func retained(in directory: URL) throws -> Configuration {
+            let data = try UpgradePrivateFiles.read(directory.appendingPathComponent("worker-configuration.json"), limit: 64 * 1024)
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let plan = object["plan"] as? [String: Any] else { throw DesktopHermesUpgradeError.recoveryRequired }
+            func string(_ key: String) throws -> String {
+                guard let value = object[key] as? String else { throw DesktopHermesUpgradeError.recoveryRequired }
+                return value
+            }
+            let value = try Configuration(runID: string("runID"), upstreamUpdateID: string("upstreamUpdateID"),
+                sourceRoot: URL(fileURLWithPath: string("sourceRoot")), checkout: URL(fileURLWithPath: string("checkout")),
+                hermesHome: URL(fileURLWithPath: string("hermesHome")), runDirectory: URL(fileURLWithPath: string("runDirectory")),
+                journal: URL(fileURLWithPath: string("journal")), sourceCommit: string("sourceCommit"),
+                targetCommit: string("targetCommit"), targetVersion: string("targetVersion"),
+                preUpdateVersion: string("preUpdateVersion"), plan: JSONSerialization.data(withJSONObject: plan, options: [.sortedKeys]))
+            guard value.runDirectory.path == directory.path, try value.json() == data else { throw DesktopHermesUpgradeError.recoveryRequired }
+            return value
         }
     }
 

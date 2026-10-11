@@ -7,13 +7,27 @@ admission and retirement evidence remains required. Configuring the mailbox is e
 nil; this increment does not rewrite or restart installed agents. Restore preserves original
 loaded/unloaded jobs, checks the actual Hermes boot commit before Connector, and resumes already
 restored jobs. The worker can now resume an exact, completed-PM handoff before finish effects,
-using the original context and ready checkpoint (any existing official archive must agree). Full
-machine Operating, external interpreter closure, advanced/terminal-tail reconciliation remain pending;
+using the original context and ready checkpoint (any existing official archive must agree). The composed
+Machine Operating adapter now connects those modules. Independent live evidence collection, external
+interpreter closure backup/recovery and advanced/terminal-tail reconciliation remain pending;
 execution stays disabled.
 Standard origin/blob:none live checkouts are now admitted only when the pinned tip's commit, trees
 and all blobs are local; GO validation denies lazy fetching and all transports. Frozen candidate
 assets still reject partial metadata. This does not enable execution or broaden tail replay.
 See `HERMES_UPGRADE.md` for the boundaries.
+
+The composed adapter requires independently supplied inventory/official plan, kernel-bound Connector
+identity, full writer admission/retirement, external dependency closure, actual disk commit, completion
+and business evidence. It rechecks inventory/plan under the worker lock, captures private service
+images, pauses/drains, retires writers, creates/verifies the real home backup and chooses normal
+update versus the worker's guarded ready-only finish resume. Existing private configuration is read
+strictly without replacing the two IDs. Local receipt/debt/boot/service checks precede admission
+release; fresh business verification and completion evidence precede completed. Cancellation similarly
+proves the original source/load set, releases for business verification, then records cancelled.
+Either business failure pauses the same run, leaves the recovery cursor and keeps new history.
+The coordinator owns the worker lease; the adapter's weak reference cannot keep an abandoned run
+alive. Lease teardown requests release without signalling committed children. Tests replace worker,
+service, kernel, receipt and business evidence, so this is backend composition, not live certification.
 
 ## HG-199 stage one: upstream identity and discovery
 
@@ -36,8 +50,8 @@ Hermes unloaded, and block new Hermes installation. Settings offers an inert loc
 The bundled fixed-source worker now owns the real official lock and invokes historical takeover/PM/
 finish, with immutable launcher/upstream IDs, pinned commit/tag/version and private IPC configuration. Actual macOS process tests
 prove cross-home exclusion and surviving-child lock custody. Retired sidecar-free WAL snapshots use
-immutable reads only when there are no pending WAL/rollback bytes. Concrete idle/retirement, service
-and full committed-tail recovery adapters remain unenabled; see `HERMES_UPGRADE.md` for evidence and gates.
+immutable reads only when there are no pending WAL/rollback bytes. The composed adapter is not
+instantiated by the app; live idle/retirement/closure/boot/business collectors and full committed-tail recovery remain unenabled; see `HERMES_UPGRADE.md` for evidence and gates.
 
 ## Explicit managed-service repair (HG-175)
 

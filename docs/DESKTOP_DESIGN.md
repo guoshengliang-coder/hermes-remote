@@ -35,6 +35,13 @@ execution control. A maintenance refusal uses bilingual `HR-HERMESUPDATE-005` in
 surface and directs the owner to Mac progress/recovery, with no immediate Retry. Private mailbox,
 process and plist details stay behind diagnostics. Existing admitted work is allowed to finish.
 
+The backend Machine Operating composition adds no UI controls or certified paths. Both target
+verification and pre-source-change cancellation reopen admission only after independent local
+source/dependency/boot/original-load-set proof, then require fresh business checks before a terminal
+label. A failed business check re-pauses the same run with `HR-HERMESUPDATE-003`; later history is
+retained. “Cancelled” is not displayed before original-installation business verification succeeds.
+Live evidence collection and real-machine acceptance remain required before any execution control.
+
 ## Repairing a committed installation (HG-175)
 
 A committed `account_active` install with either managed LaunchAgent file missing or job unloaded

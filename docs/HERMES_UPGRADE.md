@@ -131,11 +131,24 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
   实际清点适配器时这些证据不能由版本、源码或 ACK 代替。恢复保留四种 loaded/unloaded 组合，
   Hermes 先恢复并独立核实实际 boot commit，再恢复原已加载 Connector。已恢复的服务续作不重复 bootstrap；
   恢复期间新出现的原 unloaded job 或最终加载集合变化会保留恢复游标，不接管、不停止该新服务。
-  本模块不覆盖上游自建服务、服务定义变化或 home 外解释器闭包，尚未接成生产 Operating 适配器。
+  本模块不覆盖上游自建服务、服务定义变化或 home 外解释器闭包，已由后端 Machine Operating 编排连接；独立活体证据采集器尚未实现，app 不创建此适配器。
 - 本地恢复/PM/boot 与无欠账证据齐全后，verifying 阶段可显式 release 接入以获取新鲜 Cloud/业务
-  验收；验收失败需重新 pause 同一 run，并保留期间的新写入。取消必须恢复原服务并先记 cancelled
-  才 release；关闭窗口、过期或删除文件都不是 release。维护拒绝使用已登记双语 `HR-HERMESUPDATE-005`，
+  验收；验收失败需重新 pause 同一 run，并保留期间的新写入。取消必须先证明原源码/依赖/boot/加载集合，再 release 做业务验收，成功后才记 cancelled；
+  失败重新 pause 同一 run，保留新写入与 cancelling 游标；关闭窗口、过期或删除文件都不是 release。维护拒绝使用已登记双语 `HR-HERMESUPDATE-005`，
   Android/Web 的历史、新建和发送入口识别它并不提供立即重试；Android 上传保留结构化 code，日志不记录原响应正文。
+
+- Machine Operating 编排把实际私有备份、服务快照/恢复、mailbox 与官方 worker 连接起来；worker
+  lease 由协调器持有，适配器只保留弱引用，释放不发进程信号。持锁后再次核对官方 plan；重启时严格
+  读取同次 run 的私有配置与原上游 ID，不生成替代收尾身份。源码仍在原 commit 走普通 update，已经
+  在目标则由 worker 判断能否 ready-only resume-finish；其他源码拒绝。备份前后独立退休证明、home 外
+  解释器/工具恢复闭包、本地完成证据和新鲜业务验收都是强制接口，没有默认“安全”证据。真实 collector、
+  完整尾部恢复与生产认证仍未完成，默认认证路径为空，app 不启用执行。
+
+编排增量新增 16 项自动测试，实际使用临时 journal/mailbox/服务快照/完整 home 备份，worker、进程、
+服务命令、官方 plan/receipt、boot、依赖闭包和业务证据均为合成。覆盖上一终态归档后的新 run、计划变化/无效 profile、ACK 不能
+代替 writer 证明、闭包缺失、原安装取消/失败续验、目标收尾续作、业务失败重新暂停并保留后来历史、
+回执欠账和损坏备份阻止恢复。另 3 项测试检查私有配置完整往返与 schema/字段/目录/重复键/权限/链接
+拒绝。这不等于活体机器流程或服务恢复认证，现用 Hermes 未被停止、更新或重启。
 
 维护增量自动验证使用真实临时文件和真实 Connector 子进程/loopback Relay/HTTP：启动时暂停四类新
 请求，维护开始后已接收的流式响应继续完成且 ACK 在结束前非零；原入口回归在 73746f52 上失败，

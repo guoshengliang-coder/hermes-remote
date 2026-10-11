@@ -3,11 +3,19 @@
 HG-199's backend worker now supports a narrow interrupted PM handoff recovery: a durable ready
 checkpoint permits the same official finish to continue without redoing PM or replacing the original
 context. Advanced/terminal receipts remain blocked, and the product upgrade/recovery controls remain
-disabled until the machine adapter and end-to-end certification are complete. See
+disabled until the live evidence collector and end-to-end certification are complete. See
 [`../docs/HERMES_UPGRADE.md`](../docs/HERMES_UPGRADE.md).
 Live standard origin/blob:none checkouts are now checked offline against every pinned tip object;
 missing objects remain blocked and frozen source assets still require no partial metadata. The
 worker retains upstream's Git flags rather than removing them to pass recovery checks.
+
+The backend Machine Operating adapter now composes the official worker, private home backups,
+admission mailbox and original-service restoration. The coordinator owns the worker lease and a
+resumed run reloads its original private configuration/IDs. Independent live writer, external
+interpreter closure, boot, completion and business evidence is mandatory; there is no safe default
+collector and the app does not instantiate this adapter. Business-check failures re-pause the same
+run and preserve later history. Cancellation verifies the original installation and business path
+before recording cancelled. Fixture coverage does not certify real service operations.
 
 HG-175 adds an explicit **检查并修复受管服务** recovery action for committed installations whose
 LaunchAgent files or loaded tasks are missing. It preserves the existing binding and installation
