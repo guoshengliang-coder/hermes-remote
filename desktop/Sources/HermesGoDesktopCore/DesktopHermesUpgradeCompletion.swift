@@ -52,11 +52,12 @@ public enum DesktopHermesUpgradeCompletionVerifier {
     }
     private struct Units: Decodable { let failed: [String] }
 
-    public static func verify(receipt data: Data, runID: String, target: DesktopHermesUpgradeTarget,
+    public static func verify(receipt data: Data, runID: String, upstreamUpdateID: String, target: DesktopHermesUpgradeTarget,
                               expectedRunningServices: Int, evidence: DesktopHermesUpgradeCompletionEvidence) throws {
         guard data.count <= 512 * 1024, expectedRunningServices >= 0,
               let receipt = try? JSONDecoder().decode(Receipt.self, from: data),
-              receipt.schema == 1, receipt.update_id == runID, receipt.correlation_id == runID,
+              receipt.schema == 1, !upstreamUpdateID.isEmpty,
+              receipt.update_id == upstreamUpdateID, receipt.correlation_id == runID,
               receipt.outcome == "success", validTimestamp(receipt.finished_at),
               receipt.exit_code == nil || receipt.exit_code == 0,
               receipt.post_update.sha == target.commit,

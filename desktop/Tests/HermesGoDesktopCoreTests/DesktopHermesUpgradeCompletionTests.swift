@@ -18,11 +18,18 @@ final class DesktopHermesUpgradeCompletionTests: XCTestCase {
               dependencyInputsCurrent: current, sourceCompletionPending: tail,
               fleetRestartPending: fleet, servicesMatchOriginalLoadState: services)
     }
-    private func verify(_ object: [String: Any], evidence: DesktopHermesUpgradeCompletionEvidence? = nil) throws {
+    private func verify(_ object: [String: Any], upstreamUpdateID: String? = nil, evidence: DesktopHermesUpgradeCompletionEvidence? = nil) throws {
         try DesktopHermesUpgradeCompletionVerifier.verify(receipt: JSONSerialization.data(withJSONObject: object),
-            runID: runID, target: target, expectedRunningServices: 1, evidence: evidence ?? self.evidence())
+            runID: runID, upstreamUpdateID: upstreamUpdateID ?? runID, target: target, expectedRunningServices: 1, evidence: evidence ?? self.evidence())
     }
     func testVerifiedTerminalRunAndExactBootIdentityAreAccepted() throws { try verify(receipt) }
+    func testLauncherCorrelationAndUpstreamPMUpdateIDAreSeparateIdentities() throws {
+        var distinct = receipt
+        let upstreamID = UUID().uuidString
+        distinct["update_id"] = upstreamID
+        try verify(distinct, upstreamUpdateID: upstreamID)
+        XCTAssertThrowsError(try verify(distinct))
+    }
     func testExitZeroSuccessWithOwedWorkNeverMeansUpgradeCompleted() throws {
         var owed = receipt
         owed["exit_code"] = 0

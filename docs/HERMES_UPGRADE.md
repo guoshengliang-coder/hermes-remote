@@ -49,6 +49,8 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 - 完成判定同时要求当前 run 的官方终态 receipt、无 followups/未恢复服务、PM 同步成功、
   输入有效、精确磁盘/boot commit、原 loaded/unloaded 状态及无 completion/fleet 欠账。
   不能仅凭 exit 0、success 字段或“Update complete”文案宣称成功。
+  receipt 的 correlation_id 绑定 GO launcher run，update_id 绑定官方/PM 工作链；两者分别核对，
+  不要求它们相同。适配器必须在执行前记录上游 update_id 并传递 HERMES_UPDATE_CORRELATION_ID。
 
 2026-10-11 隔离 macOS 演练：在一次性 HOME/HERMES_HOME、清空继承凭据、固定 818c13be 源码下，
 实际执行官方 `_update_takeover.prepare`（PM）与 `update_finish`。PM 选中 Python 3.14.7 managed
