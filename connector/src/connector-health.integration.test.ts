@@ -119,6 +119,12 @@ test("the real Connector reports degraded/recovered health on one authenticated 
   await waitFor(() => received.some((message) => message.type === "tunnel.http.response.end" && message.requestId === id));
   const response = received.find((message) => message.type === "tunnel.http.response.start" && message.requestId === id);
   assert.ok(response?.type === "tunnel.http.response.start"); assert.equal(response.status, 200);
+  // Recovery also queues a separate contract refresh. Wait for that owner's work before stalling
+  // the control-owned probe, otherwise the fixture can observe the wrong upstream request.
+  const contractId = randomUUID();
+  control.send(JSON.stringify({ type: "tunnel.http.request", version: 1, id: contractId,
+    targetDeviceId: "test-mac", method: "GET", path: "/api/hermes-remote/contract", headers: {} }));
+  await waitFor(() => received.some((message) => message.type === "tunnel.http.response" && message.requestId === contractId));
   stalled = true;
   const last = probe(); control.send(JSON.stringify(last));
   await started;
