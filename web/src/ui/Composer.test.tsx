@@ -31,7 +31,7 @@ function type(host: HTMLElement, text: string) {
 }
 const settle = async () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
 async function stageFiles(h: ReturnType<typeof mount>, files: File[]) {
-  const input = h.host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
+  const input = h.host.querySelector<HTMLInputElement>('input[type="file"]:not([accept="image/*"])')!;
   Object.defineProperty(input, "files", { configurable: true, value: files });
   act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); });
   await settle();
@@ -40,6 +40,69 @@ async function startSpeech(h: ReturnType<typeof mount>) {
   act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
   act(() => { h.host.querySelector<HTMLButtonElement>('.voice-hold')!.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); });
 }
+
+it.each([
+  ["iPhone", "iPhone", 5, true],
+  ["iPad", "iPad", 5, true],
+  ["iPod", "iPod", 5, true],
+  ["Macintosh Safari", "MacIntel", 5, true], // iPadOS desktop user agent
+  ["Macintosh Safari", "MacIntel", 0, false],
+  ["Android Chrome", "Linux armv8l", 5, false],
+  ["Windows Chrome", "Win32", 10, false],
+])("routes the three attachment entries on %s / %s / %s touch points (HG-202)", (userAgent, platform, maxTouchPoints, ios) => {
+  vi.stubGlobal("navigator", { userAgent, platform, maxTouchPoints });
+  const h = mount();
+  const inputs = [...h.host.querySelectorAll<HTMLInputElement>('input[type="file"]')];
+  const camera = inputs[0]!, photos = inputs[1]!, files = inputs[2]!;
+  expect(files.getAttribute("accept")).toBe(ios ? "application/octet-stream" : null);
+  expect(files.multiple).toBe(true);
+  expect(files.hasAttribute("capture")).toBe(false);
+  expect(photos.getAttribute("accept")).toBe("image/*");
+  expect(photos.multiple).toBe(true);
+  expect(photos.hasAttribute("capture")).toBe(false);
+  expect(camera.getAttribute("accept")).toBe("image/*");
+  expect(camera.getAttribute("capture")).toBe("environment");
+  expect(camera.multiple).toBe(false);
+  const clicks = inputs.map(input => vi.spyOn(input, "click"));
+  ["拍照", "照片", "文件"].forEach((label, i) => {
+    act(() => h.host.querySelector<HTMLButtonElement>(".composer-add")!.click());
+    act(() => [...h.host.querySelectorAll<HTMLButtonElement>(".add-tile")].find(tile => tile.textContent === label)!.click());
+    expect(clicks[i]).toHaveBeenCalledTimes(1);
+    expect(h.host.querySelector(".add-tiles")).toBeNull();
+  });
+});
+
+it("iOS file selection keeps mixed MIME types, cancellation and same-file reselection (HG-202)", async () => {
+  vi.stubGlobal("navigator", { userAgent: "iPhone", platform: "iPhone", maxTouchPoints: 5 });
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:photo");
+  const h = mount();
+  const input = h.host.querySelector<HTMLInputElement>('input[accept="application/octet-stream"]')!;
+  const reset = vi.spyOn(input, "value", "set");
+  // A native cancel may emit no change, or an empty FileList. Neither should stage or send.
+  await stageFiles(h, []);
+  expect(h.host.querySelector(".attachment-strip")).toBeNull();
+  expect(h.host.querySelector(".error-notice")).toBeNull();
+  const photo = new File(["image"], "photo.png", { type: "image/png" });
+  const text = new File(["text"], "notes.txt", { type: "text/plain" });
+  const zip = new File(["zip"], "archive.zip", { type: "application/zip" });
+  const unknown = new File(["data"], "sample.unknown");
+  await stageFiles(h, [photo, text, zip, unknown]);
+  expect(reset).toHaveBeenLastCalledWith("");
+  expect(h.props.onSend).not.toHaveBeenCalled();
+  await stageFiles(h, []); // cancelling the next pick retains the pending stage
+  act(() => h.host.querySelector<HTMLButtonElement>(".send-button")!.click());
+  expect(h.props.onSend).toHaveBeenCalledExactlyOnceWith("", [
+    expect.objectContaining({ file: photo, kind: "image", mimeType: "image/png" }),
+    expect.objectContaining({ file: text, kind: "file", mimeType: "text/plain" }),
+    expect.objectContaining({ file: zip, kind: "file", mimeType: "application/zip" }),
+    expect.objectContaining({ file: unknown, kind: "file", mimeType: "application/octet-stream" }),
+  ]);
+  await stageFiles(h, [text]);
+  expect(reset).toHaveBeenLastCalledWith("");
+  act(() => h.host.querySelector<HTMLButtonElement>(".send-button")!.click());
+  expect(h.props.onSend).toHaveBeenCalledTimes(2);
+  expect(h.props.onSend).toHaveBeenLastCalledWith("", [expect.objectContaining({ file: text, mimeType: "text/plain" })]);
+});
 
 it("conversation switching and remount retain each draft's own attachment stage", async () => {
   const h = mount({ draftKey: "a" });
