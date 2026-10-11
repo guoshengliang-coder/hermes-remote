@@ -122,7 +122,47 @@ public final class DesktopHermesUpgradeJournalStore: @unchecked Sendable {
         guard journal.phase == .quiescing, journal.backup == nil else {
             throw DesktopHermesUpgradeError.preflightBlocked
         }
+        // A later upgrade must not erase the earlier recovery point's target/service/backup
+        // references merely because the current cursor is terminal.
+        if let previous = try loadReadOnly() { try archive(previous) }
         try persist(journal)
+    }
+
+    private func archive(_ journal: DesktopHermesUpgradeJournal) throws {
+        let directory = root.appendingPathComponent("hermes-upgrade-runs")
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        }
+        var info = stat()
+        guard lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+              info.st_uid == getuid(), info.st_mode & 0o077 == 0,
+              directory.resolvingSymlinksInPath().path == directory.path else {
+            throw DesktopHermesUpgradeError.recoveryRequired
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(journal)
+        let destination = directory.appendingPathComponent(journal.runID.lowercased() + ".json")
+        let temporary = directory.appendingPathComponent(".archive-\(UUID().uuidString).tmp")
+        let fd = Darwin.open(temporary.path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw DesktopHermesUpgradeError.recoveryRequired }
+        defer { Darwin.close(fd); try? FileManager.default.removeItem(at: temporary) }
+        try FileHandle(fileDescriptor: fd, closeOnDealloc: false).write(contentsOf: data)
+        guard fsync(fd) == 0 else { throw DesktopHermesUpgradeError.recoveryRequired }
+        // macOS exclusive rename is atomic and leaves no second hard link if the app dies here.
+        if Darwin.renamex_np(temporary.path, destination.path, UInt32(RENAME_EXCL)) != 0 {
+            // Retry after a crash between the archive and new cursor: validate the existing copy.
+            let copyFD = Darwin.open(destination.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+            guard copyFD >= 0 else { throw DesktopHermesUpgradeError.recoveryRequired }
+            defer { Darwin.close(copyFD) }
+            guard fstat(copyFD, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1,
+                  info.st_uid == getuid(), info.st_mode & 0o077 == 0, info.st_size <= 64 * 1024,
+                  let existing = try? FileHandle(fileDescriptor: copyFD, closeOnDealloc: false).read(upToCount: 64 * 1024 + 1),
+                  existing == data else { throw DesktopHermesUpgradeError.recoveryRequired }
+        }
+        let folder = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard folder >= 0 else { throw DesktopHermesUpgradeError.recoveryRequired }
+        defer { Darwin.close(folder) }
+        guard fsync(folder) == 0 else { throw DesktopHermesUpgradeError.recoveryRequired }
     }
 
     @discardableResult
@@ -234,52 +274,61 @@ public actor DesktopHermesUpgradeCoordinator {
         guard !running, certifiedPaths.contains(where: { $0.target == target }) else { throw DesktopHermesUpgradeError.preflightBlocked }
         running = true; cancelRequested = false
         defer { running = false }
-        let lease = try migration.acquireHermesUpgradeOperationLease()
-        defer { withExtendedLifetime(lease) {} }
-        try store.requireNoPendingUpgrade()
-        let initial = try await operations.preflight(target: target, confirmedIdentity: confirmedIdentity)
-        guard initial.installation.runtimeIdentity == confirmedIdentity,
-              initial.installation.dependenciesConsistent,
-              certifiedPaths.contains(where: { $0.target == target && $0.sourceCommit == initial.installation.commit }),
-              initial.installation.commit != target.commit,
-              !DesktopLocalHermesDetector.version(target.version, isOlderThan: initial.installation.version)
-        else { throw DesktopHermesUpgradeError.preflightBlocked }
-        let upstream = try await operations.acquireUpstreamLock(checkout: initial.installation.checkoutRoot,
-                                                               hermesHome: initial.installation.hermesHome)
-        defer { withExtendedLifetime(upstream) {} }
-        // A CLI update or git checkout may have raced the initial inventory.
-        let checked = try await operations.preflight(target: target, confirmedIdentity: confirmedIdentity)
-        guard checked.installation == initial.installation, checked.services == initial.services,
-              checked.originalChannel == initial.originalChannel else { throw DesktopHermesUpgradeError.preflightBlocked }
-        if cancelRequested { throw DesktopHermesUpgradeError.preflightBlocked }
-        let journal = DesktopHermesUpgradeJournal(target: target, installation: checked.installation,
-            services: checked.services, originalChannel: checked.originalChannel)
-        try store.begin(journal)
-        // An unstructured task does not inherit cancellation of the UI's awaiting task. Once the
-        // durable intent exists, only requestCancellation() may cancel at a safe phase boundary.
-        let execution = Task { try await self.finish(journal, progress: progress) }
-        return try await execution.value
+        do {
+            let lease = try migration.acquireHermesUpgradeOperationLease()
+            defer { withExtendedLifetime(lease) {} }
+            try store.requireNoPendingUpgrade()
+            let initial = try await operations.preflight(target: target, confirmedIdentity: confirmedIdentity)
+            guard initial.installation.runtimeIdentity == confirmedIdentity,
+                  initial.installation.dependenciesConsistent,
+                  certifiedPaths.contains(where: { $0.target == target && $0.sourceCommit == initial.installation.commit }),
+                  initial.installation.commit != target.commit,
+                  !DesktopLocalHermesDetector.version(target.version, isOlderThan: initial.installation.version)
+            else { throw DesktopHermesUpgradeError.preflightBlocked }
+            let upstream = try await operations.acquireUpstreamLock(checkout: initial.installation.checkoutRoot,
+                                                                   hermesHome: initial.installation.hermesHome)
+            defer { withExtendedLifetime(upstream) {} }
+            // A CLI update or git checkout may have raced the initial inventory.
+            let checked = try await operations.preflight(target: target, confirmedIdentity: confirmedIdentity)
+            guard checked.installation == initial.installation, checked.services == initial.services,
+                  checked.originalChannel == initial.originalChannel else { throw DesktopHermesUpgradeError.preflightBlocked }
+            if cancelRequested { throw DesktopHermesUpgradeError.preflightBlocked }
+            let journal = DesktopHermesUpgradeJournal(target: target, installation: checked.installation,
+                services: checked.services, originalChannel: checked.originalChannel)
+            try store.begin(journal)
+            // An unstructured task does not inherit cancellation of the UI's awaiting task. Once the
+            // durable intent exists, only requestCancellation() may cancel at a safe phase boundary.
+            let execution = Task { try await self.finish(journal, progress: progress) }
+            return try await execution.value
+        } catch let error as DesktopHermesUpgradeError { throw error }
+        catch {
+            do { try store.requireNoPendingUpgrade() }
+            catch { throw DesktopHermesUpgradeError.recoveryRequired }
+            throw DesktopHermesUpgradeError.preflightBlocked
+        }
     }
 
     public func resume(runID: String, progress: @escaping @Sendable (DesktopHermesUpgradeJournal) -> Void = { _ in }) async throws -> DesktopHermesUpgradeJournal {
         guard !running else { throw DesktopHermesUpgradeError.preflightBlocked }
         running = true; cancelRequested = false
         defer { running = false }
-        let lease = try migration.acquireHermesUpgradeOperationLease()
-        defer { withExtendedLifetime(lease) {} }
-        guard let journal = try store.loadReadOnly(), journal.runID == runID,
-              !journal.phase.terminal,
-              certifiedPaths.contains(where: { $0.target == journal.target && $0.sourceCommit == journal.sourceCommit }) else {
-            throw DesktopHermesUpgradeError.recoveryRequired
-        }
-        // The adapter must prove receipt custody, source state and absence of new/unowned writers.
-        try await operations.validateResume(journal)
-        let upstream = try await operations.acquireUpstreamLock(checkout: URL(fileURLWithPath: journal.checkout),
-                                                               hermesHome: URL(fileURLWithPath: journal.hermesHome))
-        defer { withExtendedLifetime(upstream) {} }
-        try await operations.validateResume(journal)
-        let execution = Task { try await self.finish(journal, progress: progress) }
-        return try await execution.value
+        do {
+            let lease = try migration.acquireHermesUpgradeOperationLease()
+            defer { withExtendedLifetime(lease) {} }
+            guard let journal = try store.loadReadOnly(), journal.runID == runID,
+                  !journal.phase.terminal,
+                  certifiedPaths.contains(where: { $0.target == journal.target && $0.sourceCommit == journal.sourceCommit }) else {
+                throw DesktopHermesUpgradeError.recoveryRequired
+            }
+            // The adapter must prove receipt custody, source state and absence of new/unowned writers.
+            try await operations.validateResume(journal)
+            let upstream = try await operations.acquireUpstreamLock(checkout: URL(fileURLWithPath: journal.checkout),
+                                                                   hermesHome: URL(fileURLWithPath: journal.hermesHome))
+            defer { withExtendedLifetime(upstream) {} }
+            try await operations.validateResume(journal)
+            let execution = Task { try await self.finish(journal, progress: progress) }
+            return try await execution.value
+        } catch { throw DesktopHermesUpgradeError.recoveryRequired }
     }
 
     private func finish(_ initial: DesktopHermesUpgradeJournal,

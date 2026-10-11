@@ -56,6 +56,18 @@ final class DesktopHermesUpgradeTransactionTests: XCTestCase {
         XCTAssertNil(try fixture.migration.hermesUpgradeJournal.loadReadOnly())
     }
 
+    func testAnotherManagedOperationBlocksUpgradeWithStructuredErrorBeforePreflight() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let lease = try fixture.migration.acquireOperationLease()
+        defer { withExtendedLifetime(lease) {} }
+        do {
+            _ = try await fixture.coordinator.start(target: fixture.target, confirmedIdentity: fixture.installation.runtimeIdentity)
+            XCTFail("shared lease bypassed")
+        } catch { XCTAssertEqual(error as? DesktopHermesUpgradeError, .preflightBlocked) }
+        let calls = await fixture.operations.calls
+        XCTAssertEqual(calls, [])
+    }
+
     func testInterruptionAtEachEffectBlocksAutomaticOperationsAndResumesOnlyOwedWork() async throws {
         for effect in ["quiesce", "backup", "install", "restore", "verify"] {
             let fixture = try Fixture(); defer { fixture.remove() }
@@ -167,6 +179,21 @@ final class DesktopHermesUpgradeTransactionTests: XCTestCase {
         XCTAssertEqual(result.phase, .completed)
         let calls = await fixture.operations.calls
         XCTAssertEqual(calls.filter { $0 == "preflight" }.count, 2)
+    }
+
+    func testNextRunArchivesPriorRecoveryReferencesBeforeReplacingCursor() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let first = try await fixture.coordinator.start(target: fixture.target, confirmedIdentity: fixture.installation.runtimeIdentity)
+        let store = fixture.migration.hermesUpgradeJournal
+        let second = DesktopHermesUpgradeJournal(target: fixture.target, installation: fixture.installation,
+            services: [], originalChannel: nil)
+        let lease = try fixture.migration.acquireOperationLease()
+        defer { withExtendedLifetime(lease) {} }
+        try store.begin(second)
+        let archive = store.root.appendingPathComponent("hermes-upgrade-runs/" + first.runID.lowercased() + ".json")
+        XCTAssertEqual(try JSONDecoder().decode(DesktopHermesUpgradeJournal.self, from: Data(contentsOf: archive)), first)
+        XCTAssertEqual(try store.loadReadOnly()?.runID, second.runID)
+        XCTAssertNotNil(first.backup)
     }
 }
 
