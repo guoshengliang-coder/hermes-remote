@@ -54,7 +54,7 @@ public enum DesktopHermesUpgradeCompletionVerifier {
 
     public static func verify(receipt data: Data, runID: String, upstreamUpdateID: String, target: DesktopHermesUpgradeTarget,
                               expectedRunningServices: Int, evidence: DesktopHermesUpgradeCompletionEvidence) throws {
-        guard data.count <= 512 * 1024, expectedRunningServices >= 0,
+        guard data.count <= 512 * 1024, expectedRunningServices >= 0, UUID(uuidString: runID) != nil,
               let receipt = try? JSONDecoder().decode(Receipt.self, from: data),
               receipt.schema == 1, !upstreamUpdateID.isEmpty,
               receipt.update_id == upstreamUpdateID, receipt.correlation_id == runID,

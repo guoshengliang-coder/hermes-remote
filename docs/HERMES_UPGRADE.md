@@ -55,10 +55,12 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 2026-10-11 隔离 macOS 演练：在一次性 HOME/HERMES_HOME、清空继承凭据、固定 818c13be 源码下，
 实际执行官方 `_update_takeover.prepare`（PM）与 `update_finish`。PM 选中 Python 3.14.7 managed
 环境并完成同步；finish 完成构建/维护后 exit 0、receipt outcome=success，但 gateway_restart.incomplete
-及 gateway_restart followup 仍存在。沙箱显式禁止所有信号、launchctl/osascript 及临时目录外写入，
+及 gateway_restart followup 仍存在。prepare 使用清空后的环境和临时 home；finish 子进程额外使用
+内核沙箱，显式禁止所有信号、launchctl/osascript 及临时目录外写入，
 所以服务恢复被按预期拒绝；这验证欠账识别，不证明真实服务恢复成功。首次使用了不匹配的 PM
 correlation id 被官方收尾拒绝；修正为同一 update_id 后完成该演练。该临时 home 没有真实旧 venv
 或用户数据，不能称为完整 0.21.3 → 0.21.6 升级验收，也没有认证该目标或执行现用安装升级。
+完成回执测试保留此次演练的字段样本，验证缺少 GO correlation_id 和补齐关联后的恢复欠账均被拒绝。
 
 以下执行适配与验收仍待实现/验证，HG-199 保持进行中：
 

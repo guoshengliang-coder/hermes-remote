@@ -29,8 +29,10 @@ private config/cron snapshots, repeatable backup receipts, source changes/tamper
 separate-directory DB export and preservation of later live writes. Completion tests reject exit-zero
 success with followups and require independent service/boot/environment evidence.
 
-The local macOS official PM + finish experiment runs only in a temporary home with a kernel sandbox
-denying signals, launchctl/osascript and writes elsewhere. It proves PM provisioning and the owed-work
+The local macOS official PM prepare experiment uses a cleared environment and temporary home;
+finish additionally runs in a kernel sandbox denying signals, launchctl/osascript and writes elsewhere.
+Completion tests preserve the observed receipt fields and reject missing launcher correlation and
+remaining debt after correlation is supplied. The experiment proves PM provisioning and the owed-work
 receipt shape; denied service restoration prevents certification. It has no genuine old venv/history.
 Still needed: actual clean old→fixed target upgrade, upstream lock inheritance across parent death,
 real stopped-writer inventory/retirement, process-kill boundary matrix, original service restoration,

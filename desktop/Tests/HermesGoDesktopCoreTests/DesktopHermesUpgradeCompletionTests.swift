@@ -63,4 +63,52 @@ final class DesktopHermesUpgradeCompletionTests: XCTestCase {
             XCTAssertThrowsError(try verify(receipt, evidence: failed))
         }
     }
+    func testReceiptRequiresAValidLauncherRunIdentity() throws {
+        var unbound = receipt
+        unbound["correlation_id"] = ""
+        XCTAssertThrowsError(try DesktopHermesUpgradeCompletionVerifier.verify(
+            receipt: JSONSerialization.data(withJSONObject: unbound), runID: "", upstreamUpdateID: runID,
+            target: target, expectedRunningServices: 1, evidence: evidence()))
+    }
+    func testObservedOfficialFinishReceiptRemainsIncompleteDespiteSuccessfulPMAndProcess() throws {
+        // Selected fields from the isolated 818c13be official finish on 2026-10-11. No real
+        // credentials/history were used. The positive control below only removes synthetic debt;
+        // it is parser coverage, not evidence that a real service was restored.
+        let observed = Data(#"""
+        {
+          "schema": 1, "update_id": "go-hg199-isolated-pm-20261011", "correlation_id": null,
+          "outcome": "success", "finished_at": "2026-10-11T04:47:40.505360+00:00",
+          "post_update": {"sha": "818c13be1dc4fd28987e1e881a9408224afd4535"},
+          "stages": [{"name": "build", "outcome": "success"}],
+          "followups": [{"step": "gateway_restart", "reason": "gateways may still run pre-update code or were stopped without a successor; recover with `hermes gateway restart`", "at": "2026-10-11T04:47:40.497637+00:00"}],
+          "user_action": null,
+          "gateway_restart": {
+            "restarted_services": [], "relaunched_profiles": [], "externally_supervised_profiles": [],
+            "killed_pids": [], "failed_units": [], "incomplete": true,
+            "phase_error": "[Errno 1] Operation not permitted: 'launchctl'",
+            "fresh_recovery": {"requested": [], "verified": [], "relaunch_attempted": [],
+              "failed": [], "skipped": [], "serve_units": {"verified": [], "failed": []}, "stale_runtimes": []}
+          },
+          "pm_sync_outcome": "ok", "pm_exit_code": 0, "pm_venv_rebuild": {"ok": true, "reason": ""}
+        }
+        """#.utf8)
+        let fixedTarget = try DesktopHermesUpgradeTarget(version: "0.21.6", commit: "818c13be1dc4fd28987e1e881a9408224afd4535")
+        let independentlyReady = DesktopHermesUpgradeCompletionEvidence(processExitCode: 0,
+            diskCommit: fixedTarget.commit, bootCommits: [fixedTarget.commit], dependencyInputsCurrent: true,
+            sourceCompletionPending: false, fleetRestartPending: false, servicesMatchOriginalLoadState: true)
+        func check(_ object: [String: Any]) throws {
+            try DesktopHermesUpgradeCompletionVerifier.verify(receipt: JSONSerialization.data(withJSONObject: object),
+                runID: runID, upstreamUpdateID: "go-hg199-isolated-pm-20261011", target: fixedTarget,
+                expectedRunningServices: 1, evidence: independentlyReady)
+        }
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: observed) as? [String: Any])
+        XCTAssertThrowsError(try check(object)) // Launcher correlation was absent in the experiment.
+        object["correlation_id"] = runID
+        XCTAssertThrowsError(try check(object)) // Matching identities still leave actual restart debt.
+        object["followups"] = []
+        var restart = try XCTUnwrap(object["gateway_restart"] as? [String: Any])
+        restart["incomplete"] = false; restart["phase_error"] = ""
+        object["gateway_restart"] = restart
+        try check(object) // Verify the observed field types parse once only the debt is removed.
+    }
 }
