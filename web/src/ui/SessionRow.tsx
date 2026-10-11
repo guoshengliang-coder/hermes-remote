@@ -39,7 +39,7 @@ export function projectLabelOf(session: Pick<SessionListItem, "git_repo_root" | 
 }
 
 export function SessionRow({ session, now, view, pinned, draft, archived, inProject, bot, defaultProject, query = "", divider, showTime = false, onOpen, onLongPress }: SessionRowProps) {
-  const { guard, ...press } = useLongPress(onLongPress);
+  const press = useLongPress(onLongPress);
   const { t, language } = useApp();
   const selected = useWorkspace().selectedId === session.id;
   const project = bot || inProject ? null : projectLabelOf(session, defaultProject);
@@ -54,7 +54,7 @@ export function SessionRow({ session, now, view, pinned, draft, archived, inProj
       type="button"
       class={`session-row${selected ? " selected" : ""}${divider ? " with-divider" : ""}${unread ? " unread" : ""}${onLongPress ? " holdable" : ""}`}
       aria-current={selected ? "page" : undefined}
-      onClick={guard ? guard(onOpen) : onOpen}
+      onClick={onOpen}
       {...press}
     >
       <span class="row-main">

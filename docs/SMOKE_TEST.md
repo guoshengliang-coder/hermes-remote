@@ -1719,3 +1719,24 @@ Automated DOM tests cover pane budgets, saved preferences, stable mounting, drag
 attachment/draft ownership, reading/search restoration and navigation races. Desktop Chromium and
 WebKit size/keyboard emulation is useful evidence, but does not count as physical Android/iOS,
 TalkBack/VoiceOver or an actual folding gesture.
+
+# HG-201 · Web session long-press release isolation
+
+Automated: `web/src/ui/useLongPress.test.tsx` exercises the real SessionRow/SessionActionSheet
+with compatibility clicks targeting the row, menu and scrim; ordinary/bot/archived actions,
+slow release, source-row unmount, a second finger, fresh taps, keyboard/assistive activation,
+native context menus, short taps and scroll/cancel/timer cleanup. These are supplied DOM events,
+not proof of an iPhone's actual event sequence. No physical iPhone result is recorded yet.
+
+1. On an iPhone, record the model, iOS version, Web build and Safari vs Home Screen PWA mode.
+   Use disposable ordinary, bot and archived conversations. Long-press rows both above and within
+   the area the bottom sheet covers. Keep holding for at least five seconds, then release without
+   a second tap: no pin/unarchive, rename/move/confirmation screen, scrim dismissal or chat opening.
+2. Repeat with a small finger movement after the sheet appears, and with release following the
+   browser's context-menu/pointer cancellation path. A source list refresh must not remove the
+   release-click protection. Scroll before 500ms: no sheet. A short tap still opens the chat.
+3. After each hold, tap an action or the scrim immediately: that independent tap works even if
+   the opening gesture produced no click. Recheck ordinary, bot and archived sheets; archive and
+   delete still require their separate confirmation. Never confirm deletion on valuable sessions.
+4. Recheck VoiceOver activation and keyboard Enter/Space, Escape/system Back, and desktop right
+   click followed by a normal menu click. The menu must remain reachable with these inputs.
