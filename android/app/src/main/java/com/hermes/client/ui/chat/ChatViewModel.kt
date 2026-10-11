@@ -1480,10 +1480,38 @@ class ChatViewModel @Inject constructor(
                     code = failed.error.code.value,
                     retryable = failed.error.retryable,
                     attachments = failed.attachments.size,
+                    attachmentMeta = stageUnsentAttachments(failed.attachments),
                     updatedAt = System.currentTimeMillis(),
                 ),
             )
         }
+    }
+
+    /**
+     * Give each refused attachment a disk copy and describe it for the record (HG-208).
+     *
+     * Images live only in memory until now; they are written through the media cache under the
+     * same id-keyed name the outgoing bubble used, so there is exactly one copy. Ordinary files
+     * were staged to disk when they were picked and are pointed at where they lie. An attachment
+     * that cannot be given a readable copy is left out — the restore then sees meta and count
+     * disagree and degrades to `HR-SESS-015`, which never sends half a message.
+     */
+    private suspend fun stageUnsentAttachments(
+        atts: List<PendingAttachment>,
+    ): List<com.hermes.client.data.repository.UnsentAttachment> = atts.mapNotNull { a ->
+        runCatching {
+            val path = if (a.kind == AttachmentKind.IMAGE) {
+                mediaRepository.cacheOutgoing(a.id, a.bytes, a.mimeType).localPath
+                    ?: error("media cache returned no path for ${a.id}")
+            } else {
+                a.stagedFile?.takeIf { it.isFile && it.length() > 0 }?.absolutePath
+                    ?: error("staged attachment is not on disk")
+            }
+            com.hermes.client.data.repository.UnsentAttachment(
+                id = a.id, name = a.name, mimeType = a.mimeType,
+                path = path, sizeBytes = a.sizeBytes,
+            )
+        }.getOrNull()
     }
 
     /**
@@ -1504,16 +1532,18 @@ class ChatViewModel @Inject constructor(
      * will ever contain it. It is re-inserted under its stored id, which is what lets a later retry
      * remove the same turn it replaces.
      *
-     * Attachments are not persisted (`UnsentStore`), so a record that had them cannot be replayed as
-     * it was. Rather than quietly sending the text alone, the restored turn takes `HR-SESS-015` and
-     * is not retryable — the tap is withheld, per docs/ERROR_HANDLING.md.
+     * Attachments come back from the disk copies the record points at (HG-208). When every listed
+     * file is still readable the turn is replayable with them; when any is gone — or the record is
+     * a v1 one that never listed any — the restored turn takes `HR-SESS-015` and is not retryable.
+     * Either way the text alone is never quietly sent, per docs/ERROR_HANDLING.md.
      */
     private fun seedUnsent(token: String, sessionId: String, key: SessionRuntimeKey?) {
         viewModelScope.launch {
             val record = unsentStore.read(token) ?: return@launch
             if (storedSessionId != sessionId || unsentToken != token) return@launch
             if (failedSends.containsKey(record.messageId)) return@launch
-            val lost = record.attachments > 0
+            val restored = withContext(defaultDispatcher) { restoreUnsentAttachments(record) }
+            val lost = record.attachments > 0 && restored == null
             val code = if (lost) {
                 com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST
             } else {
@@ -1522,7 +1552,7 @@ class ChatViewModel @Inject constructor(
             }
             failedSends[record.messageId] = FailedSend(
                 record.text,
-                emptyList(),
+                restored ?: emptyList(),
                 com.hermes.client.data.error.AppError(
                     code,
                     retryable = record.retryable && !lost,
@@ -1538,6 +1568,33 @@ class ChatViewModel @Inject constructor(
                     .copy(isGenerating = false)
             }
             key?.let { runtimeStore.updateChat(it, restore) } ?: mutateState(restore)
+        }
+    }
+
+    /**
+     * The attachments a record can still put on screen, or null when it cannot put back all of
+     * them — the caller treats that one answer as "the attachments are gone", never as "send the
+     * text". A v1 record lists no paths, so it lands on null whenever it says it had attachments.
+     */
+    private fun restoreUnsentAttachments(
+        record: com.hermes.client.data.repository.UnsentRecord,
+    ): List<PendingAttachment>? {
+        if (record.attachments == 0) return emptyList()
+        if (record.attachmentMeta.size != record.attachments) return null
+        return record.attachmentMeta.map { meta ->
+            val file = java.io.File(meta.path)
+            val kind = attachmentKind(meta.mimeType, meta.name)
+            val limit = if (kind == AttachmentKind.IMAGE) {
+                MAX_DIRECT_ATTACHMENT_BYTES.toLong()
+            } else {
+                MAX_FILE_ATTACHMENT_BYTES
+            }
+            if (!file.isFile || file.length() !in 1L..limit) return null
+            if (kind == AttachmentKind.IMAGE) {
+                PendingAttachment(meta.id, file.readBytes(), meta.mimeType, meta.name)
+            } else {
+                PendingAttachment(meta.id, ByteArray(0), meta.mimeType, meta.name, stagedFile = file)
+            }
         }
     }
 

@@ -32,6 +32,35 @@ class UnsentRecordTest {
         assertEquals(10L, decoded[0].updatedAt)
     }
 
+    /**
+     * HG-208 raised the version to add attachment paths. A v1 record on a user's phone is the
+     * only remaining trace of a refused send — dropping it on upgrade would delete their message,
+     * so it decodes (with no paths, which the restore treats as lost attachments), and only
+     * versions from the future are the ones refused.
+     */
+    @Test fun aV1RecordStillDecodesWithNoAttachmentPaths() {
+        val decoded = decodeUnsent(
+            """[{"v":1,"token":"p/s1","messageId":"u-1","text":"看这几张图","code":"HR-SESS-007",""" +
+                """"retryable":true,"attachments":3,"updatedAt":1}]""",
+        )
+        assertEquals(1, decoded.size)
+        assertEquals(3, decoded[0].attachments)
+        assertEquals(emptyList<UnsentAttachment>(), decoded[0].attachmentMeta)
+        // A v1 record is carried as v1, not rewritten: it still decodes on the way back.
+        assertEquals(1, decodeUnsent(encodeUnsent(decoded))[0].v)
+    }
+
+    @Test fun attachmentPathsRoundTripWithTheRecord() {
+        val withMeta = record("p/s1", "看图", 1L, attachments = 2).copy(
+            attachmentMeta = listOf(
+                UnsentAttachment(id = "att-1", name = "shot.jpg", mimeType = "image/jpeg", path = "/c/1.jpg", sizeBytes = 11L),
+                UnsentAttachment(id = "att-2", name = "notes.pdf", mimeType = "application/pdf", path = "/c/2.pdf", sizeBytes = 22L),
+            ),
+        )
+        val decoded = decodeUnsent(encodeUnsent(listOf(withMeta)))
+        assertEquals(withMeta.attachmentMeta, decoded[0].attachmentMeta)
+    }
+
     @Test fun corruptOrAbsentPayloadDecodesToNothing() {
         assertEquals(emptyList<UnsentRecord>(), decodeUnsent(null))
         assertEquals(emptyList<UnsentRecord>(), decodeUnsent("not json"))
