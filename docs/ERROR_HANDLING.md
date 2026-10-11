@@ -71,6 +71,7 @@ reassigned.
 | `LINK` | Links the app opens out of its own content | no app can open the link, non-web scheme refused |
 | `COMPAT` | The Mac's upstream Hermes against the REST contract this app depends on | required route missing, optional route missing, Hermes older than verified |
 | `WEB` | The browser Web app (`/app/`) and the Gateway surfaces only it uses | route withheld from browsers, unsupported browser, Web shell/update failure |
+| `SITE` | Public Hermes GO website and its download invitation gate | invitation, website session, release discovery |
 | `UNKNOWN` | Truly unmapped failures | last-resort boundary only; must be investigated |
 | `VOICE` | Speech transcription | service unavailable, recognition failure |
 
@@ -440,6 +441,23 @@ For every new or changed failure path:
 
 Legacy unstructured errors should be migrated by subsystem. Do not perform blind global string
 replacement: map each failure at its owning boundary so codes remain meaningful and testable.
+
+### Official website (HG-200)
+
+Website errors contain only the code, localized copy, retryability, recovery action and a fixed
+operation stage. Exceptions, request bodies, invitation codes and cookies are never serialized.
+The website gate authorizes website downloads only; it does not authorize a client or Web session.
+
+| Code | Condition / recovery | Chinese | English | Retryable |
+|---|---|---|---|---|
+| `HR-SITE-001` | Invalid invitation; ask the administrator for a valid code | 邀请码不正确，请向管理员确认后重新输入。 | Incorrect invitation code. Confirm it with the administrator and enter it again. | No |
+| `HR-SITE-002` | Attempt limit; wait for Retry-After, then retry | 尝试次数过多，请稍后再试。 | Too many attempts. Please try again later. | Yes |
+| `HR-SITE-003` | Missing/expired download session; enter invitation again | 下载资格已过期，请重新验证邀请码。 | Download access has expired. Verify your invitation code again. | No |
+| `HR-SITE-004` | Release index unavailable/invalid; reload release information | 暂时无法获取版本信息，请稍后刷新。 | Release information is unavailable. Refresh later. | Yes |
+| `HR-SITE-005` | Invalid request/origin/path; return to the download page | 请求无法处理，请返回下载页重新操作。 | This request couldn't be processed. Return to Downloads and try again. | No |
+| `HR-SITE-006` | Unexpected website failure; retry without exposing cause | 官网暂时无法处理请求，请稍后再试。 | The website couldn't process this request. Please try again later. | Yes |
+| `HR-SITE-007` | Browser network failure; check connection and submit again | 网络连接失败，请检查网络后重试。 | Couldn't connect. Check your network and try again. | Yes |
+| `HR-SITE-008` | Invalid website configuration/listener; administrator checks protected config | 官网配置无效，请联系管理员检查配置。 | Website configuration is invalid. Ask the administrator to check the configuration. | No |
 
 ### Offline table charts (HG-192)
 

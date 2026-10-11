@@ -26,6 +26,12 @@ Web 与 Cloud **解耦发布**：只改 `web/**` 只发 Web 包，Gateway 不动
 CI 的 `web` job 由 `web/**` 触发，也由 Web 直接调用的 Gateway 文件触发（见
 `scripts/ci/changed-components.mjs` 的 `WEB_CONTRACT_FILES`）。
 
+HG-200 的 `website/**` 是独立官网服务，**不是** `web/**` 的 Web App，也不是 Gateway 镜像的一部分。
+官网门禁为 `cd website && npm run check && npm test`，使用独立 `website.yml` CI；发布目标为
+`https://go.mrlgs.net`，生产发布仍需用户明确授权，步骤与回滚见 `docs/WEBSITE.md`。
+官网只读取既有 Android/Desktop 发布索引，不发布客户端、不改变任何客户端或 Web 准入。
+新增 `HR-SITE-*` 码仅由官网消费；Android、Desktop、Web 与 Cloud 的已有码和协议均不变。
+
 `scripts/` 与 `docs/` **按文件归属，不按目录** —— 它们是三边工具混放：
 
 - **android**：`scripts/android-release-train.mjs`、`scripts/package-debug-apk.sh`、`scripts/publish-android-apk.sh`、
