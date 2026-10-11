@@ -41,6 +41,9 @@ class AppErrorTest {
             AppErrorCode.MICROPHONE_PERMISSION_REQUIRED,
             AppErrorCode.VOICE_UNAVAILABLE,
             AppErrorCode.VOICE_RECOGNITION_FAILED,
+            AppErrorCode.VOICE_DISCONNECTED,
+            AppErrorCode.VOICE_FINAL_TIMEOUT,
+            AppErrorCode.VOICE_EMPTY,
         ).forEach { code ->
             val error = AppError(code, retryable = true, technicalCause = "token=secret")
             assertTrue(error.localizedMessage(AppLanguage.ZH).contains(code.value))
@@ -48,6 +51,7 @@ class AppErrorTest {
             assertTrue(error.localizedSummary(AppLanguage.ZH) != error.localizedSummary(AppLanguage.EN))
             assertTrue(error.retryable)
             assertFalse(error.sanitizedDiagnostic().contains("secret"))
+            assertEquals(code, AppErrorCode.fromValue(code.value))
         }
     }
     @Test fun connectionDiagnosisCodesHaveDistinctBilingualRetryableCopyAndRedactedDetails() {

@@ -1516,14 +1516,39 @@ production or microphone verification. Use non-sensitive test speech.
    circles to cancel/edit; test short holds, pointer cancellation, rotation and finger returning to
    the center. Desktop Space/Enter holds, left/right/down choose action and Escape cancels.
 4. Disconnect the provider or wait for timeout: partial text returns to the draft under
-   `HR-VOICE-002`; cancel waiting also keeps partial text, gesture cancel discards it. Verify the
+   `HR-VOICE-003` (disconnect) or `HR-VOICE-004` (final timeout); cancel waiting also keeps partial text, gesture cancel discards it. Verify the
    microphone indicator disappears on release, background, navigation, sign-out and device switch.
-   At the 60-second capture limit, stop and preserve partial text without automatic submission; late results cannot write to another conversation.
+   At the 5-minute actual-audio limit, stop capture, await the final result and place it in the draft without submission; late results cannot write to another conversation.
 5. Confirm cookie upgrade accepts the exact Origin only; no token/key is present in URLs or JS.
    Revoke the browser session or device share while recording and confirm the speech socket closes
    and no prompt submits. Refreshing access credentials alone must not close a live session.
 6. Check Safari permission and AudioContext resume after switching back from the keyboard, including
    a second recording. Confirm neither raw audio nor transcript content is in Gateway diagnostics.
+
+## HG-206 · Five-minute voice input — physical/provider verification pending
+
+On iPhone Safari, Home Screen WebApp and Android, with a configured speech service:
+
+1. Prepare text plus image/file attachments. Hold through 60 seconds: recording continues. The
+   clock starts with actual capture and shows elapsed / 05:00. At 04:45 the remaining seconds and
+   “then save to draft” appear; check Chinese/English, light/dark and large text at narrow widths.
+2. Hold a full five minutes. The microphone stops, final recognition completes, and the complete
+   text joins the existing draft. No message/confirmation opens automatically; attachments remain.
+   The limit notice is normal, with no error code. Empty recognition says no text was recognized.
+3. Release near 04:59: the independent eight-second final wait is available and normal release sends.
+   Gesture cancel/edit, final-wait cancellation, background/foreground, lock screen, navigation,
+   sign-out and connection loss must release microphone/socket and retain only appropriate text.
+   Late release or duplicate/late final packets cannot send twice or write into another conversation.
+4. Disconnect -> HR-VOICE-003; final timeout -> HR-VOICE-004; provider recognition failure ->
+   HR-VOICE-002; empty normal final -> HR-VOICE-005. Verify primary copy explains cause, actual
+   retention and retry/keyboard recovery in both languages; the code is secondary.
+5. Start a second recording immediately. Confirm no old deadline, live microphone or stale socket
+   remains. Gateway closes an abandoned session at 330 seconds and retains revocation enforcement.
+
+Automated coverage uses synthetic PCM, provider frames and virtual clocks. It does not establish
+that the configured provider supports five continuous minutes on a physical device. Release Gateway
+before the new clients so the previous 90-second relay deadline cannot interrupt their recordings.
+
 
 ## HG-189 · Web voice vibration (Android browser / PWA)
 

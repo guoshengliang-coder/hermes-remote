@@ -13,6 +13,15 @@ and attachments. Cancelling the first bot-send notice restores both text and att
 transport regressions are automated; real microphone/provider/browser checks remain in
 `../docs/SMOKE_TEST.md`.
 
+HG-206 makes voice recording last up to five minutes of actual audio on Web and Android. The
+last 15 seconds show a countdown; automatic completion waits for the final result and keeps it
+in the complete draft, never auto-sending. Release-to-send retains its independent final timeout.
+Distinct bilingual failures explain disconnection, final timeout and empty recognition, with actual
+text-retention copy. Requires the accompanying 330-second Gateway relay lifetime; deploy Gateway
+before clients. Physical iPhone Safari/Home Screen and Android/provider checks remain pending in
+`../docs/SMOKE_TEST.md`. No Connector, Desktop, database, credential or wire-format changes.
+
+
 HG-197 adds the adaptive conversation workspace at `https://mrlgs.net/app/`: automatic list/chat
 panes when the container can fit 15rem + 22.5rem + the 1.5rem divider (624 CSS pixels at the default
 root size). The drawer's “Large screen layout” choice also offers a single column. Drag the divider,

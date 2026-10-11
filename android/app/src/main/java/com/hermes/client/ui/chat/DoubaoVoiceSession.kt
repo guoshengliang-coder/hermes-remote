@@ -29,12 +29,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal sealed interface VoiceEvent {
     data object Started : VoiceEvent
+    data object LimitReached : VoiceEvent
     data class Partial(val text: String) : VoiceEvent
-    data class Final(val text: String) : VoiceEvent
+    data class Final(val text: String, val limited: Boolean = false) : VoiceEvent
     data class Failed(val partialText: String, val reason: VoiceFailure) : VoiceEvent
 }
 
-internal enum class VoiceFailure { MICROPHONE, CONNECTION, RECOGNITION, TIMEOUT }
+internal enum class VoiceFailure { MICROPHONE, CONNECTION, DISCONNECTED, RECOGNITION, TIMEOUT, FINAL_TIMEOUT }
 
 private class RecognitionFailure : IllegalStateException("recognition failed")
 private class MicrophoneFailure(cause: Throwable) : IllegalStateException("microphone unavailable", cause)
@@ -49,6 +50,7 @@ internal class DoubaoVoiceSession(
     private val scope: CoroutineScope,
     private val endpoint: suspend () -> GatewayWebSocketEndpoint,
     private val endpointTimeoutMs: Long = ENDPOINT_TIMEOUT_MS,
+    private val recordingLimitMs: Long = VOICE_RECORDING_LIMIT_MS,
     private val onEvent: (VoiceEvent) -> Unit,
 ) {
     private companion object {
@@ -77,6 +79,15 @@ internal class DoubaoVoiceSession(
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var latestText = ""
     private var job: Job? = null
+    private val limited = AtomicBoolean(false)
+    private val ready = AtomicBoolean(false)
+    private val recordingDeadline = VoiceRecordingDeadline(scope, recordingLimitMs) {
+        if (stopped.compareAndSet(false, true) && !cancelled.get()) {
+            limited.set(true)
+            scope.launch(Dispatchers.Main) { if (!cancelled.get()) onEvent(VoiceEvent.LimitReached) }
+            stopRecorder()
+        }
+    }
 
     fun start() {
         job = scope.launch(Dispatchers.IO) {
@@ -106,9 +117,14 @@ internal class DoubaoVoiceSession(
                     // carries the end marker rather than sending an empty trailing packet.
                     check(ws.send(DoubaoSpeechProtocol.audio(sequence, held ?: byteArrayOf(), last = true)))
                     DebugLog.log("voice") { "audio flushed, awaiting final (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)" }
-                    val final = withTimeout(8_000) { finalText.await() }
+                    val final = try { withTimeout(8_000) { finalText.await() } }
+                    catch (_: TimeoutCancellationException) {
+                        DebugLog.log("voice") { "failed reason=FINAL_TIMEOUT partialChars=${latestText.length} (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)" }
+                        withContext(Dispatchers.Main) { if (!cancelled.get()) onEvent(VoiceEvent.Failed(latestText, VoiceFailure.FINAL_TIMEOUT)) }
+                        return@launch
+                    }
                     DebugLog.log("voice") { "final ${final.length} chars (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)" }
-                    withContext(Dispatchers.Main) { if (!cancelled.get()) onEvent(VoiceEvent.Final(final)) }
+                    withContext(Dispatchers.Main) { if (!cancelled.get()) onEvent(VoiceEvent.Final(final, limited.get())) }
                 }
             } catch (error: Exception) {
                 if (!cancelled.get()) {
@@ -116,7 +132,7 @@ internal class DoubaoVoiceSession(
                         is SecurityException, is IllegalArgumentException, is MicrophoneFailure -> VoiceFailure.MICROPHONE
                         is RecognitionFailure -> VoiceFailure.RECOGNITION
                         is TimeoutCancellationException -> VoiceFailure.TIMEOUT
-                        else -> VoiceFailure.CONNECTION
+                        else -> if (ready.get()) VoiceFailure.DISCONNECTED else VoiceFailure.CONNECTION
                     }
                     DebugLog.log("voice") {
                         "failed reason=$reason partialChars=${latestText.length} (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)"
@@ -124,6 +140,7 @@ internal class DoubaoVoiceSession(
                     withContext(Dispatchers.Main) { if (!cancelled.get()) onEvent(VoiceEvent.Failed(latestText, reason)) }
                 }
             } finally {
+                recordingDeadline.stop()
                 stopped.set(true)
                 stopRecorder()
                 capture.cancel()
@@ -133,12 +150,14 @@ internal class DoubaoVoiceSession(
     }
 
     fun finish() {
+        recordingDeadline.stop()
         DebugLog.log("voice") { "finish" }
         stopped.set(true)
         stopRecorder()
     }
 
     fun cancel() {
+        recordingDeadline.stop()
         DebugLog.log("voice") { "cancelled" }
         cancelled.set(true)
         stopped.set(true)
@@ -173,6 +192,7 @@ internal class DoubaoVoiceSession(
                 val n = audio.read(buffer, 0, buffer.size)
                 if (n < 0) break
                 if (n > 0) {
+                    recordingDeadline.audioReceived()
                     if (!announced) {
                         announced = true
                         withContext(Dispatchers.Main) {
@@ -195,7 +215,7 @@ internal class DoubaoVoiceSession(
         }
     }
 
-    private fun stopRecorder() {
+    @Synchronized private fun stopRecorder() {
         val audio = recorder ?: return
         recorder = null
         runCatching { if (audio.recordingState == AudioRecord.RECORDSTATE_RECORDING) audio.stop() }
@@ -210,23 +230,25 @@ internal class DoubaoVoiceSession(
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
             val frame = runCatching { DoubaoSpeechProtocol.parse(bytes.toByteArray()) }
                 .getOrElse {
-                    finalText.completeExceptionally(it)
+                    recognitionFailed()
                     return
                 }
             if (frame.error) {
-                val failure = RecognitionFailure()
-                initialized.completeExceptionally(failure)
-                finalText.completeExceptionally(failure)
+                recognitionFailed()
                 return
             }
             initialized.complete(Unit)
+            ready.set(true)
             frame.text?.let { text ->
                 latestText = text
                 scope.launch(Dispatchers.Main) {
                     if (!cancelled.get()) onEvent(VoiceEvent.Partial(text))
                 }
             }
-            if (frame.finished) finalText.complete(latestText)
+            if (frame.finished) {
+                if (!stopped.get()) recognitionFailed()
+                else finalText.complete(latestText)
+            }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -234,10 +256,33 @@ internal class DoubaoVoiceSession(
             opened.completeExceptionally(failure)
             initialized.completeExceptionally(failure)
             finalText.completeExceptionally(failure)
+            chunks.close(failure)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            if (!finalText.isCompleted && !cancelled.get()) finalText.completeExceptionally(IllegalStateException("voice closed"))
+            connectionClosed()
         }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            connectionClosed()
+            webSocket.close(code, reason)
+        }
+
+        private fun connectionClosed() {
+            if (!finalText.isCompleted && !cancelled.get()) {
+                val failure = IllegalStateException("voice closed")
+                opened.completeExceptionally(failure)
+                initialized.completeExceptionally(failure)
+                finalText.completeExceptionally(failure)
+                chunks.close(failure)
+            }
+        }
+    }
+
+    private fun recognitionFailed() {
+        val failure = RecognitionFailure()
+        initialized.completeExceptionally(failure)
+        finalText.completeExceptionally(failure)
+        chunks.close(failure)
     }
 }
