@@ -1561,7 +1561,8 @@ html[data-theme="dark"] .group-header {
   bottom: calc(1rem + var(--safe-bottom));
   width: 3.5rem;
   height: 3.5rem;
-  border-radius: 50%;
+  /* HG-203: Android M3 FAB uses HermesShapes.large (22dp), not a circle. */
+  border-radius: 1.375rem;
   background: var(--fab-container);
   color: #ffffff;
   border: 1px solid var(--fab-outline);

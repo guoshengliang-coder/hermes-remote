@@ -29,3 +29,8 @@ the newly covered menu or scrim. The next independent primary press or keyboard 
 pointer clicks immediately; non-pointer keyboard/assistive activation remains available. The guard
 survives a source row refresh and does not expire while a finger is still held. DOM regressions
 cover ordinary, bot and archived rows; iPhone Safari/PWA verification remains in the smoke plan.
+
+HG-203 aligns the session-list new-chat FAB with Android's themed M3 shape: a 56px rounded square
+with 22px corners at the default root size, using rem for both dimensions and corners. Light/dark
+and single/split layouts share the shape. The Android and Web rules in `../docs/DESIGN.md` and the
+repository design-system prose now reflect it; physical browser checks are in `../docs/SMOKE_TEST.md`.
