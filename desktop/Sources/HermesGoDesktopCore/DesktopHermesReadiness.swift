@@ -3,28 +3,41 @@ import Foundation
 
 public struct DesktopHermesReadinessCheckpoint: Equatable, Sendable {
     public let logURL: URL
-    fileprivate let device: UInt64?
-    fileprivate let inode: UInt64?
-    fileprivate let byteCount: UInt64
+    fileprivate let output: DesktopHermesLogCheckpoint
+    fileprivate let errorOutput: DesktopHermesLogCheckpoint?
 
     public init(logURL: URL) {
         self.logURL = logURL
-        device = nil
-        inode = nil
-        byteCount = 0
+        output = DesktopHermesLogCheckpoint(logURL: logURL, device: nil, inode: nil, byteCount: 0)
+        errorOutput = nil
     }
 
-    fileprivate init(logURL: URL, device: UInt64?, inode: UInt64?, byteCount: UInt64) {
-        self.logURL = logURL
-        self.device = device
-        self.inode = inode
-        self.byteCount = byteCount
+    fileprivate init(output: DesktopHermesLogCheckpoint, errorOutput: DesktopHermesLogCheckpoint?) {
+        logURL = output.logURL
+        self.output = output
+        self.errorOutput = errorOutput
     }
 }
 
-public enum DesktopHermesReadinessError: Error, Equatable, Sendable {
+public enum DesktopHermesStartupFailure: String, Equatable, Sendable {
+    case pythonGeneratorParameters = "python-generator-parameters"
+    case applicationStartupFailed = "application-startup-failed"
+    case portInUse = "port-in-use"
+}
+
+public enum DesktopHermesReadinessError: Error, Equatable, Sendable, CustomStringConvertible {
     case invalidLog
     case logGrowthExceeded
+    case startupFailed(DesktopHermesStartupFailure)
+
+    /// Fixed reasons only: stderr may contain model credentials, prompt text and personal paths.
+    public var description: String {
+        switch self {
+        case .invalidLog: "invalidLog"
+        case .logGrowthExceeded: "logGrowthExceeded"
+        case .startupFailed(let failure): "startupFailed reason=\(failure.rawValue)"
+        }
+    }
 }
 
 public protocol DesktopHermesCandidateReadinessChecking {
@@ -53,9 +66,18 @@ public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateRead
 
     public func checkpoint(logURL: URL) throws -> DesktopHermesReadinessCheckpoint {
         let log = try validatedAbsoluteURL(logURL)
+        // All managed starts use these two fixed siblings. Never guess an arbitrary stderr path
+        // for another caller, or read another service's logs.
+        let errorOutput = log.lastPathComponent == "hermes-server.log"
+            ? try logCheckpoint(log.deletingLastPathComponent().appendingPathComponent("hermes-server.error.log"))
+            : nil
+        return DesktopHermesReadinessCheckpoint(output: try logCheckpoint(log), errorOutput: errorOutput)
+    }
+
+    private func logCheckpoint(_ log: URL) throws -> DesktopHermesLogCheckpoint {
         if let metadata = try metadata(log) {
             guard !metadata.isDirectory else { throw DesktopHermesReadinessError.invalidLog }
-            return DesktopHermesReadinessCheckpoint(
+            return DesktopHermesLogCheckpoint(
                 logURL: log,
                 device: metadata.device,
                 inode: metadata.inode,
@@ -65,7 +87,7 @@ public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateRead
         guard let parent = try metadata(log.deletingLastPathComponent()), parent.isDirectory else {
             throw DesktopHermesReadinessError.invalidLog
         }
-        return DesktopHermesReadinessCheckpoint(
+        return DesktopHermesLogCheckpoint(
             logURL: log,
             device: nil,
             inode: nil,
@@ -82,43 +104,68 @@ public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateRead
         guard (1...300).contains(maximumAttempts) else {
             throw DesktopHermesReadinessError.invalidLog
         }
-        var offset = checkpoint.byteCount
-        var device = checkpoint.device
-        var inode = checkpoint.inode
-        var announced = false
-        var collected = Data()
-        var observedBytes: UInt64 = 0
+        var output = LogCursor(checkpoint.output)
+        var errorOutput = checkpoint.errorOutput.map(LogCursor.init)
         let statusURL = URL(string: "/api/status", relativeTo: contract.baseURL)!.absoluteURL
 
         for attempt in 0..<maximumAttempts {
-            if let current = try metadata(checkpoint.logURL) {
-                guard !current.isDirectory else { throw DesktopHermesReadinessError.invalidLog }
-                if device != current.device || inode != current.inode || current.size < offset {
-                    device = current.device
-                    inode = current.inode
-                    offset = 0
-                    announced = false
-                    collected.removeAll(keepingCapacity: true)
-                    observedBytes = 0
-                }
-                let growth = current.size - offset
-                guard growth <= Self.maximumNewLogBytes - observedBytes else {
-                    throw DesktopHermesReadinessError.logGrowthExceeded
-                }
-                if growth > 0 {
-                    let data = try read(checkpoint.logURL, offset: offset, count: Int(growth))
-                    offset += UInt64(data.count)
-                    observedBytes += UInt64(data.count)
-                    collected.append(data)
-                    announced = containsReadyLine(collected, contract: contract)
+            try collect(&output)
+            if completeLines(output.collected).contains(where: contract.isPortConflictAnnouncement) {
+                throw DesktopHermesReadinessError.startupFailed(.portInUse)
+            }
+            if var cursor = errorOutput {
+                try collect(&cursor)
+                errorOutput = cursor
+                if let failure = startupFailure(cursor.collected) {
+                    throw DesktopHermesReadinessError.startupFailed(failure)
                 }
             }
-            if announced, await prober.probeHermes(statusURL).level == .healthy { return true }
+            if containsReadyLine(output.collected, contract: contract),
+               await prober.probeHermes(statusURL).level == .healthy { return true }
             if attempt + 1 < maximumAttempts, delayNanoseconds > 0 {
                 try await Task.sleep(nanoseconds: delayNanoseconds)
             }
         }
         return false
+    }
+
+    private func collect(_ cursor: inout LogCursor) throws {
+        guard let current = try metadata(cursor.logURL) else { return }
+        guard !current.isDirectory else { throw DesktopHermesReadinessError.invalidLog }
+        if cursor.device != current.device || cursor.inode != current.inode || current.size < cursor.offset {
+            cursor.device = current.device
+            cursor.inode = current.inode
+            cursor.offset = 0
+            cursor.collected.removeAll(keepingCapacity: true)
+            // Keep the total bound across rotations: replacing the file cannot reset the budget.
+        }
+        let growth = current.size - cursor.offset
+        guard growth <= Self.maximumNewLogBytes - cursor.observedBytes else {
+            throw DesktopHermesReadinessError.logGrowthExceeded
+        }
+        if growth > 0 {
+            let data = try read(cursor.logURL, offset: cursor.offset, count: Int(growth), expected: current)
+            cursor.offset += UInt64(data.count)
+            cursor.observedBytes += UInt64(data.count)
+            cursor.collected.append(data)
+        }
+    }
+
+    private func completeLines(_ data: Data) -> [String] {
+        String(decoding: data, as: UTF8.self).components(separatedBy: "\n").dropLast().map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private func startupFailure(_ data: Data) -> DesktopHermesStartupFailure? {
+        let lines = completeLines(data)
+        let exited = lines.contains { line in
+            let message = line.hasPrefix("ERROR:") ? String(line.dropFirst(6)) : line
+            return message.trimmingCharacters(in: .whitespaces) == "Application startup failed. Exiting."
+        }
+        guard exited else { return nil }
+        return lines.contains("TypeError: Too few arguments for typing.Generator; actual 2, expected 3")
+            ? .pythonGeneratorParameters : .applicationStartupFailed
     }
 
     private func containsReadyLine(_ data: Data, contract: DesktopHermesRuntimeContract) -> Bool {
@@ -128,11 +175,16 @@ public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateRead
         }
     }
 
-    private func read(_ url: URL, offset: UInt64, count: Int) throws -> Data {
-        let handle: FileHandle
-        do { handle = try FileHandle(forReadingFrom: url) }
-        catch { throw DesktopHermesReadinessError.invalidLog }
+    private func read(_ url: URL, offset: UInt64, count: Int, expected: FileMetadata) throws -> Data {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { throw DesktopHermesReadinessError.invalidLog }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
+        var opened = stat()
+        guard Darwin.fstat(descriptor, &opened) == 0,
+              opened.st_mode & S_IFMT == S_IFREG, opened.st_uid == Darwin.getuid(),
+              UInt64(opened.st_dev) == expected.device, UInt64(opened.st_ino) == expected.inode
+        else { throw DesktopHermesReadinessError.invalidLog }
         do {
             try handle.seek(toOffset: offset)
             var result = Data()
@@ -171,6 +223,29 @@ public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateRead
             size: UInt64(max(0, value.st_size)),
             isDirectory: kind == S_IFDIR
         )
+    }
+}
+
+fileprivate struct DesktopHermesLogCheckpoint: Equatable, Sendable {
+    let logURL: URL
+    let device: UInt64?
+    let inode: UInt64?
+    let byteCount: UInt64
+}
+
+private struct LogCursor {
+    let logURL: URL
+    var device: UInt64?
+    var inode: UInt64?
+    var offset: UInt64
+    var collected = Data()
+    var observedBytes: UInt64 = 0
+
+    init(_ checkpoint: DesktopHermesLogCheckpoint) {
+        logURL = checkpoint.logURL
+        device = checkpoint.device
+        inode = checkpoint.inode
+        offset = checkpoint.byteCount
     }
 }
 

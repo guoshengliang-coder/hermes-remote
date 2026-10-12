@@ -293,6 +293,11 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
   card never appears unless the Mac is actually in local mode. A successful switch or restart is silent: the Hermes row keeps reporting
   reachability, not which codebase answered.
 - Technical details and logs are secondary, selectable, and redacted before presentation.
+- HG-212 startup diagnostics carry fixed reasons for a fresh Python import failure, generic fatal
+  startup exit or explicit port-conflict marker through the existing runtime issue. Primary bilingual
+  summaries, retryability and recovery actions remain the registered ones. Raw Hermes stderr is never
+  a preview or copy-diagnostics payload; old errors and nonfatal update warnings cannot override fresh
+  health. No new UI controls or service-takeover action are introduced.
 - Diagnostics and Logs prefer bounded, redacted managed Connector and Desktop service-operation
   tails when present; only legacy installations use the old Connector log directory. Hermes stdout
   is not previewed because it may contain conversation content.

@@ -1,5 +1,18 @@
 # Hermes Go Desktop test plan
 
+## HG-212 SSH/PWA startup-failure acceptance
+
+`DesktopHermesReadinessTests` covers fresh Python/generic startup failures, separate port-conflict
+evidence, fixed diagnostics without credentials or personal paths, existing bilingual runtime issue,
+retryability/recovery, historical stderr, nonfatal warnings, incomplete lines, log rotation, symlinks
+before/after checkpoint, and bounded growth. The Python/port regressions failed on the old checker.
+The ready-marker + healthy-loopback requirement remains covered. Full Desktop tests also exercise
+update waits, restart bounds, occupied-port refusal, exact managed labels and rollback paths.
+
+Customer SSH/PWA simultaneous use, actual upstream/venv repair, packaged Desktop details, GO-only
+restart preserving SSH and full Mac reboot remain **unverified**. Execute and record the acceptance
+steps in [SSH_MOBILE_RECOVERY.md](SSH_MOBILE_RECOVERY.md) on an explicitly authorized customer/test Mac.
+
 ## HG-175 repair acceptance
 
 Automated `DesktopManagedServiceRepairTests` covers the 16 combinations of file presence/job loading,
