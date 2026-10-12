@@ -1,5 +1,38 @@
 # Hermes Go Desktop test plan
 
+## HG-212 PM runtime and recovery follow-up
+
+Automated coverage adds: PM plus stale legacy venv (the three detector cases failed on old code),
+PM-only install, unsafe PM file/parent refusal, PM agent recognition/PATH/no VIRTUAL_ENV/token
+preservation/exact legacy rollback, actual command-loading success/import failure/bounded process
+termination, completed-stage verification failure remaining pending and verification-only retry,
+public health failing authenticated JSON proof, loopback route/token/redaction/redirect refusal,
+account report time surviving a newer refresh, diagnostic button wiring/source labels, exact owned-binding
+reconnect eligibility, Connector-only restart with unchanged identity/plists/Hermes, stale Cloud
+health refusal, local authentication recheck before mutation, and missing-job refusal. Existing suites retain update lock/settle/backoff and
+unknown-job, account, credential, concurrent-lease and interruption rollback gates.
+
+Physical acceptance is still required before distribution:
+
+1. Upgrade a Mac with old Python 3.11 venv and a valid published PM command: GO uses PM, one serve
+   holds 9119, the same token/home/state.db remain, and private authenticated reads pass.
+2. Run upstream's supported update while GO is active; prove no restart during its lock, correct
+   post-update process/command, no duplicate 9119 service and no stale generation path in GO config.
+3. Restore local Hermes while retaining an older negative account health report. “重新诊断” must
+   fetch account state, show separate local success and report time, and retain Cloud failure until
+   its newer report succeeds. Failed account refresh shows its code, not a false new timestamp.
+4. Confirm “重新连接这台 Mac”: only the proven GO Connector PID changes; Hermes PID, SSH client,
+   database and token remain unchanged. Fresh Cloud health is required; another/shared Mac and
+   concurrent installation never offer/execute this action. Test interruption/rollback UI.
+5. Keep the notebook SSH session open while iPhone Safari/PWA lists history and sends/receives a
+   new message. Customer reported Desktop recovered after Connector restart; this end-to-end gate
+   has not been reported or executed by this iteration.
+
+Local verification on Macbook-M5: the full Desktop core suite passed (563 tests), canonical asset
+comparison and ad-hoc app build passed. The actual Diagnostics and reconnect-confirmation SwiftUI
+views were rendered with static fake health data and inspected in light/dark mode; the harness did
+not read Keychain or start real services. This is visual layout evidence, not device/Cloud acceptance.
+
 ## HG-212 SSH/PWA startup-failure acceptance
 
 `DesktopHermesReadinessTests` covers fresh Python/generic startup failures, separate port-conflict

@@ -7,6 +7,25 @@ import XCTest
 // home directory. Nothing touches the network, the real `~/.hermes`, launchd or `~/Library`.
 
 final class DesktopHermesInstallerTests: XCTestCase {
+    func testRuntimeFailureStaysPendingDespiteUpstreamCompletionAndRetryOnlyVerifies() async throws {
+        let failure = DesktopHermesInstallFailure.notUsable(stage: "verify", detail: "serve-help exit=1")
+        let first = sandbox.installer(script: FakeInstaller(stages: ["repository", "complete"]),
+            detections: [.absent(hermesDataPresent: false), .usable(sandbox.installation)], runtimeChecker: FailingRuntimeChecker(failure: failure))
+        let actualFailure = await installFailure(first)
+        XCTAssertEqual(actualFailure, failure)
+        XCTAssertTrue(DesktopHermesInstallResume.completionMarkerPresent(sandbox.paths))
+        XCTAssertTrue(DesktopHermesInstallResume.pending(sandbox.attempts, paths: sandbox.paths))
+        DesktopHermesInstallResume.forgetIfFinished(sandbox.attempts, paths: sandbox.paths, detection: .usable(sandbox.installation))
+        XCTAssertTrue(DesktopHermesInstallResume.pending(sandbox.attempts, paths: sandbox.paths))
+        let offer = try XCTUnwrap(sandbox.resumeOffer(detection: .usable(sandbox.installation)))
+        let fetcher = StubFetcher(result: .failure(failure))
+        let second = sandbox.installer(fetcher: fetcher, detections: [.usable(sandbox.installation)])
+        let before = try sandbox.invocations()
+        _ = try await second.install(offer.confirm()) { _ in }
+        XCTAssertEqual(fetcher.calls, 0)
+        XCTAssertEqual(try sandbox.invocations(), before)
+        XCTAssertNil(sandbox.attempts.load())
+    }
     private var sandbox: InstallerSandbox!
 
     override func setUpWithError() throws {
@@ -1123,7 +1142,8 @@ private final class InstallerSandbox {
         fetcher: StubFetcher? = nil,
         detections: [DesktopLocalHermesDetection],
         userID: UInt32 = Darwin.getuid(),
-        inherited: [String: String] = [:]
+        inherited: [String: String] = [:],
+        runtimeChecker: any DesktopHermesInstalledRuntimeChecking = SuccessfulRuntimeChecker()
     ) -> DesktopHermesInstaller {
         let fetcher = fetcher ?? StubFetcher(result: .success(Data((script ?? FakeInstaller(stages: ["complete"])).source.utf8)))
         let sequence = DetectionSequence(detections)
@@ -1132,6 +1152,7 @@ private final class InstallerSandbox {
             workRoot: workRoot,
             log: DesktopServiceOperationLog(url: logURL, maximumBytes: 1024 * 1024),
             fetcher: fetcher,
+            runtimeChecker: runtimeChecker,
             detect: { sequence.next() },
             attempts: attempts,
             inheritedEnvironment: inherited,
@@ -1154,4 +1175,13 @@ private final class InstallerSandbox {
         }
         throw XCTSkip("the fake stage never started its child")
     }
+}
+
+private struct SuccessfulRuntimeChecker: DesktopHermesInstalledRuntimeChecking {
+    func verify(_ installation: DesktopLocalHermesInstallation, environment: [String: String]) async throws {}
+}
+
+private struct FailingRuntimeChecker: DesktopHermesInstalledRuntimeChecking {
+    let failure: DesktopHermesInstallFailure
+    func verify(_ installation: DesktopLocalHermesInstallation, environment: [String: String]) async throws { throw failure }
 }

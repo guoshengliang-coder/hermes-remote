@@ -1,5 +1,40 @@
 # Hermes Go Desktop phase 0
 
+## PM runtime and diagnostics recovery (HG-212 follow-up, 2026-10-12)
+
+Standard-install detection now prefers `~/.hermes/hermes-agent/.hermes/bin/hermes` when present;
+the historical `venv/bin/hermes` remains supported only when the PM command is absent. An unsafe PM
+file/parent never falls back to the old venv. Both entrypoints retain the same checkout, default home,
+profile restrictions, private token, GO label, loopback address/9119 and stdout/stderr. The PM agent
+puts its published bin directory on PATH and omits VIRTUAL_ENV. Runtime-switch snapshots restore the
+prior launcher and plist exactly. Update waits, settle interval and crash backoff remain unchanged.
+PM owns interpreter/dependency facts; Desktop neither parses generation paths nor edits PM state.
+
+Installation completion additionally runs the selected `serve --help` with a clean, noninteractive
+environment and a five-minute cancellation bound. Only fixed exit/timeout/spawn reasons reach
+diagnostics (`HR-MIGRATE-018`). New attempts remain pending after upstream's completion marker until
+this check passes, including after Desktop quits. Retrying a completed own checkout only rechecks
+the command; it does not rerun upstream's repository/reset stage. This validates command loading,
+not phone availability. Managed activation/restarts additionally require a new ready line, public
+status and private-token JSON API (`profiles/active`, missing-route fallback to `sessions?limit=1`).
+Loopback probes bypass system proxies and refuse redirects. Binding/install completion keeps its
+existing fresh Cloud health gate.
+
+Diagnostics' explicit refresh reads both local and account evidence. Local authenticated health is
+displayed separately; Connector-reported Hermes/end-to-end timestamps are not replaced by local
+refresh times. The selected exact owned active local binding offers a confirmed Connector-only
+reconnect only after local authenticated health passes (rechecked at commit), through the existing
+service-repair transaction: read-only preparation, account/key/token/
+component/file/loaded-argv validation, operation lease, private interruption snapshot and rollback.
+It leaves the already running Hermes and all binding/data files intact. Completion requires a newer
+Cloud report; failure cannot become a success simply because launchd loaded the job. The operation
+log records the user-request reason and fresh-health/failed result without credentials.
+
+Connector/Gateway already recheck account health every 20 seconds; this iteration does not change
+that protocol or polling schedule. Neither the customer's stale Connector internals nor the exact
+update/install that triggered the original mismatch were established. Source changes are not a
+Desktop release or a customer deployment.
+
 ## Explicit managed-service repair (HG-175)
 
 A committed `account_active` journal is no longer a dead end when one/both user LaunchAgents are

@@ -80,6 +80,10 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var configurationMessage: String?
     @Published private(set) var accountState: DesktopAccountState = .checking
     @Published private(set) var accountIssue: DesktopIssue?
+    @Published private(set) var accountCheckedAt: Date?
+    @Published private(set) var isDiagnosing = false
+    @Published private(set) var localManagedHermesHealth: ComponentHealth?
+    private var isAccountRefreshInProgress = false
     @Published private(set) var isAccountOperationInProgress = false
     @Published private(set) var bootstrapPlan: DesktopBootstrapPlan = .checking
     @Published private(set) var agentPresentation: DesktopAgentPresentation = .checking
@@ -278,7 +282,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
 
     var presentedHealth: DesktopHealthSnapshot {
         if let device = selectedAccountDevice {
-            return AccountDeviceHealth.snapshot(for: device, checkedAt: health.checkedAt)
+            return AccountDeviceHealth.snapshot(for: device, checkedAt: accountCheckedAt ?? .distantPast)
         }
         return health.presented(accountModeActive: isAccountModeActive)
     }
@@ -526,7 +530,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func refreshAccount(bootstrap: Bool = false) async {
-        guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return }
+        guard !isAccountRefreshInProgress, !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return }
+        isAccountRefreshInProgress = true
+        defer { isAccountRefreshInProgress = false }
         if bootstrap { accountState = .checking }
         do {
             let state: DesktopAccountState
@@ -536,6 +542,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 state = try await accountController.refresh()
             }
             applyAccountState(state)
+            accountCheckedAt = Date()
         } catch let issue as AccountClientError {
             accountIssue = DesktopIssue.account(issue)
         } catch {
@@ -816,6 +823,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             accountIssue = nil
         }
         if previousAccountID != nextAccountID {
+            accountCheckedAt = nil
             onboardingRecord = nextAccountID.map { onboardingStore.load(accountID: $0) }
                 ?? DesktopOnboardingRecord()
             bootstrapPlan = .checking
@@ -1017,6 +1025,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let rawManagedInstallation = await inspectRawManagedBootstrapInstallation()
         let accountVerification = managedAccountVerification(for: rawManagedInstallation)
         let scopedManagedInstallation = scopeManagedBootstrapInstallation(rawManagedInstallation)
+        if case .active = scopedManagedInstallation, let managedPaths,
+           let layout = try? DesktopManagedInstallLayout(root: managedPaths.managedRoot, launchAgentsRoot: managedPaths.launchAgentsRoot) {
+            let result = await DesktopManagedInstaller(layout: layout).probeManagedHermes()
+            localManagedHermesHealth = ComponentHealth(component: .hermes, level: result.level,
+                detail: result.detail, checkedAt: Date(), issue: result.issue)
+        } else { localManagedHermesHealth = nil }
         agentPresentation = DesktopAgentPresentation.reduce(
             legacy: observation,
             managed: rawManagedInstallation,
@@ -1102,6 +1116,33 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         await refreshServiceRepairOffer()
         await refreshHermesInstallOffer(scopedManagedInstallation)
         await refreshHermesRuntime()
+    }
+
+    /// One user action refreshes both evidence sources. Reading Cloud does not make its older
+    /// Connector report new; AccountDeviceHealth retains that report's own timestamp.
+    func refreshDiagnostics() async {
+        guard !isDiagnosing, !isRefreshing, !isManagedBootstrapAccountLocked else { return }
+        isDiagnosing = true
+        defer { isDiagnosing = false }
+        await refresh()
+        await refreshAccount()
+    }
+
+    var canReconnectManagedConnector: Bool {
+        guard !isManagedBootstrapAccountLocked, !isAccountOperationInProgress, serviceRepair != nil,
+              !serviceRepairNeeded, localManagedHermesHealth?.level == .healthy
+        else { return false }
+        return DesktopConnectorReconnectEligibility.matches(currentManagedInstallation, device: selectedAccountDevice)
+    }
+
+    func prepareConnectorReconnect() async {
+        guard canReconnectManagedConnector, let repair = serviceRepair else { return }
+        isServiceRepairPreparing = true
+        serviceRepairIssue = nil
+        serviceRepairGuidance = nil
+        do { serviceRepairPreparation = try await repair.prepare(reconnectOnly: true) }
+        catch { showServiceRepairFailure(error, duringCommit: false) }
+        isServiceRepairPreparing = false
     }
 
     /// Runs on every refresh: keeps the managed Hermes service on this Mac's own Hermes when it has a

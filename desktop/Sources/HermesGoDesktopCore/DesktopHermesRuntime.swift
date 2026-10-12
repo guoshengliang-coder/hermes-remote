@@ -130,10 +130,12 @@ public struct DesktopLocalHermesLaunchAgent: Sendable {
             hermesHome: installation.hermesHome,
             sessionTokenFile: sessionTokenFile
         )
-        let venvBin = installation.executable.deletingLastPathComponent().standardizedFileURL.path
-        environment["PATH"] = venvBin + ":" + DesktopHermesRuntimeContract.searchPath
-        environment["VIRTUAL_ENV"] = installation.executable
-            .deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
+        let entryBin = installation.executable.deletingLastPathComponent().standardizedFileURL.path
+        environment["PATH"] = entryBin + ":" + DesktopHermesRuntimeContract.searchPath
+        if !installation.usesPackageManager {
+            environment["VIRTUAL_ENV"] = installation.executable
+                .deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
+        }
         return environment
     }
 

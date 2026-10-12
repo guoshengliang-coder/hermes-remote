@@ -6,6 +6,34 @@ import XCTest
 // MARK: - Detection
 
 final class DesktopLocalHermesDetectorTests: XCTestCase {
+    func testSymlinkedPMLauncherParentCannotSelectAnotherInstallation() throws {
+        let home = try LocalHermesHome()
+        try home.write("foreign/bin/hermes", "#!/bin/sh\nexit 0\n", mode: 0o755)
+        try FileManager.default.createSymbolicLink(atPath: home.path(".hermes/hermes-agent/.hermes"), withDestinationPath: home.path("foreign"))
+        XCTAssertEqual(home.reason(), .unsafeInstallation)
+    }
+    func testPublishedPMLauncherWinsOverTheStaleLegacyVenv() throws {
+        let home = try LocalHermesHome()
+        try home.write(".hermes/hermes-agent/.hermes/bin/hermes", "#!/bin/sh\nexit 0\n", mode: 0o755)
+        try FileManager.default.removeItem(atPath: home.path(".hermes/hermes-agent/venv/lib"))
+        let installation = try XCTUnwrap(home.detect().installation)
+        XCTAssertEqual(installation.executable.path, home.path(".hermes/hermes-agent/.hermes/bin/hermes"))
+        XCTAssertTrue(installation.dependenciesConsistent, "PM selects dependencies; legacy dist-info must not gate it")
+    }
+
+    func testPMInstallDoesNotRequireALegacyVenv() throws {
+        let home = try LocalHermesHome()
+        try home.write(".hermes/hermes-agent/.hermes/bin/hermes", "#!/bin/sh\nexit 0\n", mode: 0o755)
+        try FileManager.default.removeItem(atPath: home.path(".hermes/hermes-agent/venv"))
+        XCTAssertEqual(home.detect().installation?.executable.path, home.path(".hermes/hermes-agent/.hermes/bin/hermes"))
+    }
+
+    func testUnsafePMLauncherNeverFallsBackToTheOldVenv() throws {
+        let home = try LocalHermesHome()
+        try home.write(".hermes/hermes-agent/.hermes/bin/hermes", "#!/bin/sh\nexit 0\n", mode: 0o777)
+        XCTAssertEqual(home.reason(), .unsafeInstallation)
+    }
+
     func testNoCheckoutIsAbsentAndSaysWhetherHermesDataExists() throws {
         let home = try LocalHermesHome(installed: false)
         XCTAssertEqual(home.detect(), .absent(hermesDataPresent: false))
@@ -606,6 +634,34 @@ final class DesktopHermesRuntimePlannerTests: XCTestCase {
 // MARK: - Launcher and LaunchAgent
 
 final class DesktopLocalHermesLaunchTests: XCTestCase {
+    func testPMLaunchAgentIsRecognisedAndRollbackRestoresLegacyFilesExactly() throws {
+        let home = try LocalHermesHome()
+        let layout = try DesktopManagedInstallLayout(root: home.root.appendingPathComponent("Managed"),
+            launchAgentsRoot: home.root.appendingPathComponent("Library/LaunchAgents"))
+        let installer = DesktopManagedInstaller(layout: layout)
+        _ = try installer.ensureHermesSessionToken()
+        let legacy = try XCTUnwrap(home.detect().installation)
+        _ = try installer.writeLocalHermesLaunchAgent(legacy)
+        let original = try Data(contentsOf: layout.hermesLaunchAgent)
+        let originalScript = try Data(contentsOf: layout.localHermesLauncher)
+        let token = try Data(contentsOf: layout.hermesSessionToken)
+        try home.write(".hermes/hermes-agent/.hermes/bin/hermes", "#!/bin/sh\nexit 0\n", mode: 0o755)
+        let pm = try XCTUnwrap(home.detect().installation)
+        let change = try installer.prepareLocalHermesRuntime(pm)
+        XCTAssertEqual(try installer.currentHermesRuntimeMode(), .localHermes(executable: pm.executable))
+        XCTAssertTrue(installer.localHermesLauncherIsCurrent(executable: pm.executable))
+        let env = try installer.localHermesLaunchAgent(for: pm).environmentVariables()
+        XCTAssertNil(env["VIRTUAL_ENV"])
+        XCTAssertTrue(try XCTUnwrap(env["PATH"]).hasPrefix(pm.executable.deletingLastPathComponent().path + ":"))
+        XCTAssertEqual(env["HERMES_HOME"], pm.hermesHome.path)
+        XCTAssertEqual(env["HERMES_SESSION_TOKEN_FILE"], layout.hermesSessionToken.path)
+        XCTAssertTrue(Self.shlexJoin(installer.localHermesLaunchAgent(for: pm).programArguments).contains("hermes serve"))
+        try installer.rollbackHermesRuntimeSwitch(change)
+        XCTAssertEqual(try Data(contentsOf: layout.hermesLaunchAgent), original)
+        XCTAssertEqual(try Data(contentsOf: layout.localHermesLauncher), originalScript)
+        XCTAssertEqual(try Data(contentsOf: layout.hermesSessionToken), token)
+    }
+
     private static let token = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123456"
 
     func testTheLauncherHandsTheTokenFromTheFileToHermesAndExecsIt() throws {

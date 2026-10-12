@@ -4,6 +4,20 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesReadinessTests: XCTestCase {
+    func testPublicHealthAndReadyMarkerCannotBypassAnAuthenticatedFailure() async throws {
+        let fixture = try makeFixture(initialLog: "")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let checker = DesktopHermesCandidateReadinessChecker(prober: HTTPHealthProber(session: makeSession()),
+            authenticatedProbe: { ProbeResult(level: .failed, detail: "secret upstream body") })
+        let checkpoint = try checker.checkpoint(logURL: fixture.log)
+        try Data("HERMES_BACKEND_READY port=9119\n".utf8).write(to: fixture.log)
+        await XCTAssertThrowsErrorAsync(try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )) { error in
+            XCTAssertEqual(error as? DesktopHermesReadinessError, .authenticatedEndpointUnavailable)
+            XCTAssertFalse(DesktopIssue.hermesRuntimeFailure(error).sanitizedDiagnostic.contains("secret"))
+        }
+    }
     override func tearDown() {
         HermesReadinessURLProtocol.statusCode = 200
         super.tearDown()

@@ -1,5 +1,26 @@
 # Hermes Go Desktop design contract
 
+## PM runtime and connection recovery (HG-212 follow-up)
+
+Diagnostics' “重新诊断” and “再次尝试” refresh local evidence and the authenticated account snapshot
+in one action. The spinner covers both reads. Each connection row shows its actual checked time;
+Hermes/end-to-end rows retain the Connector report time, rather than borrowing a local probe's time.
+An unknown report time says “检查时间未知”. A separate “这台 Mac 的 Hermes” card shows the local
+authenticated probe and time, explicitly separate from the selected account device. Its success
+cannot clear an unhealthy account chain. Account-refresh errors stay visible with copy diagnostics.
+
+For the exact active owned local binding with a healthy local authenticated probe only, “重新连接” opens the existing 540 pt native recovery
+sheet. It says that only the Hermes GO Connector restarts, phones briefly disconnect, and Hermes,
+account/binding/credentials/data remain intact. Only the sheet's explicit “重新连接” commits. Service
+identity, files and account are revalidated; all competing installation/account actions are locked.
+Local authentication is checked again before commit. Unknown jobs, other/shared Macs, missing jobs/files and interrupted repair snapshots remain on the
+existing repair path and codes. A new Cloud health timestamp is required before success.
+
+Installation's “verifying” phase loads `serve --help` through the selected entrypoint before showing
+success. A failed check remains `HR-MIGRATE-018`, with fixed details, retry guidance and no raw output.
+Subsequent managed activation still requires fresh service stdout, public and authenticated local
+HTTP health, then Cloud binding health; installing files alone does not mean phones can connect.
+
 ## Repairing a committed installation (HG-175)
 
 A committed `account_active` install with either managed LaunchAgent file missing or job unloaded

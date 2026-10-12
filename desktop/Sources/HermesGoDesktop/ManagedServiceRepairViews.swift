@@ -44,6 +44,7 @@ struct ManagedServiceRepairConfirmation: View {
         ServiceRepairConfirmationContent(
             releaseVersion: plan.releaseVersion, filePaths: plan.filePaths,
             usesLocalHermes: plan.usesLocalHermes, recovering: plan.resumesInterruptedRepair,
+            reconnectOnly: plan.reconnectsConnectorOnly,
             running: running, cancel: cancel, confirm: confirm
         )
         .interactiveDismissDisabled(running)
@@ -57,19 +58,21 @@ struct ServiceRepairConfirmationContent: View {
     let filePaths: [String]
     let usesLocalHermes: Bool
     let recovering: Bool
+    var reconnectOnly: Bool = false
     let running: Bool
     let cancel: () -> Void
     let confirm: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label(recovering ? "恢复上次未完成的修复" : "修复受管服务", systemImage: "wrench.and.screwdriver")
+            Label(recovering ? "恢复上次未完成的修复" : (reconnectOnly ? "重新连接这台 Mac" : "修复受管服务"), systemImage: "wrench.and.screwdriver")
                 .font(.system(size: 19, weight: .bold))
                 .foregroundStyle(Color.hermesBlue)
             Text("原受管安装 · \(releaseVersion)").font(.system(size: 14, weight: .semibold))
             Text(recovering
                  ? "会恢复上次修复前的启动项和服务状态。完成后请重新检查，再确认新的修复。"
-                 : "会恢复缺失的启动项、载入未启动的服务，并在必要时短暂重启 Connector，验证这台 Mac 的连接。")
+                 : (reconnectOnly ? "会短暂重启这台 Mac 的 Hermes GO Connector，并等待新的账号健康上报。Hermes 服务保持运行，手机连接会短暂中断。"
+                    : "会恢复缺失的启动项、载入未启动的服务，并在必要时短暂重启 Connector，验证这台 Mac 的连接。"))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(usesLocalHermes ? "Hermes 使用这台 Mac 已有的标准安装。" : "Hermes 使用原受管安装中的运行程序。")
@@ -92,7 +95,7 @@ struct ServiceRepairConfirmationContent: View {
                 HStack {
                     Button("取消", action: cancel).keyboardShortcut(.cancelAction)
                     Spacer()
-                    Button(recovering ? "恢复上次操作" : "修复并连接", action: confirm)
+                    Button(recovering ? "恢复上次操作" : (reconnectOnly ? "重新连接" : "修复并连接"), action: confirm)
                         .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 }
             }

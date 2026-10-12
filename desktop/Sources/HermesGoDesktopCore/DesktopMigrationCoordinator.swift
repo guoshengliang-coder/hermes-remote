@@ -138,8 +138,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         journal: DesktopMigrationJournalStore,
         installer: DesktopManagedInstaller,
         launchAgent: DesktopLaunchAgentController<Runner>,
-        hermesReadiness: any DesktopHermesCandidateReadinessChecking
-            = DesktopHermesCandidateReadinessChecker(),
+        hermesReadiness: (any DesktopHermesCandidateReadinessChecking)? = nil,
         hermesShutdown: any DesktopHermesShutdownChecking = DesktopHermesShutdownChecker(),
         maximumHealthPolls: Int = 75,
         healthPollDelayNanoseconds: UInt64 = 1_000_000_000,
@@ -155,7 +154,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         self.journal = journal
         self.installer = installer
         self.launchAgent = launchAgent
-        self.hermesReadiness = hermesReadiness
+        self.hermesReadiness = hermesReadiness ?? DesktopHermesCandidateReadinessChecker(
+            authenticatedProbe: { await installer.probeManagedHermes() }
+        )
         self.hermesShutdown = hermesShutdown
         self.maximumHealthPolls = maximumHealthPolls
         self.healthPollDelayNanoseconds = healthPollDelayNanoseconds
