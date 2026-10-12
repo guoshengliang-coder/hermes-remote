@@ -930,6 +930,16 @@ any Mac whose owner sets a non-loopback `public_url`, discovered only when that 
 
 #### Restarting when the owner updates Hermes
 
+HG-212: readiness checkpoints both `hermes-server.log` and its fixed sibling
+`hermes-server.error.log` before each managed start. Only appended complete fatal lines are considered:
+an explicit `BACKEND_PORT_IN_USE` stdout marker, or stderr's `Application startup failed. Exiting.`;
+the observed Python `Generator` two-parameter import error is distinguished from a generic startup
+failure. Historical errors and nonfatal update/dependency-lock warnings do not fail a healthy new
+start. Each stream is bounded to 64 KiB of new data across rotations, validates owner/regular-file
+identity and refuses symlinks. Diagnostics carry fixed reasons, never raw stderr. Existing structured
+issues, recovery wrapping, back-off and rollback still apply. This does not update upstream or repair
+the customer's venv. See [SSH/PWA recovery and acceptance](SSH_MOBILE_RECOVERY.md).
+
 The process the phone talks to must not keep serving code that is no longer on disk — and must not
 be restarted when the code did not change, because a restart interrupts whatever conversation is in
 flight. Desktop's refresh loop (every 15 s) decides, from `DesktopHermesRuntimePlanner`:

@@ -81,6 +81,133 @@ final class DesktopHermesReadinessTests: XCTestCase {
         XCTAssertFalse(unhealthy)
     }
 
+    func testFreshPythonStartupFailureCarriesTheCauseInsteadOfTimingOut() async throws {
+        let fixture = try makeFixture(initialLog: "")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let checker = DesktopHermesCandidateReadinessChecker(prober: HTTPHealthProber(session: makeSession()))
+        let checkpoint = try checker.checkpoint(logURL: fixture.log)
+        let stderr = fixture.root.appendingPathComponent("hermes-server.error.log")
+        try Data("""
+        File "/Users/customer/.hermes/hermes-agent/agent/turn_scripted_prelude.py"
+        APP_TOKEN=secret-not-for-diagnostics
+        TypeError: Too few arguments for typing.Generator; actual 2, expected 3
+        ERROR:    Application startup failed. Exiting.
+
+        """.utf8).write(to: stderr)
+        await XCTAssertThrowsErrorAsync(try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )) { error in
+            let issue = DesktopIssue.hermesRuntimeFailure(error)
+            XCTAssertEqual(issue.code, .localHermesRuntimeFailed)
+            XCTAssertTrue(issue.retryable)
+            XCTAssertEqual(issue.recoveryAction, .details)
+            XCTAssertFalse(issue.summaryChinese.isEmpty)
+            XCTAssertFalse(issue.summaryEnglish.isEmpty)
+            XCTAssertTrue(issue.sanitizedDiagnostic.contains("python-generator-parameters"))
+            XCTAssertFalse(issue.sanitizedDiagnostic.contains("customer"))
+            XCTAssertFalse(issue.sanitizedDiagnostic.contains("secret-not-for-diagnostics"))
+        }
+    }
+
+    func testHistoricalStartupFailureAndNonFatalUpdateWarningDoNotPoisonFreshReadiness() async throws {
+        let fixture = try makeFixture(initialLog: "")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let stderr = fixture.root.appendingPathComponent("hermes-server.error.log")
+        try Data("ERROR:    Application startup failed. Exiting.\n".utf8).write(to: stderr)
+        let checker = DesktopHermesCandidateReadinessChecker(prober: HTTPHealthProber(session: makeSession()))
+        let checkpoint = try checker.checkpoint(logURL: fixture.log)
+        try append("dependency lock still held after 10.0s; continuing without it\n", to: stderr)
+        try append("HERMES_BACKEND_READY port=9119\n", to: fixture.log)
+        let ready = try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )
+        XCTAssertTrue(ready)
+    }
+
+    func testFreshPortConflictIsDistinctFromPythonStartupFailure() async throws {
+        let fixture = try makeFixture(initialLog: "")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let checker = DesktopHermesCandidateReadinessChecker(prober: HTTPHealthProber(session: makeSession()))
+        let checkpoint = try checker.checkpoint(logURL: fixture.log)
+        try append("BACKEND_PORT_IN_USE port=9119\n", to: fixture.log)
+        await XCTAssertThrowsErrorAsync(try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )) { error in
+            XCTAssertTrue(String(describing: error).contains("port-in-use"))
+            XCTAssertFalse(String(describing: error).contains("python-generator-parameters"))
+        }
+    }
+
+    func testIncompleteFatalLineWaitsAndGenericFatalFailureKeepsNoRawException() async throws {
+        let fixture = try makeFixture(initialLog: "")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let checker = DesktopHermesCandidateReadinessChecker(prober: HTTPHealthProber(session: makeSession()))
+        let checkpoint = try checker.checkpoint(logURL: fixture.log)
+        let stderr = fixture.root.appendingPathComponent("hermes-server.error.log")
+        try Data("ImportError: private-model-name\nERROR:    Application startup failed.".utf8).write(to: stderr)
+        let waiting = try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )
+        XCTAssertFalse(waiting)
+        try append(" Exiting.\n", to: stderr)
+        await XCTAssertThrowsErrorAsync(try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )) { error in
+            XCTAssertEqual(error as? DesktopHermesReadinessError, .startupFailed(.applicationStartupFailed))
+            XCTAssertFalse(String(describing: error).contains("private-model-name"))
+        }
+    }
+
+    func testErrorLogSymlinkAndExcessiveGrowthAreRefused() async throws {
+        let fixture = try makeFixture(initialLog: "")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let stderr = fixture.root.appendingPathComponent("hermes-server.error.log")
+        let checker = DesktopHermesCandidateReadinessChecker(prober: HTTPHealthProber(session: makeSession()))
+        try FileManager.default.createSymbolicLink(at: stderr, withDestinationURL: fixture.log)
+        XCTAssertThrowsError(try checker.checkpoint(logURL: fixture.log)) { error in
+            XCTAssertEqual(error as? DesktopHermesReadinessError, .invalidLog)
+        }
+        try FileManager.default.removeItem(at: stderr)
+        let checkpoint = try checker.checkpoint(logURL: fixture.log)
+        // Also refuse a symlink introduced after the checkpoint.
+        try FileManager.default.createSymbolicLink(at: stderr, withDestinationURL: fixture.log)
+        await XCTAssertThrowsErrorAsync(try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )) { error in
+            XCTAssertEqual(error as? DesktopHermesReadinessError, .invalidLog)
+        }
+        try FileManager.default.removeItem(at: stderr)
+        try Data(repeating: 0x41, count: 64 * 1024 + 1).write(to: stderr)
+        await XCTAssertThrowsErrorAsync(try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )) { error in
+            XCTAssertEqual(error as? DesktopHermesReadinessError, .logGrowthExceeded)
+        }
+    }
+
+    func testRotatedErrorLogIsReadFromItsNewBeginning() async throws {
+        let fixture = try makeFixture(initialLog: "")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let stderr = fixture.root.appendingPathComponent("hermes-server.error.log")
+        try Data(repeating: 0x41, count: 1024).write(to: stderr)
+        let checker = DesktopHermesCandidateReadinessChecker(prober: HTTPHealthProber(session: makeSession()))
+        let checkpoint = try checker.checkpoint(logURL: fixture.log)
+        try FileManager.default.moveItem(at: stderr, to: fixture.root.appendingPathComponent("previous-error.log"))
+        try Data("ERROR:    Application startup failed. Exiting.\n".utf8).write(to: stderr)
+        await XCTAssertThrowsErrorAsync(try await checker.waitUntilReady(
+            checkpoint: checkpoint, contract: .serveV1, maximumAttempts: 1, delayNanoseconds: 0
+        )) { error in
+            XCTAssertEqual(error as? DesktopHermesReadinessError, .startupFailed(.applicationStartupFailed))
+        }
+    }
+
+    private func append(_ text: String, to url: URL) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(text.utf8))
+    }
+
     func testSymlinkAndUnboundedNewLogDataFailClosed() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-readiness-\(UUID().uuidString)", isDirectory: true)
@@ -116,7 +243,7 @@ final class DesktopHermesReadinessTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-readiness-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let log = root.appendingPathComponent("server.log")
+        let log = root.appendingPathComponent("hermes-server.log")
         try Data(initialLog.utf8).write(to: log)
         return (root, log)
     }

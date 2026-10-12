@@ -1,5 +1,11 @@
 # Hermes Go Desktop
 
+HG-212 preserves fresh backend startup failures in readiness diagnostics instead of reporting only a
+timeout: Python import failure and a port-conflict marker remain distinct, old stderr does not poison
+a new start, and raw Hermes logs are never copied into the diagnostic. SSH/PWA coexistence and the
+customer-Mac recovery checklist are in [`../docs/SSH_MOBILE_RECOVERY.md`](../docs/SSH_MOBILE_RECOVERY.md).
+This source change has no new published Desktop version and has not recovered the customer Mac.
+
 HG-175 adds an explicit **检查并修复受管服务** recovery action for committed installations whose
 LaunchAgent files or loaded tasks are missing. It preserves the existing binding and installation
 identity, validates the retained release/credentials and same signed-in account, and uses confirmation,
