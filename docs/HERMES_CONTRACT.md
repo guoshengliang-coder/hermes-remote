@@ -926,6 +926,8 @@ upstream:
 | Surface | What Desktop relies on | If upstream changes it |
 |---|---|---|
 | `~/.hermes/hermes-agent/venv/bin/hermes serve --host 127.0.0.1 --port 9119` | the standard installer's layout and the headless serve's `HERMES_BACKEND_READY port=<n>` stdout line | detection reports `incompleteInstallation`, or readiness times out and the switch is rolled back |
+| `BACKEND_PORT_IN_USE port=<n>` stdout (`hermes_cli/web_server_lifecycle.py`), HG-212 | a complete new line for the selected port identifies a startup conflict; it is not a ready marker | an unrecognised failure still fails the ready + health gate, but may wait until timeout |
+| `Application startup failed. Exiting.` stderr and Python's `TypeError: Too few arguments for typing.Generator; actual 2, expected 3`, observed in HG-212 | optional early failure diagnosis from complete lines added after the managed start checkpoint; the Python cause is classified only with the fatal exit line, and only a fixed reason leaves the reader | wording changes lose the specific diagnosis, never waive the existing readiness proof; raw stderr is not exposed |
 | `.git/HEAD`, loose refs, `packed-refs`; `hermes_cli/__init__.py` `__version__ = "x.y.z"` | read as files to identify the code on disk | `unreadableIdentity` — surfaced, nothing switched |
 | `venv/lib/python*/site-packages/hermes_agent-<version>.dist-info` | its version must equal `__version__` before Desktop starts the checkout's code | Desktop waits (`dependenciesPending`) and never switches or restarts |
 | `~/.hermes/.hermes-update-in-progress` (`hermes_cli/update_lock.py`, 20-minute ceiling) | restarts wait while it is fresh | a restart could land mid-update |
