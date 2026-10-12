@@ -1,5 +1,26 @@
 # Desktop release channel
 
+## Explicitly approved internal test distribution: 0.2.32
+
+On 2026-10-12 the owner explicitly approved distributing **0.2.32/build 35** as an internal
+ad-hoc test build after reviewing the missing Developer ID/notarization gates. This authorization
+applies to `Hermes-Go-Desktop-0.2.32-dev.dmg`; it does not relax the official DMG or app-update
+publisher's gates. Do not call this artifact notarized or create an official update index for it.
+
+Build from clean current `origin/main` in the isolated release worktree, retain the installed
+public release trust/settings, and verify the inner bundle's version/build/identifier, strict ad-hoc
+signature and image integrity. Serve only the exact versioned path under
+`https://mrlgs.net/desktop/apps/0.2.32/`, using the existing root-owned app store and exact
+GET/HEAD-only Nginx route pattern. Do not overwrite a versioned file. Validate Nginx before reload,
+then download the complete public DMG and compare its bytes, size and SHA-256 with the release build.
+Keep the previous app files and both managed component pointers unchanged. Record the actual source
+commit and readback proof in the release receipt; upload alone is not publication evidence.
+
+`/desktop/apps/index.json` remains unchanged (404 at preparation time); this build is installed
+manually from the test download. The managed manifests remain independently signed and verified.
+Customer PM update/reconnect and iPhone PWA plus notebook SSH acceptance are still required; no
+customer installation or service restart is implied by this test publication.
+
 Desktop release discovery uses three mutable, cache-disabled pointers:
 
 - `/desktop/releases/index.json` for the Desktop application release envelope;
