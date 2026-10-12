@@ -4,6 +4,50 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedServiceRepairTests: XCTestCase {
+    func testReconnectRechecksLocalAuthenticationBeforeChangingServices() async throws {
+        let f = try RepairFixture(); defer { f.remove() }
+        try f.configure(hermesFile: true, connectorFile: true, hermesLoaded: true, connectorLoaded: true)
+        let repair = try f.makeRepair()
+        let plan = try await repair.prepare(reconnectOnly: true)
+        f.localHealthy = false
+        do { try await repair.commit(plan, confirmed: true); XCTFail("local auth went away") }
+        catch { XCTAssertEqual(error as? DesktopManagedServiceRepairError, .healthFailed) }
+        XCTAssertTrue(f.runner.mutations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: f.snapshot.path))
+        do { _ = try await repair.prepare(reconnectOnly: true); XCTFail("unhealthy local service") } catch {}
+        XCTAssertTrue(f.runner.mutations.isEmpty)
+    }
+    func testReconnectRestartsOnlyTheProvenConnectorAndRequiresFreshHealth() async throws {
+        let f = try RepairFixture(); defer { f.remove() }
+        try f.configure(hermesFile: true, connectorFile: true, hermesLoaded: true, connectorLoaded: true)
+        let before = try f.identityBytes()
+        let files = [try Data(contentsOf: f.layout.hermesLaunchAgent), try Data(contentsOf: f.layout.connectorLaunchAgent)]
+        let repair = try f.makeRepair()
+        let plan = try await repair.prepare(reconnectOnly: true)
+        XCTAssertTrue(plan.reconnectsConnectorOnly)
+        XCTAssertTrue(f.runner.mutations.isEmpty)
+        try await repair.commit(plan, confirmed: true)
+        XCTAssertEqual(f.runner.mutations, ["stop connector", "start connector"])
+        XCTAssertEqual(try f.identityBytes(), before)
+        XCTAssertEqual(try Data(contentsOf: f.layout.hermesLaunchAgent), files[0])
+        XCTAssertEqual(try Data(contentsOf: f.layout.connectorLaunchAgent), files[1])
+        XCTAssertEqual(f.readiness.waits, 0)
+    }
+
+    func testReconnectRefusesMissingJobsAndOldCloudHealth() async throws {
+        let f = try RepairFixture(); defer { f.remove() }
+        let repair = try f.makeRepair()
+        do { _ = try await repair.prepare(reconnectOnly: true); XCTFail("missing services") } catch {}
+        XCTAssertTrue(f.runner.mutations.isEmpty)
+        try f.configure(hermesFile: true, connectorFile: true, hermesLoaded: true, connectorLoaded: true)
+        f.runner.staleHealth = true
+        let plan = try await repair.prepare(reconnectOnly: true)
+        do { try await repair.commit(plan, confirmed: true); XCTFail("old health cannot prove recovery") }
+        catch { XCTAssertEqual(error as? DesktopManagedServiceRepairError, .healthFailed) }
+        XCTAssertFalse(f.runner.mutations.contains("stop hermes"))
+        XCTAssertNotNil(f.runner.loaded[DesktopManagedInstallLayout.connectorLabel])
+    }
+
     func testPreparationIsReadOnlyAndKeepsOriginalIdentity() async throws {
         let f = try RepairFixture(); defer { f.remove() }
         let repair = try f.makeRepair()
@@ -248,6 +292,7 @@ private final class RepairFixture: @unchecked Sendable {
     let readiness = RepairReadiness()
     let shutdown = RepairShutdown()
     var detection: DesktopLocalHermesDetection = .absent(hermesDataPresent: true)
+    var localHealthy = true
     let hermesHome: URL
     let hermesPlist: Data
     let connectorPlist: Data
@@ -334,7 +379,8 @@ private final class RepairFixture: @unchecked Sendable {
                 runner: runner, convergenceAttempts: 1, convergenceDelay: 0),
             gatewayURL: URL(string: "https://gateway.example")!, hermesHome: hermesHome,
             identity: { self.runner.remote() }, loadedArguments: { self.runner.loaded[$0] },
-            localDetector: { self.detection }, readiness: readiness, shutdown: shutdown, polls: 2, delay: 0)
+            localDetector: { self.detection }, localProbe: { ProbeResult(level: self.localHealthy ? .healthy : .failed, detail: "fixture") },
+            readiness: readiness, shutdown: shutdown, polls: 2, delay: 0)
     }
     func write(_ data: Data, _ url: URL, mode: Int = 0o600) throws {
         try data.write(to: url); try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)

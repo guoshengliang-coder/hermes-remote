@@ -1,7 +1,25 @@
 # SSH 笔记本与 Hermes GO 手机同时访问：排查与恢复
 
-HG-212，2026-10-12。本文是操作指南，不是客户机器已恢复的证明；本次没有修改客户机器、
-重启服务或发布。客户确认笔记本走 SSH、手机是 iPhone 网页/PWA，具体 SSH 启动配置尚未取得。
+HG-212，2026-10-12。客户确认笔记本走 SSH、手机是 iPhone 网页/PWA，具体 SSH 启动配置尚未取得。
+客户已按本会话恢复步骤操作，并反馈重启 Connector 后 Desktop 正常。该反馈不等于 iPhone/PWA
+与 SSH 同时使用已验收；本仓库迭代没有发布，也没有由代理直接修改客户机器。
+
+## 后续已核实的恢复证据
+
+客户当前源码为 `51609d827bb744f36c56adfd0f3249332ff946ec`，报告版本
+`0.21.6+153.g51609d8`，源码无改动；旧 venv 仍是 Python 3.11.15。通过上游 PM 安装依赖后，
+发布入口使用 Python 3.14.7，但 GO 原启动配置仍指向旧 `venv/bin/hermes`。备份后只替换 GO
+受管入口为同一 checkout 的 `.hermes/bin/hermes`、移除旧 VIRTUAL_ENV 并保留 token/home/9119，
+服务恢复监听。直接本机 `health`、`status` 和使用同一私有 token 的 `profiles/active`、
+`sessions?limit=1` 均返回 200。账号链仍显示旧失败；客户重启 Connector 后反馈 Desktop 正常。
+
+因此已确认“当前源码/PM运行环境与 GO 固定旧入口不一致”，以及恢复本机后 Connector 重启使
+显示恢复。究竟哪次安装/更新触发、重启前 Connector 内部为何未恢复，仍没有足够证据。
+`lsof` 的截断进程名 `python3.1` 不能用来判断是 Python 3.11 还是 3.14。
+
+后续 Desktop 源码优先使用 PM 发布入口，安装后验证真实命令、激活时验证认证接口；诊断同时
+刷新本机和账号证据，并提供身份校验后的 GO Connector 受控重连。发布此迭代前，现有客户端
+仍需受控人工恢复；不要修改上游源码、PM facts、环境 generation 或另装一份 Hermes。
 
 ## 证据与限制
 

@@ -110,8 +110,9 @@ public struct HTTPHealthProber {
         self.session = session
     }
 
-    static func loopbackDirect() -> HTTPHealthProber {
-        HTTPHealthProber(session: URLSession(configuration: loopbackDirectConfiguration()))
+    public static func loopbackDirect() -> HTTPHealthProber {
+        HTTPHealthProber(session: URLSession(configuration: loopbackDirectConfiguration(),
+                                             delegate: LoopbackRedirectGuard(), delegateQueue: nil))
     }
 
     static func loopbackDirectConfiguration() -> URLSessionConfiguration {
@@ -135,6 +136,34 @@ public struct HTTPHealthProber {
 
     public func probeHermes(_ url: URL) async -> ProbeResult {
         await probe(url, kind: .hermes)
+    }
+
+    /// The public status endpoint alone cannot prove Connector's local authentication works.
+    /// Never accept a caller-supplied destination for this installation credential.
+    public func probeAuthenticatedHermes(sessionToken: String) async -> ProbeResult {
+        for path in ["/api/profiles/active", "/api/sessions?limit=1"] {
+            let url = URL(string: path, relativeTo: DesktopHermesRuntimeContract.serveV1.baseURL)!.absoluteURL
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 5
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue(sessionToken, forHTTPHeaderField: "X-Hermes-Session-Token")
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let response = response as? HTTPURLResponse else { return localFailure("non-http") }
+                if path == "/api/profiles/active", [404, 405].contains(response.statusCode) { continue }
+                guard (200..<300).contains(response.statusCode) else { return localFailure("http-\(response.statusCode)") }
+                guard data.count <= 2 * 1024 * 1024,
+                      (try? JSONSerialization.jsonObject(with: data)) is [String: Any]
+                else { return localFailure("invalid-json") }
+                return ProbeResult(level: .healthy, detail: "本机 Hermes 认证接口可用")
+            } catch { return localFailure("transport") }
+        }
+        return localFailure("missing-route")
+    }
+
+    private func localFailure(_ reason: String) -> ProbeResult {
+        let issue = DesktopIssue(code: .hermesUnavailable, technicalCause: "stage=local-hermes-auth result=\(reason)")
+        return ProbeResult(level: .failed, detail: issue.displayChinese, issue: issue)
     }
 
     private enum Kind {
@@ -175,5 +204,13 @@ public struct HTTPHealthProber {
                 latencyMilliseconds: nil
             )
         }
+    }
+}
+
+/// Even a loopback response must not forward the token to another host or port.
+final class LoopbackRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

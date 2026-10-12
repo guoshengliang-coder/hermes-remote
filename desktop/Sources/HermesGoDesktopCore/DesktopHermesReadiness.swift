@@ -28,6 +28,7 @@ public enum DesktopHermesStartupFailure: String, Equatable, Sendable {
 public enum DesktopHermesReadinessError: Error, Equatable, Sendable, CustomStringConvertible {
     case invalidLog
     case logGrowthExceeded
+    case authenticatedEndpointUnavailable
     case startupFailed(DesktopHermesStartupFailure)
 
     /// Fixed reasons only: stderr may contain model credentials, prompt text and personal paths.
@@ -35,6 +36,7 @@ public enum DesktopHermesReadinessError: Error, Equatable, Sendable, CustomStrin
         switch self {
         case .invalidLog: "invalidLog"
         case .logGrowthExceeded: "logGrowthExceeded"
+        case .authenticatedEndpointUnavailable: "authenticatedEndpointUnavailable"
         case .startupFailed(let failure): "startupFailed reason=\(failure.rawValue)"
         }
     }
@@ -55,13 +57,16 @@ public protocol DesktopHermesCandidateReadinessChecking {
 public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateReadinessChecking {
     private static let maximumNewLogBytes: UInt64 = 64 * 1024
     private let prober: HTTPHealthProber
+    private let authenticatedProbe: (() async -> ProbeResult)?
 
-    public init() {
+    public init(authenticatedProbe: (() async -> ProbeResult)? = nil) {
         prober = .loopbackDirect()
+        self.authenticatedProbe = authenticatedProbe
     }
 
-    public init(prober: HTTPHealthProber) {
+    public init(prober: HTTPHealthProber, authenticatedProbe: (() async -> ProbeResult)? = nil) {
         self.prober = prober
+        self.authenticatedProbe = authenticatedProbe
     }
 
     public func checkpoint(logURL: URL) throws -> DesktopHermesReadinessCheckpoint {
@@ -108,6 +113,7 @@ public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateRead
         var errorOutput = checkpoint.errorOutput.map(LogCursor.init)
         let statusURL = URL(string: "/api/status", relativeTo: contract.baseURL)!.absoluteURL
 
+        var authenticationFailed = false
         for attempt in 0..<maximumAttempts {
             try collect(&output)
             if completeLines(output.collected).contains(where: contract.isPortConflictAnnouncement) {
@@ -121,11 +127,17 @@ public struct DesktopHermesCandidateReadinessChecker: DesktopHermesCandidateRead
                 }
             }
             if containsReadyLine(output.collected, contract: contract),
-               await prober.probeHermes(statusURL).level == .healthy { return true }
+               await prober.probeHermes(statusURL).level == .healthy {
+                if let authenticatedProbe {
+                    if await authenticatedProbe().level == .healthy { return true }
+                    authenticationFailed = true
+                } else { return true }
+            }
             if attempt + 1 < maximumAttempts, delayNanoseconds > 0 {
                 try await Task.sleep(nanoseconds: delayNanoseconds)
             }
         }
+        if authenticationFailed { throw DesktopHermesReadinessError.authenticatedEndpointUnavailable }
         return false
     }
 

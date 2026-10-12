@@ -4,7 +4,7 @@ import Foundation
 /// Where a standard upstream Hermes install lives for one macOS user.
 ///
 /// "Standard" is the layout upstream's own installer produces: `HERMES_HOME=~/.hermes`, a git
-/// checkout at `~/.hermes/hermes-agent`, and its virtualenv at `venv/` inside that checkout. It is
+/// checkout at `~/.hermes/hermes-agent`, with its published PM launcher or historical `venv/`. It is
 /// the only layout Hermes GO will run on the owner's behalf (owner decision 2026-09-21: one copy of
 /// Hermes code per Mac). Anything else is surfaced rather than guessed at, because guessing wrong
 /// means either a second copy writing the same `state.db` — the 2026-09-19 incident — or running
@@ -43,6 +43,9 @@ public struct DesktopLocalHermesPaths: Equatable, Sendable {
     public var profilesRoot: URL { hermesHome.appendingPathComponent("profiles", isDirectory: true) }
     public var activeProfileFile: URL { hermesHome.appendingPathComponent("active_profile") }
     public var stateDatabase: URL { hermesHome.appendingPathComponent("state.db") }
+    /// Installation-bound upstream command; unlike ~/.local/bin/hermes it cannot select another
+    /// checkout. PM owns interpreter/generation selection behind this stable entrypoint.
+    public var publishedExecutable: URL { checkoutRoot.appendingPathComponent(".hermes/bin/hermes") }
     /// Upstream's cross-process update lock (`hermes_cli/update_lock.py`, `MARKER_NAME`). Every update
     /// entry point — `hermes update`, the Tauri updater, the Electron app — holds it for its whole run.
     public var updateMarker: URL { hermesHome.appendingPathComponent(".hermes-update-in-progress") }
@@ -96,11 +99,19 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
         self.installedDistribution = installedDistribution ?? .version(version)
     }
 
-    /// Whether the venv was installed for the code on disk, as far as files can tell: the installed
+    /// Whether this installation is eligible for a bounded start. PM owns dependency selection
+    /// through its published command; this property never interprets PM facts as health. For a
+    /// legacy venv, as far as files can tell: the installed
     /// distribution's version equals the checkout's `__version__`. A `git pull` that bumps the
     /// version before dependencies are reinstalled fails this. A pull that changes dependencies
     /// without a version bump does not — that is the limit of a check that runs no Hermes code.
-    public var dependenciesConsistent: Bool { installedDistribution == .version(version) }
+    public var dependenciesConsistent: Bool {
+        installedDistribution == .packageManaged || installedDistribution == .version(version)
+    }
+
+    public var usesPackageManager: Bool {
+        executable.standardizedFileURL == checkoutRoot.appendingPathComponent(".hermes/bin/hermes").standardizedFileURL
+    }
 
     public var shortCommit: String { String(commit.prefix(8)) }
 }
@@ -108,12 +119,16 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
 /// What the venv records as installed. Anything but exactly one distribution is an inconsistency
 /// the owner has to resolve; it is never guessed around.
 public enum DesktopLocalHermesInstalledDistribution: Equatable, Sendable {
+    /// Eligible to start through PM, not proof of runtime health. Only PM may interpret its facts
+    /// and dependency stamps; installation verifies the published command and launch verifies HTTP.
+    case packageManaged
     case version(String)
     case missing
     case multiple([String])
 
     public var summary: String {
         switch self {
+        case .packageManaged: "dependencies selected by the published PM launcher"
         case .version(let version): "installed \(version)"
         case .missing: "no hermes_agent dist-info in the venv"
         case .multiple(let versions): "several hermes_agent dist-info in the venv: \(versions.joined(separator: ", "))"
@@ -199,11 +214,16 @@ public struct DesktopLocalHermesDetector: Sendable {
         guard isOwnedDirectory(paths.checkoutRoot) else {
             return .unsupported(.unsafeInstallation, detail: "checkout is not a private directory of this user")
         }
-        guard entryExists(paths.executable) else {
-            return .unsupported(.incompleteInstallation, detail: "venv/bin/hermes is missing")
+        // Never fall back to a stale venv when PM's published command exists but is unsafe.
+        let executable = entryExists(paths.publishedExecutable) ? paths.publishedExecutable : paths.executable
+        guard entryExists(executable) else {
+            return .unsupported(.incompleteInstallation, detail: "no published PM or legacy Hermes entrypoint")
         }
-        guard isSafeExecutable(paths.executable), Self.isScriptSafePath(paths.executable.path) else {
-            return .unsupported(.unsafeInstallation, detail: "venv/bin/hermes is not a private executable file")
+        let bin = executable.deletingLastPathComponent()
+        guard executable.resolvingSymlinksInPath() == executable,
+              isOwnedDirectory(bin), isOwnedDirectory(bin.deletingLastPathComponent()),
+              isSafeExecutable(executable), Self.isScriptSafePath(executable.path) else {
+            return .unsupported(.unsafeInstallation, detail: "Hermes entrypoint is not a private executable file")
         }
         if let detail = foreignInstall(checkoutPresent: true) {
             return .unsupported(.nonStandardLocation, detail: detail)
@@ -224,13 +244,13 @@ public struct DesktopLocalHermesDetector: Sendable {
             )
         }
         return .usable(DesktopLocalHermesInstallation(
-            executable: paths.executable,
+            executable: executable,
             checkoutRoot: paths.checkoutRoot,
             hermesHome: paths.hermesHome,
             commit: identity.commit,
             version: version,
             identityChangedAt: identity.changedAt,
-            installedDistribution: readInstalledDistribution()
+            installedDistribution: executable == paths.publishedExecutable ? .packageManaged : readInstalledDistribution()
         ))
     }
 

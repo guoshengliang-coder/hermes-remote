@@ -21,6 +21,26 @@ public struct DesktopHermesRuntimeSwitch: Sendable {
 }
 
 extension DesktopManagedInstaller {
+    /// Read-only diagnostics for a recognised GO service. Credential stays on this Mac and never
+    /// enters a diagnostic payload. Unsafe files fail closed before any authenticated request.
+    public func probeManagedHermes(prober: HTTPHealthProber = .loopbackDirect()) async -> ProbeResult {
+        do {
+            var directory = stat()
+            guard layout.secretsRoot.resolvingSymlinksInPath() == layout.secretsRoot,
+                  Darwin.lstat(layout.secretsRoot.path, &directory) == 0,
+                  directory.st_mode & S_IFMT == S_IFDIR, directory.st_uid == Darwin.getuid(),
+                  directory.st_mode & 0o077 == 0,
+                  let token = try validatedSessionTokenIfPresent(required: true),
+                  let value = String(data: token, encoding: .utf8),
+                  try sessionTokenStorage(in: loadHermesLaunchAgentForTokenContract().object) == .file
+            else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+            return await prober.probeAuthenticatedHermes(sessionToken: value)
+        } catch {
+            let issue = DesktopIssue(code: .managedInstallationRepairFailed, technicalCause: "stage=local-hermes-auth unsafe-token-contract")
+            return ProbeResult(level: .failed, detail: issue.displayChinese, issue: issue)
+        }
+    }
+
     private static var serveArguments: [String] { DesktopHermesRuntimeContract.serveV1.programArguments }
     private var hermesLog: URL { layout.logsRoot.appendingPathComponent("hermes-server.log") }
     private var hermesErrorLog: URL { layout.logsRoot.appendingPathComponent("hermes-server.error.log") }
@@ -76,7 +96,7 @@ extension DesktopManagedInstaller {
         else { throw DesktopManagedInstallError.unsafeFilesystemObject }
         let executable = arguments[1]
         guard DesktopLocalHermesDetector.isScriptSafePath(executable),
-              executable.hasSuffix("/venv/bin/hermes"),
+              (executable.hasSuffix("/venv/bin/hermes") || executable.hasSuffix("/.hermes/bin/hermes")),
               URL(fileURLWithPath: executable).standardizedFileURL.path == executable
         else { throw DesktopManagedInstallError.unsafeFilesystemObject }
         let plist = try loadManagedLaunchAgent(

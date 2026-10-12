@@ -284,11 +284,16 @@ public struct DesktopHermesInstallAttempt: Codable, Equatable, Sendable {
     public let checkoutPath: String
     public let checkout: DesktopCheckoutIdentity?
     public let startedAt: Date
+    /// nil for pre-PM-check records. New attempts stay pending across app restarts until the
+    /// real command check succeeds, even if upstream has already written its completion marker.
+    public let requiresRuntimeVerification: Bool?
 
-    public init(checkoutPath: String, checkout: DesktopCheckoutIdentity?, startedAt: Date) {
+    public init(checkoutPath: String, checkout: DesktopCheckoutIdentity?, startedAt: Date,
+                requiresRuntimeVerification: Bool? = nil) {
         self.checkoutPath = checkoutPath
         self.checkout = checkout
         self.startedAt = startedAt
+        self.requiresRuntimeVerification = requiresRuntimeVerification
     }
 }
 
@@ -340,7 +345,7 @@ public enum DesktopHermesInstallResume {
         guard let attempt, attempt.checkoutPath == paths.checkoutRoot.path,
               let recorded = attempt.checkout,
               DesktopCheckoutIdentity.read(paths.checkoutRoot) == recorded,
-              !completionMarkerPresent(paths)
+              (!completionMarkerPresent(paths) || attempt.requiresRuntimeVerification == true)
         else { return nil }
         return recorded
     }
@@ -378,7 +383,7 @@ public enum DesktopHermesInstallResume {
         detection: DesktopLocalHermesDetection
     ) {
         guard let installation = detection.installation, installation.dependenciesConsistent,
-              completionMarkerPresent(paths), store.load() != nil
+              completionMarkerPresent(paths), let attempt = store.load(), attempt.requiresRuntimeVerification != true
         else { return }
         store.clear()
     }
@@ -407,7 +412,7 @@ public enum DesktopHermesInstallResume {
                 let claimed = DesktopHermesInstallAttempt(
                     checkoutPath: attempt.checkoutPath,
                     checkout: current,
-                    startedAt: attempt.startedAt
+                    startedAt: attempt.startedAt, requiresRuntimeVerification: attempt.requiresRuntimeVerification
                 )
                 store.save(claimed)
                 return unfinishedCheckout(claimed, paths: paths)
@@ -526,6 +531,7 @@ public struct DesktopHermesInstaller: Sendable {
     public let log: DesktopServiceOperationLog
     private let fetcher: any DesktopHermesInstallerScriptFetching
     private let runner: any DesktopHermesInstallerProcessRunning
+    private let runtimeChecker: any DesktopHermesInstalledRuntimeChecking
     private let detect: @Sendable () -> DesktopLocalHermesDetection
     private let attempts: any DesktopHermesInstallAttemptStoring
     private let inheritedEnvironment: [String: String]
@@ -540,6 +546,7 @@ public struct DesktopHermesInstaller: Sendable {
         log: DesktopServiceOperationLog,
         fetcher: any DesktopHermesInstallerScriptFetching = DesktopHermesInstallerURLSessionFetcher(),
         runner: any DesktopHermesInstallerProcessRunning = DesktopPosixProcessRunner(),
+        runtimeChecker: any DesktopHermesInstalledRuntimeChecking = DesktopHermesInstalledRuntimeChecker(),
         detect: (@Sendable () -> DesktopLocalHermesDetection)? = nil,
         attempts: any DesktopHermesInstallAttemptStoring = DesktopUserDefaultsInstallAttemptStore(),
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment,
@@ -551,6 +558,7 @@ public struct DesktopHermesInstaller: Sendable {
         self.log = log
         self.fetcher = fetcher
         self.runner = runner
+        self.runtimeChecker = runtimeChecker
         let detector = DesktopLocalHermesDetector(paths: paths, environment: inheritedEnvironment, currentUserID: userID)
         self.detect = detect ?? { detector.detect() }
         self.attempts = attempts
@@ -586,6 +594,14 @@ public struct DesktopHermesInstaller: Sendable {
                         detail: "the checkout is no longer the one Hermes GO's unfinished install created"
                     )
                 }
+                // A completed installer with a failed command check needs verification again,
+                // not another repository stage (which could reset this checkout).
+                if DesktopHermesInstallResume.completionMarkerPresent(paths), let installation = detection.installation {
+                    progress(.verifying)
+                    try await verifyRuntime(installation, offer: offer)
+                    attempts.clear()
+                    return installation
+                }
             default:
                 throw DesktopHermesInstallFailure.notUsable(stage: "precondition", detail: Self.describe(detection))
             }
@@ -594,7 +610,8 @@ public struct DesktopHermesInstaller: Sendable {
             case .absent(hermesDataPresent: false):
                 break
             case .usable(let installation) where unfinished == nil:
-                log.record("hermes-install skipped: a usable Hermes \(installation.version) is already present")
+                try await verifyRuntime(installation, offer: offer)
+                log.record("hermes-install skipped: verified Hermes \(installation.version) is already present")
                 return installation
             default:
                 throw DesktopHermesInstallFailure.notUsable(stage: "precondition", detail: Self.describe(detection))
@@ -603,7 +620,7 @@ public struct DesktopHermesInstaller: Sendable {
         attempts.save(DesktopHermesInstallAttempt(
             checkoutPath: paths.checkoutRoot.path,
             checkout: offer.resumeCheckout,
-            startedAt: Date()
+            startedAt: Date(), requiresRuntimeVerification: true
         ))
 
         try? FileManager.default.createDirectory(
@@ -696,6 +713,7 @@ public struct DesktopHermesInstaller: Sendable {
                 log.record("hermes-install finished but not usable: \(detail)")
                 throw DesktopHermesInstallFailure.notUsable(stage: "verify", detail: detail)
             }
+            try await verifyRuntime(installation, offer: offer)
             attempts.clear()
             log.record("hermes-install done version=\(installation.version) commit=\(installation.shortCommit)")
             return installation
@@ -720,11 +738,22 @@ public struct DesktopHermesInstaller: Sendable {
         attempts.save(DesktopHermesInstallAttempt(
             checkoutPath: attempt.checkoutPath,
             checkout: current,
-            startedAt: attempt.startedAt
+            startedAt: attempt.startedAt, requiresRuntimeVerification: attempt.requiresRuntimeVerification
         ))
     }
 
     // MARK: Environment
+
+    private func verifyRuntime(_ installation: DesktopLocalHermesInstallation, offer: DesktopHermesInstallOffer) async throws {
+        guard installation.dependenciesConsistent else {
+            throw DesktopHermesInstallFailure.notUsable(stage: "verify", detail: "dependencies inconsistent")
+        }
+        var environment = childEnvironment(offer: offer, runDirectory: workRoot)
+        environment["PATH"] = installation.executable.deletingLastPathComponent().path + ":" + DesktopHermesRuntimeContract.searchPath
+        do { try await runtimeChecker.verify(installation, environment: environment) }
+        catch is CancellationError { throw DesktopHermesInstallFailure.cancelled }
+        log.record("hermes-install runtime verified via=\(installation.usesPackageManager ? "pm" : "legacy")")
+    }
 
     /// The installer's environment, built from an allowlist rather than inherited wholesale so that
     /// nothing from Desktop's own process (a `PYTHONPATH`, a `HERMES_*` override, a virtualenv)

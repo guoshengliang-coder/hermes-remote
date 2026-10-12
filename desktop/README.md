@@ -1,10 +1,19 @@
 # Hermes Go Desktop
 
+HG-212's PM follow-up selects the installation-bound `.hermes/bin/hermes` before the historical
+`venv/bin/hermes`, validates the actual serve command after installation, and health-gates managed
+starts with the private-token API as well as public status. Diagnostics refresh both local and
+account evidence and retain the account report time. “重新连接这台 Mac” offers a confirmed, exact-binding
+Connector restart through the existing repair/rollback transaction. No upstream files or PM facts
+are rewritten. This source iteration has no new published Desktop version; customer device and
+iPhone/PWA/SSH acceptance remain separate gates.
+
 HG-212 preserves fresh backend startup failures in readiness diagnostics instead of reporting only a
 timeout: Python import failure and a port-conflict marker remain distinct, old stderr does not poison
 a new start, and raw Hermes logs are never copied into the diagnostic. SSH/PWA coexistence and the
 customer-Mac recovery checklist are in [`../docs/SSH_MOBILE_RECOVERY.md`](../docs/SSH_MOBILE_RECOVERY.md).
-This source change has no new published Desktop version and has not recovered the customer Mac.
+This source change has no new published Desktop version. The customer reported Desktop recovered
+after PM entrypoint repair and restarting Connector; iPhone/PWA and SSH coexistence remain unverified.
 
 HG-175 adds an explicit **检查并修复受管服务** recovery action for committed installations whose
 LaunchAgent files or loaded tasks are missing. It preserves the existing binding and installation
