@@ -9,6 +9,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun sendPreparationAndMissingConversationKeepDistinctBilingualRetryContracts() {
+        val unsent = AppError(AppErrorCode.MESSAGE_SEND_FAILED, retryable = true,
+            technicalCause = "cancelled before submission token=secret", stage = "prompt_prepare")
+        val gone = AppError(AppErrorCode.SESSION_NOT_FOUND, retryable = false,
+            technicalCause = "4007 token=secret", stage = "prompt_submit")
+        assertEquals("HR-SESS-007", unsent.code.value)
+        assertEquals("消息未发送，点按气泡重试。", unsent.localizedSummary(AppLanguage.ZH))
+        assertEquals("The message was not sent. Tap the bubble to retry.", unsent.localizedSummary(AppLanguage.EN))
+        assertTrue(unsent.retryable)
+        assertEquals("HR-SESS-001", gone.code.value)
+        assertEquals("会话不存在或已被删除。", gone.localizedSummary(AppLanguage.ZH))
+        assertEquals("The conversation no longer exists or was deleted.", gone.localizedSummary(AppLanguage.EN))
+        assertFalse(gone.retryable)
+        for (error in listOf(unsent, gone)) {
+            assertEquals(error.code, AppErrorCode.fromValue(error.code.value))
+            assertFalse(error.sanitizedDiagnostic().contains("secret"))
+        }
+    }
+
     @Test fun hapticPreviewFailureHasStableLocalizedRecoverableRedactedContract() {
         val error = AppError(AppErrorCode.OUTPUT_HAPTIC_PREVIEW_FAILED, true, "token=secret password=hidden", "output_haptic_preview")
         assertEquals(error.code, AppErrorCode.fromValue("HR-HAPTIC-001"))
