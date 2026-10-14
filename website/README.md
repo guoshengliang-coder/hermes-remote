@@ -67,8 +67,42 @@ notarization and manual installation/update instructions. This does not enable i
 
 ## Synchronize each approved macOS test publication
 
-After the separate Desktop release process has published its immutable DMG and recorded a completed
-public-readback receipt, register it from a clean isolated checkout of current `origin/main`:
+Use the unified internal publisher from a clean isolated checkout of current `origin/main` after
+the owner-approved package has passed Desktop assets/tests/build and image/signature gates:
+
+```bash
+node website/scripts/publish-desktop-internal.mjs \
+  --receipt /absolute/verified-package.json \
+  --dmg /absolute/Hermes-Go-Desktop-<version>-dev.dmg \
+  --notes-file /absolute/notes.json \
+  --evidence-dir /absolute/new-publication-evidence \
+  --ssh-target user@approved-host
+```
+
+The package receipt contains `verified: true`, `stage: "internal-test-package-verified"`,
+`channel: "internal-ad-hoc"`, `notarized: false`, `version`, `build`, `sizeBytes`, `sha256`,
+`sourceCommit`, `verifiedAt`, and `checks` with `assets: "passed"`, a positive `desktopTests` count,
+`failures: 0`, `appBuild: "passed"`, `imageIntegrity: "passed"`. Record the actual tests and build;
+never manufacture gate evidence. A new candidate's source must match the clean current main checkout.
+Retain the approved public bootstrap/component trust settings when packaging. The command does not
+allocate a version, build an app, or authorize release by itself.
+
+The publisher also checks the actual mounted DMG's bundle ID/version/build/minimum OS/architecture,
+image integrity and strict ad-hoc signature on macOS. It checks the clean current main again before
+uploading, verifies server bytes, refuses to overwrite an existing version with different bytes,
+installs only that artifact's GET/HEAD route with Nginx validation/rollback, then calls the existing
+full public DMG verification and atomic internal-index publication in the same command.
+**Website synchronization is automatic and mandatory after DMG publication.** Its final marker is
+`DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK`; an index/readback failure fails the whole command,
+so an upload alone must not be reported as a completed publication. Evidence is stored in the new
+outside-tree directory. Existing immutable files may remain unreferenced after failure; preserve them.
+
+A verified completed publication receipt (the stage below) is also accepted for idempotent retry of
+an already published package. Use the exact same DMG, notes and original receipt time; it retains the
+original source commit, which must be an ancestor of current main. Same-version metadata changes are
+refused by the pointer transaction. Do not rebuild or overwrite a version when retrying.
+
+The standalone index command remains for recovery or registering an already published package:
 
 ```bash
 node website/scripts/desktop-internal-index.mjs \
@@ -96,8 +130,8 @@ the public pointer verbatim, and restores the previous pointer on a failed readb
 replacement with different metadata and a version downgrade are refused. Rollback refuses to
 overwrite a concurrent newer pointer. Official app and signed managed-component indexes are untouched.
 
-Subsequent approved internal releases must run this registration step before handoff. No website
-redeployment is needed: ordinary metadata refreshes within 60 seconds, and clicking Download fetches
+Subsequent approved internal releases use the unified publisher, which runs registration automatically.
+No website redeployment is needed: ordinary metadata refreshes within 60 seconds, and clicking Download fetches
 the current pointer afresh. This follows verified test publications, not unverified development commits.
 
 **The invitation is only a website navigation/download gate.** The existing release host remains

@@ -331,9 +331,12 @@ unless the exact artifact has passed codesign verification, notary submission, s
 machine launch check.
 
 For owner-approved internal ad-hoc test distribution, follow `docs/DESKTOP_RELEASE_CHANNEL.md`.
-Every completed internal DMG publication must also register its verified receipt and exact package
-through `website/scripts/desktop-internal-index.mjs` before handoff, keeping the website's macOS test
-download synchronized. Use its separate internal pointer; do not bypass the official app-update
+Publish internal DMGs through `website/scripts/publish-desktop-internal.mjs`: it uploads the exact
+verified package, installs its precise download route, verifies the full public DMG, and automatically
+synchronizes and verifies the website's internal pointer before reporting publication success.
+Do not use temporary upload scripts or omit this built-in synchronization. The standalone
+`website/scripts/desktop-internal-index.mjs` is retained for recovery/registration of already published
+packages. Use the separate internal pointer; do not bypass the official app-update
 publisher or promote an ad-hoc build into `/desktop/apps/index.json`.
 
 

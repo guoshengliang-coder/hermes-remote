@@ -24,14 +24,18 @@ customer installation or service restart is implied by this test publication.
 ## Website internal-test downloads (owner decision, 2026-10-14)
 
 The owner requested that the website offer the macOS internal test installer and stay synchronized
-with later test publications. Each approved ad-hoc DMG publication now includes registration in the
-separate `/desktop/apps/internal-index.json` pointer through
-`website/scripts/desktop-internal-index.mjs`; see `website/README.md` for receipt and operator inputs.
+with later test publications. Publish every approved ad-hoc DMG through
+`website/scripts/publish-desktop-internal.mjs`; it uploads the immutable package, installs the exact
+GET/HEAD route, completes public DMG readback, and automatically registers and verifies the separate
+`/desktop/apps/internal-index.json` pointer before reporting success. There is no skip-sync option.
+See `website/README.md` for package receipt and operator inputs. The standalone
+`website/scripts/desktop-internal-index.mjs` remains a recovery tool for already published packages.
 This pointer accepts only the exact immutable `-dev.dmg` URL with explicit ad-hoc/notarized-false
 metadata. Registration verifies the actual DMG's local/public size and hash and atomically switches
 the pointer with public readback and rollback. No version bump or DMG rebuild is needed to register
-an already verified release. Subsequent authorized test releases must synchronize the pointer before
-handoff so the website does not retain an old version.
+an already verified release. A website synchronization failure fails the complete publication command
+and restores the previous pointer when safe. Do not report an uploaded DMG as a completed release
+before this command's final success marker.
 
 The website displays the test version, notes, Mac architecture and manual-install/update guidance,
 retaining its invitation gate. Its 60-second metadata cache follows this pointer; each download
