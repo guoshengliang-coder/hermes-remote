@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewayHttpError } from "../api/gateway";
-import { loadSessions } from "../ui/SessionList";
+import { cancelSessionLoads, loadSessions } from "../ui/SessionList";
 import { createListRefresher, LIST_REFRESH_DEBOUNCE_MS } from "./listRefresh";
 
 // HG-104: the session list is refetched on inbox-cursor moves through a debounced, single-flight
@@ -105,6 +105,26 @@ describe("createListRefresher", () => {
 });
 
 describe("loadSessions", () => {
+  it("a cold retry aborts and replaces the old request; its late settlement cannot remove the new flight", async () => {
+    const resolvers: ((body: unknown) => void)[] = [];
+    const signals: AbortSignal[] = [];
+    const client = { deviceApi: (_device: string, _method: string, _rest: string, options: { signal: AbortSignal }) => {
+      signals.push(options.signal);
+      return new Promise(resolve => resolvers.push(resolve));
+    } } as unknown as Parameters<typeof loadSessions>[0];
+    const old = loadSessions(client, "mac");
+    expect(loadSessions(client, "mac")).toBe(old);
+    cancelSessionLoads(client);
+    expect(signals[0]!.aborted).toBe(true);
+    const retry = loadSessions(client, "mac");
+    expect(retry).not.toBe(old);
+    resolvers[0]!({ sessions: [{ id: "old" }] });
+    await old;
+    expect(loadSessions(client, "mac")).toBe(retry);
+    resolvers[1]!({ sessions: [{ id: "new" }] });
+    expect(await retry).toEqual([{ id: "new" }]);
+    expect(signals).toHaveLength(2);
+  });
   it("asks the cross-profile list for 500 rows and falls back to the default profile's list at limit=100", async () => {
     const calls: string[] = [];
     const client = {

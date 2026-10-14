@@ -1,5 +1,48 @@
 # Desktop release channel
 
+## Explicitly approved internal test distribution: 0.2.32
+
+On 2026-10-12 the owner explicitly approved distributing **0.2.32/build 35** as an internal
+ad-hoc test build after reviewing the missing Developer ID/notarization gates. This authorization
+applies to `Hermes-Go-Desktop-0.2.32-dev.dmg`; it does not relax the official DMG or app-update
+publisher's gates. Do not call this artifact notarized or create an official update index for it.
+
+Build from clean current `origin/main` in the isolated release worktree, retain the installed
+public release trust/settings, and verify the inner bundle's version/build/identifier, strict ad-hoc
+signature and image integrity. Serve only the exact versioned path under
+`https://mrlgs.net/desktop/apps/0.2.32/`, using the existing root-owned app store and exact
+GET/HEAD-only Nginx route pattern. Do not overwrite a versioned file. Validate Nginx before reload,
+then download the complete public DMG and compare its bytes, size and SHA-256 with the release build.
+Keep the previous app files and both managed component pointers unchanged. Record the actual source
+commit and readback proof in the release receipt; upload alone is not publication evidence.
+
+`/desktop/apps/index.json` remains unchanged (404 at preparation time); this build is installed
+manually from the test download. The managed manifests remain independently signed and verified.
+Customer PM update/reconnect and iPhone PWA plus notebook SSH acceptance are still required; no
+customer installation or service restart is implied by this test publication.
+
+## Website internal-test downloads (owner decision, 2026-10-14)
+
+The owner requested that the website offer the macOS internal test installer and stay synchronized
+with later test publications. Publish every approved ad-hoc DMG through
+`website/scripts/publish-desktop-internal.mjs`; it uploads the immutable package, installs the exact
+GET/HEAD route, completes public DMG readback, and automatically registers and verifies the separate
+`/desktop/apps/internal-index.json` pointer before reporting success. There is no skip-sync option.
+See `website/README.md` for package receipt and operator inputs. The standalone
+`website/scripts/desktop-internal-index.mjs` remains a recovery tool for already published packages.
+This pointer accepts only the exact immutable `-dev.dmg` URL with explicit ad-hoc/notarized-false
+metadata. Registration verifies the actual DMG's local/public size and hash and atomically switches
+the pointer with public readback and rollback. No version bump or DMG rebuild is needed to register
+an already verified release. A website synchronization failure fails the complete publication command
+and restores the previous pointer when safe. Do not report an uploaded DMG as a completed release
+before this command's final success marker.
+
+The website displays the test version, notes, Mac architecture and manual-install/update guidance,
+retaining its invitation gate. Its 60-second metadata cache follows this pointer; each download
+resolves it afresh. The official `/desktop/apps/index.json`, official publisher, Apple signing gates,
+and signed managed-component pointers remain independent. This website registration does not enable
+Desktop in-app GUI updates or establish installation/device acceptance.
+
 Desktop release discovery uses three mutable, cache-disabled pointers:
 
 - `/desktop/releases/index.json` for the Desktop application release envelope;

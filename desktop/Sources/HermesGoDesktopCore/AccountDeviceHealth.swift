@@ -5,12 +5,13 @@ public enum AccountDeviceHealth {
         for device: AccountDevice,
         checkedAt: Date = Date()
     ) -> DesktopHealthSnapshot {
-        DesktopHealthSnapshot(
+        let reportedAt = device.endToEnd.checkedAt.flatMap(parseCanonicalTimestamp) ?? .distantPast
+        return DesktopHealthSnapshot(
             components: [
                 connectorHealth(device, checkedAt: checkedAt),
                 gatewayHealth(device, checkedAt: checkedAt),
-                hermesHealth(device, checkedAt: checkedAt),
-                endToEndHealth(device, checkedAt: checkedAt),
+                hermesHealth(device, checkedAt: reportedAt),
+                endToEndHealth(device, checkedAt: reportedAt),
             ],
             checkedAt: checkedAt
         )

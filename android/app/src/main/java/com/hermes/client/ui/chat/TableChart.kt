@@ -37,18 +37,16 @@ internal fun chartKey(scope: List<String>, identity: String, raw: String): Strin
 }
 
 internal class ChartPreferences(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences("table_charts", Context.MODE_PRIVATE)
-    fun preference(): String = prefs.getString("presentation", "table").takeIf { it in listOf("table", "chart", "auto") } ?: "table"
+    private val prefs = context.applicationContext.getSharedPreferences("table_charts_fullscreen_v2", Context.MODE_PRIVATE)
     fun read(key: String): JSONObject? = prefs.getString(key, null)?.let { JSONObject(it) }
     /** Disk writes are called on IO. A failed commit is a user-visible failure, not a silent save. */
     fun save(key: String, state: JSONObject) {
         require(state.toString().length <= 32_000)
         val edit = prefs.edit().putString(key, state.toString())
-        val keys = prefs.all.keys.filter { it != "presentation" && it != key }
+        val keys = prefs.all.keys.filter { it != key }
         if (keys.size >= 500) keys.take(keys.size - 499).forEach(edit::remove)
         check(edit.commit())
     }
-    fun setPreference(value: String) { require(value in listOf("table", "chart", "auto")); check(prefs.edit().putString("presentation", value).commit()) }
 }
 
 internal class TableChartController(
@@ -56,27 +54,24 @@ internal class TableChartController(
     val preferences: ChartPreferences,
 ) {
     var state: JSONObject? = null
-    var view by mutableStateOf("table")
-    var activated by mutableStateOf(false)
-    var eligible by mutableStateOf(true)
+    var view by mutableStateOf("chart")
+    var eligible by mutableStateOf(false)
     var reason by mutableStateOf("")
     var failure by mutableStateOf<AppError?>(null)
     var rendererGeneration by mutableIntStateOf(0)
     var contentHeight by mutableIntStateOf(780)
     var releaseRendererFocus: (() -> Unit)? = null
     var cachedModel: JSONObject? = null // In-memory only; source cells never enter preferences.
-    var preference = "table"
     init {
-        try { state = preferences.read(key); preference = preferences.preference(); view = state?.optString("view", "table") ?: "table"; activated = true }
+        try { state = preferences.read(key); view = state?.optString("view", "chart") ?: "chart" }
         catch (_: Exception) { failure = AppError(AppErrorCode.CHART_SETTINGS_FAILED, true) }
     }
     fun choose(value: String) {
         if (value == "table") releaseRendererFocus?.invoke()
         view = value
-        if (value == "chart") activated = true
         state = (state ?: JSONObject()).put("view", value)
     }
-    fun retry() { failure = null; rendererGeneration++; activated = true; view = "chart" }
+    fun retry() { failure = null; rendererGeneration++; view = "chart" }
 }
 
 internal class TableChartScope(
@@ -112,11 +107,12 @@ internal fun rememberTableChart(raw: String, identity: String, savedKey: String?
 
 @Composable
 internal fun TableChartToggle(controller: TableChartController, modifier: Modifier = Modifier) {
+    if (!controller.eligible) return
     val language = LocalAppLanguage.current
     val scope = rememberCoroutineScope()
     DisableSelection {
         Row(modifier) {
-            listOf("table" to localized(language, "表格", "Table"), "chart" to localized(language, "图表", "Chart")).forEach { (value, label) ->
+            listOf("table" to localized(language, "原表", "Source table"), "chart" to localized(language, "图表", "Chart")).forEach { (value, label) ->
                 TextButton(onClick = {
                     controller.choose(value)
                     scope.launch { try { withContext(Dispatchers.IO) { synchronized(controller) { controller.preferences.save(controller.key, controller.state!!) } } } catch (_: Exception) { controller.failure = AppError(AppErrorCode.CHART_SETTINGS_FAILED, true) } }
@@ -160,7 +156,7 @@ internal fun OfflineTableChart(controller: TableChartController, modifier: Modif
     fun error(code: AppErrorCode = AppErrorCode.CHART_RENDER_FAILED) { if (code == AppErrorCode.CHART_RENDER_FAILED) controller.releaseRendererFocus?.invoke(); controller.failure = AppError(code, code != AppErrorCode.CHART_RANGE_EXCEEDED); if (code == AppErrorCode.CHART_RENDER_FAILED) controller.view = "table" }
     fun init(view: WebView) {
         val config = JSONObject().put("protocol", 1).put("type", "init").put("nonce", nonce).put("raw", controller.raw).put("prompt", controller.prompt).put("source", controller.source)
-            .put("language", if (latestLanguage == AppLanguage.EN) "en" else "zh").put("theme", if (latestDark) "dark" else "light").put("preference", controller.preference).put("fontScale", latestFontScale)
+            .put("language", if (latestLanguage == AppLanguage.EN) "en" else "zh").put("theme", if (latestDark) "dark" else "light").put("fontScale", latestFontScale)
         controller.state?.let { config.put("state", it) }; controller.cachedModel?.let { config.put("model", it) }
         view.evaluateJavascript("window.HermesChartReceive($config)", null)
     }
@@ -253,6 +249,5 @@ internal fun TableChartNotice(controller: TableChartController) {
                 if (failure.retryable) TextButton(onClick = controller::retry) { Text(localized(language, "重试", "Retry")) }
             }
         }
-        if (!controller.eligible && controller.reason.isNotBlank()) Text(controller.reason, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
     }
 }

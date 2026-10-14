@@ -10,4 +10,6 @@ export interface GatewayPeer {
   mode: "legacy" | "account";
   accountId?: string;
   binding?: BindingProofMaterial;
+  /** Local Hermes health is independent of this authenticated control socket's liveness. */
+  hermesReachable?: boolean;
 }

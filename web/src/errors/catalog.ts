@@ -123,12 +123,16 @@ export const CATALOG = {
   "HR-PERM-002": { zh: "通知权限未开启，后台任务可能无法及时提醒。", en: "Notifications are disabled, so background alerts may be delayed.", retryable: true, action: "retry" },
   "HR-PERM-006": { zh: "无法使用麦克风，请检查浏览器权限或改用键盘。", en: "Can't use the microphone. Check browser permissions or use the keyboard.", retryable: true, action: "retry" },
   "HR-VOICE-001": { zh: "语音识别暂不可用，请稍后重试或改用键盘。", en: "Voice recognition is unavailable. Retry later or use the keyboard.", retryable: true, action: "retry" },
-  "HR-VOICE-002": { zh: "语音识别未完成。如有临时文字，已放入草稿供检查。", en: "Voice recognition did not finish. Any partial text was placed in the draft for review.", retryable: true, action: "retry" },
+  "HR-VOICE-002": { zh: "语音识别失败，请重试或改用键盘。", en: "Voice recognition failed. Retry or use the keyboard.", retryable: true, action: "retry" },
+  "HR-VOICE-003": { zh: "语音连接中断，请检查网络后重试或改用键盘。", en: "The voice connection was interrupted. Check your network and retry, or use the keyboard.", retryable: true, action: "retry" },
+  "HR-VOICE-004": { zh: "等待识别结果超时，请重试或改用键盘。", en: "The final recognition result timed out. Retry or use the keyboard.", retryable: true, action: "retry" },
+  "HR-VOICE-005": { zh: "没有识别到文字，请重试或改用键盘。", en: "No speech was recognized. Retry or use the keyboard.", retryable: true, action: "retry" },
   "HR-WEB-009": { zh: "无法读取这台 Mac 的默认模型，请重试。", en: "Couldn't read this Mac's default model. Retry.", retryable: true, action: "retry" },
   // Account profile (HG-181): the name and avatar the Web account page saves.
   "HR-WEB-010": { zh: "无法保存名字，请使用 1–40 个字符后重试。", en: "Couldn't save that name. Use 1-40 characters and try again.", retryable: true, action: "retry" },
   "HR-WEB-011": { zh: "头像不符合要求：请选择 PNG、JPEG 或 WebP 图片，且不超过 4 MiB。", en: "That avatar isn't allowed: choose a PNG, JPEG or WebP image of at most 4 MiB.", retryable: false, action: "none" },
   "HR-WEB-012": { zh: "消息通知设置未完成，请检查网络后重试。", en: "Notification setup did not complete. Check your connection and retry.", retryable: true, action: "retry" },
+  "HR-WEB-013": { zh: "网页启动超时，请检查网络后重试。", en: "The web app took too long to start. Check your connection and retry.", retryable: true, action: "reload" },
 } satisfies Record<string, CatalogEntry>;
 
 export type ErrorCode = keyof typeof CATALOG;

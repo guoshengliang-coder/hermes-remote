@@ -874,14 +874,19 @@ fun ChatScreen(
     // recording.
     var voiceTargets by remember(sessionId) { mutableStateOf<VoiceTargets?>(null) }
     var voiceStartedAt by remember(sessionId) { mutableStateOf(0L) }
+    var voiceCaptureStartedAt by remember(sessionId) { mutableStateOf(0L) }
     // HG-146: drives the recording clock and the central waveform in [VoiceRecordingOverlay].
     var voiceElapsedMs by remember(sessionId) { mutableStateOf(0L) }
     var voiceSession by remember(sessionId) { mutableStateOf<DoubaoVoiceSession?>(null) }
     val voiceScope = androidx.compose.runtime.rememberCoroutineScope()
     rememberVoiceSessionDisposer(sessionId, voiceSession)
-    fun voiceError(code: AppErrorCode) {
+    fun voiceError(code: AppErrorCode, retained: Boolean? = null) {
+        val retention = retained?.let {
+            if (it) localized(language, "已识别的文字已放入输入框，请检查后发送。", "Recognized text is in the input. Review it before sending.")
+            else localized(language, "本次没有可保留的文字。", "There is no text to keep from this recording.")
+        }.orEmpty()
         android.widget.Toast.makeText(
-            context, AppError(code, retryable = true).localizedMessage(language), android.widget.Toast.LENGTH_LONG,
+            context, AppError(code, retryable = true).localizedMessage(language) + " " + retention, android.widget.Toast.LENGTH_LONG,
         ).show()
     }
     val microphonePermission = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -922,20 +927,40 @@ fun ChatScreen(
         voiceWaiting = false
         voiceStartedAt = android.os.SystemClock.elapsedRealtime()
         voiceElapsedMs = 0L
-        val session = DoubaoVoiceSession(context, voiceScope, vm::voiceEndpoint) { event ->
+        voiceCaptureStartedAt = 0L
+        lateinit var session: DoubaoVoiceSession
+        session = DoubaoVoiceSession(context, voiceScope, vm::voiceEndpoint) { event ->
+            if (voiceSession !== session) return@DoubaoVoiceSession
             when (event) {
-                VoiceEvent.Started -> if (voiceHeld) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                VoiceEvent.Started -> if (voiceHeld) {
+                    voiceCaptureStartedAt = android.os.SystemClock.elapsedRealtime()
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+                VoiceEvent.LimitReached -> {
+                    voiceHeld = false
+                    voiceWaiting = true
+                    voiceElapsedMs = VOICE_RECORDING_LIMIT_MS
+                    voiceReleaseIntent = VoiceReleaseAction.EDIT
+                }
                 is VoiceEvent.Partial -> voiceTranscript = event.text
                 is VoiceEvent.Final -> {
                     voiceHeld = false
                     voiceWaiting = false
                     voiceSession = null
                     val text = event.text.trim()
-                    if (text.isBlank()) {
-                        voiceError(AppErrorCode.VOICE_RECOGNITION_FAILED)
-                    } else if (voiceReleaseIntent == VoiceReleaseAction.EDIT
-                        || vm.connectionState.value !is ConnectionState.Connected
-                        || vm.state.value.isGenerating || preparingAttachments > 0 || vm.attachingSessions.value > 0) {
+                    if (event.limited) {
+                        if (text.isNotBlank()) draft = appendDictation(draft, text)
+                        voiceMode = false
+                        composerFocused = true
+                        android.widget.Toast.makeText(context,
+                            if (text.isNotBlank()) localized(language, "已录满 5 分钟，文字已放入输入框。可继续补充或发送。", "The 5-minute recording limit was reached. Text is in the input; add more or send it.")
+                            else localized(language, "已录满 5 分钟，但没有识别到文字。请重试或改用键盘。", "The 5-minute recording limit was reached, but no speech was recognized. Retry or use the keyboard."),
+                            android.widget.Toast.LENGTH_LONG).show()
+                    } else if (text.isBlank()) {
+                        voiceError(AppErrorCode.VOICE_EMPTY, false)
+                    } else if (voiceMustKeepDraft(event, voiceReleaseIntent == VoiceReleaseAction.EDIT,
+                            vm.connectionState.value is ConnectionState.Connected
+                                && !vm.state.value.isGenerating && preparingAttachments == 0 && vm.attachingSessions.value == 0)) {
                         draft = appendDictation(draft, text)
                         voiceMode = false
                         composerFocused = true
@@ -956,11 +981,15 @@ fun ChatScreen(
                         composerFocused = true
                     }
                     voiceError(
-                        if (event.reason == VoiceFailure.RECOGNITION || event.partialText.isNotBlank()) {
-                            AppErrorCode.VOICE_RECOGNITION_FAILED
-                        } else {
-                            AppErrorCode.VOICE_UNAVAILABLE
+                        when (event.reason) {
+                            VoiceFailure.MICROPHONE -> AppErrorCode.VOICE_UNAVAILABLE
+                            VoiceFailure.RECOGNITION -> AppErrorCode.VOICE_RECOGNITION_FAILED
+                            VoiceFailure.FINAL_TIMEOUT -> AppErrorCode.VOICE_FINAL_TIMEOUT
+                            VoiceFailure.DISCONNECTED -> AppErrorCode.VOICE_DISCONNECTED
+                            VoiceFailure.CONNECTION -> AppErrorCode.VOICE_UNAVAILABLE
+                            VoiceFailure.TIMEOUT -> AppErrorCode.VOICE_UNAVAILABLE
                         },
+                        event.partialText.isNotBlank(),
                     )
                 }
             }
@@ -969,6 +998,7 @@ fun ChatScreen(
         session.start()
     }
     fun releaseVoice(action: VoiceReleaseAction) {
+        if (voiceWaiting) return
         val session = voiceSession ?: return
         voiceHeld = false
         if (action == VoiceReleaseAction.CANCEL || android.os.SystemClock.elapsedRealtime() - voiceStartedAt < 250) {
@@ -990,6 +1020,7 @@ fun ChatScreen(
      * the draft, exactly like the Failed callback does.
      */
     fun settleWaiting(notify: Boolean) {
+        val retained = voiceTranscript.isNotBlank()
         voiceSession?.cancel()
         voiceSession = null
         voiceHeld = false
@@ -1000,7 +1031,7 @@ fun ChatScreen(
         }
         voiceTranscript = ""
         voiceWaiting = false
-        if (notify) voiceError(AppErrorCode.VOICE_RECOGNITION_FAILED)
+        if (notify) voiceError(AppErrorCode.VOICE_FINAL_TIMEOUT, retained)
     }
 
     // Backstop, not the primary timeout: the session itself bounds endpoint/open/init/final, so
@@ -1014,10 +1045,10 @@ fun ChatScreen(
 
     // HG-146: the recording clock, and the waveform it drives. Only while the finger is down;
     // it freezes on release so the waiting card keeps showing when the user let go.
-    LaunchedEffect(voiceHeld, voiceStartedAt) {
-        if (!voiceHeld) return@LaunchedEffect
+    LaunchedEffect(voiceHeld, voiceCaptureStartedAt) {
+        if (!voiceHeld || voiceCaptureStartedAt == 0L) return@LaunchedEffect
         while (true) {
-            voiceElapsedMs = android.os.SystemClock.elapsedRealtime() - voiceStartedAt
+            voiceElapsedMs = (android.os.SystemClock.elapsedRealtime() - voiceCaptureStartedAt).coerceAtMost(VOICE_RECORDING_LIMIT_MS)
             kotlinx.coroutines.delay(VOICE_WAVE_TICK_MS)
         }
     }

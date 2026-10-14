@@ -279,16 +279,26 @@ Deliberately **not** in the table, because upstream's `openapi.json` cannot vouc
 
 #### Connector contract check (added 2026-09-21)
 
+The account-mode health probe prefers optional `GET /api/health` (`ok`, `version`, `auth_required`)
+and then, with configured credentials, protected `GET /api/profiles/active`. Checked against the
+Mac's upstream `hermes_cli/web_routers/status.py`, `profiles.py`, and the authentication middleware:
+health is public; the profile read returns only the active/current names via filesystem reads and
+does not enumerate MCP/platform status. Only 404/405 selects the older-Hermes fallbacks
+`/api/status` and `/api/sessions?limit=1`. Both reads share the probe's 10-second deadline and
+64 KiB body ceiling. These optional routes add no required OpenAPI surface; profile/session body
+contents are not forwarded. Clients keep their existing `/api/status` behavior.
+
 Hermes GO no longer decides which Hermes runs (`docs/MANAGED_HERMES_STRATEGY.md`, principle 2), so
 the Connector checks this table against the running Hermes instead of trusting a pin:
 
 1. **What it fetches.** `GET /openapi.json` — FastAPI's default schema URL, outside `/api/`, sent
    with the same credentials as every other Connector→Hermes call (session token and/or Basic Auth
-   cookie; `HermesAuth.openApiDocument`) — and the `version` from the public `GET /api/status`.
+   cookie; `HermesAuth.openApiDocument`) — and the `version` from the lightweight health probe
+   (public `GET /api/health`, or `/api/status` for older Hermes).
    0.21.3 publishes ~250 KB; the Connector refuses a body over 8 MiB.
 2. **When.** At Connector startup, every time the session observer's socket to Hermes opens (a
    Hermes restart — `hermes update` kickstarts the serve job — looks exactly like that from the
-   Connector), and whenever `/api/status` reports a different `version` than the cached result was
+   Connector), and whenever the health probe reports a different `version` than the cached result was
    taken against (read cheaply on each phone request, on each Relay reconnect and in the account
    preflight). Otherwise the result is cached: `openapi.json` is not fetched per request. A cached
    `unknown` is retried after 60 s. A trigger that arrives while a check is running queues one
@@ -608,20 +618,20 @@ There is no version negotiation here either. If a future Hermes renames or drops
 not an error — it is a session list that stops refreshing by itself, and a run whose state is only
 corrected when the user opens or refreshes the conversation.
 
-**`session.reclaimed` is the only warning that a conversation died while nobody was looking.**
+**`session.reclaimed` warns that a live runtime was reaped; it does not delete the transcript.**
 Upstream broadcasts it (`tui_gateway/session_lifecycle.py`, `_announce_session_reclaimed`) whenever
 its own housekeeping ends a session the client never asked to close —
 `_RECLAIM_END_REASONS = {idle_timeout, lru_evict, ws_orphan_reap}`. The reason it exists is stated
 in its own source comment: "else its next prompt fails". `ws_orphan_reap` fires 120 s after the
 socket carrying a session drops, and `docs/DIAGNOSTICS.md` records it as the *dominant* way mobile
 sessions end — so this is routine, not an edge case. It is a **global** broadcast carrying the
-durable session id, not the short live handle; match it against the stored id.
+live `session_id`, durable `stored_session_id`, and reason. Match the durable id, but ignore an
+obsolete live handle after binding a replacement.
 
-Ignoring it costs more than a wasted round trip. Afterwards `prompt.submit` answers **4001** and the
-`session.resume` the client retries with answers **4007**, and those two look identical on the wire
-("session not found") while meaning different things: 4001 is a stale live handle that resuming
-fixes, 4007 is the durable lookup missing from the profile's `state.db` — terminal. HG-29 was
-exactly this, surfaced to the user as a tap-to-retry that could never succeed.
+Source verification for HG-211/213/214 (2026-10-13): `session_lifecycle.py` tears down runtime state;
+`methods_session.py` `_resume_locate` can still load the durable row and cold-resume it. Resume
+before the next submit. **4001** means a stale live handle; **4007** means the durable lookup really
+missed. Only the latter confirms a missing conversation. Never infer 4007 from a reclaim event.
 
 **Upstream enforces one live owner per session, and says so with 4090.** While another surface is
 running a conversation, `prompt.submit` is refused — its stated reason being that a second surface
@@ -915,9 +925,12 @@ upstream:
 
 | Surface | What Desktop relies on | If upstream changes it |
 |---|---|---|
-| `~/.hermes/hermes-agent/venv/bin/hermes serve --host 127.0.0.1 --port 9119` | the standard installer's layout and the headless serve's `HERMES_BACKEND_READY port=<n>` stdout line | detection reports `incompleteInstallation`, or readiness times out and the switch is rolled back |
+| `~/.hermes/hermes-agent/.hermes/bin/hermes` (PM), historical `venv/bin/hermes` | PM's installation-bound POSIX shell launcher, preferred when present; upstream `hermes_cli/_launchers.py` publishes it and `~/.local/bin/hermes` forwards to it. Both take `serve --host 127.0.0.1 --port 9119` and emit `HERMES_BACKEND_READY port=<n>` | missing/unsafe published command fails detection; failed command/HTTP proof fails readiness and rolls back. Never guess a generation or fall back from an unsafe PM command to old Python |
+| PM interpreter/dependency selection behind that command (HG-212 follow-up, verified 2026-10-12) | PM owns its facts/stamps and interpreter. Desktop's file scan only makes the command eligible; installation actually runs `serve --help`, then managed starts require fresh stdout plus public/authenticated loopback HTTP. No venv dist-info check applies to PM | a failed bootstrap/import check stays `HR-MIGRATE-018`; PM repair/update remains upstream-owned, with no pip fallback or facts edit |
+| `BACKEND_PORT_IN_USE port=<n>` stdout (`hermes_cli/web_server_lifecycle.py`), HG-212 | a complete new line for the selected port identifies a startup conflict; it is not a ready marker | an unrecognised failure still fails the ready + health gate, but may wait until timeout |
+| `Application startup failed. Exiting.` stderr and Python's `TypeError: Too few arguments for typing.Generator; actual 2, expected 3`, observed in HG-212 | optional early failure diagnosis from complete lines added after the managed start checkpoint; the Python cause is classified only with the fatal exit line, and only a fixed reason leaves the reader | wording changes lose the specific diagnosis, never waive the existing readiness proof; raw stderr is not exposed |
 | `.git/HEAD`, loose refs, `packed-refs`; `hermes_cli/__init__.py` `__version__ = "x.y.z"` | read as files to identify the code on disk | `unreadableIdentity` — surfaced, nothing switched |
-| `venv/lib/python*/site-packages/hermes_agent-<version>.dist-info` | its version must equal `__version__` before Desktop starts the checkout's code | Desktop waits (`dependenciesPending`) and never switches or restarts |
+| `venv/lib/python*/site-packages/hermes_agent-<version>.dist-info` (legacy only) | its version must equal `__version__` before switching/replacing a running legacy process; this is not proof the interpreter can load current code | Desktop waits (`dependenciesPending`) or surfaces inconsistency; actual command/start checks can still fail |
 | `~/.hermes/.hermes-update-in-progress` (`hermes_cli/update_lock.py`, 20-minute ceiling) | restarts wait while it is fresh | a restart could land mid-update |
 | `~/.hermes/profiles/`, `~/.hermes/active_profile` | a profile makes local mode unsupported | a new profile mechanism would be missed |
 | `ai.hermes.*.plist` `EnvironmentVariables.HERMES_HOME` and `ProgramArguments[0]` | how the owner actually runs Hermes | a custom home or second install could be missed |
@@ -927,7 +940,12 @@ upstream:
 | `install.sh --manifest` → `{"protocol_version":1,"stages":[{"name","title","category","needs_user_input"}…]}` as the last JSON line of stdout | the stage list and order Desktop runs and shows; `protocol_version` must be exactly 1; stage names `^[a-z][a-z0-9-]{0,31}$`; Chinese titles exist for `prerequisites`, `repository`, `venv`, `python-deps`, `node-deps`, `path`, `config`, `setup`, `gateway`, `complete` | any other version or shape is `HR-MIGRATE-017` and nothing runs; a new stage runs with upstream's English title |
 | `install.sh --stage <name> --non-interactive --json --dir <checkout> --hermes-home <home> --branch main` → last stdout line `{"ok":bool,"stage":name,"skipped":bool,"reason"?}` | success, skip (`needs_user_input` stages under `--non-interactive`) or failure of each stage; the stage runs in its own subshell so a failure still prints the frame | no frame is `HR-MIGRATE-017`; a changed flag name would fail every stage |
 | `$INSTALL_DIR/.hermes-bootstrap-complete` (`write_bootstrap_marker`, written only by the `complete` stage) | a Desktop-started install counts as finished — for setup, for the offer and for `freshInstallProvider` — only once it exists | a renamed or earlier-written marker would leave the install pending forever (setup blocked, the owner can choose the bundled copy) or let a half-installed Hermes through |
-| The installer's default layout for a non-root macOS user (`INSTALL_DIR=$HERMES_HOME/hermes-agent`, `venv/`, `~/.local/bin/hermes` shim naming the checkout) and its repository stage updating an existing checkout | detection accepts the result as the standard install; a retry resumes an unfinished one | detection reports it unsupported → `HR-MIGRATE-018` |
+| The installer's default layout for a non-root macOS user (`INSTALL_DIR=$HERMES_HOME/hermes-agent`, published PM command or legacy `venv/`, `~/.local/bin/hermes` shim naming the checkout) and its repository stage updating an existing checkout | detection accepts the result as the standard install; new Desktop attempts also require real command verification. A completed own checkout retries only verification, never the repository/reset stage | detection/command verification failure → `HR-MIGRATE-018`; completion marker alone cannot clear a new pending attempt |
+
+The PM launch boundary was checked against upstream's
+[`hermes_cli/_launchers.py`](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/_launchers.py)
+and [package-management contract](https://hermes-agent.nousresearch.com/docs/reference/package-management)
+on 2026-10-12. This adopts a launch layout, not a pinned upstream version or a modification of Hermes.
 
 ## Upgrade checklist
 

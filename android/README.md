@@ -7,6 +7,12 @@ An assistant answer split across tool-call records opens all of that answer's ca
 history message-id replacement retains the viewer through the stable image id. User messages and
 pending attachments keep their own image scope.
 
+Sending recovers a reclaimed runtime by resuming the original durable conversation (HG-211).
+Live-handle preparation has a total deadline; leaving before submission preserves a retryable
+unsent turn in its original conversation, including attachments. Unsent turns do not block later
+completed history, and sending another message does not erase their retry record (HG-213/214).
+Cancellation or response timeout after submission starts waits for server reconciliation to avoid duplicate prompts.
+
 The upstream client is Kotlin + Jetpack Compose and already implements Hermes REST, `/api/ws` JSON-RPC, sessions, streaming chat, Markdown, attachments, reconnect, and encrypted credential storage. Hermes Remote retains those foundations and routes them through the HK Relay.
 
 ## First UI pass
@@ -317,6 +323,16 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.173 fixes durable-session recovery after reclamation, bounds send preparation,
+  preserves cancelled unsent messages and attachments, and reconciles completed replies without
+  duplicate prompt replay (HG-211, HG-213, HG-214).
+- Version 0.1.172 settles chat re-entry before revealing content and restores existing output
+  without replaying the typewriter; bounds saved session UI caches and retries failed attachments
+  from retained disk copies with a longer upload timeout.
+- Version 0.1.171 moves automatic table charts into fullscreen with collapsed adjustments,
+  source-table chat cards, per-table preferences, complete-data pages and touch panning (HG-205).
+  It also adds five-minute voice input, a final countdown, draft retention at the limit and clearer
+  failure messages (HG-206); Gateway 0.4.33 must be deployed before this package.
 - Version 0.1.170 fixes HG-198: image previews resolve from the complete displayed assistant answer
   and keep stable selection across history refresh.
 - Version 0.1.169 Fix Automatic split layout on unfolded phone windows below 840dp by using the
@@ -979,6 +995,18 @@ Freezing a new built-in default happens in a later release, after the user suppl
   `Your AI agent, in your pocket.` in English; operational status and recovery actions still follow
   the in-app language setting.
 
+## Conversation entry
+
+Transcript presentation readiness is local to each mounted conversation. Cached completed and live
+answers wait for their initial Markdown parsing, saved reading position and layout to settle before
+reveal, without waiting for a network refresh or showing a cold-load skeleton. Once revealed, the
+same mounted transcript stays visible through refresh and completion. Regression tests pause real
+parsing on re-entry and check the intermediate rendered frame as well as the restored item/offset.
+The reveal cursor is also local to the mounted page. The first non-empty transcript establishes the
+entry baseline even if the ViewModel initially emitted an empty loading state: existing live text
+is shown in full, including text generated while away. Completed answers never resume an old cursor.
+Subsequent live output and its final completion still use paced reveal.
+
 ## Build
 
 For local development checks, no MissionGo credentials are needed:
@@ -1007,7 +1035,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.170-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.173-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
@@ -1071,9 +1099,12 @@ perform automatic, forced, silent, incremental, or downgrade installs. Release d
 `releases/<version>.json`; derived hashes, sizes, timestamps, and signing data are generated only by
 the release gate and publisher. See `../docs/APP_UPDATE.md`.
 
-HG-192 adds local table/chart switching, filters and fullscreen state restoration to completed
-chat tables. The offline renderer assets are also emitted by the Web build; Android's dedicated
-WebView can load only those packaged files and exposes a state/draft bridge without credentials.
-Settings → Data presentation selects table first (default), chart first or automatic on this
-client. Per-table configurations are private local preferences; source data models stay in memory.
-See `../docs/DESIGN.md` §5.22 and `../docs/ANDROID_SMOKE.md` for the approved boundary and verification.
+HG-205 keeps completed chat tables in their source form with a single Expand entry. Fullscreen
+uses a local chart only for reliable dimensions and metrics; other tables stay as tables. Adjust
+is collapsed until requested, all valid data is selected initially, and applied filters show a
+range and Restore all. Large plots use explicit 100-point pages with access to every point;
+source rows and exact values remain complete. Closing restores the chat table and reading position.
+Per-table settings are local and scoped; the global Data presentation setting and legacy defaults
+are no longer used. The shared renderer remains isolated without credentials or network access.
+See `../docs/DESIGN.md` §5.22, `../docs/ANDROID_SMOKE.md` and
+`../docs/TABLE_CHART_FULLSCREEN_VERIFICATION.md`.

@@ -137,7 +137,7 @@ public struct DesktopHermesUpgradeInspector: DesktopHermesUpgradeInspecting {
             && name.range(of: "^[a-z0-9][a-z0-9_-]{0,63}$", options: .regularExpression) != nil
     }
     private static func interpreter(_ installation: DesktopLocalHermesInstallation) -> DesktopHermesUpgradeInspection.Interpreter {
-        guard installation.environmentIdentity == nil else { return .managedGenerationNotInspected }
+        guard !installation.usesPackageManager else { return .managedGenerationNotInspected }
         let path = installation.executable.deletingLastPathComponent().appendingPathComponent("python")
         let target = path.resolvingSymlinksInPath()
         var info = stat()

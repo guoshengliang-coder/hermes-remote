@@ -954,11 +954,31 @@ New Connector uses `/v2/connect`:
    and signature.
 5. Gateway checks generation/key/revocation/expiry and signature, then sends a bounded
    `connector.preflight.request`.
-6. Connector performs its existing read-only Hermes probe and returns
-   `connector.preflight.result`; Gateway persists reachability, version, latency, and end-to-end
-   health, registers the socket, and returns `connector.ready`.
+6. Connector performs a read-only Hermes probe within one 10-second budget, including local
+   authentication and body reads, and returns `connector.preflight.result`. Gateway waits up to
+   15 seconds, persists reachability, version, latency, and end-to-end health, registers the
+   authenticated socket, and returns `connector.ready`, including when Hermes is unreachable.
+   Probe failure/timeout is a degraded Hermes observation, not a Connector disconnect.
 7. An active binding may carry existing tunnel messages only after `connector.ready`. A pending
    binding may complete proof and health verification but is not routable until explicit activation.
+
+Gateway repeats the same preflight exchange 20 seconds after each completed health update, without
+overlapping probes. Late results for expired/replaced request IDs are ignored. Closing the socket
+cancels the Connector's current local probe. On supported Hermes the probe reads public
+`/api/health`, then protected `/api/profiles/active` to prove configured credentials; only missing
+routes (404/405) fall back to `/api/status` and `/api/sessions?limit=1`, with 64 KiB body limits.
+Public health success cannot prove invalid credentials.
+
+An active binding whose Connector is online but Hermes is unreachable rejects new account-mode
+REST requests and WebSocket upgrades with HTTP 502 and the existing retryable `HR-CONN-006`
+structured error (`recoveryAction: "retry"`). Existing tunnels continue authorization/binding
+revalidation without closing solely because of local Hermes health. Healthy rechecks restore
+new-request routing on the same control socket. Pending bindings still require healthy verification
+before activation. The device snapshot's `connectorOnline` and `hermesReachable` remain distinct.
+
+The wire shape and versions are unchanged. An old Connector may answer after its original
+60-second local timeout; an old Gateway retains its 5-second preflight cutoff. See
+`connector/README.md` for mixed-version behavior and separately authorized rollout order.
 
 The account Connector control messages use protocol version 2 with strict shared-parser tests. V1
 messages retain protocol version 1 and `/v1/connect`; both parsers and paths coexist.

@@ -6,7 +6,7 @@ import { AppContext, type AppContextValue } from "../app/store";
 import { AccountDrawer } from "./AccountDrawer";
 import { TableFullscreen } from "./TableFullscreen";
 import { Markdown } from "./Markdown";
-import { preference } from "../charts/model";
+import { setTableFullscreen } from "../charts/card";
 import { resetOverlays } from "../app/overlayHistory";
 const host = document.createElement("div");
 afterEach(() => {
@@ -23,7 +23,8 @@ const app = {
   voiceFeedback: "off",
   flash: vi.fn(),
 } as unknown as AppContextValue;
-it("keeps presentation choices pending until Save and cancels on close", () => {
+it("removes the global presentation choice even with a saved legacy preference", () => {
+  localStorage.setItem("hermes-go.table-charts.preference", "chart");
   document.body.append(host);
   act(() =>
     render(
@@ -33,25 +34,7 @@ it("keeps presentation choices pending until Save and cancels on close", () => {
       host,
     ),
   );
-  const buttons = () =>
-    Array.from(host.querySelectorAll<HTMLButtonElement>("button"));
-  const click = (text: string) =>
-    act(() =>
-      buttons()
-        .find((b) => b.textContent === text || b.textContent?.startsWith(text))!
-        .click(),
-    );
-  click("数据展示方式");
-  click("图表优先");
-  expect(preference()).toBe("table");
-  act(() =>
-    host.querySelector<HTMLButtonElement>(".drawer-theme-close")!.click(),
-  );
-  expect(preference()).toBe("table");
-  click("数据展示方式");
-  click("自动选择");
-  click("保存");
-  expect(preference()).toBe("auto");
+  expect(host.textContent).not.toContain("数据展示方式");
 });
 it("fullscreen restores the live card, scroll position and exact node rather than reparsing a table", () => {
   const scroll = document.createElement("div"),
@@ -104,7 +87,8 @@ it("adds charts only after streaming finishes and replaces state when the conver
   show(["session-a"], false);
   const first = host.querySelector(".table-view-toggle");
   expect(first).not.toBeNull();
-  act(() => first!.querySelectorAll<HTMLButtonElement>("button")[1]!.click());
+  expect((first as HTMLElement).hidden).toBe(true);
+  act(() => setTableFullscreen(host.querySelector("table")!, true));
   expect(host.querySelector("iframe")).not.toBeNull();
   show(["session-b"], false);
   expect(host.querySelector(".table-view-toggle")).not.toBe(first);

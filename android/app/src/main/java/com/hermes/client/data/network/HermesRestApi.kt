@@ -108,18 +108,26 @@ class HermesRestApi(
             "/api/messaging/platforms",
         )
         /**
-         * Attachment-upload budgets, stated in the order they must bind: connect < write < call.
+         * Attachment-upload budgets, stated in the order they must bind: connect < write = read < call.
          *
          * [restCall] gives every REST GET a 20s whole-call deadline, but the shared client leaves
          * OkHttp's 10s connect and 10s write defaults in place. An upload that declared a
          * 10-minute budget while a 10-second default killed the body write is how the HG-161
          * attachment send died 10.0s after `submit …` without an outcome line anywhere: the two
          * bounds disagreed by two orders of magnitude, and the tighter one was accidental. State
-         * all three, so whatever fires is the bound we chose. A stalled VPN write then costs two
+         * all four, so whatever fires is the bound we chose. A stalled VPN write then costs two
          * minutes and says so, instead of ten seconds and silence.
+         *
+         * Read is stated too because the shared client's `readTimeout(0)` — there for the
+         * long-lived WebSocket — is inherited here otherwise. An upload that had stated connect,
+         * write and call still died of `SocketTimeoutException: timeout` at 10040ms on 0.1.170
+         * over wifi+vpn (HG-208), so the read budget is no longer left to inheritance: waiting for
+         * the gateway's answer gets the same two minutes the body write gets, and the call budget
+         * above it stays the backstop.
          */
         const val UPLOAD_CONNECT_TIMEOUT_SECONDS = 30L
         const val UPLOAD_WRITE_TIMEOUT_SECONDS = 120L
+        const val UPLOAD_READ_TIMEOUT_SECONDS = 120L
         const val UPLOAD_CALL_TIMEOUT_MINUTES = 10L
         const val CONNECTION_TEST_TIMEOUT_SECONDS = 12L
         /** The contract report is a cached, tiny JSON body; anything slower is a stalled tunnel. */
@@ -596,6 +604,7 @@ class HermesRestApi(
                 // the shared one, and uploads are one-per-attachment, so this is cheap.
                 .connectTimeout(UPLOAD_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .writeTimeout(UPLOAD_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(UPLOAD_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .build()
                 .newCall(request)
                 .apply { timeout().timeout(UPLOAD_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES) }

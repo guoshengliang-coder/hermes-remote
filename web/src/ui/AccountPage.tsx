@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { useStartupPage } from "../startup/readiness";
 import type { PendingAttachment } from "../chat/attachments";
 import { toAppError } from "../app/failures";
 import { navigate } from "../app/router";
@@ -19,6 +20,7 @@ const MAX_NAME = 40;
 const AVATAR_SIDE = 512;
 
 export function AccountPage() {
+  useStartupPage("account", true);
   const { t, language, client, account, updateAccount, signOut, flash } = useApp();
   const [name, setName] = useState(account?.displayName ?? "");
   const [savingName, setSavingName] = useState(false);

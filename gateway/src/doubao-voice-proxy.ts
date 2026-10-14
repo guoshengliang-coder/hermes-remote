@@ -8,7 +8,8 @@ const UPSTREAM_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
 const RESOURCE_ID = "volc.seedasr.sauc.duration";
 const MAX_SESSIONS = 16;
 const MAX_PENDING_BYTES = 512 * 1024;
-const MAX_SESSION_MS = 90_000;
+// Five minutes of audio plus startup/final-result headroom. Still bounded for abandoned clients.
+export const VOICE_MAX_SESSION_MS = 330_000;
 
 /** Relays only binary ASR frames. The provider credential never travels to the phone. */
 export class DoubaoVoiceProxy {
@@ -54,7 +55,7 @@ export class DoubaoVoiceProxy {
     const deadline = setTimeout(() => {
       phone.close(1000, "voice limit reached");
       provider.close();
-    }, MAX_SESSION_MS);
+    }, VOICE_MAX_SESSION_MS);
     deadline.unref();
     const policy = new RevalidationFailurePolicy(3);
     let verifying = false;

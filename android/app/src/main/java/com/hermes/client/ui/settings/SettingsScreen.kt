@@ -46,7 +46,6 @@ fun SettingsScreen(
             HorizontalDivider()
             Entry(localized(language, "通知", "Notifications"), localized(language, "审批、定时任务和消息提醒", "Approvals, cron, and messaging alerts")) { onNavigate("settings_notifications") }
             HorizontalDivider()
-            DataPresentationSetting()
             HorizontalDivider()
             WorkspaceLayoutSetting(workspace, vm.workspace.choices::mode, vm.workspace.choices::resetWidth)
             HorizontalDivider()

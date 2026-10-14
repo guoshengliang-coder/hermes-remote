@@ -5,7 +5,7 @@ import CryptoKit
 /// Where a standard upstream Hermes install lives for one macOS user.
 ///
 /// "Standard" is the layout upstream's own installer produces: `HERMES_HOME=~/.hermes`, a git
-/// checkout at `~/.hermes/hermes-agent`, and its virtualenv at `venv/` inside that checkout. It is
+/// checkout at `~/.hermes/hermes-agent`, with its published PM launcher or historical `venv/`. It is
 /// the only layout Hermes GO will run on the owner's behalf (owner decision 2026-09-21: one copy of
 /// Hermes code per Mac). Anything else is surfaced rather than guessed at, because guessing wrong
 /// means either a second copy writing the same `state.db` — the 2026-09-19 incident — or running
@@ -50,6 +50,9 @@ public struct DesktopLocalHermesPaths: Equatable, Sendable {
             .map { String(format: "%02x", $0) }.joined().prefix(16)
         return hermesHome.appendingPathComponent("installs/\(key)", isDirectory: true)
     }
+    /// Installation-bound upstream command; unlike ~/.local/bin/hermes it cannot select another
+    /// checkout. PM owns interpreter/generation selection behind this stable entrypoint.
+    public var publishedExecutable: URL { checkoutRoot.appendingPathComponent(".hermes/bin/hermes") }
     /// Upstream's cross-process update lock (`hermes_cli/update_lock.py`, `MARKER_NAME`). Every update
     /// entry point — `hermes update`, the Tauri updater, the Electron app — holds it for its whole run.
     public var updateMarker: URL { hermesHome.appendingPathComponent(".hermes-update-in-progress") }
@@ -107,15 +110,22 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
         self.environmentIdentity = environmentIdentity
     }
 
-    /// Legacy venvs compare distribution versions (same-version dependency changes remain unknown).
-    /// PM generations additionally require their committed activation inputs to match source mtimes.
+    /// Runtime eligibility preserves the published PM launcher's bounded activation behavior.
+    /// Neither this flag nor a private PM stamp is runtime-health or upgrade authorization.
     public var dependenciesConsistent: Bool {
-        if case .managedGeneration(_, let current) = installedDistribution { return current }
+        if usesPackageManager { return true }
         return installedDistribution == .version(version)
     }
-
+    public var usesPackageManager: Bool {
+        executable.standardizedFileURL == checkoutRoot.appendingPathComponent(".hermes/bin/hermes").standardizedFileURL
+    }
+    /// Upgrading requires independently verified current dependency metadata, not start eligibility.
+    public var upgradeDependenciesVerified: Bool {
+        if case .managedGeneration(_, let current) = installedDistribution { return current }
+        return !usesPackageManager && installedDistribution == .version(version)
+    }
     public var runtimeIdentity: String {
-        let parts = [commit, executable.path, hermesHome.path, environmentIdentity ?? "legacy"]
+        let parts = [commit, executable.path, hermesHome.path, environmentIdentity ?? (usesPackageManager ? "pm-unverified" : "legacy")]
         return SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))
             .map { String(format: "%02x", $0) }.joined()
     }
@@ -126,6 +136,9 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
 /// What the venv records as installed. Anything but exactly one distribution is an inconsistency
 /// the owner has to resolve; it is never guessed around.
 public enum DesktopLocalHermesInstalledDistribution: Equatable, Sendable {
+    /// Eligible to start through PM, not proof of runtime health. Only PM may interpret its facts
+    /// and dependency stamps; installation verifies the published command and launch verifies HTTP.
+    case packageManaged
     case version(String)
     case missing
     case multiple([String])
@@ -133,6 +146,7 @@ public enum DesktopLocalHermesInstalledDistribution: Equatable, Sendable {
 
     public var summary: String {
         switch self {
+        case .packageManaged: "dependencies selected by the published PM launcher"
         case .version(let version): "installed \(version)"
         case .missing: "no hermes_agent dist-info in the venv"
         case .multiple(let versions): "several hermes_agent dist-info in the venv: \(versions.joined(separator: ", "))"
@@ -220,16 +234,17 @@ public struct DesktopLocalHermesDetector: Sendable {
         guard isOwnedDirectory(paths.checkoutRoot) else {
             return .unsupported(.unsafeInstallation, detail: "checkout is not a private directory of this user")
         }
-        let usesPM = entryExists(paths.packageManagerExecutable)
+        let usesPM = entryExists(paths.publishedExecutable)
             || entryExists(paths.checkoutRoot.appendingPathComponent("pm/environments.py"))
-        let executable = usesPM ? paths.packageManagerExecutable : paths.executable
+        // Never fall back to a stale venv when PM's published command exists but is unsafe.
+        let executable = usesPM ? paths.publishedExecutable : paths.executable
         guard entryExists(executable) else {
-            return .unsupported(.incompleteInstallation, detail: "the selected Hermes entrypoint is missing")
+            return .unsupported(.incompleteInstallation, detail: "no published PM or legacy Hermes entrypoint")
         }
-        guard isSafeExecutable(executable), Self.isScriptSafePath(executable.path),
-              !usesPM || (isOwnedDirectory(executable.deletingLastPathComponent())
-                  && isOwnedDirectory(executable.deletingLastPathComponent().deletingLastPathComponent()))
-        else {
+        let bin = executable.deletingLastPathComponent()
+        guard executable.resolvingSymlinksInPath() == executable,
+              isOwnedDirectory(bin), isOwnedDirectory(bin.deletingLastPathComponent()),
+              isSafeExecutable(executable), Self.isScriptSafePath(executable.path) else {
             return .unsupported(.unsafeInstallation, detail: "Hermes entrypoint is not a private executable file")
         }
         if let detail = foreignInstall(checkoutPresent: true) {
@@ -241,7 +256,8 @@ public struct DesktopLocalHermesDetector: Sendable {
         guard let identity = readGitIdentity() else {
             return .unsupported(.unreadableIdentity, detail: "HEAD could not be resolved")
         }
-        guard let version = usesPM ? readPackageManagerVersion(commit: identity.commit) : readVersion() else {
+        let pmVersion = usesPM ? readPackageManagerVersion(commit: identity.commit) : nil
+        guard let version = pmVersion ?? readVersion() else {
             return .unsupported(.unreadableIdentity, detail: "hermes_cli.__version__ could not be read")
         }
         guard !Self.version(version, isOlderThan: Self.minimumVersion) else {
@@ -251,19 +267,16 @@ public struct DesktopLocalHermesDetector: Sendable {
             )
         }
         let pm = usesPM ? readPackageManagerSelection() : nil
-        guard !usesPM || pm != nil else {
-            return .unsupported(.incompleteInstallation, detail: "PM has no valid committed dependency generation")
-        }
+        let metadata = pmVersion != nil ? pm : nil
         return .usable(DesktopLocalHermesInstallation(
             executable: executable,
             checkoutRoot: paths.checkoutRoot,
             hermesHome: paths.hermesHome,
             commit: identity.commit,
             version: version,
-            identityChangedAt: max(identity.changedAt, pm?.changedAt ?? identity.changedAt),
-            installedDistribution: pm.map { .managedGeneration($0.generation, inputsCurrent: $0.current) }
-                ?? readInstalledDistribution(),
-            environmentIdentity: pm?.fingerprint
+            identityChangedAt: max(identity.changedAt, metadata?.changedAt ?? identity.changedAt),
+            installedDistribution: usesPM ? (metadata.map { .managedGeneration($0.generation, inputsCurrent: $0.current) } ?? .packageManaged) : readInstalledDistribution(),
+            environmentIdentity: metadata?.fingerprint
         ))
     }
 

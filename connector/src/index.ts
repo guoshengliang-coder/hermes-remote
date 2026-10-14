@@ -38,7 +38,6 @@ import { describeRejectedPath } from "./file-log.js";
 import { tunnelCloseForApp } from "./tunnel-close.js";
 import { decideOversizedFrame } from "./oversized-frame.js";
 import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
-import { displayVersion } from "./hermes-contract.js";
 import { HermesAuth, boundedResponseBody, fetchHermesOpenApi } from "./hermes-auth.js";
 import { historyProjection } from "./history-preview.js";
 import { hermesUnavailableBody, localHttpFailureFields, localHttpRoute } from "./local-http-failure.js";
@@ -49,6 +48,7 @@ import { HermesCapabilityMonitor } from "./hermes-capabilities.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import { ControlReconnectBackoff } from "./control-reconnect.js";
 import { HermesMaintenanceAdmission, MAINTENANCE_CODE, maintenanceError, maintenanceFrameDecision } from "./hermes-maintenance.js";
+import { ConnectorHealthResponder, probeHermesHealth, CONNECTOR_HEALTH_PROBE_TIMEOUT_MS } from "./connector-health.js";
 import {
   isThumbnailable,
   isWorthDownscaling,
@@ -162,6 +162,7 @@ let controlSocket: WebSocket | undefined;
 let controlAuthenticated = false;
 let stopping = false;
 let lifecycleObserver: HermesSessionObserver | undefined;
+const healthResponders = new WeakMap<WebSocket, ConnectorHealthResponder>();
 
 if (!isWithinRoot(uploadRoot, filesRoot)) {
   throw new Error("UPLOAD_ROOT must be inside FILES_ROOT so uploaded attachments remain downloadable");
@@ -183,6 +184,17 @@ function connect(): void {
   let awaitingPong = false;
   controlSocket = socket;
   controlAuthenticated = false;
+  const healthResponder = new ConnectorHealthResponder(
+    async (signal) => {
+      const health = await readHermesStatus(signal);
+      if (health.reachable && !signal.aborted && controlSocket === socket) {
+        contractMonitor.observeVersion(health.version, "preflight");
+      }
+      return health;
+    },
+    (result) => { if (controlSocket === socket) sendControl(socket, result); },
+  );
+  healthResponders.set(socket, healthResponder);
 
   socket.on("open", () => {
     if (accountAuthenticator) {
@@ -226,6 +238,7 @@ function connect(): void {
   });
 
   socket.on("close", (code) => {
+    healthResponder.stop();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     log.info("relay.disconnected", {
       mode: connectorMode, closeCode: code, authenticated: controlAuthenticated,
@@ -250,14 +263,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
         sendControl(socket, accountAuthenticator.authenticate(message));
         return;
       case "connector.preflight.request": {
-        const result = await accountConnectorPreflight();
-        sendControl(socket, {
-          type: "connector.preflight.result",
-          version: ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
-          requestId: message.requestId,
-          hermesReachable: result.reachable,
-          ...(result.version ? { hermesVersion: result.version } : {}),
-        });
+        await healthResponders.get(socket)?.respond(message);
         return;
       }
       case "connector.ready":
@@ -1418,28 +1424,11 @@ function startLifecycleObserver(): void {
   });
 }
 
-async function accountConnectorPreflight(): Promise<{ reachable: boolean; version?: string }> {
-  const status = await readHermesStatus();
-  if (status.reachable) contractMonitor.observeVersion(status.version, "preflight");
-  return status;
-}
-
-async function readHermesStatus(): Promise<{ reachable: boolean; version?: string }> {
+async function readHermesStatus(signal = AbortSignal.timeout(CONNECTOR_HEALTH_PROBE_TIMEOUT_MS)): Promise<{ reachable: boolean; version?: string }> {
   const releaseAdmission = maintenance.acquire();
   if (!releaseAdmission) return { reachable: false };
   try {
-    const response = await hermesAuth.request("/api/status", { method: "GET" });
-    if (!response.ok) return { reachable: false };
-    const body = await boundedResponseBody(response, 64 * 1024);
-    if (!body) return { reachable: true };
-    const value = JSON.parse(body) as unknown;
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      const version = displayVersion((value as Record<string, unknown>).version);
-      if (version !== undefined) return { reachable: true, version };
-    }
-    return { reachable: true };
-  } catch {
-    return { reachable: false };
+    return await probeHermesHealth(hermesAuth, signal);
   } finally { releaseAdmission(); }
 }
 
@@ -1447,6 +1436,7 @@ async function readHermesStatus(): Promise<{ reachable: boolean; version?: strin
 function shutdown(signal: string): void {
   if (stopping) return;
   stopping = true;
+  if (controlSocket) healthResponders.get(controlSocket)?.stop();
   console.log(`Received ${signal}; closing Connector`);
   lifecycleObserver?.stop();
   inFlightHttpRequests.abortAll("connector_stopping");

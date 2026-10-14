@@ -27,6 +27,35 @@ private final class URLProtocolStub: URLProtocol {
 }
 
 final class EndToEndProberTests: XCTestCase {
+    func testLocalAuthenticatedProbeIsLoopbackOnlyAndRejectsPublicHTMLAndUnauthorized() async throws {
+        let prober = HTTPHealthProber(session: session)
+        let success = await prober.probeAuthenticatedHermes(sessionToken: "local-private-token")
+        XCTAssertEqual(success.level, .healthy)
+        XCTAssertEqual(URLProtocolStub.observedRequest?.url?.absoluteString, "http://127.0.0.1:9119/api/profiles/active")
+        XCTAssertEqual(URLProtocolStub.observedRequest?.value(forHTTPHeaderField: "X-Hermes-Session-Token"), "local-private-token")
+        for (status, body, reason) in [(200, "<html>login local-private-token</html>", "invalid-json"), (401, "local-private-token", "http-401")] {
+            URLProtocolStub.responseStatus = status
+            URLProtocolStub.responseBody = Data(body.utf8)
+            let result = await prober.probeAuthenticatedHermes(sessionToken: "local-private-token")
+            XCTAssertEqual(result.level, .failed)
+            XCTAssertEqual(result.issue?.code, .hermesUnavailable)
+            XCTAssertTrue(result.issue?.sanitizedDiagnostic.contains(reason) == true)
+            XCTAssertFalse(result.issue?.sanitizedDiagnostic.contains("local-private-token") == true)
+        }
+    }
+
+    func testLocalAuthenticatedProbeFallsBackOnlyForMissingRouteAndNeverFollowsARedirect() async throws {
+        URLProtocolStub.responseStatus = 404
+        _ = await HTTPHealthProber(session: session).probeAuthenticatedHermes(sessionToken: "token")
+        XCTAssertEqual(URLProtocolStub.observedRequest?.url?.path, "/api/sessions")
+        XCTAssertEqual(URLProtocolStub.observedRequest?.url?.query, "limit=1")
+        let response = HTTPURLResponse(url: URL(string: "http://127.0.0.1:9119/api/profiles/active")!, statusCode: 302, httpVersion: nil, headerFields: nil)!
+        var followed: URLRequest??
+        LoopbackRedirectGuard().urlSession(session, task: session.dataTask(with: response.url!), willPerformHTTPRedirection: response,
+            newRequest: URLRequest(url: URL(string: "https://foreign.example/collect")!)) { followed = .some($0) }
+        XCTAssertNotNil(followed as Any?)
+        XCTAssertNil(followed!)
+    }
     private var session: URLSession!
 
     override func setUp() {

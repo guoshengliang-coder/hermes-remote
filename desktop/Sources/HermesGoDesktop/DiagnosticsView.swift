@@ -13,24 +13,25 @@ struct DiagnosticsView: View {
                     subtitle: diagnosticSummary
                 ) {
                     Button {
-                        Task { await model.refresh() }
+                        Task { await model.refreshDiagnostics() }
                     } label: {
-                        Label(model.isRefreshing ? "正在诊断" : "重新诊断", systemImage: "arrow.clockwise")
+                        Label(model.isDiagnosing ? "正在诊断" : "重新诊断", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(model.isRefreshing)
+                    .disabled(model.isDiagnosing || model.isRefreshing || model.isManagedBootstrapAccountLocked)
                 }
 
                 HStack(alignment: .top, spacing: 18) {
                     checksCard
                     VStack(spacing: 18) {
                         issueCard
+                        if let local = model.localManagedHermesHealth { localCheckCard(local) }
                         logPreview
                     }
                 }
 
                 Label(
-                    "Hermes 内部状态无法直接观察；以上结论来自本机网络与现有接口。",
+                    "诊断来自本机检查与账号设备上报；检查时间可能不同。",
                     systemImage: "info.circle"
                 )
                 .font(.system(size: 12))
@@ -51,7 +52,7 @@ struct DiagnosticsView: View {
 
     private var checksCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("连接检查")
+            Text(model.selectedAccountDevice == nil ? "连接检查" : "账号设备上报")
                 .font(.system(size: 17, weight: .bold))
                 .padding(.bottom, 14)
             ForEach(model.presentedHealth.components) { item in
@@ -61,10 +62,13 @@ struct DiagnosticsView: View {
                         .font(.system(size: 17, weight: .semibold))
                         .frame(width: 22)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(item.component.title)
+                        Text(componentTitle(item.component))
                             .font(.system(size: 13, weight: .semibold))
                         Text(item.detail)
                             .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Text(checkTime(item.checkedAt))
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -89,15 +93,16 @@ struct DiagnosticsView: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(issue == nil ? Color.primary : Color.orange)
             }
-            Text(issue?.component.title ?? "连接链路正常")
+            Text(issue.map { componentTitle($0.component) } ?? "连接链路正常")
                 .font(.system(size: 19, weight: .bold))
             Text(issue?.detail ?? "当前没有发现需要处理的问题。")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             if issue != nil {
                 HStack {
-                    Button("再次尝试") { Task { await model.refresh() } }
+                    Button("再次尝试") { Task { await model.refreshDiagnostics() } }
                         .buttonStyle(PrimaryButtonStyle())
+                        .disabled(model.isDiagnosing || model.isRefreshing || model.isManagedBootstrapAccountLocked)
                     Button("账号与设备") { selection = .pairing }
                         .buttonStyle(.bordered)
                     if let structuredIssue = issue?.issue {
@@ -106,10 +111,39 @@ struct DiagnosticsView: View {
                     }
                 }
             }
+            if model.canReconnectManagedConnector {
+                Button("重新连接这台 Mac") { Task { await model.prepareConnectorReconnect() } }
+                    .buttonStyle(.bordered)
+            }
+            if let accountIssue = model.accountIssue { GateIssueBanner(issue: accountIssue) }
+            if let repairIssue = model.serviceRepairIssue { GateIssueBanner(issue: repairIssue) }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hermesCard()
+    }
+
+    private func localCheckCard(_ local: ComponentHealth) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("这台 Mac 的 Hermes", systemImage: statusSymbol(local.level))
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(statusColor(local.level))
+            Text(local.detail).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(checkTime(local.checkedAt)).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("本机认证接口检查；账号设备的连接状态以上方上报为准。")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            if let issue = local.issue {
+                Button("复制诊断") { model.copyDiagnostics(issue) }.buttonStyle(.bordered)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hermesCard()
+    }
+
+    private func checkTime(_ date: Date?) -> String {
+        guard let date, date != .distantPast else { return "检查时间未知" }
+        return "检查于 \(date.formatted(date: .abbreviated, time: .standard))"
     }
 
     private var logPreview: some View {
@@ -136,6 +170,15 @@ struct DiagnosticsView: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hermesCard()
+    }
+
+    private func componentTitle(_ component: HealthComponent) -> String {
+        guard model.selectedAccountDevice != nil else { return component.title }
+        return switch component {
+        case .hermes: "账号设备的 Hermes"
+        case .endToEnd: "账号端到端"
+        default: component.title
+        }
     }
 
     private var logBadge: String {

@@ -11,7 +11,7 @@ export class HermesAuth {
   private readonly username?: string;
   private readonly password?: string;
   private readonly cookies = new Map<string, string>();
-  private loginInFlight?: Promise<boolean>;
+  private loginInFlight?: { promise: Promise<boolean>; controller: AbortController; users: number };
   private readonly requestTimeoutMs: number;
 
   constructor(config: {
@@ -36,6 +36,10 @@ export class HermesAuth {
     return this.send(path, init);
   }
 
+  get hasCredentials(): boolean {
+    return Boolean(this.sessionToken || this.username);
+  }
+
   /**
    * Hermes' own OpenAPI document. Outside `/api/`, so [request] refuses it; this is the one
    * non-API path the Connector reads, and only for the contract check — never on the phone's behalf.
@@ -45,12 +49,19 @@ export class HermesAuth {
   }
 
   private async send(path: string, init: RequestInit): Promise<Response> {
-    if (this.username && this.cookies.size === 0) await this.login();
-    let response = await fetch(new URL(path, this.baseUrl), this.withAuth(init));
+    // One deadline covers login, retry and response streaming; cancellation must also reach login.
+    const signal = init.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(this.requestTimeoutMs)])
+      : AbortSignal.timeout(this.requestTimeoutMs);
+    const scoped = { ...init, signal };
+    signal.throwIfAborted();
+    if (this.username && this.cookies.size === 0) await this.login(signal);
+    let response = await fetch(new URL(path, this.baseUrl), this.withAuth(scoped));
     this.captureCookies(response.headers);
     if (response.status === 401 && this.username) {
-      await this.login(true);
-      response = await fetch(new URL(path, this.baseUrl), this.withAuth(init));
+      await response.body?.cancel();
+      await this.login(signal, true);
+      response = await fetch(new URL(path, this.baseUrl), this.withAuth(scoped));
       this.captureCookies(response.headers);
     }
     return response;
@@ -76,27 +87,43 @@ export class HermesAuth {
     return new URL(path, wsBase).toString();
   }
 
-  private async login(force = false): Promise<void> {
+  private async login(signal: AbortSignal, force = false): Promise<void> {
+    signal.throwIfAborted();
     if (!this.username || !this.password) return;
     if (!force && this.cookies.size > 0) return;
     if (!this.loginInFlight) {
-      this.loginInFlight = this.performLogin().finally(() => {
-        this.loginInFlight = undefined;
+      const controller = new AbortController();
+      const flight = { controller, users: 0, promise: undefined as unknown as Promise<boolean> };
+      flight.promise = this.performLogin(controller.signal).finally(() => {
+        if (this.loginInFlight === flight) this.loginInFlight = undefined;
       });
+      this.loginInFlight = flight;
     }
-    const ok = await this.loginInFlight;
-    if (!ok) throw new Error("Hermes Basic Auth login failed");
+    const flight = this.loginInFlight;
+    flight.users += 1;
+    try {
+      const ok = await abortable(flight.promise, signal);
+      signal.throwIfAborted();
+      if (!ok) throw new Error("Hermes Basic Auth login failed");
+    } finally {
+      flight.users -= 1;
+      if (flight.users === 0) {
+        if (this.loginInFlight === flight) this.loginInFlight = undefined;
+        flight.controller.abort();
+      }
+    }
   }
 
-  private async performLogin(): Promise<boolean> {
+  private async performLogin(signal: AbortSignal): Promise<boolean> {
     this.cookies.clear();
     const response = await fetch(new URL("/auth/password-login", this.baseUrl), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "basic", username: this.username, password: this.password }),
-      signal: AbortSignal.timeout(this.requestTimeoutMs),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(this.requestTimeoutMs)]),
     });
     this.captureCookies(response.headers);
+    await response.body?.cancel();
     return response.ok;
   }
 
@@ -132,6 +159,15 @@ export class HermesAuth {
   }
 }
 
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
 /** 0.21.3 publishes ~250 KB; the ceiling only stops a runaway body, it is not a size contract. */
 export const MAX_OPENAPI_BYTES = 8 * 1024 * 1024;
 
@@ -160,7 +196,10 @@ export const RESPONSE_TOO_LARGE = "Hermes response too large";
 
 export async function boundedResponseBody(response: Response, maximumBytes: number): Promise<string> {
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error(RESPONSE_TOO_LARGE);
+  if (Number.isFinite(declared) && declared > maximumBytes) {
+    await response.body?.cancel();
+    throw new Error(RESPONSE_TOO_LARGE);
+  }
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];

@@ -25,18 +25,44 @@ negative check before stopping services, around backups and before source moves.
 samples and extra/surviving processes block; empty samples never prove admission, task inactivity or
 recoverable dependencies. Full live evidence and end-to-end certification remain pending.
 
+Approved internal test version: **0.2.32** (build 35), containing HG-212's startup-failure
+diagnostics and PM/runtime recovery follow-up (#582, #583). It selects the published PM launcher,
+verifies the actual command and authenticated local service, refreshes local/account evidence with
+their own times, and offers an identity-checked Connector-only reconnect. The candidate does not
+change the managed Node/Connector component release. Developer ID signing, notarization, stapling,
+clean-Mac acceptance and public app-update publication are pending. The owner explicitly approved
+internal ad-hoc test distribution on 2026-10-12. Publication targets
+`https://mrlgs.net/desktop/apps/0.2.32/Hermes-Go-Desktop-0.2.32-dev.dmg` and requires full public
+size/hash readback; it does not switch `/desktop/apps/index.json`. This is an internal test artifact.
+iPhone/PWA messaging alongside notebook SSH still needs physical acceptance.
+
+HG-212's PM follow-up selects the installation-bound `.hermes/bin/hermes` before the historical
+`venv/bin/hermes`, validates the actual serve command after installation, and health-gates managed
+starts with the private-token API as well as public status. Diagnostics refresh both local and
+account evidence and retain the account report time. “重新连接这台 Mac” offers a confirmed, exact-binding
+Connector restart through the existing repair/rollback transaction. No upstream files or PM facts
+are rewritten. This source iteration is included in the 0.2.32 internal test version; customer device and
+iPhone/PWA/SSH acceptance remain separate gates.
+
+HG-212 preserves fresh backend startup failures in readiness diagnostics instead of reporting only a
+timeout: Python import failure and a port-conflict marker remain distinct, old stderr does not poison
+a new start, and raw Hermes logs are never copied into the diagnostic. SSH/PWA coexistence and the
+customer-Mac recovery checklist are in [`../docs/SSH_MOBILE_RECOVERY.md`](../docs/SSH_MOBILE_RECOVERY.md).
+This source change is included in the 0.2.32 internal test version. The customer reported Desktop recovered
+after PM entrypoint repair and restarting Connector; iPhone/PWA and SSH coexistence remain unverified.
+
 HG-175 adds an explicit **检查并修复受管服务** recovery action for committed installations whose
 LaunchAgent files or loaded tasks are missing. It preserves the existing binding and installation
 identity, validates the retained release/credentials and same signed-in account, and uses confirmation,
 fresh readiness/health, rollback and interruption recovery. Untrusted records, unknown jobs and an
-occupied 9119 remain blocked with recovery guidance. This source change has no new published Desktop
-version; see [`../docs/DESKTOP_TEST_PLAN.md`](../docs/DESKTOP_TEST_PLAN.md) for device acceptance.
+occupied 9119 remain blocked with recovery guidance. This source change is included in the 0.2.32 internal
+test version; see [`../docs/DESKTOP_TEST_PLAN.md`](../docs/DESKTOP_TEST_PLAN.md) for device acceptance.
 
 
 Release discovery, two-component topology, signing-key rotation, and protected-environment setup
 are documented in [`../docs/DESKTOP_RELEASE_CHANNEL.md`](../docs/DESKTOP_RELEASE_CHANNEL.md).
 
-Current internal test release candidate: **0.2.31** (build 34). It lets Desktop **adopt the
+Previous internal test release candidate: **0.2.31** (build 34). It lets Desktop **adopt the
 Hermes this Mac already runs** on 9119 instead of installing a second copy. A new planner
 readiness (`.readyToAdoptLocalHermes`) is offered ahead of the read-only "unmanaged Hermes"
 card when this Mac's own checkout is usable, the confirmation sheet names the job to unload and

@@ -16,9 +16,38 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" href="/icon-192.png" />
     <title>Hermes GO</title>
+    <script vite-ignore src="%BASE_URL%__startup__.js"></script>
+    <link rel="stylesheet" href="/src/startup/startup.css" />
   </head>
   <body>
-    <div id="app"></div>
+    <section id="startup" class="startup-screen" aria-label="Hermes GO">
+      <div class="startup-brand">
+        <div class="startup-lockup">
+          <img class="startup-icon" src="/src/startup/mark.png" alt="" width="144" height="144" />
+          <div>
+            <h1 class="startup-word">HERMES GO</h1>
+            <p class="startup-line">Your AI agent, in your pocket.</p>
+          </div>
+        </div>
+        <div class="startup-state">
+          <div id="startup-loading" class="startup-loading" hidden role="status" aria-live="polite">
+            <p id="startup-status" class="startup-status">正在准备… / Getting ready…</p>
+            <div class="startup-track" aria-hidden="true"></div>
+          </div>
+          <div id="startup-error" hidden role="alert">
+            <p id="startup-summary" class="startup-summary"></p>
+            <p id="startup-code" class="startup-code"></p>
+            <button id="startup-retry" class="startup-retry" type="button">重试 / Retry</button>
+            <details id="startup-details" class="startup-details" hidden>
+              <summary id="startup-details-label">详情 / Details</summary>
+              <pre id="startup-cause"></pre>
+            </details>
+          </div>
+          <noscript><p class="startup-summary">HR-ACCOUNT-004：此页面需要启用 JavaScript。 / JavaScript is required.</p></noscript>
+        </div>
+      </div>
+    </section>
+    <div id="app" inert aria-hidden="true"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

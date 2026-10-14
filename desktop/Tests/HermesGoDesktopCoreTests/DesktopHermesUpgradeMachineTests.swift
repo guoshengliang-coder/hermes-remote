@@ -3,6 +3,16 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesUpgradeMachineTests: XCTestCase {
+    func testPublishedPMStartEligibilityCannotAuthorizeUpgradeWithoutDependencyEvidence() async throws {
+        let f = try MachineFixture(packageManaged: true); defer { f.remove() }
+        XCTAssertTrue(f.installation.dependenciesConsistent)
+        XCTAssertFalse(f.installation.upgradeDependenciesVerified)
+        do { _ = try await f.coordinator.start(target: f.target, confirmedIdentity: f.installation.runtimeIdentity); XCTFail() }
+        catch { XCTAssertEqual(error as? DesktopHermesUpgradeError, .preflightBlocked) }
+        XCTAssertNil(try f.migration.hermesUpgradeJournal.loadReadOnly())
+        XCTAssertTrue(f.environment.configurations.isEmpty)
+        XCTAssertFalse(f.environment.events.contains { $0.hasPrefix("stop:") })
+    }
     func testObservedUnownedProcessBlocksBeforeAnyStopDespiteInjectedIdleProof() async throws {
         let f = try MachineFixture(inspector: MachineInspection(mode: .unowned)); defer { f.remove() }
         _ = try? await f.coordinator.start(target: f.target, confirmedIdentity: f.installation.runtimeIdentity)
@@ -233,7 +243,7 @@ private struct MachineFixture {
         .init(migration: migration, operations: operations,
               certifiedPaths: [try! .init(sourceCommit: installation.commit, target: target)])
     }
-    init(runRootInsideHome: Bool = false, inspector: (any DesktopHermesUpgradeInspecting)? = nil) throws {
+    init(runRootInsideHome: Bool = false, inspector: (any DesktopHermesUpgradeInspecting)? = nil, packageManaged: Bool = false) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("hg199-machine-" + UUID().uuidString).resolvingSymlinksInPath()
         func directory(_ url: URL) throws {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -249,8 +259,9 @@ private struct MachineFixture {
         let snapshots = DesktopHermesUpgradeServiceSnapshotStore(root: root.appendingPathComponent("services")); try directory(snapshots.root)
         mailbox = .init(directory: root.appendingPathComponent("state/maintenance"))
         backups = .init(root: root.appendingPathComponent("backups"))
-        installation = .init(executable: checkout.appendingPathComponent("venv/bin/hermes"), checkoutRoot: checkout, hermesHome: home,
-            commit: String(repeating: "a", count: 40), version: "0.21.3", identityChangedAt: .distantPast)
+        installation = .init(executable: checkout.appendingPathComponent(packageManaged ? ".hermes/bin/hermes" : "venv/bin/hermes"), checkoutRoot: checkout, hermesHome: home,
+            commit: String(repeating: "a", count: 40), version: "0.21.3", identityChangedAt: .distantPast,
+            installedDistribution: packageManaged ? .packageManaged : .version("0.21.3"))
         target = try .init(version: "0.21.6", commit: String(repeating: "b", count: 40))
         environment = try .init(installation: installation, target: target, mailbox: mailbox, backups: backups)
         let environment = self.environment

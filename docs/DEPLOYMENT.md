@@ -2363,3 +2363,255 @@ but the product still declares only `web/gateway/connector`; the missing Android
 not be omitted or substituted to advance the combined item. HG-197 remains in progress with
 publication evidence in comments, pending mapping correction and human device validation.
 Publication does not establish installation on the user's devices or acceptance.
+
+### HG-201 Web session long-press release-click isolation — 2026-10-11
+
+The owner authorized publication of the iOS WebApp long-press fix. Implementation
+[#561](https://github.com/guoshengliang-coder/hermes-remote/pull/561) merged as
+`b5731db47f9d63eee05bc47dcd7b06f7c2b6902c`; PR and resulting-main checks passed through
+`merge-when-green.mjs`. From a fresh, clean isolated worktree at that exact `origin/main`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **87 files / 844
+tests**, build, installer verification and the public shell gate. It atomically installed
+**0.1.1-b5731db47f9d**, replacing `0.1.1-96c341330579`, retained as the rollback target.
+The package version remains 0.1.1; the source commit identifies this Web release. Only Web
+was published; no Gateway, Connector, Desktop or upstream service restart occurred.
+
+Independent public verification downloaded all **18** manifest files in full and matched
+every size and SHA-256 (**785,822 bytes** total). `/app/` returned 200 with the matching
+shell, `no-store` and self-only script CSP; the live `current` link and previous release
+directory were confirmed. `/relay-health` returned 200 with `ok=true`. Archive SHA-256:
+`b70317fe1db77b1a156442628fdde258de36be7d919953f47f391be3d4782489`.
+Independent publication receipt SHA-256:
+`a18318be17435893db584eebcafd1f6e2e4215a6b1bb390affbc0e709403fec6`.
+Evidence is outside Git at `/Users/bs/.codex/artifacts/hg201-web/`.
+
+The long press now consumes its release click even when the click targets the newly opened
+menu or scrim, or the source row unmounts. A subsequent independent pointer or keyboard
+interaction resumes normal activation. The 21 focused regressions cover these boundaries,
+ordinary/bot/archived sessions, prolonged holding, scrolling and native context-menu behavior.
+No physical iPhone was attached; Safari/PWA native event sequences and VoiceOver remain
+unverified. Use the HG-201 steps in `docs/SMOKE_TEST.md` for device verification.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor.
+HG-201's required `web` artifact matched this verified publication; a release comment was
+written and the item moved to **pending verification**. HG-148 requires `androidApp` and
+HG-134 requires `macosApp`; neither artifact was published in this batch, so those candidates
+were left unchanged. Publication does not establish device acceptance.
+
+### HG-202 iOS Web Files picker publication — 2026-10-11
+
+After receiving the disclosure that physical iPhone Safari/Home Screen/iCloud and attachment
+transport checks were still pending, the owner instructed publication. Implementation
+[#563](https://github.com/guoshengliang-coder/hermes-remote/pull/563) merged as
+`85605faa8f7d99c7519480d8e87c0345397879c8`, with PR and resulting-main checks green.
+From a fresh, clean isolated worktree at that exact `origin/main`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **87 files / 852
+tests**, build, installer verification and public shell comparison. It atomically installed
+**0.1.1-85605faa8f7d**, replacing **0.1.1-b5731db47f9d**, retained as the rollback target.
+The package version remains 0.1.1; the source commit identifies this Web release. Only Web
+was published; no service restart was performed.
+
+Independent complete public reads matched all **18** manifest files by size and SHA-256
+(**785,960 bytes** total). `/app/` returned 200 with matching HTML, `no-store` and self-only
+script CSP; `/relay-health` returned 200 with `ok=true`. The remote `current` and `.previous`
+links were confirmed; the previous release's on-disk index and main JS hashes matched its
+manifest. The old hashed JS URL returned 404 under the current public route, so retained
+rollback files must not be described as continued public access to old assets. Refresh Safari
+or close and reopen the Home Screen app to load the new release.
+
+Archive SHA-256:
+`217920e6e6637a4e3f9f51c9ca6e20556f591b73146f5d24aa761705e1bf2c82`.
+Independent publication receipt SHA-256:
+`1e02c1486e123114782dcb772ffd26d0498ea71e816d8caedf7a3416fa4c126b`.
+Evidence is outside Git at `/Users/bs/.codex/artifacts/hg202-web/`.
+
+iOS Files now receives the `application/octet-stream` picker hint, including desktop-mode
+iPadOS, with multiple selection and actual file MIME types preserved. Photos and Camera keep
+their prior mechanisms. Physical iPhone Safari/Home Screen, iCloud provider downloads, native
+picker behavior and real Connector attachment sends remain unverified. Publication does not
+satisfy those checks or establish acceptance; follow the HG-202 steps in `docs/SMOKE_TEST.md`.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor.
+HG-202's required `web` artifact matched this publication; a release comment was written and
+the item moved to **pending verification**. HG-148 requires `androidApp`; HG-134 requires
+`macosApp`. Neither artifact was published in this batch, so neither candidate was advanced.
+
+### HG-203 Web new-session FAB shape publication — 2026-10-11
+
+The owner authorized publication of the Web FAB shape alignment. Implementation
+[#564](https://github.com/guoshengliang-coder/hermes-remote/pull/564) merged as
+`2b249067f9902a02e3be3db67b3e608dc606ccf8`, with PR and resulting-main checks green.
+From a fresh, clean isolated worktree at `origin/main` commit
+`c9ec9e596f36fed3310d3a0753f69463f65d87c8`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **88 files / 853
+tests**, build, installer verification and public shell comparison. It atomically installed
+**0.1.1-c9ec9e596f36**, replacing **0.1.1-85605faa8f7d**, retained as the rollback target.
+The package version remains 0.1.1; the source commit identifies this Web release. Only Web
+was published; no service restart was performed.
+
+Independent complete public reads matched all **18** manifest files by size and SHA-256
+(**785,965 bytes** total). `/app/` returned 200 with matching HTML, `no-store` and self-only
+script CSP; `/relay-health` returned 200 with `ok=true`. The remote `current` symlink and
+`.previous` release-ID file were confirmed; the previous release's on-disk index and main JS
+hashes matched its manifest. The published CSS sets `.fab` to a 3.5rem square with a 1.375rem
+corner radius, matching Android's 56dp / 22dp shape at the default root font size.
+
+Archive SHA-256:
+`59642c9d87ceb115f5cf9bc0ac53a6c86f56f805d9ae0acabfb752308b7a9dfc`.
+Independent publication receipt SHA-256:
+`5291443a31c8da8a255c2059a083ee53c1613fb2fa67e4f38f515e56ed08fe3a`.
+Evidence is outside Git at `/Users/bs/.codex/artifacts/hg203-web-release/`.
+
+Refresh the browser or close and reopen the Home Screen app to load the new release.
+Physical Android Chrome and iPhone Safari/PWA appearance remains unverified; follow the
+HG-203 checks in `docs/SMOKE_TEST.md` for light/dark, single/split layouts, larger text and
+new-session activation. Publication does not establish device acceptance. Android L1/L2/L3
+were not run because Android runtime code and APK artifacts were unchanged.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor.
+HG-203's required `web` artifact matched this publication; a release comment was written and
+the item moved to **pending verification**. HG-148 requires `androidApp`; HG-134 requires
+`macosApp`. Neither artifact was published in this batch, so neither candidate was advanced.
+
+### HG-204 Web branded cold-start publication — 2026-10-11
+
+The owner authorized publication after implementation
+[#567](https://github.com/guoshengliang-coder/hermes-remote/pull/567) merged as
+`c511c06aad76dfcf50de84a89109b9dd48b7b809`, with PR and resulting-main checks green.
+From a fresh, clean isolated worktree at that exact `origin/main`,
+`WEB_PUBLISH_VERIFY_PUBLIC=1 scripts/publish-web-app.sh` passed typecheck, **90 files / 879
+tests**, build, installer verification and public shell comparison. It atomically installed
+**0.1.1-c511c06aad76**, replacing **0.1.1-c9ec9e596f36**, retained as the rollback target.
+The package version remains 0.1.1; the source commit identifies this Web release. Only Web
+was published; no service restart was performed.
+
+Independent complete public reads matched all **20** manifest files by size and SHA-256
+(**837,697 bytes** total). `/app/` returned 200 with matching HTML, `no-store` and self-only
+script CSP; `/relay-health` returned 200 with `ok=true`. The remote `current` symlink and
+`.previous` release-ID file were confirmed, and the previous release's on-disk index and main
+JS hashes matched its manifest. The independent startup asset is
+`assets/startup-198f0d29bf12.js`; initial HTML includes the brand gate and inert app root.
+
+Read-only live checks in full Chromium 156.0.8078.4 and WebKit 27.2 at 390×844 passed:
+light/dark appearance, a delayed real capabilities response showing the startup feedback,
+entry to the signed-out login screen, and warm visibility/online events without reopening
+the gate. There were no application page errors or CSP violations in those runs. No email
+code or chat message was sent. Chromium used the full browser because the headless-shell
+runner terminated on the existing Service Worker's BadgeService IPC; WebKit screenshots
+were omitted because Playwright's screenshot sync injects an inline style rejected by CSP.
+Neither observation required changing the application or its CSP.
+
+Archive SHA-256:
+`5a7a7cb5629b52092840612613c8f158328d88de618f5b21501907be84f70d8e`.
+Independent publication receipt SHA-256:
+`dd35a596f33ff80b5c5c0d87f69276e4b1d3b458959d0360ac8fa3becde5d4fa`.
+Evidence is outside Git at `/Users/bs/.codex/artifacts/hg204-web-release/`.
+
+Refresh the browser or close and reopen the Home Screen app to load the new release.
+Physical iPhone Safari/Home Screen, Android Chrome, and authenticated production-chat
+acceptance remain unverified; follow HG-204 in `docs/SMOKE_TEST.md`. Publication does not
+establish device acceptance. Android L1/L2/L3 were not run because Android runtime code and
+APK artifacts were unchanged.
+
+The complete Hermes GO release-candidate metadata contained one page without a next cursor.
+HG-204's required `web` artifact matched this publication. HG-148 requires `androidApp`;
+HG-134 requires `macosApp`. Neither artifact was published in this batch, so neither
+candidate is eligible for advancement by this publication.
+
+### HG-205 fullscreen charts and HG-206 five-minute voice publication — 2026-10-11 (authorized)
+
+The owner requested publication of HG-205 and then explicitly approved the additional
+Gateway 0.4.33 prerequisite and HG-206 notes in Codex chat
+`01a129b5-ff1c-7102-8bb7-f76ac5379ed0`. Publication order was Gateway → Web → Android.
+HG-205 [#569](https://github.com/guoshengliang-coder/hermes-remote/pull/569) and its touch
+follow-up [#570](https://github.com/guoshengliang-coder/hermes-remote/pull/570), plus HG-206
+[#572](https://github.com/guoshengliang-coder/hermes-remote/pull/572), are ancestors of the
+published source. Android allocation [#573](https://github.com/guoshengliang-coder/hermes-remote/pull/573)
+reserved **0.1.171 / code 172**. Version/complete-note
+[#574](https://github.com/guoshengliang-coder/hermes-remote/pull/574) merged through the red-light
+gate as **5438b4ef8cc498a6cda228efb9fd2273de8d0b72**, with every applicable PR/main check green.
+It advances Gateway 0.4.32 → **0.4.33** and adds the five-minute voice Android note; it changes
+no protocol, schema, client minimum or Connector/Desktop package version.
+
+Paired Gateway/operator archives came from successful main
+[Gateway OCI run 38124705290](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/38124705290).
+Both archive hashes and the OCI/config identity passed local checks; the same pair passed HK
+hash checks and validation from the freshly extracted operator at
+`/opt/hermes-go-ops/5438b4ef8cc4`. Gateway archive SHA-256:
+`b29ffad6a7a5f9086e385ac86a597e1c1e48c8d59a91b0de7fb91a442044f201`;
+operator archive SHA-256:
+`0a3eb27f9cea3429508d940ca9352beb95ce5135a3c11c605937a58c9ec56abd`.
+The new root-only release configuration cloned the live 0.4.32 configuration and changed only
+operator identity and target manifest. The official production entrypoint committed run
+**39a4fe62-f390-4085-9aaf-a2e4f1db31a1**, **green → blue**, including candidate readiness,
+private/public smoke and observation gates. `current` → `releases/0.4.33-5438b4ef8cc4`;
+`previous` → `releases/0.4.32-30538deb2587`, the same-schema rollback target. Independent
+protected runtime identity and public capability/health checks passed: exact clean source,
+schema **18**, healthy Docker with zero restarts, unchanged protocols/minimum clients.
+Nginx site SHA-256 remained
+`1ad309cdd626113a03eb5bbc715bf905801bfa49432832f801ffc9886c72c318`.
+The voice proxy deadline is now **330 seconds**, covering 300 seconds of actual recording plus
+connection/final-result time. No schema migration or Connector/Desktop release was performed.
+
+Web was first published for HG-205 as `0.1.1-7ee61c4de343`, then republished after Gateway to
+**0.1.1-5438b4ef8cc4** so HG-206 is included too. The official publisher ran from the clean
+isolated release worktree at exact `origin/main`, with typecheck, **91 files / 897 tests**,
+build, atomic installation and public index verification. All **20** public files were fully
+downloaded and matched manifest size/SHA-256; archive SHA-256:
+`b18cb57a1a62a4dcadbc679a3b98412843ff80cbb9ae6887c576fb62e347c195`.
+Chrome public `/app/` returned HTTP 200, displayed the login screen, and had no page errors.
+This checks shell startup, not an authenticated chat or microphone session. Public chart headers
+also retained `frame-src 'self'`, sandboxed framing, no-cache and cross-origin CORP.
+
+The official Android release train pushed `android-v0.1.171` at the same clean source.
+[Android release run 38125315368](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/38125315368)
+attempt 2 passed the complete package gate (`APK_RELEASE_OK`), feedback-configuration proof,
+canonical signing, upload and public readback. Independent full public download verified
+**0.1.171 / code 172**, package `com.hermes.remote`, internal channel, measured minSdk **26**,
+33,374,063 bytes, SHA-256
+`2263c3c79e9a826929166c72d697215fb4094f5440dc4104dd561886b3f6b8b6`,
+and the sole canonical certificate from `docs/SIGNING.md`. The public index's latest code,
+source and all three release notes matched, and unversioned/unregistered APK URLs returned 404.
+The deliverable is https://mrlgs.net/releases/Hermes-Remote-0.1.171-debug.apk .
+
+The first Android CI attempt stopped before APK upload: the existing
+`ConversationWorkspaceTest.restoredTranscriptWaitsForMarkdownParsingBeforeSettlingItsPosition`
+asserted a visible Markdown node's position while asynchronous restoration was still active.
+Its unchanged isolated test reproduced a 131 px mismatch locally. Waiting for the parse queue
+and restoration transaction to finish retained all exact geometry/index/offset assertions and
+passed the complete 12-case class plus the 2,463-test full Android baseline and debug build
+with canonical signing verification. A single official retry at the original release source ran
+every package/publication gate again. The test synchronization fix in
+[#575](https://github.com/guoshengliang-coder/hermes-remote/pull/575) is merged with this
+publication record only after the public release, and does not change product code or
+require a new APK version.
+
+Equivalent evidence outside the worktree uses `hermes-go-batch-release-receipt-v1`,
+SHA-256 `77b324f560001090825c333ebb5e8544444ef367fad60e8fe6cf9023f6327190`.
+All three published sources independently contain the relevant feature
+merges; all public bytes/runtime identities were checked before handover. The complete one-page
+candidate snapshot had **five** items: HG-200, HG-206, HG-205, HG-148 and HG-134. Full PR files
+were independently mapped to artifacts, including the shared Android chart assets consumed by
+Web. HG-205/HG-206 descriptions, all nine pre-release events and unchanged attachments were
+fully read (HG-206 image 1 was viewed). Release comments
+`582cd635-cc6c-4e1c-b4cc-b9e829dc6b3f` / `9adfaef5-94c3-4078-b3e2-2f77272a3b29` were written
+first, then both items moved to **pending verification** with the receipt digest and every
+required artifact source/version. HG-148 stays development complete because its formal
+handover still identifies #462/Android only while its independently verified #465 repair also
+requires Gateway; the item explicitly documents the missing association. No correction or
+acceptance was attempted. HG-200 requires a Website artifact and HG-134 a macOS artifact,
+which this batch did not publish. Their statuses were unchanged.
+
+Local release preparation build/tests passed: Protocol 16, Connector 125, Gateway 202
+(29 database cases skipped), Release Server 37, scripts 405 (one skipped). The scripts gate used
+Homebrew OpenSSL 3, and the official Linux release CI ran its complete Node gate too.
+Verification limits remain explicit. HG-205 implementation ran Android L1 screenshots and L3
+Pixel_API_37 / emulator-5554 / API 37 gallery scenarios; Chrome template interaction and the
+real CDP touch regression passed. HG-206 implementation reported 2,462 Android JVM tests,
+voice L1 screenshots and its own Web/Gateway regressions; the release gates above validate the
+combined source. L2 device `A5DN9X4708H02629` remains USB-unauthorized. Safari/Home Screen,
+TalkBack, real-account history/rotation, continuous five-minute recordings against the actual
+provider, background/lock-screen and repeated-recording behavior remain for manual validation
+in `docs/SMOKE_TEST.md`, `docs/ANDROID_SMOKE.md` and
+`docs/TABLE_CHART_FULLSCREEN_VERIFICATION.md`. HG-206 did not run L3; no targetSdk change.
+Publication and pending-verification handover do not constitute device installation or acceptance.

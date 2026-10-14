@@ -120,6 +120,9 @@ enum class AppErrorCode(val value: String) {
     MICROPHONE_PERMISSION_REQUIRED("HR-PERM-005"),
     VOICE_UNAVAILABLE("HR-VOICE-001"),
     VOICE_RECOGNITION_FAILED("HR-VOICE-002"),
+    VOICE_DISCONNECTED("HR-VOICE-003"),
+    VOICE_FINAL_TIMEOUT("HR-VOICE-004"),
+    VOICE_EMPTY("HR-VOICE-005"),
     HISTORY_INCOMPLETE("HR-SYNC-001"),
     RUN_UNCONFIRMED("HR-SYNC-002"),
     // The Mac's Hermes answered the transcript request with a 5xx. The conversation and the

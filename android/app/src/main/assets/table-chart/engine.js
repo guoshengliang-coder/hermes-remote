@@ -185,7 +185,11 @@
         metric: metrics[0]?.index ?? -1,
         dimension,
         series,
-        type: times.length ? "line" : "bar",
+        type: times.length
+          ? "line"
+          : body.some((row) => (row[dimension] || "").length > 8)
+            ? "horizontal"
+            : "bar",
         categories: [],
         from: "",
         to: "",
@@ -197,57 +201,32 @@
     model.automatic =
       eligible &&
       !columns.some((c) => c.ambiguous || c.mixedUnits) &&
-      metrics.length === 1 &&
+      metrics.length >= 1 &&
       times.length <= 1 &&
       categories.length <= 1 &&
       !probe.error;
+    // A chart entry is offered only when the default meaning and row mapping are reliable.
+    model.eligible = model.automatic;
     return model;
   }
-  function intent(prompt) {
-    const s = String(prompt || "");
-    // Only explicit requests; arbitrary mentions in prose do not override the preference.
-    const matches = [
-      ...s.matchAll(
-        /(?:请|用|使用|展示|显示|给我|画|绘制|做成|生成|show|use|draw|plot)\s*(?:为|成|as|an?|the)?\s*(表格|数据表|table|折线图|柱状图|横向条形图|条形图|图表|line chart|bar chart|horizontal bar|chart)/gi,
-      ),
-    ];
-    const last = matches.at(-1)?.[1]?.toLowerCase();
-    return last
-      ? {
-          view: /表|table/.test(last) && !/图/.test(last) ? "table" : "chart",
-          type: /横|条形|horizontal/.test(last)
-            ? "horizontal"
-            : /柱|bar/.test(last)
-              ? "bar"
-              : /折线|line/.test(last)
-                ? "line"
-                : null,
-        }
-      : null;
-  }
-  function initial(model, saved, preference, prompt) {
-    const state = { ...model.defaults };
+  function initial(model, saved) {
+    const state = {
+      ...model.defaults,
+      categories: [],
+      view: model.automatic ? "chart" : "table",
+    };
     if (saved && typeof saved === "object") {
       for (const key of ["metric", "dimension", "series"])
         if (Number.isInteger(saved[key])) state[key] = saved[key];
       for (const key of ["from", "to"])
         if (typeof saved[key] === "string" && saved[key].length < 100)
           state[key] = saved[key];
-      if (saved.confirmed === true) state.confirmed = true;
       if (TYPES.includes(saved.type)) state.type = saved.type;
       if (["chart", "table"].includes(saved.view)) state.view = saved.view;
       if (Array.isArray(saved.categories))
         state.categories = saved.categories
           .filter((x) => typeof x === "string")
           .slice(0, 10000);
-    } else {
-      const request = intent(prompt);
-      state.view =
-        request?.view ||
-        (preference === "chart" || (preference === "auto" && model.automatic)
-          ? "chart"
-          : "table");
-      if (request?.type) state.type = request.type;
     }
     if (!model.metrics.some((c) => c.index === state.metric))
       state.metric = model.defaults.metric;
@@ -265,11 +244,7 @@
       state.type === "line"
     )
       state.type = "bar";
-    if (
-      !model.eligible ||
-      (!model.automatic && !saved && preference === "auto" && !intent(prompt))
-    )
-      state.view = "table";
+    if (!model.automatic) state.view = "table";
     return state;
   }
   function points(model, state) {
@@ -334,7 +309,6 @@
     number,
     time,
     analyze,
-    intent,
     initial,
     points,
     hash,

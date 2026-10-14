@@ -88,6 +88,53 @@ test("relay calls honor caller cancellation without disabling the local timeout"
   }
 });
 
+test("cancelling a probe also cancels its Basic Auth login, without starting the API request", async () => {
+  let loginStarted!: () => void;
+  const started = new Promise<void>((resolve) => { loginStarted = resolve; });
+  const { server, baseUrl, seen } = await serve(() => loginStarted());
+  try {
+    const caller = new AbortController();
+    const request = new HermesAuth({ baseUrl, username: "owner", password: "fixture-password", requestTimeoutMs: 150 })
+      .request("/api/status", { method: "GET", signal: caller.signal });
+    await started;
+    caller.abort(new Error("probe_connection_closed"));
+    await assert.rejects(request, /probe_connection_closed/);
+    assert.deepEqual(seen.map((entry) => entry.url), ["/auth/password-login"]);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
+test("one cancelled login waiter does not cancel a shared login still needed by a live request", async () => {
+  let finishLogin!: () => void;
+  let loginStarted!: () => void;
+  const started = new Promise<void>((resolve) => { loginStarted = resolve; });
+  const { server, baseUrl, seen } = await serve((request, respond) => {
+    if (request.url === "/auth/password-login") {
+      finishLogin = () => respond(200, "{}", { "set-cookie": "hermes_session=fixture; Path=/" });
+      loginStarted();
+    } else respond(200, "{}");
+  });
+  try {
+    const auth = new HermesAuth({ baseUrl, username: "owner", password: "fixture-password" });
+    const caller = new AbortController();
+    const first = auth.request("/api/profiles/active", { method: "GET", signal: caller.signal });
+    const live = auth.request("/api/sessions", { method: "GET" });
+    await started;
+    caller.abort(new Error("cancelled_probe"));
+    await assert.rejects(first, /cancelled_probe/);
+    finishLogin();
+    const response = await live;
+    await response.body?.cancel();
+    assert.equal(response.status, 200);
+    assert.deepEqual(seen.map((entry) => entry.url), ["/auth/password-login", "/api/sessions"]);
+    assert.equal(seen[1].cookie, "hermes_session=fixture");
+  } finally {
+    server.closeAllConnections(); server.close();
+  }
+});
+
 test("a schema over the ceiling is too_large, declared or streamed", async () => {
   const big = "x".repeat(4096);
   const declared = await serve((_request, respond) => respond(200, big, { "content-length": String(big.length) }));

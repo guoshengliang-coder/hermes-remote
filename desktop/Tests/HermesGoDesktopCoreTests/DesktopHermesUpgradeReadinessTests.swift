@@ -3,6 +3,19 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesUpgradeReadinessTests: XCTestCase {
+    func testPMStartEligibilityIsNotAnUpgradeConditionVerdict() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let installation = DesktopLocalHermesInstallation(executable: fixture.installation.checkoutRoot.appendingPathComponent(".hermes/bin/hermes"),
+            checkoutRoot: fixture.installation.checkoutRoot, hermesHome: fixture.installation.hermesHome,
+            commit: fixture.installation.commit, version: fixture.installation.version, identityChangedAt: .distantPast,
+            installedDistribution: .packageManaged)
+        XCTAssertTrue(installation.dependenciesConsistent)
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean)).check(
+            detection: .usable(installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        XCTAssertFalse(report.dependenciesVerified)
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+    }
     func testCertifiedTargetCannotHideUnavailableProfileInspection() throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean)).check(

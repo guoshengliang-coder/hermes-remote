@@ -497,6 +497,14 @@ insets 也是合成值。刘海、圆角、手势条与三键导航栏的真实�
 
 ---
 
+## HG-206 · 5 分钟语音输入 — 待真机与服务验证
+
+按 `SMOKE_TEST.md` HG-206 的完整步骤验证 Android：超过 60 秒不中断、首次实际音频计时、
+最后 15 秒倒计时、5 分钟定稿仅放入草稿、原有附件不丢、04:59 松手仍有独立最终等待。
+补测断网、锁屏/后台与前台恢复、连续两次录音、取消等待及迟到结果；真实豆包 5 分钟能力
+仍待验证。JVM/Robolectric 与模拟服务不能替代麦克风、厂商触摸事件和实际服务的组合。
+
+
 ## A-18 首页告警条计数跟着处理动作更新（HG-149）— 待验
 
 **引入** 未发布（HG-149，分支 `opencode/hg-149-cron-badge-sync`）· **契约**
@@ -561,33 +569,30 @@ failAllPending`；在途调用正常结束为已有连接失败状态，恢复�
 核对中央“松手发送/取消/转文字”与最终操作同步。在系统关闭触摸反馈、无振动器和不同
 厂商设备上检查系统策略；不使用自建 Vibrator 波形覆盖用户设置。模拟器不能验证真实力度。
 
-## HG-192 — offline table charts (Android and Web)
+## HG-205 — fullscreen table charts (Android and Web)
 
-Use completed responses containing (1) 日期＋新增人数, (2) 渠道＋收入（元）, and
-(3) 日期＋平台＋新增人数. Check local line/bar recommendations, series and category/date
-filters, exact-value selection, metric/unit/type selectors, and the complete source table after
-switching back. Copy/export must still use the original table. Open fullscreen from either view,
-filter, rotate explicitly, then Close/system Back: the original chat anchor and filters must return.
-Reopen history/restart the client, then change Mac/profile/account to check isolation.
+1. Complete responses with 日期＋新增人数, 渠道＋收入（元）, 日期＋平台＋新增人数.
+   Chat shows the source table and Expand, without a chart toggle or controls. Expand directly
+   shows reliable line/bar data, with Adjust and Exact values collapsed and no initial filters.
+2. Open Adjust to change metric/type/series or date/category filters. Check the visible filter
+   range and Restore all. Large plots have explicit 100-point pages and counts; every plot point
+   and exact value remains reachable. Drag horizontally across the canvas on a phone to reveal
+   later points within the current page. Long labels wrap in horizontal bars; no guessed aggregation.
+3. Switch to Source table and inspect every column by scrolling, then Chart. Copy/export still uses
+   the complete source. Rotate, Close/system Back, reopen and restart: per-table choices persist,
+   panels reopen collapsed, and the original chat table and reading position restore.
+4. New tables remain independent. Change Mac/profile/account to check isolation. Settings and the
+   Web drawer have no Data presentation entry; legacy defaults do not affect the new behavior.
+5. Text-only/single-value/ID/mixed-unit/ambiguous data and unresolved duplicates expand as tables
+   without required setup. Check gaps/totals/percentages; source rows remain complete. Fresh-data
+   questions append to an editable draft and never send automatically.
+6. Focus a chart selector/input, switch to Source table, close/reopen and use system Back: no Compose
+   focus-search crash. Renderer failures retain HR-CHART-001 + Retry, storage denial HR-CHART-002.
+   Existing container isolation blocks HTML, navigation, network, forms and permissions.
 
-Set each presentation choice, cancel an unsaved choice, then save it; explicit “请用表格” /
-“请画折线图” takes priority on a new table. Test text-only/single-value data, gaps, totals,
-IDs, percentages, mixed currencies and repeated dimensions. Unclear headers require confirmation;
-duplicate dimensions require series selection instead of a guessed sum. Source-range inputs must
-reject dates outside coverage. Prepare a new-data question with an existing draft: it appends
-source/columns/requested range, remains editable, and never sends automatically.
-
-Renderer load/process failures keep the table with HR-CHART-001 + Retry. Denied local writes show
-HR-CHART-002. Injected HTML, links, network fetches, file/content URLs, redirects, forms and
-permissions must be blocked in the chart container; no real credentials belong in fixtures.
-Verify light/dark, 360px width, large text and TalkBack data-point selection. Run on an attached
-physical phone when available; emulator and Roborazzi results do not count as L2. Record client,
-device/ROM, row count, measured stage, response/paint time and remaining gaps. AI-assisted inference
-and cross-client preference sync are outside the user-approved scope.
-
-Android focus regression: tap a chart select/input before entering fullscreen, switch to Table,
-close/reopen, and use system Back. Removing a focused AndroidView must not trigger a Compose
-focus search during composition changes; clear renderer focus before changing the view/owner.
+Check light/dark, narrow width, large text and TalkBack. Run on an authorized physical phone;
+emulator and Roborazzi do not count as L2. Record results and gaps in
+`TABLE_CHART_FULLSCREEN_VERIFICATION.md`. AI inference and cross-client sync remain outside scope.
 
 ## HG-195：流式正文解析期间不闪空
 
@@ -663,3 +668,21 @@ L3 Pixel_9_API_36_1（API 36）已启动、安装本地调试包并连接隔离 
 应进入黑底全屏，不只闪动；双击／双指放大、多图左右翻页正常。返回只关闭看图器，聊天停留在
 打开前的阅读位置；退出会话后重进、重连或冷启动加载同一历史，再点图也应能打开。
 本机无真机连接，荣耀原始会话、双指手势及阅读位置仍待验。
+
+## HG-211 / HG-213 / HG-214 发送恢复与完成历史 — 真机及真实网络待验
+
+自动化覆盖运行回收后恢复原会话、持久会话缺失的保守处理、提交前导航／退出取消、等待句柄
+的总时限、附件冷启动重试、旧句柄迟到回收，以及第一条未发送不挡住后续已完成回答。
+已经发起提交但应答丢失时不据此提供重试；服务端历史确认后恢复已发送和完成状态。
+
+仍需在包含此修复的新版本上，使用报告中的 HONOR MBH-AN10 和真实 Hermes 会话验证：
+
+1. 有历史的会话空闲至运行句柄被回收，再发消息：恢复同一会话，历史保留，不出现 SESS-001。
+2. 在网络中断／重连期间发送，等待句柄期间退出并重进：原消息转为未发送（SESS-007），
+   会话列表不持续显示运行中；附件仍可重试。留在页面等待也应在准备阶段的 25 秒总时限内结算。
+3. 保留这条未发送消息，另发一条并等完成：新回答可见，原消息仍可重试／撤回；退出、重连、
+   冷启动后未发送记录仍在，不能因为少一条服务端用户回合而拒绝完整历史。
+4. 在提交已经发出、应答未确认时断网并退出：不把它当作确定未发送重试；重连对账显示服务端
+   实际结果。核对 Hermes 只执行一次，运行／完成／失败状态与服务端一致。
+
+本机未连接实体设备；厂商 ROM、真实连接冻结及原报告会话仍待验证。未交付或发布 APK。

@@ -1,0 +1,12 @@
+{
+  "name": "hermes-go-website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/server.mjs && node --check src/pages.mjs && node --check src/releases.mjs && node --check src/internal-publication.mjs && node --check src/internal-dmg-publication.mjs && node --check scripts/desktop-internal-index.mjs && node --check scripts/publish-desktop-internal.mjs && node --check public/site.js"
+  },
+  "engines": { "node": ">=22" }
+}

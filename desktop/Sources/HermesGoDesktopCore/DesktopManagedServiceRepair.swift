@@ -50,7 +50,16 @@ public struct DesktopManagedServiceRepairPreparation: Identifiable, Equatable, S
     public let filePaths: [String]
     public let usesLocalHermes: Bool
     public let resumesInterruptedRepair: Bool
+    public let reconnectsConnectorOnly: Bool
     fileprivate let image: RepairImage
+}
+
+public enum DesktopConnectorReconnectEligibility {
+    public static func matches(_ installation: DesktopManagedBootstrapInstallationStatus, device: AccountDevice?) -> Bool {
+        guard let device, device.access == "owner",
+              case .active(_, _, let bindingID, let generation) = installation else { return false }
+        return device.id == bindingID && device.generation == generation
+    }
 }
 
 /// No installation, replacement binding, key generation, token writes or version change occurs here.
@@ -69,6 +78,7 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
     private let identity: IdentityReader
     private let loadedArguments: LoadedArguments
     private let localDetector: LocalDetector
+    private let localProbe: () async -> ProbeResult
     private let readiness: any DesktopHermesCandidateReadinessChecking
     private let shutdown: any DesktopHermesShutdownChecking
     private let polls: Int
@@ -82,14 +92,18 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         agents: DesktopLaunchAgentController<Runner>, gatewayURL: URL, hermesHome: URL,
         identity: @escaping IdentityReader, loadedArguments: @escaping LoadedArguments,
         localDetector: @escaping LocalDetector,
-        readiness: any DesktopHermesCandidateReadinessChecking = DesktopHermesCandidateReadinessChecker(),
+        localProbe: (() async -> ProbeResult)? = nil,
+        readiness: (any DesktopHermesCandidateReadinessChecking)? = nil,
         shutdown: any DesktopHermesShutdownChecking = DesktopHermesShutdownChecker(),
         polls: Int = 75, delay: UInt64 = 1_000_000_000
     ) {
         self.installer = installer; self.journal = journal; self.agents = agents
         self.gatewayURL = gatewayURL; self.hermesHome = hermesHome; self.identity = identity
         self.loadedArguments = loadedArguments; self.localDetector = localDetector
-        self.readiness = readiness; self.shutdown = shutdown
+        self.localProbe = localProbe ?? { await installer.probeManagedHermes() }
+        self.readiness = readiness ?? DesktopHermesCandidateReadinessChecker(
+            authenticatedProbe: { await installer.probeManagedHermes() }
+        ); self.shutdown = shutdown
         self.polls = min(max(polls, 1), 300); self.delay = delay
     }
 
@@ -102,7 +116,7 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
             || !exists(installer.layout.connectorLaunchAgent) || !exists(installer.layout.hermesLaunchAgent)
     }
 
-    public func prepare() async throws -> DesktopManagedServiceRepairPreparation {
+    public func prepare(reconnectOnly: Bool = false) async throws -> DesktopManagedServiceRepairPreparation {
         guard !executing else { throw DesktopManagedServiceRepairError.stalePreparation }
         guard let record = try journal.loadReadOnly(), record.state == .accountActive else {
             throw DesktopManagedServiceRepairError.installationRecordMissing
@@ -127,12 +141,18 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
             image = try await makeImage(record: record, credential: credential)
             recovering = false
         }
+        if reconnectOnly {
+            guard !recovering, image.originalHermes != nil, image.originalConnector != nil,
+                  image.services == DesktopLaunchAgentServiceState(legacyLoaded: false, accountLoaded: true, hermesLoaded: true)
+            else { throw DesktopManagedServiceRepairError.unknownService }
+            guard await localProbe().level == .healthy else { throw DesktopManagedServiceRepairError.healthFailed }
+        }
         let plan = DesktopManagedServiceRepairPreparation(
             id: UUID(), releaseVersion: record.releaseVersion,
             filePaths: [installer.layout.hermesLaunchAgent.path, installer.layout.connectorLaunchAgent.path]
                 + (image.launcher != nil && image.originalLauncher == nil ? [installer.layout.localHermesLauncher.path] : []),
             usesLocalHermes: image.localExecutable != nil,
-            resumesInterruptedRepair: recovering, image: image
+            resumesInterruptedRepair: recovering, reconnectsConnectorOnly: reconnectOnly, image: image
         )
         prepared = plan
         return plan
@@ -156,6 +176,11 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         guard digest(try validateCredential(image.record, remote: remote)) == image.credentialDigest,
               digest(try installer.readOwnedPrivateFile(installer.layout.hermesSessionToken)) == image.tokenDigest
         else { throw DesktopManagedServiceRepairError.stalePreparation }
+        if preparation.reconnectsConnectorOnly {
+            guard await localProbe().level == .healthy else { throw DesktopManagedServiceRepairError.healthFailed }
+        }
+        // The async probe may outlive the files/service observation. All mutation checks below
+        // must run after it, while the operation lease is held.
         try validateImage(image)
         if preparation.resumesInterruptedRepair {
             guard let snapshot = try optionalFile(snapshotURL),
@@ -182,6 +207,10 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         try requireLoadedArguments(image)
         try installer.ensurePrivateDirectory(installer.layout.stateRoot)
         try installer.atomicWrite(try JSONEncoder().encode(image), to: snapshotURL, permissions: 0o600)
+        let operationLog = DesktopServiceOperationLog(layout: installer.layout)
+        if preparation.reconnectsConnectorOnly {
+            operationLog.record("connector-reconnect start reason=user-request hermes=unchanged")
+        }
         do {
             // Missing files alone do not justify stopping a still-running Hermes. Preserve both
             // existing files byte-for-byte, including its optional environment and original runtime.
@@ -220,7 +249,9 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
             // account_active stays intact throughout. A leftover snapshot is always conservative:
             // the next explicit recovery restores the pre-repair files/services.
             try FileManager.default.removeItem(at: snapshotURL)
+            if preparation.reconnectsConnectorOnly { operationLog.record("connector-reconnect result=fresh-cloud-health") }
         } catch {
+            if preparation.reconnectsConnectorOnly { operationLog.record("connector-reconnect result=failed reason=\(String(describing: type(of: error)))") }
             do { try await restore(image) }
             catch { throw DesktopManagedServiceRepairError.restorationFailed }
             throw error

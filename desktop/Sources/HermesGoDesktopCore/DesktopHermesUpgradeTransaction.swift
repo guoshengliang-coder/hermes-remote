@@ -296,7 +296,7 @@ public actor DesktopHermesUpgradeCoordinator {
             try store.requireNoPendingUpgrade()
             let initial = try await operations.preflight(target: target, confirmedIdentity: confirmedIdentity)
             guard initial.installation.runtimeIdentity == confirmedIdentity,
-                  initial.installation.dependenciesConsistent,
+                  initial.installation.upgradeDependenciesVerified,
                   certifiedPaths.contains(where: { $0.target == target && $0.sourceCommit == initial.installation.commit }),
                   initial.installation.commit != target.commit,
                   !DesktopLocalHermesDetector.version(target.version, isOlderThan: initial.installation.version)

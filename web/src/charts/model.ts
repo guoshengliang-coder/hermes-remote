@@ -44,37 +44,16 @@ declare global {
     analyze(rows: string[][]): Model;
     time(value: string, header: string): number | null;
     parseMarkdown(raw: string): string[][];
-    initial(
-      model: Model,
-      saved: unknown,
-      preference: string,
-      prompt: string,
-    ): ChartState;
+    initial(model: Model, saved: unknown): ChartState;
     points(
       model: Model,
       state: ChartState,
     ): { data: Point[]; error: string | null };
     hash(text: string): string;
-    intent(
-      prompt: string,
-    ): { view: "table" | "chart"; type: string | null } | null;
   };
 }
 export const engine = globalThis.HermesTableChart;
-export type Presentation = "table" | "chart" | "auto";
-const PREFIX = "hermes-go.table-charts.";
-export function preference(onFailure?: () => void): Presentation {
-  try {
-    const v = localStorage.getItem(PREFIX + "preference");
-    return v === "chart" || v === "auto" ? v : "table";
-  } catch {
-    onFailure?.();
-    return "table";
-  }
-}
-export function savePreference(choice: Presentation): void {
-  localStorage.setItem(PREFIX + "preference", choice);
-}
+const PREFIX = "hermes-go.table-charts.fullscreen-v2.";
 export function storageKey(scope: readonly string[], rows: string[][]): string {
   return (
     PREFIX +
@@ -94,17 +73,14 @@ export function restore(key: string, onFailure?: () => void): unknown {
 export function persist(key: string, state: ChartState): void {
   localStorage.setItem(key, JSON.stringify(state));
   // Bound the cache without persisting source tables. Never erase other local preferences.
-  const keys = Object.keys(localStorage).filter(
-    (k) => k.startsWith(PREFIX) && k !== PREFIX + "preference",
-  );
+  const keys = Object.keys(localStorage).filter((k) => k.startsWith(PREFIX));
   if (keys.length > 500)
     for (const old of keys.slice(0, keys.length - 500))
       if (old !== key) localStorage.removeItem(old);
 }
 export function clearCharts(): void {
   for (const key of Object.keys(localStorage))
-    if (key.startsWith(PREFIX) && key !== PREFIX + "preference")
-      localStorage.removeItem(key);
+    if (key.startsWith(PREFIX)) localStorage.removeItem(key);
 }
 export function queryPrompt(
   source: string,

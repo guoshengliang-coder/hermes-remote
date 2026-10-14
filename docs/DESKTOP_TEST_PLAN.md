@@ -180,6 +180,52 @@ full history/Q&A/stream/cancel/attachment/approval/clarify/cron acceptance and p
 The new condition rows also need light/dark review on that isolated Mac. Do not launch this app against
 the owner's production services merely to satisfy the visual check.
 
+## HG-212 PM runtime and recovery follow-up
+
+Automated coverage adds: PM plus stale legacy venv (the three detector cases failed on old code),
+PM-only install, unsafe PM file/parent refusal, PM agent recognition/PATH/no VIRTUAL_ENV/token
+preservation/exact legacy rollback, actual command-loading success/import failure/bounded process
+termination, completed-stage verification failure remaining pending and verification-only retry,
+public health failing authenticated JSON proof, loopback route/token/redaction/redirect refusal,
+account report time surviving a newer refresh, diagnostic button wiring/source labels, exact owned-binding
+reconnect eligibility, Connector-only restart with unchanged identity/plists/Hermes, stale Cloud
+health refusal, local authentication recheck before mutation, and missing-job refusal. Existing suites retain update lock/settle/backoff and
+unknown-job, account, credential, concurrent-lease and interruption rollback gates.
+
+Physical acceptance is still required before distribution:
+
+1. Upgrade a Mac with old Python 3.11 venv and a valid published PM command: GO uses PM, one serve
+   holds 9119, the same token/home/state.db remain, and private authenticated reads pass.
+2. Run upstream's supported update while GO is active; prove no restart during its lock, correct
+   post-update process/command, no duplicate 9119 service and no stale generation path in GO config.
+3. Restore local Hermes while retaining an older negative account health report. “重新诊断” must
+   fetch account state, show separate local success and report time, and retain Cloud failure until
+   its newer report succeeds. Failed account refresh shows its code, not a false new timestamp.
+4. Confirm “重新连接这台 Mac”: only the proven GO Connector PID changes; Hermes PID, SSH client,
+   database and token remain unchanged. Fresh Cloud health is required; another/shared Mac and
+   concurrent installation never offer/execute this action. Test interruption/rollback UI.
+5. Keep the notebook SSH session open while iPhone Safari/PWA lists history and sends/receives a
+   new message. Customer reported Desktop recovered after Connector restart; this end-to-end gate
+   has not been reported or executed by this iteration.
+
+Local verification on Macbook-M5: the full Desktop core suite passed (563 tests), canonical asset
+comparison and ad-hoc app build passed. The actual Diagnostics and reconnect-confirmation SwiftUI
+views were rendered with static fake health data and inspected in light/dark mode; the harness did
+not read Keychain or start real services. This is visual layout evidence, not device/Cloud acceptance.
+
+## HG-212 SSH/PWA startup-failure acceptance
+
+`DesktopHermesReadinessTests` covers fresh Python/generic startup failures, separate port-conflict
+evidence, fixed diagnostics without credentials or personal paths, existing bilingual runtime issue,
+retryability/recovery, historical stderr, nonfatal warnings, incomplete lines, log rotation, symlinks
+before/after checkpoint, and bounded growth. The Python/port regressions failed on the old checker.
+The ready-marker + healthy-loopback requirement remains covered. Full Desktop tests also exercise
+update waits, restart bounds, occupied-port refusal, exact managed labels and rollback paths.
+
+Customer SSH/PWA simultaneous use, actual upstream/venv repair, packaged Desktop details, GO-only
+restart preserving SSH and full Mac reboot remain **unverified**. Execute and record the acceptance
+steps in [SSH_MOBILE_RECOVERY.md](SSH_MOBILE_RECOVERY.md) on an explicitly authorized customer/test Mac.
+
 ## HG-175 repair acceptance
 
 Automated `DesktopManagedServiceRepairTests` covers the 16 combinations of file presence/job loading,
@@ -792,3 +838,16 @@ retain its colors without an opaque white square. The local ad-hoc build is not 
 使用；未关闭通道时 ACK 必须保持 busy。关闭通道后才可取得 Connector 排空证明，仍不能替代 cron、
 CLI、其他 profile 和内核进程身份检查。服务恢复的 launchd 命令测试使用注入 runner；本轮未对真实
 LaunchAgent 执行 stop/start。
+
+HG-199/main integration additionally preserves HG-212 bounded PM starts with unknown metadata,
+while a new Machine regression refuses upgrade before worker/journal/services without strict dependency
+evidence. Connector's real account-socket health fixture covers paused health admission and an
+admitted stalled response remaining busy until socket cancellation. Test request publication uses
+atomic rename like Desktop; production malformed/private-file refusal remains unchanged.
+
+Final merged-baseline validation: focused upgrade inspection/consumer suites 71 tests; Desktop
+677 with 1 opt-in skip; native assets/app and ad-hoc/resource checks; Node Protocol 16, Connector
+162, Gateway 238 (29 environment skips), release-server 37 and scripts 407 (1 environment skip);
+Web typecheck/905 tests/build; Android 2498 JVM tests/assembleDebug. The host probe reports L2
+A5DN9X4708H02629 unauthorized and L3 Pixel_API_37 available but not exercised. No new visual
+layout or targetSdk change was made; no APK/app handed off, no live Hermes or service operation.

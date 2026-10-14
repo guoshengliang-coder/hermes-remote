@@ -36,13 +36,14 @@ public struct DesktopHermesUpgradeReadiness: Equatable, Sendable {
     public let recoveryRequired: Bool
     public let officialUpdateInProgress: Bool
     public let targetCertified: Bool
+    public let dependenciesVerified: Bool
     public let checkedAt: Date
     public let inspection: DesktopHermesUpgradeInspection?
     /// This read-only check cannot prove live-task retirement, stopped writers or restore custody.
     /// It must never be used as execution authorization by the transaction adapter.
     public var issue: DesktopIssue? {
         if recoveryRequired { return DesktopHermesUpgradeError.recoveryRequired.issue }
-        if sourceIdentity == nil || workingTree != .clean || officialUpdateInProgress || !targetCertified {
+        if sourceIdentity == nil || workingTree != .clean || officialUpdateInProgress || !targetCertified || !dependenciesVerified {
             return DesktopHermesUpgradeError.preflightBlocked.issue
         }
         guard let inspection, inspection.processSampleStable, inspection.unreadableOwnedProcesses == 0,
@@ -83,7 +84,7 @@ public struct DesktopHermesUpgradeReadinessChecker: Sendable {
             ? git.workingTree(checkout: installation!.checkoutRoot) : .unknown
         return .init(target: target, sourceIdentity: installation?.runtimeIdentity, workingTree: workingTree,
             recoveryRequired: recovery, officialUpdateInProgress: officialUpdateInProgress,
-            targetCertified: certifiedTargets.contains(target), checkedAt: now,
+            targetCertified: certifiedTargets.contains(target), dependenciesVerified: installation?.upgradeDependenciesVerified ?? false, checkedAt: now,
             inspection: installation != nil && !officialUpdateInProgress && !recovery ? inspector.inspect(installation: installation!) : nil)
     }
 }

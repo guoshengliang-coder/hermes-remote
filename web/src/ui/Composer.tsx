@@ -76,6 +76,10 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const area = useRef<HTMLTextAreaElement>(null);
   const composer = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  // iOS maps data to the document picker directly; an unrestricted input also offers Photos.
+  // iPadOS can identify as a desktop Mac. This changes the picker hint, never the file's MIME type.
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   // HG-174: set while the pointer is inside the composer's own controls. Safari, Firefox and iOS
   // never move focus onto a pressed button, so the textarea's blur then arrives with no
   // relatedTarget — the same shape as a tap on the transcript. The pointerdown is what tells the
@@ -85,7 +89,9 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   const [voiceMode, setVoiceMode] = useState(false);
   const [voicePhase, setVoicePhase] = useState<"idle" | "held" | "waiting">("idle");
   const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceLimited, setVoiceLimited] = useState(false);
   const [voiceText, setVoiceText] = useState("");
+  const [voiceNotice, setVoiceNotice] = useState("");
   const [requestingMic, setRequestingMic] = useState(false);
   const voice = useRef<BrowserVoiceSession | null>(null);
   const permissionEpoch = useRef(0);
@@ -125,7 +131,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   }
   function beginVoice() {
     if (voice.current || disabled || blocked || generating || !voiceReady || preparing || generatingCount > 0 || !app.device) return;
-    intent.current = "send"; setVoiceText(""); setVoiceRecording(false); setVoicePhase("held"); setProblem(null);
+    intent.current = "send"; setVoiceText(""); setVoiceRecording(false); setVoiceLimited(false); setVoicePhase("held"); setProblem(null); setVoiceNotice("");
     const deviceId = app.device.deviceId;
     const recording = new BrowserVoiceSession({
       endpoint: async () => { await app.client.settled(); return paths.deviceVoice(deviceId); },
@@ -133,12 +139,18 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         if (voice.current !== recording) return;
         if (event.kind === "recording") { setVoiceRecording(true); return; }
         if (event.kind === "partial") { setVoiceText(event.text); return; }
-        if (event.kind === "waiting") { setVoicePhase("waiting"); setVoiceRecording(false); return; }
+        if (event.kind === "waiting") { setVoicePhase("waiting"); setVoiceRecording(false); setVoiceLimited(event.limited ?? false); return; }
         voice.current = null; setVoicePhase("idle"); setVoiceRecording(false); setVoiceText("");
         const state = latest.current;
-        if (event.kind === "failed" || intent.current === "edit" || state.disabled || state.blocked || state.generating || !state.voiceReady || state.preparing || state.generatingCount > 0) {
+        if (event.kind === "failed" || event.limited || intent.current === "edit" || state.disabled || state.blocked || state.generating || !state.voiceReady || state.preparing || state.generatingCount > 0) {
           if (event.text.trim()) { setText((draft) => appendVoiceText(draft, event.text)); setVoiceMode(false); setFocused(true); }
-          if (event.kind === "failed") setProblem(event.error);
+          if (event.kind === "failed") {
+            setProblem(event.error);
+            setVoiceNotice(event.text.trim() ? t("已识别的文字已放入输入框，请检查后发送。", "Recognized text is in the input. Review it before sending.") : t("本次没有可保留的文字。", "There is no text to keep from this recording."));
+          } else if (event.limited) {
+            setVoiceMode(false); setFocused(true);
+            setVoiceNotice(event.text.trim() ? t("已录满 5 分钟，文字已放入输入框。可继续补充或发送。", "The 5-minute recording limit was reached. Text is in the input; add more or send it.") : t("已录满 5 分钟，但没有识别到文字。请重试或改用键盘。", "The 5-minute recording limit was reached, but no speech was recognized. Retry or use the keyboard."));
+          }
         } else {
           // HG-196: final speech completes the same composer as typing. Read the latest stage,
           // not the render captured when recording began, and never send on an empty final.
@@ -149,6 +161,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     voice.current = recording; recording.start();
   }
   function releaseVoice(action: VoiceAction) {
+    if (voicePhase === "waiting") return;
     if (action === "cancel") { cancelVoice(); return; }
     intent.current = action; voice.current?.finish();
   }
@@ -175,7 +188,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
   useEffect(() => {
     if (keyRef.current === draftKey) return;
     keyRef.current = draftKey;
-    cancelVoice(); permissionEpoch.current++; setRequestingMic(false); setVoiceMode(false); setFocused(false);
+    cancelVoice(); setVoiceNotice(""); permissionEpoch.current++; setRequestingMic(false); setVoiceMode(false); setFocused(false);
     setSheet(null); setPreparing(false); setGeneratingCount(0);
     setProblem(null);
   }, [draftKey]);
@@ -284,7 +297,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     setText("");
     flushDraft();
     setAttachments([]); // preview URLs now belong to the sent bubble
-    setProblem(null);
+    setProblem(null); setVoiceNotice("");
     collapse();
   }
 
@@ -360,6 +373,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
     <div class="composer-wrap">
       {sheets}
       {problem ? <ErrorNotice error={problem} language={language} onRetry={problem.code === "HR-PERM-006" ? () => void enterVoice() : problem.code.startsWith("HR-VOICE-") ? () => { setProblem(null); setVoiceMode(true); } : undefined} onDismiss={() => setProblem(null)} variant="inline" /> : null}
+      {voiceNotice ? <p class="composer-progress" role="status">{voiceNotice}</p> : null}
       {attachments.length ? (
         <div class="attachment-strip">
           {attachments.map((a) => (
@@ -407,7 +421,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         {[
           { ref: camera, accept: "image/*", capture: "environment" as const, multiple: false },
           { ref: photos, accept: "image/*", capture: undefined, multiple: true },
-          { ref: picker, accept: undefined, capture: undefined, multiple: true },
+          { ref: picker, accept: ios ? "application/octet-stream" : undefined, capture: undefined, multiple: true },
         ].map((input, i) => (
           <input
             key={i}
@@ -427,7 +441,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         ))}
         {voiceMode ? <>
           <button type="button" class="icon-button composer-voice" aria-label={t("切换键盘输入", "Switch to keyboard")} disabled={voicePhase !== "idle"} onClick={() => { cancelVoice(); setVoiceMode(false); setFocused(true); area.current?.focus(); }}><KeyboardIcon /></button>
-          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} disabled={disabled || generating || !voiceReady || preparing || generatingCount > 0} onBegin={beginVoice} onRelease={releaseVoice} onCancelWait={() => cancelVoice(true)} />
+          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} limited={voiceLimited} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} disabled={disabled || generating || !voiceReady || preparing || generatingCount > 0} onBegin={beginVoice} onRelease={releaseVoice} onCancelWait={() => cancelVoice(true)} />
           {generating ? sendOrStop() : addButton()}
         </> : <>
         {!focused && voiceAvailable ? <button type="button" class="icon-button composer-voice" aria-label={t("切换语音输入", "Switch to voice input")} disabled={disabled || requestingMic} onClick={() => void enterVoice()}>{requestingMic ? <span class="spinner tiny" /> : <MicIcon />}</button> : null}

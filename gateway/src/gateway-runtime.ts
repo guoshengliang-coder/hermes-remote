@@ -151,6 +151,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
         register: (peer) => peers.registerAccount(peer),
         unregister: (peer) => peers.unregisterAccount(peer),
         reportFailure,
+        log,
       })
     : undefined;
   const httpRouter = new GatewayHttpRouter({

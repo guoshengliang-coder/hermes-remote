@@ -80,7 +80,7 @@ public actor DesktopHermesUpgradeMachineOperations<Evidence: DesktopHermesUpgrad
         inspecting = true; defer { inspecting = false }
         let checked = try await evidence.inventory(target: target, confirmedIdentity: confirmedIdentity)
         let current = checked.preflight
-        guard current.installation.runtimeIdentity == confirmedIdentity, current.installation.dependenciesConsistent,
+        guard current.installation.runtimeIdentity == confirmedIdentity, current.installation.upgradeDependenciesVerified,
               Set(current.services.map(\.label)) == labels, current.services.count == labels.count else {
             throw DesktopHermesUpgradeError.preflightBlocked
         }

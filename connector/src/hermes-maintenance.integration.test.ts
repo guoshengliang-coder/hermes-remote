@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +14,7 @@ import { WebSocketServer } from "ws";
 test("real Connector refuses new HTTP, upload, WebSocket and chat admission during durable maintenance", { timeout: 10_000 }, async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "hg199-maintenance-")));
   const runID = randomUUID();
-  await writeFile(join(root, "request.json"), JSON.stringify({ schema: 1, mode: "pause", runID,
+  await writeRequest(root, JSON.stringify({ schema: 1, mode: "pause", runID,
     sourceIdentity: "a".repeat(64) }), { mode: 0o600 });
   let localCalls = 0;
   const server = createServer((_request, response) => { localCalls++; response.writeHead(200).end("{}"); });
@@ -123,7 +123,7 @@ test("real streamed HTTP drains after pause without aborting or accepting a seco
   });
   await firstStarted;
   const runID = randomUUID();
-  await writeFile(join(root, "request.json"), JSON.stringify({ schema: 1, mode: "pause", runID, sourceIdentity: "a".repeat(64) }), { mode: 0o600 });
+  await writeRequest(root, JSON.stringify({ schema: 1, mode: "pause", runID, sourceIdentity: "a".repeat(64) }), { mode: 0o600 });
   gateway.send(JSON.stringify({ type: "tunnel.http.request", version: 1, targetDeviceId: "test-mac",
     id: "second", method: "POST", path: "/api/second", headers: {} }));
   await secondRefused;
@@ -194,7 +194,7 @@ test("maintenance on an existing real RPC channel refuses a prompt and preserves
     await rm(root, { recursive: true, force: true });
   });
   await localConnected; send(1, "session.prompt"); await firstAccepted;
-  await writeFile(join(root, "request.json"), JSON.stringify({ schema: 1, mode: "pause", runID: randomUUID(),
+  await writeRequest(root, JSON.stringify({ schema: 1, mode: "pause", runID: randomUUID(),
     sourceIdentity: "a".repeat(64) }), { mode: 0o600 });
   send(2, "session.prompt"); send(3, "request.answer"); send(4, "session.interrupt");
   await Promise.all([promptRefused, answersDrained]);
@@ -210,3 +210,10 @@ test("maintenance on an existing real RPC channel refuses a prompt and preserves
   }
   assert.fail("closed RPC channel did not drain");
 });
+
+// Match Desktop's atomic mailbox publication: concurrent readers must not see fixture half-writes.
+async function writeRequest(directory: string, body: string, options: { mode: number }): Promise<void> {
+  const temporary = join(directory, `.${randomUUID()}.request.tmp`);
+  await writeFile(temporary, body, options);
+  await rename(temporary, join(directory, "request.json"));
+}

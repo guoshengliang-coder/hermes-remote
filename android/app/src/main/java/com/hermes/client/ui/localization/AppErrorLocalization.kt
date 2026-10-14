@@ -295,7 +295,13 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
         AppErrorCode.VOICE_UNAVAILABLE ->
             localized(language, "语音识别暂不可用，请稍后重试或改用键盘。", "Voice recognition is unavailable. Retry later or use the keyboard.")
         AppErrorCode.VOICE_RECOGNITION_FAILED ->
-            localized(language, "语音识别未完成。如有临时文字，已放入草稿供检查。", "Voice recognition did not finish. Any partial text was placed in the draft for review.")
+            localized(language, "语音识别失败，请重试或改用键盘。", "Voice recognition failed. Retry or use the keyboard.")
+        AppErrorCode.VOICE_DISCONNECTED ->
+            localized(language, "语音连接中断，请检查网络后重试或改用键盘。", "The voice connection was interrupted. Check your network and retry, or use the keyboard.")
+        AppErrorCode.VOICE_FINAL_TIMEOUT ->
+            localized(language, "等待识别结果超时，请重试或改用键盘。", "The final recognition result timed out. Retry or use the keyboard.")
+        AppErrorCode.VOICE_EMPTY ->
+            localized(language, "没有识别到文字，请重试或改用键盘。", "No speech was recognized. Retry or use the keyboard.")
         AppErrorCode.UNKNOWN ->
             localized(language, "出现未知错误，请重试。", "An unknown error occurred. Retry.")
 }

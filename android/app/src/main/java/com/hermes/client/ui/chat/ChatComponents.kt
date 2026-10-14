@@ -106,6 +106,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -232,11 +233,11 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     private var latestLazyItemIndex = -1
     private var latestLazyItemOffset = 0
 
-    var mode: ChatViewportMode = when {
+    var mode: ChatViewportMode by mutableStateOf(when {
         restored?.overlayLocked == true -> ChatViewportMode.OVERLAY_LOCKED
         restored != null -> ChatViewportMode.LAYOUT_RESTORING
         else -> ChatViewportMode.FOLLOWING_LIVE
-    }
+    })
         private set
 
     var restoreGeneration by androidx.compose.runtime.mutableIntStateOf(if (restored == null) 0 else 1)
@@ -531,7 +532,9 @@ fun ChatMessageList(
     onPromptListOpened: () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
+    val enteredWithoutContent = remember(sessionId) { state.messages.isEmpty() }
     val semanticViewport = viewportController ?: remember(sessionId) { ChatViewportController() }
+    val restoringOnEntry = remember(sessionId, semanticViewport) { semanticViewport.isRestoring() }
     val configurationWidth = com.hermes.client.ui.workspace.LocalChatWidth.current.takeIf { it > 0f }?.toInt()
         ?: LocalConfiguration.current.screenWidthDp
     androidx.compose.runtime.DisposableEffect(semanticViewport, configurationWidth) {
@@ -561,15 +564,28 @@ fun ChatMessageList(
     // already-rendered lines between snapshots. Full sanitization stays deferred to
     // message.complete — per-token regex passes would approach O(n²).
     val toolDataPlaceholder = localized(language, "工具数据接收中…", "Receiving tool data…")
+    val latestMessages by rememberUpdatedState(state.messages)
     val latestAssistantSource by rememberUpdatedState(state.messages.latestAssistantTurnSource())
     val latestPlaceholder by rememberUpdatedState(toolDataPlaceholder)
-    var activeStreamId by androidx.compose.runtime.saveable.rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
-    var revealedCount by androidx.compose.runtime.saveable.rememberSaveable(sessionId) { androidx.compose.runtime.mutableIntStateOf(0) }
+    // The reveal cursor belongs to this mounted page, not to the saved conversation. Restoring
+    // it after a run grew or finished off-screen would replay already-existing text.
+    var activeStreamId by remember(sessionId) { mutableStateOf<String?>(null) }
+    var revealedCount by remember(sessionId) { androidx.compose.runtime.mutableIntStateOf(0) }
     var renderedTail by remember(sessionId) { mutableStateOf<ChatMessage?>(null) }
     LaunchedEffect(sessionId) {
         var renderedSource: ChatMessage? = null
-        var firstStream = true
-        val runWasActiveOnEntry = state.isGenerating
+        // ChatViewModel opens asynchronously: the first composition can be an empty loading
+        // state even when the retained runtime already has a long live answer. Establish the
+        // baseline from the first actual transcript, not that pre-open isGenerating value.
+        val entryMessages = androidx.compose.runtime.snapshotFlow { latestMessages }.first { it.isNotEmpty() }
+        entryMessages.latestAssistantTurnSource()?.takeIf { it.isStreaming }?.let { existing ->
+            activeStreamId = existing.id
+            revealedCount = existing.text.length
+            renderedSource = existing
+            renderedTail = withContext(Dispatchers.Default) {
+                existing.stabilizedForStreaming(latestPlaceholder)
+            }
+        }
         // Typewriter reveal: decouple the display from the network's bursty delta cadence.
         // This executor deliberately survives message.start -> delta -> complete. The previous
         // effect restarted around those boundaries and briefly rendered the authoritative full
@@ -577,29 +593,13 @@ fun ChatMessageList(
         // replaced it with the full answer in one frame. Both paths looked like screen flashing.
         while (isActive) {
             val newest = latestAssistantSource
-            if (newest != null && shouldShowExistingStreamImmediately(
-                    newest, firstStream, runWasActiveOnEntry,
-                )
-            ) {
-                // Opening a running conversation is not a new generation event. Its already
-                // visible answer must be painted in full, not typed out again from character 0
-                // every time the user returns to the screen (HG-122 video 1).
-                firstStream = false
+            if (newest?.isStreaming == true && activeStreamId != newest.id) {
                 activeStreamId = newest.id
-                revealedCount = newest.text.length
-                renderedSource = newest
-                renderedTail = withContext(Dispatchers.Default) {
-                    newest.stabilizedForStreaming(latestPlaceholder)
-                }
-            } else if (newest?.isStreaming == true && activeStreamId != newest.id) {
-                activeStreamId = newest.id
-                revealedCount = 0
+                // A later REST/cache row is persisted content, not a new delta burst. Live rows
+                // without a server id keep ordinary typewriter pacing from character zero.
+                revealedCount = if (newest.serverId != null) newest.text.length else 0
                 renderedSource = null
                 renderedTail = newest.copy(text = "", thinking = "", tools = emptyList(), images = emptyList(), files = emptyList())
-                // A newly started run keeps the typewriter pacing. An existing run with an empty
-                // placeholder waits until its first non-empty snapshot before deciding whether
-                // it is restoring old text.
-                if (!runWasActiveOnEntry && newest.serverId == null) firstStream = false
             }
             if (newest != null && newest.id == activeStreamId) {
                 val target = newest.text.length
@@ -1040,11 +1040,14 @@ fun ChatMessageList(
     }
 
     // Loading completion only means that authoritative rows exist. Markdown and LazyColumn still
-    // need several layout frames to measure the newest answer and settle reverseLayout at index 0.
-    // Keep the transcript fully laid out but invisible behind the skeleton until those coordinates
-    // remain unchanged across consecutive frames; otherwise the first visible frame contains a few
-    // user bubbles and the next frame snaps to the correctly measured assistant tail.
-    var initialPresentationReady by com.hermes.client.ui.workspace.rememberConversationState("chat:$sessionId:presentationReady") { !state.historyLoading && !state.historyLoaded }
+    // need several frames to measure the answer and restore the tail or saved reading position.
+    // Readiness belongs to this mounted list, not the saved conversation: a new navigation entry
+    // rebuilds Markdown/layout even when the predecessor was already visible. Only a cold entry
+    // shows a skeleton while this local transaction settles; cached content never waits on HTTP.
+    var initialPresentationReady by remember(sessionId) { mutableStateOf(false) }
+    val waitingForInitialTail by rememberUpdatedState(
+        presentingSource?.text?.isNotEmpty() == true && effectiveTail?.text.isNullOrEmpty(),
+    )
     LaunchedEffect(
         sessionId,
         state.historyLoading,
@@ -1058,29 +1061,47 @@ fun ChatMessageList(
             isGenerating = state.isGenerating,
             historyLoading = state.historyLoading,
             historyLoaded = state.historyLoaded,
+            hasTranscript = displayMessages.isNotEmpty(),
         )
         when {
             immediate != null -> initialPresentationReady = immediate
             else -> {
                 var previousSignature: List<Triple<Any, Int, Int>>? = null
                 var stableFrames = 0
-                repeat(INITIAL_PRESENTATION_MAX_FRAMES) {
+                var layoutFrames = 0
+                while (isActive) {
                     androidx.compose.runtime.withFrameNanos { }
                     val visible = listState.layoutInfo.visibleItemsInfo
-                    if (visible.isEmpty()) return@repeat
+                    // A live tail is prepared off the main thread. Its initial empty placeholder
+                    // and a paused Markdown parse can look geometrically stable but are not ready.
+                    if (visible.isEmpty() || semanticViewport.pendingParses > 0 ||
+                        semanticViewport.isRestoring() || waitingForInitialTail
+                    ) {
+                        stableFrames = 0
+                        previousSignature = null
+                        // Suspend until async work completes instead of requesting an unbounded
+                        // series of frames while the parser or saved-position restore is waiting.
+                        androidx.compose.runtime.snapshotFlow {
+                            semanticViewport.pendingParses == 0 &&
+                                !semanticViewport.isRestoring() && !waitingForInitialTail
+                        }.first { it }
+                        continue
+                    }
+                    layoutFrames++
                     val signature = visible.map { Triple(it.key, it.offset, it.size) }
                     stableFrames = if (signature == previousSignature) stableFrames + 1 else 0
                     previousSignature = signature
                     val settledAtTail = listState.firstVisibleItemIndex == 0 &&
                         listState.firstVisibleItemScrollOffset == 0
-                    if (settledAtTail && stableFrames >= INITIAL_PRESENTATION_STABLE_FRAMES) {
+                    if (((settledAtTail || restoringOnEntry) && stableFrames >= INITIAL_PRESENTATION_STABLE_FRAMES) ||
+                        layoutFrames >= INITIAL_PRESENTATION_MAX_FRAMES
+                    ) {
+                        // Bound only usable layout frames. Slow parsing/restoration must not
+                        // exhaust the budget and expose a short placeholder on frame 31.
                         initialPresentationReady = true
                         return@LaunchedEffect
                     }
                 }
-                // Never leave a usable conversation permanently masked on an exotic layout. The
-                // bounded fallback is still much later than the one-frame exposure it replaces.
-                initialPresentationReady = true
             }
         }
     }
@@ -1342,7 +1363,7 @@ fun ChatMessageList(
                 )
             }
         }
-        if (transcriptAlpha < 1f) {
+        if (enteredWithoutContent && transcriptAlpha < 1f) {
             ChatHistorySkeleton(
                 Modifier
                     .fillMaxSize()
@@ -1419,11 +1440,14 @@ internal fun immediatePresentationDecision(
     isGenerating: Boolean,
     historyLoading: Boolean,
     historyLoaded: Boolean,
+    hasTranscript: Boolean = false,
 ): Boolean? = when {
     // Presentation is monotone for a composed session: refresh/completion may update content but
     // must never put an already readable transcript back behind the cold-open skeleton.
     alreadyPresented -> true
-    // A live run paints itself; never mask an answer that is arriving.
+    // Cached/live text still needs first-mount parsing/layout and saved-position restoration.
+    hasTranscript -> null
+    // A live run with no transcript has only its running indicator to paint.
     isGenerating -> true
     // Cold open: nothing to draw yet, so the skeleton owns the screen.
     historyLoading && !historyLoaded -> false
@@ -1531,8 +1555,9 @@ private fun MessageBubble(
  * "an offer that cannot work is worse than none, because the user keeps paying for it" (HG-29).
  * A code lands here when no amount of tapping on this phone can change the answer:
  *  - SESS-001, the conversation is gone upstream and could not be silently replaced;
- *  - SESS-015, the restored send's staged attachments did not survive the restart, so replaying it
- *    would deliver less than the user meant;
+ *  - SESS-015, the restored send's attachment files did not survive to be read back (the disk
+ *    copies were evicted, or the record predates the paths — HG-208), so replaying it would
+ *    deliver less than the user meant;
  *  - SESS-016, the Mac's Hermes cannot reach its PDF rendering dependency (HG-58) — the fix is on
  *    the Mac, and until it happens every attempt repeats the same 5028;
  *  - SESS-017, the conversation's own answer is larger than the relay can carry, and it only ever
@@ -2358,14 +2383,6 @@ internal fun AssistantMarkdownBlock(
     )
 }
 
-/** A returned-to stream already has readable text; only genuinely new output is paced. */
-internal fun shouldShowExistingStreamImmediately(
-    source: ChatMessage,
-    firstStream: Boolean,
-    runWasActiveOnEntry: Boolean,
-): Boolean = firstStream && source.isStreaming && source.text.isNotEmpty() &&
-    (runWasActiveOnEntry || source.serverId != null)
-
 private const val STREAM_RENDER_INTERVAL_MS = 64L
 private const val STREAM_SIZE_ANIMATION_MS = 120
 private const val INITIAL_PRESENTATION_CROSSFADE_MS = 120
@@ -2813,9 +2830,7 @@ internal fun ChatTableCard(
                     .padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (chart != null) TableChartToggle(chart, Modifier.weight(1f)) else {
-                    DisableSelection { Text(localized(language, "表格", "Table"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)) }
-                }
+                DisableSelection { Text(localized(language, "表格", "Table"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)) }
                 IconButton(
                     onClick = {
                         clipboard.setText(AnnotatedString(markdownTableToTsv(raw)))
@@ -2855,22 +2870,13 @@ internal fun ChatTableCard(
                 IconButton(onClick = { chart?.let { it.releaseRendererFocus?.invoke(); chartScope?.active?.invoke(it.key, chartIdentity) }; onOpenFullscreen() }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Rounded.OpenInFull,
-                        contentDescription = localized(language, "全屏查看", "View fullscreen"),
+                        contentDescription = localized(language, "展开", "Expand"),
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            if (chart?.view != "chart") content()
-            chart?.let {
-                TableChartNotice(it)
-                if (it.activated && it.failure?.code != com.hermes.client.data.error.AppErrorCode.CHART_RENDER_FAILED) {
-                    androidx.compose.foundation.text.selection.DisableSelection {
-                        if (chartScope?.fullscreenKey?.invoke() == it.key) Spacer(Modifier.height(if (it.view == "chart") it.contentHeight.dp else 1.dp))
-                        else OfflineTableChart(it, Modifier.fillMaxWidth().height(if (it.view == "chart") it.contentHeight.dp else 1.dp))
-                    }
-                }
-            }
+            content()
         }
     }
     exportAction?.let { action ->
@@ -2998,11 +3004,14 @@ internal fun TableFullscreenDialog(raw: String, chart: TableChartController? = n
                     TableChartToggle(chart, Modifier.padding(horizontal = 12.dp))
                     TableChartNotice(chart)
                 }
-                if (chart?.view == "chart") {
-                    OfflineTableChart(chart, Modifier.fillMaxWidth().weight(1f))
-                } else {
+                // Only fullscreen loads the renderer. Keep a hidden instance for source-table
+                // switching/initial recognition; the chat card never mounts a WebView.
+                if (chart != null && chart.failure?.code != com.hermes.client.data.error.AppErrorCode.CHART_RENDER_FAILED) {
+                    OfflineTableChart(chart, if (chart.view == "chart") Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(1.dp))
+                }
+                if (chart?.view != "chart") {
                 val columns = remember(raw) { markdownTableColumnCount(raw) }
-                val exportCellWidth = 170
+                val exportCellWidth = maxOf(170, (LocalConfiguration.current.screenWidthDp - 24) / columns.coerceAtLeast(1))
                 val tableWidth = (columns.coerceAtLeast(1) * exportCellWidth + 24).dp
                 Column(
                     Modifier

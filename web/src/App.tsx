@@ -54,6 +54,8 @@ import { Login } from "./ui/Login";
 import { SessionToast } from "./ui/SessionToast";
 import { ConversationWorkspace } from "./ui/ConversationWorkspace";
 import { clearConversationMemory } from "./app/conversationMemory";
+import { StartupContext } from "./startup/readiness";
+import { cancelSessionLoads } from "./ui/SessionList";
 
 // App shell: capability gate → web session → sign-in → Mac → routes.
 
@@ -130,9 +132,28 @@ export function App() {
   const intended = useRef<Route>(currentRoute());
   const signingOut = useRef(false);
   const pickerRequest = useRef(0);
+  const coldStart = useRef(true);
+  const [starting, setStarting] = useState(true);
+  const bootRequest = useRef(0);
+  const failStartup = useCallback((error: AppError) => {
+    if (!coldStart.current || (window.hermesStartup && !window.hermesStartup.pending)) return;
+    bootRequest.current++;
+    cancelSessionLoads(client);
+    window.hermesStartup?.fail(error);
+    setPhase({ name: "failed", error });
+  }, []);
+  const reportStartup = useCallback((error?: AppError | null) => {
+    if (!coldStart.current || (window.hermesStartup && !window.hermesStartup.pending)) return;
+    if (error) { failStartup(error); return; }
+    coldStart.current = false;
+    setStarting(false);
+    window.hermesStartup?.complete();
+  }, [failStartup]);
+  const startup = useMemo(() => ({ target: route.name, report: reportStartup }), [route.name, reportStartup]);
 
   useEffect(() => {
     document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+    window.hermesStartup?.language(language);
   }, [language]);
   useEffect(() => {
     applyTheme(themeMode);
@@ -159,12 +180,14 @@ export function App() {
 
   // ---- boot ----
 
-  const loadDevices = useCallback(async (preferPicker = false) => {
+  const loadDevices = useCallback(async (preferPicker = false, currentAttempt: () => boolean = () => true) => {
     try {
       const { items } = await client.devices();
-      setDevices(items);
+      if (!currentAttempt()) return;
       const target = pendingPushTarget();
       const current = await client.webSession();
+      if (!currentAttempt()) return;
+      setDevices(items);
       const notificationDevice = target && current.session.authenticated && target.accountId === current.session.account.id ? items.find((d)=>d.deviceId === target.deviceId) : undefined;
       if (target && notificationDevice) {
         clearPushTarget();
@@ -187,41 +210,60 @@ export function App() {
         setPhase({ name: "pick-device", error: null });
       }
     } catch (e) {
+      if (!currentAttempt()) return;
       setPhase({ name: "pick-device", error: toAppError(e, "account") });
     }
   }, []);
 
   const boot = useCallback(async () => {
+    if (coldStart.current && window.hermesStartup && !window.hermesStartup.pending) return;
+    const request = ++bootRequest.current;
+    cancelSessionLoads(client);
+    const currentAttempt = () => request === bootRequest.current && (!window.hermesStartup || window.hermesStartup.pending || !coldStart.current);
     setPhase({ name: "boot" });
+    setSessions([]);
+    setDevice(null);
+    setDevices([]);
     try {
       const caps = await client.capabilities();
+      if (!currentAttempt()) return;
       if (!supportsWebDeviceAccess(caps)) {
         setPhase({ name: "disabled" });
         return;
       }
       setFeatures(webDeviceFeatures(caps));
       let web = await client.webSession();
+      if (!currentAttempt()) return;
       // Not authenticated at boot usually means only that the 15-minute access cookie lapsed
       // while the app was closed. The refresh cookie is good for 30 days: use it before asking
       // anyone to sign in again.
       if (!web.session.authenticated && (await client.resume())) {
+        if (!currentAttempt()) return;
         web = await client.webSession();
       }
+      if (!currentAttempt()) return;
       if (!web.session.authenticated) {
         void resetPushWorker().catch(()=>undefined);
         setPhase({ name: "signed-out", reason: null });
         return;
       }
       setAccount(web.session.account);
-      await loadDevices();
+      await loadDevices(false, currentAttempt);
     } catch (e) {
-      setPhase({ name: "failed", error: toAppError(e, "account") });
+      if (!currentAttempt()) return;
+      failStartup(toAppError(e, "account"));
     }
-  }, [loadDevices]);
+  }, [loadDevices, failStartup]);
 
   useEffect(() => {
+    const unbind = window.hermesStartup?.bind(() => void boot(), () => {
+      bootRequest.current++;
+      cancelSessionLoads(client);
+      setPhase({ name: "failed", error: appError("HR-WEB-013") });
+    });
     void boot();
-    return client.onSignedOut((error) => {
+    const unsubscribe = client.onSignedOut((error) => {
+      bootRequest.current++;
       clearConversationMemory();
       if (signingOut.current) return;
       setPushEnabled(false);
@@ -232,7 +274,12 @@ export function App() {
       setSessions([]);
       setPhase({ name: "signed-out", reason: reasonFor(error) });
     });
+    return () => { bootRequest.current++; unbind?.(); unsubscribe(); };
   }, [boot]);
+
+  useEffect(() => {
+    if (["signed-out", "pick-device", "disabled"].includes(phase.name)) reportStartup();
+  }, [phase.name, reportStartup]);
 
   // Route guard: /app/login is only meaningful while signed out; once ready, go where intended.
   useEffect(() => {
@@ -506,11 +553,12 @@ export function App() {
     authLost,
   };
 
-  return <AppContext.Provider value={value}>{renderPhase()}</AppContext.Provider>;
+  return <AppContext.Provider value={value}><StartupContext.Provider value={starting ? startup : null}>{renderPhase()}</StartupContext.Provider></AppContext.Provider>;
 
   function renderPhase() {
     switch (phase.name) {
       case "boot":
+        if (window.hermesStartup) return null;
         return (
           <div class="full-center">
             <span class="spinner" aria-label={t("正在加载", "Loading")} />
@@ -527,6 +575,7 @@ export function App() {
           </div>
         );
       case "failed":
+        if (window.hermesStartup) return null;
         return (
           <div class="full-center notice-page">
             <h1 class="notice-title">Hermes GO</h1>

@@ -3,6 +3,24 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class ConnectionModelsTests: XCTestCase {
+    func testAccountHermesHealthRetainsTheReportTimeAfterARefresh() throws {
+        let report = try XCTUnwrap(parseCanonicalTimestamp("2026-09-14T12:00:00Z"))
+        let fetched = report.addingTimeInterval(600)
+        let snapshot = AccountDeviceHealth.snapshot(for: accountDevice(hermesReachable: false), checkedAt: fetched)
+        XCTAssertEqual(snapshot.component(.hermes).checkedAt, report)
+        XCTAssertEqual(snapshot.component(.endToEnd).checkedAt, report)
+        XCTAssertEqual(snapshot.component(.gateway).checkedAt, fetched)
+        XCTAssertEqual(snapshot.component(.hermes).level, .failed, "a fresh read cannot clear an older negative report")
+    }
+
+    func testReconnectOnlyMatchesTheExactOwnedLocalBinding() {
+        let device = accountDevice()
+        XCTAssertTrue(DesktopConnectorReconnectEligibility.matches(.active(releaseVersion: "0.4.7", releaseLayout: .bundledRelease, bindingID: device.id, bindingGeneration: 1), device: device))
+        XCTAssertFalse(DesktopConnectorReconnectEligibility.matches(.active(releaseVersion: "0.4.7", releaseLayout: .bundledRelease, bindingID: device.id, bindingGeneration: 2), device: device))
+        XCTAssertFalse(DesktopConnectorReconnectEligibility.matches(.active(releaseVersion: "0.4.7", releaseLayout: .bundledRelease, bindingID: "another-mac", bindingGeneration: 1), device: device))
+        XCTAssertFalse(DesktopConnectorReconnectEligibility.matches(.absent, device: device))
+        XCTAssertFalse(DesktopConnectorReconnectEligibility.matches(.active(releaseVersion: "0.4.7", releaseLayout: .bundledRelease, bindingID: device.id, bindingGeneration: 1), device: accountDevice(access: "shared")))
+    }
     func testSelectedAccountDeviceReplacesLegacyHealthWithAccountTopology() {
         let checkedAt = Date(timeIntervalSince1970: 1_725_000_000)
         let snapshot = AccountDeviceHealth.snapshot(
@@ -89,7 +107,8 @@ final class ConnectionModelsTests: XCTestCase {
     private func accountDevice(
         connectorOnline: Bool = true,
         hermesReachable: Bool? = true,
-        endToEndHealthy: Bool? = true
+        endToEndHealthy: Bool? = true,
+        access: String = "owner"
     ) -> AccountDevice {
         AccountDevice(
             id: "40000000-0000-4000-8000-000000000004",
@@ -101,7 +120,7 @@ final class ConnectionModelsTests: XCTestCase {
             hermes: .init(reachable: hermesReachable, version: "0.21.0"),
             gateway: .init(latencyMs: 18),
             endToEnd: .init(healthy: endToEndHealthy, checkedAt: "2026-09-14T12:00:00Z"),
-            access: "owner",
+            access: access,
             isDefault: false
         )
     }

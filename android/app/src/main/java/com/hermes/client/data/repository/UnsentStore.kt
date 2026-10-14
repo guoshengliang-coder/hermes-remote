@@ -15,6 +15,23 @@ import kotlinx.serialization.json.Json
 import java.io.IOException
 
 /**
+ * Where the disk copy of one refused attachment lives, so a restore can put the bytes back.
+ *
+ * Images are cached by [ChatMediaRepository.cacheOutgoing] when the refused send is remembered;
+ * ordinary files were staged to disk before the send was ever attempted. Either way the path is
+ * inside this app's private cache directories — a record can only point at what the app itself
+ * wrote, never at an external Uri it may no longer read.
+ */
+@Serializable
+data class UnsentAttachment(
+    val id: String = "",
+    val name: String = "attachment",
+    val mimeType: String = "application/octet-stream",
+    val path: String = "",
+    val sizeBytes: Long = 0L,
+)
+
+/**
  * One conversation's message that was typed, submitted, and refused. [token] is a
  * [SessionReadStore.token].
  *
@@ -32,15 +49,21 @@ data class UnsentRecord(
     val code: String = "",
     val retryable: Boolean = true,
     /**
-     * How many attachments the refused send carried. The BYTES are not stored (see [UnsentStore]),
-     * so a restored record with a non-zero count cannot be replayed as it was — the count is what
-     * lets the chat screen say so instead of silently sending the text alone.
+     * How many attachments the refused send carried. Kept for v1 records and as the count the
+     * session row reports; whether a restore can replay them is decided by [attachmentMeta].
      */
     val attachments: Int = 0,
+    /**
+     * Where each attachment's disk copy lives (HG-208). When every listed file is still readable
+     * the restored turn is replayable with its attachments; when any is gone the restore degrades
+     * to `HR-SESS-015` exactly as v1 did. v1 records carry none, so they always degrade — the old
+     * behaviour is the fallback, not the default.
+     */
+    val attachmentMeta: List<UnsentAttachment> = emptyList(),
     val updatedAt: Long = 0L,
 )
 
-const val UNSENT_RECORD_VERSION = 1
+const val UNSENT_RECORD_VERSION = 2
 
 /** Bounds copied from [DraftStore]: same file, same rewrite-everything cost. */
 const val MAX_PERSISTED_UNSENT = 50
@@ -49,11 +72,15 @@ const val MAX_UNSENT_PAYLOAD_CHARS = 64_000
 
 private val unsentJson = Json { ignoreUnknownKeys = true }
 
-/** Decode the stored JSON array; never throws — corrupt/absent/wrong-version → dropped. */
+/**
+ * Decode the stored JSON array; never throws — corrupt/absent/wrong-version → dropped. v1 records
+ * are still accepted (they decode with no [UnsentRecord.attachmentMeta], which the restore treats
+ * as "the attachments are gone"); anything newer than this build knows is dropped instead.
+ */
 fun decodeUnsent(raw: String?): List<UnsentRecord> =
     runCatching { unsentJson.decodeFromString<List<UnsentRecord>>(raw ?: "[]") }
         .getOrDefault(emptyList())
-        .filter { it.v == UNSENT_RECORD_VERSION && it.token.isNotBlank() && it.messageId.isNotBlank() }
+        .filter { it.v in 1..UNSENT_RECORD_VERSION && it.token.isNotBlank() && it.messageId.isNotBlank() }
 
 /**
  * Newest-first under the three size bounds, exactly as [encodeDrafts] does, and for the same
@@ -124,12 +151,14 @@ private val Context.unsentDataStore by preferencesDataStore(name = "session_unse
  * [DraftStore] and [SessionPhaseStore]: Preferences DataStore rewrites the whole file on every
  * `edit`, so per-session keys buy no IO and only make eviction harder.
  *
- * **Text only.** Staged attachments are in-memory bytes (6 MB each, nine at a time); persisting them
- * needs a cache directory, an eviction policy and a story for "the file you attached is gone now",
- * which is a different feature — the same ruling [DraftStore] makes about drafts. What this file
- * does instead is remember HOW MANY there were, so the restored bubble can say the attachments are
- * gone (`HR-SESS-015`) and withhold a retry that could only send half of what the user meant.
- * That is a trade-off, not an omission.
+ * **Text plus attachment PATHS, never attachment bytes.** Staged images are in-memory bytes (6 MB
+ * each, nine at a time), and this file does not become their home — the same ruling [DraftStore]
+ * makes about drafts. What HG-208 changed is that a refused send now also writes each attachment
+ * to the app's own cache directories and records the path (see [UnsentAttachment]), so a restore
+ * can put the bytes back from disk and the retry replays what the user actually meant. The
+ * previous ruling — count only, restore as `HR-SESS-015`, withhold the retry — survives as the
+ * degradation for v1 records and for any disk copy the cache has since evicted. Sending the text
+ * alone without the attachments is still never an outcome.
  *
  * Every operation degrades to "nothing unsent" on failure. A cache that cannot be read or written
  * is never an error the user should see, so nothing here throws and nothing here carries an `HR-`

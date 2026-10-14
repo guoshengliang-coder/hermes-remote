@@ -103,7 +103,8 @@ export class AppWebSocketAuthorizer {
     const control = this.options.accountControl;
     if (!control) throw accountErrors.featureDisabled();
     if (!await control.isSessionLive(principal)) throw accountErrors.sessionRevoked();
-    return this.connectorFor(principal, deviceId);
+    // Existing tunnels revalidate authorization, not a transient local-Hermes health observation.
+    return this.connectorFor(principal, deviceId, undefined, false, false);
   }
 
   async connectorFor(
@@ -111,6 +112,7 @@ export class AppWebSocketAuthorizer {
     deviceId?: string,
     request?: IncomingMessage,
     web = false,
+    requireHermes = true,
   ): Promise<GatewayPeer> {
     const control = this.options.accountControl;
     if (!control) throw accountErrors.featureDisabled();
@@ -123,6 +125,13 @@ export class AppWebSocketAuthorizer {
         || connector.binding.publicKeyFingerprint !== binding.publicKeyFingerprint
         || connector.socket.readyState !== WebSocket.OPEN) {
       throw accountErrors.connectorOffline();
+    }
+    if (requireHermes && connector.hermesReachable === false) {
+      throw new AccountModeError(
+        502, "HR-CONN-006",
+        "已连上这台 Mac，但上面的 Hermes 没有响应，请在 Mac 上检查 Hermes。 / Reached the Mac, but Hermes on it isn't responding. Check Hermes on the Mac.",
+        true, "retry",
+      );
     }
     if (request) {
       this.accountAccess.set(request, {

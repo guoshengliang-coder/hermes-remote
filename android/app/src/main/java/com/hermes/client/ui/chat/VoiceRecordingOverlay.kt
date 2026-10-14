@@ -189,7 +189,7 @@ private fun VoiceRecordingCard(
                         Box(Modifier.size(6.dp).background(scheme.primaryContainer, CircleShape))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            voiceClock(elapsedMs),
+                            voiceClock(elapsedMs.coerceAtMost(VOICE_RECORDING_LIMIT_MS)) + " / 05:00",
                             style = MaterialTheme.typography.labelSmall,
                             color = scheme.primary,
                         )
@@ -213,6 +213,12 @@ private fun VoiceRecordingCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant,
                 )
+            }
+            if (!waiting && elapsedMs >= VOICE_RECORDING_LIMIT_MS - 15_000L) {
+                val remaining = ((VOICE_RECORDING_LIMIT_MS - elapsedMs).coerceAtLeast(0L) + 999L) / 1000L
+                Spacer(Modifier.height(8.dp))
+                Text(localized(language, "还可录 $remaining 秒，到时转为草稿", "Remaining: ${remaining}s; then save to draft"),
+                    style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(12.dp))
             VoiceWaveform(elapsedMs, scheme.primary)

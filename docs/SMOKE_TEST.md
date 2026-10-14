@@ -1,5 +1,32 @@
 # Local relay smoke test
 
+## Account Connector health resilience — production verification pending
+
+Automated tests cover the local deadline, auth cancellation, credential proof, stale replies,
+degraded routing and recovery, including a real Connector process on loopback. After a separately
+authorized Connector/Gateway rollout, use a disposable account binding to verify:
+
+1. Delay the protected Hermes health read by 6 seconds. Proof still completes within 5 seconds;
+   the health result succeeds within the Connector's 10-second / Gateway's 15-second budget,
+   without a `4408` disconnect. Do not delay the key-possession handshake.
+2. Stall that read past 10 seconds, or return 401 while public `/api/health` still returns 200.
+   Expect `connectorOnline=true`, `hermesReachable=false`, new REST/WS requests returning retryable
+   HTTP 502 `HR-CONN-006`, and no control reconnect loop. Existing tunnels retain authorization
+   checks. A pending binding must not activate on this result.
+3. Restore the protected read. The next non-overlapping probe starts 20 seconds after the previous
+   health write completes; successful health restores new routing on the same socket. Observe
+   `connector.hermes_health` state changes and request latency without collecting response bodies.
+4. Close control during a stalled read. Confirm the local request closes promptly, no old result
+   revives health, and normal reconnect/backoff remains active. Separately verify heartbeat failure
+   still reconnects; Hermes degradation does not replace transport failure detection.
+5. Check mixed versions with disposable fixtures: an old Connector can answer the unchanged v2
+   probe after 15 seconds; Gateway must ignore that stale ID, retain control and recheck. A new
+   Connector on an old Gateway still has the old 5-second cutoff. Exercise 404/405 fallback for
+   older Hermes without permitting fallback on 401/5xx.
+
+On the actual Mac, record probe latency/timeout rate under representative load and after sleep/wake.
+Loopback and fake clocks do not verify CPU starvation, packet loss or the production rollout.
+
 ## HG-196 complete voice message — real browser/device check pending
 
 On Android, Safari/Home Screen and Chrome, stage text, an image and a PDF, switch to voice,
@@ -223,6 +250,23 @@ logs `refused 4000` — a line that must never appear while using the app.
     foreground.
 
 For a deployed relay, set `PUBLIC_GATEWAY_URL` and `APP_TOKEN` in the invoking shell before running the same script. Keep the token out of command history and source control. A successful real-Hermes run accepts `gateway.ready` and any non-error result from `session.create`.
+
+## Android conversation re-entry (2026-10-11, 0.1.170 recording)
+
+L1 covers paused real Markdown parsing, saved reading positions and the actual reveal executor.
+The following navigation/visual checks still need a physical device; the attached phone was USB
+unauthorized on the development host, so no L2 result is claimed.
+
+1. Open a long completed answer with headings, a table and lists. Scroll into its middle, return
+   to the chat list and reopen it repeatedly. The first visible transcript must keep the saved
+   reading position, with no short placeholder, height collapse or replay of completed text.
+2. Repeat while the answer is streaming. Stay on the list while more text arrives, then reopen:
+   all text already present on return appears together; only subsequent output is paced.
+3. Leave while a large burst is still being visually revealed, let the run finish on the list,
+   then reopen. The completed answer must appear in full rather than drain the old reveal cursor.
+4. Send another prompt without leaving the page. New text still uses typewriter pacing, and
+   completion drains that current reveal without hiding the transcript. Repeat in app dark mode
+   with the system light and enlarged text.
 
 ## Attachment and large-response smoke test
 
@@ -1166,6 +1210,30 @@ native scroll anchoring, which Safari lacks).
 
 ### Still needs a real iPhone — none of this has been verified on a device
 
+**HG-202 file picker (required before publishing this change).** In both physical iPhone Safari
+and the installed Home Screen WebApp, open a chat and tap **+ → Files**. Expect the Files picker
+directly, without the Photos/Camera/Choose Files source menu. Record the model, iOS version,
+browser/standalone mode and tested commit for each result. Repeat on iPadOS with desktop browsing
+enabled when an iPad is available. Check all of the following in each iPhone mode:
+
+- Pick PNG, TXT, ZIP and a non-executable unknown-extension file together using multiple selection.
+  Expect four pending chips; the PNG is an image, and the other three keep their filenames/types.
+  Send and confirm the actual attachments reach the conversation through the real Connector.
+- Cancel an empty pick, then cancel with an existing text draft and pending attachment. Nothing
+  sends, disappears or raises an error. Remove/send a file, then pick the exact same file again;
+  it must stage again. Repeat opening and closing the picker.
+- Pick an iCloud Drive file that is not downloaded locally. Wait for its provider download and
+  confirm it stages and sends with intact bytes, filename and MIME type.
+- **+ → Photos** still offers the system sources and opens Photos Library with image multi-select;
+  **+ → Camera** still captures one image. Confirm both stage and send normally. No new video entry.
+- Smoke Android Chrome and desktop Files: their unrestricted picker and multi-select are unchanged.
+
+Evidence boundary: the prior iPhone 17 Pro / iOS 26.5 Simulator Safari experiment verified a plain
+`application/octet-stream` multiple input opens Files directly and returns PNG/TXT/ZIP/unknown files.
+Composer DOM tests verify the shipped configuration and attachment staging, not native system UI,
+iCloud access or successful transport on a physical phone. Physical Safari/Home Screen results remain
+pending until recorded here; do not publish based on the simulator experiment alone.
+
 Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
 simulator and Playwright WebKit do not exercise them faithfully. Record the iPhone model and iOS
 version with each result.
@@ -1492,14 +1560,39 @@ production or microphone verification. Use non-sensitive test speech.
    circles to cancel/edit; test short holds, pointer cancellation, rotation and finger returning to
    the center. Desktop Space/Enter holds, left/right/down choose action and Escape cancels.
 4. Disconnect the provider or wait for timeout: partial text returns to the draft under
-   `HR-VOICE-002`; cancel waiting also keeps partial text, gesture cancel discards it. Verify the
+   `HR-VOICE-003` (disconnect) or `HR-VOICE-004` (final timeout); cancel waiting also keeps partial text, gesture cancel discards it. Verify the
    microphone indicator disappears on release, background, navigation, sign-out and device switch.
-   At the 60-second capture limit, stop and preserve partial text without automatic submission; late results cannot write to another conversation.
+   At the 5-minute actual-audio limit, stop capture, await the final result and place it in the draft without submission; late results cannot write to another conversation.
 5. Confirm cookie upgrade accepts the exact Origin only; no token/key is present in URLs or JS.
    Revoke the browser session or device share while recording and confirm the speech socket closes
    and no prompt submits. Refreshing access credentials alone must not close a live session.
 6. Check Safari permission and AudioContext resume after switching back from the keyboard, including
    a second recording. Confirm neither raw audio nor transcript content is in Gateway diagnostics.
+
+## HG-206 · Five-minute voice input — physical/provider verification pending
+
+On iPhone Safari, Home Screen WebApp and Android, with a configured speech service:
+
+1. Prepare text plus image/file attachments. Hold through 60 seconds: recording continues. The
+   clock starts with actual capture and shows elapsed / 05:00. At 04:45 the remaining seconds and
+   “then save to draft” appear; check Chinese/English, light/dark and large text at narrow widths.
+2. Hold a full five minutes. The microphone stops, final recognition completes, and the complete
+   text joins the existing draft. No message/confirmation opens automatically; attachments remain.
+   The limit notice is normal, with no error code. Empty recognition says no text was recognized.
+3. Release near 04:59: the independent eight-second final wait is available and normal release sends.
+   Gesture cancel/edit, final-wait cancellation, background/foreground, lock screen, navigation,
+   sign-out and connection loss must release microphone/socket and retain only appropriate text.
+   Late release or duplicate/late final packets cannot send twice or write into another conversation.
+4. Disconnect -> HR-VOICE-003; final timeout -> HR-VOICE-004; provider recognition failure ->
+   HR-VOICE-002; empty normal final -> HR-VOICE-005. Verify primary copy explains cause, actual
+   retention and retry/keyboard recovery in both languages; the code is secondary.
+5. Start a second recording immediately. Confirm no old deadline, live microphone or stale socket
+   remains. Gateway closes an abandoned session at 330 seconds and retains revocation enforcement.
+
+Automated coverage uses synthetic PCM, provider frames and virtual clocks. It does not establish
+that the configured provider supports five continuous minutes on a physical device. Release Gateway
+before the new clients so the previous 90-second relay deadline cannot interrupt their recordings.
+
 
 ## HG-189 · Web voice vibration (Android browser / PWA)
 
@@ -1679,6 +1772,43 @@ Real OS prompts, push delivery and physical vibration still need the actual brow
    Recheck after changing permissions and inspect server-off guidance.
 5. Actual background notification delivery follows HG-191; actual tactile/audio acceptance follows HG-189.
    DOM fixtures do not prove either. No production push mutation is authorized by this task.
+
+# HG-204 · Web cold-start brand gate
+
+Use the deployed `/app/` in iPhone Safari and Home Screen, Android Chrome, and a desktop browser.
+Local mocked browser runs do not replace physical-device or production acceptance.
+
+Local evidence on 2026-10-11: Web typecheck, all 879 Vitest cases and build passed. The built bundle
+ran with the production CSP in headless Chromium 156.0.8078.4 and WebKit 27.2: phone 390×844,
+landscape 844×390, desktop 1280×900, light/dark and 150% text; delayed capabilities/history, stored
+chat/list/new/archive/account routes, signed-out login, warm visibility/online changes, history
+failure and missing-main-script timeout/reload passed without page errors. These use local fixture
+responses, not production accounts or physical iPhone/Android devices. Screenshots and the QA report
+are local session artifacts; the physical matrix below remains open.
+
+1. Open a fresh document in light/dark/system themes, Chinese/English and standard/extra-large font.
+   The first content is the transparent Hermes mark and wordmark, with the selected background;
+   no blank application frame or theme flash. Check phone portrait, short landscape and desktop;
+   brand and Retry fit or scroll without crossing safe areas.
+2. On a fast connection, entry does not wait for the status or a brand animation. Throttle a cold
+   request: status and the indeterminate strip appear after 700ms, never a fictitious percentage.
+3. Test `/app/`, `/app/s/<known-id>`, `/app/new`, `/app/archived` and `/app/account`. Entry waits
+   only for that screen's first usable content; a ready split sidebar cannot dismiss a chat gate.
+   The visible chat has already painted its first history. Background model/inbox/older history
+   loading does not hold entry. The target stays mounted through the transition.
+4. Signed out, cold-open a chat URL: enter login. Sign in and select a Mac; return to that target.
+   With no Mac, enter the usable device picker. Test expired access/valid refresh cookies as well.
+5. Block the main app JS while allowing the tiny `assets/startup-*.js`: after 15s, see the localized
+   `HR-WEB-013` and Reload/Retry. Unblock and retry. Also hang an API/first-history request, retry,
+   then release the old response: it must not dismiss the new gate or overwrite its target.
+6. Fail a first API/history request: retain its original localized HR code; hide the progress strip,
+   and use Retry or Reload where offered. Details stay collapsed and credentials remain redacted.
+7. After entry, type a draft, switch tabs, return and briefly disconnect/reconnect. Keep the chat,
+   reading position and draft; the brand gate must not reappear. Navigate within the app similarly.
+8. With reduced motion enabled, the strip is static and entry switches directly. Keyboard/screen
+   reader focus cannot reach the page hidden underneath; loading is announced only after the delay.
+   Failure focuses its recovery action; recovery exposes the target's controls.
+
 # HG-197 · Hermes GO Web adaptive workspace
 
 Target is `https://mrlgs.net/app/`, confirmed by the owner on 2026-10-09. Use the existing
@@ -1704,6 +1834,11 @@ authenticated browser; URLs only select a conversation. Do not send a real promp
    TalkBack/VoiceOver separator range announcements. Check active-row indication, new-chat FAB and
    menu placement in the list pane. Each pane scrolls independently; tables/code may scroll inside
    their own blocks without making the document scroll sideways.
+   HG-203: in light/dark themes and single/split layouts, compare the new-chat FAB with Android:
+   a 56px rounded square with 22px corners at the default root size, retaining the dark outline.
+   Increase text size and confirm the size/corners scale together. Click/tap it to open the new-chat
+   composer; the route itself must not send a prompt. Record physical Android Chrome and
+   iPhone Safari/PWA results separately from desktop browser emulation.
 6. On iPad Safari with the soft keyboard and a large screen, ensure only the chat pane fits the
    visual viewport; it must not expand across the list. Verify IME composition, attachments,
    approval/question sheets, models, image viewer and input remain reachable with safe-area insets.
@@ -1719,3 +1854,32 @@ Automated DOM tests cover pane budgets, saved preferences, stable mounting, drag
 attachment/draft ownership, reading/search restoration and navigation races. Desktop Chromium and
 WebKit size/keyboard emulation is useful evidence, but does not count as physical Android/iOS,
 TalkBack/VoiceOver or an actual folding gesture.
+
+# HG-201 · Web session long-press release isolation
+
+Automated: `web/src/ui/useLongPress.test.tsx` exercises the real SessionRow/SessionActionSheet
+with compatibility clicks targeting the row, menu and scrim; ordinary/bot/archived actions,
+slow release, source-row unmount, a second finger, fresh taps, keyboard/assistive activation,
+native context menus, short taps and scroll/cancel/timer cleanup. These are supplied DOM events,
+not proof of an iPhone's actual event sequence. No physical iPhone result is recorded yet.
+
+1. On an iPhone, record the model, iOS version, Web build and Safari vs Home Screen PWA mode.
+   Use disposable ordinary, bot and archived conversations. Long-press rows both above and within
+   the area the bottom sheet covers. Keep holding for at least five seconds, then release without
+   a second tap: no pin/unarchive, rename/move/confirmation screen, scrim dismissal or chat opening.
+2. Repeat with a small finger movement after the sheet appears, and with release following the
+   browser's context-menu/pointer cancellation path. A source list refresh must not remove the
+   release-click protection. Scroll before 500ms: no sheet. A short tap still opens the chat.
+3. After each hold, tap an action or the scrim immediately: that independent tap works even if
+   the opening gesture produced no click. Recheck ordinary, bot and archived sheets; archive and
+   delete still require their separate confirmation. Never confirm deletion on valuable sessions.
+4. Recheck VoiceOver activation and keyboard Enter/Space, Escape/system Back, and desktop right
+   click followed by a normal menu click. The menu must remain reachable with these inputs.
+
+## HG-205 — Web fullscreen charts
+
+Run the HG-205 cases in `ANDROID_SMOKE.md` in Chrome and mobile Safari/Home Screen: source-only
+chat, fullscreen recommendation, collapsed Adjust, filter/reset, complete source and exact values,
+100-point page navigation, long labels, resizing, close/reopen and scroll restore. Unsuitable tables
+must expand without required setup. Verify live Gateway CSP, storage denial, renderer retry and
+account/session isolation. DOM and local Chrome checks do not prove Safari or live-account behavior.

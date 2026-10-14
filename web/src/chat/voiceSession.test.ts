@@ -42,7 +42,7 @@ it("buffers initialization, streams correct audio sequences and releases the mic
 it("keeps partial text on bounded final timeout; never submits a partial as final", async () => {
   const h = harness(); await settle(); h.socket.onopen!(); h.socket.onmessage!({ data: frame("半截文字") }); await settle();
   h.session.finish(); await vi.advanceTimersByTimeAsync(8000);
-  expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "半截文字", error: { code: "HR-VOICE-002", retryable: true } });
+  expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "半截文字", error: { code: "HR-VOICE-004", retryable: true } });
   expect(h.events.some((e) => e.kind === "final")).toBe(false);
 });
 it("cancels before endpoint or microphone resolution without accepting late callbacks", async () => {
@@ -77,12 +77,36 @@ it("a provider final while still holding cannot send and retains text for review
   expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "尚未松手", error: { code: "HR-VOICE-002" } });
   expect(h.events.some((e) => e.kind === "final")).toBe(false); expect(h.stop).toHaveBeenCalledOnce();
 });
-it("the recording limit stops capture and keeps partial text instead of sending without release", async () => {
+it("survives 60 seconds and gracefully finalizes five minutes of real audio to a draft", async () => {
   const h = harness(); await settle(); h.socket.onopen!(); h.socket.onmessage!({ data: frame("达到录音时限") }); await settle();
-  await vi.advanceTimersByTimeAsync(60_000);
-  expect(h.stop).toHaveBeenCalledOnce(); expect(h.socket.close).toHaveBeenCalledOnce();
-  expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "达到录音时限", error: { code: "HR-VOICE-002" } });
-  expect(h.events.some((e) => e.kind === "final")).toBe(false);
+  await vi.advanceTimersByTimeAsync(5000); h.pcm(new Uint8Array(6400));
+  await vi.advanceTimersByTimeAsync(60_000); expect(h.stop).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(240_000);
+  expect(h.stop).toHaveBeenCalledOnce(); expect(h.socket.close).not.toHaveBeenCalled();
+  expect(h.events.at(-1)).toEqual({ kind: "waiting", limited: true });
+  expect(new DataView(h.socket.sent.at(-1)!).getInt32(4)).toBeLessThan(0);
+  h.session.finish(); // Late release must not change the limit disposition.
+  h.socket.onmessage!({ data: frame("完整文字", true) }); await settle();
+  expect(h.events.at(-1)).toEqual({ kind: "final", text: "完整文字", limited: true });
+  expect(h.socket.close).toHaveBeenCalledOnce(); expect(vi.getTimerCount()).toBe(0);
+});
+it("a release just before the limit has its own full final-result deadline", async () => {
+  const h = harness(); await settle(); h.socket.onmessage!({ data: frame() }); await settle(); h.pcm(new Uint8Array(6400));
+  await vi.advanceTimersByTimeAsync(299_000); h.session.finish();
+  await vi.advanceTimersByTimeAsync(7000); expect(h.events.at(-1)).toEqual({ kind: "waiting" });
+  h.socket.onmessage!({ data: frame("松手发送", true) }); await settle();
+  expect(h.events.at(-1)).toEqual({ kind: "final", text: "松手发送" });
+});
+it.each(["close", "error"])("reports established connection %s separately, retaining partial text", async (event) => {
+  const h = harness(); await settle(); h.socket.onmessage!({ data: frame("已有文字") }); await settle();
+  if (event === "close") h.socket.onclose!(); else h.socket.onerror!();
+  expect(h.events.at(-1)).toMatchObject({ kind: "failed", text: "已有文字", error: { code: "HR-VOICE-003" } });
+  expect(vi.getTimerCount()).toBe(0);
+});
+it.each([false, true])("handles an empty final accurately (limited=%s)", async (limited) => {
+  const h = harness(); await settle(); h.socket.onmessage!({ data: frame() }); await settle(); h.session.finish(limited);
+  h.socket.onmessage!({ data: frame("", true) }); await settle();
+  expect(h.events.at(-1)).toMatchObject(limited ? { kind: "final", text: "", limited: true } : { kind: "failed", error: { code: "HR-VOICE-005" } });
 });
 it("reports recording once, only after capture succeeds and nonempty PCM arrives", async () => {
   const h = harness(); await settle(); expect(h.events).toEqual([]);
