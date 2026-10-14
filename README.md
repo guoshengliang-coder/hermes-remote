@@ -49,6 +49,9 @@ The historical Google-account onboarding, one-account/one-Connector rule, multi-
 legacy migration, and shared acceptance matrix are documented in `docs/ACCOUNT_MODE_DESIGN.md`.
 The corresponding work breakdown, dependencies, estimates, test gates, and staged rollout are in
 `docs/ACCOUNT_MODE_IMPLEMENTATION_PLAN.md`.
+The proposed Android/Web account-data sync inventory, offline/conflict model, migration boundaries,
+and staged acceptance plan are in `docs/ACCOUNT_DATA_SYNC_PLAN.md` (HG-216). It is a documentation
+proposal; it does not implement sync or replace the current local-state contracts.
 The I0 implementation contracts are split into `docs/ACCOUNT_MODE_API.md`,
 `docs/ACCOUNT_MODE_SECURITY.md`, `docs/ACCOUNT_MODE_MIGRATION.md`, and
 `docs/ACCOUNT_MODE_TEST_PLAN.md`; all are explicitly non-production until their go/no-go gate passes.
