@@ -1153,6 +1153,17 @@ not acquire this checkout lock on every ordinary launch. GO must independently i
 fence all writers before an upgrade can become available. Process-level lock tests do not certify
 service restoration or make 0.21.6 a recommended target.
 
+The native read-only inspection uses the pinned candidate's profile path/name convention:
+`<default HERMES_HOME>/profiles/<id>` and `^[a-z0-9][a-z0-9_-]{0,63}$`
+(`hermes_constants.PROFILE_ID_RE`, `hermes_cli/profiles.py`). It lists POTENTIAL directories,
+including ghost/tombstoned shells, rather than reproducing `named_profile_has_identity` or
+`named_profile_is_deleted`/live-fleet logic. No marker/config/env bodies or upstream code are read
+or executed by the scanner. Kernel argv profile selectors are observations only: selector-less
+launches can use ambient/custom HERMES_HOME, so neither default home nor task inactivity is inferred.
+The scanner does not implement official UpdatePlan or activity API adapters. Current-user PID/birth
+and descendant observations add refusal checks; they cannot fence future CLI launches, orphaned
+writers or other users. Full admission/retirement evidence remains independently required.
+
 Live installations accept only a single origin `promisor=true` / `partialclonefilter=blob:none`
 pair, optionally with the old `extensions.partialclone=origin`. Other partial layouts and duplicate
 keys fail closed; frozen source assets still reject any partial metadata. GO's Git helper clears

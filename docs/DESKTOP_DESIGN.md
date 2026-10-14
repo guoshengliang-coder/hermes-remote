@@ -42,6 +42,13 @@ label. A failed business check re-pauses the same run with `HR-HERMESUPDATE-003`
 retained. “Cancelled” is not displayed before original-installation business verification succeeds.
 Live evidence collection and real-machine acceptance remain required before any execution control.
 
+The existing “检查升级条件” action now collects native read-only process/profile/interpreter
+observations on its background task, with no extra rows or controls. Raw command lines, environment
+values and private interpreter paths are not retained in its report. Incomplete observations use
+existing bilingual `HR-HERMESUPDATE-002`; pending transaction failures retain `003`. An empty process
+sample must never become “tasks stopped”, “safe to upgrade” or “backup recoverable”. Execution and
+recovery controls stay disabled until independently fenced live evidence is certified.
+
 ## Repairing a committed installation (HG-175)
 
 A committed `account_active` install with either managed LaunchAgent file missing or job unloaded

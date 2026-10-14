@@ -3,6 +3,28 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesUpgradeReadinessTests: XCTestCase {
+    func testCertifiedTargetCannotHideUnavailableProfileInspection() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean)).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        XCTAssertTrue(report.targetCertified)
+        XCTAssertFalse(try XCTUnwrap(report.inspection).profileDirectoryScanComplete)
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+    }
+    func testReadinessCollectsObservationWithoutCreatingJournalOrGivingAdmissionAuthority() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean)).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false)
+        let observation = try XCTUnwrap(report.inspection)
+        XCTAssertEqual(observation.sourceIdentity, fixture.installation.runtimeIdentity)
+        XCTAssertFalse(observation.writerAdmissionProven)
+        XCTAssertFalse(observation.taskInactivityProven)
+        XCTAssertFalse(observation.profileDirectoryScanComplete)
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.root.path))
+    }
     func testRealGitInspectorSeesTrackedAndUntrackedChangesWithoutWritingIndex() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -40,7 +62,7 @@ final class DesktopHermesUpgradeReadinessTests: XCTestCase {
         let fixture = try Fixture(); defer { fixture.remove() }
         try FileManager.default.createDirectory(at: fixture.root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try Data("{}".utf8).write(to: fixture.store.journalURL)
-        let checker = DesktopHermesUpgradeReadinessChecker(git: NoGitReads())
+        let checker = DesktopHermesUpgradeReadinessChecker(git: NoGitReads(), inspector: NoInspectionReads())
         let recovery = checker.check(detection: .usable(fixture.installation), target: fixture.target,
             journal: fixture.store, officialUpdateInProgress: false)
         XCTAssertTrue(recovery.recoveryRequired)
@@ -65,6 +87,10 @@ private struct GitFixture: DesktopHermesUpgradeGitInspecting {
 }
 private struct NoGitReads: DesktopHermesUpgradeGitInspecting {
     func workingTree(checkout: URL) -> DesktopHermesUpgradeWorkingTree { XCTFail("unsafe git inspection"); return .clean }
+}
+private struct NoInspectionReads: DesktopHermesUpgradeInspecting {
+    func inspect(installation: DesktopLocalHermesInstallation) -> DesktopHermesUpgradeInspection { fatalError("unsafe inspection") }
+    func inspect(journal: DesktopHermesUpgradeJournal) -> DesktopHermesUpgradeInspection { fatalError("unsafe inspection") }
 }
 private struct Fixture {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()

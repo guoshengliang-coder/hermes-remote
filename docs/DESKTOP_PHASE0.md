@@ -29,6 +29,26 @@ The coordinator owns the worker lease; the adapter's weak reference cannot keep 
 alive. Lease teardown requests release without signalling committed children. Tests replace worker,
 service, kernel, receipt and business evidence, so this is backend composition, not live certification.
 
+The real read-only inspector now samples kernel process identities for the current real/effective
+user twice. It parses only argc argv fields, discards command/environment buffers, and reports
+checkout-associated or unscoped Hermes candidates plus observed descendants. Source identity, PID
+and exact kernel birth bind the report; changed samples, unreadable commands, stale reports and
+unowned/surviving candidates cannot pass the additional Machine checks. Independent admission and
+retirement evidence is still required BEFORE the inspector's negative retirement check. Production
+Machine construction supplies the native inspector by default; tests may replace it through the
+internal constructor. The existing upgrade-condition check collects the report on its background
+task, skips it during update/recovery, and refuses incomplete observation even for a certified target.
+No UI layout/control changes or current service commands accompany this change.
+
+Profile scanning is non-recursive and bounded to 128 entries, rejects links/unsafe ownership/write
+permissions/invalid names and checks directory identity/mtime. It lists potential directories,
+including deleted/markerless shells, not the official live fleet. No .env/config/cron/database bodies
+are read. Legacy Python link metadata only indicates inside/outside home; PM generations remain
+uninspected here. Observations cannot prove full activity, future launch exclusion, custom-home or
+other-user writers, orphan/background/file-descriptor coverage or dependency recovery. All three
+admission/task-inactivity/dependency-recovery proof flags remain false. There is no enabled upgrade
+or certified path based on this inspection.
+
 ## HG-199 stage one: upstream identity and discovery
 
 Desktop now recognizes the owner's legacy venv and committed PM-generation installations with

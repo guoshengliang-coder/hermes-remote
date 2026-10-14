@@ -131,7 +131,7 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
   实际清点适配器时这些证据不能由版本、源码或 ACK 代替。恢复保留四种 loaded/unloaded 组合，
   Hermes 先恢复并独立核实实际 boot commit，再恢复原已加载 Connector。已恢复的服务续作不重复 bootstrap；
   恢复期间新出现的原 unloaded job 或最终加载集合变化会保留恢复游标，不接管、不停止该新服务。
-  本模块不覆盖上游自建服务、服务定义变化或 home 外解释器闭包，已由后端 Machine Operating 编排连接；独立活体证据采集器尚未实现，app 不创建此适配器。
+  本模块不覆盖上游自建服务、服务定义变化或 home 外解释器闭包，已由后端 Machine Operating 编排连接；已增加原生只读观察，完整活体接入关闭/任务/退休证据仍未实现，app 不创建此执行适配器。
 - 本地恢复/PM/boot 与无欠账证据齐全后，verifying 阶段可显式 release 接入以获取新鲜 Cloud/业务
   验收；验收失败需重新 pause 同一 run，并保留期间的新写入。取消必须先证明原源码/依赖/boot/加载集合，再 release 做业务验收，成功后才记 cancelled；
   失败重新 pause 同一 run，保留新写入与 cancelling 游标；关闭窗口、过期或删除文件都不是 release。维护拒绝使用已登记双语 `HR-HERMESUPDATE-005`，
@@ -149,6 +149,20 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 代替 writer 证明、闭包缺失、原安装取消/失败续验、目标收尾续作、业务失败重新暂停并保留后来历史、
 回执欠账和损坏备份阻止恢复。另 3 项测试检查私有配置完整往返与 schema/字段/目录/重复键/权限/链接
 拒绝。这不等于活体机器流程或服务恢复认证，现用 Hermes 未被停止、更新或重启。
+
+2026-10-14 原生只读检查增量：真实 sysctl 两次清点当前 real/effective 用户的 PID、parent 和 kernel
+birth。KERN_PROCARGS2 只解析 argc 参数，不解析环境尾部；原始命令/环境不进入报告。按 checkout
+路径、Hermes 入口/模块保守识别候选及其子孙，不能定位 home/profile 的也保留为未知候选，不猜 default。
+同一来源/新鲜度、PID/birth、完整可读且稳定的采样，是额外阻断检查的条件。已有“检查升级条件”
+后台采集观察，更新/恢复中跳过；Machine 的生产构造默认接入，逐次 stop 前核对候选是否仅为原服务，
+独立退休证明之后及备份前后/源码移动前再拒绝残留/新候选，不能用此观察替代原独立证明。
+profile 目录只读、非递归、最多 128 条；链接、异常名称/权限或目录身份变化标为未知。目录包含 ghost/
+已删除壳，不是官方 live fleet，不读配置/cron/数据库正文。旧 Python 链接只观察内外位置，PM 仍未知。
+全部任务空闲、未来 writer 禁入、orphan/custom-home/其他用户/FD 覆盖与外部依赖恢复闭包仍未证明；
+报告的 admission/task-inactivity/dependency-recovery proof 全为 false，不认证目标、不开放执行。
+新增 19 项测试含一项真实一次性 Python 进程：kernel 身份/参数关联、退出后消失、报告不保留合成
+命令/环境值通过；其余使用注入 kernel/服务证据与实际临时目录。专项合计 69 项，不代表真实 Hermes
+任务退休或服务升级验收。
 
 维护增量自动验证使用真实临时文件和真实 Connector 子进程/loopback Relay/HTTP：启动时暂停四类新
 请求，维护开始后已接收的流式响应继续完成且 ACK 在结束前非零；原入口回归在 73746f52 上失败，

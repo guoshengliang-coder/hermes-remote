@@ -44,6 +44,7 @@ public actor DesktopHermesUpgradeMachineOperations<Evidence: DesktopHermesUpgrad
     private let backups: DesktopHermesUpgradeBackupStore
     private let evidence: Evidence
     private let services: Services
+    private let inspector: (any DesktopHermesUpgradeInspecting)?
     private let factory: WorkerFactory
     private var inventory: DesktopHermesUpgradeMachineInventory?
     private weak var worker: (any DesktopHermesUpgradeWorkerHolding)?
@@ -55,9 +56,11 @@ public actor DesktopHermesUpgradeMachineOperations<Evidence: DesktopHermesUpgrad
                 mailbox: DesktopHermesUpgradeMaintenanceMailbox, snapshots: DesktopHermesUpgradeServiceSnapshotStore,
                 backups: DesktopHermesUpgradeBackupStore, evidence: Evidence, services: Services,
                 python: URL, userHome: URL, path: String = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
-                proxyEnvironment: [String: String] = [:]) {
+                proxyEnvironment: [String: String] = [:],
+                inspector: any DesktopHermesUpgradeInspecting = DesktopHermesUpgradeInspector()) {
         self.store = store; runs = runRoot; source = sourceRoot; self.mailbox = mailbox
         self.snapshots = snapshots; self.backups = backups; self.evidence = evidence; self.services = services
+        self.inspector = inspector
         factory = { try await DesktopHermesUpgradeOfficialWorker.acquire(configuration: $0, python: python,
             userHome: userHome, path: path, proxyEnvironment: proxyEnvironment) }
     }
@@ -66,9 +69,10 @@ public actor DesktopHermesUpgradeMachineOperations<Evidence: DesktopHermesUpgrad
     init(store: DesktopHermesUpgradeJournalStore, runRoot: URL, sourceRoot: URL,
          mailbox: DesktopHermesUpgradeMaintenanceMailbox, snapshots: DesktopHermesUpgradeServiceSnapshotStore,
          backups: DesktopHermesUpgradeBackupStore, evidence: Evidence, services: Services,
-         workerFactory: @escaping WorkerFactory) {
+         inspector: (any DesktopHermesUpgradeInspecting)? = nil, workerFactory: @escaping WorkerFactory) {
         self.store = store; runs = runRoot; source = sourceRoot; self.mailbox = mailbox
         self.snapshots = snapshots; self.backups = backups; self.evidence = evidence; self.services = services; factory = workerFactory
+        self.inspector = inspector
     }
 
     public func preflight(target: DesktopHermesUpgradeTarget, confirmedIdentity: String) async throws -> DesktopHermesUpgradePreflight {
@@ -142,14 +146,18 @@ public actor DesktopHermesUpgradeMachineOperations<Evidence: DesktopHermesUpgrad
         try evidence.requireDependencyClosure(journal)
         try captureServices(journal)
         try mailbox.prepare(); try mailbox.pause(journal)
-        let evidence = self.evidence, services = self.services, mailbox = self.mailbox
+        let evidence = self.evidence, services = self.services, mailbox = self.mailbox, inspector = self.inspector
         try await restorer.quiesce(journal, idleEvidence: {
             let idle = try await evidence.idle(journal)
+            if let inspector { try inspector.inspect(journal: journal).requireOnlyOriginalServices(for: journal) }
             if case .loaded = try services.observe(label: DesktopManagedInstallLayout.connectorLabel) {
                 _ = try mailbox.requireDrained(journal, connector: evidence.connectorIdentity(journal))
             }
             return idle
-        }, requireRetiredWriters: { try evidence.requireRetiredWriters(journal) })
+        }, requireRetiredWriters: {
+            try evidence.requireRetiredWriters(journal)
+            if let inspector { try inspector.inspect(journal: journal).requireNoObservedWriters(for: journal) }
+        })
     }
 
     public func backup(_ journal: DesktopHermesUpgradeJournal) async throws -> DesktopHermesUpgradeBackup {
@@ -158,6 +166,7 @@ public actor DesktopHermesUpgradeMachineOperations<Evidence: DesktopHermesUpgrad
         try evidence.requireDependencyClosure(journal)
         let receipt = try backups.create(home: URL(fileURLWithPath: journal.hermesHome), runID: journal.runID) {
             try evidence.requireRetiredWriters(journal)
+            if let inspector { try inspector.inspect(journal: journal).requireNoObservedWriters(for: journal) }
         }
         try evidence.requireDependencyClosure(journal)
         try backups.verify(receipt)
@@ -168,6 +177,7 @@ public actor DesktopHermesUpgradeMachineOperations<Evidence: DesktopHermesUpgrad
         try begin(journal, phase: .updating); defer { effectRunning = false }
         guard let backup = journal.backup, let worker else { throw DesktopHermesUpgradeError.recoveryRequired }
         try backups.verify(backup); try evidence.requireRetiredWriters(journal); try evidence.requireDependencyClosure(journal)
+        if let inspector { try inspector.inspect(journal: journal).requireNoObservedWriters(for: journal) }
         let commit = try evidence.diskCommit(journal)
         let code: Int32
         if commit == journal.sourceCommit { code = try await worker.runOfficialUpdate() }

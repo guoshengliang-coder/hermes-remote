@@ -37,6 +37,7 @@ public struct DesktopHermesUpgradeReadiness: Equatable, Sendable {
     public let officialUpdateInProgress: Bool
     public let targetCertified: Bool
     public let checkedAt: Date
+    public let inspection: DesktopHermesUpgradeInspection?
     /// This read-only check cannot prove live-task retirement, stopped writers or restore custody.
     /// It must never be used as execution authorization by the transaction adapter.
     public var issue: DesktopIssue? {
@@ -44,6 +45,8 @@ public struct DesktopHermesUpgradeReadiness: Equatable, Sendable {
         if sourceIdentity == nil || workingTree != .clean || officialUpdateInProgress || !targetCertified {
             return DesktopHermesUpgradeError.preflightBlocked.issue
         }
+        guard let inspection, inspection.processSampleStable, inspection.unreadableOwnedProcesses == 0,
+              inspection.profileDirectoryScanComplete else { return DesktopHermesUpgradeError.preflightBlocked.issue }
         return nil
     }
     public var workingTreeSummaryChinese: String {
@@ -64,7 +67,11 @@ public struct DesktopHermesUpgradeReadiness: Equatable, Sendable {
 
 public struct DesktopHermesUpgradeReadinessChecker: Sendable {
     private let git: any DesktopHermesUpgradeGitInspecting
-    public init(git: any DesktopHermesUpgradeGitInspecting = DesktopHermesUpgradeGitInspector()) { self.git = git }
+    private let inspector: any DesktopHermesUpgradeInspecting
+    public init(git: any DesktopHermesUpgradeGitInspecting = DesktopHermesUpgradeGitInspector(),
+                inspector: any DesktopHermesUpgradeInspecting = DesktopHermesUpgradeInspector()) {
+        self.git = git; self.inspector = inspector
+    }
     public func check(detection: DesktopLocalHermesDetection, target: DesktopHermesUpgradeTarget,
                       journal: DesktopHermesUpgradeJournalStore, officialUpdateInProgress: Bool,
                       certifiedTargets: [DesktopHermesUpgradeTarget] = [], now: Date = Date()) -> DesktopHermesUpgradeReadiness {
@@ -76,6 +83,7 @@ public struct DesktopHermesUpgradeReadinessChecker: Sendable {
             ? git.workingTree(checkout: installation!.checkoutRoot) : .unknown
         return .init(target: target, sourceIdentity: installation?.runtimeIdentity, workingTree: workingTree,
             recoveryRequired: recovery, officialUpdateInProgress: officialUpdateInProgress,
-            targetCertified: certifiedTargets.contains(target), checkedAt: now)
+            targetCertified: certifiedTargets.contains(target), checkedAt: now,
+            inspection: installation != nil && !officialUpdateInProgress && !recovery ? inspector.inspect(installation: installation!) : nil)
     }
 }

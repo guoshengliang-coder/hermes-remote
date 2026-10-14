@@ -3,6 +3,39 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesUpgradeMachineTests: XCTestCase {
+    func testObservedUnownedProcessBlocksBeforeAnyStopDespiteInjectedIdleProof() async throws {
+        let f = try MachineFixture(inspector: MachineInspection(mode: .unowned)); defer { f.remove() }
+        _ = try? await f.coordinator.start(target: f.target, confirmedIdentity: f.installation.runtimeIdentity)
+        XCTAssertEqual(try f.migration.hermesUpgradeJournal.loadReadOnly()?.phase, .quiescing)
+        XCTAssertEqual(try f.mode(), "pause")
+        XCTAssertFalse(f.environment.events.contains { $0.hasPrefix("stop:") })
+    }
+    func testObservedOriginalHermesSurvivorBlocksAfterServiceStopBeforeBackup() async throws {
+        let f = try MachineFixture(inspector: MachineInspection(mode: .originalSurvivor)); defer { f.remove() }
+        _ = try? await f.coordinator.start(target: f.target, confirmedIdentity: f.installation.runtimeIdentity)
+        let journal = try XCTUnwrap(f.migration.hermesUpgradeJournal.loadReadOnly())
+        XCTAssertEqual(journal.phase, .quiescing)
+        XCTAssertEqual(f.environment.events.filter { $0.hasPrefix("stop:") }.count, 2)
+        XCTAssertNil(journal.backup)
+        XCTAssertFalse(f.environment.events.contains("update"))
+    }
+    func testObservedWriterAppearingDuringBackupKeepsBackingUpCursor() async throws {
+        let f = try MachineFixture(inspector: MachineInspection(mode: .backupWriter)); defer { f.remove() }
+        _ = try? await f.coordinator.start(target: f.target, confirmedIdentity: f.installation.runtimeIdentity)
+        let journal = try XCTUnwrap(f.migration.hermesUpgradeJournal.loadReadOnly())
+        XCTAssertEqual(journal.phase, .backingUp)
+        XCTAssertNil(journal.backup)
+        XCTAssertFalse(f.environment.events.contains("update"))
+    }
+    func testObservedWriterBeforeSourceMoveRetainsVerifiedBackupAndDoesNotInvokeWorker() async throws {
+        let f = try MachineFixture(inspector: MachineInspection(mode: .updateWriter)); defer { f.remove() }
+        _ = try? await f.coordinator.start(target: f.target, confirmedIdentity: f.installation.runtimeIdentity)
+        let journal = try XCTUnwrap(f.migration.hermesUpgradeJournal.loadReadOnly())
+        XCTAssertEqual(journal.phase, .updating)
+        try f.backups.verify(XCTUnwrap(journal.backup))
+        XCTAssertFalse(f.environment.events.contains("update"))
+        XCTAssertEqual(f.environment.disk, f.installation.commit)
+    }
     func testComposedTransactionBacksUpRestoresVerifiesAndReleasesLock() async throws {
         let f = try MachineFixture(); defer { f.remove() }
         let result = try await f.coordinator.start(target: f.target, confirmedIdentity: f.installation.runtimeIdentity)
@@ -200,7 +233,7 @@ private struct MachineFixture {
         .init(migration: migration, operations: operations,
               certifiedPaths: [try! .init(sourceCommit: installation.commit, target: target)])
     }
-    init(runRootInsideHome: Bool = false) throws {
+    init(runRootInsideHome: Bool = false, inspector: (any DesktopHermesUpgradeInspecting)? = nil) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("hg199-machine-" + UUID().uuidString).resolvingSymlinksInPath()
         func directory(_ url: URL) throws {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -223,6 +256,7 @@ private struct MachineFixture {
         let environment = self.environment
         operations = .init(store: migration.hermesUpgradeJournal, runRoot: runs, sourceRoot: root.appendingPathComponent("source"),
             mailbox: mailbox, snapshots: snapshots, backups: backups, evidence: environment, services: environment,
+            inspector: inspector,
             workerFactory: { config in
                 let path = config.runDirectory.appendingPathComponent("worker-configuration.json")
                 let data = try config.json()
@@ -237,6 +271,22 @@ private struct MachineFixture {
         return object["mode"] as! String
     }
     func remove() { try? FileManager.default.removeItem(at: root) }
+}
+
+private struct MachineInspection: DesktopHermesUpgradeInspecting {
+    enum Mode { case unowned, originalSurvivor, backupWriter, updateWriter }
+    let mode: Mode
+    func inspect(installation: DesktopLocalHermesInstallation) -> DesktopHermesUpgradeInspection { fatalError("journal inspection only") }
+    func inspect(journal: DesktopHermesUpgradeJournal) -> DesktopHermesUpgradeInspection {
+        var candidates = [DesktopHermesUpgradeInspection.Candidate]()
+        if mode == .originalSurvivor, let service = journal.services.first(where: { $0.label == DesktopManagedInstallLayout.hermesLabel }) {
+            candidates = [.init(identity: .init(pid: service.processID!, parentPID: 1, startedAt: service.processStartedAt!), association: .checkout, profile: nil)]
+        } else if mode == .unowned || (mode == .backupWriter && journal.phase == .backingUp) || (mode == .updateWriter && journal.phase == .updating) {
+            candidates = [.init(identity: .init(pid: 9999, parentPID: 1, startedAt: Date()), association: .unscopedHermes, profile: nil)]
+        }
+        return .init(sourceIdentity: journal.sourceIdentity, checkedAt: Date(), candidates: candidates, unreadableOwnedProcesses: 0,
+            processSampleStable: true, profileDirectories: ["default"], profileDirectoryScanComplete: true, interpreter: .unknown)
+    }
 }
 
 /// Synthetic process, plan, receipt, boot and business evidence; never controls real services.

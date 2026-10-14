@@ -17,6 +17,14 @@ collector and the app does not instantiate this adapter. Business-check failures
 run and preserve later history. Cancellation verifies the original installation and business path
 before recording cancelled. Fixture coverage does not certify real service operations.
 
+A native read-only inspection now accompanies the existing upgrade-condition check. It samples
+current real/effective-user kernel PIDs/births twice, discards raw argv/environment, tracks potential
+checkout/Hermes processes and descendants, lists bounded profile directories without reading their
+contents, and observes the legacy Python link. The production Machine adapter uses it as an extra
+negative check before stopping services, around backups and before source moves. Unreadable/changing
+samples and extra/surviving processes block; empty samples never prove admission, task inactivity or
+recoverable dependencies. Full live evidence and end-to-end certification remain pending.
+
 HG-175 adds an explicit **检查并修复受管服务** recovery action for committed installations whose
 LaunchAgent files or loaded tasks are missing. It preserves the existing binding and installation
 identity, validates the retained release/credentials and same signed-in account, and uses confirmation,

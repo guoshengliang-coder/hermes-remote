@@ -41,6 +41,31 @@ and failed checks re-pause without overwriting newly written history. Exercise c
 and retry with the original installation as well. No product upgrade/recovery control is enabled
 by these fixture results.
 
+2026-10-14 native inspection increment: 13 inspection tests, 4 additional Machine negative-guard
+cases and 2 readiness-consumer tests. One inspection test starts a disposable Python sleep process
+with synthetic argv/environment values, reads its actual kernel PID/birth/command association,
+checks report serialization excludes those values and private paths, then terminates ONLY that test
+process and confirms disappearance. No Hermes or launchd job is started/stopped. Other tests inject
+kernel identities/argv and use actual temporary profile directories/interpreter links: argc bounds,
+empty arguments, environment-tail non-decoding, missing/changing/PID-reused snapshots, descendants,
+unscoped modules/selectors, exact original-service births, freshness/source binding, ghost shells,
+links/invalid names/write permissions/bounded listings and external interpreter observations.
+Production native inspection is an extra negative guard, not a writer fence. Machine tests reject
+an unowned candidate before any stop, an original-service survivor after stops, a writer around
+backup and one before source movement; those process/service effects are injected.
+Readiness tests prove no journal creation, no inspection during pending update/recovery, and that
+certification cannot hide an unavailable profile scan. Combined focused suites contain 69 tests:
+
+```bash
+swift test --package-path desktop --filter 'DesktopHermesUpgrade(Inspection|Readiness|Machine|Maintenance|OfficialWorker)Tests'
+```
+
+Still required: live all-profile task/admission closure and retirement, unknown/orphan/custom-home/
+other-user writers and open descriptors, PM/external interpreter closure recovery, fresh boot and
+same-binding Cloud/business proof. Native PID observation alone cannot certify any of these, and
+absence of candidates never proves safe upgrade. UI/card/device acceptance and full disposable-Mac
+upgrade/recovery remain pending; no product execution action is exposed.
+
 ## HG-199 first-stage verification
 
 Automated coverage: legacy and PM layouts, missing/broken committed generation, stale stamp,
