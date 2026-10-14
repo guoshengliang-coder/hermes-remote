@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -1795,18 +1796,16 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    // Upstream broadcasts session.reclaimed precisely so the next prompt is not sent into a session
-    // that no longer exists. Acting on it saves a doomed round trip AND, more importantly, is the
-    // only warning that arrives before the user has typed anything.
+    // Reclaim removes the live runtime, not the durable transcript. Resume before submitting.
     @Test fun session_reclaimed_event_recovers_without_a_doomed_submit() = runTest {
-        coEvery { chatRepo.resume("s1", null) } returns "live-1"
-        coEvery { chatRepo.createSession(any(), any()) } returns
-            com.hermes.client.data.repository.CreatedSession("s2", null)
-        coEvery { chatRepo.resume("s2", null) } returns "live-2"
+        coEvery { sessionRepo.history(any(), any()) } returns listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
+        )
+        coEvery { chatRepo.resume("s1", null) } returns "live-1" andThen "live-2"
         coEvery { chatRepo.submit("live-2", "hello") } returns Unit
 
         val vm = buildVm()
-        vm.open("s1", isNewSession = true)
+        vm.open("s1")
         advanceUntilIdle()
 
         events.emit(event("session.reclaimed", "s1"))
@@ -1816,11 +1815,237 @@ class ChatViewModelTest {
         runCurrent()
 
         coVerify(exactly = 0) { chatRepo.submit("live-1", any()) }
-        coVerify(exactly = 1) { chatRepo.createSession(any(), any()) }
+        coVerify(exactly = 0) { chatRepo.createSession(any(), any()) }
+        coVerify(exactly = 2) { chatRepo.resume("s1", null) }
         coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, vm.state.value.messages.last().delivery)
 
         events.emit(event("message.complete", "live-2", "done"))
         advanceUntilIdle()
+    }
+
+    @Test fun leaving_before_submit_settles_the_original_turn_as_unsent() = runTest {
+        val resume = kotlinx.coroutines.CompletableDeferred<String>()
+        coEvery { chatRepo.resume("s1", null) } coAnswers { resume.await() }
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime)
+        vm.open("s1")
+        runCurrent()
+        vm.send("first")
+        runCurrent()
+        vm.open("s2")
+        runCurrent()
+
+        val original = runtime.runtimes.value.values.single { it.key.sessionId == "s1" }
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, original.chat.messages.last().delivery)
+        assertFalse(original.chat.isGenerating)
+        assertEquals("first", unsent.read(draftToken)?.text)
+        assertNull(unsent.read(com.hermes.client.data.repository.SessionReadStore.token(null, "s2")))
+        resume.complete("live-1")
+        runCurrent()
+        coVerify(exactly = 0) { chatRepo.submit(any(), "first") }
+
+        // HG-214: the unsent first turn must not hide the later run's persisted answer.
+        vm.open("s1")
+        runCurrent()
+        vm.send("second")
+        runCurrent()
+        events.emit(event("message.complete", "live-1", "second answer"))
+        runCurrent()
+        runtime.acceptHistory(original.key, listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "second", serverId = 1L),
+            ChatMessage(id = "h2", role = Role.ASSISTANT, text = "second answer", serverId = 2L),
+        ), Long.MAX_VALUE)
+        runCurrent()
+        val reconciled = runtime.runtimes.value.getValue(original.key)
+        assertTrue(reconciled.chat.messages.any { it.text == "second answer" && it.serverId == 2L })
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED,
+            reconciled.chat.messages.single { it.text == "first" }.delivery)
+        assertEquals("first", unsent.read(draftToken)?.text)
+    }
+
+    @Test fun clearing_the_chat_before_submit_preserves_an_unsent_turn() = runTest {
+        coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime)
+        val owner = androidx.lifecycle.ViewModelStore()
+        owner.put("chat", vm)
+        vm.open("s1")
+        runCurrent()
+        vm.send("first")
+        owner.clear()
+        runCurrent()
+
+        val original = runtime.runtimes.value.values.single { it.key.sessionId == "s1" }
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, original.chat.messages.last().delivery)
+        assertFalse(original.chat.isGenerating)
+        assertEquals("HR-SESS-007", unsent.read(draftToken)?.code)
+        assertTrue(unsent.read(draftToken)!!.retryable)
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun waiting_for_a_live_handle_has_a_total_deadline_even_when_resume_hangs() = runTest {
+        coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.send("hello")
+        runCurrent()
+        advanceTimeBy(25_001)
+        runCurrent()
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, vm.state.value.messages.last().delivery)
+        assertFalse(vm.state.value.isGenerating)
+        assertEquals(com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED,
+            vm.sendErrorCode(vm.state.value.messages.last().id))
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun clearing_during_submit_keeps_delivery_pending_until_history_confirms_it() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "live-1"
+        coEvery { chatRepo.submit("live-1", "hello") } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime)
+        val owner = androidx.lifecycle.ViewModelStore()
+        owner.put("chat", vm)
+        vm.open("s1")
+        runCurrent()
+        vm.send("hello")
+        runCurrent()
+        owner.clear()
+        runCurrent()
+        val key = runtime.runtimes.value.keys.single()
+        assertEquals(com.hermes.client.domain.DeliveryState.SENDING,
+            runtime.runtimes.value.getValue(key).chat.messages.single().delivery)
+        assertNull(unsent.read(draftToken))
+        events.emit(event("message.complete", "live-1", "answer"))
+        runCurrent()
+        runtime.acceptHistory(key, listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "hello", serverId = 1L),
+            ChatMessage(id = "h2", role = Role.ASSISTANT, text = "answer", serverId = 2L),
+        ), Long.MAX_VALUE)
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT,
+            runtime.runtimes.value.getValue(key).chat.messages.first().delivery)
+        assertEquals(com.hermes.client.data.progress.SessionRunPhase.COMPLETED_UNREAD,
+            runtime.runtimes.value.getValue(key).phase)
+        coVerify(exactly = 1) { chatRepo.submit(any(), "hello") }
+    }
+
+    @Test fun an_obsolete_reclaim_does_not_invalidate_a_newly_bound_handle() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "live-2"
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        events.emit(ServerEvent("session.reclaimed", "s1", buildJsonObject {
+            put("session_id", "live-1")
+            put("stored_session_id", "s1")
+        }))
+        runCurrent()
+        vm.send("hello")
+        runCurrent()
+        coVerify(exactly = 1) { chatRepo.resume("s1", null) }
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
+        events.emit(event("message.complete", "live-2", "answer"))
+        runCurrent()
+    }
+
+    @Test fun cancelling_preparation_preserves_staged_attachments_across_a_cold_start() = runTest {
+        val file = java.io.File.createTempFile("cancelled-send", ".pending")
+        file.writeText("keep this document")
+        try {
+            coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+            val vm = buildVm()
+            val owner = androidx.lifecycle.ViewModelStore()
+            owner.put("chat", vm)
+            vm.open("s1")
+            runCurrent()
+            vm.stageAttachment(file, "text/plain", "notes.txt")
+            vm.send("read")
+            runCurrent()
+            owner.clear()
+            runCurrent()
+            assertTrue(file.exists())
+            assertEquals(file.absolutePath, unsent.read(draftToken)!!.attachmentMeta.single().path)
+
+            coEvery { chatRepo.resume("s1", null) } returns "live-2"
+            val restored = buildVm()
+            restored.open("s1")
+            runCurrent()
+            val bubble = restored.state.value.messages.single { it.role == Role.USER }
+            assertEquals(com.hermes.client.domain.DeliveryState.FAILED, bubble.delivery)
+            restored.retrySend(bubble.id)
+            runCurrent()
+            coVerify(exactly = 1) { fileRepo.uploadStagedFile(file, "notes.txt", "text/plain") }
+            coVerify(exactly = 1) { chatRepo.submit("live-2", any()) }
+            events.emit(event("message.complete", "live-2", "done"))
+            runCurrent()
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun optional_access_timeout_does_not_hold_the_live_handle_gate() = runTest {
+        coEvery { chatRepo.sessionAccess(any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        coEvery { chatRepo.resume("s1", null) } returns "live-1"
+        val vm = buildVm()
+        val owner = androidx.lifecycle.ViewModelStore()
+        owner.put("chat", vm)
+        vm.open("s1")
+        runCurrent()
+        vm.send("hello")
+        advanceTimeBy(3_001)
+        runCurrent()
+        coVerify(exactly = 1) { chatRepo.submit("live-1", "hello") }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, vm.state.value.messages.last().delivery)
+        events.emit(event("message.complete", "live-1", "done"))
+        runCurrent()
+        owner.clear()
+    }
+
+    @Test fun cancelling_an_unsent_turn_does_not_erase_an_authoritative_completion() = runTest {
+        coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime)
+        val owner = androidx.lifecycle.ViewModelStore()
+        owner.put("chat", vm)
+        vm.open("s1")
+        runCurrent()
+        vm.send("first")
+        events.emit(event("message.complete", "s1", "previous run finished"))
+        runCurrent()
+        owner.clear()
+        runCurrent()
+        val original = runtime.runtimes.value.values.single()
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED,
+            original.chat.messages.single { it.role == Role.USER }.delivery)
+        assertEquals(com.hermes.client.data.progress.SessionRunPhase.COMPLETED_UNREAD, original.phase)
+    }
+
+    @Test fun a_submit_response_timeout_waits_for_history_without_offering_duplicate_retry() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "live-1"
+        coEvery { chatRepo.submit("live-1", "hello") } throws
+            com.hermes.client.data.network.GatewayResponseTimeoutException("gateway response timeout")
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime)
+        vm.open("s1")
+        runCurrent()
+        vm.send("hello")
+        runCurrent()
+        val bubble = vm.state.value.messages.single { it.role == Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.SENDING, bubble.delivery)
+        assertNull(vm.sendErrorCode(bubble.id))
+        assertNull(unsent.read(draftToken))
+        vm.retrySend(bubble.id)
+        runCurrent()
+        coVerify(exactly = 1) { chatRepo.submit(any(), "hello") }
+        events.emit(event("message.complete", "live-1", "answer"))
+        runCurrent()
+        val key = runtime.runtimes.value.keys.single()
+        runtime.acceptHistory(key, listOf(
+            ChatMessage(id = "h1", role = Role.USER, text = "hello", serverId = 1L),
+            ChatMessage(id = "h2", role = Role.ASSISTANT, text = "answer", serverId = 2L),
+        ), Long.MAX_VALUE)
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT,
+            runtime.runtimes.value.getValue(key).chat.messages.first().delivery)
     }
 
     // The sheet switches this session through config.set; it never changes the profile default.

@@ -7,6 +7,12 @@ An assistant answer split across tool-call records opens all of that answer's ca
 history message-id replacement retains the viewer through the stable image id. User messages and
 pending attachments keep their own image scope.
 
+Sending recovers a reclaimed runtime by resuming the original durable conversation (HG-211).
+Live-handle preparation has a total deadline; leaving before submission preserves a retryable
+unsent turn in its original conversation, including attachments. Unsent turns do not block later
+completed history, and sending another message does not erase their retry record (HG-213/214).
+Cancellation or response timeout after submission starts waits for server reconciliation to avoid duplicate prompts.
+
 The upstream client is Kotlin + Jetpack Compose and already implements Hermes REST, `/api/ws` JSON-RPC, sessions, streaming chat, Markdown, attachments, reconnect, and encrypted credential storage. Hermes Remote retains those foundations and routes them through the HK Relay.
 
 ## First UI pass

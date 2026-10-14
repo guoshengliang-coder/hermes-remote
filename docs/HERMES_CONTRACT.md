@@ -618,20 +618,20 @@ There is no version negotiation here either. If a future Hermes renames or drops
 not an error — it is a session list that stops refreshing by itself, and a run whose state is only
 corrected when the user opens or refreshes the conversation.
 
-**`session.reclaimed` is the only warning that a conversation died while nobody was looking.**
+**`session.reclaimed` warns that a live runtime was reaped; it does not delete the transcript.**
 Upstream broadcasts it (`tui_gateway/session_lifecycle.py`, `_announce_session_reclaimed`) whenever
 its own housekeeping ends a session the client never asked to close —
 `_RECLAIM_END_REASONS = {idle_timeout, lru_evict, ws_orphan_reap}`. The reason it exists is stated
 in its own source comment: "else its next prompt fails". `ws_orphan_reap` fires 120 s after the
 socket carrying a session drops, and `docs/DIAGNOSTICS.md` records it as the *dominant* way mobile
 sessions end — so this is routine, not an edge case. It is a **global** broadcast carrying the
-durable session id, not the short live handle; match it against the stored id.
+live `session_id`, durable `stored_session_id`, and reason. Match the durable id, but ignore an
+obsolete live handle after binding a replacement.
 
-Ignoring it costs more than a wasted round trip. Afterwards `prompt.submit` answers **4001** and the
-`session.resume` the client retries with answers **4007**, and those two look identical on the wire
-("session not found") while meaning different things: 4001 is a stale live handle that resuming
-fixes, 4007 is the durable lookup missing from the profile's `state.db` — terminal. HG-29 was
-exactly this, surfaced to the user as a tap-to-retry that could never succeed.
+Source verification for HG-211/213/214 (2026-10-13): `session_lifecycle.py` tears down runtime state;
+`methods_session.py` `_resume_locate` can still load the durable row and cold-resume it. Resume
+before the next submit. **4001** means a stale live handle; **4007** means the durable lookup really
+missed. Only the latter confirms a missing conversation. Never infer 4007 from a reclaim event.
 
 **Upstream enforces one live owner per session, and says so with 4090.** While another surface is
 running a conversation, `prompt.submit` is refused — its stated reason being that a second surface
