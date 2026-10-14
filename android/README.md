@@ -13,6 +13,10 @@ unsent turn in its original conversation, including attachments. Unsent turns do
 completed history, and sending another message does not erase their retry record (HG-213/214).
 Cancellation or response timeout after submission starts waits for server reconciliation to avoid duplicate prompts.
 
+Cached history preparation runs off the main thread (HG-215). Embedded-object scanning and parsing
+have bounded work; very long literal paragraphs render in smaller blocks without dropping text.
+Leaving a chat cancels pending memory-cache preparation, and newer authoritative history wins.
+
 The upstream client is Kotlin + Jetpack Compose and already implements Hermes REST, `/api/ws` JSON-RPC, sessions, streaming chat, Markdown, attachments, reconnect, and encrypted credential storage. Hermes Remote retains those foundations and routes them through the HK Relay.
 
 ## First UI pass

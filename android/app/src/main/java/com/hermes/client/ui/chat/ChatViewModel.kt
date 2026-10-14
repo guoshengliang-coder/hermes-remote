@@ -712,6 +712,7 @@ class ChatViewModel @Inject constructor(
     private var resumeJob: Job? = null
     private var sendJob: Job? = null
     private var refreshJob: Job? = null
+    private var cachedHistoryJob: Job? = null
     private var runtimeKey: SessionRuntimeKey? = null
     /** Set when [open] finds a restored approval wait; emitted once the transcript is on screen. */
     private var approvalLostNoticePending = false
@@ -792,6 +793,7 @@ class ChatViewModel @Inject constructor(
         }
         refreshJob?.cancel()
         _refreshing.value = false
+        cachedHistoryJob?.cancel()
         olderHistoryJob?.cancel()
         _olderHistory.value = OlderHistoryUiState()
         sendJob?.cancel()
@@ -838,16 +840,26 @@ class ChatViewModel @Inject constructor(
         }
         _explicitSessionOverride.value = false
         _reasoningEffort.value = null
-        val cachedHistory = sessions.cachedHistory(id, profile, currentDeviceId)?.map { it.organizedForDisplay() }
+        val cachedHistory = sessions.cachedHistory(id, profile, currentDeviceId)
         sessionReclaimed = false
         sessionKnownEmpty = isNewSession && cachedHistory.isNullOrEmpty()
-        runtimeStore.markHistoryLoading(key, cachedHistory)
+        runtimeStore.markHistoryLoading(key, null)
         // Cached transcripts carry image REFERENCES, not files: a row parsed out of history has a
         // remote path and no local one, which the bubble draws as a waiting mark. Neither cache
         // path used to hydrate, so a cold open showed waiting marks until the network answered —
         // and until HG-44 the network path's own hydration was being discarded, so they stayed
         // (docs/IMAGE_ATTACHMENT_REQUIREMENTS.md §5: waiting is a state, not a resting place).
-        if (!cachedHistory.isNullOrEmpty()) hydrateImages(key)
+        if (!cachedHistory.isNullOrEmpty()) {
+            cachedHistoryJob = viewModelScope.launch {
+                val organized = withContext(defaultDispatcher) {
+                    cachedHistory.map { it.organizedForDisplay() }
+                }
+                if (runtimeKey != key) return@launch
+                // Like disk preparation, a late memory snapshot yields to network/live content.
+                runtimeStore.acceptCachedHistory(key, organized)
+                hydrateImages(key)
+            }
+        }
         // The memory cache holds ten transcripts and dies with the process, so with ~200 sessions
         // a cold open is the normal case, not the exception. Ask the disk in parallel with the
         // network: whichever answers first ends the skeleton, and acceptCachedHistory stands down
