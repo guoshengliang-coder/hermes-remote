@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import vm from 'node:vm';
 import { createWebsite, readConfig } from '../src/server.mjs';
-import { createReleaseReader, validateDesktop } from '../src/releases.mjs';
+import { createReleaseReader, validateDesktop, validateDesktopInternal, DESKTOP_INTERNAL_INDEX } from '../src/releases.mjs';
 import { errors, errorEnvelope } from '../src/errors.mjs';
 
 const testEnv = { WEBSITE_INVITE_CODE: '123456', WEBSITE_SESSION_SECRET: 'test-only-session-key-with-at-least-32-bytes' };
@@ -19,6 +19,8 @@ const android = {
 const desktop = { schemaVersion: 1, channel: 'internal', architecture: 'arm64', appVersion: '0.2.31', buildNumber: 34,
   minimumMacOS: '14.0', downloadURL: 'https://mrlgs.net/desktop/apps/0.2.31/Hermes-Go-Desktop-0.2.31.dmg',
   sizeBytes: 100000, sha256: 'c'.repeat(64), releaseNotes: ['连接现有 Hermes。'], sourceCommit: 'b'.repeat(40), updatedAt: '2026-10-10T12:00:00Z' };
+const internalDesktop = { ...desktop, distribution: 'ad-hoc', notarized: false,
+  downloadURL: desktop.downloadURL.replace('.dmg', '-dev.dmg') };
 function fixtureReader() { return createReleaseReader({ fetcher: async url => url.includes('/releases/') ? Response.json(android) : new Response(null, { status: 404 }) }); }
 async function start(t, options = {}) {
   const config = options.config ?? readConfig(testEnv);
@@ -177,8 +179,73 @@ test('Desktop pointer validates architecture, identity, hash, versioned filename
   for (const change of [{ downloadURL: desktop.downloadURL + '?redirect=bad' }, { downloadURL: 'https://evil.example/file.dmg' },
     { appVersion: '../escape' }, { architecture: 'unknown' }, { channel: 'stable' }, { sha256: 'bad' }, { minimumMacOS: '<script>' },
     { buildNumber: 0 }, { sourceCommit: 'bad' }, { updatedAt: 'not-a-date' }]) assert.throws(() => validateDesktop({ ...desktop, ...change }));
-  const reader = createReleaseReader({ fetcher: async () => Response.json(desktop) });
+  const reader = createReleaseReader({ fetcher: async url => url === DESKTOP_INTERNAL_INDEX ? new Response(null, { status: 404 }) : Response.json(desktop) });
   assert.equal((await reader.load('desktop')).url, desktop.downloadURL);
+});
+
+test('website test channel remains distinct from official app updates and rejects unsafe metadata', () => {
+  assert.deepEqual(validateDesktopInternal(internalDesktop), internalDesktop);
+  assert.throws(() => validateDesktop(internalDesktop));
+  assert.throws(() => validateDesktopInternal(desktop));
+  for (const change of [{ notarized: true }, { notarized: undefined }, { distribution: 'official' },
+    { downloadURL: desktop.downloadURL }, { downloadURL: internalDesktop.downloadURL + '?token=secret' },
+    { downloadURL: 'https://evil.example/file-dev.dmg' }, { appVersion: '../escape' },
+    { sha256: 'bad' }, { sourceCommit: 'bad' }, { updatedAt: '2026-13-01T00:00:00Z' }]) {
+    assert.throws(() => validateDesktopInternal({ ...internalDesktop, ...change }));
+  }
+});
+
+test('published internal Desktop appears on the site, remains invitation gated and resolves the exact dev DMG', async t => {
+  const urls = [];
+  const releases = createReleaseReader({ fetcher: async url => {
+    urls.push(url); return Response.json(url === DESKTOP_INTERNAL_INDEX ? internalDesktop : android);
+  } });
+  const { request, invite } = await start(t, { releases });
+  const html = await (await request('/download/')).text();
+  assert.match(html, /0\.2\.31/); assert.match(html, /内部测试版/); assert.match(html, /尚未通过 Apple 公证/);
+  assert.match(html, /Apple Silicon/); assert.doesNotMatch(html, /href="\/downloads\/desktop"|\.dmg/);
+  assert.equal((await request('/downloads/desktop')).status, 403);
+  const access = cookie(await invite());
+  const verified = await (await request('/download/', { headers: { Cookie: access } })).text();
+  assert.match(verified, /href="\/downloads\/desktop"/); assert.match(verified, /下载 macOS 内测版/);
+  const response = await request('/downloads/desktop', { headers: { Cookie: access } });
+  assert.equal(response.status, 303); assert.equal(response.headers.get('location'), internalDesktop.downloadURL);
+  const summary = await (await request('/api/releases')).json();
+  assert.equal(summary.desktop.distribution, 'ad-hoc'); assert.equal(summary.desktop.notarized, false);
+  assert.equal(summary.desktop.url, undefined);
+  assert.equal(urls.includes('https://mrlgs.net/desktop/apps/index.json'), false);
+});
+
+test('Desktop refresh tracks newer test releases and fails closed without official or stale fallback', async t => {
+  let index = structuredClone(internalDesktop); let officialCalls = 0;
+  const releases = createReleaseReader({ fetcher: async url => {
+    if (url !== DESKTOP_INTERNAL_INDEX) { officialCalls++; return Response.json(desktop); }
+    return Response.json(index);
+  } });
+  const { request, invite } = await start(t, { releases });
+  const access = cookie(await invite());
+  assert.equal((await request('/downloads/desktop', { headers: { Cookie: access } })).headers.get('location'), index.downloadURL);
+  Object.assign(index, { appVersion: '0.2.32', buildNumber: 35,
+    downloadURL: 'https://mrlgs.net/desktop/apps/0.2.32/Hermes-Go-Desktop-0.2.32-dev.dmg' });
+  assert.equal((await request('/downloads/desktop', { headers: { Cookie: access } })).headers.get('location'), index.downloadURL);
+  index = { ...index, sha256: 'broken' };
+  const failed = await request('/downloads/desktop', { headers: { Cookie: access, Accept: 'application/json' } });
+  assert.equal(failed.status, 503); assert.equal(failed.headers.get('location'), null);
+  assert.equal((await failed.json()).error.code, 'HR-SITE-004');
+  assert.equal(officialCalls, 0);
+});
+
+test('malformed or unreachable test pointers never fall back to another channel', async () => {
+  for (const value of [null, false, [], {}, 'invalid']) {
+    const reader = createReleaseReader({ fetcher: async url => {
+      assert.equal(url, DESKTOP_INTERNAL_INDEX); return Response.json(value);
+    } });
+    assert.deepEqual(await reader.load('desktop'), { status: 'unavailable' });
+  }
+  const reader = createReleaseReader({ fetcher: async url => {
+    assert.equal(url, DESKTOP_INTERNAL_INDEX); throw new Error('network failure');
+  } });
+  assert.deepEqual(await reader.load('desktop'), { status: 'unavailable' });
 });
 
 test('slow and redirecting release responses fail closed within the fetch boundary', async () => {

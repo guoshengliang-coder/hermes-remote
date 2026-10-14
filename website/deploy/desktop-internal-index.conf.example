@@ -1,0 +1,9 @@
+# Include in the existing mrlgs.net server, after explicit deployment authorization.
+# This website-only pointer is independent of the notarized /desktop/apps/index.json.
+location = /desktop/apps/internal-index.json {
+    alias /srv/hermes-desktop-apps/internal-index.json;
+    default_type application/json;
+    add_header Cache-Control "no-store" always;
+    add_header X-Content-Type-Options nosniff always;
+    limit_except GET HEAD { deny all; }
+}

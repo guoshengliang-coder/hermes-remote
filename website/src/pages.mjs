@@ -52,7 +52,7 @@ function releaseNotes(release) {
 }
 function downloadButton(platform, release, verified) {
   if (release?.status !== 'available') return '<span class="button unavailable" aria-disabled="true">暂未提供下载</span>';
-  return verified ? button(`下载 ${platform === 'android' ? 'Android APK' : 'Desktop DMG'}`, `/downloads/${platform}`, platform === 'android')
+  return verified ? button(`下载 ${platform === 'android' ? 'Android APK' : release.distribution === 'ad-hoc' ? 'macOS 内测版' : 'Desktop DMG'}`, `/downloads/${platform}`, platform === 'android')
     : button('验证邀请码后下载', '/download/#invite');
 }
 function download(config, { verified, metadata }) {
@@ -65,7 +65,7 @@ function download(config, { verified, metadata }) {
       <article class="entry" id="android"><div class="platform-icon">${icon('phone')}</div><h2>Android App</h2><p>在安卓手机上安装 Hermes GO，<br>随时交办任务、查看进展和结果。</p>${releaseMetadata(android)}${downloadButton('android', android, verified)}${releaseNotes(android)}</article>
       <article class="entry"><div class="platform-icon">${icon('tablet')}</div><h2>iPhone / iPad</h2><p>使用 Web App 访问 Hermes，<br>无需下载原生客户端。</p><p class="release-status">浏览器入口 · 沿用现有登录规则</p>${webButton(config)}<a class="text-link" href="/guide/#mobile">了解如何添加到主屏幕 →</a></article>
     </div>
-    <section class="mac-companion" id="desktop"><div class="platform-icon">${icon('mac')}</div><div class="mac-copy"><h2>准备你的 Mac · macOS Desktop</h2><p class="muted">Hermes 在你的 Mac 上运行。Desktop 用于准备和管理连接。</p>${releaseMetadata(desktop)}${releaseNotes(desktop)}</div>${downloadButton('desktop', desktop, verified)}</section>
+    <section class="mac-companion" id="desktop"><div class="platform-icon">${icon('mac')}</div><div class="mac-copy"><h2>准备你的 Mac · macOS Desktop</h2><p class="muted">Hermes 在你的 Mac 上运行。Desktop 用于准备和管理连接。</p>${releaseMetadata(desktop)}${desktop?.distribution === 'ad-hoc' ? '<p class="note">内部测试版 · 尚未通过 Apple 公证，需手动安装；更新时下载新版并替换应用，保留现有数据。<a href="/help/#installation">查看安装说明 →</a></p>' : ''}${releaseNotes(desktop)}</div>${downloadButton('desktop', desktop, verified)}</section>
     <div class="two-columns section"><div><h3>第一次使用？</h3><p class="muted">先准备 Mac 和模型，再连接手机或 Web。<br>跟着上手指南，完成第一个任务。</p><a class="text-link" href="/guide/">阅读快速上手 →</a></div><div><h3>安装 Android APK</h3><p class="muted">下载后打开 APK，按系统提示允许本次安装。测试版不通过应用商店分发；请从官网获取安装包。已安装用户可在 App 中检查更新。</p></div></div>`;
 }
 
@@ -96,9 +96,9 @@ function help(config) {
     ['没有邀请码，可以先进入 Web App 吗？', `可以<a href="${config.webAppURL}">打开 Web App</a>。官网邀请码只控制 Android 和 Desktop 的官网下载；能否使用 Web App，由它现有的登录与准入规则决定。`, 'invite'],
     ['Hermes GO 免费，为什么还会有模型费用？', 'Hermes GO 在邀请测试阶段免费。Hermes 调用的模型服务可能按供应商规则收费，具体取决于你配置的服务。', 'cost'],
     ['iPhone 可以下载原生 App 吗？', '目前使用 Web App，没有 iOS 原生安装包。可以通过 Safari 添加到主屏幕。', 'ios'],
-    ['macOS Desktop 为什么暂时不能下载？', '正式版本索引尚未发布时，官网会显示“安装包暂未开放”。如已参加测试，请向管理员获取当前可用版本与安装说明。', 'desktop'],
+    ['macOS Desktop 如何获取最新内测版？', '在<a href="/download/#desktop">下载页</a>验证测试邀请码后，下载最新已发布的 macOS 内测版。版本、更新说明和文件校验随内测发布同步。尚未发布时显示“安装包暂未开放”；版本信息暂时读取失败时请稍后刷新。', 'desktop'],
     ['连接不上，先检查什么？', '确认 Mac 没有睡眠、Hermes 在本地可用、Desktop 连接正常，再检查手机网络和当前登录或连接配置。若使用 Relay URL + App Token 模式，请确认地址与专用 App Token 正确。仍失败时，保留客户端显示的 HR 错误码与版本信息。', 'connection'],
-    ['下载后如何安装或更新？', 'Android：打开 APK，按系统提示允许本次安装；更新时使用同一渠道，不要先卸载已有 App。macOS：按该测试包随附的安装说明操作。如果系统阻止打开，请记录提示并向管理员咨询。', 'installation'],
+    ['下载后如何安装或更新？', 'Android：打开 APK，按系统提示允许本次安装；更新时使用同一渠道，不要先卸载已有 App。macOS 内测版：打开 DMG，将 Hermes Go Desktop 拖到“应用程序”；更新前先退出 Desktop，再用新版替换，保留现有 Hermes 配置与会话。内测包尚未通过 Apple 公证；确认来自官网后，如 macOS 阻止打开，可在“系统设置 → 隐私与安全性”按系统提示选择“仍要打开”。没有此选项或提示不同，请记录提示并向管理员咨询。', 'installation'],
   ];
   return `${pageHead('HELP', '有疑问，我们一起解决。', '从常见问题开始，找到下一步。')}
     <div class="faq">${questions.map(([title, body, id], i) => `<details id="${id}" ${i === 0 ? 'open' : ''}><summary>${title}</summary><p>${body}</p></details>`).join('')}</div>

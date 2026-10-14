@@ -330,6 +330,12 @@ An ad-hoc local app is not a distributable release. Do not claim Developer ID si
 unless the exact artifact has passed codesign verification, notary submission, stapling, and a clean
 machine launch check.
 
+For owner-approved internal ad-hoc test distribution, follow `docs/DESKTOP_RELEASE_CHANNEL.md`.
+Every completed internal DMG publication must also register its verified receipt and exact package
+through `website/scripts/desktop-internal-index.mjs` before handoff, keeping the website's macOS test
+download synchronized. Use its separate internal pointer; do not bypass the official app-update
+publisher or promote an ad-hoc build into `/desktop/apps/index.json`.
+
 
 ### Before handoff
 
