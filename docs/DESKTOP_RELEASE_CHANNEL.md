@@ -21,6 +21,24 @@ manually from the test download. The managed manifests remain independently sign
 Customer PM update/reconnect and iPhone PWA plus notebook SSH acceptance are still required; no
 customer installation or service restart is implied by this test publication.
 
+## Website internal-test downloads (owner decision, 2026-10-14)
+
+The owner requested that the website offer the macOS internal test installer and stay synchronized
+with later test publications. Each approved ad-hoc DMG publication now includes registration in the
+separate `/desktop/apps/internal-index.json` pointer through
+`website/scripts/desktop-internal-index.mjs`; see `website/README.md` for receipt and operator inputs.
+This pointer accepts only the exact immutable `-dev.dmg` URL with explicit ad-hoc/notarized-false
+metadata. Registration verifies the actual DMG's local/public size and hash and atomically switches
+the pointer with public readback and rollback. No version bump or DMG rebuild is needed to register
+an already verified release. Subsequent authorized test releases must synchronize the pointer before
+handoff so the website does not retain an old version.
+
+The website displays the test version, notes, Mac architecture and manual-install/update guidance,
+retaining its invitation gate. Its 60-second metadata cache follows this pointer; each download
+resolves it afresh. The official `/desktop/apps/index.json`, official publisher, Apple signing gates,
+and signed managed-component pointers remain independent. This website registration does not enable
+Desktop in-app GUI updates or establish installation/device acceptance.
+
 Desktop release discovery uses three mutable, cache-disabled pointers:
 
 - `/desktop/releases/index.json` for the Desktop application release envelope;

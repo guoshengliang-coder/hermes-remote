@@ -51,14 +51,54 @@ Never print configuration values, invitation request bodies, signed cookies or e
 
 Android reads `https://mrlgs.net/releases/index.json`, using the existing release-server validator
 for package/channel/certificate/descending versions/path/hash/size. Desktop reads
-`https://mrlgs.net/desktop/apps/index.json` and validates the internal app-pointer schema, architecture,
-versioned path, hash, size, commit and minimum OS. No APK/DMG or release pointer is published by this
-service. Indexes are bounded to 1 MiB, fetches time out after 3.5 seconds, redirects are refused,
+`https://mrlgs.net/desktop/apps/internal-index.json` for owner-approved ad-hoc test downloads, and
+falls back to `https://mrlgs.net/desktop/apps/index.json` only when that test pointer returns 404.
+Both validate architecture, versioned path, hash, size, commit and minimum OS. The test pointer
+additionally requires `distribution: "ad-hoc"`, `notarized: false` and the exact `-dev.dmg` filename;
+the official validator still rejects that filename. An invalid/unreachable test pointer fails closed
+without a stale or official fallback. No APK/DMG or release pointer is published by the running
+website service. Indexes are bounded to 1 MiB, fetches time out after 3.5 seconds, redirects are refused,
 metadata is cached for 60 seconds, and downloads explicitly refresh. Invalid/unreachable indexes
 fail closed with `HR-SITE-004`; 404/empty indexes show **安装包暂未开放** without an enabled link.
 
-On 2026-10-11 the Android index was available, while Desktop's app pointer returned 404. The ad-hoc
-0.2.30 dev DMG is deliberately not promoted to an official latest download or a notarized release.
+The owner authorized website distribution and continued test-release synchronization on 2026-10-14.
+Desktop downloads explicitly identify the internal test build, its Mac architecture, pending Apple
+notarization and manual installation/update instructions. This does not enable in-app GUI updates.
+
+## Synchronize each approved macOS test publication
+
+After the separate Desktop release process has published its immutable DMG and recorded a completed
+public-readback receipt, register it from a clean isolated checkout of current `origin/main`:
+
+```bash
+node website/scripts/desktop-internal-index.mjs \
+  --receipt /absolute/verified-publication.json \
+  --dmg /absolute/Hermes-Go-Desktop-0.2.32-dev.dmg \
+  --notes-file /absolute/notes.json \
+  --output /absolute/new-internal-index.json \
+  --publish --ssh-target user@approved-host
+```
+
+Use the actual versioned filename. The receipt must contain `verified: true`,
+`stage: "internal-test-published-and-public-readback-verified"`, `channel: "internal-ad-hoc"`,
+`notarized: false`, `version`, `build`, `url`, `sizeBytes`, `sha256`, `sourceCommit`, and `verifiedAt`.
+Notes are a bounded JSON string array. Architecture defaults to `arm64`, minimum macOS to `14.0`;
+override them with `--architecture` and `--minimum-macos` for a different verified package.
+Omit `--publish` to prepare the pointer without remote operations. Output must be outside the tree
+and must not already exist.
+
+The initial authorized deployment installs the exact route from
+`deploy/desktop-internal-index.conf.example` into the existing `mrlgs.net` server, checks `nginx -t`
+and reloads Nginx. The publisher does not edit routes or upload/rebuild a DMG. It requires the existing
+root-owned `/srv/hermes-desktop-apps/<version>/` file and that public route. It verifies local receipt
+bytes and a full public DMG download, then uses a locked atomic test-pointer replacement, verifies
+the public pointer verbatim, and restores the previous pointer on a failed readback. A same-version
+replacement with different metadata and a version downgrade are refused. Rollback refuses to
+overwrite a concurrent newer pointer. Official app and signed managed-component indexes are untouched.
+
+Subsequent approved internal releases must run this registration step before handoff. No website
+redeployment is needed: ordinary metadata refreshes within 60 seconds, and clicking Download fetches
+the current pointer afresh. This follows verified test publications, not unverified development commits.
 
 **The invitation is only a website navigation/download gate.** The existing release host remains
 public, as agreed. A copied final artifact URL can be downloaded directly; this site does not claim

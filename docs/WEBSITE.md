@@ -13,7 +13,8 @@ Web App stays at **https://mrlgs.net/app/** and existing release services remain
 - Public introduction and guide; invitation verification only gates website client download links.
   Invitation configuration stays private. Client/Web login and access are independent.
 - Free invitation testing, with separate model/API costs. Mac/Hermes must stay online.
-- Latest version/size/date/OS/notes come from the existing official indexes. Unpublished platforms
+- Latest version/size/date/OS/notes come from validated release indexes, including the owner's
+  separately approved macOS internal test pointer. Unpublished platforms
   have an explicit unavailable state; missing/invalid upstream metadata never enables a download.
 - First-time and existing-Hermes onboarding are separate. Follow actual Desktop capabilities and
   keep the existing Mac installation and credentials. Do not promise automatic model configuration.
@@ -38,7 +39,7 @@ Web App stays at **https://mrlgs.net/app/** and existing release services remain
 6. Verify `/healthz`, canonical metadata and the Web App link. Privately test wrong/correct code,
    expired session, throttling, release availability and no-JavaScript form fallback. Verify the
    full public Android download byte size/SHA-256 against its official manifest. Desktop remains
-   unavailable until its own authorized release publication provides a valid app pointer.
+   unavailable until its own authorized release publication provides a valid app or internal-test pointer.
 7. Record exact commit/host/service/origin, support-email readiness, network/device results and
    rollback instructions. Only after verified publication may HG-200 move to “待验证”.
 
@@ -56,7 +57,8 @@ physical-device checks:
 - iPhone/iPad Safari (including iPad desktop user agent): primary CTA goes to existing Web App;
   Safari “添加到主屏幕” instructions match the device; all pages fit at 320–430 CSS px.
 - macOS desktop browser: no desktop-browser card or header Web App button; both mobile entries are
-  visible and Desktop's secondary state follows the official app index.
+  visible and Desktop's secondary state follows the internal-test pointer (or the official app index
+  when the test pointer is absent), with accurate architecture and manual-update instructions.
 - Keyboard/screen reader: skip link, current-page navigation, real headings/links, labeled invitation
   input, announced result, focus-visible outlines, FAQ disclosure and 200% text zoom.
 - JavaScript disabled: navigation, invitation form and gated download remain functional.
