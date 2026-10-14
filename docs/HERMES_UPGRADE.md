@@ -28,6 +28,21 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 目前产品增加只读“检查升级条件”：识别 dirty/unknown 工作树、官方更新进行中、未完成或
 不可读的 GO 升级日志，检查过程中不修改 Git index。它不是任务退休/停写证明，不授权执行。
 
+2026-10-14 补入单个 serve 进程的真实只读活动采集：验证 GO 私有 launcher/token 合约，以
+无代理/重定向/cookie/cache 的固定回环 GET 读取 host identity、启动 version/full commit 和
+idle ledger，再复查 host PID、内核 birth/argv、令牌/launcher 与安装身份。每响应接收上限
+4 KiB、每请求资源上限一秒、整个快照新鲜窗口五秒；忙碌/未知/不完整/身份变化阻断条件检查。
+只保存状态及 admission/session/delegation/cron/humanInput 类别，不保存 ledger IDs/原文或凭据。
+它不发送 retirement POST，不暂停任何任务；观察到 idle 也不构成全 profile 停写证明。
+
+固定 0.21.3（17b5df02）已有 idle/retirement，但缺少 `/api/host/identity` 与 health commit；
+仅有 idle=true 仍未知。固定 0.21.6（818c13be）的退休 permit 为进程私有 30 秒 prepare，
+commit 后不可 cancel；RPC、session workers、进程内 cron 与 delegation 使用其 admission。
+这不是 checkout/home 级禁入锁，独立 CLI/另一个 gateway/外部 scheduler 或新进程不会共享它。
+gateway 的 pause-for-update 自有 drain/exit 协议，也不是全机 writer 禁入。因此后续 collector
+必须提供独立的完整 writer 覆盖/未来接入关闭，不能拿这一诊断或 Connector ACK 构造肯定证明。
+源码出处与字段差异见 `HERMES_CONTRACT.md` 的单进程活动诊断小节。
+
 已实现的核心边界：
 
 - `DesktopHermesUpgradeCoordinator` 串行化点击，并在每个副作用前持久化意图；来源 commit →

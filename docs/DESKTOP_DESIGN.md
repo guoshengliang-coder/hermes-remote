@@ -49,6 +49,13 @@ existing bilingual `HR-HERMESUPDATE-002`; pending transaction failures retain `0
 sample must never become “tasks stopped”, “safe to upgrade” or “backup recoverable”. Execution and
 recovery controls stay disabled until independently fenced live evidence is certified.
 
+The same action now includes a bounded authenticated serve activity diagnostic without new rows or
+controls. Busy/unknown, stale or mismatched PID/kernel birth/boot source uses `HR-HERMESUPDATE-002`;
+pending recovery keeps `003`. “Idle observed” describes a moment in one serve process; it must never
+be rendered as all profiles stopped or permission to upgrade. Missing old-version identity fields
+remain unknown. Session/job IDs and raw diagnostic responses are discarded; the product check never
+prepares or commits upstream retirement.
+
 ## PM runtime and connection recovery (HG-212 follow-up)
 
 Diagnostics' “重新诊断” and “再次尝试” refresh local evidence and the authenticated account snapshot

@@ -3,6 +3,37 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesUpgradeReadinessTests: XCTestCase {
+    func testCompleteNativeObservationWithoutActivityCannotPassConditions() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean), inspector: CompleteInspection()).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+        XCTAssertNil(report.activity)
+    }
+    func testBusyUnknownStaleAndForeignActivityBlockEvenCertifiedLocalConditions() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean), inspector: CompleteInspection()).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        let source = fixture.installation.runtimeIdentity
+        let cases: [(DesktopHermesUpgradeActivity.State, Date, String)] = [(.busy, Date(), source), (.unknown, Date(), source),
+            (.idleObserved, Date().addingTimeInterval(-6), source), (.idleObserved, Date().addingTimeInterval(1), source),
+            (.idleObserved, Date(), String(repeating: "b", count: 64))]
+        for (state, date, identity) in cases {
+            let activity = DesktopHermesUpgradeActivity(sourceIdentity: identity, checkedAt: date, process: nil, state: state, ledger: nil)
+            XCTAssertEqual(report.recordingActivity(activity).issue?.code, .hermesUpdateBlocked)
+        }
+        let idle = DesktopHermesUpgradeActivity(sourceIdentity: source, checkedAt: Date(), process: CompleteInspection.process, state: .idleObserved, ledger: nil)
+        XCTAssertNil(report.recordingActivity(idle).issue)
+        let extra = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean), inspector: CompleteInspection(extraCandidate: true)).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        XCTAssertEqual(extra.recordingActivity(idle).issue?.code, .hermesUpdateBlocked)
+        XCTAssertFalse(idle.writerAdmissionProven)
+        XCTAssertFalse(idle.allProfileInactivityProven)
+        XCTAssertEqual(report.recordingActivity(idle).recordingActivity(nil).issue?.code, .hermesUpdateBlocked)
+    }
     func testPMStartEligibilityIsNotAnUpgradeConditionVerdict() throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let installation = DesktopLocalHermesInstallation(executable: fixture.installation.checkoutRoot.appendingPathComponent(".hermes/bin/hermes"),
@@ -104,6 +135,18 @@ private struct NoGitReads: DesktopHermesUpgradeGitInspecting {
 private struct NoInspectionReads: DesktopHermesUpgradeInspecting {
     func inspect(installation: DesktopLocalHermesInstallation) -> DesktopHermesUpgradeInspection { fatalError("unsafe inspection") }
     func inspect(journal: DesktopHermesUpgradeJournal) -> DesktopHermesUpgradeInspection { fatalError("unsafe inspection") }
+}
+private struct CompleteInspection: DesktopHermesUpgradeInspecting {
+    static let process = DesktopHermesUpgradeInspection.ProcessIdentity(pid: 42, parentPID: 1, startedAt: Date(timeIntervalSince1970: 1000))
+    var extraCandidate = false
+    func inspect(installation: DesktopLocalHermesInstallation) -> DesktopHermesUpgradeInspection {
+        .init(sourceIdentity: installation.runtimeIdentity, checkedAt: Date(),
+            candidates: [.init(identity: Self.process, association: .checkout, profile: nil)] + (extraCandidate ? [
+                .init(identity: .init(pid: 43, parentPID: 1, startedAt: Date(timeIntervalSince1970: 1000)), association: .unscopedHermes, profile: nil)] : []),
+            unreadableOwnedProcesses: 0,
+            processSampleStable: true, profileDirectories: ["default"], profileDirectoryScanComplete: true, interpreter: .insideHome)
+    }
+    func inspect(journal: DesktopHermesUpgradeJournal) -> DesktopHermesUpgradeInspection { fatalError("unexpected inspection") }
 }
 private struct Fixture {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()

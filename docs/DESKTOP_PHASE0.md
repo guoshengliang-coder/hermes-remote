@@ -1,5 +1,17 @@
 # Hermes Go Desktop phase 0
 
+HG-199's existing condition-check action now additionally collects a single-process serve activity
+diagnostic: private token/recognized local launcher, direct `127.0.0.1:9119` GETs, token-gated host
+identity, boot health version/full SHA, idle ledgers, repeated host identity and kernel birth/argv.
+Requests refuse proxies, redirects, cookies and cache; bodies are bounded to 4 KiB during reading,
+each resource to one second and the complete snapshot to five seconds. Private token/launcher and
+installation identity are rechecked after collection; update/recovery takes precedence. Reports retain
+only sanitized categories, never raw reasons/session or job IDs/credentials. Missing routes/fields,
+incomplete or contradictory responses and identity changes remain unknown. Readiness requires fresh
+matching native and activity identities; it is still not execution authorization. The 0.21.3 snapshot
+lacks host identity and health commit, so its idle endpoint alone cannot supply this observation.
+No retirement prepare/commit/cancel request or service operation is issued.
+
 HG-199 now includes an opt-in private local Connector admission mailbox and exact GO service
 snapshots/launchd driver. Pause precedes writer retirement; a run/source/request/PID/instance-bound
 fresh ACK proves only Connector drainage. Independent full-profile/cron/background/kernel writer

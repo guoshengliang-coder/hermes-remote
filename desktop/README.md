@@ -1,5 +1,12 @@
 # Hermes Go Desktop
 
+The existing upgrade-condition check now reads the private serve idle diagnostic with bounded,
+proxy-free loopback GETs. Host PID and kernel birth/argv must agree across the snapshot; boot
+version/full commit must match the installation. It keeps only idle-observed/busy/unknown and sanitized ledger categories;
+missing old-version identity endpoints, changing processes, malformed/oversized responses and
+timeouts stay unknown. This diagnoses one process, never all-profile inactivity or writer admission.
+No retirement POSTs, service commands or execution controls are added.
+
 HG-199's backend worker now supports a narrow interrupted PM handoff recovery: a durable ready
 checkpoint permits the same official finish to continue without redoing PM or replacing the original
 context. Advanced/terminal receipts remain blocked, and the product upgrade/recovery controls remain

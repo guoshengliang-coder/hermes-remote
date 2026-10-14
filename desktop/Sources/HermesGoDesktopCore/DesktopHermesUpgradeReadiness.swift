@@ -39,6 +39,7 @@ public struct DesktopHermesUpgradeReadiness: Equatable, Sendable {
     public let dependenciesVerified: Bool
     public let checkedAt: Date
     public let inspection: DesktopHermesUpgradeInspection?
+    public let activity: DesktopHermesUpgradeActivity?
     /// This read-only check cannot prove live-task retirement, stopped writers or restore custody.
     /// It must never be used as execution authorization by the transaction adapter.
     public var issue: DesktopIssue? {
@@ -47,8 +48,21 @@ public struct DesktopHermesUpgradeReadiness: Equatable, Sendable {
             return DesktopHermesUpgradeError.preflightBlocked.issue
         }
         guard let inspection, inspection.processSampleStable, inspection.unreadableOwnedProcesses == 0,
-              inspection.profileDirectoryScanComplete else { return DesktopHermesUpgradeError.preflightBlocked.issue }
+              inspection.profileDirectoryScanComplete,
+              let sourceIdentity, let activity, activity.isFresh(for: sourceIdentity),
+              inspection.sourceIdentity == sourceIdentity, inspection.checkedAt.timeIntervalSince1970.isFinite,
+              (0...5).contains(Date().timeIntervalSince(inspection.checkedAt)),
+              activity.state == .idleObserved, let process = activity.process,
+              inspection.candidates.count == 1,
+              inspection.candidates.contains(where: { $0.association == .checkout && $0.identity == process })
+        else { return DesktopHermesUpgradeError.preflightBlocked.issue }
         return nil
+    }
+    public func recordingActivity(_ activity: DesktopHermesUpgradeActivity?) -> Self {
+        .init(target: target, sourceIdentity: sourceIdentity, workingTree: workingTree,
+            recoveryRequired: recoveryRequired, officialUpdateInProgress: officialUpdateInProgress,
+            targetCertified: targetCertified, dependenciesVerified: dependenciesVerified, checkedAt: checkedAt,
+            inspection: inspection, activity: activity)
     }
     public var workingTreeSummaryChinese: String {
         switch workingTree {
@@ -85,6 +99,7 @@ public struct DesktopHermesUpgradeReadinessChecker: Sendable {
         return .init(target: target, sourceIdentity: installation?.runtimeIdentity, workingTree: workingTree,
             recoveryRequired: recovery, officialUpdateInProgress: officialUpdateInProgress,
             targetCertified: certifiedTargets.contains(target), dependenciesVerified: installation?.upgradeDependenciesVerified ?? false, checkedAt: now,
-            inspection: installation != nil && !officialUpdateInProgress && !recovery ? inspector.inspect(installation: installation!) : nil)
+            inspection: installation != nil && !officialUpdateInProgress && !recovery ? inspector.inspect(installation: installation!) : nil,
+            activity: nil)
     }
 }

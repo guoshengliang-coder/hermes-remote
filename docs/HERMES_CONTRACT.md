@@ -1225,3 +1225,33 @@ Malformed, duplicate envelope keys, binary frames and notifications that cannot 
 error are dropped without closing the channel. The entire connection remains busy in the ACK until
 actually closed, so this allowance cannot be treated as permission to stop Hermes. This code belongs
 to Connector, not upstream Hermes; existing RPC method semantics above remain upstream-owned.
+
+### Single-process serve activity diagnostic (HG-199)
+
+Desktop's manual condition check now consumes only local GET routes, using the recognized GO local
+launcher/private token and fixed `127.0.0.1:9119`; it never tunnels this credential or requests retirement.
+In [pinned 0.21.6 status routes](https://github.com/NousResearch/hermes-agent/blob/818c13be1dc4fd28987e1e881a9408224afd4535/hermes_cli/web_routers/status.py),
+`/api/host/identity` requires the token and returns `ok`, `protocolVersion=1`, integer `pid`,
+`role=serve|desktop-serve`, `servesSpa=false` for headless serve. `/api/health` returns boot-cached full
+`commit`, base `version`, optional `displayVersion` and boolean `auth_required`. That last field
+describes dashboard ticket gating: Desktop-owned loopback normally sets it false while identity/idle
+still require the private session token. `/api/health/idle` is token-gated and returns `ok`, tri-state
+`idle`, `reason` and optional `detail`. None/unrecognized/contradictory shapes stay unknown.
+The [old 0.21.3 routes](https://github.com/NousResearch/hermes-agent/blob/17b5df02f2a729d8f46fbbf78cfc1f5a8cf0f121/hermes_cli/web_routers/status.py)
+have idle/retirement but no host-identity route or health commit; GO must not infer these from version
+or filesystem evidence. A missing diagnostic identity therefore remains unknown rather than idle.
+
+The [idle proof](https://github.com/NousResearch/hermes-agent/blob/818c13be1dc4fd28987e1e881a9408224afd4535/hermes_cli/web_server_idle_proof.py)
+uses process admission, session/worker, delegation, cron and human-input ledgers. GO strips ledger IDs
+and retains only known categories; it checks host PID twice, kernel birth/argv before/after, exact boot
+version/SHA, private token/launcher and installation identity, with 4 KiB receive bounds, one-second
+resource timeouts, no proxy/redirect/cookie/cache and five-second freshness. The native/activity
+consumer identities must agree. This is one process's diagnostic, never a global idle or stop permit.
+
+The [retirement fence](https://github.com/NousResearch/hermes-agent/blob/818c13be1dc4fd28987e1e881a9408224afd4535/hermes_cli/backend_retirement.py)
+offers a 30-second exclusive prepare token; commit closes that process's admission permanently and
+cannot be cancelled. RPC dispatch/session workers/in-process cron/delegation cooperate, but separate
+CLI, gateway, external scheduler or future processes do not share the process object. Gateway has its
+own `pause-for-update` drain/exit protocol in `gateway/control_socket.py`. Neither these mechanisms
+nor Connector's ACK provide checkout/home-wide future-writer exclusion. GO's report proof flags stay
+false and certification still needs independent complete writer admission/retirement evidence.

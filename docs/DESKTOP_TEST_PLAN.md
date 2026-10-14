@@ -1,5 +1,35 @@
 # Hermes Go Desktop test plan
 
+2026-10-14 serve activity increment adds 15 probe/transport tests and 2 readiness-consumer cases.
+Injected process/HTTP fixtures cover supported one-process idle, admission/session/delegation/cron/
+human-input busy ledgers, unavailable ledgers, old missing identity/boot fields, wrong PID/role/SPA/
+protocol/numeric types, reused/dead/unscoped/changed-argv processes, changed listener, wrong boot,
+malformed/duplicate/escaped/oversized/contradictory replies, unsafe token/absent private installation,
+source/freshness and sanitized serialization. Actual private temporary launcher/token files test
+unchanged reads plus token rotation/launcher permissions changing mid-probe. Three tests use actual
+disposable HTTP listeners and
+URLSession: fixed GET/private header, blocked redirect to another port with zero downstream requests,
+receiving an unbounded body, HTTP refusal and a stalled peer reaching its resource deadline. Tokens
+are synthetic; no installed Hermes or launchd service is read/stopped/changed by these tests.
+Readiness cannot pass complete native observation without matching fresh activity; busy/unknown,
+stale/foreign identity or an additional observed writer stays blocked even with a certified test target.
+Neither proof flag becomes true. Reinstating the preceding native-only readiness guard makes the
+missing-activity regression fail; restoring the new guard passes.
+
+Run `swift test --package-path desktop --filter 'DesktopHermesUpgrade(Activity|Readiness)Tests'`.
+On a disposable Mac, separately verify real upstream ledgers for running/queued turns, cron,
+delegation and human prompts, compare host PID/birth/boot with the managed job, and confirm a
+0.21.3 backend stays unknown. Exercise token rotation, source/service replacement and concurrent
+update/recovery. This increment does not certify upstream retirement coverage or future writer
+exclusion; full process/profile/CLI/gateway/scheduler closure and real service/boot/business acceptance
+remain required before enabling upgrade/recovery actions. No new visual/device layer is introduced.
+
+Increment validation: focused upgrade suites 88 passed; Desktop full baseline 694 tests with one
+existing opt-in skip and zero failures, native assets and app build passed. The app is ad-hoc only;
+no Developer ID/notarization/clean-Mac launch or distribution. Node/Web/Android were not rerun
+locally for this Desktop-only increment; their preceding integrated baseline remains recorded below.
+Real upstream ledgers/managed service/UI acceptance and L2/L3 remain unrun in this increment.
+
 HG-199 maintenance automation adds real Connector process/loopback HTTP admission and streamed-body
 drain and existing-channel prompt/answer/interrupt tests (old entry fails), Swift/Node shared
 private-request fixture, zero-count ACK binding to

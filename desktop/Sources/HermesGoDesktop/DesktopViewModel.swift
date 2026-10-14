@@ -473,9 +473,24 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         isCheckingHermesUpgrade = true
         defer { isCheckingHermesUpgrade = false }
         let result = await Task.detached(priority: .userInitiated) {
-            DesktopHermesUpgradeReadinessChecker().check(detection: detector.detect(), target: target,
-                journal: DesktopHermesUpgradeJournalStore(root: paths.migrationJournalRoot),
+            let checker = DesktopHermesUpgradeReadinessChecker()
+            let detection = detector.detect()
+            let journal = DesktopHermesUpgradeJournalStore(root: paths.migrationJournalRoot)
+            let report = checker.check(detection: detection, target: target, journal: journal,
                 officialUpdateInProgress: detector.updateInProgress())
+            guard !report.recoveryRequired, !report.officialUpdateInProgress, let installation = detection.installation,
+                  let layout = try? DesktopManagedInstallLayout(root: paths.managedRoot, launchAgentsRoot: paths.launchAgentsRoot)
+            else { return report }
+            let activity = await DesktopManagedInstaller(layout: layout).inspectHermesUpgradeActivity(installation: installation)
+            // A concurrent upgrade/recovery takes precedence over the earlier diagnostic snapshot.
+            if detector.updateInProgress() || (try? journal.requireNoPendingUpgrade()) == nil {
+                return checker.check(detection: detection, target: target, journal: journal,
+                    officialUpdateInProgress: detector.updateInProgress())
+            }
+            guard detector.detect().installation?.runtimeIdentity == installation.runtimeIdentity else {
+                return report.recordingActivity(nil)
+            }
+            return report.recordingActivity(activity)
         }.value
         hermesUpgradeReadiness = result
         hermesUpgradeIssue = result.issue
