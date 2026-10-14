@@ -151,6 +151,7 @@ class ChatViewModelTest {
         accountSessions: com.hermes.client.data.auth.AccountSessionManager? = null,
         conversationDevices: com.hermes.client.data.auth.ConversationDeviceStore? = null,
         runtimeStore: SessionRuntimeStore = newRuntimeStore(),
+        defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = mainDispatcherRule.dispatcher,
     ): ChatViewModel {
         val runtimeJob = SupervisorJob()
         runtimeJobs += runtimeJob
@@ -162,7 +163,7 @@ class ChatViewModelTest {
         return ChatViewModel(
             chatRepo, sessionRepo, store, reasoningPresetStore, profileRepo, profileManager,
             favoritesStore, recentsStore, pendingShareStore, tts, promptStore, configRepo, runtimeStore,
-            mediaRepo, fileRepo, mainDispatcherRule.dispatcher, projectPrefs,
+            mediaRepo, fileRepo, defaultDispatcher, projectPrefs,
             com.hermes.client.data.repository.ProjectCatalog(
                 mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
             ),
@@ -174,6 +175,59 @@ class ChatViewModelTest {
     // ── HG-41: the unsent draft. Token shape mirrors SessionReadStore.token(profile, id, device);
     // profileManager.active is null in these tests, hence "default/…".
     private val draftToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s1")
+
+    @Test fun cachedHistoryPreparationUsesDefaultDispatcherAndKeepsNavigationResponsive() = runTest {
+        val background = kotlinx.coroutines.test.TestCoroutineScheduler()
+        val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(background)
+        val pendingNetwork = kotlinx.coroutines.CompletableDeferred<List<ChatMessage>>()
+        every { sessionRepo.cachedHistory("s1", any(), any()) } returns listOf(
+            ChatMessage("a", Role.ASSISTANT, "{\"output\":\"cached tool result\"}\n\nCached answer"),
+        )
+        coEvery { sessionRepo.history(any(), any(), any()) } coAnswers { pendingNetwork.await() }
+        val vm = buildVm(defaultDispatcher = dispatcher)
+        vm.open("s1")
+        runCurrent()
+        assertTrue("cached organization must not execute on Main", vm.state.value.messages.isEmpty())
+
+        // Navigation and other main-thread work remain available before preparation runs.
+        vm.open("s2")
+        runCurrent()
+        background.runCurrent()
+        runCurrent()
+        assertTrue("the departed cache must not leak into the new chat", vm.state.value.messages.isEmpty())
+
+        vm.open("s1")
+        runCurrent()
+        background.runCurrent()
+        runCurrent()
+        val cached = vm.state.value.messages.single()
+        assertEquals("Cached answer", cached.text)
+        assertEquals("cached tool result", cached.tools.single().output)
+        pendingNetwork.cancel()
+    }
+
+    @Test fun lateMemoryPreparationYieldsToAuthoritativeHistory() = runTest {
+        val background = kotlinx.coroutines.test.TestCoroutineScheduler()
+        val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(background)
+        val pendingNetwork = kotlinx.coroutines.CompletableDeferred<List<ChatMessage>>()
+        every { sessionRepo.cachedHistory("s1", any(), any()) } returns listOf(
+            ChatMessage("a", Role.ASSISTANT, "Old cache"),
+        )
+        coEvery { sessionRepo.history(any(), any(), any()) } coAnswers { pendingNetwork.await() }
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime, defaultDispatcher = dispatcher)
+        vm.open("s1")
+        runCurrent()
+        runtime.acceptHistory(
+            com.hermes.client.data.progress.SessionRuntimeKey(null, "s1"),
+            listOf(ChatMessage("new", Role.ASSISTANT, "Authoritative answer")),
+            System.currentTimeMillis(),
+        )
+        background.runCurrent()
+        runCurrent()
+        assertEquals("Authoritative answer", vm.state.value.messages.single().text)
+        pendingNetwork.cancel()
+    }
 
     @Test fun opening_a_session_with_a_saved_draft_seeds_the_composer() = runTest {
         drafts = com.hermes.client.data.repository.FakeDraftSnapshot(

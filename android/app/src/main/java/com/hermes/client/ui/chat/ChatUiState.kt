@@ -92,16 +92,25 @@ private fun organizeAssistantContent(
     var cursor = 0
     var searchFrom = 0
     var extracted = 0
+    val objectEnds = embeddedObjectEnds(displayRaw)
+    // Invalid nested JSON must not turn repeated substring/parse attempts into another O(n²)
+    // path. Unrecognized or over-budget fragments remain prose, without truncating any bytes.
+    var parseBudget = displayRaw.length.toLong() * 4
 
     while (searchFrom < displayRaw.length) {
         val start = displayRaw.indexOf('{', searchFrom)
         if (start < 0) break
-        val match = parseEmbeddedObject(displayRaw, start)
-        if (match == null) {
+        val endExclusive = objectEnds[start]
+        if (endExclusive == null || endExclusive - start > parseBudget) {
             searchFrom = start + 1
             continue
         }
-        val (endExclusive, obj) = match
+        parseBudget -= endExclusive - start
+        val obj = parseEmbeddedObject(displayRaw, start, endExclusive)
+        if (obj == null) {
+            searchFrom = start + 1
+            continue
+        }
         val embedded = classifyEmbeddedObject(obj)
         if (embedded == null) {
             searchFrom = endExclusive
@@ -265,15 +274,19 @@ private fun classifyEmbeddedObject(obj: JsonObject): EmbeddedPayload? {
     return null
 }
 
-/** Returns the exclusive end plus parsed object, respecting braces inside JSON strings. */
-private fun parseEmbeddedObject(raw: String, start: Int): Pair<Int, JsonObject>? {
-    var depth = 0
+/** One pass finds every balanced object, including complete objects inside an unfinished outer. */
+private fun embeddedObjectEnds(raw: String): Map<Int, Int> {
+    val starts = ArrayDeque<Int>()
+    val ends = HashMap<Int, Int>()
     var inString = false
     var escaped = false
-    for (i in start until raw.length) {
+    for (i in raw.indices) {
         val ch = raw[i]
         if (inString) {
             when {
+                // A literal newline is invalid in JSON strings. Recover scanning so a later
+                // standalone tool object is still recognized after malformed prose/code.
+                ch == '\n' || ch == '\r' -> { inString = false; escaped = false }
                 escaped -> escaped = false
                 ch == '\\' -> escaped = true
                 ch == '"' -> inString = false
@@ -281,22 +294,16 @@ private fun parseEmbeddedObject(raw: String, start: Int): Pair<Int, JsonObject>?
             continue
         }
         when (ch) {
-            '"' -> inString = true
-            '{' -> depth++
-            '}' -> {
-                depth--
-                if (depth == 0) {
-                    val end = i + 1
-                    val parsed = runCatching {
-                        Json.parseToJsonElement(raw.substring(start, end)) as? JsonObject
-                    }.getOrNull() ?: return null
-                    return end to parsed
-                }
-            }
+            '"' -> if (starts.isNotEmpty()) inString = true
+            '{' -> starts.addLast(i)
+            '}' -> if (starts.isNotEmpty()) ends[starts.removeLast()] = i + 1
         }
     }
-    return null
+    return ends
 }
+
+private fun parseEmbeddedObject(raw: String, start: Int, endExclusive: Int): JsonObject? =
+    runCatching { Json.parseToJsonElement(raw.substring(start, endExclusive)) as? JsonObject }.getOrNull()
 
 /**
  * A short paragraph immediately introducing a JSON payload is process narration, not the final
@@ -734,7 +741,30 @@ internal fun markdownRenderBlocks(text: String): List<String> {
         }
     }
     if (current.isNotBlank()) blocks += current.toString().trimEnd()
-    return blocks
+    return blocks.flatMap(::boundedPlainTextBlocks)
+}
+
+internal const val MAX_PLAIN_TEXT_BLOCK_CHARS = 4096
+private val plainTextCompositeStart = Regex("(?m)^(?: {4}|\\t|\\s*\\d+[.)]\\s+)")
+
+/** Native line breaking can also be quadratic on a huge literal paragraph (HG-215).
+ * Keep Markdown composites intact; only split standalone literal text, retaining every character.
+ */
+private fun boundedPlainTextBlocks(text: String): List<String> {
+    if (text.length <= MAX_PLAIN_TEXT_BLOCK_CHARS ||
+        text.any { it in "*_`~[]<>#|\\$-+&" } ||
+        plainTextCompositeStart.containsMatchIn(text)
+    ) return listOf(text)
+    val chunks = mutableListOf<String>()
+    var start = 0
+    while (start < text.length) {
+        var end = (start + MAX_PLAIN_TEXT_BLOCK_CHARS).coerceAtMost(text.length)
+        if (end < text.length && text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) end--
+        chunks += text.substring(start, end)
+        start = end
+    }
+    // A cut must not turn a mid-paragraph number/indent into a new Markdown list/code block.
+    return if (chunks.any { plainTextCompositeStart.containsMatchIn(it) }) listOf(text) else chunks
 }
 
 data class ApprovalRequest(
