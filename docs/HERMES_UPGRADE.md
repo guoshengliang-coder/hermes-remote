@@ -29,7 +29,9 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 源码/home 的另一个进程仍能 acquire。实验只注入 idle ledger，不运行 Hermes 服务/业务；
 `scripts/compat/hermes-maintenance-scope.py` 及固定源 CI 保留 `globalAdmissionProven=false`。
 上游协作需求、首次从不参与协议版本切换的缺口及后续范围建议见
-[`HERMES_MAINTENANCE_REQUIREMENTS.md`](HERMES_MAINTENANCE_REQUIREMENTS.md)。尚未采用新协议。
+[`HERMES_MAINTENANCE_REQUIREMENTS.md`](HERMES_MAINTENANCE_REQUIREMENTS.md)。用户已授权隔离原型；
+POSIX 双域准入/生命周期锁和子进程持锁已有实验实现，未接入真实入口/GO、未创建上游 PR。
+固定真实模块的未参与入口仍可接入，原型不认证首次旧版切换。尚未采用新的线上协议。
 
 外部恢复材料已增加独立 `DesktopHermesUpgradeDependencyStore`：调用者明确选择 home 外的
 最多16个不重叠目录，保存私有 run/source/home/OS build/architecture manifest、文件 hash、

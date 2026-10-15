@@ -1,0 +1,99 @@
+# Hermes cross-process maintenance prototype
+
+Authorized isolation experiment for HG-199 (2026-10-15). `maintenance_lease.py` is a
+stdlib POSIX reference module for possible upstream integration, with real subprocess
+consumers in the compatibility harness. It is **not installed, imported by GO, or
+patched into Hermes**. No upstream PR or production change is part of this experiment.
+
+Run from the GO repository, with an isolated Python 3.11+ interpreter:
+
+```bash
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_prototype.py'
+python -I -S -B scripts/compat/hermes-maintenance-prototype.py --candidate-root <frozen-0.21.6-checkout>
+```
+
+The second command checks SHA-256 of `backend_retirement.py` from the audited
+`818c13be1dc4fd28987e1e881a9408224afd4535` source before executing a disposable copy.
+Source drift refuses execution with the existing bilingual `HR-HERMESUPDATE-002`.
+Only `RetirementFence.acquire()` is used here; the separate maintenance-scope matrix
+tests actual prepare/commit with an injected idle ledger. Neither starts a server,
+updates an environment, loads real history, or writes to the supplied checkout.
+Every subprocess gets a whitelist environment and disposable HOME/HERMES_HOME.
+
+## Proposed cooperative primitive
+
+Each participant supplies its **fleet maintenance home** and checkout explicitly.
+Profiles belonging to that fleet must use the same home domain; this experiment
+does not infer profile relationships. Both domains are needed: home-only exclusion
+misses another home executing the same checkout while its code changes.
+
+The private control registry sits outside both domains. Enrollment explicitly binds
+kind + canonical path + device/inode, plus stable lock-file device/inodes. It does
+not occur as a writer fallback. Missing, partial, unsafe or replaced bindings fail
+closed. No lock is removed to cancel maintenance. Registry trust/enrollment across
+versions is an integration requirement, not a discoverable capability in this module.
+
+| Participant state | Kernel locks retained |
+|---|---|
+| Writer entering | Shared admission gates, then shared lifetime writer locks |
+| Writer active | Shared writer locks; admission gates released |
+| Maintenance requested | Exclusive admission gates; future participants refuse |
+| Draining | Gates retained; exclusive writer locks tried without killing writers |
+| Maintenance ready | All gates and writer locks exclusive |
+| Cancel/finish | Close this owner's descriptors; inherited children may still hold them |
+
+All admission gates are acquired in stable order before lifetime locks. Busy
+acquisition returns to the caller; no implicit unbounded wait, retry or timeout.
+A failed drain releases partially acquired writer locks but retains closed gates.
+The caller owns cancellation/deadline and must close its request. The module does
+not promise fairness or recovery from a user who intentionally holds a lease forever.
+
+`pass_fds` is available only after a writer enters or maintenance fully drains.
+Descriptors use CLOEXEC otherwise. Explicit inheritance keeps the same open file
+descriptions alive after parent death or parent close. Close must never issue
+`LOCK_UN`, which would also unlock the child's description. PID reuse is irrelevant
+to these kernel locks; PID-based discovery and a real durable handoff identity are
+not implemented here. Do not serialize descriptor numbers as recovery capabilities.
+
+## Evidence and limits
+
+Thirteen tests use synthetic participants and actual OS locks: concurrent writers,
+late admission, home/checkout overlap and unrelated domains, reversed domain order,
+busy drain/cancel, competing updater, partial acquisition cleanup, inherited writer
+and updater children after SIGKILL **and** explicit parent close, root/lock replacement,
+missing/unsafe/aliased controls, source-drift refusal and bilingual redaction.
+Replacing close-only release with `LOCK_UN` causes both parent-close custody cases
+to fail; the normal module passes. That mutant lives only in a disposable copy.
+
+The frozen-module experiment blocks participating dispatch from the same checkout
+and another checkout sharing the home. An independent unmodified retirement module
+still admits work, and a nonparticipant can still write the home while maintenance
+holds locks. Consequently both `globalAdmissionProven` and `certifiesUpgrade` remain
+false. Advisory locks do not defend against malicious same-user replacement of the
+whole registry or code that ignores the protocol. Linux/macOS CI exercise OS behavior;
+Windows and network filesystems have no implementation or certification.
+
+## Before upstream adoption
+
+This is a reference primitive, not complete upstream integration. Review these
+placements before adding it to `hermes_cli/maintenance_lease.py` upstream:
+
+1. Enter before import/bootstrap/config/schema/log writes, including
+   `hermes_cli/main.py` startup recovery. Guarding only `main()` is too late if
+   earlier imports can write. Direct API/CLI/serve/gateway/cron entry points need
+   the same contract; an omitted entry remains unsupported.
+2. Bind multiplex/profile fleet scope explicitly, and retain lifetime leases across
+   queued work, human input, delegation and actual subprocesses. Existing per-process
+   retirement/idle ledgers still own graceful drain; locks do not make work idle.
+3. An updater must enter the exclusive path directly, avoiding its own implicit shared
+   writer lock. Keep the official checkout update lock too; define acquisition order,
+   trusted control enrollment and the first transition from nonparticipating versions.
+4. Define durable run/source/home identity, descriptor validation and authenticated
+   child/service handoff. Holding leases across a child crash is tested; safe restart,
+   boot acceptance while admission remains closed, PM recovery and terminal debt are
+   not implemented. Cancellation here only closes an unmodified prototype request.
+5. Audit every writer and exercise actual ledgers/services before producing any GO
+   evidence or enabling upgrade. Old 0.21.3/0.21.6 do not acquire these leases today.
+
+The first legacy-to-cooperative transition, full dependency/ABI recovery, exact service
+restoration and business/device acceptance remain separate blockers in HG-199.

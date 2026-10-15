@@ -29,7 +29,19 @@ dependency/native loader/OS/ABI coverage and original-reference activation remai
 gaps. Upgrade/recovery controls remain disabled. Separately, maintenance-scope CI tests the real old
 and candidate retirement modules with two isolated processes and an injected idle ledger: only the
 committed process refuses admission; the other still admits work. This is a negative scope result,
-never a writer proof. See HERMES_MAINTENANCE_REQUIREMENTS.md for the pending upstream-scope decision.
+never a writer proof. The user authorized an isolated upstream prototype on 2026-10-15; see
+HERMES_MAINTENANCE_REQUIREMENTS.md and scripts/compat/upstream-maintenance-prototype/README.md.
+Thirteen synthetic-participant tests use actual POSIX subprocess locks, plus a frozen retirement
+module experiment; none represents complete upstream entry-point, profile or service integration.
+
+The macOS 15 / Swift 6.1 CI initially crashed in the external-link rejection test. Its LLDB
+backtrace identified the readlinkat Array/raw-pointer output boundary; explicit mutable element
+storage fixes it, with the same adjustment for sysctl output. That existing test is the observed
+failing regression on the old implementation. Temporary CI debugger steps were removed after
+diagnosis. Local Desktop assets/test/app were rerun successfully (712, two opt-in skips); macOS 15 CI
+also passed at buffer-fix commit 3c852f6f. Final-head CI is checked separately. The expanded Python
+compatibility baseline passed 46 tests, including 13 prototype cases; the frozen-module experiment
+also passed with both certification flags false.
 
 Increment validation: Desktop assets/test/app passed (712 tests, two opt-in skips, zero failures);
 upgrade-focused suites passed (111 at the preceding checkpoint, one opt-in skip), with the later

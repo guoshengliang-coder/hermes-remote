@@ -44,6 +44,8 @@ jobs:
         run: python -I -B scripts/compat/hermes-matrix.py --old-root .upstream/current --candidate-root .upstream/candidate
       - name: Check that process retirement is not global writer exclusion
         run: python -I -S -B scripts/compat/hermes-maintenance-scope.py --old-root .upstream/current --candidate-root .upstream/candidate
+      - name: Exercise isolated proposed maintenance lease with frozen retirement module
+        run: python -I -S -B scripts/compat/hermes-maintenance-prototype.py --candidate-root .upstream/candidate
       - name: Check real upstream checkout lock and surviving child custody
         run: python -I -B scripts/compat/hermes-update-lock-matrix.py --candidate-root .upstream/candidate
   upstream-lock-matrix-macos:
@@ -64,6 +66,10 @@ jobs:
           persist-credentials: false
       - name: Check real upstream checkout lock and surviving child custody on macOS
         run: python -I -B scripts/compat/hermes-update-lock-matrix.py --candidate-root .upstream/candidate
+      - name: Exercise proposed maintenance lease and inherited child custody on macOS
+        run: |
+          python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_prototype.py'
+          python -I -S -B scripts/compat/hermes-maintenance-prototype.py --candidate-root .upstream/candidate
   upstream-main-warning:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
