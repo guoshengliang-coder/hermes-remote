@@ -103,7 +103,8 @@ final class DesktopHermesUpgradeDependenciesTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: f.exported.appendingPathComponent("python/active")), "bytes")
     }
     func testExternalAbsoluteDanglingCyclicAndFileTraversalLinksAreRejected() throws {
-        for target in ["../outside", "/usr/bin/python3", "missing", "link", "data/child"] {
+        for (index, target) in ["../outside", "/usr/bin/python3", "missing", "link", "data/child"].enumerated() {
+            print("DEPENDENCY_LINK_REJECTION_CASE=\(index)")
             let f = try DependencyFixture(); defer { f.remove() }
             try f.file("data", data: Data("not-a-directory".utf8))
             try f.link("link", target: target)
