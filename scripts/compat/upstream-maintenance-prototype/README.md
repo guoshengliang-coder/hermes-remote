@@ -286,4 +286,51 @@ The live anonymous channel does not authorize a new process from a saved receipt
 Actual PM/official-lock ordering, native/cron/other writers, trusted fleet registration, all profiles,
 services and first legacy transition remain separate work. If a final acknowledgement is lost after
 commit, retaining the parent's locks cannot prove the child did no work; durable resolution of that
-uncertain state, mid-protocol death, re-exec and OS restart are not certified by these cases.
+uncertain state, mid-protocol death, re-exec and OS restart are not certified by these original cases.
+
+## Commit uncertainty and process-death experiment
+
+```bash
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_failures.py'
+python -I -S -B scripts/compat/hermes-maintenance-failures.py --candidate-root <frozen-0.21.6-checkout>
+```
+
+`Uncertain` now distinguishes any issuer failure while/after attempting commit from a pre-commit
+refusal. Classification starts BEFORE the first possible commit byte, including failed/partial
+sends. Confirmed means only the live handshake completed. A child success report cannot release an
+uncertain parent's original lease. The probe verifies actual exclusion after the child exits,
+before any fresh lock acquisition could hide a release gap. The parent's original lease remains
+until test cleanup; this experiment does not automatically retry, cancel, recover or publish a
+durable result, and nothing here is a production coordinator.
+
+Eight fixed-source cases (four entries × two faults) discard commit before delivery or discard a
+valid final acknowledgement after the child is authorized. Both are issuer-uncertain, but only
+the latter executes real scratch writes. These are controlled discard injections, not a claim
+of physical packet loss or OS crash recovery. The same injected PM/early-recovery and bounded
+scratch-prefix limits still apply. A disposable mutant restores close-on-child-success: after
+the child exits an actual writer can enter, exposing the gap that a pre-close boolean misses.
+
+`handoff_actor.py` separately uses **synthetic actors**, one placeholder source input and a marker,
+not copied Hermes code, to test actual SIGKILL. The supervisor owns no maintenance descriptors;
+only the test parent and child do. Independent private control pipes pause the child after ready,
+after accepted, after validated commit before final ack, or after authorization/marker write.
+At each point kill the parent Popen object or command the child to SIGKILL itself; never signal a
+discovered PID. Parent death leaves child custody; child death leaves parent custody. Releasing a
+paused pre-commit child after parent death refuses before the marker. A child that cannot send final
+ack also refuses; an already authorized child retains exclusion until controlled exit. Parent
+classification for child death is pre-commit at ready, uncertain at accepted/commit-received and
+confirmed at authorized, even though the child is dead. Confirmation is not service boot evidence.
+
+A ninth case kills the authorized child and then the parent. With all live custodians gone, an
+actual fresh writer can enter and another maintainer can drain. `allCustodiansGoneAdmitsWriter=true`
+is a mandatory **negative control**, not a completion signal. Kernel locks do not remember a
+maintenance transaction after all descriptors are gone. A durable admission intent checked by every
+participant, trusted restart identity and resolution of uncertain work are still required.
+
+Six tests cover the full synthetic matrix, close-on-child-success mutant, failed commit send,
+pre-commit transport failure, bounded control frames/explicit test scope and bilingual redaction.
+Linux/macOS CI run those tests plus the fixed-source cases. The optional `accept` checkpoint callback
+is only for this test fixture, not an upstream or production extension point. No real PM activation,
+native preload, cron package boot, service, ledger/business task or OS reboot runs in the death
+fixture. Production authority, durable handoff, full startup, global admission and upgrade
+certification remain false. The supervisor's observation is not a restarted owner's recovery proof.

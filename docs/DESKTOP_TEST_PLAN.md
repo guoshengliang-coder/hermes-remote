@@ -1,5 +1,19 @@
 # Hermes Go Desktop test plan
 
+The failure increment adds six Python tests, eight frozen-source uncertain prefixes and nine
+synthetic SIGKILL cases. Issuer failures before commit are separate from any failure while/after
+attempting commit, including send errors; the latter retain an uncertain state and original parent
+lease. Four real entry prefixes each cover undelivered commit (no scratch) and discarded final ack
+(scratch written). Both keep outsiders excluded even after the child exits. A disposable mutant
+that closes on child success instead of issuer confirmation exposes the post-child-exit gap.
+Separate synthetic actors pause at ready, accepted, validated commit before ack, or authorized marker
+write. Kill either process at each phase, then both after authorization; the lock-free supervisor
+checks surviving custody and actual -SIGKILL child status. An acknowledged child can die immediately,
+so handshake confirmation never proves boot readiness. After all custodians die, a fresh writer
+really enters: this negative control keeps durable/global/upgrade flags false. Test controls use
+private pipes and bounded frames/deadlines. Linux/macOS run all six tests and the frozen matrix.
+No durable journal/restart recovery, actual PM/native/cron/services, OS reboot or device/UI validation.
+
 The live-handoff increment adds nine Python tests and a separate frozen-source matrix: five
 bound recovery prefixes (four entries plus an explicitly selected named home) and thirteen
 refusals before copied-package initialization. The trusted launcher passes an anonymous socketpair,
@@ -12,7 +26,8 @@ private FD shape, directory replacement/links, bilingual redaction and a disposa
 skips actual source validation and consequently admits changed source. Linux/macOS run both fixtures
 and frozen sources. `liveBindingChecksVerified` is deliberately separate from false production,
 durability, full-startup/global/upgrade certification. The context is not OS-sealed or a whole-tree
-Git/runtime proof. PM remains injected. Post-commit lost final acknowledgement, re-exec/restart,
+Git/runtime proof. PM remains injected. This original matrix does not cover post-commit lost final
+acknowledgement or re-exec/restart;
 actual PM/native/cron/services and device/UI verification remain unverified. See the prototype README.
 
 The shared-bootstrap increment adds eight Python tests and a separate eleven-input frozen-source

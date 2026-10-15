@@ -19,6 +19,7 @@ PROTOTYPE = Path(__file__).with_name("upstream-maintenance-prototype")
 SOURCE_ID = "818c13be1dc4fd28987e1e881a9408224afd4535"
 BINDING_FAULTS = ("wrong-run", "wrong-source", "wrong-home", "wrong-role", "wrong-entry", "wrong-domain",
                   "changed-source", "source-after-hello", "stale-grant", "lost-ack", "bad-ack", "missing-lock", "fresh-locks")
+COMMIT_FAULTS = ("commit-not-delivered", "lost-final-ack")
 ENTRY_SHA256 = {
     "hermes_cli/main.py": "1491ff17d20b54c024c052003d394798cb2e673c8b9565b4a8be4c1fd6b21dae",
     "hermes_bootstrap.py": "ef827fba947d33dc29fe4afd587264b982a37e5b1da2130a4806c8d84e58ee6c",
@@ -87,7 +88,7 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
                entry_module="hermes_cli.main", role="writer", handoff_fault=None):
     bound = role == "bound-recovery"
     if (role not in ("writer", "recovery", "bound-recovery") or (role != "writer" and not maintenance)
-            or (handoff_fault is not None and (not bound or handoff_fault not in BINDING_FAULTS))):
+            or (handoff_fault is not None and (not bound or handoff_fault not in BINDING_FAULTS + COMMIT_FAULTS))):
         raise ValueError("invalid startup role")
     spec = importlib.util.spec_from_file_location("entry_lease", PROTOTYPE / "maintenance_lease.py")
     lease = importlib.util.module_from_spec(spec)
@@ -149,6 +150,7 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
                                      cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                      text=True, pass_fds=inherited)
             handshake = False
+            outcome = "rejected-before-commit"
             if bound:
                 remote.close(); remote = None
                 os.close(manifest); manifest = None
@@ -159,6 +161,9 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
                 try:
                     binding.issue(channel, expected, handoff_fault, changed_after_hello)
                     handshake = True
+                    outcome = "confirmed"
+                except binding.Uncertain:
+                    outcome = "commit-uncertain"
                 except (binding.Rejected, OSError):
                     pass  # Keep the parent's lease; the child must report a refusal before imports.
                 finally:
@@ -166,7 +171,8 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
             value = read_result(child, bound=bound)
             if bound:
                 value["liveHandshakeAccepted"] = handshake
-                retained = bool(value["identityRejected"] and request.ready)
+                value["liveHandshakeOutcome"] = outcome
+                retained = bool(not handshake and request.ready)
                 if retained:
                     for outsider_role in ("writer", "maintenance"):
                         try:
@@ -176,8 +182,9 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
                         else:
                             outsider.close()
                             retained = False
-                value["parentRetainedAfterRejection"] = retained
-            if role == "recovery" or (bound and value["boundIdentityVerified"]):
+                value["parentRetainedAfterRejection"] = retained and outcome == "rejected-before-commit"
+                value["parentRetainedOnUncertainty"] = retained and outcome == "commit-uncertain"
+            if role == "recovery" or (bound and handshake):
                 request.close()
                 request = None
                 for outsider_role in ("writer", "maintenance"):
@@ -196,9 +203,22 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
             child.wait(timeout=5)
             if child.returncode != 0:
                 raise ValueError("startup probe exit")
+            if bound and outcome == "commit-uncertain":
+                # Observe the boundary after the child has really exited, before
+                # any new acquisition could hide an accidental parent release.
+                excluded = True
+                for outsider_role in ("writer", "maintenance"):
+                    try:
+                        outsider = lease.Lease(domains, maintenance=outsider_role == "maintenance")
+                    except BlockingIOError:
+                        continue
+                    else:
+                        outsider.close()
+                        excluded = False
+                value["uncertaintyBlocksAfterChildExit"] = excluded
             if not maintenance:
                 value["drainsAfterPrefixExit"] = request.drain()
-            if role == "recovery" or (bound and value["boundIdentityVerified"]):
+            if role == "recovery" or (bound and handshake):
                 request = lease.Lease(domains, maintenance=True)
                 value["drainsAfterRecoveryExit"] = request.drain()
             return value

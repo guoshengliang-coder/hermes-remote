@@ -42,7 +42,11 @@ PM/恢复为注入空操作，实验在 scratch hook 返回时停止；不是完
 入口/恢复角色及11份变换后源输入；5个获准前缀和13个导入前拒绝场景验证确认与持锁边界。
 这只验证可信测试launcher，不代表整个Git/runtime闭包或生产授权；
 `liveBindingChecksVerified=true`与`productionAuthorityVerified=false`、`durableHandoffVerified=false`
-分别记录。跨exec/重启身份和commit后确认丢失的不确定状态仍待验证，不能靠JSON回执接管。
+分别记录。后续故障实验已覆盖四入口的8个commit未送达/最终确认丢失前缀：
+父方在两种情况均保留不确定状态与原锁，子方真正退出后仍阻挡外来请求，不能按子方状态释放。
+9个合成SIGKILL场景验证四个握手检查点的存活方持锁；所有持锁者死亡后writer仍可进入，
+明确暴露纯内核锁没有耐久事务记忆。合成交接确认也不等于服务boot成功。
+跨exec/重启身份与不确定状态的耐久恢复仍待实现，不能靠JSON回执接管或空锁自动解除维护。
 原生预加载、cron包初始化和真实PM/恢复仍未覆盖，全部升级认证flag保持false。
 
 外部恢复材料已增加独立 `DesktopHermesUpgradeDependencyStore`：调用者明确选择 home 外的

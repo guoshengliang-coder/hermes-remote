@@ -24,6 +24,10 @@ class Rejected(ValueError):
     pass
 
 
+class Uncertain(Rejected):
+    """Commit may have reached the child; no retry/cancel/release is authorized."""
+
+
 def reject():
     raise Rejected("live handoff rejected")
 
@@ -220,12 +224,20 @@ def issue(channel, expected, fault=None, after_hello=None):
         accepted = {**accepted, "transfer": ("0" if transfer[0] != "0" else "1") + transfer[1:]}
     if not matches(accepted, packet("accepted", binding, challenge, transfer)) or fault == "lost-ack":
         reject()
-    send(channel, packet("commit", binding, challenge, transfer))
-    if not matches(receive(channel), packet("committed", binding, challenge, transfer)):
-        reject()
+    # Classify before the first possible commit byte, including partial/failed send.
+    try:
+        if fault == "commit-not-delivered":
+            reject()
+        send(channel, packet("commit", binding, challenge, transfer))
+        committed = receive(channel)
+        if (fault == "lost-final-ack"
+                or not matches(committed, packet("committed", binding, challenge, transfer))):
+            reject()
+    except (Rejected, OSError) as error:
+        raise Uncertain("live handoff commit uncertain") from error
 
 
-def accept(channel_fd, context_fd, run_id, source_id, checkout, home, entry, records, acquire):
+def accept(channel_fd, context_fd, run_id, source_id, checkout, home, entry, records, acquire, checkpoint=None):
     adopted = None
     with socket.socket(fileno=channel_fd) as channel:
         channel.set_inheritable(False)
@@ -237,6 +249,8 @@ def accept(channel_fd, context_fd, run_id, source_id, checkout, home, entry, rec
             adopted = acquire()
             binding, challenge = digest(value), secrets.token_hex(32)
             send(channel, packet("ready", binding, challenge))
+            if checkpoint:
+                checkpoint("ready")
             grant = receive(channel)
             transfer = grant.get("transfer") if type(grant) is dict else None
             if (type(transfer) is not str or re.fullmatch("[0-9a-f]{64}", transfer) is None
@@ -244,9 +258,13 @@ def accept(channel_fd, context_fd, run_id, source_id, checkout, home, entry, rec
                 reject()
             validate(value, run_id, source_id, checkout, home, entry, records)
             send(channel, packet("accepted", binding, challenge, transfer))
+            if checkpoint:
+                checkpoint("accepted")
             if not matches(receive(channel), packet("commit", binding, challenge, transfer)):
                 reject()
             validate(value, run_id, source_id, checkout, home, entry, records)
+            if checkpoint:
+                checkpoint("commit-received")
             send(channel, packet("committed", binding, challenge, transfer))
             return adopted
         except BaseException:
