@@ -2,6 +2,12 @@
 
 ## HG-199: separate Hermes version card
 
+The explicit-root external dependency material store is backend-only. Saving/exporting selected bytes
+must never appear as “dependencies recoverable” or completed upgrade; full root/ABI/OS proof and
+transaction custody are separate. Export creates a new directory, never overwrites the live home/tool
+root or later files, rewrites a venv reference or launches a program. Failures retain existing
+`HR-HERMESUPDATE-002/003` mapping without raw paths/errors. No new controls or positive status are added.
+
 Settings adds a “本机 Hermes” card after the GO app/component update card, using existing setting
 rows, card spacing and native bordered small controls. “安装版本” and “代码提交” describe disk evidence;
 they must not imply a checked boot version. “上游稳定版本” and “GO 验证推荐” are separate rows. Unknown

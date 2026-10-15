@@ -1,5 +1,14 @@
 # Hermes Go Desktop phase 0
 
+HG-199 adds a private external-dependency material store with explicit roots, run/source/home binding,
+OS build/architecture context, SHA-256 manifests and exact byte/permission verification. Capture
+requires independent stopped-writer checks before/after copying and rejects concurrent source changes.
+FD-relative no-follow reads, owner/mode/link checks and entry/byte/depth budgets bound traversal;
+relative links must close within each selected root. Export only publishes a new private directory
+with exclusive rename, leaves live roots/venv references untouched and never launches a tool.
+Neither receipt nor successful export proves complete dependency discovery or runnable ABI. There is
+no production collector or Machine wiring for this receipt yet, and no new UI/action/certified path.
+
 HG-199's existing condition-check action now additionally collects a single-process serve activity
 diagnostic: private token/recognized local launcher, direct `127.0.0.1:9119` GETs, token-gated host
 identity, boot health version/full SHA, idle ledgers, repeated host identity and kernel birth/argv.
@@ -21,7 +30,7 @@ loaded/unloaded jobs, checks the actual Hermes boot commit before Connector, and
 restored jobs. The worker can now resume an exact, completed-PM handoff before finish effects,
 using the original context and ready checkpoint (any existing official archive must agree). The composed
 Machine Operating adapter now connects those modules. Independent live evidence collection, external
-interpreter closure backup/recovery and advanced/terminal-tail reconciliation remain pending;
+interpreter closure discovery/proof/integration and advanced/terminal-tail reconciliation remain pending;
 execution stays disabled.
 Standard origin/blob:none live checkouts are now admitted only when the pinned tip's commit, trees
 and all blobs are local; GO validation denies lazy fetching and all transports. Frozen candidate

@@ -25,6 +25,31 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
 
 ## 阶段二：升级执行和恢复（事务基础已实现，执行适配未开放）
 
+跨进程门槛已有两份固定真实模块的独立进程反例：单个进程 commit retirement 后，使用相同
+源码/home 的另一个进程仍能 acquire。实验只注入 idle ledger，不运行 Hermes 服务/业务；
+`scripts/compat/hermes-maintenance-scope.py` 及固定源 CI 保留 `globalAdmissionProven=false`。
+上游协作需求、首次从不参与协议版本切换的缺口及后续范围建议见
+[`HERMES_MAINTENANCE_REQUIREMENTS.md`](HERMES_MAINTENANCE_REQUIREMENTS.md)。尚未采用新协议。
+
+外部恢复材料已增加独立 `DesktopHermesUpgradeDependencyStore`：调用者明确选择 home 外的
+最多16个不重叠目录，保存私有 run/source/home/OS build/architecture manifest、文件 hash、
+owner 执行权限及内部相对链接。只读 FD-relative/no-follow 遍历限制总量65536项/2 GiB/64层；
+拒绝外部/绝对/悬空/环路链接、硬链接、特殊文件、异常权限与源变化。停写证明必须在复制
+前后由调用者独立提供，根目录不会靠扫描整个用户 home 猜测。
+重入只能复用同一内容/身份材料；校验不依赖原目录仍存在。导出复制到新私有目录后以
+exclusive rename 发布，拒绝已存在/竞态出现的目标、live home/原工具目录及其当前别名，
+不覆盖后来文件、不改 live venv/绝对引用、不执行解释器。原始权限的 owner 位被保留，
+group/world 位从副本移除；材料不携带原目录 ACL/xattr。公共 receipt 仅含身份和 manifest hash。
+自动枚举完整依赖、Mach-O/dlopen/动态插件和 OS/ABI/签名兼容证明、journal 持久引用与
+Machine 的独立 evidence 接入仍待完成；不能用“已备份指定目录”替换 requireDependencyClosure。
+
+2026-10-15 隔离实验中，自建原生工具在原临时源删除后从导出副本运行通过。另对已安装的
+standalone CPython 3.11.15 仅只读取材，导出一次性副本、再次归档、删除该一次性源，再导出
+运行 `-I -S -B` 的 ssl/sqlite3/hashlib/json 验证通过；原安装没有执行/删除/修改。
+该实验没有完整旧 Hermes venv/业务/绑定/全依赖闭包或生产服务。复制系统 `/bin/echo` 的早期
+实验被系统 SIGKILL，说明相同字节不保证平台程序可异位运行；未通过重签或修改程序规避。
+因此只把实际通过的特定 runtime 实验记作材料恢复证据，不作任意工具/升级认证。
+
 目前产品增加只读“检查升级条件”：识别 dirty/unknown 工作树、官方更新进行中、未完成或
 不可读的 GO 升级日志，检查过程中不修改 Git index。它不是任务退休/停写证明，不授权执行。
 
@@ -213,7 +238,7 @@ GO run `61676BC5-EFE5-40FB-A8A8-6B75C64C794D`、官方 update
 
 备份工具当前覆盖 Hermes home 内的文件；原 GO LaunchAgent/加载状态的私有快照与恢复模块已具备，
 完整恢复点仍须由机器适配器接入并验证所有实际运行服务，
-并验证或另存 home 外的解释器依赖闭包（旧 venv 可能链接到用户 uv 的 Python）。保存链接本身
+并验证 home 外的完整解释器依赖闭包（显式目录的独立实物归档/导出已实现，旧 venv 仍可能链接到用户 uv 的 Python）。保存链接本身
 不能保证外部解释器以后仍存在。因此单独的 home 备份不构成代码/依赖/服务联合回退认证。
 
 1. 用户确认精确目标 version + commit；继续前重查身份、工作树、运行中请求、未知服务/布局、

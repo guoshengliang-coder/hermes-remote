@@ -1,5 +1,12 @@
 # Hermes Go Desktop
 
+External dependency recovery now has an explicit-root archive/export backend. It binds private
+manifests to run/source/home, records OS build/architecture, checks every file's bytes and permissions,
+and rejects external/absolute/dangling/cyclic links and source changes. Export publishes only a new
+private directory and never rewrites a live venv or starts a runtime. This preserves selected material;
+automatic root discovery, complete dependency/ABI proof and Machine evidence integration remain
+pending. The real standalone-Python rehearsal is opt-in; see the test plan.
+
 The existing upgrade-condition check now reads the private serve idle diagnostic with bounded,
 proxy-free loopback GETs. Host PID and kernel birth/argv must agree across the snapshot; boot
 version/full commit must match the installation. It keeps only idle-observed/busy/unknown and sanitized ledger categories;

@@ -1,5 +1,43 @@
 # Hermes Go Desktop test plan
 
+2026-10-15 external material recovery adds 18 dependency-store tests (the standalone Python case
+is opt-in). Coverage uses actual private files/FD reads/hashes: exact bytes/owner execute bits,
+source mutation/replacement with reset mtime, idempotency and run/source/digest binding, multiple
+root labels/shared budgets, internal
+relative links, external/absolute/dangling/cyclic/file-traversal link refusal, root aliases/overlap,
+permissions/hardlinks/FIFO and count/byte/depth budgets, damaged archive/manifest/permissions/extra
+trees, original deletion, new-only export, relocated live-home aliases and late destination races.
+Replacing exclusive publication with ordinary rename makes the late-empty-destination regression
+fail; the new implementation retains that directory and cleans partial staging. A self-compiled
+native fixture runs from its export after deleting its disposable source. No live Hermes is run.
+
+The opt-in case was separately run on this Mac with standalone CPython 3.11.15: read selected installed
+bytes, archive/export into a disposable root, archive that copy, delete ONLY the disposable source,
+export again, then run ssl/sqlite3/hashlib/json with -I/-S/-B and clean HOME/environment. It passed;
+the installed interpreter was neither executed, removed nor modified. It tests this runtime's
+material recovery on this OS, not an old Hermes environment or all external ABI/tool dependencies.
+Copying Apple's system echo was an earlier failed experiment (SIGKILL), not a passed acceptance or
+reason to re-sign/change a live binary. No automatic runtime launch occurs in the store.
+
+```bash
+swift test --package-path desktop --filter DesktopHermesUpgradeDependenciesTests
+HG199_DEPENDENCY_PYTHON_ROOT=<explicit-standalone-cpython-root> swift test --package-path desktop --filter DesktopHermesUpgradeDependenciesTests.testOptInStandalonePythonSurvivesDeletionOfDisposableOriginal
+```
+
+The receipt is not yet wired into Machine/journal custody, and external-root discovery, full
+dependency/native loader/OS/ABI coverage and original-reference activation remain manual acceptance
+gaps. Upgrade/recovery controls remain disabled. Separately, maintenance-scope CI tests the real old
+and candidate retirement modules with two isolated processes and an injected idle ledger: only the
+committed process refuses admission; the other still admits work. This is a negative scope result,
+never a writer proof. See HERMES_MAINTENANCE_REQUIREMENTS.md for the pending upstream-scope decision.
+
+Increment validation: Desktop assets/test/app passed (712 tests, two opt-in skips, zero failures);
+upgrade-focused suites passed (111 at the preceding checkpoint, one opt-in skip), with the later
+multiple-root/shared-budget case included in the final full baseline. The CPython opt-in rehearsal
+passed separately, as did 33 Python compatibility tests and the actual two-version maintenance-scope
+check. App codesign/resource-byte checks passed; ad-hoc only, without distribution/notarization or
+clean-Mac UI/boot/service acceptance. No Node/Web/Android source changes or new local L2/L3 runs.
+
 2026-10-14 serve activity increment adds 15 probe/transport tests and 2 readiness-consumer cases.
 Injected process/HTTP fixtures cover supported one-process idle, admission/session/delegation/cron/
 human-input busy ledgers, unavailable ledgers, old missing identity/boot fields, wrong PID/role/SPA/
