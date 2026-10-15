@@ -31,6 +31,32 @@ open class AccountApi(
     suspend fun capabilities(baseUrl: String): AccountCapabilitiesDto =
         get(baseUrl, "/v2/capabilities", bearer = null)
 
+    suspend fun accountProfile(baseUrl: String, bearer: String): AccountProfileSyncDto =
+        get(baseUrl, "/v2/account-data/snapshot", bearer)
+
+    /** Fixed account route only. Neither external avatar URLs nor legacy credentials are used. */
+    suspend fun accountProfileAvatar(baseUrl: String, bearer: String, revision: String): ByteArray = withContext(Dispatchers.IO) {
+        require(revision.matches(Regex("[0-9]{1,20}")))
+        call(Request.Builder().url(url(baseUrl, "/v2/account-data/avatar?rev=$revision"))
+            .header("Authorization", "Bearer $bearer").get().build()).execute().use { response ->
+            if (!response.isSuccessful) throw accountError(response.code, response.peekBody(32768).string())
+            if (response.body.contentLength() > 4 * 1024 * 1024) throw AccountApiException(502, "HR-SYNC-009", false, "none")
+            val output = java.io.ByteArrayOutputStream()
+            response.body.byteStream().use { stream ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    if (output.size() + count > 4 * 1024 * 1024) throw AccountApiException(502, "HR-SYNC-009", false, "none")
+                    output.write(buffer, 0, count)
+                }
+            }
+            val bytes = output.toByteArray()
+            if (bytes.isEmpty() || bytes.size > 4 * 1024 * 1024) throw AccountApiException(502, "HR-SYNC-009", false, "none")
+            bytes
+        }
+    }
+
     suspend fun requestEmailChallenge(
         baseUrl: String,
         email: String,

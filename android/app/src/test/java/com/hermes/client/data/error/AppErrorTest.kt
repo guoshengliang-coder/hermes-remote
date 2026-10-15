@@ -9,6 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun accountProfileSyncCodesHaveDistinctBilingualNonRetryableRedactedMessages() {
+        val codes = listOf(AppErrorCode.ACCOUNT_PROFILE_CONFLICT, AppErrorCode.ACCOUNT_PROFILE_SYNC_RESET,
+            AppErrorCode.ACCOUNT_PROFILE_NAME_INVALID, AppErrorCode.ACCOUNT_PROFILE_AVATAR_INVALID)
+        for (code in codes) {
+            val error = AppError(code, retryable = false, technicalCause = "Authorization: Bearer private")
+            assertEquals(code, AppErrorCode.fromValue(code.value))
+            assertFalse(error.retryable)
+            assertFalse(error.sanitizedDiagnostic().contains("private"))
+            assertFalse(error.localizedSummary(AppLanguage.ZH) == error.localizedSummary(AppLanguage.EN))
+        }
+    }
+
     @Test fun sendPreparationAndMissingConversationKeepDistinctBilingualRetryContracts() {
         val unsent = AppError(AppErrorCode.MESSAGE_SEND_FAILED, retryable = true,
             technicalCause = "cancelled before submission token=secret", stage = "prompt_prepare")

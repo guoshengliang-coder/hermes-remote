@@ -21,30 +21,41 @@ const AVATAR_SIDE = 512;
 
 export function AccountPage() {
   useStartupPage("account", true);
-  const { t, language, client, account, updateAccount, signOut, flash } = useApp();
+  const { t, language, client, account, updateAccount, signOut, flash, saveAccountProfile, profileSyncStatus, profileSyncRevisions } = useApp();
   const [name, setName] = useState(account?.displayName ?? "");
   const [savingName, setSavingName] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
   const [pending, setPending] = useState<PendingAttachment | null>(null);
+  const nameBase = useRef<string>("0");
+  const avatarBase = useRef<string>("0");
   const fileInput = useRef<HTMLInputElement>(null);
 
-  // A save/upload answers with the resolved account; keep the field in step with it.
+  const previousName = useRef(account?.displayName ?? "");
+  // A foreground pull must not replace an edit the user is still typing.
   useEffect(() => {
-    setName(account?.displayName ?? "");
+    const next = account?.displayName ?? "";
+    setName((current) => current === previousName.current ? next : current);
+    previousName.current = next;
   }, [account?.displayName]);
 
   const trimmed = name.trim();
   const nameChanged = trimmed.length > 0 && trimmed !== (account?.displayName ?? "");
 
   async function saveName() {
-    if (!nameChanged || savingName) return;
+    if (!nameChanged || savingName || profileSyncStatus?.pending) return;
     setSavingName(true);
     setError(null);
     try {
-      const { account: next } = await client.updateAccountProfile(trimmed);
-      updateAccount(next);
-      flash(t("已保存", "Saved"));
+      if (saveAccountProfile) {
+        const base = (error?.code === "HR-SYNC-006" || profileSyncStatus?.error?.code === "HR-SYNC-006") ? profileSyncRevisions?.nameRevision : nameBase.current;
+        const synced = await saveAccountProfile(trimmed, undefined, base);
+        flash(synced ? t("已保存", "Saved") : t("修改已保存，联网后同步", "Edit saved. It will sync when online."));
+      } else {
+        const { account: next } = await client.updateAccountProfile(trimmed);
+        updateAccount(next);
+        flash(t("已保存", "Saved"));
+      }
     } catch (e) {
       setError(toAppError(e, "account"));
     } finally {
@@ -59,6 +70,7 @@ export function AccountPage() {
       return;
     }
     setError(null);
+    avatarBase.current = profileSyncRevisions?.avatarRevision ?? "0";
     setPending({
       id: `avatar-${Date.now()}`,
       file,
@@ -73,9 +85,15 @@ export function AccountPage() {
     setUploading(true);
     setError(null);
     try {
-      const { account: next } = await client.uploadAccountAvatar(await squareAvatar(blob));
-      updateAccount(next);
-      flash(t("头像已更新", "Avatar updated"));
+      const image = await squareAvatar(blob);
+      if (saveAccountProfile) {
+        const synced = await saveAccountProfile(undefined, image, avatarBase.current);
+        flash(synced ? t("头像已更新", "Avatar updated") : t("修改已保存，联网后同步", "Edit saved. It will sync when online."));
+      } else {
+        const { account: next } = await client.uploadAccountAvatar(image);
+        updateAccount(next);
+        flash(t("头像已更新", "Avatar updated"));
+      }
     } catch (e) {
       setError(toAppError(e, "account"));
     } finally {
@@ -98,12 +116,14 @@ export function AccountPage() {
       <div class="page-scroll">
         <main class="content account-page">
           {error ? <ErrorNotice error={error} language={language} onDismiss={() => setError(null)} /> : null}
+          {profileSyncStatus?.pending ? <p role="status">{t("修改已保存，正在等待同步。", "Edit saved. Waiting to sync.")}</p> : null}
+          {profileSyncStatus?.error ? <ErrorNotice error={profileSyncStatus.error} language={language} /> : null}
           <section class="account-profile" aria-label={t("Hermes GO 账号", "Hermes GO account")}>
             <button
               type="button"
               class="account-avatar-button"
               aria-label={t("更换头像", "Change avatar")}
-              disabled={uploading}
+              disabled={uploading || profileSyncStatus?.pending}
               onClick={() => fileInput.current?.click()}
             >
               <AccountAvatar account={account} large />
@@ -124,6 +144,8 @@ export function AccountPage() {
             <p class="account-email">{account?.email ?? "—"}</p>
           </section>
 
+          {(error?.code === "HR-SYNC-006" || profileSyncStatus?.error?.code === "HR-SYNC-006") && nameChanged ?
+            <p>{t("云端当前名字：", "Current cloud name: ")}{account?.displayName}</p> : null}
           <section class="account-field">
             <label class="account-label" for="account-name">{t("名字", "Name")}</label>
             <div class="account-name-row">
@@ -134,12 +156,15 @@ export function AccountPage() {
                 autocomplete="nickname"
                 maxLength={MAX_NAME}
                 value={name}
-                onInput={(event) => setName(event.currentTarget.value)}
+                onInput={(event) => {
+                  if (name === previousName.current) nameBase.current = profileSyncRevisions?.nameRevision ?? "0";
+                  setName(event.currentTarget.value);
+                }}
               />
               <button
                 type="button"
                 class="primary-button inline"
-                disabled={!nameChanged || savingName}
+                disabled={!nameChanged || savingName || profileSyncStatus?.pending}
                 onClick={() => void saveName()}
               >
                 {savingName ? <span class="spinner tiny" aria-hidden="true" /> : null}

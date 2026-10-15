@@ -16,6 +16,15 @@ const WEB_PUSH_FILES = ["/run/hermes-go/secrets/web-push-public-key", "/run/herm
 const webPushSuffix = (inspected) => inspected?.values?.ACCOUNT_WEB_PUSH_ENABLED !== undefined
   ? WEB_PUSH_KEYS.map((key) => `${key}=${inspected.values[key]}\n`).join("") : "";
 
+// HG-216: optional, explicitly provisioned account-profile switch. Absence remains byte-compatible/off.
+const PROFILE_SYNC_KEY = "ACCOUNT_DATA_SYNC_ENABLED";
+const profileSyncSuffix = (inspected) => {
+  const value = inspected?.values?.[PROFILE_SYNC_KEY];
+  if (value === undefined) return "";
+  if (value !== "0" && value !== "1") fail("production_release_email_environment_invalid");
+  return `${PROFILE_SYNC_KEY}=${value}\n`;
+};
+
 const EMAIL_KEYS = Object.freeze([
   "PORT",
   "HOST",
@@ -251,7 +260,7 @@ export async function inspectProductionReleaseEnvironment(config, activeSlot) {
 export function renderProductionReleaseEnvironment(config, slot, inspected) {
   const selected = config.slots[slot];
   if (!selected) fail("production_release_candidate_slot_unknown");
-  if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot) + webPushSuffix(inspected) + voiceSuffix(inspected);
+  if (inspected?.mode === "disabled") return renderDeployGatewayEnvironment(config, slot) + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
   if (!new Set(["email_otp", "email_binding", "email_multi_device", "email_identity_web", "email_sharing", "email_sharing_components", "email_sharing_components_web", "email_sharing_components_web_push"]).has(inspected?.mode)
       || !inspected.values) {
     fail("production_release_environment_mode_invalid");
@@ -262,7 +271,7 @@ export function renderProductionReleaseEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderBindingRolloutEnvironment(config, slot, inspected) {
@@ -281,7 +290,7 @@ export function renderBindingRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
@@ -298,7 +307,7 @@ export function renderMultiDeviceRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
@@ -319,7 +328,7 @@ export function renderIdentityWebRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderSharingRolloutEnvironment(config, slot, inspected) {
@@ -336,7 +345,7 @@ export function renderSharingRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderComponentRolloutEnvironment(config, slot, inspected) {
@@ -353,7 +362,7 @@ export function renderComponentRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderWebAppRolloutEnvironment(config, slot, inspected) {
@@ -372,7 +381,7 @@ export function renderWebAppRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function renderPushRolloutEnvironment(config, slot, inspected) {
@@ -390,7 +399,7 @@ export function renderPushRolloutEnvironment(config, slot, inspected) {
       fail("production_release_email_environment_invalid");
     }
     return `${key}=${value}`;
-  }).join("\n") + "\n" + webPushSuffix(inspected) + voiceSuffix(inspected);
+  }).join("\n") + "\n" + webPushSuffix(inspected) + profileSyncSuffix(inspected) + voiceSuffix(inspected);
 }
 
 export function sameProductionReleaseEnvironment(left, right) {
@@ -404,6 +413,11 @@ function parseCanonicalEnvironment(content) {
   const lines = content.slice(0, -1).split("\n");
   const hasVoice = lines.at(-1) === VOICE_LINE.trimEnd();
   if (hasVoice) lines.pop();
+  let profileSync;
+  if (lines.at(-1)?.startsWith(`${PROFILE_SYNC_KEY}=`)) {
+    profileSync = lines.pop().slice(PROFILE_SYNC_KEY.length + 1);
+    if (profileSync !== "0" && profileSync !== "1") fail("production_release_email_environment_invalid");
+  }
   let webPush = null;
   const suffix = lines.slice(-WEB_PUSH_KEYS.length);
   if (suffix.some((line) => line.startsWith("ACCOUNT_WEB_PUSH_"))) {
@@ -446,6 +460,7 @@ function parseCanonicalEnvironment(content) {
   if (values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED === undefined) {
     values.ACCOUNT_DESKTOP_COMPONENT_INSTALL_ENABLED = "0";
   }
+  if (profileSync !== undefined) values[PROFILE_SYNC_KEY] = profileSync;
   if (webPush) Object.assign(values,webPush);
   if (hasVoice) values[VOICE_KEY] = VOICE_FILE;
   return values;

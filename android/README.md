@@ -17,6 +17,11 @@ Cached history preparation runs off the main thread (HG-215). Embedded-object sc
 have bounded work; very long literal paragraphs render in smaller blocks without dropping text.
 Leaving a chat cancels pending memory-cache preparation, and newer authoritative history wins.
 
+HG-216 adds optional account-profile consumption: compatible Gateways advertise `accountProfile`;
+foreground refresh updates the name/photo on Settings → Hermes GO account. The photo cache is
+private and separate from Hermes identity decoration. Editing remains on Web in this first slice;
+no sync capability means the existing account flow is retained. See `../docs/ACCOUNT_DATA_SYNC_P1A.md`.
+
 The upstream client is Kotlin + Jetpack Compose and already implements Hermes REST, `/api/ws` JSON-RPC, sessions, streaming chat, Markdown, attachments, reconnect, and encrypted credential storage. Hermes Remote retains those foundations and routes them through the HK Relay.
 
 ## First UI pass

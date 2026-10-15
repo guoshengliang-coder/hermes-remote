@@ -21,7 +21,7 @@ test("generated release manifest matches protocol constants and verifies every b
   assert.equal(manifest.manifestVersion, 2);
   assert.equal(manifest.protocolVersions.legacy, PROTOCOL_VERSION);
   assert.equal(manifest.protocolVersions.accountConnector, ACCOUNT_CONNECTOR_PROTOCOL_VERSION);
-  assert.equal(manifest.databaseSchemaVersion, 18);
+  assert.equal(manifest.databaseSchemaVersion, 19);
   assert.equal(manifest.minimumSourceVersion, "0.2.0");
   assert.equal(manifest.maintenanceRequired, true);
   assert.equal(manifest.rollbackSupported, true);
@@ -100,6 +100,7 @@ test("release endpoints separate liveness, readiness, and protected build metada
       lastSuccessAt: "2026-09-07T11:00:01.000Z",
       lastFailureAt: null,
       deletedSinceStart: {
+        profileSyncOperations: 0,
         idempotencyRecords: 3,
         emailWebhookReceipts: 2,
         emailOtpChallenges: 1,
@@ -206,6 +207,7 @@ test("release endpoints separate liveness, readiness, and protected build metada
     lastSuccessAt: "2026-09-07T11:00:01.000Z",
     lastFailureAt: null,
     deletedSinceStart: {
+      profileSyncOperations: 0,
       idempotencyRecords: 3,
       emailWebhookReceipts: 2,
       emailOtpChallenges: 1,

@@ -93,6 +93,26 @@ export interface WebAccountResponse {
   account: PublicAccount;
 }
 
+export interface AccountProfileSnapshot {
+  version: 1;
+  revision: string;
+  cursor: string;
+  hasMore: false;
+  profile: { nameRevision: string; avatarRevision: string; account: PublicAccount } | null;
+}
+export interface AccountProfileOperation {
+  opId: string;
+  issuedAt: string;
+  baseRevision: string;
+  displayName?: string;
+}
+export interface AccountProfileResult {
+  status: "accepted";
+  revision: string;
+  nameRevision: string;
+  avatarRevision: string;
+}
+
 /** GET /v2/capabilities (`capabilities()` in account-http-controller.ts). */
 export interface GatewayCapabilities {
   version: 1;
@@ -103,6 +123,7 @@ export interface GatewayCapabilities {
     macos: boolean;
     identityManagement: boolean;
     accountDeletion?: true;
+    accountDataSync?: { version: 1; entities: string[] };
     webAccountCenter: boolean;
     webSessions?: true;
     /** ACCOUNT_WEB_DEVICE_ACCESS_ENABLED: the cookie device routes this app needs are served. */
@@ -532,6 +553,19 @@ export class GatewayClient {
 
   selectDefaultDevice(deviceId: string): Promise<SelectDefaultDeviceResponse> {
     return this.request("POST", paths.selectDefault(deviceId), { idempotent: true });
+  }
+
+  accountProfile(accountId: string, cursor?: string): Promise<AccountProfileSnapshot> {
+    return this.request("GET", cursor ? `/v2/web/account-data/changes?cursor=${encodeURIComponent(cursor)}` : "/v2/web/account-data/snapshot",
+      { headers: { "x-hermes-expected-account": accountId } });
+  }
+
+  setAccountProfile(accountId: string, operation: AccountProfileOperation, avatar?: Blob): Promise<AccountProfileResult> {
+    const headers = { "x-hermes-expected-account": accountId };
+    return avatar ? this.request("PUT", "/v2/web/account-data/avatar", { body: avatar,
+      headers: { ...headers, "content-type": avatar.type, "idempotency-key": operation.opId,
+        "if-match": `"${operation.baseRevision}"`, "x-hermes-operation-issued-at": operation.issuedAt } })
+      : this.request("POST", "/v2/web/account-data/mutations", { body: operation, headers });
   }
 
   /** HG-181: save the Web account display name. */

@@ -12,6 +12,7 @@ export const ACCOUNT_AUDIT_RETENTION_MS = 180 * 24 * 60 * 60 * 1_000;
 
 export interface AccountRetentionCounts {
   idempotencyRecords: number;
+  profileSyncOperations: number;
   emailWebhookReceipts: number;
   emailOtpChallenges: number;
   deviceShareInvitations: number;
@@ -84,6 +85,13 @@ export class PostgresAccountRetentionStore implements AccountRetentionStore {
         "account_idempotency_records",
         [now, batchSize],
       );
+      const profileSyncOperations = (await client.query(
+        `WITH expired AS (
+           SELECT account_id, op_id FROM account_profile_sync_operations WHERE expires_at <= $1
+           ORDER BY expires_at, account_id, op_id LIMIT $2 FOR UPDATE SKIP LOCKED
+         ) DELETE FROM account_profile_sync_operations t USING expired e
+           WHERE t.account_id=e.account_id AND t.op_id=e.op_id`, [now, batchSize],
+      )).rowCount ?? 0;
       const emailWebhookReceipts = await deleteBatch(
         client,
         `SELECT webhook_id FROM email_delivery_webhook_receipts
@@ -188,6 +196,7 @@ export class PostgresAccountRetentionStore implements AccountRetentionStore {
         [auditCutoff, batchSize],
       );
       const accountDeletion = await processDueAccountDeletion(client, now, {
+        profileSyncOperations: batchSize - profileSyncOperations,
         idempotencyRecords: batchSize - idempotencyRecords,
         emailOtpChallenges: batchSize - emailOtpChallenges,
         deviceShareInvitations: batchSize - deviceShareInvitations,
@@ -202,6 +211,7 @@ export class PostgresAccountRetentionStore implements AccountRetentionStore {
       await client.query("COMMIT");
       return {
         idempotencyRecords,
+        profileSyncOperations,
         emailWebhookReceipts,
         emailOtpChallenges,
         deviceShareInvitations,
@@ -394,6 +404,7 @@ async function processDueAccountDeletion(
     accountSessions: number;
     lifecycleEvents: number;
     auditEvents: number;
+    profileSyncOperations: number;
     otherTables: number;
   },
 ): Promise<{ deletedRows: number; accountAnonymized: boolean }> {
@@ -580,6 +591,14 @@ async function processDueAccountDeletion(
     "sequence",
   );
   deletedRows += (await client.query(
+    `WITH selected AS (
+       SELECT op_id FROM account_profile_sync_operations WHERE account_id=$1
+       ORDER BY op_id LIMIT $2 FOR UPDATE SKIP LOCKED
+     ) DELETE FROM account_profile_sync_operations t USING selected s
+       WHERE t.account_id=$1 AND t.op_id=s.op_id`, [accountId, budgets.profileSyncOperations],
+  )).rowCount ?? 0;
+  deletedRows += (await client.query("DELETE FROM account_profiles WHERE account_id=$1", [accountId])).rowCount ?? 0;
+  deletedRows += (await client.query(
     "DELETE FROM account_device_preferences WHERE account_id = $1",
     [accountId],
   )).rowCount ?? 0;
@@ -657,6 +676,8 @@ async function processDueAccountDeletion(
   const remaining = await client.query<{ present: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM external_identities WHERE account_id = $1
+       UNION ALL SELECT 1 FROM account_profiles WHERE account_id = $1
+       UNION ALL SELECT 1 FROM account_profile_sync_operations WHERE account_id = $1
        UNION ALL SELECT 1 FROM installations WHERE account_id = $1
        UNION ALL SELECT 1 FROM account_sessions WHERE account_id = $1
        UNION ALL SELECT 1 FROM reauthentication_grants WHERE account_id = $1
@@ -709,6 +730,7 @@ async function deleteBatch(
 function emptyCounts(): AccountRetentionCounts {
   return {
     idempotencyRecords: 0,
+    profileSyncOperations: 0,
     emailWebhookReceipts: 0,
     emailOtpChallenges: 0,
     deviceShareInvitations: 0,
@@ -726,6 +748,7 @@ function emptyCounts(): AccountRetentionCounts {
 function needsCatchUp(counts: AccountRetentionCounts, batchSize: number): boolean {
   return counts.accountDeletionRows > 0
     || counts.accountsAnonymized > 0
+    || counts.profileSyncOperations >= batchSize
     || counts.idempotencyRecords >= batchSize
     || counts.emailWebhookReceipts >= batchSize
     || counts.emailOtpChallenges >= batchSize

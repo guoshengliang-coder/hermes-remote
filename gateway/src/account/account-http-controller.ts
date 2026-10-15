@@ -1,3 +1,4 @@
+import { AccountProfileSync, profileSyncErrors } from "./account-profile-sync.js";
 import { WEB_DEVICE_FEATURES } from "./web-device-access.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -42,6 +43,7 @@ export interface AccountCapabilities {
     macos: boolean;
     identityManagement: boolean;
     accountDeletion?: true;
+    accountDataSync?: { version: 1; entities: ["accountProfile"] };
     webAccountCenter: boolean;
     webSessions?: true;
     webDeviceAccess?: true;
@@ -83,6 +85,7 @@ export class AccountHttpController {
     private readonly enabled: boolean,
     private readonly service?: AccountService,
     private readonly options: {
+      profileSync?: AccountProfileSync;
       trustLoopbackProxy?: boolean;
       controlEnabled?: boolean;
       controlService?: AccountControlService;
@@ -129,6 +132,7 @@ export class AccountHttpController {
           this.options.pushRegistration?.providers ?? [],
           this.options.serverRelease,
           Boolean(this.options.voiceEnabled),
+          Boolean(this.options.profileSync),
         ), {
           "cache-control": "public, max-age=60",
         });
@@ -162,6 +166,53 @@ export class AccountHttpController {
         throw accountErrors.resourceNotFound();
       }
       if (!this.enabled || !this.service) throw accountErrors.featureDisabled();
+
+      if (url.pathname.startsWith("/v2/account-data/") || url.pathname.startsWith("/v2/web/account-data/")) {
+        const sync = this.options.profileSync;
+        if (!sync) throw accountErrors.featureDisabled();
+        const isWeb = url.pathname.startsWith("/v2/web/");
+        const web = isWeb ? this.requireWebSession() : undefined;
+        if (web && request.method !== "GET") web.requireMutation(request);
+        const principal = await this.service.authenticate(web ? web.authorization(request) : firstHeader(request, "authorization"));
+        const expectedAccount = firstHeader(request, "x-hermes-expected-account") ??
+          (isWeb && url.pathname.endsWith("/avatar") && request.method === "GET" ? url.searchParams.get("owner") : undefined);
+        if ((expectedAccount && expectedAccount !== principal.account.id) || (isWeb && !expectedAccount)) {
+          throw profileSyncErrors.reset();
+        }
+        const path = url.pathname.replace("/v2/web/", "/v2/");
+        if ((path === "/v2/account-data/snapshot" || path === "/v2/account-data/changes") && request.method === "GET") {
+          if (path.endsWith("/changes") && !url.searchParams.has("cursor")) throw profileSyncErrors.reset();
+          sendJson(response, 200, await sync.snapshot(principal, isWeb, path.endsWith("/changes") ? url.searchParams.get("cursor")! : undefined));
+        } else if (path === "/v2/account-data/mutations" && request.method === "POST") {
+          const body = await readJsonObject(request);
+          if (Object.keys(body).some((key) => !["opId", "issuedAt", "baseRevision", "displayName"].includes(key))) {
+            throw accountErrors.invalidRequest("Unexpected profile field.");
+          }
+          sendJson(response, 200, await sync.mutate(principal, {
+            field: "displayName", opId: body.opId as string, issuedAt: body.issuedAt as string,
+            baseRevision: body.baseRevision as string, displayName: typeof body.displayName === "string" ? body.displayName : undefined,
+          }));
+        } else if (path === "/v2/account-data/avatar" && request.method === "PUT") {
+          let avatar: StoredAccountAvatar;
+          try { avatar = await readAvatarImage(request); } catch (error) {
+            if (error instanceof AccountModeError && error.code === "HR-WEB-011") throw profileSyncErrors.avatar();
+            throw error;
+          }
+          const match = firstHeader(request, "if-match");
+          if (!match || !/^"[0-9]+"$/.test(match)) throw accountErrors.invalidRequest("An avatar field revision is required.");
+          sendJson(response, 200, await sync.mutate(principal, {
+            field: "avatar", opId: firstHeader(request, "idempotency-key")!, issuedAt: firstHeader(request, "x-hermes-operation-issued-at")!,
+            baseRevision: match.slice(1, -1), avatar,
+          }));
+        } else if (path === "/v2/account-data/avatar" && request.method === "GET") {
+          const avatar = await sync.avatar(principal, url.searchParams.get("rev"));
+          if (!avatar) throw accountErrors.resourceNotFound();
+          response.writeHead(200, { "content-type": avatar.contentType, "content-length": String(avatar.data.length),
+            "cache-control": "private, no-store", "x-content-type-options": "nosniff" });
+          response.end(avatar.data);
+        } else throw accountErrors.resourceNotFound();
+        return;
+      }
 
       if (url.pathname === "/v2/web/session" && request.method === "GET") {
         const web = this.requireWebSession();
@@ -1354,6 +1405,7 @@ function capabilities(
   pushProviders: PushProviderName[],
   serverRelease?: ServerReleaseManifest,
   voiceEnabled = false,
+  profileSyncEnabled = false,
 ): AccountCapabilities {
   return {
     version: 1,
@@ -1363,6 +1415,7 @@ function capabilities(
         ...(googleAuthEnabled ? ["google" as const] : []),
         ...(emailOtpEnabled ? ["email_otp" as const] : []),
       ],
+      ...(enabled && profileSyncEnabled ? { accountDataSync: { version: 1 as const, entities: ["accountProfile"] as ["accountProfile"] } } : {}),
       android: true,
       macos: true,
       identityManagement: enabled && identityManagementEnabled,

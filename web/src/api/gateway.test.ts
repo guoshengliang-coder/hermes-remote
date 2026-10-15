@@ -374,3 +374,14 @@ it("HG-166 default writes use the selected device/profile, cookies and CSRF with
   await client.setDefaultModel("Mac a", "p", "m", null, true);
   expect(calls[1]!.body).toEqual({ provider: "p", model: "m", confirm_expensive_model: true });
 });
+
+it("profile sync uses cookie/CSRF with a fixed expected account and reuses avatar operation headers", async () => {
+  const { client, calls } = fake(() => json(200, { status: "accepted", revision: "2", nameRevision: "1", avatarRevision: "2" }));
+  const operation = { opId: "00000000-0000-4000-8000-000000000001", issuedAt: "2026-10-15T00:00:00.000Z", baseRevision: "9007199254740993" };
+  await client.setAccountProfile("account-a", operation, new Blob(["image"], { type: "image/png" }));
+  expect(calls[0]?.url).toBe("/v2/web/account-data/avatar");
+  expect(calls[0]?.credentials).toBe("same-origin");
+  expect(calls[0]?.headers).toMatchObject({ "x-hermes-expected-account": "account-a", "X-Hermes-CSRF": CSRF,
+    "idempotency-key": operation.opId, "if-match": '"9007199254740993"', "x-hermes-operation-issued-at": operation.issuedAt });
+  expect(calls[0]?.headers.authorization).toBeUndefined();
+});

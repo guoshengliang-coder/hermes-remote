@@ -58,6 +58,28 @@ class AccountDevicesViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
+    @Test fun aForegroundProfilePullUpdatesTheAlreadyOpenAccountCard() = runTest(dispatcher) {
+        val api = mockk<AccountApi>()
+        val store = MemoryAccountStore(accountSession("mac-current"))
+        val manager = AccountSessionManager(store, api)
+        coEvery { api.capabilities(any()) } returns AccountCapabilitiesDto(
+            accountAuth = AccountAuthCapabilityDto(accountDataSync = com.hermes.client.data.network.AccountDataSyncCapabilityDto(1, listOf("accountProfile"))),
+            binding = AccountBindingCapabilityDto(enabled = true, maxActiveConnectorsPerAccount = 3, supportsDeviceSelection = true),
+        )
+        coEvery { api.devices(any(), any()) } returns AccountDevicesResponseDto(listOf(device("mac-current")), 3)
+        coEvery { api.accountProfile(any(), any()) } returns com.hermes.client.data.network.AccountProfileSyncDto(1, "2", "opaque", profile =
+            com.hermes.client.data.network.AccountProfileSyncEntityDto("2", "0", AccountDto("account-1", "云端名字")))
+        val vm = AccountDevicesViewModel(api, store, manager, mockk<CredentialStore>(relaxed = true), mockk<ChatRepository>(relaxed = true))
+        runCurrent()
+        manager.refreshAccountProfile()
+        runCurrent()
+        assertEquals("云端名字", vm.state.value.session?.accountDisplayName)
+        assertEquals("mac-current", vm.state.value.session?.selectedDeviceId)
+        manager.clearLocal(false)
+        runCurrent()
+        assertNull(vm.state.value.session)
+    }
+
     @Test fun oneAvailableDeviceIsSelectedAndProbedAutomatically() = runTest(dispatcher) {
         val api = mockk<AccountApi>()
         val store = MemoryAccountStore(accountSession())

@@ -7,6 +7,7 @@ import com.hermes.client.data.network.AccountExchangeResponseDto
 import com.hermes.client.data.network.AccountDto
 import com.hermes.client.data.network.AccountInstallationDto
 import com.hermes.client.data.network.AccountTokensDto
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -393,6 +394,53 @@ class AccountSessionManagerTest {
         manager.allowExplicitLegacyFallback()
 
         assertNull(manager.accountReauthenticationReason())
+    }
+
+    @Test fun profileSyncConsumesExactRevisionAndPersistsCloudNameWithoutChangingTheMac() = runTest {
+        store.account = session("2099-01-01T00:00:00Z", "mac-1")
+        val manager = manager()
+        manager.session.value
+        server.enqueue(MockResponse.Builder().body("""{"accountAuth":{"accountDataSync":{"version":1,"entities":["accountProfile"]}}}""").build())
+        server.enqueue(MockResponse.Builder().body("""{"version":1,"revision":"18446744073709551615","cursor":"opaque","profile":{
+          "nameRevision":"18446744073709551615","avatarRevision":"0","account":{"id":"account-1","displayName":"云端名字","email":"person@example.com"}}}""").build())
+        manager.refreshAccountProfile()
+        assertEquals("云端名字", manager.session.value?.accountDisplayName)
+        assertEquals("18446744073709551615", store.account?.accountProfileRevision)
+        assertEquals("mac-1", store.account?.selectedDeviceId)
+        assertEquals("/v2/capabilities", server.takeRequest().target)
+        val request = server.takeRequest()
+        assertEquals("/v2/account-data/snapshot", request.target)
+        assertEquals("Bearer hga_old", request.headers["Authorization"])
+    }
+
+    @Test fun missingCapabilityKeepsTheCachedAccountAndNeverCallsSyncRoutes() = runTest {
+        store.account = session("2099-01-01T00:00:00Z", null).copy(accountDisplayName = "Cached")
+        val manager = manager(); manager.session.value
+        server.enqueue(MockResponse.Builder().body("""{"accountAuth":{"enabled":true}}""").build())
+        manager.refreshAccountProfile()
+        assertEquals("Cached", manager.session.value?.accountDisplayName)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun aProfileReplyAfterSignOutCannotRestoreTheAccountOrItsAvatar() = runTest {
+        store.account = session("2099-01-01T00:00:00Z", "mac-1")
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val api = io.mockk.mockk<AccountApi>()
+        io.mockk.coEvery { api.capabilities(any()) } returns com.hermes.client.data.network.AccountCapabilitiesDto(
+            accountAuth = com.hermes.client.data.network.AccountAuthCapabilityDto(accountDataSync =
+                com.hermes.client.data.network.AccountDataSyncCapabilityDto(1, listOf("accountProfile"))))
+        io.mockk.coEvery { api.accountProfile(any(), any()) } coAnswers {
+            entered.complete(Unit); release.await()
+            com.hermes.client.data.network.AccountProfileSyncDto(1, "2", "opaque", profile =
+                com.hermes.client.data.network.AccountProfileSyncEntityDto("2", "0", AccountDto("account-1", "Late name")))
+        }
+        val manager = AccountSessionManager(store, api, now = { Instant.parse("2026-09-08T00:00:00Z") })
+        manager.session.value
+        val job = async { manager.refreshAccountProfile() }
+        entered.await(); manager.clearLocal(false); release.complete(Unit); job.await()
+        assertNull(manager.session.value)
+        assertNull(store.account)
     }
 
     private fun manager() = AccountSessionManager(
