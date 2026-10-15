@@ -1,4 +1,4 @@
-import { AccountProfileSyncClient, clearAccountProfileSync, type ProfileSyncStatus } from "./account/profileSync";
+import { AccountProfileSyncClient, clearAccountProfileSync, PROFILE_SYNC_LOGOUT, type ProfileSyncStatus } from "./account/profileSync";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 import {
   GatewayClient,
@@ -283,7 +283,41 @@ export function App() {
       setSessions([]);
       setPhase({ name: "signed-out", reason: reasonFor(error) });
     });
-    return () => { bootRequest.current++; unbind?.(); unsubscribe(); };
+    const remoteLogout = (event: StorageEvent) => {
+      if (event.key !== PROFILE_SYNC_LOGOUT || !event.newValue || event.newValue === event.oldValue) return;
+      // This signal is shared with the durable queue. Hide private state even if this tab is
+      // offline; do not sign the server out again or rebroadcast a new logout generation.
+      bootRequest.current++;
+      pickerRequest.current++;
+      cancelSessionLoads(client);
+      client.stopKeepAlive();
+      profileSync.current?.stop();
+      profileSync.current = null;
+      clearPushTarget();
+      void resetPushWorker().catch(() => undefined);
+      void clearCaches();
+      clearAllPins();
+      clearAllDrafts();
+      clearConversationMemory();
+      clearPageSnapshots();
+      clearPrompts();
+      clearLocalPrefs();
+      clearBotNotices();
+      writeStoredDevice(null);
+      setCollapsed(new Set());
+      setProjectFilter(null);
+      setToast(null);
+      setPushEnabled(false);
+      setPickingDevice(false);
+      setAccount(null);
+      setDevice(null);
+      setDevices([]);
+      setSessions([]);
+      intended.current = { name: "list" };
+      setPhase({ name: "signed-out", reason: null });
+    };
+    window.addEventListener("storage", remoteLogout);
+    return () => { bootRequest.current++; unbind?.(); unsubscribe(); window.removeEventListener("storage", remoteLogout); };
   }, [boot]);
 
   useEffect(() => {

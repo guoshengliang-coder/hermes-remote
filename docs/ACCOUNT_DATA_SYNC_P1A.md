@@ -70,7 +70,7 @@ X-Hermes-Operation-Issued-At、If-Match（带双引号的**头像字段**修订�
 
 ## 客户端恢复与隐私
 
-Web IndexedDB 按 origin/accountId 存快照及最多一个待同步修改（头像为 Blob）。先持久化才发请求；
+Web IndexedDB 按 origin/accountId 存快照及最多一个待同步修改（头像保存字节与 MIME，发送时还原 Blob）。先持久化才发请求；
 存储失败显示 `HR-SYNC-011`，不发送。操作未确认时禁止重复编辑（`HR-SYNC-010`）。
 离线/5xx/丢失 ACK 沿用原 opId、issuedAt、baseRevision；4xx 终态不自动重试，429 等待恢复。
 冲突保留终态供查看，显示云端当前名字并保留正在输入的文字；用户明确再次保存才创建新操作。
@@ -109,3 +109,7 @@ Android DTO 精确修订、能力缺失兼容、资料更新保留 Mac 选择、
 fontScale 1.3 截图并目检。L2 探测到手机 A5DN9X4708H02629 未授权 USB 调试，未进行真机验证；
 L3 Pixel_API_37 可用，本改动没有 targetSdk 门控行为，未运行模拟器。未进行真实跨端浏览器/手机联调、
 生产恢复演练或部署；这些仍是发布启用前的验收门禁。
+
+后续本地真实 Gateway/PostgreSQL、浏览器与 Android 模拟器消费证据、退出修复及复现命令见
+[ACCOUNT_DATA_SYNC_VALIDATION.md](ACCOUNT_DATA_SYNC_VALIDATION.md)。该记录不替代真机、
+Service Worker、生产恢复或正式发布门禁。

@@ -2,6 +2,9 @@ HG-216 adds default-off account-profile sync. When the Gateway advertises versio
 name/photo edits persist in an account-scoped IndexedDB queue before sending and use field CAS and
 stable operation IDs. Foreground pulls preserve typing; conflicts require explicit confirmation.
 Sign-out invalidates writers and clears the queue/cache. Existing Gateways keep the legacy editor.
+Other open tabs consume the same logout signal and immediately hide private pages even offline;
+they do not repeat server sign-out or rebroadcast. Live local-browser/native verification and the
+opt-in smoke drivers are documented in `../docs/ACCOUNT_DATA_SYNC_VALIDATION.md`.
 This does not enable Hermes identity decorations, pins, read state, models or prompts; see
 `../docs/ACCOUNT_DATA_SYNC_P1A.md` for the exact scope and release gates.
 

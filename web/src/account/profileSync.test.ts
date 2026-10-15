@@ -1,5 +1,5 @@
 import { Blob as NodeBlob } from "node:buffer";
-import { IDBFactory } from "fake-indexeddb";
+import { IDBFactory, IDBObjectStore } from "fake-indexeddb";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { GatewayHttpError, type AccountProfileSnapshot, type GatewayClient } from "../api/gateway";
 import { AccountProfileSyncClient, clearAccountProfileSync, type ProfileSyncStatus } from "./profileSync";
@@ -7,7 +7,7 @@ import { appError, diagnostics, localized } from "../errors";
 
 const workers: AccountProfileSyncClient[] = [];
 beforeEach(() => { vi.stubGlobal("indexedDB", new IDBFactory()); vi.stubGlobal("Blob", NodeBlob); localStorage.clear(); });
-afterEach(() => { workers.splice(0).forEach((worker) => worker.stop()); vi.unstubAllGlobals(); });
+afterEach(() => { workers.splice(0).forEach((worker) => worker.stop()); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 function snapshot(name = "Original", revision = "1", owner = "account-a"): AccountProfileSnapshot {
   return { version: 1, revision, cursor: `cursor-${revision}`, hasMore: false,
     profile: { nameRevision: revision, avatarRevision: "0", account: { id: owner, displayName: name } } };
@@ -70,6 +70,49 @@ it("stored avatar Blob and operation survive a worker restart", async () => {
   const calls = setAccountProfile.mock.calls as unknown[][];
   expect(calls[1]![2]).toBeInstanceOf(Blob);
   expect((calls[1]![2] as Blob).size).toBe(4);
+});
+
+it("persists and restores avatar bytes when IndexedDB rejects Blob values", async () => {
+  const add = IDBObjectStore.prototype.add;
+  vi.spyOn(IDBObjectStore.prototype, "add").mockImplementation(function (this: IDBObjectStore, value, key) {
+    if (value.avatar instanceof Blob) throw new DOMException("Blob storage unavailable", "DataCloneError");
+    return add.call(this, value, key);
+  });
+  const image = new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" });
+  const calls: Blob[] = [];
+  const api = { accountProfile: vi.fn(async () => snapshot()), setAccountProfile: vi.fn(async (_owner, _op, avatar: Blob) => {
+    calls.push(avatar); throw new TypeError("offline");
+  }) };
+  const first = setup(api as unknown as Partial<GatewayClient>); await first.worker.start();
+  expect(await first.worker.save(undefined, image, "0")).toBe(false);
+  first.worker.stop();
+  const second = setup(api as unknown as Partial<GatewayClient>); await second.worker.start();
+  expect(calls).toHaveLength(2);
+  expect(calls[1]!.type).toBe("image/png");
+  expect(new Uint8Array(await calls[1]!.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
+});
+
+it("upgrades the previous database without deleting its queued avatar or changing the operation", async () => {
+  const operation = { opId: "legacy-avatar-operation", issuedAt: "2026-10-15T00:00:00Z", baseRevision: "0" };
+  await new Promise<void>((resolve, reject) => {
+    const open = indexedDB.open("hermes-go.account-profile-sync.v1", 1);
+    open.onupgradeneeded = () => { open.result.createObjectStore("profiles"); open.result.createObjectStore("pending"); };
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction("pending", "readwrite");
+      tx.objectStore("pending").put({ generation: "initial", operation, avatar: new Blob(["old bytes"], { type: "image/png" }) }, JSON.stringify([location.origin, "account-a"]));
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onabort = () => { db.close(); reject(tx.error); };
+    };
+  });
+  const api = { accountProfile: vi.fn(async () => snapshot()), setAccountProfile: vi.fn(async () => {
+    throw new TypeError("offline");
+  }) };
+  const { worker } = setup(api as unknown as Partial<GatewayClient>); await worker.start();
+  const calls = api.setAccountProfile.mock.calls as unknown[][];
+  expect(calls[0]![1]).toEqual(operation);
+  expect(await (calls[0]![2] as Blob).text()).toBe("old bytes");
 });
 
 it("storage denial prevents mutation and reports a bilingual redacted actionable error", async () => {

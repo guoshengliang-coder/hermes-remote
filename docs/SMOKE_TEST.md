@@ -1906,11 +1906,15 @@ are implied. Full implementation contract: [ACCOUNT_DATA_SYNC_P1A.md](ACCOUNT_DA
    No old edit reaches the new account, no old queue returns on a later sign-in, and private avatar
    responses are not in the Service Worker cache. Hold an Android avatar response across sign-out:
    the name/photo and session must not return.
+   Block the second tab's network before signing out in the first: it must immediately hide its
+   account/chat content and show ordinary login, without waiting for a server 401 or rebroadcasting.
 6. Revoke the installation, then replay a previously successful sync operation. It is rejected even
    if the idempotency metadata still exists. On a disposable database, exercise the 30-day deletion
    deadline and bounded retries: account_profiles bytes and sync operations are removed before the
    account is marked cleaned. No Mac history or other account is removed.
 
-Automated PostgreSQL/HTTP/queue/DTO/L1 regressions cover these boundaries separately. Real browser/
-phone interaction, device appearance and production recovery remain unverified until the released
-artifacts and an authorized staging run are recorded; an emulator cannot certify vendor behavior.
+Automated PostgreSQL/HTTP/queue/DTO/L1 regressions cover these boundaries separately. Local live
+browser/Android consumer evidence and repeatable isolated smoke drivers are recorded in
+[ACCOUNT_DATA_SYNC_VALIDATION.md](ACCOUNT_DATA_SYNC_VALIDATION.md). Physical phone interaction,
+device appearance, Service Worker behavior and production recovery still require their own gates;
+an emulator cannot certify vendor behavior, and local source verification is not a published artifact.
