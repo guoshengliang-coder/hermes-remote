@@ -336,7 +336,13 @@ The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowl
 The Mac Connector reads only the two Basic Auth values it needs from the existing local Hermes dotenv file. The values are never copied into launchd, the HK server, or the Android app.
 
 Attachment deployments additionally configure `FILES_ROOT` to the narrowest Mac directory that may
-be returned to the phone. `UPLOAD_ROOT` must remain inside it; its defaults are
+be returned to the phone. Downloads also permit current-user-owned regular files in `/tmp`,
+`/private/tmp`, and the Connector process's system temporary directory (`os.tmpdir()`), subject
+to real-path, owner, directory-permission and opened-file checks described in `connector/README.md`
+(HG-217). This does not grant other users' temporary files, permit links outside the matching
+root, or make files durable after system cleanup. No temporary grant is made when the effective
+user ID is unavailable; a filesystem-root temporary directory is never accepted.
+`UPLOAD_ROOT` must remain inside `FILES_ROOT`; its defaults are
 `$HOME/.hermes-remote/uploads`, 50 MiB per upload, 100 MiB per download, 200 cached uploads, 512 MiB
 cached total, and seven-day retention. Gateway and the edge proxy permit 50 MiB only on
 `POST /api/files/upload` (also under an account device prefix); other request bodies remain capped
