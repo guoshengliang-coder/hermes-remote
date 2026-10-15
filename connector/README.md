@@ -3,6 +3,33 @@
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
 
+## Generated files in temporary directories (HG-217)
+
+`GET /api/files` retains the existing `FILES_ROOT` grant and additionally permits files in
+`/tmp`, `/private/tmp`, and the Connector process's `os.tmpdir()` (including their canonical
+aliases). This lets an existing desktop conversation's generated report download through the
+same Android/Web file reference without moving or regenerating it. The file must still exist.
+
+The temporary grant requires a known effective user ID, an ordinary file owned by that user,
+and exactly one hard link. Its resolved target must stay within the matching temporary root.
+Intermediate directories must belong to the same user and have no group/other write permission;
+the shared temporary root may instead be root-owned with the sticky bit. The opener validates
+the opened file's device/inode, type and ownership and rechecks the temporary path/directories.
+It rejects path traversal and symlink escapes. A symlink out of `FILES_ROOT` is still refused,
+even if it points into a temporary directory. This is read-only; upload/cache roots do not change.
+
+The existing download size cap, acknowledged streaming, filename headers and error responses
+remain compatible. Refusal uses HTTP 403 (`HR-FILE-003` in Android), a removed file uses 404
+(`HR-FILE-005`), and an oversized file uses 413 (`HR-FILE-004`). There is no new client protocol,
+error code or Android version requirement. Publish/install the updated Connector separately;
+a source merge alone does not change an installed Mac.
+
+`artifact-file.test.ts` covers the filesystem policy, including deterministic replacement races.
+`artifact-download.integration.test.ts` runs a real Connector against a loopback relay to verify
+historical `/tmp` and canonical paths, the process temporary directory, exact streamed bytes,
+existing root behavior and unchanged rejection responses. See the HG-217 smoke steps in
+`docs/SMOKE_TEST.md` for actual Android open/share verification after an authorized rollout.
+
 ## Account-mode Hermes health and control readiness
 
 The unauthenticated key proof still expires after 5 seconds. Once authenticated, a local Hermes

@@ -1,8 +1,8 @@
 import { WebSocket } from "ws";
 import { constants, readFileSync } from "node:fs";
-import { mkdir, open, readdir, realpath, rename, stat, unlink, type FileHandle } from "node:fs/promises";
+import { mkdir, open, readdir, rename, stat, unlink, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, isAbsolute, resolve, sep } from "node:path";
+import { basename, extname, resolve, sep } from "node:path";
 import {
   ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
@@ -35,6 +35,7 @@ import {
 import { ObserverStateStore } from "./session-observer.js";
 import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
+import { ArtifactFileError, openArtifactFile } from "./artifact-file.js";
 import { tunnelCloseForApp } from "./tunnel-close.js";
 import { decideOversizedFrame } from "./oversized-frame.js";
 import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
@@ -542,32 +543,10 @@ async function handleFileRequest(
     return;
   }
 
-  if (requestedPath.includes("\0")
-      || !isAbsolute(requestedPath)
-      || requestedPath.split(/[\\/]+/).includes("..")) {
-    fail(400, "invalid_path");
-    return;
-  }
-
   try {
-    const canonicalRoot = await realpath(filesRoot);
-    const resolvedPath = resolve(requestedPath);
-    if (!isWithinRoot(resolvedPath, filesRoot)) {
-      fail(403, "forbidden");
-      return;
-    }
-
-    const canonicalPath = await realpath(resolvedPath);
-    if (!isWithinRoot(canonicalPath, canonicalRoot)) {
-      fail(403, "forbidden");
-      return;
-    }
-
+    const { canonicalPath, handle, metadata } = await openArtifactFile(requestedPath, { filesRoot });
     const noFollow = constants.O_NOFOLLOW ?? 0;
-    const handle = await open(canonicalPath, constants.O_RDONLY | noFollow);
     try {
-      const metadata = await handle.stat();
-      if (!metadata.isFile()) { fail(400, "invalid_file"); return; }
       if (metadata.size > maxFileBytes) { fail(413, "file_too_large"); return; }
 
       // A preview is served in the original's place when one was asked for and could be made;
@@ -620,6 +599,7 @@ async function handleFileRequest(
     }
   } catch (error) {
     if (signal.aborted) return;
+    if (error instanceof ArtifactFileError) { fail(error.status, error.reason); return; }
     const code = (error as NodeJS.ErrnoException).code;
     if (streamStarted) {
       sendControl(socket, {
