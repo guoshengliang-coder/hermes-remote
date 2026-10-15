@@ -47,6 +47,12 @@ PM/恢复为注入空操作，实验在 scratch hook 返回时停止；不是完
 9个合成SIGKILL场景验证四个握手检查点的存活方持锁；所有持锁者死亡后writer仍可进入，
 明确暴露纯内核锁没有耐久事务记忆。合成交接确认也不等于服务boot成功。
 跨exec/重启身份与不确定状态的耐久恢复仍待实现，不能靠JSON回执接管或空锁自动解除维护。
+新增持久意图实验使用schema 2预登记的双域固定槽，writer在共享准入锁内只接受精确空闲记录。
+维护方已排空并同步全部事务上下文后被SIGKILL，新writer仍拒绝；4个新进程可在独立预期上下文
+与排他锁核验后进入scratch，28个上下文不符和竞争恢复拒绝，部分发布也不自动修补。
+恢复退出保留槽，没有清除/finish API。`processRestartAdmissionVerified=true`仅为这一进程级
+阻断证据；用户授权的耐久来源、真正更新后的源/依赖代次、终态清除、OS重启/断电和服务恢复
+仍未认证，`durableHandoffVerified=false`不变。完整边界与复现见上游协作需求及原型README。
 原生预加载、cron包初始化和真实PM/恢复仍未覆盖，全部升级认证flag保持false。
 
 外部恢复材料已增加独立 `DesktopHermesUpgradeDependencyStore`：调用者明确选择 home 外的

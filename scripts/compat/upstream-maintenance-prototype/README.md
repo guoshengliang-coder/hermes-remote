@@ -40,7 +40,7 @@ versions is an integration requirement, not a discoverable capability in this mo
 | Maintenance requested | Exclusive admission gates; future participants refuse |
 | Draining | Gates retained; exclusive writer locks tried without killing writers |
 | Maintenance ready | All gates and writer locks exclusive |
-| Cancel/finish | Close this owner's descriptors; inherited children may still hold them |
+| Close | Close descriptors; inherited children may hold them; a published intent stays active |
 
 All admission gates are acquired in stable order before lifetime locks. Busy
 acquisition returns to the caller; no implicit unbounded wait, retry or timeout.
@@ -334,3 +334,59 @@ is only for this test fixture, not an upstream or production extension point. No
 native preload, cron package boot, service, ledger/business task or OS reboot runs in the death
 fixture. Production authority, durable handoff, full startup, global admission and upgrade
 certification remain false. The supervisor's observation is not a restarted owner's recovery proof.
+
+## Persisted admission intent experiment
+
+```bash
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_durable.py'
+python -I -S -B scripts/compat/hermes-maintenance-durable.py --candidate-root <frozen-0.21.6-checkout>
+```
+
+Explicit domain enrollment now uses schema 2 and pre-creates an owner-only fixed-inode `intent` slot,
+pinning its identity alongside the gate/lifetime locks. New writers acquire every shared admission
+gate, check each slot for EXACT enrolled idle bytes, then take lifetime locks. Any non-idle bytes,
+including empty/torn/oversized records, prevent admission. Missing/replaced/linked/unsafe controls
+refuse; old schema does not auto-migrate or enroll. The original death matrix publishes no intent,
+so its negative control remains valid for the raw kernel-only lifecycle.
+
+`durable_intent.begin` requires drained exclusive home/checkout custody, revalidates actual lock/control
+identities and the independently expected binding context, and only accepts two initially idle slots.
+It writes the same canonical context plus digest to both stable files, fsyncs each and the registry,
+then revalidates before returning. No unlink, replacement, truncation/reset, clear or finish API exists.
+No data operation may happen before successful return. `resume` takes fresh exclusive/drained custody
+and requires EVERY slot to match the independently expected record exactly; it synchronizes and checks
+again before returning. Existing/malformed/partial slots never authorize a fresh begin or implicit repair.
+The digest detects byte mismatch; it is not a signature or authority from saved JSON.
+
+The context includes run/source/home/checkout/role/entry/domain identities and the eleven staged source
+input hashes, with all earlier bounded-input limitations. Fixed candidate label is not a whole Git/runtime
+closure proof. A trusted test launcher passes a read-only/unlinked private context FD plus independently
+expected run/source and actual entry/home to a NEW recovery process. No old lock descriptors are used;
+the new process must take exclusive locks and match the persisted intent before any copied package
+initialization. The supervisor keeps the expected context in memory and owns no maintenance locks.
+This does NOT recover consent after that supervisor/Desktop also dies or authorize from a receipt alone.
+
+Four frozen-source entry fixtures SIGKILL their publisher AFTER all slots/registry synchronization. A
+new ordinary writer is then blocked before real scratch writes. Four new recovery prefixes succeed;
+wrong run/source/home/entry/role/scope or changed source rejects in 28 cases before copied imports,
+and an overlapping recovery cannot enter. Recovery exit leaves intent bytes unchanged and still blocks
+ordinary writers. PM remains injected and execution stops at scratch, as in earlier experiments.
+A fifth publisher dies after syncing only the first slot: its exact pair stays closed, resume refuses,
+and no control is repaired. Partial multi-domain publication is not atomic: a different pair omitting
+the written slot may enter, but no data mutation was authorized before all target slots were synchronized.
+
+Ten tests cover that matrix and a disposable mutant that omits idle validation: a post-death writer
+then creates scratch. Additional cases use real control files for corrupt/empty/torn/oversized contents,
+replacement/symlink/hardlink/permissions/missing/legacy bindings, begin before drain, exact resume,
+partial pwrite and failed fsync, invalid/oversized context, shared-home/checkout versus unrelated scope,
+and bilingual redaction. Linux/macOS CI run tests and fixed-source cases. The publisher is a synthetic
+process, not an official updater. The new recovery prefix uses actual copied input but not real services.
+
+`processRestartAdmissionVerified=true` claims only this process-level admission property. Production
+authority, full durable handoff, OS reboot, native preload, cron package boot, full startup, global
+admission and upgrade certification stay false. fsync return is not physical power-loss verification.
+Same-UID malicious rewriting/rollback of the control plane is excluded. There is no automatic clearing,
+partial-record repair, completion proof, actual changed-source/environment-generation transition or
+cross-exec/service handoff. Idle controls are never reconstructed from empty locks or old metadata.
+Production trusted enrollment, all writer coverage, legacy transition and independent final service/
+business/device evidence remain necessary. This module is still not installed or adopted by GO/Hermes.

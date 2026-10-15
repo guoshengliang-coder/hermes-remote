@@ -1,5 +1,22 @@
 # Hermes Go Desktop test plan
 
+The persisted-intent increment adds ten Python tests. Schema-2 explicit enrollment pins an owner-only
+intent slot per home/checkout. Writers check exact idle bytes under all shared admission gates before
+lifetime locks; active, empty, torn or unknown contents stay closed. begin requires drained exclusive
+custody, validates the independent context, writes matching records and fsyncs every slot and registry
+before returning authority. There is no reset/clear/finish API or silent schema migration. Five real
+publisher SIGKILL cases cover four fully synced entry fixtures and one partial publication. Four
+new recovery processes validate the stored intent against independently supplied context before copied
+imports; 28 wrong contexts and competing recoveries reject. Actual scratch runs only after admission;
+PM remains injected. Recovery exit retains intent. Tests additionally cover a skipped-idle-check mutant,
+pending writer/drain preconditions, corrupt/oversized/empty records, replaced/linked/unsafe controls,
+partial write/fsync errors, scope isolation, legacy enrollment, invalid context and bilingual redaction.
+Linux/macOS run fixtures and frozen inputs. Partial multi-domain publication is fail-closed for the
+selected pair, not atomic across every possible overlap; no data operation is authorized until all
+slots sync. The supervisor retains expected consent context in memory; this is not Desktop-death consent
+recovery or a production launcher. No power-loss/OS-reboot proof, terminal clear, source-generation
+transition, actual PM/native/cron/service/UI/device validation. Full durable/global/upgrade flags stay false.
+
 The failure increment adds six Python tests, eight frozen-source uncertain prefixes and nine
 synthetic SIGKILL cases. Issuer failures before commit are separate from any failure while/after
 attempting commit, including send errors; the latter retain an uncertain state and original parent

@@ -119,6 +119,41 @@ commit接收后但确认前、获准并写入合成marker后，分别终止父�
 `durableHandoffVerified`、`productionAuthorityVerified`及全局/升级认证仍为false；
 后续必须让所有参与writer在重启后也遵守耐久维护意图，不能只保存FD号或从空锁推断事务已完成。
 
+### 持久维护意图与新进程准入
+
+`scripts/compat/hermes-maintenance-durable.py` 验证上述缺口的一项隔离修正。原型登记格式升为schema 2，
+为home与checkout各预建固定inode、owner-only的intent槽并将身份写入登记记录。
+只有槽内容精确等于预登记的空闲记录才允许writer；空文件、部分/超长/损坏内容均阻断，
+缺失、替换、链接或异常权限拒绝使用。不静默迁移旧schema或重新登记。稳定槽不unlink/替换/重置。
+writer在全部共享准入锁内检查槽，再取得生命周期锁，避免在检查与维护发布之间越过门禁。
+
+`durable_intent.begin`要求双域全部排他且已排空、当前控制对象和实际锁有效，
+重新核对完整的run/source/home/checkout/入口/恢复角色/双域及11份变换后输入hash上下文。
+仅当所有槽都空闲才逐槽写同一有摘要的规范记录，fsync每个槽和registry目录，
+复核上下文/内容后返回。任何数据副作用必须在返回之后；中途失败无权执行。
+部分发布可让精确双域writer继续被挡住，但不是原子多域提交：不包含已写槽的其他组合
+可能继续接入，此时尚未授权任何数据变更。部分/损坏发布不能自动修补或接管。
+
+发布进程在全部同步后被SIGKILL，监督方不持维护FD，新writer仍在真实scratch前阻断。
+四个固定源入口各验证一次；新恢复进程重新取得双域排他锁并排空，以独立传入的私有context FD
+核对同一记录，再同步/复核后进入scratch前缀。run/source/home/入口/角色/范围/源内容不符共28例
+在复制包初始化前拒绝，竞争恢复也拒绝。恢复退出不清除意图，之后writer继续被挡住。
+另在首槽同步后SIGKILL，writer被挡住、恢复拒绝且槽字节保持原状，共5次发布方死亡场景。
+
+新增10项测试覆盖上述矩阵、跳过writer检查的错误实现、排空前置条件、精确已有意图、
+空/半写/损坏/超长/替换/链接/权限/旧登记拒绝、partial write与fsync失败、共享home/checkout和
+无关安装隔离、无效上下文及双语脱敏。跳过意图检查的临时错误实现允许writer重新写scratch，
+正常实现阻断。Linux/macOS均运行单测与固定源矩阵；旧“没有发布意图时全持锁者死亡可进入”的
+内核反例仍保留，不能把原始锁原语与本次持久准入机制混为一谈。
+
+这只提供可信测试launcher下的进程级持久准入阻断；独立预期上下文由仍存活的监督harness保留，
+不是从落盘记录反推用户授权，也未解决Desktop自身死亡后的授权来源。没有clear/finish/reset API，
+未解决终态证明、部分记录修复、源码/依赖代次推进或跨exec的实际服务交接。
+fsync成功不等于物理断电/OS重启验收；也不防同UID恶意重写控制面或回滚为空闲记录。
+`processRestartAdmissionVerified=true`与`durableHandoffVerified=false`、`productionAuthorityVerified=false`、
+`osRebootVerified=false`分别记录；native/cron/fullStartup/globalAdmission/certifiesUpgrade仍false。
+生产认证列表为空，自动升级/恢复继续禁用。
+
 ## 上游接入必须提供的保证
 
 仓库既有边界仍是 GO 管进程、用户拥有 Hermes 代码；当前授权仅为隔离原型。

@@ -12,9 +12,16 @@ import os
 from pathlib import Path
 import stat
 
+IDLE_INTENT = b"HG199-IDLE-1\n"
+INTENT_LIMIT = 16_384
+
 
 class Rejected(ValueError):
     """Internal prototype boundary, not a user-facing error string."""
+
+
+class Pending(BlockingIOError):
+    """A durable intent (including an incomplete record) prevents writer admission."""
 
 
 def _directory(path, private=False):
@@ -63,7 +70,7 @@ class Domain:
                 or self.registry in self.directory.parents):
             raise Rejected("overlapping-control-and-data")
         self.key = hashlib.sha256((kind + "\0" + str(self.directory)).encode()).hexdigest()
-        self.binding = {"schema": 1, "kind": kind, "path": str(self.directory),
+        self.binding = {"schema": 2, "kind": kind, "path": str(self.directory),
                         "identity": list(self.root_identity)}
 
     def _path(self, suffix):
@@ -81,7 +88,12 @@ class Domain:
             self._check_directories()
             for kind in ("gate", "writers"):
                 fds.append(_file(self._path(kind), create=True))
-            record = {**self.binding, "locks": [_identity(fd) for fd in fds]}
+            intent = _file(self._path("intent"), create=True)
+            fds.append(intent)
+            if os.write(intent, IDLE_INTENT) != len(IDLE_INTENT):
+                raise OSError("incomplete intent enrollment")
+            os.fsync(intent)
+            record = {**self.binding, "locks": [_identity(fd) for fd in fds[:2]], "intent": _identity(intent)}
             metadata = _file(self._path("json"), create=True)
             try:
                 data = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
@@ -105,7 +117,7 @@ class Domain:
                 or _directory(self.directory) != self.root_identity):
             raise Rejected("replaced-directory")
 
-    def open(self):
+    def _record(self):
         self._check_directories()
         metadata = _file(self._path("json"))
         try:
@@ -113,11 +125,40 @@ class Domain:
             if len(data) > 8192:
                 raise Rejected("oversized-binding")
             record = json.loads(data)
-            if (not isinstance(record, dict) or set(record) != set(self.binding) | {"locks"}
-                    or {k: v for k, v in record.items() if k != "locks"} != self.binding):
+            if (type(record) is not dict or type(record.get("schema")) is not int
+                    or set(record) != set(self.binding) | {"locks", "intent"}
+                    or {k: v for k, v in record.items() if k not in ("locks", "intent")} != self.binding):
                 raise Rejected("changed-binding")
         finally:
             os.close(metadata)
+        return record
+
+    def intent(self):
+        record = self._record()
+        fd = _file(self._path("intent"))
+        try:
+            if _identity(fd) != record["intent"]:
+                raise Rejected("replaced-intent-file")
+            self._check_directories()
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def require_idle(self):
+        fd = self.intent()
+        try:
+            # Only the pre-enrolled exact idle record admits a writer. Empty,
+            # oversized, partial or otherwise unknown contents all stay closed.
+            if os.pread(fd, INTENT_LIMIT + 1, 0) != IDLE_INTENT:
+                raise Pending("maintenance-intent-pending")
+        finally:
+            os.close(fd)
+
+    def open(self):
+        record = self._record()
+        intent = self.intent()
+        os.close(intent)
         fds = []
         try:
             for kind in ("gate", "writers"):
@@ -162,6 +203,10 @@ class Lease:
                 self._pairs.append(pair)
                 fcntl.flock(pair[0], (fcntl.LOCK_EX if maintenance else fcntl.LOCK_SH) | fcntl.LOCK_NB)
             if not maintenance:
+                # Under ALL shared admission gates, before any writer lifetime
+                # lock is granted. EX maintenance gates serialize slot updates.
+                for domain in self.domains:
+                    domain.require_idle()
                 for _, writer in self._pairs:
                     fcntl.flock(writer, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 for gate, _ in self._pairs:

@@ -62,7 +62,7 @@ def stage(values, checkout, placement):
     entry.write_text(ast.unparse(ast.fix_missing_locations(tree)) + "\n")
 
 
-def read_result(child, timeout=8, bound=False):
+def read_result(child, timeout=8, bound=False, durable=False):
     deadline = time.monotonic() + timeout
     data = b""
     while b"\n" not in data:
@@ -78,6 +78,8 @@ def read_result(child, timeout=8, bound=False):
              "homeMutationAttempts": int, "pmRecoveryInjected": bool, "scratchCreated": bool}
     if bound:
         types.update(boundIdentityVerified=bool, identityRejected=bool)
+    if durable:
+        types.update(durableIntentVerified=bool, identityRejected=bool)
     if (type(value) is not dict or set(value) != set(types)
             or any(type(value[name]) is not kind for name, kind in types.items())):
         raise ValueError("startup probe failed")

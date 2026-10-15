@@ -31,17 +31,25 @@ def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", ro
     lease = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lease)
     bound = role == "bound-recovery"
+    durable = role == "durable-recovery"
     if bound:
         result.update(boundIdentityVerified=False, identityRejected=False)
+    if durable:
+        result.update(durableIntentVerified=False, identityRejected=False)
+    if bound or durable:
         spec = importlib.util.spec_from_file_location("bound_handoff", Path(__file__).with_name("bound_handoff.py"))
         binding = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(binding)
+    if durable:
+        spec = importlib.util.spec_from_file_location("durable_intent", Path(__file__).with_name("durable_intent.py"))
+        intent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(intent)
 
     def enter():
         result["admissionCalls"] += 1
         domains = [lease.Domain(*record) for record in domain_records]
-        if bound:
-            if not result["boundIdentityVerified"] or len(held) != 1:
+        if bound or durable:
+            if not result["boundIdentityVerified" if bound else "durableIntentVerified"] or len(held) != 1:
                 raise Boundary()
             return held[0]
         elif role == "recovery":
@@ -124,9 +132,26 @@ def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", ro
         finally:
             for fd in (*descriptors, binding_args["context"]):
                 os.close(fd)
+    if durable:
+        adopted = None
+        try:
+            context = binding.read_context(binding_args["context"])
+            binding.validate(context, binding_args["run"], binding_args["source"], checkout, home, entry_module, domain_records)
+            adopted = lease.Lease([lease.Domain(*record) for record in domain_records], maintenance=True)
+            if not adopted.drain():
+                raise BlockingIOError("maintenance still busy")
+            intent.resume(adopted, context)
+            held.append(adopted)
+            result["durableIntentVerified"] = True
+        except (ValueError, OSError):
+            if adopted is not None:
+                adopted.close()
+            result.update(identityRejected=True, blocked=True)
+        finally:
+            os.close(binding_args["context"])
     sys.setprofile(profile)
     try:
-        if bound and result["identityRejected"]:
+        if (bound or durable) and result["identityRejected"]:
             pass
         elif mode == "module":
             runpy.run_module(entry_module, run_name="__main__")
