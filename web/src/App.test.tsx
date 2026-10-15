@@ -21,6 +21,7 @@ const fixture = vi.hoisted(() => ({
     resume: vi.fn(),
     requestEmailChallenge: vi.fn(),
     exchangeEmail: vi.fn(),
+    stopKeepAlive: vi.fn(),
     onSignedOut: () => () => {},
     lifecycleEvents: async () => ({
       events: [],
@@ -153,6 +154,36 @@ async function click(text: string) {
   });
   await settle();
 }
+it("another tab's logout immediately hides the account and mounted private conversation", async () => {
+  await mount();
+  expect(host.querySelector("[data-chat]")).not.toBeNull();
+  await act(async () => {
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "hermes-go.account-profile-sync.logout", newValue: "new-logout-generation",
+    }));
+  });
+  await settle();
+  expect(host.querySelector("[data-chat],[data-list]")).toBeNull();
+  expect(host.querySelector('input[type="email"]')).not.toBeNull();
+  expect(fixture.client.stopKeepAlive).toHaveBeenCalled();
+  // Handling a remote logout must not rebroadcast it and bounce indefinitely between tabs.
+  expect(localStorage.getItem("hermes-go.account-profile-sync.logout")).toBeNull();
+});
+it("a device-list reply started before another tab's logout cannot reopen private pages", async () => {
+  let finish!: (value: unknown) => void;
+  fixture.client.devices.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => { render(<App />, host); });
+  await settle();
+  await act(async () => {
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "hermes-go.account-profile-sync.logout", newValue: "signed-out-while-loading",
+    }));
+    finish({ items: [device("mac-a", true)] });
+  });
+  await settle();
+  expect(host.querySelector("[data-chat],[data-list]")).toBeNull();
+  expect(host.querySelector('input[type="email"]')).not.toBeNull();
+});
 it("return from Mac switching retains the original conversation and draft", async () => {
   await mount();
   const input = host.querySelector<HTMLInputElement>("input")!;

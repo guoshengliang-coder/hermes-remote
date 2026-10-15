@@ -7,6 +7,7 @@
 #   up      fresh database, sign the dev email in once, bind a mock Mac, start everything
 #   code    print the latest email login code (the Gateway's Resend call is captured locally)
 #   HR_WEB_STACK_LEGACY_PROTOCOL=1 ./scripts/dev/web-stack.sh up   # old approval/clarify events
+#   HR_WEB_STACK_ACCOUNT_DATA_SYNC=1 ./scripts/dev/web-stack.sh up # local profile-sync smoke
 #
 # Open https://localhost:18443/app/ and sign in with dev@example.test; `code` prints the code.
 # Trust the stack's CA in an iOS simulator with:
@@ -34,6 +35,8 @@ OPENSSL="${HR_WEB_STACK_OPENSSL:-/opt/homebrew/opt/openssl@3/bin/openssl}"
 LSOF="$(command -v lsof || echo /usr/sbin/lsof)"
 DATABASE_URL="postgres://hermes_web@127.0.0.1:$PG_PORT/hermes_web"
 WEB_DIR="${HR_WEB_STACK_WEB_DIR:-$ROOT/web/dist}"
+PROFILE_SYNC="${HR_WEB_STACK_ACCOUNT_DATA_SYNC:-0}"
+case "$PROFILE_SYNC" in 0|1) ;; *) echo "HR_WEB_STACK_ACCOUNT_DATA_SYNC must be 0 or 1" >&2; exit 2 ;; esac
 
 MOCK_MARKER="$ROOT/scripts/dev/mock-hermes-stream.mjs"
 GATEWAY_MARKER="$ROOT/gateway/dist/index.js"
@@ -148,6 +151,7 @@ CONNECTOR_TOKEN=web-stack-legacy-connector-token
 DEFAULT_DEVICE_ID=$DEVICE_ID
 LIFECYCLE_EVENT_STORE_FILE=$STATE/lifecycle-events.json
 ACCOUNT_AUTH_ENABLED=1
+ACCOUNT_DATA_SYNC_ENABLED=$PROFILE_SYNC
 ACCOUNT_BINDING_ENABLED=1
 ACCOUNT_MULTI_DEVICE_ENABLED=1
 ACCOUNT_IDENTITY_MANAGEMENT_ENABLED=1

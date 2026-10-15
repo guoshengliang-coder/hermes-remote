@@ -3,8 +3,17 @@ import { appError, type AppError } from "../errors";
 import { toAppError } from "../app/failures";
 
 const DATABASE = "hermes-go.account-profile-sync.v1";
-const LOGOUT = "hermes-go.account-profile-sync.logout";
-interface Pending { generation: string; operation: AccountProfileOperation; avatar?: Blob; terminal?: AppError }
+export const PROFILE_SYNC_LOGOUT = "hermes-go.account-profile-sync.logout";
+const LOGOUT = PROFILE_SYNC_LOGOUT;
+interface Pending {
+  generation: string;
+  operation: AccountProfileOperation;
+  /** Version-1 records remain readable; new records use bytes (WebKit may reject IDB Blob writes). */
+  avatar?: Blob;
+  avatarBytes?: ArrayBuffer;
+  avatarType?: string;
+  terminal?: AppError;
+}
 export interface ProfileSyncStatus { pending: boolean; error: AppError | null }
 function revision(value: unknown): value is string {
   return typeof value === "string" && /^(0|[1-9][0-9]{0,19})$/.test(value) && BigInt(value) <= 18446744073709551615n;
@@ -22,8 +31,12 @@ function generation(): string {
 }
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE, 1);
-    request.onupgradeneeded = () => { request.result.createObjectStore("profiles"); request.result.createObjectStore("pending"); };
+    const request = indexedDB.open(DATABASE, 2);
+    request.onupgradeneeded = () => {
+      for (const name of ["profiles", "pending"]) {
+        if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name);
+      }
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error("storage blocked"));
@@ -130,7 +143,10 @@ export class AccountProfileSyncClient {
     const operation: AccountProfileOperation = { opId: crypto.randomUUID(), issuedAt: new Date().toISOString(),
       baseRevision: baseRevision ?? (avatar ? this.snapshot.profile.avatarRevision : this.snapshot.profile.nameRevision),
       ...(avatar ? {} : { displayName }) };
-    try { await write("pending", this.key, { generation: this.generation, operation, ...(avatar ? { avatar } : {}) }, this.isActive, true); }
+    try {
+      const image = avatar ? { avatarBytes: await avatar.arrayBuffer(), avatarType: avatar.type } : {};
+      await write("pending", this.key, { generation: this.generation, operation, ...image }, this.isActive, true);
+    }
     catch (e) { throw appError(e instanceof DOMException && e.name === "ConstraintError" ? "HR-SYNC-010" : "HR-SYNC-011"); }
     if (!this.isActive()) throw appError("HR-SYNC-007");
     this.report({ pending: true, error: null });
@@ -151,7 +167,8 @@ export class AccountProfileSyncClient {
         this.report({ pending: true, error: null });
         try {
           // Server binds this expected owner to the cookie principal, even across tab/account races.
-          const ack = await this.client.setAccountProfile(this.owner, pending.operation, pending.avatar);
+          const avatar = pending.avatar ?? (pending.avatarBytes ? new Blob([pending.avatarBytes], { type: pending.avatarType }) : undefined);
+          const ack = await this.client.setAccountProfile(this.owner, pending.operation, avatar);
           if (!ack || ack.status !== "accepted" || !revision(ack.revision) || !revision(ack.nameRevision) || !revision(ack.avatarRevision) ||
               BigInt(ack.nameRevision) > BigInt(ack.revision) || BigInt(ack.avatarRevision) > BigInt(ack.revision)) throw appError("HR-WEB-005");
           if (!this.isActive()) return;
