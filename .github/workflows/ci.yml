@@ -178,7 +178,7 @@ jobs:
                       return subprocess.check_output(['/usr/bin/xcrun', '--find', name], env=env, text=True).strip()
                   platform = subprocess.check_output(['/usr/bin/xcrun', '--show-sdk-platform-path'], env=env, text=True).strip()
                   env['DYLD_FRAMEWORK_PATH'] = str(Path(platform) / 'Developer/Library/Frameworks')
-                  subprocess.run([locate('lldb'), '--batch', '-o', 'run', '-o', 'thread backtrace all', '--',
+                  subprocess.run([locate('lldb'), '--batch', '-k', 'thread backtrace all', '-o', 'run', '--',
                       locate('xctest'), '-XCTest',
                       'HermesGoDesktopCoreTests.DesktopHermesUpgradeDependenciesTests/testExternalAbsoluteDanglingCyclicAndFileTraversalLinksAreRejected',
                       str(bundle.resolve())], env=env, timeout=60, check=False)
