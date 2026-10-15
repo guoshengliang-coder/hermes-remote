@@ -1,5 +1,20 @@
 # Hermes Go Desktop test plan
 
+The live-handoff increment adds nine Python tests and a separate frozen-source matrix: five
+bound recovery prefixes (four entries plus an explicitly selected named home) and thirteen
+refusals before copied-package initialization. The trusted launcher passes an anonymous socketpair,
+read-only/unlinked private context FD and live exclusive lock descriptions. Run/source/home/entry/
+role/domain and eleven staged input hashes are checked before challenge/grant/accepted/commit/
+committed. Parent close retains child exclusion; pre-commit refusal retains actual parent exclusion.
+Faults include changed bytes before/after hello, missing/fresh same-inode lock FDs, mismatched
+challenge and discarded/altered accepted. Tests cover framing/deadlines/EOF/bounds, strict JSON/types,
+private FD shape, directory replacement/links, bilingual redaction and a disposable mutant that
+skips actual source validation and consequently admits changed source. Linux/macOS run both fixtures
+and frozen sources. `liveBindingChecksVerified` is deliberately separate from false production,
+durability, full-startup/global/upgrade certification. The context is not OS-sealed or a whole-tree
+Git/runtime proof. PM remains injected. Post-commit lost final acknowledgement, re-exec/restart,
+actual PM/native/cron/services and device/UI verification remain unverified. See the prototype README.
+
 The shared-bootstrap increment adds eight Python tests and a separate eleven-input frozen-source
 experiment: four entry modules × three loading forms, nine misses by a main-only guard, four
 admitted writers and four inherited-exclusive recovery prefixes. Actual descriptors/OS locks test

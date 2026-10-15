@@ -8,12 +8,17 @@ import json
 import os
 from pathlib import Path
 import select
+import socket
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 PROTOTYPE = Path(__file__).with_name("upstream-maintenance-prototype")
+SOURCE_ID = "818c13be1dc4fd28987e1e881a9408224afd4535"
+BINDING_FAULTS = ("wrong-run", "wrong-source", "wrong-home", "wrong-role", "wrong-entry", "wrong-domain",
+                  "changed-source", "source-after-hello", "stale-grant", "lost-ack", "bad-ack", "missing-lock", "fresh-locks")
 ENTRY_SHA256 = {
     "hermes_cli/main.py": "1491ff17d20b54c024c052003d394798cb2e673c8b9565b4a8be4c1fd6b21dae",
     "hermes_bootstrap.py": "ef827fba947d33dc29fe4afd587264b982a37e5b1da2130a4806c8d84e58ee6c",
@@ -56,7 +61,7 @@ def stage(values, checkout, placement):
     entry.write_text(ast.unparse(ast.fix_missing_locations(tree)) + "\n")
 
 
-def read_result(child, timeout=8):
+def read_result(child, timeout=8, bound=False):
     deadline = time.monotonic() + timeout
     data = b""
     while b"\n" not in data:
@@ -70,6 +75,8 @@ def read_result(child, timeout=8):
     value = json.loads(data.split(b"\n", 1)[0])
     types = {"blocked": bool, "bootstrapEntered": bool, "prefixReached": bool, "admissionCalls": int,
              "homeMutationAttempts": int, "pmRecoveryInjected": bool, "scratchCreated": bool}
+    if bound:
+        types.update(boundIdentityVerified=bool, identityRejected=bool)
     if (type(value) is not dict or set(value) != set(types)
             or any(type(value[name]) is not kind for name, kind in types.items())):
         raise ValueError("startup probe failed")
@@ -77,8 +84,10 @@ def read_result(child, timeout=8):
 
 
 def experiment(values, placement, mode, argv, profile=False, maintenance=True,
-               entry_module="hermes_cli.main", role="writer"):
-    if role not in ("writer", "recovery") or (role == "recovery" and not maintenance):
+               entry_module="hermes_cli.main", role="writer", handoff_fault=None):
+    bound = role == "bound-recovery"
+    if (role not in ("writer", "recovery", "bound-recovery") or (role != "writer" and not maintenance)
+            or (handoff_fault is not None and (not bound or handoff_fault not in BINDING_FAULTS))):
         raise ValueError("invalid startup role")
     spec = importlib.util.spec_from_file_location("entry_lease", PROTOTYPE / "maintenance_lease.py")
     lease = importlib.util.module_from_spec(spec)
@@ -96,21 +105,79 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
             domain.enroll()
         request = None
         child = None
+        channel, remote, manifest = None, None, None
+        extra_descriptors = []
         try:
             if maintenance:
                 request = lease.Lease(domains, maintenance=True)
                 if not request.drain():
                     raise ValueError("unexpected writer")
             records = [[str(d.registry), d.binding["kind"], str(d.directory)] for d in domains]
-            descriptors = request.pass_fds if role == "recovery" else ()
+            descriptors = request.pass_fds if role != "writer" else ()
+            binding_args = {}
+            child_home = active
+            if bound:
+                spec = importlib.util.spec_from_file_location("bound_handoff", PROTOTYPE / "bound_handoff.py")
+                binding = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(binding)
+                run_id = str(uuid.uuid4())
+                expected = binding.context(run_id, SOURCE_ID, checkout, active, entry_module, records, list(values))
+                context = json.loads(binding.encode(expected))
+                if handoff_fault == "wrong-run": context["run"] = str(uuid.uuid4())
+                if handoff_fault == "wrong-source": context["source"] = "0" * 40
+                if handoff_fault == "wrong-role": context["role"] = "writer"
+                if handoff_fault == "wrong-entry": context["entry"] = "unrequested.entry"
+                if handoff_fault == "wrong-domain": context["domains"] = []
+                if handoff_fault == "wrong-home":
+                    child_home = root / "wrong-home"
+                    child_home.mkdir(mode=0o700)
+                manifest = binding.private_context_fd(control, context)
+                channel, remote = socket.socketpair()
+                binding_args = {"channel": remote.fileno(), "context": manifest, "run": run_id, "source": SOURCE_ID}
+                if handoff_fault == "missing-lock": descriptors = descriptors[:-1]
+                if handoff_fault == "fresh-locks":
+                    extra_descriptors = [fd for domain in request.domains for fd in domain.open()]
+                    descriptors = tuple(extra_descriptors)
+                if handoff_fault == "changed-source":
+                    with (checkout / "hermes_constants.py").open("ab") as output:
+                        output.write(b"\n# synthetic mutation\n")
+            inherited = descriptors + ((remote.fileno(), manifest) if bound else ())
             child = subprocess.Popen([sys.executable, "-I", "-S", "-B", str(PROTOTYPE / "startup_probe.py"),
                                       str(checkout), json.dumps(records), mode, json.dumps(argv), entry_module,
-                                      role, json.dumps(descriptors)],
-                                     env={"PATH": os.defpath, "HOME": str(root), "HERMES_HOME": str(active)},
+                                      role, json.dumps(descriptors), json.dumps(binding_args)],
+                                     env={"PATH": os.defpath, "HOME": str(root), "HERMES_HOME": str(child_home)},
                                      cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                     text=True, pass_fds=descriptors)
-            value = read_result(child)
-            if role == "recovery":
+                                     text=True, pass_fds=inherited)
+            handshake = False
+            if bound:
+                remote.close(); remote = None
+                os.close(manifest); manifest = None
+                def changed_after_hello():
+                    if handoff_fault == "source-after-hello":
+                        with (checkout / "hermes_constants.py").open("ab") as output:
+                            output.write(b"\n# synthetic race\n")
+                try:
+                    binding.issue(channel, expected, handoff_fault, changed_after_hello)
+                    handshake = True
+                except (binding.Rejected, OSError):
+                    pass  # Keep the parent's lease; the child must report a refusal before imports.
+                finally:
+                    channel.close(); channel = None
+            value = read_result(child, bound=bound)
+            if bound:
+                value["liveHandshakeAccepted"] = handshake
+                retained = bool(value["identityRejected"] and request.ready)
+                if retained:
+                    for outsider_role in ("writer", "maintenance"):
+                        try:
+                            outsider = lease.Lease(domains, maintenance=outsider_role == "maintenance")
+                        except BlockingIOError:
+                            continue
+                        else:
+                            outsider.close()
+                            retained = False
+                value["parentRetainedAfterRejection"] = retained
+            if role == "recovery" or (bound and value["boundIdentityVerified"]):
                 request.close()
                 request = None
                 for outsider_role in ("writer", "maintenance"):
@@ -131,7 +198,7 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
                 raise ValueError("startup probe exit")
             if not maintenance:
                 value["drainsAfterPrefixExit"] = request.drain()
-            if role == "recovery":
+            if role == "recovery" or (bound and value["boundIdentityVerified"]):
                 request = lease.Lease(domains, maintenance=True)
                 value["drainsAfterRecoveryExit"] = request.drain()
             return value
@@ -144,6 +211,13 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True,
                 child.stdout.close()
             if request is not None:
                 request.close()
+            for connection in (channel, remote):
+                if connection is not None:
+                    connection.close()
+            if manifest is not None:
+                os.close(manifest)
+            for fd in extra_descriptors:
+                os.close(fd)
 
 
 def inspect(root):

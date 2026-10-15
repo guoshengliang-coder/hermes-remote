@@ -20,7 +20,7 @@ class PrefixReached(BaseException):
     pass
 
 
-def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", role="writer", descriptors=()):
+def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", role="writer", descriptors=(), binding_args=None):
     checkout = Path(checkout)
     home = Path(os.environ["HERMES_HOME"])
     owned = checkout.parent
@@ -30,11 +30,21 @@ def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", ro
     spec = importlib.util.spec_from_file_location("maintenance_lease", Path(__file__).with_name("maintenance_lease.py"))
     lease = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lease)
+    bound = role == "bound-recovery"
+    if bound:
+        result.update(boundIdentityVerified=False, identityRejected=False)
+        spec = importlib.util.spec_from_file_location("bound_handoff", Path(__file__).with_name("bound_handoff.py"))
+        binding = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(binding)
 
     def enter():
         result["admissionCalls"] += 1
         domains = [lease.Domain(*record) for record in domain_records]
-        if role == "recovery":
+        if bound:
+            if not result["boundIdentityVerified"] or len(held) != 1:
+                raise Boundary()
+            return held[0]
+        elif role == "recovery":
             value = lease.Lease.inherit_maintenance(domains, descriptors)
             for fd in descriptors:
                 os.close(fd)  # The adopted duplicates now own this child's custody.
@@ -99,9 +109,26 @@ def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", ro
     entry_path = checkout / (entry_module.replace(".", "/") + ".py")
     sys.argv = [str(entry_path), *argv]
     sys.addaudithook(audit)
+    # Authorize before importing ANY copied package, including package __init__.
+    # PM hooks remain no-ops; this is only a live trusted-launcher experiment.
+    if bound:
+        try:
+            adopted = binding.accept(binding_args["channel"], binding_args["context"],
+                                     binding_args["run"], binding_args["source"], checkout, home, entry_module,
+                                     domain_records, lambda: lease.Lease.inherit_maintenance(
+                                         [lease.Domain(*record) for record in domain_records], descriptors))
+            held.append(adopted)
+            result["boundIdentityVerified"] = True
+        except (ValueError, OSError):
+            result.update(identityRejected=True, blocked=True)
+        finally:
+            for fd in (*descriptors, binding_args["context"]):
+                os.close(fd)
     sys.setprofile(profile)
     try:
-        if mode == "module":
+        if bound and result["identityRejected"]:
+            pass
+        elif mode == "module":
             runpy.run_module(entry_module, run_name="__main__")
         elif mode == "console-import":
             __import__(entry_module)
@@ -127,7 +154,7 @@ def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", ro
 if __name__ == "__main__":
     try:
         run(sys.argv[1], json.loads(sys.argv[2]), sys.argv[3], json.loads(sys.argv[4]),
-            sys.argv[5], sys.argv[6], json.loads(sys.argv[7]))
+            sys.argv[5], sys.argv[6], json.loads(sys.argv[7]), json.loads(sys.argv[8]))
     except (Exception, Boundary):
         print(json.dumps({"failed": True}), flush=True)
         raise SystemExit(1) from None

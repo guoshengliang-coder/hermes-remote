@@ -37,7 +37,12 @@ POSIX 双域准入/生命周期锁和子进程持锁已有实验实现，未接�
 PM/恢复为注入空操作，实验在 scratch hook 返回时停止；不是完整启动或 profile/全 writer 覆盖。
 后续共享bootstrap实验覆盖CLI/legacy/ACP/gateway的12个前缀，对照main单点漏掉9个。
 显式继承排他FD的恢复角色可跨父进程close保持封闭，避免重取共享许可造成自阻塞；
-它只是测试launcher内核原语，未实现run/source/role认证与跨exec/重启身份。
+它只是测试launcher内核原语，不提供run/source/role认证与跨exec/重启身份。
+独立活进程交接实验再通过匿名socketpair、只读私有context FD和实际锁，绑定run/source/home/
+入口/恢复角色及11份变换后源输入；5个获准前缀和13个导入前拒绝场景验证确认与持锁边界。
+这只验证可信测试launcher，不代表整个Git/runtime闭包或生产授权；
+`liveBindingChecksVerified=true`与`productionAuthorityVerified=false`、`durableHandoffVerified=false`
+分别记录。跨exec/重启身份和commit后确认丢失的不确定状态仍待验证，不能靠JSON回执接管。
 原生预加载、cron包初始化和真实PM/恢复仍未覆盖，全部升级认证flag保持false。
 
 外部恢复材料已增加独立 `DesktopHermesUpgradeDependencyStore`：调用者明确选择 home 外的

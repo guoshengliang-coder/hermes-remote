@@ -65,10 +65,35 @@ main单点与共享bootstrap准入。CLI/legacy CLI/ACP/gateway × 三种加载�
 只比inode而不验证flock、或把继承换成共享许可申请的错误实现均被回归拒绝。
 新增8项测试；该方法是可信测试launcher的内核原语，不是已认证的事务交接。
 
-PM/恢复仍为空操作，`authenticatedHandoffVerified=false`；run/source/home/role授权、
-握手与跨exec/重启持久身份尚未实现。另已核对agent包在bootstrap前尝试原生预加载，
+此内核原语实验的PM/恢复仍为空操作，`authenticatedHandoffVerified=false`；它不校验
+run/source/home/role交接，跨exec/重启持久身份也未实现。另已核对agent包在bootstrap前尝试原生预加载，
 cron worker包初始化可在scheduler bootstrap前激活PM；`nativePreloadVerified=false`、
 `cronPackageBootVerified=false`明确保留。共享bootstrap也不是所有入口的全局屏障。
+
+### 活进程私有通道绑定实验
+
+`scripts/compat/hermes-maintenance-handoff.py` 在上述11份固定输入的一次性副本中，
+验证可信测试父进程与恢复子进程间的绑定。父进程显式传入匿名socketpair、关闭写端并unlink后
+只读的私有context FD及真实排他锁FD；不是环境变量、可发现socket或保存的JSON回执授权。
+context绑定run UUID、固定候选标识、实际home/checkout目录身份、入口、恢复角色、完整域记录及
+11份变换后输入的实际hash。这里的候选标识不等于验证整个Git/runtime闭包，私有FD也不是OS密封文件。
+
+子进程在导入任何复制包之前验证context和继承锁，以新challenge和父方transfer值完成
+ready/grant/accepted/commit/committed。父方在确认前不释放原锁；子方在收到commit前不得运行前缀。
+4个入口及显式命名profile共5个正例在父方close后继续排除两类外来请求。
+13个拒绝场景覆盖run/source/home/role/入口/域不符、许可生成后和hello后源码变化、
+challenge不符、accepted丢失/不符、缺失锁及同inode独立open；均未导入复制包、无home写入，
+父方仍实际排除writer和另一维护方。accepted丢失由父方丢弃确认并关闭通道模拟；
+challenge不符由修改本次challenge模拟，不宣称捕获了旧包或验证重启重放防护。
+
+新增9项测试覆盖上述矩阵、包初始化前拒绝、实际文件校验的错误实现、私有只读FD、
+文件/目录替换与链接、规范JSON/重复键/类型、消息上限/半帧/EOF/截止和双语错误脱敏。
+Linux/macOS CI均运行测试及固定真实源矩阵。
+`liveBindingChecksVerified=true`只表示活进程实验通过；`productionAuthorityVerified=false`、
+`durableHandoffVerified=false`及全局/升级认证false保持不变。PM仍为空操作。
+这不解决任意同UID恶意进程、Python启动钩子、完整入口/原生/cron/PM、服务交接、
+跨exec/重启持久恢复或首次旧版切换。commit发出后若最终确认丢失，父方保留锁也不能推断
+子方没有工作；这类不确定状态的耐久协议还需单独验证。详细复现与信任边界见原型说明。
 
 ## 上游接入必须提供的保证
 
