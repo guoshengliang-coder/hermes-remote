@@ -161,28 +161,6 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: npm run desktop:test
-      - name: Diagnose dependency traversal failure
-        if: failure()
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import subprocess
-          import tempfile
-          bundle = Path('desktop/.build/debug/HermesGoDesktopPackageTests.xctest')
-          if bundle.exists():
-              with tempfile.TemporaryDirectory(prefix='hg199-debug-') as directory:
-                  # XCTest prints the complete environment on invocation errors. Never inherit
-                  # runner credentials, even for this failure-only diagnostic.
-                  env = {'PATH': '/usr/bin:/bin', 'HOME': directory, 'TMPDIR': directory}
-                  def locate(name):
-                      return subprocess.check_output(['/usr/bin/xcrun', '--find', name], env=env, text=True).strip()
-                  platform = subprocess.check_output(['/usr/bin/xcrun', '--show-sdk-platform-path'], env=env, text=True).strip()
-                  env['DYLD_FRAMEWORK_PATH'] = str(Path(platform) / 'Developer/Library/Frameworks')
-                  subprocess.run([locate('lldb'), '--batch', '-k', 'thread backtrace all', '-o', 'run', '--',
-                      locate('xctest'), '-XCTest',
-                      'HermesGoDesktopCoreTests.DesktopHermesUpgradeDependenciesTests/testExternalAbsoluteDanglingCyclicAndFileTraversalLinksAreRejected',
-                      str(bundle.resolve())], env=env, timeout=60, check=False)
-          PY
       - run: npm run desktop:app
 
   secrets:

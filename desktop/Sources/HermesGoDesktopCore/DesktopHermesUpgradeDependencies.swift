@@ -199,7 +199,11 @@ public struct DesktopHermesUpgradeDependencyStore: Sendable {
                     entries.append(.init(path: path, kind: "file", permissions: mode, size: metadata.st_size, digest: digest, target: nil))
                 case S_IFLNK:
                     var buffer = [UInt8](repeating: 0, count: 4097)
-                    let count = readlinkat(parent, name, &buffer, buffer.count)
+                    // Darwin imports this output as a raw pointer. Give it element storage,
+                    // never an inout Array value (Swift 6.1 can overwrite the Array itself).
+                    let count = buffer.withUnsafeMutableBytes { bytes in
+                        readlinkat(parent, name, bytes.baseAddress!, bytes.count)
+                    }
                     guard count > 0, count <= 4096, let target = String(bytes: buffer.prefix(count), encoding: .utf8), validRelative(target) else {
                         throw DesktopHermesUpgradeError.recoveryRequired
                     }
@@ -370,7 +374,10 @@ public struct DesktopHermesUpgradeDependencyStore: Sendable {
     }
     private func platformValue(_ key: String) throws -> String {
         var bytes = [CChar](repeating: 0, count: 128), count = 128
-        guard sysctlbyname(key, &bytes, &count, nil, 0) == 0, (1...128).contains(count), bytes[count - 1] == 0,
+        let result = bytes.withUnsafeMutableBytes { buffer in
+            sysctlbyname(key, buffer.baseAddress!, &count, nil, 0)
+        }
+        guard result == 0, (1...128).contains(count), bytes[count - 1] == 0,
               let value = String(validatingUTF8: bytes), validPlatform(value) else { throw DesktopHermesUpgradeError.recoveryRequired }
         return value
     }
