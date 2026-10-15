@@ -1,5 +1,13 @@
 # Hermes Go Desktop test plan
 
+2026-10-15 CLI import experiment adds seven Python harness tests and a separate frozen-source
+matrix: 12 paired invocation/argv cases reject before real bootstrap/scratch writes when guarded
+early; placing the guard inside main permits those writes. The admitted prefix keeps a probe-owned
+writer lease until controlled exit. Only temporary source copies are transformed. PM/recovery are
+injected no-ops and execution stops after scratch setup; profile selection, complete CLI startup,
+alternate writers/services and upgrade certification remain unverified. See the prototype README
+for exact input hashes, routed entry surfaces and reproduction. No Desktop app behavior changes.
+
 2026-10-15 external material recovery adds 18 dependency-store tests (the standalone Python case
 is opt-in). Coverage uses actual private files/FD reads/hashes: exact bytes/owner execute bits,
 source mutation/replacement with reset mtime, idempotency and run/source/digest binding, multiple

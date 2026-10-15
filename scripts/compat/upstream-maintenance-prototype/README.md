@@ -97,3 +97,65 @@ placements before adding it to `hermes_cli/maintenance_lease.py` upstream:
 
 The first legacy-to-cooperative transition, full dependency/ABI recovery, exact service
 restoration and business/device acceptance remain separate blockers in HG-199.
+
+## CLI import placement experiment (2026-10-15)
+
+```bash
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_entry.py'
+python -I -S -B scripts/compat/hermes-maintenance-entry.py --candidate-root <frozen-0.21.6-checkout>
+```
+
+The entry experiment verifies SHA-256 for four frozen inputs before copying them:
+`hermes_cli/main.py`, `hermes_cli/__init__.py`, `hermes_bootstrap.py`, and
+`hermes_constants.py`. Only the disposable `main.py` is transformed with AST to
+insert a prototype admission call, either before bootstrap imports or inside
+`main()`. The binding is explicitly injected by the test child; it is not a new
+environment variable, installed launcher or proposed production configuration.
+Supplied sources, installed code and runtime state are never modified.
+
+Twelve paired cases execute the actual CLI import and bootstrap scratch hook:
+runpy module loading (the `python -m` code path), console-style module import,
+and script loading, each with serve/gateway/cron/named-profile-shaped arguments.
+The child exits at the return from `hermes_bootstrap.export_scratch_tmp_env`,
+before full CLI startup. PM launch/activation and interrupted-update recovery
+are injected no-ops. The actual scratch code creates `cache/scratch` and its
+prune stamp in disposable data; no real history, updater, service or cron task runs.
+The profile case receives an explicit disposable HERMES_HOME; it does not execute
+or verify profile selection. It is not end-to-end console-wrapper verification.
+
+With maintenance held, an import-time guard refuses before bootstrap, with zero
+home mutation attempts. A guard inside `main()` still allows bootstrap to create
+scratch before it can execute: this is the negative control, not a passing guard.
+Moving the early call to `main()` makes the frozen-source matrix reject the result.
+An admitted prefix checkpoint retains the acquired lease in the probe until its
+controlled exit; a separate maintenance request cannot drain until that exit.
+This tests the probe's retention, not a full runtime's shutdown/handoff lifecycle.
+
+Seven synthetic-fixture tests cover the matrix, all-input drift refusal, outside
+write/process-spawn tripwires, unexpected-import/output failure, partial-line deadlines and bilingual CLI error
+redaction. They complement the real frozen-source experiment on Linux/macOS CI.
+Children have whitelist environments, bytecode writing disabled and bounded waits.
+Audit hooks reject observed outside writes, process/signalling and network calls;
+they are test tripwires, not an OS security sandbox for arbitrary supplied code.
+
+The result keeps `pmRecoveryInjected=true`, `fullStartupVerified=false`,
+`profileSelectionVerified=false`, `globalAdmissionProven=false` and
+`certifiesUpgrade=false`. Recovery/activation must eventually run under their own
+validated exclusive handoff; suppressing them is only an experiment boundary.
+No upstream patch or production admission configuration is delivered here.
+
+### Frozen-source routing audit
+
+| Audited surface at 818c13be | Consequence / remaining work |
+|---|---|
+| `pyproject.toml` scripts: `hermes_cli.main:main`, `agent.legacy_cli:main`, `acp_adapter.entry:main` | One main guard cannot cover every console entry |
+| `hermes_cli/main.py:16` imports bootstrap; `main()` is at line 3519 | A guard only inside main comes after import-time effects |
+| `hermes_bootstrap.py:544` interrupted-pull recovery, `:588` prepare_launch, `:612` recovery / activation | Acquire a validated maintenance role before any of these; they are injected here |
+| `hermes_bootstrap.py:622` exports scratch via real `hermes_constants.get_scratch_dir` | The paired experiment observes an actual early filesystem writer |
+| `hermes_cli/main.py:666` repeats scratch export after profile re-homing | Early fleet-home scope must remain correct after profile selection |
+| `agent/legacy_cli.py`, `acp_adapter/entry.py`, `gateway/run.py` also import bootstrap directly | Additional callers still need reviewed entry integration |
+| `cron/scheduler.py` also has a direct `__main__` surface | A general audit must include independent schedulers and library writers |
+
+This is a bounded routing audit, not an exhaustive inventory. Bootstrap recovery,
+Python startup/.pth hooks, alternate entries, true profile multiplexing, actual
+queued work, native children and durable exclusive service handoff remain uncovered.

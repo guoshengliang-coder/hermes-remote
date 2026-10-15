@@ -38,6 +38,20 @@ idle ledger 在这个实验中注入为空；实验只证明锁作用域，未�
 这还不能证明真实 CLI/serve/gateway/cron、profile、后台任务或所有写入点覆盖。
 跨重启耐久交接、真实 idle/排空、PM/服务恢复、首次旧版切换仍未实现/认证。
 
+### CLI 启动前缀接入实验
+
+`scripts/compat/hermes-maintenance-entry.py` 对固定候选的四个源文件先校验 hash，
+仅在一次性副本中注入准入调用，比较 bootstrap 导入前与 `main()` 内两个位置。
+三种代码加载形式 × 四组 argv，共12组成对场景：前置调用在维护中阻断且无 home 写入尝试；
+`main()` 内调用尚未执行时，真实 bootstrap 已创建 `cache/scratch`。故意把前置调用后移后，
+矩阵拒绝结果。获准启动的前缀在 probe 保留许可期间使维护方无法排空，退出后才能排空。
+
+此实验止于真实 scratch hook 返回；PM准备/激活与中断恢复被注入为空操作，未运行完整入口、
+服务、业务或实际 profile 选择。命名 profile 的 HERMES_HOME 由实验显式提供。
+输出保留 `pmRecoveryInjected=true`、`fullStartupVerified=false`、`profileSelectionVerified=false`，
+两项全局/升级认证 flag 仍为 false。新增7项 harness回归和源码入口路由表见原型说明。
+没有可安装的上游补丁、launcher 或线上准入配置；真正 bootstrap/恢复交接和旁路覆盖仍待接入。
+
 ## 上游接入必须提供的保证
 
 仓库既有边界仍是 GO 管进程、用户拥有 Hermes 代码；当前授权仅为隔离原型。
