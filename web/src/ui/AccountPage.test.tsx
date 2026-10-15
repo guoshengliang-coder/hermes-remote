@@ -59,3 +59,19 @@ it("refuses a non-image avatar before opening the editor", () => {
   expect(host.querySelector(".error-notice")?.textContent).toContain("头像不符合要求");
   expect(client.uploadAccountAvatar).not.toHaveBeenCalled();
 });
+
+it("keeps an in-progress name edit and its original field revision when another device updates", async () => {
+  const saveAccountProfile = vi.fn(async () => true);
+  const context = { t: (zh: string) => zh, language: "zh", account,
+    profileSyncRevisions: { nameRevision: "1", avatarRevision: "0" }, saveAccountProfile, flash: vi.fn() } as unknown as AppContextValue;
+  const host = mount(context);
+  const input = host.querySelector<HTMLInputElement>("#account-name")!;
+  act(() => { input.value = "Typing"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await act(async () => render(<AppContext.Provider value={{ ...context,
+    account: { ...account, displayName: "Other device" }, profileSyncRevisions: { nameRevision: "2", avatarRevision: "0" },
+  }}><AccountPage /></AppContext.Provider>, host));
+  expect(input.value).toBe("Typing");
+  const save = [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("保存"))!;
+  await act(async () => { save.click(); });
+  expect(saveAccountProfile).toHaveBeenCalledWith("Typing", undefined, "1");
+});

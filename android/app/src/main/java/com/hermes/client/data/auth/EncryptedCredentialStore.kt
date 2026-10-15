@@ -107,6 +107,9 @@ class EncryptedCredentialStore(private val context: Context) :
             accountId = accountId,
             accountDisplayName = prefs.getString("account_display_name", null),
             accountEmail = prefs.getString("account_email", null),
+            accountProfileRevision = prefs.getString("account_profile_revision", null),
+            accountAvatarRevision = prefs.getString("account_avatar_revision", null),
+            accountAvatarFile = prefs.getString("account_avatar_file", null),
             installationId = installationId,
             installationDisplayName = prefs.getString("account_installation_name", null).orEmpty(),
             accessToken = accessToken,
@@ -130,6 +133,9 @@ class EncryptedCredentialStore(private val context: Context) :
             .putString("account_id", session.accountId)
             .putString("account_display_name", session.accountDisplayName)
             .putString("account_email", session.accountEmail)
+            .putString("account_profile_revision", session.accountProfileRevision)
+            .putString("account_avatar_revision", session.accountAvatarRevision)
+            .putString("account_avatar_file", session.accountAvatarFile)
             .putString("account_installation_id", session.installationId)
             .putString("account_installation_name", session.installationDisplayName)
             .putString("account_access_token", session.accessToken)
@@ -157,6 +163,9 @@ class EncryptedCredentialStore(private val context: Context) :
             .remove("account_id")
             .remove("account_display_name")
             .remove("account_email")
+            .remove("account_profile_revision")
+            .remove("account_avatar_revision")
+            .remove("account_avatar_file")
             .remove("account_installation_id")
             .remove("account_installation_name")
             .remove("account_access_token")
@@ -305,6 +314,9 @@ class EncryptedCredentialStore(private val context: Context) :
             .remove("account_id")
             .remove("account_display_name")
             .remove("account_email")
+            .remove("account_profile_revision")
+            .remove("account_avatar_revision")
+            .remove("account_avatar_file")
             .remove("account_installation_id")
             .remove("account_installation_name")
             .remove("account_access_token")

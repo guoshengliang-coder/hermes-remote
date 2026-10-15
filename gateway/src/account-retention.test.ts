@@ -7,6 +7,7 @@ import {
 } from "./account/account-retention.js";
 
 const oneDeletionEach: AccountRetentionCounts = {
+  profileSyncOperations: 0,
   idempotencyRecords: 1,
   emailWebhookReceipts: 1,
   emailOtpChallenges: 1,
@@ -48,6 +49,7 @@ test("account retention scheduler coalesces sweeps and exposes aggregate-only pr
     lastSuccessAt: null,
     lastFailureAt: null,
     deletedSinceStart: {
+      profileSyncOperations: 0,
       idempotencyRecords: 0,
       emailWebhookReceipts: 0,
       emailOtpChallenges: 0,
@@ -106,6 +108,7 @@ test("account retention scheduler catches up bounded deletion work before return
       calls += 1;
       return calls === 1 ? oneDeletionEach : {
         ...oneDeletionEach,
+        profileSyncOperations: 0,
         idempotencyRecords: 0,
         emailWebhookReceipts: 0,
         emailOtpChallenges: 0,

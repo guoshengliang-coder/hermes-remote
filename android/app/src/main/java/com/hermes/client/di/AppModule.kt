@@ -186,6 +186,7 @@ object AppModule {
     @Provides
     @Singleton
     fun provideAccountSessionManager(
+        @ApplicationContext context: Context,
         store: AccountSessionStore,
         api: AccountApi,
         // Lazy breaks the cycle: the push manager reads account state, and sign-out calls back
@@ -195,6 +196,7 @@ object AppModule {
         store,
         api,
         beforeSignOut = { connection -> push.get().unregisterForSignOut(connection) },
+        profileAvatars = com.hermes.client.data.auth.AccountProfileAvatarCache(java.io.File(context.filesDir, "account-profile-cache")),
     )
 
     @Provides

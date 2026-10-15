@@ -1,3 +1,10 @@
+HG-216 adds default-off account-profile sync. When the Gateway advertises version-1 accountProfile,
+name/photo edits persist in an account-scoped IndexedDB queue before sending and use field CAS and
+stable operation IDs. Foreground pulls preserve typing; conflicts require explicit confirmation.
+Sign-out invalidates writers and clears the queue/cache. Existing Gateways keep the legacy editor.
+This does not enable Hermes identity decorations, pins, read state, models or prompts; see
+`../docs/ACCOUNT_DATA_SYNC_P1A.md` for the exact scope and release gates.
+
 HG-205 keeps chat tables as source tables and creates the shared offline chart only inside
 fullscreen. Reliable time/category data gets a local recommendation; unsuitable data stays a table.
 Adjust is collapsed, initial data is unfiltered, and applied filters show a range and Restore all.

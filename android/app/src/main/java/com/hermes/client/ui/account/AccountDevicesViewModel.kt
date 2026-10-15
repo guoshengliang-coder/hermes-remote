@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 enum class AccountStage {
@@ -174,7 +175,12 @@ class AccountDevicesViewModel @Inject constructor(
     )
     val state: StateFlow<AccountDevicesUiState> = _state.asStateFlow()
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            sessions.session.collect { current -> _state.update { it.copy(session = current) } }
+        }
+        refresh()
+    }
 
     /** Poll only while the device page is visible and the signed-in account has no Mac yet. */
     fun setDevicePageVisible(visible: Boolean) {

@@ -1883,3 +1883,34 @@ chat, fullscreen recommendation, collapsed Adjust, filter/reset, complete source
 100-point page navigation, long labels, resizing, close/reopen and scroll restore. Unsuitable tables
 must expand without required setup. Verify live Gateway CSP, storage denial, renderer retry and
 account/session isolation. DOM and local Chrome checks do not prove Safari or live-account behavior.
+
+## HG-216 · P1a accountProfile enablement (pending release verification)
+
+Use an isolated staging Gateway/schema19 and compatible Web/Android; no production flag changes
+are implied. Full implementation contract: [ACCOUNT_DATA_SYNC_P1A.md](ACCOUNT_DATA_SYNC_P1A.md).
+
+1. With the capability absent/off, sign in on both clients. The old Web editor and native account
+   routing still work, and neither client calls a sync endpoint. Pins/read/model/prompt behavior stays local.
+2. With the explicit version-1 accountProfile capability, sign in to the same test account in Web
+   and Android. Change name and a square avatar in Web. Within one visible 30s refresh, both account
+   cards show the cloud values. The Hermes identity avatar and selected Mac do not change. Check
+   light and app-dark themes with large text; name/email stay readable.
+3. After an initial snapshot, take Web offline and save a name or image. It says waiting to sync,
+   not saved to cloud. Reload: the bounded queue survives. Reconnect: the original operation settles
+   once. Change the same field on another client before delivery: show HR-SYNC-006, retain the typed
+   name, show the cloud name, and require a new explicit Save. Different fields do not conflict.
+4. Interrupt a successful mutation response and restore the connection. Replays keep the original
+   opId/base/issuedAt; no stale ACK replaces newer cloud state. Disable browser storage: an attempted
+   edit shows HR-SYNC-011 and sends no mutation. Never copy tokens/image bodies into diagnostics.
+5. Leave an edit pending in one tab, sign out/switch accounts in another, then reconnect the old tab.
+   No old edit reaches the new account, no old queue returns on a later sign-in, and private avatar
+   responses are not in the Service Worker cache. Hold an Android avatar response across sign-out:
+   the name/photo and session must not return.
+6. Revoke the installation, then replay a previously successful sync operation. It is rejected even
+   if the idempotency metadata still exists. On a disposable database, exercise the 30-day deletion
+   deadline and bounded retries: account_profiles bytes and sync operations are removed before the
+   account is marked cleaned. No Mac history or other account is removed.
+
+Automated PostgreSQL/HTTP/queue/DTO/L1 regressions cover these boundaries separately. Real browser/
+phone interaction, device appearance and production recovery remain unverified until the released
+artifacts and an authorized staging run are recorded; an emulator cannot certify vendor behavior.

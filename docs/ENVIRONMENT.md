@@ -380,3 +380,9 @@ adds no new secret mount. Egress HTTPS must reach Apple Push, FCM and Mozilla Pu
 VAPID private keys nor subscription endpoints/keys may appear in application logs or comments.
 Schema migration, flag changes and Gateway restart require explicit production authorization;
 then deploy Gateway before the Web bundle. Disabling the flag restores foreground-only reminders.
+
+### HG-216 账号资料同步（尚未启用）
+
+`ACCOUNT_DATA_SYNC_ENABLED` 默认 0；需要 schema19 和兼容 Android/Web 后再独立授权启用。
+新增键不携带秘密，不复用生产账号配置进行开发测试。完整部署顺序与回退限制见
+[ACCOUNT_DATA_SYNC_P1A.md](ACCOUNT_DATA_SYNC_P1A.md)。

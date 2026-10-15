@@ -1324,3 +1324,9 @@ or sign-out. A Mac removed during refresh cannot be restored by back. Selecting 
 Mac from a conversation opens that Mac’s list rather than resuming the old Mac’s session.
 Selecting the already active Mac simply closes the picker. A new conversation adopting its
 stored ID keeps the existing composer/socket; only changing Mac replaces the page instance.
+
+## HG-216 · 可选账号资料同步（schema 19）
+
+`ACCOUNT_DATA_SYNC_ENABLED=0` 默认关闭；显式能力 accountAuth.accountDataSync/version=1/entities=[accountProfile]。
+Native Bearer 与 Web Cookie 路径、字段 CAS、90天操作租期、24小时游标、错误码、缓存隔离和旧接口兼容，
+以 [P1a 运行契约](ACCOUNT_DATA_SYNC_P1A.md) 为准。此处不声明 profileDecoration、已读或其他偏好可用。

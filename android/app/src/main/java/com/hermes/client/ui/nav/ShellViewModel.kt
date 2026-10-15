@@ -68,6 +68,20 @@ class ShellViewModel @Inject constructor(
     fun recheckHealth() = healthMonitor.recheck()
 
     /** Foreground/background gating for periodic probing. */
-    fun onAppForeground() = healthMonitor.startForeground()
-    fun onAppBackground() = healthMonitor.stopForeground()
+    private var accountProfileJob: kotlinx.coroutines.Job? = null
+    fun onAppForeground() {
+        healthMonitor.startForeground()
+        if (accountProfileJob?.isActive == true) return
+        accountProfileJob = viewModelScope.launch {
+            while (true) {
+                accountSessions.refreshAccountProfile()
+                kotlinx.coroutines.delay(30_000)
+            }
+        }
+    }
+    fun onAppBackground() {
+        healthMonitor.stopForeground()
+        accountProfileJob?.cancel()
+        accountProfileJob = null
+    }
 }

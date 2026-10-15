@@ -214,6 +214,14 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "Mac 上的 Hermes 返回了错误，请检查 Mac 端。", "Hermes on the Mac returned an error. Check the Mac.")
         AppErrorCode.HISTORY_UNREADABLE ->
             localized(language, "无法解析会话内容，请更新 App。", "This conversation could not be read. Update the app.")
+        AppErrorCode.ACCOUNT_PROFILE_CONFLICT ->
+            localized(language, "资料已在其他设备更新，请刷新后重新确认修改。", "Your profile changed on another device. Refresh and confirm your edit again.")
+        AppErrorCode.ACCOUNT_PROFILE_SYNC_RESET ->
+            localized(language, "同步记录已失效，请刷新资料后重试。", "This sync record is no longer valid. Refresh your profile and try again.")
+        AppErrorCode.ACCOUNT_PROFILE_NAME_INVALID ->
+            localized(language, "无法保存名字，请使用 1–40 个字符后重试。", "Couldn't save that name. Use 1–40 characters and try again.")
+        AppErrorCode.ACCOUNT_PROFILE_AVATAR_INVALID ->
+            localized(language, "无法保存头像，请选择不超过 4 MiB 的 PNG、JPEG 或 WebP 图片。", "Couldn't save that avatar. Choose a PNG, JPEG or WebP image up to 4 MiB.")
         AppErrorCode.HISTORY_PREVIEW_FAILED ->
             localized(language, "无法读取折叠内容，请重试。", "Couldn't load the folded content. Retry.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->

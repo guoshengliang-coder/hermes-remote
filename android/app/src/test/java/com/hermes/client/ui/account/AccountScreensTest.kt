@@ -355,6 +355,25 @@ class AccountScreensTest {
         compose.onRoot().captureRoboImage("/tmp/hermes-account-deletion-confirm-dark-large.png")
     }
 
+    @Test fun syncedAccountAvatarIsReadableInLightLargeFont() {
+        show(AccountDevicesUiState(stage = AccountStage.SIGNED_IN, session = session("office").copy(
+            accountDisplayName = "😀 云端账号名字", accountProfileRevision = "2", accountAvatarRevision = "0",
+        )), fontScale = 1.3f) { vm -> AccountSettingsScreen(onBack = {}, vm = vm) }
+        compose.onNodeWithTag("account-profile-avatar").assertIsDisplayed()
+        compose.onNodeWithText("😀 云端账号名字").assertIsDisplayed()
+        compose.onNodeWithText("😀").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("/tmp/hg216-account-sync-light-large.png")
+    }
+
+    @Test fun syncedAccountAvatarAndCloudNameStayOnTheAccountCardInDarkLargeFont() {
+        show(AccountDevicesUiState(stage = AccountStage.SIGNED_IN, session = session("office").copy(
+            accountDisplayName = "云端账号名字", accountProfileRevision = "2", accountAvatarRevision = "0",
+        )), dark = true, fontScale = 1.3f) { vm -> AccountSettingsScreen(onBack = {}, vm = vm) }
+        compose.onNodeWithTag("account-profile-avatar").assertIsDisplayed()
+        compose.onNodeWithText("云端账号名字").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("/tmp/hg216-account-sync-dark-large.png")
+    }
+
     private fun show(
         state: AccountDevicesUiState,
         dark: Boolean = false,

@@ -23,6 +23,7 @@ data class AccountAuthCapabilityDto(
     val providers: List<String> = emptyList(),
     val android: Boolean = false,
     val accountDeletion: Boolean = false,
+    val accountDataSync: AccountDataSyncCapabilityDto? = null,
 )
 
 @Serializable
@@ -174,4 +175,23 @@ internal data class AccountErrorDto(
     val retryable: Boolean = false,
     val recoveryAction: String = "none",
     val correlationId: String? = null,
+)
+
+@Serializable
+data class AccountDataSyncCapabilityDto(val version: Int = 0, val entities: List<String> = emptyList())
+
+@Serializable
+data class AccountProfileSyncDto(
+    val version: Int,
+    val revision: String,
+    val cursor: String,
+    val hasMore: Boolean = false,
+    val profile: AccountProfileSyncEntityDto? = null,
+)
+
+@Serializable
+data class AccountProfileSyncEntityDto(
+    val nameRevision: String,
+    val avatarRevision: String,
+    val account: AccountDto,
 )

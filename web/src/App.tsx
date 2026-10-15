@@ -1,3 +1,4 @@
+import { AccountProfileSyncClient, clearAccountProfileSync, type ProfileSyncStatus } from "./account/profileSync";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 import {
   GatewayClient,
@@ -107,6 +108,10 @@ export function App() {
   const t = translator(language);
   const [phase, setPhase] = useState<Phase>({ name: "boot" });
   const [account, setAccount] = useState<PublicAccount | null>(null);
+  const [profileSyncEnabled, setProfileSyncEnabled] = useState(false);
+  const [profileSyncStatus, setProfileSyncStatus] = useState<ProfileSyncStatus>({ pending: false, error: null });
+  const profileSync = useRef<AccountProfileSyncClient | null>(null);
+  const [profileSyncRevisions, setProfileSyncRevisions] = useState<{ nameRevision: string; avatarRevision: string } | undefined>();
   const [pushRoute,setPushRoute] = useState<ReturnType<typeof pendingPushTarget>>(null);
   const [pushEnabled,setPushEnabled] = useState(false);
   const [pickingDevice, setPickingDevice] = useState(false);
@@ -232,6 +237,7 @@ export function App() {
         return;
       }
       setFeatures(webDeviceFeatures(caps));
+      setProfileSyncEnabled(caps.accountAuth.accountDataSync?.version === 1 && caps.accountAuth.accountDataSync.entities.includes("accountProfile"));
       let web = await client.webSession();
       if (!currentAttempt()) return;
       // Not authenticated at boot usually means only that the 15-minute access cookie lapsed
@@ -264,6 +270,9 @@ export function App() {
     void boot();
     const unsubscribe = client.onSignedOut((error) => {
       bootRequest.current++;
+      profileSync.current?.stop();
+      profileSync.current = null;
+      void clearAccountProfileSync().catch(() => undefined);
       clearConversationMemory();
       if (signingOut.current) return;
       setPushEnabled(false);
@@ -391,10 +400,29 @@ export function App() {
     return () => window.removeEventListener("hermes-push-state",changed);
   },[]);
 
+  useEffect(() => {
+    if (!profileSyncEnabled || !account?.id || signingOut.current) return;
+    const owner = account.id;
+    setProfileSyncStatus({ pending: false, error: null });
+    setProfileSyncRevisions(undefined);
+    const sync = new AccountProfileSyncClient(client, owner, (snapshot) => {
+      if (!signingOut.current && snapshot.profile) {
+        setAccount((current) => current?.id === owner ? snapshot.profile!.account : current);
+        setProfileSyncRevisions({ nameRevision: snapshot.profile.nameRevision, avatarRevision: snapshot.profile.avatarRevision });
+      }
+    }, setProfileSyncStatus);
+    profileSync.current = sync;
+    void sync.start();
+    return () => { sync.stop(); if (profileSync.current === sync) profileSync.current = null; };
+  }, [profileSyncEnabled, account?.id]);
+
   // ---- actions ----
 
   const signOut = useCallback(async () => {
     signingOut.current = true;
+    profileSync.current?.stop();
+    profileSync.current = null;
+    await clearAccountProfileSync().catch(() => undefined);
     pickerRequest.current++;
     try {
       // Sign-out is a CSRF-checked mutation: make sure the access cookie is fresh first.
@@ -521,7 +549,18 @@ export function App() {
     setVoiceFeedback: chooseVoiceFeedback,
     t,
     account,
-    updateAccount: (next) => setAccount(next),
+    updateAccount: (next) => setAccount((current) => current?.id === next.id && !signingOut.current ? next : current),
+    profileSyncStatus: profileSyncEnabled ? profileSyncStatus : undefined,
+    profileSyncRevisions: profileSyncEnabled ? profileSyncRevisions : undefined,
+    saveAccountProfile: async (displayName, avatar, baseRevision) => {
+      if (profileSyncEnabled) {
+        if (!profileSync.current) throw appError("HR-SYNC-007");
+        return profileSync.current.save(displayName, avatar, baseRevision ?? "0");
+      }
+      const next = avatar ? await client.uploadAccountAvatar(avatar) : await client.updateAccountProfile(displayName ?? "");
+      if (!signingOut.current) setAccount((current) => current?.id === next.account.id ? next.account : current);
+      return true;
+    },
     devices,
     device,
     chooseDevice: () => {
