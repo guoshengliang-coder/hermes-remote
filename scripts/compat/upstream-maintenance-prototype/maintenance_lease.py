@@ -132,6 +132,16 @@ class Domain:
             raise
 
 
+def _domains(domains):
+    ordered = sorted(domains, key=lambda value: (str(value.registry), value.key))
+    if (not ordered or len(ordered) > 32
+            or len({(str(d.registry), d.key) for d in ordered}) != len(ordered)
+            or {d.binding["kind"] for d in ordered} != {"home", "checkout"}
+            or len({str(d.registry) for d in ordered}) != 1):
+        raise Rejected("incomplete-or-duplicate-domains")
+    return ordered
+
+
 class Lease:
     """Owned file descriptions, not a serializable token or completed-upgrade proof.
 
@@ -141,12 +151,7 @@ class Lease:
     """
 
     def __init__(self, domains, maintenance=False):
-        self.domains = sorted(domains, key=lambda value: (str(value.registry), value.key))
-        if (not self.domains or len(self.domains) > 32
-                or len({(str(d.registry), d.key) for d in self.domains}) != len(self.domains)
-                or {d.binding["kind"] for d in self.domains} != {"home", "checkout"}
-                or len({str(d.registry) for d in self.domains}) != 1):
-            raise Rejected("incomplete-or-duplicate-domains")
+        self.domains = _domains(domains)
         self.maintenance = maintenance
         self.ready = False
         self._pairs = []
@@ -165,6 +170,50 @@ class Lease:
                 self.ready = True
         except BaseException:
             self.close()
+            raise
+
+    @classmethod
+    def inherit_maintenance(cls, domains, descriptors):
+        """Trusted-launch kernel primitive, not an authenticated transaction handoff.
+
+        Duplicate explicitly passed open descriptions and validate current bindings
+        and exclusive locks. Never acquire a new shared writer lease under the
+        parent's exclusive gates. Caller must separately authorize run/source/role.
+        Caller passes live handles explicitly; this method does not discover them
+        from startup configuration or accept a saved receipt as authority.
+        """
+        value = cls.__new__(cls)
+        value.domains = _domains(domains)
+        value.maintenance, value.ready, value._pairs = True, False, []
+        descriptors = tuple(descriptors)
+        if (len(descriptors) != 2 * len(value.domains)
+                or any(type(fd) is not int or fd < 3 for fd in descriptors)
+                or len(set(descriptors)) != len(descriptors)):
+            raise Rejected("invalid-maintenance-descriptors")
+        duplicated = []
+        try:
+            for fd in descriptors:
+                duplicate = os.dup(fd)  # CLOEXEC; closing the caller's copy cannot drop this lock.
+                duplicated.append(duplicate)
+                if fcntl.fcntl(duplicate, fcntl.F_GETFL) & os.O_ACCMODE != os.O_RDWR:
+                    raise Rejected("readonly-maintenance-descriptor")
+            for index, domain in enumerate(value.domains):
+                observed = domain.open()
+                try:
+                    pair = duplicated[2 * index:2 * index + 2]
+                    if [_identity(fd) for fd in observed] != [_identity(fd) for fd in pair]:
+                        raise Rejected("foreign-maintenance-descriptors")
+                finally:
+                    for fd in observed:
+                        os.close(fd)
+            for fd in duplicated:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            value._pairs = list(zip(duplicated[::2], duplicated[1::2]))
+            value.ready = True
+            return value
+        except BaseException:
+            for fd in duplicated:
+                os.close(fd)
             raise
 
     def drain(self):

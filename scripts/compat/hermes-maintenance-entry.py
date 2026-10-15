@@ -22,9 +22,10 @@ ENTRY_SHA256 = {
 }
 
 
-def sources(root):
-    values = {name: (Path(root) / name).read_bytes() for name in ENTRY_SHA256}
-    if any(hashlib.sha256(data).hexdigest() != ENTRY_SHA256[name] for name, data in values.items()):
+def sources(root, expected=None):
+    expected = ENTRY_SHA256 if expected is None else expected
+    values = {name: (Path(root) / name).read_bytes() for name in expected}
+    if any(hashlib.sha256(data).hexdigest() != expected[name] for name, data in values.items()):
         raise ValueError("startup sources require review")
     return values
 
@@ -34,10 +35,16 @@ def stage(values, checkout, placement):
         target = checkout / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-    entry = checkout / "hermes_cli/main.py"
+    entry = checkout / ("hermes_bootstrap.py" if placement == "shared-bootstrap" else "hermes_cli/main.py")
     tree = ast.parse(entry.read_text())
     admission = ast.parse("from hermes_cli._hg199_entry_binding import enter\n_hg199_lease = enter()\n").body
-    if placement == "before-bootstrap":
+    if placement == "shared-bootstrap":
+        index = 1
+        while (index < len(tree.body) and isinstance(tree.body[index], ast.ImportFrom)
+               and tree.body[index].module == "__future__"):
+            index += 1
+        tree.body[index:index] = admission
+    elif placement == "before-bootstrap":
         tree.body[1:1] = admission  # Preserve the module docstring; enter before every upstream import.
     elif placement == "inside-main":
         functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main"]
@@ -69,7 +76,10 @@ def read_result(child, timeout=8):
     return value
 
 
-def experiment(values, placement, mode, argv, profile=False, maintenance=True):
+def experiment(values, placement, mode, argv, profile=False, maintenance=True,
+               entry_module="hermes_cli.main", role="writer"):
+    if role not in ("writer", "recovery") or (role == "recovery" and not maintenance):
+        raise ValueError("invalid startup role")
     spec = importlib.util.spec_from_file_location("entry_lease", PROTOTYPE / "maintenance_lease.py")
     lease = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lease)
@@ -92,12 +102,25 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True):
                 if not request.drain():
                     raise ValueError("unexpected writer")
             records = [[str(d.registry), d.binding["kind"], str(d.directory)] for d in domains]
+            descriptors = request.pass_fds if role == "recovery" else ()
             child = subprocess.Popen([sys.executable, "-I", "-S", "-B", str(PROTOTYPE / "startup_probe.py"),
-                                      str(checkout), json.dumps(records), mode, json.dumps(argv)],
+                                      str(checkout), json.dumps(records), mode, json.dumps(argv), entry_module,
+                                      role, json.dumps(descriptors)],
                                      env={"PATH": os.defpath, "HOME": str(root), "HERMES_HOME": str(active)},
                                      cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                     text=True)
+                                     text=True, pass_fds=descriptors)
             value = read_result(child)
+            if role == "recovery":
+                request.close()
+                request = None
+                for outsider_role in ("writer", "maintenance"):
+                    try:
+                        outsider = lease.Lease(domains, maintenance=outsider_role == "maintenance")
+                    except BlockingIOError:
+                        value["handoffBlocks_" + outsider_role] = True
+                    else:
+                        outsider.close()
+                        value["handoffBlocks_" + outsider_role] = False
             if not maintenance:
                 request = lease.Lease(domains, maintenance=True)
                 value["retainedWriterBlocksDrain"] = not request.drain()
@@ -108,6 +131,9 @@ def experiment(values, placement, mode, argv, profile=False, maintenance=True):
                 raise ValueError("startup probe exit")
             if not maintenance:
                 value["drainsAfterPrefixExit"] = request.drain()
+            if role == "recovery":
+                request = lease.Lease(domains, maintenance=True)
+                value["drainsAfterRecoveryExit"] = request.drain()
             return value
         finally:
             if child is not None:

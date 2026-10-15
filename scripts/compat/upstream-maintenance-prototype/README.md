@@ -159,3 +159,70 @@ No upstream patch or production admission configuration is delivered here.
 This is a bounded routing audit, not an exhaustive inventory. Bootstrap recovery,
 Python startup/.pth hooks, alternate entries, true profile multiplexing, actual
 queued work, native children and durable exclusive service handoff remain uncovered.
+
+## Shared bootstrap and exclusive recovery role experiment
+
+```bash
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_bootstrap.py'
+python -I -S -B scripts/compat/hermes-maintenance-bootstrap.py --candidate-root <frozen-0.21.6-checkout>
+```
+
+Eleven pinned files now include the CLI, legacy CLI, ACP and gateway module/package
+inputs, plus `agent/jiter_preload.py`. The new experiment transforms only disposable
+copies: either retain the main-only guard or insert one shared bootstrap admission
+call after the docstring/`__future__` declarations, before other bootstrap imports.
+The existing original source checkout remains untouched.
+
+Twelve paired cases (four modules × three loading forms) demonstrate that the shared
+guard blocks every audited bootstrap prefix with zero home mutation attempts. The
+main-only guard misses nine alternate-entry prefixes, which create real scratch
+files while the maintenance gates are closed. Four admitted writer cases retain a
+probe-owned shared lease until exit. Full command dispatch still does not run.
+
+`Lease.inherit_maintenance(domains, descriptors)` adds a **trusted-launch kernel
+primitive**, not an authenticated recovery protocol. It duplicates explicitly
+passed descriptors with CLOEXEC, verifies complete/unique descriptor shape, writable
+access, current domain/control identities and exclusive nonblocking flock custody.
+An independent open of the same inode cannot impersonate the open description held
+by a parent. Failed validation closes only new duplicates; caller descriptors stay
+owned. Release still closes only, never `LOCK_UN`.
+
+The test child receives descriptors via explicit `pass_fds`, adopts them and closes
+its original inherited copies. It never requests an ordinary writer lease beneath
+the parent's exclusive gates. In four frozen-prefix recovery cases the parent then
+closes its own copies: both a new writer and another maintenance request remain
+excluded until the child exits. This avoids self-blocking from reacquiring a shared
+lease while retaining exclusion across parent close. It is not real PM recovery.
+
+Eight new tests cover duplicate custody/lifetime, self-blocking and writer-role
+refusal, same-inode independent opens, malformed/closed/read-only/foreign descriptors,
+replaced control files, the synthetic entry matrix, all-input drift and bilingual
+error redaction. Descriptor integers can be reused even during duplication; identity
+and kernel-lock validation are mandatory. Removing the exclusive-lock verification
+makes the same-inode regression fail. Replacing inheritance with shared-writer
+acquisition makes the frozen recovery-role matrix fail. Both mutants run only in
+disposable copies; the normal implementation passes.
+
+These limits are explicit in the output:
+
+- `pmRecoveryInjected=true`: launch, activation and interrupted-update recovery are
+  still no-ops; only the real scratch prefix executes.
+- `nativePreloadVerified=false`: `agent/__init__.py` invokes native-parser preload
+  BEFORE `agent.legacy_cli` imports bootstrap. The isolated `-S` child has no installed
+  third-party parser, so this does not verify native extension initialization.
+- `cronPackageBootVerified=false`: source audit of `cron/worker_bootstrap.py` shows
+  dependency activation can run during `cron/__init__.py`, before scheduler bootstrap.
+  Shared bootstrap alone cannot guard it; no cron worker is launched here.
+- `authenticatedHandoffVerified=false`: run/source/home/role authorization, trusted
+  enrollment, transfer acknowledgement, restart/re-exec and durable custody are not
+  implemented. A saved JSON descriptor number or same-inode match is not authority;
+  an unlocked descriptor could newly acquire an exclusive lock without proving any
+  parent transaction. The primitive is used only by the explicit test-owned launcher.
+- `fullStartupVerified`, `globalAdmissionProven`, `certifiesUpgrade` stay false.
+
+Recovery role must be selected before ordinary writer admission and bound to an
+authorized transaction before production use. Never infer it from a subcommand name,
+PID, environment flag or a stale receipt. Package initialization, Python startup/.pth
+hooks, direct library writers, actual PM/official update locks and first legacy
+transition remain separate integration work. The legacy entry's broad bootstrap
+`ModuleNotFoundError` fallback also needs a fail-closed audit before adoption.

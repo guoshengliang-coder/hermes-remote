@@ -52,6 +52,24 @@ idle ledger 在这个实验中注入为空；实验只证明锁作用域，未�
 两项全局/升级认证 flag 仍为 false。新增7项 harness回归和源码入口路由表见原型说明。
 没有可安装的上游补丁、launcher 或线上准入配置；真正 bootstrap/恢复交接和旁路覆盖仍待接入。
 
+### 共享 bootstrap 与恢复角色
+
+`scripts/compat/hermes-maintenance-bootstrap.py` 校验11份固定输入，在一次性副本中对比
+main单点与共享bootstrap准入。CLI/legacy CLI/ACP/gateway × 三种加载形式共12组成对场景，
+共享guard均在真实scratch前拒绝且home写入尝试为0；main单点漏掉9个其他入口前缀。
+另有4个普通writer前缀和4个继承排他许可的恢复角色前缀，通过实际内核锁验证退出边界。
+
+原型新增显式维护FD继承：复制描述符、核对当前域/锁对象与写访问，再验证排他flock。
+恢复子进程沿原open-file description持锁，不在父进程排他门禁下重新申请共享writer许可；
+父进程关闭自身副本后，普通writer和另一维护方仍被挡住，子进程退出后才解除。
+只比inode而不验证flock、或把继承换成共享许可申请的错误实现均被回归拒绝。
+新增8项测试；该方法是可信测试launcher的内核原语，不是已认证的事务交接。
+
+PM/恢复仍为空操作，`authenticatedHandoffVerified=false`；run/source/home/role授权、
+握手与跨exec/重启持久身份尚未实现。另已核对agent包在bootstrap前尝试原生预加载，
+cron worker包初始化可在scheduler bootstrap前激活PM；`nativePreloadVerified=false`、
+`cronPackageBootVerified=false`明确保留。共享bootstrap也不是所有入口的全局屏障。
+
 ## 上游接入必须提供的保证
 
 仓库既有边界仍是 GO 管进程、用户拥有 Hermes 代码；当前授权仅为隔离原型。

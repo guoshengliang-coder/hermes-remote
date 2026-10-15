@@ -1,5 +1,14 @@
 # Hermes Go Desktop test plan
 
+The shared-bootstrap increment adds eight Python tests and a separate eleven-input frozen-source
+experiment: four entry modules × three loading forms, nine misses by a main-only guard, four
+admitted writers and four inherited-exclusive recovery prefixes. Actual descriptors/OS locks test
+parent-close custody, independent opens of the same inode, malformed/closed/read-only/foreign FDs,
+replacement and the self-blocking shared-writer alternative. Removing flock verification or
+reacquiring a shared writer makes the corresponding regression/matrix fail. PM/recovery remain
+injected; native preloading, cron package boot, authenticated/durable handoff and full startup remain
+explicitly false/unverified. No Desktop product behavior or device layer changes.
+
 2026-10-15 CLI import experiment adds seven Python harness tests and a separate frozen-source
 matrix: 12 paired invocation/argv cases reject before real bootstrap/scratch writes when guarded
 early; placing the guard inside main permits those writes. The admitted prefix keeps a probe-owned

@@ -20,7 +20,7 @@ class PrefixReached(BaseException):
     pass
 
 
-def run(checkout, domain_records, mode, argv):
+def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", role="writer", descriptors=()):
     checkout = Path(checkout)
     home = Path(os.environ["HERMES_HOME"])
     owned = checkout.parent
@@ -33,7 +33,15 @@ def run(checkout, domain_records, mode, argv):
 
     def enter():
         result["admissionCalls"] += 1
-        value = lease.Lease([lease.Domain(*record) for record in domain_records])
+        domains = [lease.Domain(*record) for record in domain_records]
+        if role == "recovery":
+            value = lease.Lease.inherit_maintenance(domains, descriptors)
+            for fd in descriptors:
+                os.close(fd)  # The adopted duplicates now own this child's custody.
+        elif role == "writer":
+            value = lease.Lease(domains)
+        else:
+            raise Boundary()
         held.append(value)
         return value
 
@@ -88,16 +96,17 @@ def run(checkout, domain_records, mode, argv):
                 raise PrefixReached()
 
     sys.path.insert(0, str(checkout))
-    sys.argv = [str(checkout / "hermes_cli/main.py"), *argv]
+    entry_path = checkout / (entry_module.replace(".", "/") + ".py")
+    sys.argv = [str(entry_path), *argv]
     sys.addaudithook(audit)
     sys.setprofile(profile)
     try:
         if mode == "module":
-            runpy.run_module("hermes_cli.main", run_name="__main__")
+            runpy.run_module(entry_module, run_name="__main__")
         elif mode == "console-import":
-            __import__("hermes_cli.main")
+            __import__(entry_module)
         elif mode == "script":
-            runpy.run_path(str(checkout / "hermes_cli/main.py"), run_name="__main__")
+            runpy.run_path(str(entry_path), run_name="__main__")
         else:
             raise Boundary()
     except BlockingIOError:
@@ -117,7 +126,8 @@ def run(checkout, domain_records, mode, argv):
 
 if __name__ == "__main__":
     try:
-        run(sys.argv[1], json.loads(sys.argv[2]), sys.argv[3], json.loads(sys.argv[4]))
+        run(sys.argv[1], json.loads(sys.argv[2]), sys.argv[3], json.loads(sys.argv[4]),
+            sys.argv[5], sys.argv[6], json.loads(sys.argv[7]))
     except (Exception, Boundary):
         print(json.dumps({"failed": True}), flush=True)
         raise SystemExit(1) from None

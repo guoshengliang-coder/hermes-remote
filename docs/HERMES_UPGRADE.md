@@ -35,6 +35,10 @@ POSIX 双域准入/生命周期锁和子进程持锁已有实验实现，未接�
 隔离 CLI 前缀实验进一步证实准入必须早于 bootstrap 导入：12组成对场景中，
 `main()` 内 guard 来不及阻止真实 scratch 写入，前置 guard 才能无 home 写入地拒绝。
 PM/恢复为注入空操作，实验在 scratch hook 返回时停止；不是完整启动或 profile/全 writer 覆盖。
+后续共享bootstrap实验覆盖CLI/legacy/ACP/gateway的12个前缀，对照main单点漏掉9个。
+显式继承排他FD的恢复角色可跨父进程close保持封闭，避免重取共享许可造成自阻塞；
+它只是测试launcher内核原语，未实现run/source/role认证与跨exec/重启身份。
+原生预加载、cron包初始化和真实PM/恢复仍未覆盖，全部升级认证flag保持false。
 
 外部恢复材料已增加独立 `DesktopHermesUpgradeDependencyStore`：调用者明确选择 home 外的
 最多16个不重叠目录，保存私有 run/source/home/OS build/architecture manifest、文件 hash、
