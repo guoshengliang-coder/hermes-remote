@@ -1,5 +1,23 @@
 # Hermes Go Desktop test plan
 
+The independent PM observer adds fourteen synthetic Python tests. It requires a private marked
+fixture and actual drained exclusive descriptors, binds facts/activation inputs/config/binary plus
+bounded full environment/base-Python content observations, and rejects same-generation drift on
+revalidation. Runtime report shape/paths, source and input stamps, missing/partial state, escaped
+links, special files, permissions, budgets, child exit/output/side effects and bilingual errors are
+covered. Only the known empty uv .lock may retain 0666/nlink1 under a 0700 fixture; other writable
+inputs refuse. A negative control omits tree observation and misses changed dependency contents.
+Linux/macOS also execute three pinned REAL PM selection inputs against one synthetic selection and
+three invalid records; no interpreter/PM installation is represented by that matrix. Real PM evidence
+requires the opt-in Mac --provision --fault-matrix command in the prototype README. It creates a new
+isolated home/cache/tools/clone, publishes intent before official lower-level sync and retains it.
+The selected interpreter explicitly loads packaging without .pth and exercises SSL/SQLite/SHA;
+three same-mtime content faults must reject old observations and restore the tool's own fixture bytes.
+Lower-level sync does not publish full CLI activation stamps: absence is explicitly false, never
+manufactured readiness, while partial/stale stamps refuse. No terminal/admission opening, services,
+business, full closure, official child custody/death-during-sync, OS reboot or UI/device certification.
+Observations are comparison data, not durable consent/finish authority; production flags remain false.
+
 The fixture-transition increment adds ten Python tests and a separate frozen-source matrix. It
 appends an immutable before/after plan and a fixture-only terminal to the existing two intent slots;
 it never clears, replaces or resets them. Scope is exactly one disposable hg199-durable-* root with

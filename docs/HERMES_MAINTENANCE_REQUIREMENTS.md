@@ -187,6 +187,32 @@ Linux/macOS均运行这些单测和固定源矩阵。
 `productionCompletionVerified=false`分别报告；生产授权、完整耐久交接、真实PM/native/cron/service/
 business/global/升级认证均未完成。一键执行和恢复继续关闭，不操作现用安装、不创建上游PR。
 
+### 真实PM代次的独立观察（不提交终态）
+
+`hermes-maintenance-pm.py`增加显式opt-in的macOS隔离实验。固定完整Git源码经既有worker校验后，
+新建私有临时clone/home/tools/cache；发布双域持久意图后运行官方`sync_venv([], explicit=True)`。
+不使用旧演练seed、现用安装或真实数据，不运行updater/finish/服务；内核沙箱拒绝目录外写入、
+信号和服务工具。同步允许下载，观察阶段禁止网络；意图不清除、不提交终态。
+
+观察器在真实排他权内校验三份固定PM选择源码，通过独立子进程读取实际committed_venv/facts，
+限制安装key/代次/site/Python路径。再运行选中解释器`-I -S -B`，显式加入选中site-packages，
+实际加载packaging.version并运行SSL/SQLite/hashlib；不执行.pth、不启动Hermes。
+绑定facts、pyvenv.cfg、源激活输入、实际binary与环境/Python base两棵树的内容/元数据摘要，
+限制65536项/2GiB/单文件512MiB/64层，拒绝外部链接、特殊文件、漂移和异常权限。
+仅私有0700根内已知空uv .lock允许原始0666/nlink1且仍纳入摘要，不改权限求通过。
+
+实际源码与演练确认底层sync不发布激活输入戳，完整CLI安装才负责该步骤。
+全无inputs时明确`activationInputsCurrent=false`，不补造；已有戳不完整/陈旧或属于别的checkout则拒绝。
+所以“选中代次实际可观察”不等于激活就绪。每次revalidate重新执行/读取，比对完整结果；
+保存的JSON仅可比较，不是用户授权、完成witness或服务证明。显式故障矩阵在独立fixture内
+改变测试依赖文件、facts空白与lock输入（保持mtime），三者均须使旧观察失效，恢复自有字节后再新验。
+
+新增14项单测使用合成选择器/运行结果，真实PM不是CI的隐含前置条件。Linux/macOS另用固定真实
+PM选择源码验证1个合成选择与3个拒绝，明确标记未安装PM/未执行选中解释器；实际证据仅来自Mac opt-in。
+`selectedPMGenerationObserved`独立于旧fixture终态策略，后者的真实依赖/生产完成认证仍false。
+本观察器不发布维护终态，不接入Operating Machine，不自动恢复；完整依赖闭包、PM子进程许可/
+锁序与同步中死亡、独立目标计划及验收策略、所有writer/服务/业务和耐久授权仍待实现。
+
 ## 上游接入必须提供的保证
 
 仓库既有边界仍是 GO 管进程、用户拥有 Hermes 代码；当前授权仅为隔离原型。

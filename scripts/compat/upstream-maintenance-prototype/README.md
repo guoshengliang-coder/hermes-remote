@@ -57,7 +57,7 @@ not implemented here. Do not serialize descriptor numbers as recovery capabiliti
 
 ## Evidence and limits
 
-Thirteen tests use synthetic participants and actual OS locks: concurrent writers,
+Fourteen tests use synthetic participants and actual OS locks: concurrent writers,
 late admission, home/checkout overlap and unrelated domains, reversed domain order,
 busy drain/cancel, competing updater, partial acquisition cleanup, inherited writer
 and updater children after SIGKILL **and** explicit parent close, root/lock replacement,
@@ -456,3 +456,90 @@ coordinator must re-observe the prefix; partial records need a separate recovery
 after the supervisor/Desktop also dies is not recovered from journal JSON. The prior durable-intent
 module still has no clear/finish/reset operation. GO execution/recovery remain disabled, the installed
 Hermes is untouched, and no upstream PR is created by this fixture work.
+
+## Isolated actual PM generation observation
+
+```bash
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_pm.py'
+python -I -S -B scripts/compat/hermes-maintenance-pm.py --selector-matrix <frozen-0.21.6-checkout>
+# Explicit opt-in, macOS only: new disposable HOME, tools and cache; network downloads allowed.
+python -I -S -B scripts/compat/hermes-maintenance-pm.py --provision --candidate-root <clean-pinned-git-checkout> --fault-matrix
+# Read/recheck a marked fixture; adding --fault-matrix explicitly tampers/restores its own test inputs.
+python -I -S -B scripts/compat/hermes-maintenance-pm.py --fixture-root <printed-fixture>
+```
+
+This is an observation tool, NOT a new completion policy. A private `hg199-pm-generation-*` root
+must have the exact owner-only marker and mode 0700. Before provisioning it verifies the full fixed
+Git input using the existing worker source guard, then makes a new clone and new data/control/user/
+cache directories. No old seed, installed Hermes, real conversation or existing environment is used.
+Drained exclusive home/checkout custody publishes a durable intent BEFORE official
+`pm.client.sync_venv([], explicit=True)` runs. That intent is never finished or cleared here.
+The real PM runs with a whitelist environment in a macOS kernel sandbox denying signals, service/
+sudo/brew execution and writes outside the fixture. Network is allowed only during this explicit
+provisioning step; no official updater/finish or application service runs. Its private log is retained.
+
+`pm_generation.py` verifies actual exclusive descriptors before observing. A bounded child runs the
+three SHA-256-pinned PM selection inputs (`pm/__init__.py`, `pm/environments.py`, `hermes_constants.py`)
+and reads the committed environment without activation/provisioning. The selected facts/install key,
+environment, site-packages and interpreter must be inside the expected fixture layout; Python must
+resolve into its tools. Another child runs that selected interpreter with `-I -S -B`, explicitly adds
+only the selected site-packages (no .pth execution), imports `packaging.version` from there and
+exercises SSL/SQLite/SHA-256. It checks executable/base/module paths, output shape, status zero and
+bounded single-frame output; interpreter major/minor must match the selected site directory. A
+regression first reproduced acceptance of a 3.12 report for a 3.11 site and passes after this guard.
+This check is not native-extension ABI certification. Observer children deny writes/process/network via an audit tripwire;
+the opt-in macOS run also inherits a kernel no-network/no-outside-write sandbox. Audit hooks alone
+are not an OS security boundary.
+
+Observation binds facts bytes, source activation inputs, pyvenv.cfg, the actual binary, runtime output,
+and content/metadata digests of both the selected environment and Python base tree. Limits are 65536
+entries, 2 GiB per observation, 512 MiB per file and depth 64. No-follow reads compare before/after
+identity/size/mtime/ctime/mode/owner; traversal refuses special files, escaping links and changed trees.
+Internal links stay within those two selected roots. Hardlinked regular files are observed, not
+backed up or treated as immutable. The one known uv `venv/.lock` may be empty mode 0666, nlink 1 under
+the private 0700 fixture; it is still included in the digest. Other writable inputs refuse. No
+permissions are changed to obtain a passing observation. This is not an atomic whole-filesystem
+snapshot or protection against malicious same-UID rewriting.
+
+Lower-level sync publishes a committed dependency generation but DOES NOT publish the shell's
+activation input stamps; source audit finds that responsibility in the full `pm.cli.cmd_install`
+flow. Therefore a wholly absent inputs directory records `activationInputsCurrent=false` without
+inventing stamps. Present inputs must all match nanosecond mtimes and .project-root; partial/stale
+publication refuses. An observation with this false flag is not published-start/activation readiness.
+The tool does not install all extras/default tools merely to fabricate that readiness.
+
+`revalidate` performs a new actual observation and compares the whole result. A saved dictionary is
+only comparison data, never user consent, a witness for finish, or authority to open admission.
+The explicit fault matrix changes a test-only dependency file, facts whitespace and lock input bytes
+while retaining mtime, restores its own bytes, and verifies fresh observations again. All three must
+invalidate the prior observation despite identical generation path and reported versions. Kernel
+custody is held throughout; only newly created test children can be killed on timeout. PM's own
+descendants do not thereby gain this protocol: official child custody/lock ordering and coordinator
+death during sync remain unverified. Active intent blocks cooperating writers after inspector exit.
+
+Fourteen tests use SYNTHETIC selector inputs/runtime reports for ordinary portable CI. They cover
+content/binary/facts/source/stamp/project drift, missing config, exact exclusive scope/marker,
+unpublished versus partial stamps, malformed runtime reports, escaping links, special files,
+permissions, budgets, bounded/error/side-effect child behavior and bilingual redaction. A negative
+control omits tree observation and then misses a same-generation dependency change. Separately,
+Linux/macOS execute the REAL pinned selector against one synthetic selection and three invalid
+records; its output explicitly says no real PM provisioning or selected interpreter execution.
+Real PM/runtime/content-drift evidence comes ONLY from the opt-in Mac run, not those CI records.
+
+`selectedPMGenerationObserved=true` is deliberately separate from the prior synthetic transition's
+false `realDependencyGenerationVerified`. This observer publishes NO maintenance terminal and does
+not add evidence to that policy or the GO Operating Machine. Dependency closure/ABI/dlopen/OS/whole
+Hermes activation, service boot/business, durable consent/recovery, full startup/global admission and
+upgrade certification remain false/unverified. The selected packaging import is not a business test.
+Next work must bind an independently planned actual generation and acceptance policy to a transaction,
+then cover the missing services/writers; an observed current environment cannot authorize itself.
+
+Local 2026-10-16 evidence: the complete new-home `--provision --fault-matrix` run passed in
+`/private/tmp/hg199-pm-generation-n0r7sgc8`. Official sync completed from a new tools/cache root,
+selected Python 3.14.7 and packaging 26.0 actually ran, and 8477 environment/2013 Python-base entries
+(240323588 observed bytes) were rechecked. All three drift cases refused old observations, restored
+their own bytes and passed fresh rechecks. After all inspector locks closed, an actual ordinary
+prototype writer remained blocked by intent. `activationInputsCurrent=false` and every closure/
+terminal/production/durable/full-startup/global/upgrade claim remained false. This is not a full
+Hermes cold-install, CLI activation, service or business acceptance result. Portable unit baseline:
+110 tests passed; the pinned real-selector synthetic matrix passed one selection/three refusals.

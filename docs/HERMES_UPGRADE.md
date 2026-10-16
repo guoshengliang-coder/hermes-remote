@@ -64,6 +64,18 @@ PM/恢复为注入空操作，实验在 scratch hook 返回时停止；不是完
 此策略不提供下一轮epoch、部分日志修复或监督方死亡后的授权恢复；`productionCompletionVerified`
 和完整耐久/全局/升级认证保持false，未启用Desktop执行入口。复现与边界见原型README。
 
+`hermes-maintenance-pm.py`进一步提供真实PM代次的独立观察：仅新建标记临时安装，在已同步的双域
+持久意图下执行官方底层sync，再实际运行选中Python和选中site中的packaging，检查SSL/SQLite/SHA，
+并对facts/激活输入/环境/Python base内容和身份做两次独立观察。显式故障矩阵保持mtime地改变
+测试依赖、facts及lock输入，旧观察均须失效；不运行服务或提交终态。底层sync没有发布完整CLI
+激活输入戳，因此明确`activationInputsCurrent=false`，不补造、不推成激活就绪。
+14项合成单测与两端固定PM选择器的1正例/3拒绝独立运行；真实安装/解释器证据仅来自Mac opt-in，
+不是CI合成记录的结论。完整限制、预算与复现见原型README。旧转换策略的真实依赖/生产完成认证不变。
+2026-10-16全新fixture `hg199-pm-generation-n0r7sgc8`的`--provision --fault-matrix`完整通过：
+实际Python 3.14.7/packaging 26.0、8477项环境/2013项Python base（240323588字节）、3次漂移拒绝/
+恢复自有字节后复核，退出全部观察锁后普通writer仍被持久意图阻断。激活戳明确false，未提交终态；
+这不是完整Hermes冷安装、激活、服务或业务验收。本机完整兼容单测110项通过。
+
 外部恢复材料已增加独立 `DesktopHermesUpgradeDependencyStore`：调用者明确选择 home 外的
 最多16个不重叠目录，保存私有 run/source/home/OS build/architecture manifest、文件 hash、
 owner 执行权限及内部相对链接。只读 FD-relative/no-follow 遍历限制总量65536项/2 GiB/64层；

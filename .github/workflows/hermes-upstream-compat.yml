@@ -58,6 +58,8 @@ jobs:
         run: python -I -S -B scripts/compat/hermes-maintenance-durable.py --candidate-root .upstream/candidate
       - name: Exercise fixture-only generation transition and observed prefix completion
         run: python -I -S -B scripts/compat/hermes-maintenance-transition.py --candidate-root .upstream/candidate
+      - name: Check pinned PM selector against synthetic records without provisioning
+        run: python -I -S -B scripts/compat/hermes-maintenance-pm.py --selector-matrix .upstream/candidate
       - name: Check real upstream checkout lock and surviving child custody
         run: python -I -B scripts/compat/hermes-update-lock-matrix.py --candidate-root .upstream/candidate
   upstream-lock-matrix-macos:
@@ -94,6 +96,8 @@ jobs:
           python -I -S -B scripts/compat/hermes-maintenance-durable.py --candidate-root .upstream/candidate
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_transition.py'
           python -I -S -B scripts/compat/hermes-maintenance-transition.py --candidate-root .upstream/candidate
+          python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_pm.py'
+          python -I -S -B scripts/compat/hermes-maintenance-pm.py --selector-matrix .upstream/candidate
   upstream-main-warning:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
