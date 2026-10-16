@@ -2615,3 +2615,61 @@ provider, background/lock-screen and repeated-recording behavior remain for manu
 in `docs/SMOKE_TEST.md`, `docs/ANDROID_SMOKE.md` and
 `docs/TABLE_CHART_FULLSCREEN_VERIFICATION.md`. HG-206 did not run L3; no targetSdk change.
 Publication and pending-verification handover do not constitute device installation or acceptance.
+
+### HG-217 — Connector 0.1.14 / managed components 0.4.9, 2026-10-16
+
+The owner authorized publishing the temporary-artifact download fix and explicitly approved
+using the existing local operator signing key for **this publication only**, as an exception
+to the GitHub-environment signing path in `AGENTS.md`. This does not change the general rule.
+The existing `desktop-internal-2026-a` key matched the installed Desktop trust and both live
+0.4.8 manifests; no signing key was generated, replaced, or uploaded to GitHub. The GitHub
+environment configuration was unchanged. This publication retains the independent signature,
+full public readback and paired-index gates of the historical local release path.
+
+Feature PR [#594](https://github.com/guoshengliang-coder/hermes-remote/pull/594) and version PR
+[#595](https://github.com/guoshengliang-coder/hermes-remote/pull/595) were merged with their PR
+and resulting `main` checks green. The release source is
+`c704a5d935df3d5dc40300839dd0a6a52928b9a9`, a clean isolated current-`origin/main` worktree.
+Node **22.23.2** built Connector **0.1.14** in both layouts. The existing Hermes Server
+**0.21.0** archive was reused byte-for-byte, SHA-256
+`06513b2a2d137d70541d2a7b190ea305365a421f8f90d6e21ebb9e814852dc1e`;
+no Hermes source or installed runtime was changed.
+
+Both local signature verifiers passed. Six root-owned immutable files were staged behind
+exact GET/HEAD Nginx routes; `nginx -t` passed before a reload. New artifact POST requests
+return 403. The unchanged `scripts/publish-desktop-release.sh` then downloaded and compared
+every public file in full, switched and read back both indexes, preserved the old 0.4.8 pair
+for rollback, and pushed `desktop-managed-v0.4.9`. Its SCP compatibility wrapper selects the
+same legacy transport used for the successful 0.4.8 publication; no publisher checks were
+disabled. It returned `DESKTOP_RELEASE_OK`.
+
+The public release/component indexes both report **0.4.9**. Manifest SHA-256 values are
+`fecac9359d6606a1c7da36c30dc5c37bae460965fa2da3dee097698479260f51` and
+`bcfd698b6de9a8f1f7f30c5b4fb369c4018928697c9a96bc38d4d7facbe82e7b`.
+Connector archive evidence:
+
+| Layout | Public path under `https://mrlgs.net` | Bytes | SHA-256 |
+|---|---|---|---|
+| v1 | `/desktop/releases/0.4.9/Hermes-Connector-0.1.14-arm64.tar.gz` | 37081691 | `e0477793805ad76e6c52925d6279f72a19e57e9651d9495835eeffc8adea067f` |
+| v2 | `/desktop/components/0.4.9/Hermes-Component-connector-0.1.14-arm64.tar.gz` | 82546 | `19fd96c4f3d2a9904431b04582e84db35a5322fa9ba4024f7bf1ef998d27837e` |
+
+An independent second download verified every manifest and archive's complete size/hash,
+both signatures, the Node/Connector build identities, the feature PR's ancestry and the remote
+release tag. The previous public Connector archive identifies source
+`d9c9713eb325c405aa58d305f20d0b6b6624f9e6`, matching the 0.4.8 tag. Equivalent evidence outside
+the worktree uses `hermes-go-batch-release-receipt-v1`, SHA-256
+`4aad829a4918ea4cc86b39f1571f9eb7db4a55bd9590ffedb7a4280e0d3754dd`.
+This repository has no `scripts/release-notices.mjs`; matching used this repository's artifact
+rules, the actual PR files and the full one-page candidate snapshot. Only HG-217 required
+the published `connector` artifact. Release comment `0781f597-552d-4014-bc5d-4703b34ec10b`
+was written first, then HG-217 moved to **pending verification** with Connector 0.1.14 and its
+source/digest. HG-215/HG-148 require Android and HG-134 requires a macOS App; none was advanced.
+
+Preparation passed `npm ci --ignore-scripts`, `npm run build` and `npm test` with OpenSSL 3:
+835 passed and 31 database-dependent cases skipped. The temporary-file regression failed on
+the old Connector with 403 and passed after the fix, including real acknowledged streaming.
+Public Gateway health stayed `ok=true`; Gateway and Mac services were not restarted. No APK
+or DMG was published. Target-Mac installation and Android L1/L2/L3 were not run. Install managed
+components 0.4.9 through Desktop on the originating Mac before checking the original Android
+conversation's HTML open/share flow in `SMOKE_TEST.md`; files removed by system cleanup still
+need regeneration. Publication and pending verification do not establish device acceptance.
