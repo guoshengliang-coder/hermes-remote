@@ -18,6 +18,7 @@ class ShellViewModel @Inject constructor(
     private val credentials: com.hermes.client.data.auth.CredentialStore,
     private val runtimeStore: com.hermes.client.data.progress.SessionRuntimeStore,
     private val drafts: com.hermes.client.data.repository.DraftStore,
+    private val modelSync: com.hermes.client.data.sync.AccountModelPreferences,
 ) : ViewModel() {
     val profiles: StateFlow<List<ProfileDto>> = profileManager.list
     val active: StateFlow<String?> = profileManager.active
@@ -71,6 +72,7 @@ class ShellViewModel @Inject constructor(
     private var accountProfileJob: kotlinx.coroutines.Job? = null
     fun onAppForeground() {
         healthMonitor.startForeground()
+        modelSync.startForeground()
         if (accountProfileJob?.isActive == true) return
         accountProfileJob = viewModelScope.launch {
             while (true) {
@@ -81,6 +83,7 @@ class ShellViewModel @Inject constructor(
     }
     fun onAppBackground() {
         healthMonitor.stopForeground()
+        modelSync.stopForeground()
         accountProfileJob?.cancel()
         accountProfileJob = null
     }

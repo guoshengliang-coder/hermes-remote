@@ -1,4 +1,5 @@
 import { AccountProfileSync, profileSyncErrors } from "./account-profile-sync.js";
+import { AccountModelSync, modelSyncErrors } from "./account-model-sync.js";
 import { WEB_DEVICE_FEATURES } from "./web-device-access.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -44,6 +45,7 @@ export interface AccountCapabilities {
     identityManagement: boolean;
     accountDeletion?: true;
     accountDataSync?: { version: 1; entities: ["accountProfile"] };
+    modelPreferencesSync?: { version: 1; maxModels: 500; retentionDays: 90 };
     webAccountCenter: boolean;
     webSessions?: true;
     webDeviceAccess?: true;
@@ -86,6 +88,7 @@ export class AccountHttpController {
     private readonly service?: AccountService,
     private readonly options: {
       profileSync?: AccountProfileSync;
+      modelSync?: AccountModelSync;
       trustLoopbackProxy?: boolean;
       controlEnabled?: boolean;
       controlService?: AccountControlService;
@@ -133,6 +136,7 @@ export class AccountHttpController {
           this.options.serverRelease,
           Boolean(this.options.voiceEnabled),
           Boolean(this.options.profileSync),
+          Boolean(this.options.modelSync),
         ), {
           "cache-control": "public, max-age=60",
         });
@@ -166,6 +170,29 @@ export class AccountHttpController {
         throw accountErrors.resourceNotFound();
       }
       if (!this.enabled || !this.service) throw accountErrors.featureDisabled();
+
+      if (url.pathname.startsWith("/v2/account-data/models/") || url.pathname.startsWith("/v2/web/account-data/models/")) {
+        const sync = this.options.modelSync;
+        if (!sync) throw accountErrors.featureDisabled();
+        const isWeb = url.pathname.startsWith("/v2/web/");
+        const web = isWeb ? this.requireWebSession() : undefined;
+        if (web && request.method !== "GET") web.requireMutation(request);
+        const principal = await this.service.authenticate(web ? web.authorization(request) : firstHeader(request, "authorization"));
+        const expected = firstHeader(request, "x-hermes-expected-account");
+        if ((isWeb && !expected) || expected && expected !== principal.account.id) throw modelSyncErrors.reset();
+        const path = url.pathname.replace("/v2/web/", "/v2/");
+        if (path === "/v2/account-data/models/snapshot" && request.method === "GET") {
+          sendJson(response, 200, await sync.snapshot(principal));
+        } else if (path === "/v2/account-data/models/changes" && request.method === "GET") {
+          if (url.searchParams.getAll("cursor").length !== 1) throw modelSyncErrors.reset();
+          sendJson(response, 200, await sync.changes(principal, url.searchParams.get("cursor")!));
+        } else if (path === "/v2/account-data/models/resolve" && request.method === "POST") {
+          sendJson(response, 200, await sync.resolve(principal, await readJsonObject(request)));
+        } else if (path === "/v2/account-data/models/mutations" && request.method === "POST") {
+          sendJson(response, 200, await sync.mutate(principal, await readJsonObject(request)));
+        } else throw accountErrors.resourceNotFound();
+        return;
+      }
 
       if (url.pathname.startsWith("/v2/account-data/") || url.pathname.startsWith("/v2/web/account-data/")) {
         const sync = this.options.profileSync;
@@ -1406,6 +1433,7 @@ function capabilities(
   serverRelease?: ServerReleaseManifest,
   voiceEnabled = false,
   profileSyncEnabled = false,
+  modelSyncEnabled = false,
 ): AccountCapabilities {
   return {
     version: 1,
@@ -1416,6 +1444,7 @@ function capabilities(
         ...(emailOtpEnabled ? ["email_otp" as const] : []),
       ],
       ...(enabled && profileSyncEnabled ? { accountDataSync: { version: 1 as const, entities: ["accountProfile"] as ["accountProfile"] } } : {}),
+      ...(enabled && modelSyncEnabled ? { modelPreferencesSync: { version: 1 as const, maxModels: 500 as const, retentionDays: 90 as const } } : {}),
       android: true,
       macos: true,
       identityManagement: enabled && identityManagementEnabled,

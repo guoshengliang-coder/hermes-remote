@@ -107,8 +107,9 @@ data class ModelRow(
     val model: String,
     val isFavorite: Boolean,
     val isCurrent: Boolean,
-    // Remembered per-model reasoning effort (device-local preset), shown as a row badge.
+    // Remembered per-model reasoning effort (account or Legacy preset), shown as a row badge.
     val presetEffort: String? = null,
+    val available: Boolean = true,
 )
 
 /**
@@ -170,6 +171,7 @@ fun modelSelectorGroups(
     currentModel: String?,
     expandedGroups: Set<String>? = null,
     presets: Map<String, String> = emptyMap(),
+    includeUnavailable: Boolean = false,
 ): List<ModelGroup> {
     fun rowOf(p: ModelProviderDto, model: String) = ModelRow(
         provider = p.slug,
@@ -184,7 +186,15 @@ fun modelSelectorGroups(
 
     val favRows = providers
         .flatMap { p -> p.models.filter { m -> favKey(p.slug, m) in favorites }.map { p to it } }
-        .map { (p, m) -> rowOf(p, m) }
+        .map { (p, m) -> rowOf(p, m) }.toMutableList()
+    if (includeUnavailable) {
+        val known = providers.flatMap { p -> p.models.map { favKey(p.slug, it) } }.toSet()
+        for (key in favorites.sorted()) {
+            val parts = key.split('\u0000')
+            if (key !in known && parts.size == 2) favRows += ModelRow(parts[0], parts[0], parts[1], true, false,
+                presets[key], available = false)
+        }
+    }
     if (favRows.isNotEmpty()) {
         groups += ModelGroup(
             slug = null, isFavorites = true,
@@ -324,6 +334,8 @@ fun ModelSelectorContent(
     listLoading: Boolean = false,
     listError: Boolean = false,
     onRetryLoad: (() -> Unit)? = null,
+    syncPanel: (@Composable () -> Unit)? = null,
+    favoriteBlocked: (String, String) -> Boolean = { _, _ -> false },
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         ModelStatusCard(
@@ -333,6 +345,8 @@ fun ModelSelectorContent(
             reasoningPending = reasoningPending,
             onSelectReasoning = onSelectReasoning,
         )
+
+        syncPanel?.invoke()
 
         if (recents.isNotEmpty()) {
             QuickSwitchRow(
@@ -433,13 +447,14 @@ fun ModelSelectorContent(
                     onToggleGroup = onToggleGroup,
                     onToggleFavorite = onToggleFavorite,
                     onSelect = onSelect,
+                    favoriteBlocked = favoriteBlocked,
                 )
             }
         }
     }
 }
 
-private const val FAVORITES_KEY = " favorites"
+private const val FAVORITES_KEY = "\u0000favorites"
 
 /**
  * The one "current state" card: the session's model (with scope + restore action) on top and its
@@ -722,6 +737,7 @@ private fun ModelGroupCard(
     onToggleGroup: (String) -> Unit,
     onToggleFavorite: (String, String) -> Unit,
     onSelect: (String, String) -> Unit,
+    favoriteBlocked: (String, String) -> Boolean = { _, _ -> false },
 ) {
     Surface(
         color = modelCardColor(),
@@ -742,7 +758,7 @@ private fun ModelGroupCard(
                                 modifier = Modifier.padding(horizontal = 4.dp),
                             )
                         }
-                        ModelRowItem(row, pendingKey, onToggleFavorite, onSelect)
+                        ModelRowItem(row, pendingKey, onToggleFavorite, onSelect, favoriteBlocked)
                     }
                 }
             }
@@ -823,6 +839,7 @@ private fun ModelRowItem(
     pendingKey: String?,
     onToggleFavorite: (String, String) -> Unit,
     onSelect: (String, String) -> Unit,
+    favoriteBlocked: (String, String) -> Boolean = { _, _ -> false },
 ) {
     val language = LocalAppLanguage.current
     val key = favKey(row.provider, row.model)
@@ -842,7 +859,7 @@ private fun ModelRowItem(
                 if (highlighted) Modifier.border(1.dp, modelCurrentBorderColor(), RowShape)
                 else Modifier,
             )
-            .clickable(enabled = enabled) { onSelect(row.provider, row.model) }
+            .clickable(enabled = enabled && row.available) { onSelect(row.provider, row.model) }
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -887,7 +904,7 @@ private fun ModelRowItem(
                 }
             }
             Text(
-                row.providerLabel,
+                if (row.available) row.providerLabel else l10n("${row.providerLabel} · 此 Mac 不可用", "${row.providerLabel} · Unavailable on this Mac"),
                 style = ModelRowProvider,
                 color = if (highlighted) modelAccentColor() else modelInkFaintColor(),
                 maxLines = 1,
@@ -905,7 +922,7 @@ private fun ModelRowItem(
                 .padding(start = 8.dp)
                 .size(32.dp)
                 .clip(CircleShape)
-                .clickable(enabled = enabled) { onToggleFavorite(row.provider, row.model) },
+                .clickable(enabled = enabled && !favoriteBlocked(row.provider, row.model)) { onToggleFavorite(row.provider, row.model) },
             contentAlignment = Alignment.Center,
         ) {
             // 32dp touch target around a 19dp glyph. The mock gives the star `p-0.5` (≈23dp),
@@ -965,6 +982,8 @@ fun ModelSelectorSheet(
     listLoading: Boolean = false,
     listError: Boolean = false,
     onRetryLoad: (() -> Unit)? = null,
+    syncPanel: (@Composable () -> Unit)? = null,
+    favoriteBlocked: (String, String) -> Boolean = { _, _ -> false },
 ) {
     val sheetState = com.hermes.client.ui.components.hermesSheetState()
     // Sheet gestures are OFF: scrolling the model list can never accidentally collapse or
@@ -989,6 +1008,7 @@ fun ModelSelectorSheet(
             reasoningEffort = reasoningEffort, onSelectReasoning = onSelectReasoning,
             reasoningPending = reasoningPending,
             listLoading = listLoading, listError = listError, onRetryLoad = onRetryLoad,
+            syncPanel = syncPanel, favoriteBlocked = favoriteBlocked,
         )
     }
 }

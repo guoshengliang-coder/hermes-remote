@@ -192,10 +192,12 @@ object AppModule {
         // Lazy breaks the cycle: the push manager reads account state, and sign-out calls back
         // into it with the bearer that is about to be revoked (HG-94).
         push: dagger.Lazy<com.hermes.client.notifications.push.PushRegistrationManager>,
+        modelCache: com.hermes.client.data.sync.ModelPreferenceCacheStore,
     ): AccountSessionManager = AccountSessionManager(
         store,
         api,
         beforeSignOut = { connection -> push.get().unregisterForSignOut(connection) },
+        modelCache = modelCache,
         profileAvatars = com.hermes.client.data.auth.AccountProfileAvatarCache(java.io.File(context.filesDir, "account-profile-cache")),
     )
 
@@ -472,10 +474,22 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideModelPreferenceCache(@ApplicationContext context: Context): com.hermes.client.data.sync.ModelPreferenceCacheStore =
+        com.hermes.client.data.sync.SqliteModelPreferenceCacheStore(context)
+
+    @Provides
+    @Singleton
+    fun provideAccountModelPreferences(sessions: AccountSessionManager, api: AccountApi,
+        cache: com.hermes.client.data.sync.ModelPreferenceCacheStore, scope: CoroutineScope): com.hermes.client.data.sync.AccountModelPreferences =
+        com.hermes.client.data.sync.AccountModelPreferences(sessions, api, cache, scope)
+
+    @Provides
+    @Singleton
     fun provideModelFavoritesStore(
         @ApplicationContext context: Context,
+        sync: com.hermes.client.data.sync.AccountModelPreferences,
     ): com.hermes.client.data.repository.ModelFavoritesStore =
-        com.hermes.client.data.repository.ModelFavoritesStore(context)
+        com.hermes.client.data.repository.ModelFavoritesStore(context, sync)
 
     @Provides
     @Singleton
@@ -488,8 +502,9 @@ object AppModule {
     @Singleton
     fun provideReasoningPresetStore(
         @ApplicationContext context: Context,
+        sync: com.hermes.client.data.sync.AccountModelPreferences,
     ): com.hermes.client.data.repository.ReasoningPresetStore =
-        com.hermes.client.data.repository.ReasoningPresetStore(context)
+        com.hermes.client.data.repository.ReasoningPresetStore(context, sync)
 
     @Provides
     @Singleton

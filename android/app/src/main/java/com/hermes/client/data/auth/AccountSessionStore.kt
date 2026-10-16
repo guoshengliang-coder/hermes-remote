@@ -31,6 +31,8 @@ data class AccountSession(
     val deviceRouteMode: AccountDeviceRouteMode = AccountDeviceRouteMode.EXPLICIT_DEVICE,
     /** Reused after a lost refresh response; cleared only when rotation commits. */
     val pendingRefreshIdempotencyKey: String? = null,
+    /** Stable for one login, independent of bearer refresh; fences stale on-disk preference caches. */
+    val modelSyncGeneration: String = "legacy-session",
 )
 
 enum class AccountDeviceRouteMode {

@@ -484,6 +484,10 @@ class ChatViewModel @Inject constructor(
         draftScope.launch { drafts.clear(token) }
     }
 
+    val modelSync get() = favoritesStore.sync
+    suspend fun legacyModels(): com.hermes.client.data.sync.LegacyModelImport =
+        com.hermes.client.data.sync.legacyModelImport(favoritesStore.legacyFavorites.first(), reasoningPresets.legacyPresets.first())
+
     val favorites: kotlinx.coroutines.flow.StateFlow<Set<String>> =
         favoritesStore.favorites.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptySet())
 
@@ -2417,8 +2421,10 @@ class ChatViewModel @Inject constructor(
         runtimeKey?.let { runtimeStore.setVisible(it, visible) }
     }
 
-    fun toggleFavorite(provider: String, model: String) =
-        viewModelScope.launch { favoritesStore.toggle(provider, model) }
+    fun toggleFavorite(provider: String, model: String): kotlinx.coroutines.Job {
+        val preferenceOwner = modelSync?.currentOwnerKey()
+        return viewModelScope.launch { favoritesStore.toggle(provider, model, preferenceOwner) }
+    }
 
     /** A lost reply cannot establish whether a session switch took effect. */
     private fun modelSwitchError(e: Throwable, stage: String): com.hermes.client.data.error.AppError {
@@ -2516,7 +2522,7 @@ class ChatViewModel @Inject constructor(
     private val _reasoningPending = MutableStateFlow(false)
     val reasoningPending: StateFlow<Boolean> = _reasoningPending.asStateFlow()
 
-    /** Per-model remembered efforts (device-local), for the sheet's row suffixes. */
+    /** Per-model remembered efforts (account or Legacy), for the sheet's row suffixes. */
     val reasoningPresetMap: StateFlow<Map<String, String>> =
         reasoningPresets.presets.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyMap())
 
@@ -2543,17 +2549,22 @@ class ChatViewModel @Inject constructor(
      */
     fun setReasoning(level: String) {
         if (_reasoningPending.value) return
+        val provider = _currentProvider.value
+        val model = _currentModel.value
+        modelSync?.state?.value?.let { s ->
+            if (s.useCloud && provider != null && model != null && s.blocked(provider, model, "reasoningPreset")) return
+        }
+        val preferenceOwner = modelSync?.currentOwnerKey()
+        val targetSession = sessionId
         val previous = _reasoningEffort.value
         _reasoningPending.value = true
         _reasoningEffort.value = level
         _modelSheet.value = _modelSheet.value.copy(error = null)
         viewModelScope.launch {
-            runCatching { chat.reasoningSet(sessionId, level) }
+            runCatching { chat.reasoningSet(targetSession, level) }
                 .onSuccess {
-                    val provider = _currentProvider.value
-                    val model = _currentModel.value
                     if (!provider.isNullOrBlank() && !model.isNullOrBlank()) {
-                        runCatching { reasoningPresets.set(provider, model, level) }
+                        runCatching { reasoningPresets.set(provider, model, level, preferenceOwner) }
                     }
                 }
                 .onFailure { e ->
@@ -2576,12 +2587,15 @@ class ChatViewModel @Inject constructor(
      * value so the sheet and chip stay truthful.
      */
     private fun applyReasoningPresetFor(provider: String, model: String) {
+        val targetSession = sessionId
+        val preferenceOwner = modelSync?.currentOwnerKey()
         viewModelScope.launch {
             val preset = runCatching { reasoningPresets.presets.first() }.getOrNull()
                 ?.get(com.hermes.client.data.repository.favKey(provider, model))
+            if (sessionId != targetSession || modelSync?.currentOwnerKey() != preferenceOwner) return@launch
             if (preset != null && preset != _reasoningEffort.value) {
-                runCatching { chat.reasoningSet(sessionId, preset) }
-                    .onSuccess { _reasoningEffort.value = preset }
+                runCatching { chat.reasoningSet(targetSession, preset) }
+                    .onSuccess { if (sessionId == targetSession && modelSync?.currentOwnerKey() == preferenceOwner) _reasoningEffort.value = preset }
                 // Failure is silent — the model switch itself succeeded.
             } else if (preset == null) {
                 refreshReasoning()

@@ -108,6 +108,7 @@ class EncryptedCredentialStore(private val context: Context) :
             accountDisplayName = prefs.getString("account_display_name", null),
             accountEmail = prefs.getString("account_email", null),
             accountProfileRevision = prefs.getString("account_profile_revision", null),
+            modelSyncGeneration = prefs.getString("account_model_generation", null) ?: "legacy-session",
             accountAvatarRevision = prefs.getString("account_avatar_revision", null),
             accountAvatarFile = prefs.getString("account_avatar_file", null),
             installationId = installationId,
@@ -134,6 +135,7 @@ class EncryptedCredentialStore(private val context: Context) :
             .putString("account_display_name", session.accountDisplayName)
             .putString("account_email", session.accountEmail)
             .putString("account_profile_revision", session.accountProfileRevision)
+            .putString("account_model_generation", session.modelSyncGeneration)
             .putString("account_avatar_revision", session.accountAvatarRevision)
             .putString("account_avatar_file", session.accountAvatarFile)
             .putString("account_installation_id", session.installationId)
@@ -164,6 +166,7 @@ class EncryptedCredentialStore(private val context: Context) :
             .remove("account_display_name")
             .remove("account_email")
             .remove("account_profile_revision")
+            .remove("account_model_generation")
             .remove("account_avatar_revision")
             .remove("account_avatar_file")
             .remove("account_installation_id")
@@ -315,6 +318,7 @@ class EncryptedCredentialStore(private val context: Context) :
             .remove("account_display_name")
             .remove("account_email")
             .remove("account_profile_revision")
+            .remove("account_model_generation")
             .remove("account_avatar_revision")
             .remove("account_avatar_file")
             .remove("account_installation_id")

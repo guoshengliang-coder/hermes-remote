@@ -1,3 +1,9 @@
+HG-216 P1c adds separately capability-gated account model favorites and remembered reasoning.
+Legacy stays local; existing local data requires explicit import confirmation. A durable IndexedDB
+outbox uses field CAS, signed leases and explicit conflict review. Cloud updates never switch a
+live model or reasoning setting. Unavailable favorites remain visible and removable; recents and
+group expansion remain local. See `../docs/ACCOUNT_DATA_SYNC_MODELS.md` for schema20 and release gates.
+
 HG-216 adds default-off account-profile sync. When the Gateway advertises version-1 accountProfile,
 name/photo edits persist in an account-scoped IndexedDB queue before sending and use field CAS and
 stable operation IDs. Foreground pulls preserve typing; conflicts require explicit confirmation.
@@ -5,7 +11,7 @@ Sign-out invalidates writers and clears the queue/cache. Existing Gateways keep 
 Other open tabs consume the same logout signal and immediately hide private pages even offline;
 they do not repeat server sign-out or rebroadcast. Live local-browser/native verification and the
 opt-in smoke drivers are documented in `../docs/ACCOUNT_DATA_SYNC_VALIDATION.md`.
-This does not enable Hermes identity decorations, pins, read state, models or prompts; see
+This does not enable Hermes identity decorations, pins, read state or prompts; see
 `../docs/ACCOUNT_DATA_SYNC_P1A.md` for the exact scope and release gates.
 
 HG-205 keeps chat tables as source tables and creates the shared offline chart only inside

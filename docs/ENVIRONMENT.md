@@ -392,3 +392,9 @@ then deploy Gateway before the Web bundle. Disabling the flag restores foregroun
 `ACCOUNT_DATA_SYNC_ENABLED` 默认 0；需要 schema19 和兼容 Android/Web 后再独立授权启用。
 新增键不携带秘密，不复用生产账号配置进行开发测试。完整部署顺序与回退限制见
 [ACCOUNT_DATA_SYNC_P1A.md](ACCOUNT_DATA_SYNC_P1A.md)。
+
+### HG-216 模型偏好同步（尚未启用）
+
+`ACCOUNT_MODEL_SYNC_ENABLED` 默认 0，与 `ACCOUNT_DATA_SYNC_ENABLED` 独立。要求 schema20
+与兼容 Web/Android，具体门禁见 [ACCOUNT_DATA_SYNC_MODELS.md](ACCOUNT_DATA_SYNC_MODELS.md)。
+R4 环境重建仅保留已明确配置的 0/1，不自动添加或开启。无新秘密文件、端口或独立服务。

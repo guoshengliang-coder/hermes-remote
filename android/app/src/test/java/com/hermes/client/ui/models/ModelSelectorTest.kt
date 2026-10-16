@@ -7,6 +7,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModelSelectorTest {
+    @org.junit.Test fun unavailableCloudFavoritesRemainVisibleWithoutBecomingSelectable() {
+        val groups=modelSelectorGroups(emptyList(),setOf(favKey("remote/provider","missing/model")),null,null,includeUnavailable=true)
+        val row=groups.single().rows.single()
+        org.junit.Assert.assertEquals("remote/provider",row.provider)
+        org.junit.Assert.assertEquals("missing/model",row.model)
+        org.junit.Assert.assertFalse(row.available)
+        org.junit.Assert.assertTrue(row.isFavorite)
+        org.junit.Assert.assertTrue(modelSelectorGroups(emptyList(),setOf(favKey("p","m")),null,null).isEmpty())
+    }
+
     private val providers = listOf(
         ModelProviderDto(slug = "openai-codex", name = null, isCurrent = true,
             models = listOf("gpt-5.5", "gpt-5.5-mini")),

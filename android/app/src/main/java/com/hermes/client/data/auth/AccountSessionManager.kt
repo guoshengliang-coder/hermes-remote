@@ -69,6 +69,7 @@ class AccountSessionManager(
      */
     private val beforeSignOut: suspend (AccountControlConnection) -> Unit = {},
     private val profileAvatars: AccountProfileAvatarCache? = null,
+    private val modelCache: com.hermes.client.data.sync.ModelPreferenceCacheStore? = null,
 ) {
     private val refreshMutex = Mutex()
     private val profileSyncMutex = Mutex()
@@ -82,6 +83,7 @@ class AccountSessionManager(
     }
     private val _session: MutableStateFlow<AccountSession?> get() = sessionDelegate.value
     val session: StateFlow<AccountSession?> get() = _session.asStateFlow()
+    fun accountDataEpoch(): Long = profileOwnerEpoch.get()
     @Volatile private var transportDeviceId: String? = null
 
     /** App-start background services must not force AndroidKeyStore open before an Activity exists. */
@@ -110,8 +112,10 @@ class AccountSessionManager(
         synchronized(profileOwnerLock) {
             profileOwnerEpoch.incrementAndGet()
             profileAvatars?.clear()
+            runCatching { modelCache?.clear() }
             val value = AccountSession(
                 baseUrl = normalizeGatewayBaseUrl(baseUrl),
+                modelSyncGeneration = java.util.UUID.randomUUID().toString(),
                 accountId = response.account.id,
                 accountDisplayName = response.account.displayName,
                 accountEmail = response.account.email,
@@ -336,6 +340,7 @@ class AccountSessionManager(
         synchronized(profileOwnerLock) {
             profileOwnerEpoch.incrementAndGet()
             profileAvatars?.clear()
+            runCatching { modelCache?.clear() }
             store.completeAccountDeletion()
             store.clearPendingEmailChallenge()
             _session.value = null
@@ -400,6 +405,7 @@ class AccountSessionManager(
         synchronized(profileOwnerLock) {
             profileOwnerEpoch.incrementAndGet()
             profileAvatars?.clear()
+            runCatching { modelCache?.clear() }
             store.clearAccountSession(
                 requireReauthentication,
                 reason.takeIf { requireReauthentication }?.let(::normalizeReauthenticationReason),

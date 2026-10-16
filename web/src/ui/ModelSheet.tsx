@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ModelOptionsResponse } from "../api/gateway";
 import { useDefaultModel } from "../app/defaultModel";
 import { toAppError } from "../app/failures";
-import { modelKey, modelPrefs, recordModelUse, rememberReasoning, toggleFavoriteModel } from "../app/localPrefs";
+import { modelKey as legacyModelKey, modelPrefs, recordModelUse, rememberReasoning, toggleFavoriteModel } from "../app/localPrefs";
+import { legacyModelCandidates, modelTuple, projectedModelPrefs } from "../account/modelPreferences";
+import { ModelSyncPanel } from "./ModelSyncPanel";
 import { useApp } from "../app/store";
 import { appError, type AppError } from "../errors";
 import { HermesSocketError } from "../hermes/client";
@@ -18,16 +20,8 @@ import { Sheet } from "./Sheet";
 // New Gateways admit config.set model in one session-only shape; older ones retain slash.exec.
 // Default editing goes through the Connector's metadata-stripping main-model route.
 
-export const REASONING_LABEL: Record<ReasoningValue, [string, string]> = {
-  none: ["关", "Off"],
-  minimal: ["最小", "Min"],
-  low: ["低", "Low"],
-  medium: ["中", "Med"],
-  high: ["高", "High"],
-  xhigh: ["极高", "XHigh"],
-  max: ["最高", "Max"],
-  ultra: ["超高", "Ultra"],
-};
+export { REASONING_LABEL } from "./modelPreferenceLabels";
+import { REASONING_LABEL } from "./modelPreferenceLabels";
 
 export function isReasoning(value: string | null | undefined): value is ReasoningValue {
   return typeof value === "string" && (REASONING_VALUES as readonly string[]).includes(value);
@@ -67,12 +61,12 @@ interface ModelSheetProps {
 
 // Changing Mac/profile creates fresh state, and pending old requests cannot update the new view.
 export function ModelSheet(props: ModelSheetProps) {
-  const { device } = useApp();
-  return <ModelSheetContent key={JSON.stringify([device?.deviceId, props.profile, props.scope])} {...props} />;
+  const { device, account } = useApp();
+  return <ModelSheetContent key={JSON.stringify([account?.id, device?.deviceId, props.profile, props.scope])} {...props} />;
 }
 
 function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride, scope = "session", aboveDrawer, actions, onSwitched, onReasoning, onClose }: ModelSheetProps) {
-  const { t, language, client, device, features } = useApp();
+  const { t, language, client, device, features, modelSync } = useApp();
   const deviceId = device?.deviceId ?? "";
   const defaultModel = useDefaultModel(client, deviceId, profile, features.has("default-model"));
   const editingDefault = scope === "default";
@@ -91,6 +85,11 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
   const [reasoning, setReasoningState] = useState<string | null>(null);
   const [prefs, setPrefs] = useState(() => modelPrefs(deviceId));
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const modelKey=modelSync?modelTuple:legacyModelKey;
+  const synced=modelSync?projectedModelPrefs(modelSync.view):[];
+  const effectiveFavorites=modelSync?synced.filter((r)=>r.favorite).map((r)=>modelTuple(r.provider,r.model)):prefs.favorites;
+  const effectivePresets=modelSync?Object.fromEntries(synced.filter((r)=>r.reasoningPreset!==null).map((r)=>[modelTuple(r.provider,r.model),r.reasoningPreset!])):prefs.presets;
+  const preferencePending=(provider:string,model:string,field:"favorite"|"reasoningPreset")=>Boolean(modelSync&&(!modelSync.view.ready||!modelSync.view.enabled||modelSync.view.pending.some((p)=>p.operation.provider===provider&&p.operation.model===model&&p.operation.field===field)));
 
   useEffect(() => {
     let active = true;
@@ -121,7 +120,7 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
   }, []);
 
   const currentKey = current.model ? modelKey(current.provider ?? providers?.find((p) => p.models?.includes(current.model!))?.slug ?? "", current.model) : null;
-  const all = useMemo(() => (providers ?? []).flatMap((p) => (p.models ?? []).map((m) => ({ provider: p.slug, providerName: p.name || p.slug, model: m, key: modelKey(p.slug, m) }))), [providers]);
+  const all = useMemo(() => (providers ?? []).flatMap((p) => (p.models ?? []).map((m) => ({ provider: p.slug, providerName: p.name || p.slug, model: m, key: modelKey(p.slug, m) }))), [providers, modelKey]);
   const byKey = useMemo(() => new Map(all.map((o) => [o.key, o])), [all]);
 
   function admissible(provider: string, model: string) {
@@ -158,8 +157,8 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
       let presetFailed = false;
       if (!editingDefault) {
         // Storage is best effort and cannot turn an applied model into a failed switch.
-        try { recordModelUse(deviceId, modelKey(provider, result.model)); setPrefs(modelPrefs(deviceId)); } catch { /* local preference only */ }
-        const preset = modelPrefs(deviceId).presets[modelKey(provider, result.model)];
+        try { recordModelUse(deviceId, legacyModelKey(provider, result.model)); setPrefs(modelPrefs(deviceId)); } catch { /* local preference only */ }
+        const preset = modelSync?effectivePresets[modelKey(provider,result.model)]:modelPrefs(deviceId).presets[modelKey(provider, result.model)];
         if (isReasoning(preset)) {
           try { await actions.setReasoning(preset); if (live.current) { onReasoning(preset); setReasoningState(preset); } }
           catch { presetFailed = true; if (live.current) setError(appError("HR-RPC-006")); }
@@ -189,23 +188,25 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
       await actions.setReasoning(value);
       if (!live.current) return;
       onReasoning(value);
-      try { if (currentKey) rememberReasoning(deviceId, currentKey, value); setPrefs(modelPrefs(deviceId)); } catch { /* local preference only */ }
+      if(modelSync){const pair=all.find((r)=>r.key===currentKey);if(pair)await modelSync.client?.set(pair.provider,pair.model,"reasoningPreset",value);}
+      else try { if (currentKey) rememberReasoning(deviceId, currentKey, value); setPrefs(modelPrefs(deviceId)); } catch { /* local preference only */ }
     } catch (e) {
       if (live.current) { setReasoningState(before); setError(appError("HR-RPC-006")); }
     } finally { locked.current = false; if (live.current) setPending(null); }
   }
 
-  const row = (o: { provider: string; model: string; key: string }) => {
+  const row = (o: { provider: string; model: string; key: string; unavailable?:boolean }) => {
     const selected = o.key === currentKey || (!currentKey && o.model === current.model);
-    const allowed = admissible(o.provider, o.model);
-    const fav = prefs.favorites.includes(o.key);
+    const allowed = !o.unavailable&&admissible(o.provider, o.model);
+    const fav = effectiveFavorites.includes(o.key);
     return (
       <div class={`model-row${selected ? " selected" : ""}`} key={o.key}>
         <button type="button" class="model-pick" disabled={!allowed || pending !== null || confirmation !== null} onClick={() => void choose(o.provider, o.model)}>
           <span class="model-row-copy">
             <span class="model-name mono">{o.model}</span>
             <span class="model-provider">{byKey.get(o.key)?.providerName ?? o.provider}</span>
-            {!editingDefault && isReasoning(prefs.presets[o.key]) ? <span class="model-state">{REASONING_LABEL[prefs.presets[o.key] as ReasoningValue][language === "en" ? 1 : 0]}</span> : null}
+            {o.unavailable?<span class="model-state">{t("此 Mac 不可用","Unavailable on this Mac")}</span>:null}
+            {!editingDefault && isReasoning(effectivePresets[o.key]) ? <span class="model-state">{REASONING_LABEL[effectivePresets[o.key] as ReasoningValue][language === "en" ? 1 : 0]}</span> : null}
           </span>
           <span class="model-state">
             {pending === o.key ? t("切换中…", "Switching…") : null}
@@ -216,7 +217,8 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
           class={`icon-button model-star${fav ? " on" : ""}`}
           aria-pressed={fav}
           aria-label={fav ? t("取消收藏", "Remove from favorites") : t("收藏", "Add to favorites")}
-          onClick={() => setPrefs({ ...prefs, favorites: toggleFavoriteModel(deviceId, o.key) })}
+          disabled={preferencePending(o.provider,o.model,"favorite")}
+          onClick={() => {if(modelSync)void modelSync.client?.set(o.provider,o.model,"favorite",!fav);else setPrefs({ ...prefs, favorites: toggleFavoriteModel(deviceId, o.key) });}}
         >
           <StarIcon size={16} filled={fav} />
         </button>
@@ -224,8 +226,10 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
     );
   };
 
-  const recents = prefs.recents.map((k) => byKey.get(k)).filter((o): o is NonNullable<typeof o> => Boolean(o));
-  const favorites = prefs.favorites.map((k) => byKey.get(k)).filter((o): o is NonNullable<typeof o> => Boolean(o));
+  const recents = prefs.recents.map((k) => {const matches=all.filter((o)=>legacyModelKey(o.provider,o.model)===k);return matches.length===1?matches[0]:undefined;}).filter((o): o is NonNullable<typeof o> => Boolean(o));
+  const favorites = modelSync?synced.filter((r)=>r.favorite).map((r)=>({...r,key:modelTuple(r.provider,r.model),unavailable:!byKey.has(modelTuple(r.provider,r.model))})):
+    effectiveFavorites.map((k) => byKey.get(k)).filter((o): o is NonNullable<typeof o> => Boolean(o));
+  const legacy=legacyModelCandidates(prefs,all);
   const configured = defaultModel.model;
   const overridden = Boolean(configured && (explicitOverride || (current.model !== null && current.model !== configured.model) || (current.provider !== null && current.provider !== configured.provider)));
   const canRestore = Boolean(!editingDefault && overridden && configured && admissible(configured.provider, configured.model));
@@ -247,7 +251,7 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
             onClick={() => void choose(configured.provider, configured.model, true)}>{t("恢复默认模型", "Restore default model")}</button> : null}
           {!editingDefault ? <span class="reasoning-row">
             <label class="reasoning-label" for="reasoning-select">{t("推理强度", "Reasoning effort")}</label>
-            <select id="reasoning-select" class="reasoning-select" disabled={pending !== null || confirmation !== null} value={isReasoning(reasoning) ? reasoning : ""}
+            <select id="reasoning-select" class="reasoning-select" disabled={pending !== null || confirmation !== null || Boolean(currentKey&&all.find((r)=>r.key===currentKey)&&preferencePending(all.find((r)=>r.key===currentKey)!.provider,current.model!,"reasoningPreset"))} value={isReasoning(reasoning) ? reasoning : ""}
               onChange={(e) => { const value = (e.target as HTMLSelectElement).value; if (isReasoning(value)) void pickReasoning(value); }}>
               {!isReasoning(reasoning) ? <option value="">{t("默认", "Default")}</option> : null}
               {REASONING_VALUES.map((v) => <option value={v} key={v}>{REASONING_LABEL[v][language === "en" ? 1 : 0]}</option>)}
@@ -255,6 +259,8 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
           </span> : null}
         </span>
       </div>
+      <ModelSyncPanel legacy={legacy}/>
+      {modelSync&&current.model&&current.provider&&effectivePresets[modelKey(current.provider,current.model)]?<button type="button" class="text-button" disabled={preferencePending(current.provider,current.model,"reasoningPreset")} onClick={()=>void modelSync.client?.set(current.provider!,current.model!,"reasoningPreset",null)}>{t("清除该模型记忆的推理偏好（不改变当前对话）","Clear this model's saved reasoning preference (keeps this conversation unchanged)")}</button>:null}
       {confirmation ? <div class="model-confirmation" role="alertdialog" aria-label={t("确认模型选择", "Confirm model selection")}>
         <p>{t("所选模型需要确认，可能涉及较高费用或能力限制。是否继续？", "This model needs confirmation and may involve higher costs or capability limits. Continue?")}</p>
         <p class="mono">{confirmation.model} · {confirmation.provider}</p>

@@ -1330,3 +1330,12 @@ stored ID keeps the existing composer/socket; only changing Mac replaces the pag
 `ACCOUNT_DATA_SYNC_ENABLED=0` 默认关闭；显式能力 accountAuth.accountDataSync/version=1/entities=[accountProfile]。
 Native Bearer 与 Web Cookie 路径、字段 CAS、90天操作租期、24小时游标、错误码、缓存隔离和旧接口兼容，
 以 [P1a 运行契约](ACCOUNT_DATA_SYNC_P1A.md) 为准。此处不声明 profileDecoration、已读或其他偏好可用。
+
+## HG-216 · 可选模型偏好同步（schema 20）
+
+`ACCOUNT_MODEL_SYNC_ENABLED=0`，能力为 accountAuth.modelPreferencesSync/version=1/maxModels=500/retentionDays=90。
+独立 Native `/v2/account-data/models/{snapshot,changes,resolve,mutations}` 与 Web `/v2/web/account-data/models/…`；
+Web Cookie/CSRF/expected-account，Native Bearer。500 行有界完整快照，200 条提交有序增量分页，
+两个字段独立 CAS；写 lease 与读 cursor 独立签名且不复用 P1a 单例 cursor。操作及精确 uint64 DTO、
+取消标记、保留、导入与错误语义完整定义见 [ACCOUNT_DATA_SYNC_MODELS.md](ACCOUNT_DATA_SYNC_MODELS.md)。
+新模型操作使用 HR-SYNC-012–017；服务端冲突为 200/status=conflict，由消费者展示 012，不能当 accepted。

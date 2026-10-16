@@ -216,6 +216,12 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法解析会话内容，请更新 App。", "This conversation could not be read. Update the app.")
         AppErrorCode.ACCOUNT_PROFILE_CONFLICT ->
             localized(language, "资料已在其他设备更新，请刷新后重新确认修改。", "Your profile changed on another device. Refresh and confirm your edit again.")
+        AppErrorCode.MODEL_SYNC_CONFLICT -> localized(language, "模型偏好已在其他设备更新，请选择保留云端值或重新应用本机选择。", "Model preferences changed on another device. Keep the cloud value or apply your local choice again.")
+        AppErrorCode.MODEL_SYNC_RESET -> localized(language, "模型同步记录已失效，请刷新并确认待同步选择。", "This model-sync record expired. Refresh and review your pending choices.")
+        AppErrorCode.MODEL_SYNC_INVALID -> localized(language, "无法保存此模型偏好，请检查选择后重试。", "Couldn't save this model preference. Check your choice and try again.")
+        AppErrorCode.MODEL_SYNC_QUOTA -> localized(language, "模型偏好存储已达上限，本机待同步选择仍保留。", "Model preference storage is full. Your pending local choices are retained.")
+        AppErrorCode.MODEL_SYNC_PENDING -> localized(language, "此模型偏好仍在等待同步，请联网后重试。", "This model preference is waiting to sync. Connect to the network and try again.")
+        AppErrorCode.MODEL_SYNC_STORAGE -> localized(language, "无法保存待同步模型偏好，请检查本机存储后重试。", "Couldn't store the pending model preference. Check local storage and try again.")
         AppErrorCode.ACCOUNT_PROFILE_SYNC_RESET ->
             localized(language, "同步记录已失效，请刷新资料后重试。", "This sync record is no longer valid. Refresh your profile and try again.")
         AppErrorCode.ACCOUNT_PROFILE_NAME_INVALID ->

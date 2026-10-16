@@ -13,6 +13,7 @@ export const ACCOUNT_AUDIT_RETENTION_MS = 180 * 24 * 60 * 60 * 1_000;
 export interface AccountRetentionCounts {
   idempotencyRecords: number;
   profileSyncOperations: number;
+  modelSyncRecords: number;
   emailWebhookReceipts: number;
   emailOtpChallenges: number;
   deviceShareInvitations: number;
@@ -92,6 +93,7 @@ export class PostgresAccountRetentionStore implements AccountRetentionStore {
          ) DELETE FROM account_profile_sync_operations t USING expired e
            WHERE t.account_id=e.account_id AND t.op_id=e.op_id`, [now, batchSize],
       )).rowCount ?? 0;
+      const modelSyncRecords = await sweepModelSyncRecords(client, now, batchSize);
       const emailWebhookReceipts = await deleteBatch(
         client,
         `SELECT webhook_id FROM email_delivery_webhook_receipts
@@ -212,6 +214,7 @@ export class PostgresAccountRetentionStore implements AccountRetentionStore {
       return {
         idempotencyRecords,
         profileSyncOperations,
+        modelSyncRecords,
         emailWebhookReceipts,
         emailOtpChallenges,
         deviceShareInvitations,
@@ -598,6 +601,19 @@ async function processDueAccountDeletion(
        WHERE t.account_id=$1 AND t.op_id=s.op_id`, [accountId, budgets.profileSyncOperations],
   )).rowCount ?? 0;
   deletedRows += (await client.query("DELETE FROM account_profiles WHERE account_id=$1", [accountId])).rowCount ?? 0;
+  // Child tables are drained in bounded batches before removing their cascade parent.
+  for (const [table, key] of [
+    ["account_model_sync_operations", "op_id"], ["account_model_sync_changes", "revision"], ["account_model_preferences", "key_hash"],
+  ]) {
+    deletedRows += (await client.query(`WITH selected AS (
+      SELECT ${key} FROM ${table} WHERE account_id=$1 ORDER BY ${key} LIMIT $2 FOR UPDATE SKIP LOCKED
+    ) DELETE FROM ${table} target USING selected s WHERE target.account_id=$1 AND target.${key}=s.${key}`,
+    [accountId, budgets.otherTables])).rowCount ?? 0;
+  }
+  deletedRows += (await client.query(`DELETE FROM account_model_sync_state state WHERE account_id=$1
+    AND NOT EXISTS(SELECT 1 FROM account_model_preferences WHERE account_id=$1)
+    AND NOT EXISTS(SELECT 1 FROM account_model_sync_changes WHERE account_id=$1)
+    AND NOT EXISTS(SELECT 1 FROM account_model_sync_operations WHERE account_id=$1)`, [accountId])).rowCount ?? 0;
   deletedRows += (await client.query(
     "DELETE FROM account_device_preferences WHERE account_id = $1",
     [accountId],
@@ -678,6 +694,7 @@ async function processDueAccountDeletion(
        SELECT 1 FROM external_identities WHERE account_id = $1
        UNION ALL SELECT 1 FROM account_profiles WHERE account_id = $1
        UNION ALL SELECT 1 FROM account_profile_sync_operations WHERE account_id = $1
+       UNION ALL SELECT 1 FROM account_model_sync_state WHERE account_id = $1
        UNION ALL SELECT 1 FROM installations WHERE account_id = $1
        UNION ALL SELECT 1 FROM account_sessions WHERE account_id = $1
        UNION ALL SELECT 1 FROM reauthentication_grants WHERE account_id = $1
@@ -727,10 +744,38 @@ async function deleteBatch(
   return deleted.rowCount ?? 0;
 }
 
+/** Lock each model state before any child rows, matching mutation order and cursor visibility. */
+async function sweepModelSyncRecords(client: PoolClient, now: Date, budget: number): Promise<number> {
+  const accounts = await client.query<{ account_id: string }>(`SELECT account_id FROM account_model_sync_state
+    WHERE account_id IN (SELECT account_id FROM account_model_sync_operations WHERE expires_at<=$1
+      UNION SELECT account_id FROM account_model_sync_changes WHERE expires_at<=$1)
+    ORDER BY account_id LIMIT $2 FOR UPDATE SKIP LOCKED`, [now, budget]);
+  let deleted = 0;
+  for (const { account_id: accountId } of accounts.rows) {
+    if (deleted >= budget) break;
+    deleted += (await client.query(`WITH expired AS (SELECT op_id FROM account_model_sync_operations
+      WHERE account_id=$1 AND expires_at<=$2 ORDER BY expires_at,op_id LIMIT $3)
+      DELETE FROM account_model_sync_operations target USING expired e WHERE target.account_id=$1 AND target.op_id=e.op_id`,
+      [accountId, now, budget - deleted])).rowCount ?? 0;
+    if (deleted >= budget) continue;
+    const logs = await client.query<{ revision: string }>(`WITH expired AS (SELECT revision FROM account_model_sync_changes
+      WHERE account_id=$1 AND expires_at<=$2 ORDER BY revision LIMIT $3)
+      DELETE FROM account_model_sync_changes target USING expired e WHERE target.account_id=$1 AND target.revision=e.revision
+      RETURNING target.revision::text`, [accountId, now, budget - deleted]);
+    deleted += logs.rowCount ?? 0;
+    if (logs.rows.length) {
+      const floor = logs.rows.reduce((max, row) => BigInt(row.revision) > BigInt(max) ? row.revision : max, "0");
+      await client.query("UPDATE account_model_sync_state SET log_floor=greatest(log_floor,$2::numeric) WHERE account_id=$1", [accountId, floor]);
+    }
+  }
+  return deleted;
+}
+
 function emptyCounts(): AccountRetentionCounts {
   return {
     idempotencyRecords: 0,
     profileSyncOperations: 0,
+    modelSyncRecords: 0,
     emailWebhookReceipts: 0,
     emailOtpChallenges: 0,
     deviceShareInvitations: 0,
@@ -749,6 +794,7 @@ function needsCatchUp(counts: AccountRetentionCounts, batchSize: number): boolea
   return counts.accountDeletionRows > 0
     || counts.accountsAnonymized > 0
     || counts.profileSyncOperations >= batchSize
+    || counts.modelSyncRecords >= batchSize
     || counts.idempotencyRecords >= batchSize
     || counts.emailWebhookReceipts >= batchSize
     || counts.emailOtpChallenges >= batchSize
