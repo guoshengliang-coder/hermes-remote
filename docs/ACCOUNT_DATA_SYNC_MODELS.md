@@ -48,8 +48,8 @@ field 为 favorite（Boolean）或 reasoningPreset（枚举/null）；baseRevisi
 返回 `{status:"conflict",row}`，成功返回 accepted。客户端用 HR-SYNC-012 显示冲突。
 同 opId/语义 payload 返回同一终态，换 payload 拒绝 HR-ACCOUNT-005；lease 不参与语义摘要。
 
-读游标 HMAC 绑定账号、已扫描修订、冻结上界和 24 小时期限；写 lease 绑定账号、安装实例和
-90 天期限。过期、篡改、跨账号/安装或保留窗口外游标返回 HR-SYNC-013。
+读游标 HMAC 绑定账号、已扫描修订、冻结上界和 24 小时期限；写 lease 绑定账号、安装实例、本次登录 session 和
+90 天期限。过期、篡改、跨账号/安装/登录会话或保留窗口外游标返回 HR-SYNC-013。
 刷新快照不替换旧队列的 lease/base/opId；过期操作不能偷偷变成新意图。
 显式“重新应用”才 resolve 最新字段修订、生成新 opId/lease 并原子替换冲突。
 
@@ -95,7 +95,7 @@ SQLite，账号快照和队列同事务；不存 access/refresh token、Hermes �
 ## 验证与发布门禁
 
 自动覆盖真实 PostgreSQL：并发字段 CAS、终态重放、签名 key 轮换、斜线碰撞、有序分页上界、
-游标/lease 期限和作用域、保留 floor、500 配额/取消释放、uint64 上限、撤销及删除。
+游标/lease 期限和作用域、同安装重登录阻断旧队列、保留 floor、500 配额/取消释放、uint64 上限、撤销及删除。
 Web IndexedDB 与 Android SQLite 覆盖离线重开、丢 ACK、旧成功不覆盖新取消、提交失败零修改、
 账号 generation、显式导入与稳定完成记录、能力关闭保留私有缓存。错误码 012–017 均有双语
 及诊断脱敏测试。浏览器脚本和原生 live consumer 只运行隔离 localhost 栈。
@@ -129,7 +129,7 @@ P1b 置顶实例身份和完整已读观察版本门禁仍未解决；提示词�
 
 2026-10-16，固定基线 origin/main `f69328ad`；所有账号、邮件捕获、数据库和 Mac 都为本轮隔离夹具。
 
-- `npm run test:ci`：879 通过、0 跳过/失败；启用临时 PostgreSQL 18 和网络回环测试，使用已有 OpenSSL 3。
+- `npm run test:ci`：880 通过、0 跳过/失败；启用临时 PostgreSQL 18 和网络回环测试，使用已有 OpenSSL 3。
 - Web typecheck、935 项测试、build 通过。Chromium 156.0.8078.4 / WebKit 27.2
   各自真实 Gateway/PG 冒烟五项通过：确认导入、独立安装同步、离线重开、丢 ACK 重放、显式冲突及账号隔离。
   这些是桌面引擎，不是手机 Safari；故障注入时关闭 Service Worker。
@@ -143,3 +143,8 @@ P1b 置顶实例身份和完整已读观察版本门禁仍未解决；提示词�
 模拟器依能力探测给出的 AVD/内存启动；只终止自己启动的 PID，不调用会按通用进程名停止
 其他应用 Crashpad 的清理路径。隔离栈和原生会话 fixture 用完清理。没有生产访问、迁移、
 升版、正式 APK 交付、发布或能力开启。生产恢复、正式产物及真机/PWA 验收仍是后续门禁。
+
+最终权限审查补充：安装 ID 在重登录时会复用，不能单独承担队列会话边界。写 lease 同时
+绑定服务端 session ID，正常 bearer 刷新保持该 ID，重新登录产生新 ID。真实 PostgreSQL 回归
+先在缺少此绑定时复现 Missing expected rejection，再验证旧 lease 拒绝、新 lease 可写；即使
+旧客户端回退或退出清理失败留下队列，也不会在新登录中自动复活。客户端仍不自动续旧操作。

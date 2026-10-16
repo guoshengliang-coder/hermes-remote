@@ -349,7 +349,7 @@ export class AccountModelSync {
       "lease",
       actor.account.id,
       actor.installation.id,
-      null,
+      actor.sessionId,
       this.now() + MODEL_SYNC_RETENTION_MS,
     ]);
   }
@@ -407,7 +407,8 @@ export class AccountModelSync {
         data[1] !== actor.account.id ||
         typeof data[4] !== "number" ||
         data[4] <= this.now() ||
-        (kind === "lease" && data[2] !== actor.installation.id)
+        (kind === "lease" &&
+          (data[2] !== actor.installation.id || data[3] !== actor.sessionId))
       )
         throw new Error();
       return data;

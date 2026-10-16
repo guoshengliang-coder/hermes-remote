@@ -274,12 +274,12 @@ test(
         repository,
         codec,
       );
-      async function signIn() {
+      async function signIn(clientInstallationId = randomUUID()) {
         const result = await auth.exchangeGoogleProof({
           platform: "android",
           idToken: "test-proof",
           nonce: "1234567890abcdef",
-          clientInstallationId: randomUUID(),
+          clientInstallationId,
           displayName: "Synthetic",
           appVersion: "0.0.0-test",
           idempotencyKey: randomUUID(),
@@ -627,6 +627,36 @@ test(
               "0",
             );
           }
+        },
+      );
+      await t.test(
+        "relogin with the same installation cannot revive a residual queue lease",
+        async () => {
+          subject = "model-relogin-account";
+          const clientId = randomUUID();
+          const old = await signIn(clientId);
+          const oldSnapshot = await sync.snapshot(old);
+          await pool.query(
+            "UPDATE account_sessions SET revoked_at=now() WHERE id=$1",
+            [old.sessionId],
+          );
+          await pool.query(
+            "UPDATE installations SET revoked_at=now() WHERE id=$1",
+            [old.installation.id],
+          );
+          const next = await signIn(clientId);
+          assert.equal(next.installation.id, old.installation.id);
+          assert.notEqual(next.sessionId, old.sessionId);
+          await assert.rejects(
+            sync.mutate(next, mutation(oldSnapshot.lease)),
+            code("HR-SYNC-013"),
+          );
+          const fresh = await sync.snapshot(next);
+          assert.equal(fresh.rows.length, 0);
+          assert.equal(
+            (await sync.mutate(next, mutation(fresh.lease))).status,
+            "accepted",
+          );
         },
       );
       await t.test("uint64 revisions never round or wrap", async () => {
