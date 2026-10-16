@@ -123,7 +123,7 @@ commit接收后但确认前、获准并写入合成marker后，分别终止父�
 
 `scripts/compat/hermes-maintenance-durable.py` 验证上述缺口的一项隔离修正。原型登记格式升为schema 2，
 为home与checkout各预建固定inode、owner-only的intent槽并将身份写入登记记录。
-只有槽内容精确等于预登记的空闲记录才允许writer；空文件、部分/超长/损坏内容均阻断，
+该基础实验只有槽内容精确等于预登记的空闲记录才允许writer；空文件、部分/超长/损坏内容均阻断，
 缺失、替换、链接或异常权限拒绝使用。不静默迁移旧schema或重新登记。稳定槽不unlink/替换/重置。
 writer在全部共享准入锁内检查槽，再取得生命周期锁，避免在检查与维护发布之间越过门禁。
 
@@ -147,12 +147,45 @@ writer在全部共享准入锁内检查槽，再取得生命周期锁，避免�
 内核反例仍保留，不能把原始锁原语与本次持久准入机制混为一谈。
 
 这只提供可信测试launcher下的进程级持久准入阻断；独立预期上下文由仍存活的监督harness保留，
-不是从落盘记录反推用户授权，也未解决Desktop自身死亡后的授权来源。没有clear/finish/reset API，
-未解决终态证明、部分记录修复、源码/依赖代次推进或跨exec的实际服务交接。
+不是从落盘记录反推用户授权，也未解决Desktop自身死亡后的授权来源。`durable_intent`没有clear/finish/reset API，
+该基础实验未解决终态证明、部分记录修复、源码/依赖代次推进或跨exec的实际服务交接。
 fsync成功不等于物理断电/OS重启验收；也不防同UID恶意重写控制面或回滚为空闲记录。
 `processRestartAdmissionVerified=true`与`durableHandoffVerified=false`、`productionAuthorityVerified=false`、
 `osRebootVerified=false`分别记录；native/cron/fullStartup/globalAdmission/certifiesUpgrade仍false。
 生产认证列表为空，自动升级/恢复继续禁用。
+
+### 仅限fixture的代次转换与前缀终态策略
+
+`scripts/compat/hermes-maintenance-transition.py`进一步隔离验证一次已规划的转换：在已发布的意图后
+追加旧/新上下文计划，再改变副本内容，最后追加测试终态。只允许`hg199-durable-*`临时根内
+`control`、`data`、`checkout`的精确双域；策略固定为`scratch-prefix-fixture-v1`。
+原意图、计划和终态保留为三条规范记录，双槽内容必须完全一致，不unlink、重置或修补。
+新source是合成标签，源码变化只是副本中的注释；依赖变化只是显式hash绑定的文本标记，
+不是新Hermes版本、真实PM同步、环境激活或完整依赖闭包。
+
+计划在改变输入前以旧上下文和实际排他锁核验，逐槽追加并同步；改变后必须匹配计划内的新摘要，
+不能靠改写旧context绕过源身份。测试launcher随后持原排他权启动独立前缀子进程，以私有计划FD、
+新上下文及活通道核验后才导入复制包。监督方必须实际观察到bootstrap、一次准入、scratch写入及
+子进程正常退出0，再复核目标，才能取得绑定当前持锁对象、同一计划、5秒内一次性的内存witness。
+`finish_fixture`拒绝布尔值、保存的JSON、过期或别的持锁者的证明；一次提交尝试就消耗witness。
+它只授权这个测试策略，不是生产终态接口。终态落盘后，新writer仍需在全部共享门禁内匹配
+两槽完整历史、策略和当前目标输入，并自行同步双槽/目录后复核；可见记录不代表发布方完成过同步。
+同步失败、恢复旧源码或旧依赖标记都会拒绝。共享其中一域的其他组合
+不能借用这个完成记录。可信registry内的hash/nonce不是签名，也不防同UID恶意伪造或控制面回滚。
+
+固定源四入口各验证计划完成后协调方SIGKILL、目标副本变更、重新核验前缀/提交终态后再SIGKILL，
+之后普通writer才可运行；旧源码/标记回退拒绝8例。另在计划和终态首槽同步后分别SIGKILL，
+部分记录继续阻断且不修复，合计10个协调方死亡场景。新增10项单测还覆盖无witness、过期/跨持锁者/
+重放、错误子进程结果/非零退出、计划外变动、损坏历史、共享域阻断及双语脱敏。
+删除witness检查的临时错误实现会在没有前缀验证时开放writer，正常实现拒绝。
+Linux/macOS均运行这些单测和固定源矩阵。
+
+本实验仅处理一轮fixture转换，不提供下一轮epoch/日志归档协议。完整计划提交后仍存活的监督harness
+独立保存预期计划；尚未解决Desktop与监督方同时死亡后的授权恢复。验证后、终态前中断须重新观察
+前缀，部分记录则保持阻断并待独立恢复设计。磁盘同步不等于断电/OS重启证明。
+`fixtureCompletionPolicyVerified=true`与`realDependencyGenerationVerified=false`、
+`productionCompletionVerified=false`分别报告；生产授权、完整耐久交接、真实PM/native/cron/service/
+business/global/升级认证均未完成。一键执行和恢复继续关闭，不操作现用安装、不创建上游PR。
 
 ## 上游接入必须提供的保证
 

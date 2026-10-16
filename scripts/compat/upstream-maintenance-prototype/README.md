@@ -352,7 +352,7 @@ so its negative control remains valid for the raw kernel-only lifecycle.
 `durable_intent.begin` requires drained exclusive home/checkout custody, revalidates actual lock/control
 identities and the independently expected binding context, and only accepts two initially idle slots.
 It writes the same canonical context plus digest to both stable files, fsyncs each and the registry,
-then revalidates before returning. No unlink, replacement, truncation/reset, clear or finish API exists.
+then revalidates before returning. This module has no unlink, replacement, truncation/reset, clear or finish API.
 No data operation may happen before successful return. `resume` takes fresh exclusive/drained custody
 and requires EVERY slot to match the independently expected record exactly; it synchronizes and checks
 again before returning. Existing/malformed/partial slots never authorize a fresh begin or implicit repair.
@@ -385,8 +385,74 @@ process, not an official updater. The new recovery prefix uses actual copied inp
 `processRestartAdmissionVerified=true` claims only this process-level admission property. Production
 authority, full durable handoff, OS reboot, native preload, cron package boot, full startup, global
 admission and upgrade certification stay false. fsync return is not physical power-loss verification.
-Same-UID malicious rewriting/rollback of the control plane is excluded. There is no automatic clearing,
+Same-UID malicious rewriting/rollback of the control plane is excluded. This base matrix has no automatic clearing,
 partial-record repair, completion proof, actual changed-source/environment-generation transition or
 cross-exec/service handoff. Idle controls are never reconstructed from empty locks or old metadata.
 Production trusted enrollment, all writer coverage, legacy transition and independent final service/
 business/device evidence remain necessary. This module is still not installed or adopted by GO/Hermes.
+
+## Fixture-only generation transition and terminal policy
+
+```bash
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_transition.py'
+python -I -S -B scripts/compat/hermes-maintenance-transition.py --candidate-root <frozen-0.21.6-checkout>
+```
+
+This experiment adds `generation_transition.py` and a test-owned coordinator actor. The driver checks
+the same eleven pinned source inputs before making disposable copies. It adds a twelfth, synthetic
+dependency-generation text marker and plans a source comment change. The target source label is
+synthetic, NOT another upstream Git commit/version. No real environment, PM activation, package
+installation, official update or service runs. Scope is exactly a `hg199-durable-*` temporary root
+with its `control`, `data` and `checkout` domains and the policy `scratch-prefix-fixture-v1`.
+That path restriction is an accidental-use guard, not a production authorization mechanism.
+
+Under drained exclusive custody, `prepare` validates the current before context and appends a canonical
+before/after plan to BOTH existing intent slots. Only source/file hashes may differ; all run/home/
+checkout/entry/role/domain identities remain bound. Each slot and registry is synchronized before
+return. `resume_before_update` requires the exact plan and old actual inputs; after changing only the
+planned fixture bytes, `target` requires those new actual hashes. No old record is rewritten to bypass
+changed-source refusal. Partial/malformed/unplanned state refuses without repair. This is append-only
+within the existing stable inodes: no truncation, replacement, unlink or reconstruction of idle bytes.
+Individual canonical frames/private contexts remain bounded to 16 KiB; the journal limit is 64 KiB.
+
+`check_fixture_prefix` owns and observes a real isolated child. It passes actual exclusive descriptors,
+a read-only/unlinked target-context FD, a separate independently expected plan FD and a fresh private
+socketpair. Before any copied package import, the child validates target plan/actual files under
+inherited exclusive custody, then performs the live bound handshake. The monitor requires the exact
+result shape, verified binding, bootstrap entry, one admission call, observed home mutation and actual
+scratch directory. It releases the child and requires normal exit zero, then rechecks actual target
+inputs. Only this monitor mints an in-memory witness bound to the same lease object, plan, a fresh
+nonce and a five-second monotonic lifetime. No handshake result alone or saved JSON authorizes finish.
+
+`finish_fixture` accepts that one-use witness and appends a fixture terminal; an uncertain append
+consumes the witness too. It is explicitly NOT a production completion API. A new ordinary writer,
+under ALL shared admission gates, may accept a non-idle pair only when both have identical canonical
+three-row history, the exact fixture policy and actual target inputs matching the plan. Restoring old
+source bytes or the old marker refuses. Before entry it synchronizes both slots/registry itself and
+rechecks contents; visible complete bytes do not prove a dead publisher returned from fsync, and a
+sync failure refuses admission. Another pair sharing a home/checkout cannot borrow this
+completion. Prior intent and plan remain readable. This single-epoch fixture has no next-upgrade
+history/archiving protocol. Hash chaining and a nonce are integrity checks in the trusted registry;
+they are not signatures or protection against malicious same-UID rewriting/rollback.
+
+The frozen matrix completes four entry fixtures, rejects eight stale source/marker cases, and kills
+ten test-owned coordinators: four after complete plan publication, four after complete terminal
+publication, plus first-slot interruptions in plan and terminal publication. The lock-free supervisor
+retains the independent expected plan. After plan death it can reacquire exclusive custody and
+validate before mutation; after full terminal death a new writer validates history/target before
+its scratch prefix. Partial plans/terminals stay closed and unchanged. No discovered PID is signalled.
+
+Ten tests cover this matrix, immutable plan identity, target drift, absent/boolean/saved witnesses,
+expired/cross-custodian/one-use evidence, incomplete child results/nonzero exit, partial terminal and
+overlap refusal, corrupt/truncated/extra history, scope/policy and bilingual redacted errors. A copied
+mutant omitting the witness check opens admission with no prior observed prefix; the real policy
+rejects it. Linux/macOS CI run all cases and the separate frozen-source matrix.
+
+`fixtureCompletionPolicyVerified=true` is separate from `realDependencyGenerationVerified=false` and
+`productionCompletionVerified=false`. Production authorization, full durable handoff, actual services/
+business, native preload, cron initialization, full startup, global admission, OS reboot/power loss
+and upgrade certification remain unverified/false. After monitor death before terminal, the next
+coordinator must re-observe the prefix; partial records need a separate recovery design. Consent
+after the supervisor/Desktop also dies is not recovered from journal JSON. The prior durable-intent
+module still has no clear/finish/reset operation. GO execution/recovery remain disabled, the installed
+Hermes is untouched, and no upstream PR is created by this fixture work.

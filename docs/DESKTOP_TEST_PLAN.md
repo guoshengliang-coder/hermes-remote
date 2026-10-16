@@ -1,10 +1,32 @@
 # Hermes Go Desktop test plan
 
+The fixture-transition increment adds ten Python tests and a separate frozen-source matrix. It
+appends an immutable before/after plan and a fixture-only terminal to the existing two intent slots;
+it never clears, replaces or resets them. Scope is exactly one disposable hg199-durable-* root with
+control/data/checkout. The changed source is a comment and the dependency generation is a hashed
+synthetic marker, not real PM/runtime activation. A test coordinator retains exclusive custody,
+passes the independently expected plan to an actual prefix child, observes the live handshake,
+bootstrap/admission/scratch and normal exit zero, then revalidates target inputs. Only that monitor
+can mint a fresh, one-use, same-custodian memory witness for finish_fixture; booleans, saved JSON,
+expired/cross-custodian evidence, failed child results and nonzero exits refuse. A disposable mutant
+without the witness check exposes premature writer admission. Four entries complete, eight stale
+source/marker cases refuse, and ten coordinator SIGKILL cases include partial plan/terminal appends.
+After full terminal publication a new ordinary writer must validate identical canonical history and
+actual target inputs under all shared gates. Corrupt, partial, overlapping-scope or moved inputs
+stay closed; the writer re-syncs both slots/registry and checks contents before entry, refusing
+sync errors rather than inferring publisher fsync success from visible bytes. No partial repair
+is attempted. Linux/macOS run all tests and frozen matrices.
+This is one fixture epoch only, not production completion or real dependency-generation evidence.
+The trusted supervisor still keeps the expected plan; its death/consent recovery, actual services,
+PM/native/cron/business, OS reboot/power loss and next-epoch recovery remain unverified. Registry
+hashes/nonces do not defend against same-UID malicious rewriting/rollback. Production/durable/global/
+upgrade flags stay false. No Desktop app behavior, UI/device verification or live installation change.
+
 The persisted-intent increment adds ten Python tests. Schema-2 explicit enrollment pins an owner-only
 intent slot per home/checkout. Writers check exact idle bytes under all shared admission gates before
 lifetime locks; active, empty, torn or unknown contents stay closed. begin requires drained exclusive
 custody, validates the independent context, writes matching records and fsyncs every slot and registry
-before returning authority. There is no reset/clear/finish API or silent schema migration. Five real
+before returning authority. durable_intent has no reset/clear/finish API or silent schema migration. Five real
 publisher SIGKILL cases cover four fully synced entry fixtures and one partial publication. Four
 new recovery processes validate the stored intent against independently supplied context before copied
 imports; 28 wrong contexts and competing recoveries reject. Actual scratch runs only after admission;
@@ -14,8 +36,9 @@ partial write/fsync errors, scope isolation, legacy enrollment, invalid context 
 Linux/macOS run fixtures and frozen inputs. Partial multi-domain publication is fail-closed for the
 selected pair, not atomic across every possible overlap; no data operation is authorized until all
 slots sync. The supervisor retains expected consent context in memory; this is not Desktop-death consent
-recovery or a production launcher. No power-loss/OS-reboot proof, terminal clear, source-generation
-transition, actual PM/native/cron/service/UI/device validation. Full durable/global/upgrade flags stay false.
+recovery or a production launcher. This base matrix does not prove power-loss/OS-reboot, terminal
+clear, source-generation transition or actual PM/native/cron/service/UI/device behavior.
+Full durable/global/upgrade flags stay false.
 
 The failure increment adds six Python tests, eight frozen-source uncertain prefixes and nine
 synthetic SIGKILL cases. Issuer failures before commit are separate from any failure while/after

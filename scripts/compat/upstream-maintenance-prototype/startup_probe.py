@@ -120,11 +120,26 @@ def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", ro
     # Authorize before importing ANY copied package, including package __init__.
     # PM hooks remain no-ops; this is only a live trusted-launcher experiment.
     if bound:
+        transition_fd = binding_args.get("transition")
         try:
+            def acquire():
+                value = lease.Lease.inherit_maintenance([lease.Domain(*record) for record in domain_records], descriptors)
+                if transition_fd is not None:
+                    try:
+                        spec = importlib.util.spec_from_file_location("prefix_transition", Path(__file__).with_name("generation_transition.py"))
+                        transition = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(transition)
+                        plan = binding.read_context(transition_fd)
+                        if plan["after"]["run"] != binding_args["run"] or plan["after"]["source"] != binding_args["source"]:
+                            raise ValueError("fixture target identity")
+                        transition.target(value, plan)
+                    except BaseException:
+                        value.close()
+                        raise
+                return value
             adopted = binding.accept(binding_args["channel"], binding_args["context"],
                                      binding_args["run"], binding_args["source"], checkout, home, entry_module,
-                                     domain_records, lambda: lease.Lease.inherit_maintenance(
-                                         [lease.Domain(*record) for record in domain_records], descriptors))
+                                     domain_records, acquire)
             held.append(adopted)
             result["boundIdentityVerified"] = True
         except (ValueError, OSError):
@@ -132,6 +147,8 @@ def run(checkout, domain_records, mode, argv, entry_module="hermes_cli.main", ro
         finally:
             for fd in (*descriptors, binding_args["context"]):
                 os.close(fd)
+            if transition_fd is not None:
+                os.close(transition_fd)
     if durable:
         adopted = None
         try:

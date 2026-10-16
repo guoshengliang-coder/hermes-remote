@@ -7,6 +7,7 @@ No PID scans, signals, runtime imports, receipts or production configuration.
 """
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -205,8 +206,15 @@ class Lease:
             if not maintenance:
                 # Under ALL shared admission gates, before any writer lifetime
                 # lock is granted. EX maintenance gates serialize slot updates.
-                for domain in self.domains:
-                    domain.require_idle()
+                try:
+                    for domain in self.domains:
+                        domain.require_idle()
+                except Pending:
+                    spec = importlib.util.spec_from_file_location("fixture_transition", Path(__file__).with_name("generation_transition.py"))
+                    transition = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(transition)
+                    if not transition.can_enter_fixture(self.domains):
+                        raise
                 for _, writer in self._pairs:
                     fcntl.flock(writer, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 for gate, _ in self._pairs:

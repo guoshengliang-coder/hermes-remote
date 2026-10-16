@@ -50,10 +50,19 @@ PM/恢复为注入空操作，实验在 scratch hook 返回时停止；不是完
 新增持久意图实验使用schema 2预登记的双域固定槽，writer在共享准入锁内只接受精确空闲记录。
 维护方已排空并同步全部事务上下文后被SIGKILL，新writer仍拒绝；4个新进程可在独立预期上下文
 与排他锁核验后进入scratch，28个上下文不符和竞争恢复拒绝，部分发布也不自动修补。
-恢复退出保留槽，没有清除/finish API。`processRestartAdmissionVerified=true`仅为这一进程级
+恢复退出保留槽，`durable_intent`没有清除/finish API。`processRestartAdmissionVerified=true`仅为这一进程级
 阻断证据；用户授权的耐久来源、真正更新后的源/依赖代次、终态清除、OS重启/断电和服务恢复
 仍未认证，`durableHandoffVerified=false`不变。完整边界与复现见上游协作需求及原型README。
 原生预加载、cron包初始化和真实PM/恢复仍未覆盖，全部升级认证flag保持false。
+
+后续`hermes-maintenance-transition.py`仅在显式临时fixture内追加计划与测试终态，保留原意图，
+验证一次源码注释/合成依赖标记的代次转换。目标摘要在变更前固定；真实独立子进程必须完成活通道
+核验、执行scratch前缀且退出0，监督方复核目标后产生5秒内一次性内存witness，才可提交测试终态。
+布尔值、保存的JSON、过期/跨持锁者的证明不能完成；部分追加、目标漂移或旧源码/依赖标记仍阻断。
+四入口完成后writer可接入，8次旧输入拒绝、10次协调方SIGKILL由Linux/macOS隔离矩阵验证。
+`fixtureCompletionPolicyVerified=true`不代表真实依赖环境、服务boot/业务、生产授权或OS重启安全。
+此策略不提供下一轮epoch、部分日志修复或监督方死亡后的授权恢复；`productionCompletionVerified`
+和完整耐久/全局/升级认证保持false，未启用Desktop执行入口。复现与边界见原型README。
 
 外部恢复材料已增加独立 `DesktopHermesUpgradeDependencyStore`：调用者明确选择 home 外的
 最多16个不重叠目录，保存私有 run/source/home/OS build/architecture manifest、文件 hash、
