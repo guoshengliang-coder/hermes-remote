@@ -3,7 +3,7 @@
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
 
-## Generated files in temporary directories (HG-217)
+## Generated files in temporary directories (HG-217, Connector 0.1.14)
 
 `GET /api/files` retains the existing `FILES_ROOT` grant and additionally permits files in
 `/tmp`, `/private/tmp`, and the Connector process's `os.tmpdir()` (including their canonical
