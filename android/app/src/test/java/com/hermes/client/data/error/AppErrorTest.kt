@@ -9,6 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun modelSyncErrorsHaveBilingualRedactedContracts() {
+        for (code in listOf(AppErrorCode.MODEL_SYNC_CONFLICT, AppErrorCode.MODEL_SYNC_RESET,
+            AppErrorCode.MODEL_SYNC_INVALID, AppErrorCode.MODEL_SYNC_QUOTA, AppErrorCode.MODEL_SYNC_PENDING, AppErrorCode.MODEL_SYNC_STORAGE)) {
+            val error=AppError(code, retryable=code==AppErrorCode.MODEL_SYNC_STORAGE, technicalCause="Authorization: Bearer private")
+            assertEquals(code,AppErrorCode.fromValue(code.value))
+            assertTrue(error.localizedSummary(AppLanguage.ZH)!=error.localizedSummary(AppLanguage.EN))
+            assertTrue(error.localizedMessage(AppLanguage.ZH).contains(code.value))
+            assertFalse(error.sanitizedDiagnostic().contains("private"))
+            assertEquals(code==AppErrorCode.MODEL_SYNC_STORAGE,error.retryable)
+        }
+    }
+
     @Test fun accountProfileSyncCodesHaveDistinctBilingualNonRetryableRedactedMessages() {
         val codes = listOf(AppErrorCode.ACCOUNT_PROFILE_CONFLICT, AppErrorCode.ACCOUNT_PROFILE_SYNC_RESET,
             AppErrorCode.ACCOUNT_PROFILE_NAME_INVALID, AppErrorCode.ACCOUNT_PROFILE_AVATAR_INVALID)

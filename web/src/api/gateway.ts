@@ -124,6 +124,7 @@ export interface GatewayCapabilities {
     identityManagement: boolean;
     accountDeletion?: true;
     accountDataSync?: { version: 1; entities: string[] };
+    modelPreferencesSync?: { version: 1; maxModels: 500; retentionDays: 90 };
     webAccountCenter: boolean;
     webSessions?: true;
     /** ACCOUNT_WEB_DEVICE_ACCESS_ENABLED: the cookie device routes this app needs are served. */
@@ -558,6 +559,17 @@ export class GatewayClient {
   accountProfile(accountId: string, cursor?: string): Promise<AccountProfileSnapshot> {
     return this.request("GET", cursor ? `/v2/web/account-data/changes?cursor=${encodeURIComponent(cursor)}` : "/v2/web/account-data/snapshot",
       { headers: { "x-hermes-expected-account": accountId } });
+  }
+
+  modelPreferences(accountId: string, cursor?: string): Promise<import("../account/modelPreferences").ModelSnapshot> {
+    return this.request("GET", cursor ? `/v2/web/account-data/models/changes?cursor=${encodeURIComponent(cursor)}` : "/v2/web/account-data/models/snapshot",
+      { headers: { "x-hermes-expected-account": accountId } });
+  }
+  resolveModelPreference(accountId: string, provider: string, model: string): Promise<{ row: import("../account/modelPreferences").ModelPreference }> {
+    return this.request("POST", "/v2/web/account-data/models/resolve", { body: { provider, model }, headers: { "x-hermes-expected-account": accountId } });
+  }
+  setModelPreference(accountId: string, operation: import("../account/modelPreferences").ModelOperation): Promise<{ status: "accepted" | "conflict"; row: import("../account/modelPreferences").ModelPreference }> {
+    return this.request("POST", "/v2/web/account-data/models/mutations", { body: operation, headers: { "x-hermes-expected-account": accountId } });
   }
 
   setAccountProfile(accountId: string, operation: AccountProfileOperation, avatar?: Blob): Promise<AccountProfileResult> {

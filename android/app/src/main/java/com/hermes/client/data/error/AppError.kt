@@ -137,6 +137,12 @@ enum class AppErrorCode(val value: String) {
     ACCOUNT_PROFILE_SYNC_RESET("HR-SYNC-007"),
     ACCOUNT_PROFILE_NAME_INVALID("HR-SYNC-008"),
     ACCOUNT_PROFILE_AVATAR_INVALID("HR-SYNC-009"),
+    MODEL_SYNC_CONFLICT("HR-SYNC-012"),
+    MODEL_SYNC_RESET("HR-SYNC-013"),
+    MODEL_SYNC_INVALID("HR-SYNC-014"),
+    MODEL_SYNC_QUOTA("HR-SYNC-015"),
+    MODEL_SYNC_PENDING("HR-SYNC-016"),
+    MODEL_SYNC_STORAGE("HR-SYNC-017"),
     NOTIFICATION_ACTION_FAILED("HR-NOTIF-001"),
     // Registering this phone's FCM token with the Relay failed (HG-94). Nothing is lost: the
     // 15-minute JobScheduler sync and the foreground socket keep running, so alerts are only

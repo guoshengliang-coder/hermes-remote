@@ -28,11 +28,21 @@ open class AccountApi(
     private val okHttp: OkHttpClient,
     private val json: Json,
 ) {
-    suspend fun capabilities(baseUrl: String): AccountCapabilitiesDto =
+    open suspend fun capabilities(baseUrl: String): AccountCapabilitiesDto =
         get(baseUrl, "/v2/capabilities", bearer = null)
 
     suspend fun accountProfile(baseUrl: String, bearer: String): AccountProfileSyncDto =
         get(baseUrl, "/v2/account-data/snapshot", bearer)
+
+    open suspend fun modelPreferences(baseUrl: String, bearer: String, cursor: String? = null): ModelPreferencesSnapshotDto =
+        get(baseUrl, if (cursor == null) "/v2/account-data/models/snapshot" else
+            "/v2/account-data/models/changes?cursor=${URLEncoder.encode(cursor, "UTF-8")}", bearer)
+
+    open suspend fun resolveModelPreference(baseUrl: String, bearer: String, provider: String, model: String): ModelPreferenceResolveDto =
+        post(baseUrl, "/v2/account-data/models/resolve", buildJsonObject { put("provider", provider); put("model", model) }, bearer)
+
+    open suspend fun setModelPreference(baseUrl: String, bearer: String, operation: ModelPreferenceOperationDto): ModelPreferenceResultDto =
+        post(baseUrl, "/v2/account-data/models/mutations", json.encodeToJsonElement(ModelPreferenceOperationDto.serializer(), operation) as JsonObject, bearer)
 
     /** Fixed account route only. Neither external avatar URLs nor legacy credentials are used. */
     suspend fun accountProfileAvatar(baseUrl: String, bearer: String, revision: String): ByteArray = withContext(Dispatchers.IO) {

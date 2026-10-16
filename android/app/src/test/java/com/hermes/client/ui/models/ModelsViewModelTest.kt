@@ -54,6 +54,7 @@ class ModelsViewModelTest {
 
     @Before fun setUp() {
         every { profileManager.active } returns activeProfile
+        every { favoritesStore.sync } returns null
         every { favoritesStore.favorites } returns MutableStateFlow(emptySet())
         coEvery { models.providers(any()) } returns catalog
         coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
@@ -75,7 +76,7 @@ class ModelsViewModelTest {
     }
 
     private fun buildVm(store: com.hermes.client.data.repository.ModelCatalogStore = buildStore()) =
-        ModelsViewModel(models, favoritesStore, profileManager, configRepo, store)
+        ModelsViewModel(models, favoritesStore, profileManager, configRepo, store, mockk(relaxed = true))
 
     // The settings page edits exactly the default slot, so it must show the current default —
     // previously it passed nulls and never marked any row.

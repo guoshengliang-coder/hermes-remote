@@ -38,7 +38,7 @@ test(
             "SELECT version FROM gateway_schema_state WHERE singleton=true",
           )
         ).rows[0].version,
-        19,
+        20,
       );
       const store = new PostgresWebPushStore(pool);
       const seed = async () => {

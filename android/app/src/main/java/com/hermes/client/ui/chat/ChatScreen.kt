@@ -2004,6 +2004,7 @@ fun ChatScreen(
         val sheetReasoning by vm.reasoningEffort.collectAsStateWithLifecycle()
         val reasoningPending by vm.reasoningPending.collectAsStateWithLifecycle()
         val reasoningPresets by vm.reasoningPresetMap.collectAsStateWithLifecycle()
+        val syncState = vm.modelSync?.state?.collectAsStateWithLifecycle()?.value
         // The session's provider may be unknown (old metadata); resolve it from the catalog so
         // the current row/group can be marked.
         val resolvedCurrentProvider = com.hermes.client.ui.models.resolveModelProvider(
@@ -2018,6 +2019,7 @@ fun ChatScreen(
             currentProvider = resolvedCurrentProvider, currentModel = currentModel,
             expandedGroups = effectiveExpanded,
             presets = reasoningPresets,
+            includeUnavailable = syncState?.useCloud == true,
         )
         val recents by vm.recentModels.collectAsStateWithLifecycle()
         // Provider display names come from the live catalogue, never from what was stored.
@@ -2040,6 +2042,8 @@ fun ChatScreen(
         }
         com.hermes.client.ui.models.ModelSelectorSheet(
             groups = groups,
+            syncPanel = { com.hermes.client.ui.models.AccountModelSyncPanel(vm.modelSync, vm::legacyModels, resolvedCurrentProvider, currentModel) },
+            favoriteBlocked = { p, m -> syncState?.let { it.useCloud && it.blocked(p, m, "favorite") } == true },
             onToggleFavorite = vm::toggleFavorite,
             onSelect = { p, m ->
                 vm.onSelectFromSheet(p, m) {
@@ -2078,7 +2082,7 @@ fun ChatScreen(
             recents = recentChips,
             reasoningEffort = sheetReasoning,
             onSelectReasoning = vm::setReasoning,
-            reasoningPending = reasoningPending,
+            reasoningPending = reasoningPending || (syncState?.let { s -> s.useCloud && resolvedCurrentProvider != null && currentModel != null && s.blocked(resolvedCurrentProvider, currentModel.orEmpty(), "reasoningPreset") } == true),
             listLoading = providersLoading,
             listError = providersError,
             onRetryLoad = { vm.ensureProviders(force = true) },

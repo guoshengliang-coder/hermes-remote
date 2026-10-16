@@ -22,6 +22,11 @@ foreground refresh updates the name/photo on Settings → Hermes GO account. The
 private and separate from Hermes identity decoration. Editing remains on Web in this first slice;
 no sync capability means the existing account flow is retained. See `../docs/ACCOUNT_DATA_SYNC_P1A.md`.
 
+HG-216 P1c separately gates account model favorites and remembered reasoning. Account mode uses
+an app-private SQLite snapshot/outbox, exact field revisions and explicit import/conflict review.
+Legacy remains local; recents and group expansion do not sync. Remote updates never change a live
+conversation or Mac default. See `../docs/ACCOUNT_DATA_SYNC_MODELS.md` for scope and schema20 gates.
+
 The upstream client is Kotlin + Jetpack Compose and already implements Hermes REST, `/api/ws` JSON-RPC, sessions, streaming chat, Markdown, attachments, reconnect, and encrypted credential storage. Hermes Remote retains those foundations and routes them through the HK Relay.
 
 ## First UI pass

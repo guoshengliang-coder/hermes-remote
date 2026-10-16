@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -41,9 +42,14 @@ class ModelsViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val configRepo: com.hermes.client.data.repository.ConfigRepository,
     private val catalogStore: ModelCatalogStore,
+    private val reasoningPresets: com.hermes.client.data.repository.ReasoningPresetStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ModelsUiState())
     val state: StateFlow<ModelsUiState> = _state.asStateFlow()
+
+    val modelSync get() = favoritesStore.sync
+    suspend fun legacyModels(): com.hermes.client.data.sync.LegacyModelImport =
+        com.hermes.client.data.sync.legacyModelImport(favoritesStore.legacyFavorites.first(), reasoningPresets.legacyPresets.first())
 
     val favorites: StateFlow<Set<String>> =
         favoritesStore.favorites.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptySet())
@@ -140,8 +146,10 @@ class ModelsViewModel @Inject constructor(
         )
     }
 
-    fun toggleFavorite(provider: String, model: String) =
-        viewModelScope.launch { favoritesStore.toggle(provider, model) }
+    fun toggleFavorite(provider: String, model: String): kotlinx.coroutines.Job {
+        val preferenceOwner = modelSync?.currentOwnerKey()
+        return viewModelScope.launch { favoritesStore.toggle(provider, model, preferenceOwner) }
+    }
 
     fun select(provider: String, model: String) {
         if (_state.value.pendingKey != null) return

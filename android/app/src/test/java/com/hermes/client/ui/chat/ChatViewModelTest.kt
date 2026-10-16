@@ -115,6 +115,7 @@ class ChatViewModelTest {
         coEvery { modelRepo.options() } returns emptyList()
         coEvery { modelRepo.providers() } returns emptyList()
         coEvery { profileRepo.list() } returns emptyList()
+        every { favoritesStore.sync } returns null
         every { favoritesStore.favorites } returns MutableStateFlow(emptySet())
         every { recentsStore.recents } returns MutableStateFlow(emptyList())
         every { tts.speaking } returns MutableStateFlow(false)

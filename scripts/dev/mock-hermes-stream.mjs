@@ -124,6 +124,7 @@ const server = createServer(async (request, response) => {
   }
   if (p === "/api/profiles") return json(response, { profiles: [{ name: "default", is_default: true }, { name: "Work" }, { name: "Personal" }] });
   if (p === "/api/profiles/active") return json(response, { active: "default" });
+  if (p === "/api/model/info") return json(response, { model: "claude-opus-5", provider: "anthropic" });
   if (p === "/api/model/options") {
     return json(response, {
       providers: [
