@@ -67,13 +67,15 @@ private val MODEL_SWITCH_NAME = Regex("changed to (\\S+?)(?: via |\\. |\\.]|$)")
  * as a note when nothing of the user's own text is left.
  */
 const val COMPRESSION_SNAPSHOT_HEADER = "[Your active task list was preserved across context compression]"
+const val COMPRESSION_SKILLS_HEADER = "[Skills pruned during compression — reload before acting on these tasks]"
 
 /**
  * [text] with the compression scaffolding and everything after it removed. Returns [text]
  * unchanged when the marker is absent, and "" when the message was scaffolding alone.
  */
 fun withoutCompressionScaffolding(text: String): String {
-    val index = text.indexOf(COMPRESSION_SNAPSHOT_HEADER)
+    val index = listOf(COMPRESSION_SNAPSHOT_HEADER, COMPRESSION_SKILLS_HEADER)
+        .map { text.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: -1
     return if (index < 0) text else text.substring(0, index).trimEnd()
 }
 
@@ -220,6 +222,8 @@ fun timelineNoteFor(message: ChatMessage): TimelineNote? {
             return TimelineNote("◐", "已切换人格", "Personality changed", expandable = false)
         "auto_continue" ->
             return TimelineNote("↻", "已从中断处继续", "Resumed interrupted turn", expandable = false)
+        "compression" ->
+            return TimelineNote("⧉", "上下文已压缩", "Context compressed", expandable = true)
         else ->
             // Forward compatibility: any future marker renders as a quiet note, never a bubble.
             return TimelineNote("ℹ", "系统备注", "System note", expandable = true)
@@ -234,7 +238,8 @@ fun timelineNoteFor(message: ChatMessage): TimelineNote? {
         // Scaffolding ALONE — a turn that is nothing but the compression snapshot. When the user
         // also typed something the marker sits further in and the message stays a real bubble
         // with the scaffolding cut off it (see organizedForDisplay).
-        withoutCompressionScaffolding(text).isBlank() && text.contains(COMPRESSION_SNAPSHOT_HEADER) ->
+        withoutCompressionScaffolding(text).isBlank() &&
+            (text.contains(COMPRESSION_SNAPSHOT_HEADER) || text.contains(COMPRESSION_SKILLS_HEADER)) ->
             TimelineNote("⧉", "上下文已压缩", "Context compressed", expandable = true)
         else -> null
     }

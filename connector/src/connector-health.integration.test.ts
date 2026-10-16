@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, generateKeyPairSync, randomUUID, verify } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +24,7 @@ test("the real Connector reports degraded/recovered health on one authenticated 
     privateKey: keys.privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32).toString("base64url"),
   }), { mode: 0o600 });
   let credentialsHealthy = false;
+  let healthCalls = 0;
   let stalled = false;
   let stalledStarted!: () => void;
   let stalledClosed!: () => void;
@@ -32,6 +33,7 @@ test("the real Connector reports degraded/recovered health on one authenticated 
   const server = createServer((request, response) => {
     request.resume();
     if (request.url === "/api/health") {
+      healthCalls++;
       response.writeHead(200).end(JSON.stringify({ ok: true, version: "0.21.3" }));
     } else if (request.url === "/api/profiles/active") {
       assert.equal(request.headers["x-hermes-session-token"], "fixture-local-token");
@@ -80,7 +82,7 @@ test("the real Connector reports degraded/recovered health on one authenticated 
   const child = spawn(process.execPath, [fileURLToPath(new URL("./index.js", import.meta.url))], {
     env: { PATH: process.env.PATH, HOME: root, CONNECTOR_MODE: "account", HERMES_MODE: "real",
       SESSION_OBSERVER_ENABLED: "0", GATEWAY_URL: gatewayUrl, ACCOUNT_CONNECTOR_CREDENTIAL_FILE: credentialPath,
-      HERMES_BASE_URL: origin, HERMES_SESSION_TOKEN: "fixture-local-token" },
+      HERMES_BASE_URL: origin, HERMES_SESSION_TOKEN: "fixture-local-token", HERMES_GO_MAINTENANCE_DIRECTORY: root },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -125,9 +127,27 @@ test("the real Connector reports degraded/recovered health on one authenticated 
   control.send(JSON.stringify({ type: "tunnel.http.request", version: 1, id: contractId,
     targetDeviceId: "test-mac", method: "GET", path: "/api/hermes-remote/contract", headers: {} }));
   await waitFor(() => received.some((message) => message.type === "tunnel.http.response" && message.requestId === contractId));
+  const maintenance = { schema: 1, runID: randomUUID(), sourceIdentity: "a".repeat(64) };
+  await writeRequest(root, JSON.stringify({ ...maintenance, mode: "pause" }), { mode: 0o600 });
+  const callsBeforePause = healthCalls;
+  const paused = probe(); control.send(JSON.stringify(paused));
+  await waitFor(() => received.some((message) => message.type === "connector.preflight.result" && message.requestId === paused.requestId));
+  const blocked = received.find((message) => message.type === "connector.preflight.result" && message.requestId === paused.requestId);
+  assert.ok(blocked?.type === "connector.preflight.result"); assert.equal(blocked.hermesReachable, false);
+  assert.equal(healthCalls, callsBeforePause, "maintenance must refuse new health calls too");
+  await writeRequest(root, JSON.stringify({ ...maintenance, mode: "release" }), { mode: 0o600 });
   stalled = true;
   const last = probe(); control.send(JSON.stringify(last));
   await started;
+  await writeRequest(root, JSON.stringify({ ...maintenance, mode: "pause" }), { mode: 0o600 });
+  // Trigger a fresh mailbox observation while the admitted health body is still stalled.
+  const refused = randomUUID();
+  control.send(JSON.stringify({ type: "tunnel.http.request", version: 1, id: refused, targetDeviceId: "test-mac",
+    method: "GET", path: "/api/fixture", headers: {} }));
+  await waitFor(() => received.some((message) => message.type === "tunnel.http.response" && message.requestId === refused));
+  const ack = JSON.parse(await readFile(join(root, "ack.json"), "utf8"));
+  assert.equal(ack.paused, true);
+  assert.ok(ack.activeOperations > 0, "an admitted health response remains busy until its body is closed");
   control.close(1001, "fixture-control-closed");
   await Promise.race([cancelled, new Promise((_, reject) => {
     const timer = setTimeout(() => reject(new Error("local health request was not cancelled")), 1_000);
@@ -140,4 +160,11 @@ test("the real Connector reports degraded/recovered health on one authenticated 
 
 function probe() {
   return { type: "connector.preflight.request", version: 2, requestId: randomUUID(), sentAt: new Date().toISOString() };
+}
+
+// Match Desktop's atomic mailbox publication: concurrent readers must not see fixture half-writes.
+async function writeRequest(directory: string, body: string, options: { mode: number }): Promise<void> {
+  const temporary = join(directory, `.${randomUUID()}.request.tmp`);
+  await writeFile(temporary, body, options);
+  await rename(temporary, join(directory, "request.json"));
 }

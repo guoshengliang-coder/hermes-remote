@@ -3,6 +3,17 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopMigrationJournalTests: XCTestCase {
+    func testUnfinishedOrUnreadableHermesUpgradeBlocksEveryMigrationLease() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try DesktopMigrationJournalStore(root: root)
+        do { let lease = try store.acquireOperationLease(); withExtendedLifetime(lease) {} }
+        let pending = root.appendingPathComponent("hermes-upgrade-state.json")
+        try Data("{}".utf8).write(to: pending)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: pending.path)
+        XCTAssertThrowsError(try store.acquireOperationLease())
+    }
+
     func testReadOnlyLoadDoesNotCreateStateOrLockOnACleanMac() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

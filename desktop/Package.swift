@@ -12,7 +12,7 @@ let package = Package(
         .executable(name: "HermesGoDesktop", targets: ["HermesGoDesktop"]),
     ],
     targets: [
-        .target(name: "HermesGoDesktopCore"),
+        .target(name: "HermesGoDesktopCore", resources: [.copy("Resources/hermes-upgrade-worker.py")]),
         .executableTarget(
             name: "HermesGoDesktop",
             dependencies: ["HermesGoDesktopCore"]

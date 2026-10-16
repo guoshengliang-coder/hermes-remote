@@ -743,7 +743,7 @@ not something the person said, and the app renders them as one-line timeline not
 | `[Your active task list was preserved across context compression]` | `tools/todo_tool.py` `TODO_INJECTION_HEADER` | **See the hazard below.** |
 | `[PRIOR CONTEXT — for reference only; not a new message]` | `agent/context_compressor.py` `_MERGED_PRIOR_CONTEXT_HEADER` | Context-compaction carrier. Projected by `domain/CompactionCarrier.kt`, see §5. |
 | `[CONTEXT COMPACTION …` / `[CONTEXT SUMMARY]` | same file | Pure handoff; the turn is dropped when nothing real is merged in. |
-| `[Skills pruned during compression — reload before acting on these tasks]` | `agent/conversation_compression.py` `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` | Only ever appended after the header above (`todo_snapshot = f"{todo_snapshot}\n\n{_reload_notice}"`), never alone, so cutting at that header removes both. |
+| `[Skills pruned during compression — reload before acting on these tasks]` | `agent/conversation_compression.py` `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` | 0.21.3 appends it to the TODO snapshot. In 0.21.6 `_salvage_reduce_todo_snapshot` can emit it independently; both headers are recognized, including a suffix appended to real user text. |
 | `[The user sent a document: …]`, `[The user sent a text document: …]` | `gateway/run.py` `_build_document_context_note`, composed in `gateway/run_inbound.py` `_prepend_inbound_document_notes` | Attachment context note. See the attachment hazard below. |
 | `[The user sent an audio file attachment: …]`, `[The user sent a video attachment: …]` | `gateway/run_inbound.py` `_prepend_inbound_media_file_notes` | Same family, same shape. |
 | `[The user sent a voice message: /path (duration: …)]` | `gateway/run_inbound.py`, the branch taken when STT is disabled | Same family. |
@@ -980,9 +980,9 @@ Run this before adopting a new Hermes, and record the outcome by updating the ve
    must return the `hermes_remote` text and must leave the `desktop`/`tui` defaults untouched.
    Without it this app's platform silently has no capability block at all.
 6. Diff upstream `tools/todo_tool.py` `TODO_INJECTION_HEADER` against `COMPRESSION_SNAPSHOT_HEADER`
-   (section 4b), and re-check that the skills-reload notice is still appended after it rather than
-   emitted on its own. A silent reword here brings the scaffolding back into the transcript as a
-   user bubble.
+   (section 4b) and `_PRUNED_SKILL_RELOAD_NOTICE_HEADER` against both client parsers. Test each
+   header alone and appended to real user text; 0.21.6 can emit the skills notice independently.
+   Run the shared display samples, not only a literal-constant comparison.
 7. Confirm the `messages` table still exposes `timestamp` (section 1b): `sqlite3 ~/.hermes/state.db
    ".schema messages"`. A rename silently empties every history timestamp again.
 8. Run the attachment and streaming smoke tests in `docs/SMOKE_TEST.md` against the upgraded Hermes.
@@ -1116,3 +1116,143 @@ plus endpoint and cron metadata that the Connector must strip. Also checked
 confirmation and deferred flags are pending states, not confirmed model application.
 Web now parses these states and does not update recents before application. No upstream upgrade,
 patch, wire-version change or new Mac credential exposure is part of this work.
+
+
+## HG-199 · GO compatibility projection (first stage)
+
+The existing Connector contract endpoint also returns optional `capabilities` schema 1, scoped by
+`?profile=` and Connector connection generation. Ordinary RPC/REST traffic supplies passive evidence
+for chat, history, images, approval, clarify and cron; the monitor never sends a write probe, drops
+unknown params or retries a rejected write. States are `supported`, `unsupported`, `unknown`, `fault`.
+An absent legacy method does not disable an alternate transport; `unsupported` requires absence
+observed for all relevant alternatives. A missing history row is a fault, not an absent history API.
+Unscoped traffic cannot populate another profile. Evidence expires after five minutes and resets on reconnect/installation change. This stage exposes
+the report; profile-aware feature controls in Android/Web remain a later stage of HG-199.
+
+OpenAPI verdicts also expire after five minutes even if the display version did not change.
+A bounded, owner-checked installation fingerprint includes Git commit/ref, source inputs and PM
+selection facts without importing Hermes or reading `.env`. It is disk evidence, never proof of the
+running process's boot commit. An unreachable current probe returns unknown instead of advertising
+a cached compatible verdict.
+
+Opt-in history previews/full-row reads attach `hr_display: {schema: 1, kind, body}` beside the original
+message. Explicit upstream `display_kind` has priority; fallback recognizes both compression notice
+headers. Mixed rows retain real user text and keep the raw content available. Schema 1 is consumed
+by Android/Web; unknown schemas fall back to the upstream row. Unknown non-image content blocks
+retain a JSON payload instead of disappearing. Existing inline-image handling is preserved.
+`protocol/fixtures/hermes-display-v1.json` exercises all three parsers; fixture-only changes select
+Node, Android and Web CI. Legacy forwarding and the browser route allowlist are unchanged.
+
+See `HERMES_UPGRADE.md` for the staged implementation and verification limits.
+
+### HG-199 · pinned official updater bridge
+
+The bundled worker consumes internal APIs from **818c13be1dc4fd28987e1e881a9408224afd4535 only**.
+These are not upstream's stable public API and must be rechecked in source before changing targets:
+
+| Contract | Official source | GO boundary |
+|---|---|---|
+| v2 marker plus Git-common-dir checkout lock; inheritable POSIX custody | `hermes_cli/update_lock.py` `UpdateLock(path, install_root)` | Hold through backup, takeover and independent verification; a separate home cannot bypass the checkout lock |
+| Safe Git invocation and inherited child custody | `hermes_cli/update_custody.py` `run_git`, `popen_post_commit` | Fixed object, no hook/helper fallback, no signal on Desktop exit |
+| Depth-limited full clone conversion, including failed fetch | `hermes_cli/gitlock.py` `fetch_full_commit_graph` | Can leave origin promisor/blob:none metadata before fetch completes; retain it, require the pinned tip's local commit/tree/all blobs and deny transport during GO validation |
+| Durable source-tail/fleet/pull intent before files move | `hermes_cli/venv_sync.py` `arm_completion`, `update_host_obligation.py` `arm_host_obligation`, `update_cmd_commit.py` `arm_tree_move`, `tree_whole_at` | Caller must already prove all writers retired and store its backup/journal |
+| Historical interpreter bootstrap, PM-selected environment and finish handoff | `hermes_cli/_update_takeover.py`, `hermes_cli/update_finish.py` | Exact root/update_id/pre-update/plan context; no DIY dependency installer |
+| Completed-PM handoff resumed before finish effects | `_update_takeover.prepare`, `_run_finish_child`, `update_finish.main`, `pm.client.venv_is_current`, `_launchers.resolve_store_python`, `pm.environments.activation_environment` | Durable GO preparing/ready/finishing boundary plus same original context/IDs; existing archive must be unique and unfinished; no PM replay on resume |
+| Launcher versus official/PM correlation | `hermes_cli/update_receipt.py`, `pm/receipt.py` | GO `HERMES_UPDATE_CORRELATION_ID` binds `correlation_id`; separately recorded official UUID binds `update_id` |
+| Release identity stamped by finish | `hermes_cli/version_info.py` `get_code_identity`, release tag `v<version>` | Snapshot and installed tag must peel to the same pinned object; receipt must match both version and SHA |
+
+Source snapshots must contain the objects required for a fixed-source fetch/ancestry proof, not just
+a tarball or a commit-only partial graph, and must retain the official exact release tag for finish's
+version stamp. Frozen `update_host_obligation` derives its installation key from its module origin;
+pre-move invocation temporarily projects that origin to the live checkout and restores it in finally.
+That private implementation detail needs source review for every certified target. Dirty/hidden source,
+foreign Python overlays anywhere in the snapshot, executable local
+Git config and unknown layout fail closed. `UpdateLock` is not writer admission: legacy 0.21.3 CLI does
+not acquire this checkout lock on every ordinary launch. GO must independently inventory, retire and
+fence all writers before an upgrade can become available. Process-level lock tests do not certify
+service restoration or make 0.21.6 a recommended target.
+
+The native read-only inspection uses the pinned candidate's profile path/name convention:
+`<default HERMES_HOME>/profiles/<id>` and `^[a-z0-9][a-z0-9_-]{0,63}$`
+(`hermes_constants.PROFILE_ID_RE`, `hermes_cli/profiles.py`). It lists POTENTIAL directories,
+including ghost/tombstoned shells, rather than reproducing `named_profile_has_identity` or
+`named_profile_is_deleted`/live-fleet logic. No marker/config/env bodies or upstream code are read
+or executed by the scanner. Kernel argv profile selectors are observations only: selector-less
+launches can use ambient/custom HERMES_HOME, so neither default home nor task inactivity is inferred.
+The scanner does not implement official UpdatePlan or activity API adapters. Current-user PID/birth
+and descendant observations add refusal checks; they cannot fence future CLI launches, orphaned
+writers or other users. Full admission/retirement evidence remains independently required.
+
+Live installations accept only a single origin `promisor=true` / `partialclonefilter=blob:none`
+pair, optionally with the old `extensions.partialclone=origin`. Other partial layouts and duplicate
+keys fail closed; frozen source assets still reject any partial metadata. GO's Git helper clears
+inherited Git configuration/path overrides, sets `GIT_NO_LAZY_FETCH=1` and denies all transports,
+including on Git versions ignoring the lazy-fetch variable. Only the verified snapshot fetch admits
+file transport. The pinned tip commit, trees and every blob must be available locally (bounded
+32768-entry tree); historical blobs need not be. Python disk bytes are still checked against the
+same pinned tree. The currency probe has the same temporary transport fence, removed from its finish
+activation environment. Explicit official maintenance fetches remain upstream behavior, not a
+validation-time fallback. See [Git's no-lazy-fetch option](https://git-scm.com/docs/git#Documentation/git.txt---no-lazy-fetch).
+
+In the pinned source, `begin_update_receipt(previous=...)` carries previous fields forward and
+resets outcome/finished_at; it does not mean a terminal receipt's obligations were discharged.
+The worker therefore accepts only the pre-finish PM handoff with a private ready checkpoint binding
+context hash, installation, target and both IDs, and matching original empty steps,
+stages, fleet and restart effects, no followups/manual obligations, and no existing result. It reads
+the per-update archive when present (unique, never the replaceable latest pointer), verifies the live Python graph
+excluding only root dependency state/venvs and the known root/ui-tui/web/apps/desktop Node dependency
+directories, and rechecks journal/source/tag/handoff after the official
+non-bootstrapping currency probe in an isolated child importing the live tree: PM registry/facts also
+depend on module origin, even when project_root is explicit. The original context is never rewritten
+by resume. Initial preparation uses official helpers with GO checkpoints: preparing before PM,
+ready after a durable PM handoff, and finishing before any finish child. Historical `-S` interpreters
+may lack ruamel needed by process_identity→utils, so upstream's best-effort running archive can be
+absent; only the GO ready checkpoint proves finish never started in that case. Never synthesize a
+ready checkpoint for old transactions. `update_finish` inherits
+the official checkout lock and performs the official build/maintenance/fleet work; its exit zero
+still cannot certify GO completion. PM handoff loss, partially executed finish, and terminal fleet
+debt remain unsupported automatic recovery boundaries.
+
+### Connector maintenance refusal (HG-199)
+
+Opt-in local maintenance refuses new HTTP/upload/chat/WebSocket admissions. On an already open
+JSON-RPC channel, Connector uses its reserved implementation-defined `-32002` and exact message
+`HR-HERMESUPDATE-005`, with the registered structured error in `error.data`. Android maps both
+that refusal and a socket closed with the exact code; Web maps the structured RPC error or close
+reason. Unknown/new methods are refused during maintenance. `session.interrupt`,
+`approval.respond`, `clarify.respond`, `clarify.lock`, `request.answer`, and server-request response
+frames remain available to finish existing turns; queued frames are checked again before forwarding.
+Malformed, duplicate envelope keys, binary frames and notifications that cannot receive a correlated
+error are dropped without closing the channel. The entire connection remains busy in the ACK until
+actually closed, so this allowance cannot be treated as permission to stop Hermes. This code belongs
+to Connector, not upstream Hermes; existing RPC method semantics above remain upstream-owned.
+
+### Single-process serve activity diagnostic (HG-199)
+
+Desktop's manual condition check now consumes only local GET routes, using the recognized GO local
+launcher/private token and fixed `127.0.0.1:9119`; it never tunnels this credential or requests retirement.
+In [pinned 0.21.6 status routes](https://github.com/NousResearch/hermes-agent/blob/818c13be1dc4fd28987e1e881a9408224afd4535/hermes_cli/web_routers/status.py),
+`/api/host/identity` requires the token and returns `ok`, `protocolVersion=1`, integer `pid`,
+`role=serve|desktop-serve`, `servesSpa=false` for headless serve. `/api/health` returns boot-cached full
+`commit`, base `version`, optional `displayVersion` and boolean `auth_required`. That last field
+describes dashboard ticket gating: Desktop-owned loopback normally sets it false while identity/idle
+still require the private session token. `/api/health/idle` is token-gated and returns `ok`, tri-state
+`idle`, `reason` and optional `detail`. None/unrecognized/contradictory shapes stay unknown.
+The [old 0.21.3 routes](https://github.com/NousResearch/hermes-agent/blob/17b5df02f2a729d8f46fbbf78cfc1f5a8cf0f121/hermes_cli/web_routers/status.py)
+have idle/retirement but no host-identity route or health commit; GO must not infer these from version
+or filesystem evidence. A missing diagnostic identity therefore remains unknown rather than idle.
+
+The [idle proof](https://github.com/NousResearch/hermes-agent/blob/818c13be1dc4fd28987e1e881a9408224afd4535/hermes_cli/web_server_idle_proof.py)
+uses process admission, session/worker, delegation, cron and human-input ledgers. GO strips ledger IDs
+and retains only known categories; it checks host PID twice, kernel birth/argv before/after, exact boot
+version/SHA, private token/launcher and installation identity, with 4 KiB receive bounds, one-second
+resource timeouts, no proxy/redirect/cookie/cache and five-second freshness. The native/activity
+consumer identities must agree. This is one process's diagnostic, never a global idle or stop permit.
+
+The [retirement fence](https://github.com/NousResearch/hermes-agent/blob/818c13be1dc4fd28987e1e881a9408224afd4535/hermes_cli/backend_retirement.py)
+offers a 30-second exclusive prepare token; commit closes that process's admission permanently and
+cannot be cancelled. RPC dispatch/session workers/in-process cron/delegation cooperate, but separate
+CLI, gateway, external scheduler or future processes do not share the process object. Gateway has its
+own `pause-for-update` drain/exit protocol in `gateway/control_socket.py`. Neither these mechanisms
+nor Connector's ACK provide checkout/home-wide future-writer exclusion. GO's report proof flags stay
+false and certification still needs independent complete writer admission/retirement evidence.

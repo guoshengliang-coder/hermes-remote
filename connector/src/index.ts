@@ -44,8 +44,11 @@ import { historyProjection } from "./history-preview.js";
 import { hermesUnavailableBody, localHttpFailureFields, localHttpRoute } from "./local-http-failure.js";
 import { contractReportResponse, defaultModelResponse, setDefaultModelResponse, tunnelHttpRoute } from "./tunnel-routes.js";
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
+import { readHermesInstallationIdentity } from "./hermes-installation-identity.js";
+import { HermesCapabilityMonitor } from "./hermes-capabilities.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import { ControlReconnectBackoff } from "./control-reconnect.js";
+import { HermesMaintenanceAdmission, MAINTENANCE_CODE, maintenanceError, maintenanceFrameDecision } from "./hermes-maintenance.js";
 import { ConnectorHealthResponder, probeHermesHealth, CONNECTOR_HEALTH_PROBE_TIMEOUT_MS } from "./connector-health.js";
 import {
   isThumbnailable,
@@ -132,6 +135,7 @@ const sessionObserverActivePollMs = positiveIntEnv("OBSERVER_ACTIVE_POLL_MS", 2_
 const sessionObserverIdlePollMs = positiveIntEnv("OBSERVER_IDLE_POLL_MS", 20_000);
 const sessionObserverRpcTimeoutMs = positiveIntEnv("OBSERVER_RPC_TIMEOUT_MS", 10_000);
 const log = createConnectorLogger(parseConnectorLogLevel(process.env.CONNECTOR_LOG_LEVEL));
+const maintenance = new HermesMaintenanceAdmission(process.env.HERMES_GO_MAINTENANCE_DIRECTORY);
 const localSockets = new Map<string, WebSocket>();
 const pendingSocketFrames = new Map<string, TunnelSocketFrame[]>();
 // Per app tunnel: when it opened and how many Hermes frames it carried, so a close line can say
@@ -151,6 +155,7 @@ interface StreamUpload {
   bytes: number;
   nextSequence: number;
   writing?: Promise<void>;
+  releaseAdmission: () => void;
 }
 const streamUploads = new Map<string, StreamUpload>();
 const reconnectBackoff = new ControlReconnectBackoff(controlHeartbeatMs);
@@ -182,7 +187,7 @@ function connect(): void {
   controlAuthenticated = false;
   const healthResponder = new ConnectorHealthResponder(
     async (signal) => {
-      const health = await probeHermesHealth(hermesAuth, signal);
+      const health = await readHermesStatus(signal);
       if (health.reachable && !signal.aborted && controlSocket === socket) {
         contractMonitor.observeVersion(health.version, "preflight");
       }
@@ -317,7 +322,7 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
       await openTunnelSocket(socket, message);
       return;
     case "tunnel.ws.frame":
-      forwardTunnelFrame(message);
+      forwardTunnelFrame(socket, message);
       return;
     case "tunnel.ws.close":
       closeTunnelSocket(message.id, message.code, message.reason);
@@ -332,6 +337,8 @@ async function handleGatewayMessage(socket: WebSocket, raw: string): Promise<voi
 
 async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): Promise<void> {
   if (request.targetDeviceId !== deviceId) return;
+  const releaseAdmission = maintenance.acquire();
+  if (!releaseAdmission) { sendMaintenanceResponse(socket, request.id); return; }
   const startedAt = Date.now();
   const controller = inFlightHttpRequests.begin(request.id);
   let streamStarted = false;
@@ -361,6 +368,7 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
       signal: controller.signal,
     });
     controller.signal.throwIfAborted();
+    capabilityMonitor.http(request.method, request.path, response.status);
     sendControl(socket, {
       type: "tunnel.http.response.start",
       version: PROTOCOL_VERSION,
@@ -417,6 +425,7 @@ async function handleTunnelHttp(socket: WebSocket, request: TunnelHttpRequest): 
     });
   } finally {
     inFlightHttpRequests.finish(request.id, controller);
+    releaseAdmission();
   }
 }
 
@@ -462,7 +471,10 @@ async function handleContractRequest(
   signal.throwIfAborted();
   const response = await contractReportResponse(
     request.method,
-    () => contractMonitor.ensureFresh("app_request"),
+    async () => ({
+      ...await contractMonitor.ensureFresh("app_request"),
+      capabilities: capabilityMonitor.report(new URL(request.path, "http://connector.local").searchParams.get("profile") ?? "default"),
+    }),
   );
   signal.throwIfAborted();
   sendJsonResponse(socket, request.id, response.status, response.body, response.headers);
@@ -619,35 +631,41 @@ async function handleFileRequest(
 
 async function handleStreamUploadStart(socket: WebSocket, request: TunnelHttpRequestStart): Promise<void> {
   if (request.targetDeviceId !== deviceId) return;
-  if (request.method !== "POST" || new URL(request.path, "http://connector.local").pathname !== "/api/files/upload") {
-    sendFileError(socket, request.id, 400, "invalid_upload_request");
-    return;
-  }
-  if (streamUploads.size > 0 || streamUploads.has(request.id)) {
-    sendFileError(socket, request.id, 503, "HR-FILE-009");
-    return;
-  }
-  const requestedName = (new URL(request.path, "http://connector.local").searchParams.get("name") ?? "attachment")
-    .replace(/[\u0000-\u001f\u007f/\\]/g, "_")
-    .slice(0, 160) || "attachment";
-  const path = resolve(uploadRoot, `${randomUUID()}-${requestedName}`);
-  if (!isWithinRoot(path, uploadRoot)) {
-    sendFileError(socket, request.id, 400, "invalid_upload_path");
-    return;
-  }
-  const partial = `${path}.part`;
+  const releaseAdmission = maintenance.acquire();
+  if (!releaseAdmission) { sendMaintenanceResponse(socket, request.id); return; }
+  let handedOff = false;
   try {
-    await mkdir(uploadRoot, { recursive: true, mode: 0o700 });
-    const handle = await open(partial, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    streamUploads.set(request.id, { socket, handle, partial, path, name: requestedName, bytes: 0, nextSequence: 0 });
-    sendControl(socket, {
-      type: "tunnel.http.request.ack", version: PROTOCOL_VERSION, requestId: request.id, sequence: -1,
-    });
-  } catch (error) {
-    await unlink(partial).catch(() => undefined);
-    console.error("File upload start failed", safeError(error));
-    sendFileError(socket, request.id, 500, "file_upload_failed");
-  }
+    if (request.method !== "POST" || new URL(request.path, "http://connector.local").pathname !== "/api/files/upload") {
+      sendFileError(socket, request.id, 400, "invalid_upload_request");
+      return;
+    }
+    if (streamUploads.size > 0 || streamUploads.has(request.id)) {
+      sendFileError(socket, request.id, 503, "HR-FILE-009");
+      return;
+    }
+    const requestedName = (new URL(request.path, "http://connector.local").searchParams.get("name") ?? "attachment")
+      .replace(/[\u0000-\u001f\u007f/\\]/g, "_")
+      .slice(0, 160) || "attachment";
+    const path = resolve(uploadRoot, `${randomUUID()}-${requestedName}`);
+    if (!isWithinRoot(path, uploadRoot)) {
+      sendFileError(socket, request.id, 400, "invalid_upload_path");
+      return;
+    }
+    const partial = `${path}.part`;
+    try {
+      await mkdir(uploadRoot, { recursive: true, mode: 0o700 });
+      const handle = await open(partial, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+      streamUploads.set(request.id, { socket, handle, partial, path, name: requestedName, bytes: 0, nextSequence: 0, releaseAdmission });
+      handedOff = true;
+      sendControl(socket, {
+        type: "tunnel.http.request.ack", version: PROTOCOL_VERSION, requestId: request.id, sequence: -1,
+      });
+    } catch (error) {
+      await unlink(partial).catch(() => undefined);
+      console.error("File upload start failed", safeError(error));
+      sendFileError(socket, request.id, 500, "file_upload_failed");
+    }
+  } finally { if (!handedOff) releaseAdmission(); }
 }
 
 async function handleStreamUploadChunk(
@@ -692,6 +710,7 @@ async function handleStreamUploadEnd(socket: WebSocket, id: string): Promise<voi
     await state.handle.close().catch(() => undefined);
     await unlink(state.partial).catch(() => undefined);
     sendFileError(socket, id, 400, "empty_file");
+    state.releaseAdmission();
     return;
   }
   let writtenPath = state.partial;
@@ -708,7 +727,7 @@ async function handleStreamUploadEnd(socket: WebSocket, id: string): Promise<voi
     await unlink(writtenPath).catch(() => undefined);
     console.error("File upload finish failed", safeError(error));
     sendFileError(socket, id, 500, "file_upload_failed");
-  }
+  } finally { state.releaseAdmission(); }
 }
 
 async function abortStreamUpload(id: string): Promise<void> {
@@ -718,6 +737,7 @@ async function abortStreamUpload(id: string): Promise<void> {
   await state.writing?.catch(() => undefined);
   await state.handle.close().catch(() => undefined);
   await unlink(state.partial).catch(() => undefined);
+  state.releaseAdmission();
 }
 
 async function abortAllStreamUploads(socket?: WebSocket): Promise<void> {
@@ -992,6 +1012,12 @@ function contentTypeFor(path: string): string {
 
 async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): Promise<void> {
   if (request.targetDeviceId !== deviceId) return;
+  const releaseAdmission = maintenance.acquire();
+  if (!releaseAdmission) {
+    sendControl(socket, { type: "tunnel.ws.close", version: PROTOCOL_VERSION, id: request.id,
+      code: 1013, reason: MAINTENANCE_CODE });
+    return;
+  }
   closeTunnelSocket(request.id, 1000, "replaced");
   try {
     const localUrl = await hermesAuth.websocketUrl(request.path);
@@ -1010,10 +1036,11 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       pendingSocketFrames.delete(request.id);
       log.info("tunnel.local_open", { tunnel: request.id, queued: queued.length,
         connectMs: Date.now() - (tunnelStats.get(request.id)?.openedAt ?? Date.now()) });
-      for (const frame of queued) sendLocalFrame(local, frame);
+      for (const frame of queued) sendLocalFrame(socket, local, frame);
     });
     local.on("message", (data, isBinary) => {
       const buffer = rawDataToBuffer(data);
+      capabilityMonitor.response(request.id, buffer, isBinary);
       const stats = tunnelStats.get(request.id);
       if (stats) stats.framesToApp += 1;
       const tracked = pendingForegroundRpcs.get(request.id);
@@ -1069,6 +1096,8 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       });
     });
     local.on("close", (code, reason) => {
+      releaseAdmission();
+      capabilityMonitor.close(request.id);
       if (localSockets.get(request.id) === local) localSockets.delete(request.id);
       pendingSocketFrames.delete(request.id);
       const stats = tunnelStats.get(request.id);
@@ -1134,6 +1163,7 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
       });
     });
   } catch (error) {
+    releaseAdmission();
     log.error("tunnel.open_failed", { tunnel: request.id, error: safeError(error) });
     sendControl(socket, {
       type: "tunnel.ws.close",
@@ -1145,10 +1175,11 @@ async function openTunnelSocket(socket: WebSocket, request: TunnelSocketOpen): P
   }
 }
 
-function forwardTunnelFrame(frame: TunnelSocketFrame): void {
+function forwardTunnelFrame(socket: WebSocket, frame: TunnelSocketFrame): void {
   const local = localSockets.get(frame.id);
   if (!local) return;
   if (local.readyState === WebSocket.CONNECTING) {
+    if (refuseMaintenanceFrame(socket, frame)) return;
     const pending = pendingSocketFrames.get(frame.id);
     if (!pending) return;
     if (pending.length >= maxPendingSocketFrames) {
@@ -1158,11 +1189,11 @@ function forwardTunnelFrame(frame: TunnelSocketFrame): void {
     pending.push(frame);
     return;
   }
-  sendLocalFrame(local, frame);
+  sendLocalFrame(socket, local, frame);
 }
 
-function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
-  if (local.readyState !== WebSocket.OPEN) return;
+function sendLocalFrame(socket: WebSocket, local: WebSocket, frame: TunnelSocketFrame): void {
+  if (local.readyState !== WebSocket.OPEN || refuseMaintenanceFrame(socket, frame)) return;
   const stats = tunnelStats.get(frame.id);
   if (stats) stats.framesFromApp += 1;
   const data = Buffer.from(frame.dataBase64, "base64");
@@ -1171,6 +1202,7 @@ function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
     return;
   }
   local.send(frame.binary ? data : data.toString("utf8"), { binary: frame.binary });
+  capabilityMonitor.request(frame.id, data, frame.binary);
   const rpc = trackedForegroundRpcRequest(data, frame.binary);
   if (rpc) {
     pendingForegroundRpcs.get(frame.id)?.set(rpc.id, { method: rpc.method, startedAt: Date.now() });
@@ -1178,7 +1210,17 @@ function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
   }
 }
 
+function refuseMaintenanceFrame(socket: WebSocket, frame: TunnelSocketFrame): boolean {
+  if (!maintenance.blocked) return false;
+  const decision = maintenanceFrameDecision(Buffer.from(frame.dataBase64, "base64"), frame.binary);
+  if (decision.forward) return false;
+  if (decision.replacement) sendControl(socket, { type: "tunnel.ws.frame", version: PROTOCOL_VERSION,
+    id: frame.id, binary: false, dataBase64: Buffer.from(decision.replacement).toString("base64") });
+  return true;
+}
+
 function closeTunnelSocket(id: string, code?: number, reason?: string): void {
+  capabilityMonitor.close(id);
   pendingSocketFrames.delete(id);
   const local = localSockets.get(id);
   if (!local) return;
@@ -1195,6 +1237,9 @@ function closeLocalSockets(): void {
 }
 
 async function handleCommand(socket: WebSocket, command: ChatCommand): Promise<void> {
+  if (command.targetDeviceId !== deviceId) return;
+  const releaseAdmission = maintenance.acquire();
+  if (!releaseAdmission) { emit(socket, command.id, "error", maintenanceError(command.id)); return; }
   emit(socket, command.id, "accepted");
   try {
     if (hermesMode === "mock") {
@@ -1227,7 +1272,11 @@ async function handleCommand(socket: WebSocket, command: ChatCommand): Promise<v
     emit(socket, command.id, "complete", { contentType, body });
   } catch (error) {
     emit(socket, command.id, "error", { message: safeError(error) });
-  }
+  } finally { releaseAdmission(); }
+}
+
+function sendMaintenanceResponse(socket: WebSocket, requestId: string): void {
+  sendJsonResponse(socket, requestId, 503, { error: maintenanceError(requestId) });
 }
 
 function emit(socket: WebSocket, requestId: string, event: RelayEvent["event"], data?: unknown): void {
@@ -1274,33 +1323,57 @@ const hermesAuth = new HermesAuth({
   password: process.env.HERMES_BASIC_AUTH_PASSWORD,
 });
 
+const capabilityMonitor = new HermesCapabilityMonitor();
 const contractMonitor = new HermesContractMonitor(
   {
-    fetchOpenApi: () => fetchHermesOpenApi(hermesAuth),
+    fetchOpenApi: async () => {
+      const release = maintenance.acquire();
+      if (!release) return { kind: "unreachable" };
+      try { return await fetchHermesOpenApi(hermesAuth); } finally { release(); }
+    },
     fetchStatusVersion: async () => {
       const status = await readHermesStatus();
       if (!status.reachable) throw new Error("hermes_unreachable");
       return status.version;
     },
   },
-  { log: (level, kind, fields) => log[level](kind, fields) },
+  {
+    fetchRuntimeIdentity: () => readHermesInstallationIdentity(),
+    onIdentityChanged: () => capabilityMonitor.reset(),
+    log: (level, kind, fields) => log[level](kind, fields),
+  },
 );
 
 connect();
 if (connectorMode === "legacy") startLifecycleObserver();
 void contractMonitor.refresh("startup");
+if (process.env.HERMES_GO_MAINTENANCE_DIRECTORY) {
+  setInterval(() => {
+    if (maintenance.blocked) { lifecycleObserver?.stop(); lifecycleObserver = undefined; }
+    else if (controlAuthenticated) startLifecycleObserver();
+  }, 500).unref();
+}
 
 function startLifecycleObserver(): void {
-  if (!sessionObserverEnabled || lifecycleObserver) return;
+  if (!sessionObserverEnabled || lifecycleObserver || maintenance.blocked) return;
   lifecycleObserver = new HermesSessionObserver({
     deviceId,
     profile: process.env.HERMES_PROFILE,
     stateStore: new ObserverStateStore(sessionObserverStateFile),
-    websocketUrl: () => hermesAuth.websocketUrl("/api/ws"),
-    createSocket: (url) => new WebSocket(url, {
-      handshakeTimeout: localSocketConnectTimeoutMs,
-      maxPayload: 1024 * 1024,
-    }) as unknown as ObserverSocket,
+    websocketUrl: async () => {
+      const release = maintenance.acquire();
+      if (!release) throw new Error(MAINTENANCE_CODE);
+      try { return await hermesAuth.websocketUrl("/api/ws"); } finally { release(); }
+    },
+    createSocket: (url) => {
+      const release = maintenance.acquire();
+      if (!release) throw new Error(MAINTENANCE_CODE);
+      try {
+        const socket = new WebSocket(url, { handshakeTimeout: localSocketConnectTimeoutMs, maxPayload: 1024 * 1024 });
+        socket.once("close", release);
+        return socket as unknown as ObserverSocket;
+      } catch (error) { release(); throw error; }
+    },
     sendLifecycle: (event: SessionLifecycleEvent): boolean => {
       const socket = controlSocket;
       const sent = socket && controlAuthenticated ? sendControl(socket, event) : false;
@@ -1321,15 +1394,22 @@ function startLifecycleObserver(): void {
     onObservation: (observation) => log.info("lifecycle.observed", { ...observation }),
     // A fresh socket to Hermes is the only sign of a Hermes restart this process gets —
     // `hermes update` kickstarts the serve job onto new code without changing anything else here.
-    onHermesConnected: () => { void contractMonitor.refresh("hermes_connected"); },
+    onHermesConnected: () => {
+      capabilityMonitor.reset();
+      void contractMonitor.refresh("hermes_connected");
+    },
   });
   void lifecycleObserver.start().catch((error) => {
     console.error("Unable to start Hermes lifecycle observer", safeError(error));
   });
 }
 
-async function readHermesStatus(): Promise<{ reachable: boolean; version?: string }> {
-  return probeHermesHealth(hermesAuth, AbortSignal.timeout(CONNECTOR_HEALTH_PROBE_TIMEOUT_MS));
+async function readHermesStatus(signal = AbortSignal.timeout(CONNECTOR_HEALTH_PROBE_TIMEOUT_MS)): Promise<{ reachable: boolean; version?: string }> {
+  const releaseAdmission = maintenance.acquire();
+  if (!releaseAdmission) return { reachable: false };
+  try {
+    return await probeHermesHealth(hermesAuth, signal);
+  } finally { releaseAdmission(); }
 }
 
 

@@ -1,5 +1,370 @@
 # Hermes Go Desktop test plan
 
+The independent PM observer adds fourteen synthetic Python tests. It requires a private marked
+fixture and actual drained exclusive descriptors, binds facts/activation inputs/config/binary plus
+bounded full environment/base-Python content observations, and rejects same-generation drift on
+revalidation. Runtime report shape/paths, source and input stamps, missing/partial state, escaped
+links, special files, permissions, budgets, child exit/output/side effects and bilingual errors are
+covered. Only the known empty uv .lock may retain 0666/nlink1 under a 0700 fixture; other writable
+inputs refuse. A negative control omits tree observation and misses changed dependency contents.
+Linux/macOS also execute three pinned REAL PM selection inputs against one synthetic selection and
+three invalid records; no interpreter/PM installation is represented by that matrix. Real PM evidence
+requires the opt-in Mac --provision --fault-matrix command in the prototype README. It creates a new
+isolated home/cache/tools/clone, publishes intent before official lower-level sync and retains it.
+The selected interpreter explicitly loads packaging without .pth and exercises SSL/SQLite/SHA;
+three same-mtime content faults must reject old observations and restore the tool's own fixture bytes.
+Lower-level sync does not publish full CLI activation stamps: absence is explicitly false, never
+manufactured readiness, while partial/stale stamps refuse. No terminal/admission opening, services,
+business, full closure, official child custody/death-during-sync, OS reboot or UI/device certification.
+Observations are comparison data, not durable consent/finish authority; production flags remain false.
+
+The fixture-transition increment adds ten Python tests and a separate frozen-source matrix. It
+appends an immutable before/after plan and a fixture-only terminal to the existing two intent slots;
+it never clears, replaces or resets them. Scope is exactly one disposable hg199-durable-* root with
+control/data/checkout. The changed source is a comment and the dependency generation is a hashed
+synthetic marker, not real PM/runtime activation. A test coordinator retains exclusive custody,
+passes the independently expected plan to an actual prefix child, observes the live handshake,
+bootstrap/admission/scratch and normal exit zero, then revalidates target inputs. Only that monitor
+can mint a fresh, one-use, same-custodian memory witness for finish_fixture; booleans, saved JSON,
+expired/cross-custodian evidence, failed child results and nonzero exits refuse. A disposable mutant
+without the witness check exposes premature writer admission. Four entries complete, eight stale
+source/marker cases refuse, and ten coordinator SIGKILL cases include partial plan/terminal appends.
+After full terminal publication a new ordinary writer must validate identical canonical history and
+actual target inputs under all shared gates. Corrupt, partial, overlapping-scope or moved inputs
+stay closed; the writer re-syncs both slots/registry and checks contents before entry, refusing
+sync errors rather than inferring publisher fsync success from visible bytes. No partial repair
+is attempted. Linux/macOS run all tests and frozen matrices.
+This is one fixture epoch only, not production completion or real dependency-generation evidence.
+The trusted supervisor still keeps the expected plan; its death/consent recovery, actual services,
+PM/native/cron/business, OS reboot/power loss and next-epoch recovery remain unverified. Registry
+hashes/nonces do not defend against same-UID malicious rewriting/rollback. Production/durable/global/
+upgrade flags stay false. No Desktop app behavior, UI/device verification or live installation change.
+
+The persisted-intent increment adds ten Python tests. Schema-2 explicit enrollment pins an owner-only
+intent slot per home/checkout. Writers check exact idle bytes under all shared admission gates before
+lifetime locks; active, empty, torn or unknown contents stay closed. begin requires drained exclusive
+custody, validates the independent context, writes matching records and fsyncs every slot and registry
+before returning authority. durable_intent has no reset/clear/finish API or silent schema migration. Five real
+publisher SIGKILL cases cover four fully synced entry fixtures and one partial publication. Four
+new recovery processes validate the stored intent against independently supplied context before copied
+imports; 28 wrong contexts and competing recoveries reject. Actual scratch runs only after admission;
+PM remains injected. Recovery exit retains intent. Tests additionally cover a skipped-idle-check mutant,
+pending writer/drain preconditions, corrupt/oversized/empty records, replaced/linked/unsafe controls,
+partial write/fsync errors, scope isolation, legacy enrollment, invalid context and bilingual redaction.
+Linux/macOS run fixtures and frozen inputs. Partial multi-domain publication is fail-closed for the
+selected pair, not atomic across every possible overlap; no data operation is authorized until all
+slots sync. The supervisor retains expected consent context in memory; this is not Desktop-death consent
+recovery or a production launcher. This base matrix does not prove power-loss/OS-reboot, terminal
+clear, source-generation transition or actual PM/native/cron/service/UI/device behavior.
+Full durable/global/upgrade flags stay false.
+
+The failure increment adds six Python tests, eight frozen-source uncertain prefixes and nine
+synthetic SIGKILL cases. Issuer failures before commit are separate from any failure while/after
+attempting commit, including send errors; the latter retain an uncertain state and original parent
+lease. Four real entry prefixes each cover undelivered commit (no scratch) and discarded final ack
+(scratch written). Both keep outsiders excluded even after the child exits. A disposable mutant
+that closes on child success instead of issuer confirmation exposes the post-child-exit gap.
+Separate synthetic actors pause at ready, accepted, validated commit before ack, or authorized marker
+write. Kill either process at each phase, then both after authorization; the lock-free supervisor
+checks surviving custody and actual -SIGKILL child status. An acknowledged child can die immediately,
+so handshake confirmation never proves boot readiness. After all custodians die, a fresh writer
+really enters: this negative control keeps durable/global/upgrade flags false. Test controls use
+private pipes and bounded frames/deadlines. Linux/macOS run all six tests and the frozen matrix.
+No durable journal/restart recovery, actual PM/native/cron/services, OS reboot or device/UI validation.
+
+The live-handoff increment adds nine Python tests and a separate frozen-source matrix: five
+bound recovery prefixes (four entries plus an explicitly selected named home) and thirteen
+refusals before copied-package initialization. The trusted launcher passes an anonymous socketpair,
+read-only/unlinked private context FD and live exclusive lock descriptions. Run/source/home/entry/
+role/domain and eleven staged input hashes are checked before challenge/grant/accepted/commit/
+committed. Parent close retains child exclusion; pre-commit refusal retains actual parent exclusion.
+Faults include changed bytes before/after hello, missing/fresh same-inode lock FDs, mismatched
+challenge and discarded/altered accepted. Tests cover framing/deadlines/EOF/bounds, strict JSON/types,
+private FD shape, directory replacement/links, bilingual redaction and a disposable mutant that
+skips actual source validation and consequently admits changed source. Linux/macOS run both fixtures
+and frozen sources. `liveBindingChecksVerified` is deliberately separate from false production,
+durability, full-startup/global/upgrade certification. The context is not OS-sealed or a whole-tree
+Git/runtime proof. PM remains injected. This original matrix does not cover post-commit lost final
+acknowledgement or re-exec/restart;
+actual PM/native/cron/services and device/UI verification remain unverified. See the prototype README.
+
+The shared-bootstrap increment adds eight Python tests and a separate eleven-input frozen-source
+experiment: four entry modules × three loading forms, nine misses by a main-only guard, four
+admitted writers and four inherited-exclusive recovery prefixes. Actual descriptors/OS locks test
+parent-close custody, independent opens of the same inode, malformed/closed/read-only/foreign FDs,
+replacement and the self-blocking shared-writer alternative. Removing flock verification or
+reacquiring a shared writer makes the corresponding regression/matrix fail. PM/recovery remain
+injected; native preloading, cron package boot, authenticated/durable handoff and full startup remain
+explicitly false/unverified. No Desktop product behavior or device layer changes.
+
+2026-10-15 CLI import experiment adds seven Python harness tests and a separate frozen-source
+matrix: 12 paired invocation/argv cases reject before real bootstrap/scratch writes when guarded
+early; placing the guard inside main permits those writes. The admitted prefix keeps a probe-owned
+writer lease until controlled exit. Only temporary source copies are transformed. PM/recovery are
+injected no-ops and execution stops after scratch setup; profile selection, complete CLI startup,
+alternate writers/services and upgrade certification remain unverified. See the prototype README
+for exact input hashes, routed entry surfaces and reproduction. No Desktop app behavior changes.
+
+2026-10-15 external material recovery adds 18 dependency-store tests (the standalone Python case
+is opt-in). Coverage uses actual private files/FD reads/hashes: exact bytes/owner execute bits,
+source mutation/replacement with reset mtime, idempotency and run/source/digest binding, multiple
+root labels/shared budgets, internal
+relative links, external/absolute/dangling/cyclic/file-traversal link refusal, root aliases/overlap,
+permissions/hardlinks/FIFO and count/byte/depth budgets, damaged archive/manifest/permissions/extra
+trees, original deletion, new-only export, relocated live-home aliases and late destination races.
+Replacing exclusive publication with ordinary rename makes the late-empty-destination regression
+fail; the new implementation retains that directory and cleans partial staging. A self-compiled
+native fixture runs from its export after deleting its disposable source. No live Hermes is run.
+
+The opt-in case was separately run on this Mac with standalone CPython 3.11.15: read selected installed
+bytes, archive/export into a disposable root, archive that copy, delete ONLY the disposable source,
+export again, then run ssl/sqlite3/hashlib/json with -I/-S/-B and clean HOME/environment. It passed;
+the installed interpreter was neither executed, removed nor modified. It tests this runtime's
+material recovery on this OS, not an old Hermes environment or all external ABI/tool dependencies.
+Copying Apple's system echo was an earlier failed experiment (SIGKILL), not a passed acceptance or
+reason to re-sign/change a live binary. No automatic runtime launch occurs in the store.
+
+```bash
+swift test --package-path desktop --filter DesktopHermesUpgradeDependenciesTests
+HG199_DEPENDENCY_PYTHON_ROOT=<explicit-standalone-cpython-root> swift test --package-path desktop --filter DesktopHermesUpgradeDependenciesTests.testOptInStandalonePythonSurvivesDeletionOfDisposableOriginal
+```
+
+The receipt is not yet wired into Machine/journal custody, and external-root discovery, full
+dependency/native loader/OS/ABI coverage and original-reference activation remain manual acceptance
+gaps. Upgrade/recovery controls remain disabled. Separately, maintenance-scope CI tests the real old
+and candidate retirement modules with two isolated processes and an injected idle ledger: only the
+committed process refuses admission; the other still admits work. This is a negative scope result,
+never a writer proof. The user authorized an isolated upstream prototype on 2026-10-15; see
+HERMES_MAINTENANCE_REQUIREMENTS.md and scripts/compat/upstream-maintenance-prototype/README.md.
+Thirteen synthetic-participant tests use actual POSIX subprocess locks, plus a frozen retirement
+module experiment; none represents complete upstream entry-point, profile or service integration.
+
+The macOS 15 / Swift 6.1 CI initially crashed in the external-link rejection test. Its LLDB
+backtrace identified the readlinkat Array/raw-pointer output boundary; explicit mutable element
+storage fixes it, with the same adjustment for sysctl output. That existing test is the observed
+failing regression on the old implementation. Temporary CI debugger steps were removed after
+diagnosis. Local Desktop assets/test/app were rerun successfully (712, two opt-in skips); macOS 15 CI
+also passed at buffer-fix commit 3c852f6f. Final-head CI is checked separately. The expanded Python
+compatibility baseline passed 46 tests, including 13 prototype cases; the frozen-module experiment
+also passed with both certification flags false.
+
+Increment validation: Desktop assets/test/app passed (712 tests, two opt-in skips, zero failures);
+upgrade-focused suites passed (111 at the preceding checkpoint, one opt-in skip), with the later
+multiple-root/shared-budget case included in the final full baseline. The CPython opt-in rehearsal
+passed separately, as did 33 Python compatibility tests and the actual two-version maintenance-scope
+check. App codesign/resource-byte checks passed; ad-hoc only, without distribution/notarization or
+clean-Mac UI/boot/service acceptance. No Node/Web/Android source changes or new local L2/L3 runs.
+
+2026-10-14 serve activity increment adds 15 probe/transport tests and 2 readiness-consumer cases.
+Injected process/HTTP fixtures cover supported one-process idle, admission/session/delegation/cron/
+human-input busy ledgers, unavailable ledgers, old missing identity/boot fields, wrong PID/role/SPA/
+protocol/numeric types, reused/dead/unscoped/changed-argv processes, changed listener, wrong boot,
+malformed/duplicate/escaped/oversized/contradictory replies, unsafe token/absent private installation,
+source/freshness and sanitized serialization. Actual private temporary launcher/token files test
+unchanged reads plus token rotation/launcher permissions changing mid-probe. Three tests use actual
+disposable HTTP listeners and
+URLSession: fixed GET/private header, blocked redirect to another port with zero downstream requests,
+receiving an unbounded body, HTTP refusal and a stalled peer reaching its resource deadline. Tokens
+are synthetic; no installed Hermes or launchd service is read/stopped/changed by these tests.
+Readiness cannot pass complete native observation without matching fresh activity; busy/unknown,
+stale/foreign identity or an additional observed writer stays blocked even with a certified test target.
+Neither proof flag becomes true. Reinstating the preceding native-only readiness guard makes the
+missing-activity regression fail; restoring the new guard passes.
+
+Run `swift test --package-path desktop --filter 'DesktopHermesUpgrade(Activity|Readiness)Tests'`.
+On a disposable Mac, separately verify real upstream ledgers for running/queued turns, cron,
+delegation and human prompts, compare host PID/birth/boot with the managed job, and confirm a
+0.21.3 backend stays unknown. Exercise token rotation, source/service replacement and concurrent
+update/recovery. This increment does not certify upstream retirement coverage or future writer
+exclusion; full process/profile/CLI/gateway/scheduler closure and real service/boot/business acceptance
+remain required before enabling upgrade/recovery actions. No new visual/device layer is introduced.
+
+Increment validation: focused upgrade suites 88 passed; Desktop full baseline 694 tests with one
+existing opt-in skip and zero failures, native assets and app build passed. The app is ad-hoc only;
+no Developer ID/notarization/clean-Mac launch or distribution. Node/Web/Android were not rerun
+locally for this Desktop-only increment; their preceding integrated baseline remains recorded below.
+Real upstream ledgers/managed service/UI acceptance and L2/L3 remain unrun in this increment.
+
+HG-199 maintenance automation adds real Connector process/loopback HTTP admission and streamed-body
+drain and existing-channel prompt/answer/interrupt tests (old entry fails), Swift/Node shared
+private-request fixture, zero-count ACK binding to
+run/source/request/PID/instance and freshness, permission/link/duplicate/schema refusal, persistent
+pause across restart/deletion, all-profile idle/cron/background/unknown-writer refusal, service
+snapshots, all four original load sets, cancel/restore/resume, PID reuse/legacy conflict/unknown print,
+wrong boot rejection, originally-unloaded bootstrap refusal, and jobs appearing during restore.
+Service commands/boot/writer evidence use injected runners, not real
+launchd or full writer discovery. Android L1 tests cover maintenance history/create/unsent send and
+structured upload code/log redaction; Web HTTP/RPC/socket mappings share the registered bilingual code.
+L2 A5DN9X4708H02629 is currently ADB unauthorized; L3 Pixel_API_37 is available but not exercised
+for this error/admission change. No new visual layout or targetSdk behavior is introduced.
+Still required on a disposable Mac: admission preparation with the published matching Connector,
+active local CLI/cron and all profile writers, actual retirement, exact service load-set restoration,
+external dependency closure, cold official update and committed-tail recovery, fresh same-binding
+Cloud/business acceptance, and maintenance/recovery copy on Android/Web. The upgrade button stays off.
+
+The Machine Operating composition adds 16 tests using real private journal/mailbox/service snapshot
+files and home backup/hash verification. Worker execution, service commands, process/plan/dependency/
+boot/receipt and business evidence are synthetic: no live Hermes or launchd is controlled. Coverage
+includes full normal flow/worker lease teardown, terminal cursor archive retention, run-root/home
+URL alias refusal, uncertified refusal, official-plan races and invalid profiles before effects, drained ACK with unknown writers, unavailable external closure, safe cancel,
+wrong cancellation boot, cancellation business failure/re-pause/verification-only retry, original-ID
+finish resume, target business failure retaining later history, receipt debt and damaged archives
+before service restoration, and changed retained configuration before new worker acquisition.
+Three additional private-configuration tests cover exact round-trip, missing/extra/duplicate/schema/
+directory mutations, and symlink/public-permission refusal without launching a process. The focused
+Machine/OfficialWorker/Maintenance suites contain 47 tests. Run with:
+
+```bash
+swift test --package-path desktop --filter 'DesktopHermesUpgrade(Machine|OfficialWorker|Maintenance)Tests'
+```
+
+Acceptance on a disposable Mac still requires a production live collector with independently
+verified full writer inventory and external closure recovery, then the actual full coordinator flow
+and process-death matrix. Confirm original IDs/configuration survive relaunch, the original loaded
+service set and boot identity are restored, admission opens only for proof-backed business checks,
+and failed checks re-pause without overwriting newly written history. Exercise cancellation failure
+and retry with the original installation as well. No product upgrade/recovery control is enabled
+by these fixture results.
+
+2026-10-14 native inspection increment: 13 inspection tests, 4 additional Machine negative-guard
+cases and 2 readiness-consumer tests. One inspection test starts a disposable Python sleep process
+with synthetic argv/environment values, reads its actual kernel PID/birth/command association,
+checks report serialization excludes those values and private paths, then terminates ONLY that test
+process and confirms disappearance. No Hermes or launchd job is started/stopped. Other tests inject
+kernel identities/argv and use actual temporary profile directories/interpreter links: argc bounds,
+empty arguments, environment-tail non-decoding, missing/changing/PID-reused snapshots, descendants,
+unscoped modules/selectors, exact original-service births, freshness/source binding, ghost shells,
+links/invalid names/write permissions/bounded listings and external interpreter observations.
+Production native inspection is an extra negative guard, not a writer fence. Machine tests reject
+an unowned candidate before any stop, an original-service survivor after stops, a writer around
+backup and one before source movement; those process/service effects are injected.
+Readiness tests prove no journal creation, no inspection during pending update/recovery, and that
+certification cannot hide an unavailable profile scan. Combined focused suites contain 69 tests:
+
+```bash
+swift test --package-path desktop --filter 'DesktopHermesUpgrade(Inspection|Readiness|Machine|Maintenance|OfficialWorker)Tests'
+```
+
+Still required: live all-profile task/admission closure and retirement, unknown/orphan/custom-home/
+other-user writers and open descriptors, PM/external interpreter closure recovery, fresh boot and
+same-binding Cloud/business proof. Native PID observation alone cannot certify any of these, and
+absence of candidates never proves safe upgrade. UI/card/device acceptance and full disposable-Mac
+upgrade/recovery remain pending; no product execution action is exposed.
+
+## HG-199 first-stage verification
+
+Automated coverage: legacy and PM layouts, missing/broken committed generation, stale stamp,
+same-commit generation changes, exact input timestamps, PM launcher environment, v2 live locks
+older than 20 minutes/delegates/PID reuse, annotated release tag resolution, target decoding,
+latest versus exact-commit certification, and bilingual error catalog. The source matrix separately
+checks pinned old/new contracts and synthetic DB old→new→old reads/writes plus backup recovery to
+another file. It is not an official updater/service recovery or production-data rehearsal.
+
+Local baseline: `desktop:assets:test`, `desktop:test`, `desktop:app`; the app is ad-hoc only and
+has no Developer ID/notarization claim. A migration test now uses its fixture shutdown probe rather
+than probing the owner's real 9119 when checking the 75-poll cold-start budget.
+
+Still needs physical Mac acceptance: light/dark card layout, independent GO/Hermes checks when the
+GO index is absent, network failure clearing old success, unrecognized layouts, very long version
+strings and stable release with no certified recommendation. Do not launch a test app against the
+owner's services to satisfy this checklist; use an isolated Mac/home with managed fixtures.
+HG-199 stays in progress until stage-two upgrade/recovery and stage-three cross-client acceptance.
+
+Stage-two foundation automation covers write-ahead order, immutable targets/channels, tested
+source→target gating, source movement between inventory and lock, concurrent clicks, failure at each
+effect and reconstruction of a coordinator for resume, safe cancellation, UI task cancellation after
+commit, malformed/future/dangling journals, and startup/migration/repair lease guards. Effect failures
+are injected, not actual process-kill tests against the full updater. Git fixtures check tracked and
+untracked modifications and unchanged index timestamps. SQLite fixtures verify committed WAL data,
+private config/cron snapshots, repeatable backup receipts, source changes/tampering, symlink preservation,
+separate-directory DB export and preservation of later live writes. Completion tests reject exit-zero
+success with followups and require independent service/boot/environment evidence.
+
+The local macOS official PM prepare experiment uses a cleared environment and temporary home;
+finish additionally runs in a kernel sandbox denying signals, launchctl/osascript and writes elsewhere.
+Completion tests preserve the observed receipt fields and reject missing launcher correlation and
+remaining debt after correlation is supplied. The experiment proves PM provisioning and the owed-work
+receipt shape; denied service restoration prevents certification. It has no genuine old venv/history.
+The bundled Swift/Python worker adds private configuration/environment, exact single command, task
+cancellation, malformed IPC, symlink refusal and immutable upstream-ID journal tests. Python boundaries
+cover duplicate JSON, private/link ownership, journal/source/target/version/backup binding, hidden index edits,
+ignored Python overlays across the snapshot, executable Git filters/rewrites and refusal to overwrite committed context.
+IPC lines over 4096 bytes are rejected even when a newline arrives in the same read. Release-tag tests
+require a tag that peels to the pinned commit and retain conflicting owner tags without fetching.
+Finish-resume automation adds immutable original handoff/ID/plan/PM validation, private write-ahead
+preparing→ready→finishing checkpoints, context hash binding, original-context retention, refusal for
+prepare failures, existing result, duplicate/linked/unbounded archives, probe-time changes, advanced
+or terminal debt, and a single mutation per Swift lock handle. A live source check permits root PM
+state/legacy venv and known Node dependency directories while still refusing ignored Python overlays
+and an importable venv package. Invalid/oversized currency replies cannot choose an interpreter. Stable recovery-required
+mapping is reused; raw refusal details never become a primary message.
+
+`scripts/compat/hermes-finish-resume-rehearsal.py` is opt-in on macOS/Python 3.11+ with a pinned
+candidate source and an explicitly marked disposable `/private/tmp/hg199-*` tool/cache seed. It
+creates a fresh target checkout and synthetic GO journal/backup receipt, calls actual official PM
+prepare through the packaged worker helper, SIGKILLs that isolated preparer at the durable ready
+handoff, then sends `resume-finish` to the packaged worker. Kernel policy denies all signals, service
+tools and writes outside the new fixture. This tests the actual PM/finish handoff ONLY: it does not
+prove an old→new source move, backup validity, genuine history, cold tool provisioning, GO writer
+retirement, original service restoration or a certified upgrade. Inspect the reported fixture/logs;
+never point it at the owner's data. Terminal service debt must remain and a second finish resume
+must refuse without changing the original context/receipt.
+`--mode update` additionally starts a synthetic source checkout at 17b5df02 and exercises the normal
+fixed-target source move/packaged child entry without killing prepare. It uses an external Python
+3.11 test interpreter, warm tools and injected journal/backup, not a genuine installed old venv.
+Local 2026-10-11 runs passed both paths: SIGKILL after PM ready→official finish, and ordinary source
+update→official prepare/finish; same IDs/target version and original-context/terminal-debt retention
+passed. Read-only verification independently rejects the finishing checkpoint before any replay.
+Official maintenance attempted to extend shallow history and left partial-clone config; the
+previous packaged worker's config guard also refused the repeat. Do not remove those flags/guards
+to simulate recovery. The subsequent worker increment accepts only the standard live origin/blob:none
+pair (optional old extensions.partialclone=origin), leaving frozen candidates strict. Unit fixtures
+cover absent commit/tree/Python and non-Python blobs, missing historical blobs, duplicate/nonstandard
+metadata and VCS helpers. Missing objects cannot launch a planted promisor helper; transport denial
+also holds when the no-lazy-fetch variable is deliberately ignored. Inherited Git path/config
+overrides are cleared; only explicit verified-snapshot fetch admits file transport. The currency
+probe also denies Git transports, without imposing that temporary fence on finish's explicit fetch.
+Read-only checks of both retained official partial checkouts passed without altering Git config.
+The opt-in rehearsal now requires a post-finish offline source check and the actual repeat command
+to reach finish_checkpoint_not_ready, not just fail at the old partial-config guard. Full upgrades,
+other partial layouts and missing-object repair remain uncertified.
+Both fresh follow-up modes passed: official finish left origin/blob:none metadata, post-finish
+offline source validation kept the config intact, and the actual repeat command reached
+finish_checkpoint_not_ready while preserving context/receipt/debt. Exact IDs are in HERMES_UPGRADE.md.
+Both fixtures keep gateway restart owed; neither certifies services, backups, business or GO completion.
+A retired external WAL-writer regression reproduces Apple SQLite's missing-sidecar backup failure;
+only a source with no pending WAL/rollback pages gets immutable reading. Nonempty WAL coverage remains.
+
+`scripts/compat/hermes-update-lock-matrix.py` runs actual pinned official classes in disposable homes:
+GO bridge exclusion, cross-home/linked-worktree exclusion in real Git fixtures, SIGKILL of the isolated official lock owner while
+its inherited-custody child survives, reclaim after child exit, and pre-move debt keyed to the live
+installation with the frozen helper's original module origin restored. Local macOS passed; CI covers
+macOS/Ubuntu. This deliberately does not terminate the owner's services or a whole PM transaction.
+`DesktopHermesUpgradeRehearsalTests` is opt-in via an explicitly marked disposable `/tmp/hg199-*` home
+and an independently pinned source checkout; ordinary baseline skips it. It is not production approval.
+The source snapshot must include the exact official release tag and a self-contained bounded Git graph,
+not just a detached commit or partial-clone metadata. Provision the disposable old venv using the old
+official installer, restrict writes/signals/service execution with a kernel sandbox, and keep the
+marked home and verified source outside the owner's installation. The opt-in test checks original
+branch preservation, actual official IDs/version/PM receipt, owed service recovery, old history,
+new history and separate backup export. It intentionally leaves GO's journal pending.
+Local 2026-10-11 evidence: official old installer produced a genuine 0.21.3 venv; the worker moved
+that backed-up installation to 818c13be and official PM/finish completed with version 0.21.6, retaining
+the original branch and distinct GO/upstream IDs. The post-check initially omitted official PM
+activation; after adding `hermes_bootstrap`, `HG199_REHEARSAL_VERIFY_ONLY=1` continued verification of
+the same committed run and sealed backup. Old history, new writes, separate export and preservation
+of later live writes passed. This split run used a warm tool cache, not a fresh all-green cold-install
+test. Sandbox-denied gateway restart remains owed; the GO journal stays updating. See the exact IDs
+and limitations in `HERMES_UPGRADE.md`.
+The version-completion regression demonstrably accepted missing/unknown/old version before the fix;
+afterwards all three fail with `HR-HERMESUPDATE-004` even when the commit and other evidence match.
+
+Still needed: a fresh uninterrupted cold old→fixed target run and
+real stopped-writer inventory/retirement, process-kill boundary matrix, original service restoration,
+full history/Q&A/stream/cancel/attachment/approval/clarify/cron acceptance and physical Mac UI review.
+The new condition rows also need light/dark review on that isolated Mac. Do not launch this app against
+the owner's production services merely to satisfy the visual check.
+
 ## HG-212 PM runtime and recovery follow-up
 
 Automated coverage adds: PM plus stale legacy venv (the three detector cases failed on old code),
@@ -652,3 +1017,22 @@ Manual, on a real Mac (not reproducible in CI):
 The asset equality gate checks the canonical Android image and Desktop packaging copy. On a
 physical Mac, inspect the built app in the Dock in light and dark appearance; the faceted H should
 retain its colors without an opaque white square. The local ad-hoc build is not a signed release.
+
+维护模式手工验收（尚未执行）：在隔离测试环境配置私有 mailbox，保持一个有正在运行任务的 RPC
+通道，然后暂停接单。新提示应显示 `HR-HERMESUPDATE-005`，原任务事件、审批/澄清回答和停止仍可
+使用；未关闭通道时 ACK 必须保持 busy。关闭通道后才可取得 Connector 排空证明，仍不能替代 cron、
+CLI、其他 profile 和内核进程身份检查。服务恢复的 launchd 命令测试使用注入 runner；本轮未对真实
+LaunchAgent 执行 stop/start。
+
+HG-199/main integration additionally preserves HG-212 bounded PM starts with unknown metadata,
+while a new Machine regression refuses upgrade before worker/journal/services without strict dependency
+evidence. Connector's real account-socket health fixture covers paused health admission and an
+admitted stalled response remaining busy until socket cancellation. Test request publication uses
+atomic rename like Desktop; production malformed/private-file refusal remains unchanged.
+
+Final merged-baseline validation: focused upgrade inspection/consumer suites 71 tests; Desktop
+677 with 1 opt-in skip; native assets/app and ad-hoc/resource checks; Node Protocol 16, Connector
+162, Gateway 238 (29 environment skips), release-server 37 and scripts 407 (1 environment skip);
+Web typecheck/905 tests/build; Android 2498 JVM tests/assembleDebug. The host probe reports L2
+A5DN9X4708H02629 unauthorized and L3 Pixel_API_37 available but not exercised. No new visual
+layout or targetSdk change was made; no APK/app handed off, no live Hermes or service operation.

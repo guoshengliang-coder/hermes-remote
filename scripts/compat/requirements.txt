@@ -1,0 +1,14 @@
+# Tested dependency set for isolated database fixtures, not a Hermes runtime installer.
+anyio==4.15.1
+certifi==2026.7.22
+charset-normalizer==3.5.2
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+python-dotenv==1.2.4
+PyYAML==6.0.3
+requests==2.34.2
+ruamel.yaml==0.19.1
+typing_extensions==4.16.0
+urllib3==2.8.0

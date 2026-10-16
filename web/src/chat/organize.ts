@@ -458,9 +458,12 @@ export function diffKind(line: string): DiffKind {
 
 /** Copied from upstream `tools/todo_tool.py` TODO_INJECTION_HEADER (docs/HERMES_CONTRACT.md). */
 export const COMPRESSION_SNAPSHOT_HEADER = "[Your active task list was preserved across context compression]";
+export const COMPRESSION_SKILLS_HEADER = "[Skills pruned during compression — reload before acting on these tasks]";
 
 export function withoutCompressionScaffolding(text: string): string {
-  const i = text.indexOf(COMPRESSION_SNAPSHOT_HEADER);
+  const positions = [COMPRESSION_SNAPSHOT_HEADER, COMPRESSION_SKILLS_HEADER]
+    .map((header) => text.indexOf(header)).filter((index) => index >= 0);
+  const i = positions.length ? Math.min(...positions) : -1;
   return i < 0 ? text : text.slice(0, i).trimEnd();
 }
 
@@ -532,6 +535,8 @@ export function timelineNoteFor(message: {
         return { glyph: "◐", zh: "已切换人格", en: "Personality changed", expandable: false };
       case "auto_continue":
         return { glyph: "↻", zh: "已从中断处继续", en: "Resumed interrupted turn", expandable: false };
+      case "compression":
+        return { glyph: "⧉", zh: "上下文已压缩", en: "Context compressed", expandable: true };
       default:
         // Forward compatibility: any future marker is a quiet note, never a bubble.
         return { glyph: "ℹ", zh: "系统备注", en: "System note", expandable: true };
@@ -541,7 +546,8 @@ export function timelineNoteFor(message: {
   const text = message.text;
   if (text.startsWith("[ASYNC DELEGATION")) return { glyph: "⚙", zh: "后台子任务已完成", en: "Background tasks finished", expandable: true };
   if (text.startsWith("[IMPORTANT: Background process")) return { glyph: "⚙", zh: "后台进程通报", en: "Background process report", expandable: true };
-  if (text.includes(COMPRESSION_SNAPSHOT_HEADER) && !withoutCompressionScaffolding(text).trim()) {
+  if ((text.includes(COMPRESSION_SNAPSHOT_HEADER) || text.includes(COMPRESSION_SKILLS_HEADER))
+      && !withoutCompressionScaffolding(text).trim()) {
     return { glyph: "⧉", zh: "上下文已压缩", en: "Context compressed", expandable: true };
   }
   return null;

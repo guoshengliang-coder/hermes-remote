@@ -32,12 +32,12 @@ export function classifyChangedPaths(paths) {
       file.startsWith('scripts/')
     ) result.node = true;
 
-    if (file.startsWith('android/')) result.android = true;
+    if (file.startsWith('android/') || file.startsWith('protocol/fixtures/')) result.android = true;
 
     // web/ is a standalone package with its own lockfile: it never selects the Node workspace job,
     // and workspace changes select the Web job only through the files it calls.
     if (
-      file.startsWith('web/') ||
+      file.startsWith('web/') || file.startsWith('protocol/fixtures/') ||
       file.startsWith('android/app/src/main/assets/table-chart/') ||
       WEB_CONTRACT_FILES.includes(file) ||
       /^gateway\/src\/account\/[^/]+-http-controller\.ts$/.test(file)

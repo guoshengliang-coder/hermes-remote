@@ -120,6 +120,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var componentBootstrapIssue: DesktopIssue?
     /// Per-account onboarding facts (`DesktopOnboardingRecord`); reloaded when the account changes.
     @Published private(set) var onboardingRecord = DesktopOnboardingRecord()
+    @Published private(set) var hermesUpgradeReport: DesktopHermesUpgradeReport?
+    @Published private(set) var hermesUpgradeIssue: DesktopIssue?
+    @Published private(set) var hermesUpgradeReadiness: DesktopHermesUpgradeReadiness?
+    @Published private(set) var isCheckingHermesUpgrade = false
+    private let hermesUpgradeChecker = DesktopHermesUpgradeChecker()
+
     @Published private(set) var updateCheckState: DesktopUpdateCheckState = .idle
     @Published var isUpdateSheetPresented = false
     @Published private(set) var isAppUpdateInstalling = false
@@ -392,6 +398,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func checkForUpdates(manual: Bool) async {
+        async let hermes: Void = checkHermesUpdates()
+        async let go: Void = checkGOUpdates(manual: manual)
+        _ = await (hermes, go)
+    }
+
+    private func checkGOUpdates(manual: Bool) async {
         guard isUpdateConfigured else {
             let issue = DesktopIssue(code: .updateNotConfigured)
             updateCheckState = .failed(issue)
@@ -433,6 +445,55 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             updateCheckState = .failed(issue)
             if manual { appUpdateIssue = issue }
         }
+    }
+
+    func checkHermesUpdates() async {
+        guard !isCheckingHermesUpgrade, let detector = localHermesDetector else { return }
+        isCheckingHermesUpgrade = true
+        hermesUpgradeIssue = nil
+        hermesUpgradeReadiness = nil
+        defer { isCheckingHermesUpgrade = false }
+        let detection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
+        do {
+            hermesUpgradeReport = try await hermesUpgradeChecker.check(installation: detection)
+        } catch {
+            // A failed check cannot keep advertising an earlier successful verdict.
+            hermesUpgradeReport = nil
+            hermesUpgradeIssue = (error as? DesktopHermesUpgradeError ?? .checkFailed).issue
+        }
+        if let managedPaths {
+            do { try DesktopHermesUpgradeJournalStore(root: managedPaths.migrationJournalRoot).requireNoPendingUpgrade() }
+            catch { hermesUpgradeIssue = DesktopHermesUpgradeError.recoveryRequired.issue }
+        }
+    }
+
+    func checkHermesUpgradeConditions() async {
+        guard !isCheckingHermesUpgrade, let detector = localHermesDetector,
+              let target = hermesUpgradeReport?.latestStable, let paths = managedPaths else { return }
+        isCheckingHermesUpgrade = true
+        defer { isCheckingHermesUpgrade = false }
+        let result = await Task.detached(priority: .userInitiated) {
+            let checker = DesktopHermesUpgradeReadinessChecker()
+            let detection = detector.detect()
+            let journal = DesktopHermesUpgradeJournalStore(root: paths.migrationJournalRoot)
+            let report = checker.check(detection: detection, target: target, journal: journal,
+                officialUpdateInProgress: detector.updateInProgress())
+            guard !report.recoveryRequired, !report.officialUpdateInProgress, let installation = detection.installation,
+                  let layout = try? DesktopManagedInstallLayout(root: paths.managedRoot, launchAgentsRoot: paths.launchAgentsRoot)
+            else { return report }
+            let activity = await DesktopManagedInstaller(layout: layout).inspectHermesUpgradeActivity(installation: installation)
+            // A concurrent upgrade/recovery takes precedence over the earlier diagnostic snapshot.
+            if detector.updateInProgress() || (try? journal.requireNoPendingUpgrade()) == nil {
+                return checker.check(detection: detection, target: target, journal: journal,
+                    officialUpdateInProgress: detector.updateInProgress())
+            }
+            guard detector.detect().installation?.runtimeIdentity == installation.runtimeIdentity else {
+                return report.recordingActivity(nil)
+            }
+            return report.recordingActivity(activity)
+        }.value
+        hermesUpgradeReadiness = result
+        hermesUpgradeIssue = result.issue
     }
 
     /// Runs from the monitoring loop; a no-op until the 12-hour interval has passed. A build with no
@@ -1164,11 +1225,11 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             let checkRunningAgent = !hasCheckedRunningAgentWhileDisabled
             hasCheckedRunningAgentWhileDisabled = true
             do {
-                _ = try await Task.detached(priority: .utility) {
+                let result = try await Task.detached(priority: .utility) {
                     try await runtime.reconcileWhileDisabled(detector: detector, checkRunningAgent: checkRunningAgent)
                 }.value
                 hermesRuntimeRetryAfter = nil
-                localHermesIssue = nil
+                localHermesIssue = result.flatMap(DesktopIssue.hermesRuntime)
             } catch {
                 hermesRuntimeRetryAfter = Date().addingTimeInterval(Self.hermesRuntimeRetryInterval)
                 localHermesIssue = DesktopIssue.hermesRuntimeFailure(error)
@@ -1278,6 +1339,15 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
               let detector = localHermesDetector,
               let managedPaths
         else { return }
+        let installLease: DesktopMigrationOperationLease
+        do {
+            installLease = try DesktopMigrationJournalStore(root: managedPaths.migrationJournalRoot).acquireOperationLease()
+        } catch {
+            hermesUpgradeIssue = (error as? DesktopHermesUpgradeError == .recoveryRequired
+                ? DesktopHermesUpgradeError.recoveryRequired : .preflightBlocked).issue
+            managedBootstrapIssue = hermesUpgradeIssue
+            return
+        }
         // Re-read the Mac before anything runs, from what is recorded now — nothing is written
         // here. It must still be the offer the owner saw: the same fresh install, or a resume of
         // the same checkout. Anything else is shown again rather than run.
@@ -1308,6 +1378,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let confirmation = offer.confirm()
         hermesInstallPhase = .running(offer, DesktopHermesInstallRun(), cancelling: false)
         hermesInstallTask = Task { [weak self] in
+            defer { withExtendedLifetime(installLease) {} }
             do {
                 let installation = try await installer.install(confirmation) { progress in
                     // The main queue is FIFO, so stages arrive in the order the driver sent them.
@@ -1962,6 +2033,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
 
     private func recoverManagedBootstrapAfterRestart() async {
         guard let runtime = managedRecoveryRuntime else { return }
+        do { try runtime.journal.hermesUpgradeJournal.requireNoPendingUpgrade() }
+        catch {
+            hermesUpgradeIssue = DesktopHermesUpgradeError.recoveryRequired.issue
+            managedBootstrapIssue = hermesUpgradeIssue
+            return
+        }
         await refreshServiceRepairOffer()
         if serviceRepairNeeded { return }
         var reconciliationIssue: DesktopIssue?

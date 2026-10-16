@@ -1,0 +1,32 @@
+[
+  {
+    "name": "standalone-skills-0216",
+    "row": {"id": 1, "role": "user", "content": "[Skills pruned during compression — reload before acting on these tasks]\nReload the skill."},
+    "body": "[Skills pruned during compression — reload before acting on these tasks]\nReload the skill.",
+    "note": "上下文已压缩"
+  },
+  {
+    "name": "mixed-prompt-skills-0216",
+    "row": {"id": 2, "role": "user", "content": "保留我的问题\n\n[Skills pruned during compression — reload before acting on these tasks]\nReload the skill."},
+    "body": "保留我的问题",
+    "note": null
+  },
+  {
+    "name": "mixed-prompt-todo-legacy",
+    "row": {"id": 3, "role": "user", "content": "保留我的问题\n[Your active task list was preserved across context compression]\n- todo"},
+    "body": "保留我的问题",
+    "note": null
+  },
+  {
+    "name": "future-kind-keeps-readable-content",
+    "row": {"id": 4, "role": "user", "content": "future payload", "display_kind": "future_notice"},
+    "body": "future payload",
+    "note": "系统备注"
+  },
+  {
+    "name": "assistant-quotation",
+    "row": {"id": 5, "role": "assistant", "content": "引用 [Skills pruned during compression — reload before acting on these tasks]"},
+    "body": "引用 [Skills pruned during compression — reload before acting on these tasks]",
+    "note": null
+  }
+]

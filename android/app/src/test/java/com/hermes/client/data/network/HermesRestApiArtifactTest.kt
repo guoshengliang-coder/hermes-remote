@@ -127,7 +127,7 @@ class HermesRestApiArtifactTest {
         )
     }
 
-    @Test fun a_refused_upload_writes_the_status_and_the_server_body() = runTest {
+    @Test fun a_refused_upload_writes_the_status_without_raw_server_body() = runTest {
         serverRule.server.enqueue(
             MockResponse.Builder().code(503).body("""{"error":"connector_disconnected"}""").build(),
         )
@@ -141,6 +141,24 @@ class HermesRestApiArtifactTest {
 
         val line = restLines().single { it.contains("POST /api/files/upload") }
         assertTrue("expected the refusal, got $line", line.contains("← 503"))
+        assertTrue(line.contains("code=unknown"))
+        assertFalse(line.contains("connector_disconnected"))
+    }
+
+    @Test fun maintenance_upload_preserves_the_structured_code_and_redacts_the_response() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(503).body(
+            """{"error":{"code":"HR-HERMESUPDATE-005","message":"password=fixture-private","retryable":false,"messageEn":"private"}}""",
+        ).build())
+        try {
+            api(serverRule.server).uploadArtifact("abc".toByteArray(), "synthetic.txt", "text/plain")
+            fail("expected maintenance refusal")
+        } catch (error: HermesApiException) {
+            assertEquals("HR-HERMESUPDATE-005", error.errorCode)
+            assertEquals("HR-HERMESUPDATE-005", error.message)
+        }
+        val line = restLines().single { it.contains("POST /api/files/upload") }
+        assertTrue(line.contains("HR-HERMESUPDATE-005"))
+        assertFalse(line.contains("fixture-private"))
     }
 
     /**

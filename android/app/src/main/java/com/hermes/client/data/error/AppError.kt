@@ -2,6 +2,7 @@ package com.hermes.client.data.error
 
 /** Stable product error identifiers. Meanings are registered in docs/ERROR_HANDLING.md. */
 enum class AppErrorCode(val value: String) {
+    HERMES_MAINTENANCE("HR-HERMESUPDATE-005"),
     // The device has no usable network and the gateway probe failed too. Registered since the code
     // existed; the app carried it as a bare string (StartupFailure.DEVICE_OFFLINE, the health
     // strip's HR-CONN-001) until HG-152, so it had no summary of its own to share.

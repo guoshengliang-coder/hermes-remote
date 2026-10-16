@@ -20,6 +20,22 @@ import java.io.IOException
  * started in the wrong place for two hours.
  */
 class HistoryFailuresTest {
+    @Test fun maintenance_on_an_existing_rpc_channel_is_not_an_ordinary_retryable_history_failure() {
+        for (code in listOf(0, -32002)) {
+            val error = historyFailure(com.hermes.client.data.network.GatewayRpcException(code, "HR-HERMESUPDATE-005"))
+            assertEquals(AppErrorCode.HERMES_MAINTENANCE, error.code)
+            assertFalse(error.retryable)
+        }
+    }
+
+    @Test fun maintenance_envelope_is_not_misclassified_as_an_upstream_database_failure() {
+        val error = historyFailure(HermesApiException(503, "private raw cause", errorCode = "HR-HERMESUPDATE-005"))
+        assertEquals(AppErrorCode.HERMES_MAINTENANCE, error.code)
+        assertFalse(error.retryable)
+        assertTrue(error.localizedMessage(AppLanguage.ZH).contains("维护"))
+        assertTrue(error.localizedMessage(AppLanguage.EN).contains("maintenance"))
+        assertFalse(error.localizedMessage(AppLanguage.ZH).contains("private raw cause"))
+    }
 
     @Test fun connector_unreachable_is_retryable_and_keeps_request_correlation() {
         val error = historyFailure(HermesApiException(

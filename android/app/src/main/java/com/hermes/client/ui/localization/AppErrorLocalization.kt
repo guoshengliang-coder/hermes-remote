@@ -5,6 +5,8 @@ import com.hermes.client.data.error.AppErrorCode
 
 /** Product-safe error copy. Technical causes remain available only through diagnostics. */
 fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
+        AppErrorCode.HERMES_MAINTENANCE ->
+            localized(language, "这台 Mac 的 Hermes 正在维护，暂不接受新操作。请在 Mac 上查看进度或恢复操作。", "Hermes on this Mac is undergoing maintenance and cannot accept new operations. Check progress or recovery on the Mac.")
         AppErrorCode.DEVICE_OFFLINE ->
             localized(
                 language,

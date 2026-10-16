@@ -16,6 +16,16 @@ import org.junit.Test
  * and nothing about why, when nothing was wrong with the request at all.
  */
 class NewChatFailuresTest {
+    @Test fun maintenance_is_non_retryable_and_localized_even_after_repeated_connections() {
+        for (rpcCode in listOf(0, -32002)) {
+            val error = newChatFailure(GatewayRpcException(rpcCode, "HR-HERMESUPDATE-005"), 10)
+            assertEquals(AppErrorCode.HERMES_MAINTENANCE, error.code)
+            assertFalse(error.retryable)
+            assertTrue(error.localizedMessage(AppLanguage.ZH).contains("维护"))
+            assertTrue(error.localizedMessage(AppLanguage.EN).contains("maintenance"))
+            assertFalse(error.localizedMessage(AppLanguage.ZH).contains("closed"))
+        }
+    }
     @Test fun a_sent_create_without_a_reply_explains_the_recovery() {
         val error = newChatFailure(GatewayResponseTimeoutException("gateway response timeout"), 0)
         assertEquals(AppErrorCode.SESSION_CREATE_UNCONFIRMED, error.code)
