@@ -1,5 +1,26 @@
 # Local relay smoke test
 
+## HG-219 heartbeat diagnosis — actual M4 recurrence verification pending
+
+This change adds diagnostics, not an established cure for the underlying outage. It changes no
+heartbeat deadline or reconnect backoff. After separately authorized Gateway and Connector releases:
+
+1. On an isolated test binding, suppress pong responses while retaining inbound application messages
+   and ping frames. A real Connector must still time out and reconnect; `relay.heartbeat_timeout`
+   must show recent inbound activity, `pingWriteState=written`, and no invented `lastPongAgoMs`.
+   Its following `relay.disconnected` must carry the same local `controlConnectionId`.
+2. In the local test stack, delay the ping write callback and separately delay the timer callback.
+   Expect `pending` plus the local buffer size for the former and a larger `tickDelayMs` or
+   `sweepDelayMs` for the latter. Fake clocks cover these classifications; actual network congestion,
+   compression starvation and OS scheduling require runtime evidence, not merely that test passing.
+3. Observe M4 naturally under its normal workload. Correlate Android `conn` with Gateway
+   `clientConnectionId`, then align Connector timeout/disconnect, Gateway timeout/offline and HTTP
+   failures. Capture buffer sizes, write state, inbound ages and timer delay without collecting
+   frames, endpoints, tokens or other request content. Do not pause a live user process to reproduce.
+4. Keep the case unresolved unless the resulting evidence identifies the blocking layer and a
+   subsequent fix is verified on that Mac and phone. A successful public health check alone does
+   not exercise the M4 control connection. See `HG_219_CONNECTION_DIAGNOSTICS.md` for the incident.
+
 ## Account Connector health resilience — production verification pending
 
 Automated tests cover the local deadline, auth cancellation, credential proof, stale replies,

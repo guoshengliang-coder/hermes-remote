@@ -46,6 +46,7 @@ import { contractReportResponse, defaultModelResponse, setDefaultModelResponse, 
 import { HermesContractMonitor } from "./hermes-contract-monitor.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import { ControlReconnectBackoff } from "./control-reconnect.js";
+import { ControlHeartbeatDiagnostics } from "./control-heartbeat-diagnostics.js";
 import { ConnectorHealthResponder, probeHermesHealth, CONNECTOR_HEALTH_PROBE_TIMEOUT_MS } from "./connector-health.js";
 import {
   isThumbnailable,
@@ -178,6 +179,8 @@ function connect(): void {
   });
   let heartbeatTimer: NodeJS.Timeout | undefined;
   let awaitingPong = false;
+  const controlConnectionId = randomUUID();
+  const heartbeatDiagnostics = new ControlHeartbeatDiagnostics(controlHeartbeatMs);
   controlSocket = socket;
   controlAuthenticated = false;
   const healthResponder = new ConnectorHealthResponder(
@@ -193,6 +196,7 @@ function connect(): void {
   healthResponders.set(socket, healthResponder);
 
   socket.on("open", () => {
+    heartbeatDiagnostics.start();
     if (accountAuthenticator) {
       socket.send(encodeWireMessage(accountAuthenticator.identify()));
     } else {
@@ -211,34 +215,43 @@ function connect(): void {
     // one interval to answer, then terminates it so the normal reconnect path takes over.
     heartbeatTimer = setInterval(() => {
       if (controlSocket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      const heartbeatFields = heartbeatDiagnostics.tick(socket.bufferedAmount);
       if (awaitingPong) {
+        log.error("relay.heartbeat_timeout", {
+          mode: connectorMode, controlConnectionId, timeoutMs: controlHeartbeatMs, ...heartbeatFields,
+        });
         console.log("Control heartbeat timed out; forcing reconnect");
         socket.terminate();
         return;
       }
       awaitingPong = true;
-      socket.ping();
+      socket.ping(undefined, undefined, heartbeatDiagnostics.queuedPing());
     }, controlHeartbeatMs);
   });
 
   socket.on("pong", () => {
     if (controlSocket !== socket) return;
+    heartbeatDiagnostics.pong();
     if (awaitingPong) reconnectBackoff.markPong();
     awaitingPong = false;
   });
 
   socket.on("message", (raw) => {
+    heartbeatDiagnostics.message();
     void handleGatewayMessage(socket, raw.toString()).catch((error) => {
       console.error("Unable to handle gateway message", safeError(error));
     });
   });
 
+  socket.on("ping", () => heartbeatDiagnostics.receivedPing());
+
   socket.on("close", (code) => {
     healthResponder.stop();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     log.info("relay.disconnected", {
-      mode: connectorMode, closeCode: code, authenticated: controlAuthenticated,
+      mode: connectorMode, controlConnectionId, closeCode: code, authenticated: controlAuthenticated,
       lifetimeMs: Math.round(performance.now() - startedAt), stopping,
+      ...heartbeatDiagnostics.tick(socket.bufferedAmount),
     });
     inFlightHttpRequests.abortAll("control_socket_closed");
     responseChunkWaiters.rejectAll(new Error("control_socket_closed"));
