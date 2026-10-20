@@ -469,9 +469,14 @@ class ChatViewModel @Inject constructor(
         if (!draftSeeded && text.isBlank()) return
         draftTouched = true
         val drafts = conversationDrafts
+        val editor = unsentComposer
+        val attachments = _state.value.pendingAttachments
         draftSaveJob?.cancel()
         draftSaveJob = draftScope.launch {
             kotlinx.coroutines.delay(DRAFT_SAVE_DEBOUNCE_MS)
+            if (editor != null && unsentComposer === editor && _composerRecoveryError.value == null) {
+                saveUnsentComposer(editor, text, attachments).join()
+            }
             drafts.save(token, text)
         }
     }
@@ -801,6 +806,9 @@ class ChatViewModel @Inject constructor(
         olderHistoryJob?.cancel()
         _olderHistory.value = OlderHistoryUiState()
         sendJob?.cancel()
+        unsentComposer = null
+        _editingUnsentId.value = null
+        _composerRecoveryError.value = null
         resumeJob?.cancel()
         liveHandleGate.completeExceptionally(CancellationException("session changed"))
         liveHandleGate = CompletableDeferred()
@@ -905,7 +913,9 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val saved = drafts.read(token)
             if (storedSessionId != id) return@launch
-            if (!draftTouched || !ps?.text.isNullOrBlank()) composerSeed(saved, ps?.text)?.let { _initialDraft.value = it }
+            if (unsentComposer == null && (!draftTouched || !ps?.text.isNullOrBlank())) {
+                composerSeed(saved, ps?.text)?.let { _initialDraft.value = it }
+            }
             draftSeeded = true
         }
         com.hermes.client.data.diagnostics.DebugLog.log("session", "open($id)")
@@ -1426,7 +1436,9 @@ class ChatViewModel @Inject constructor(
         mutateState { it.withAttachment(PendingAttachment(id, ByteArray(0), mimeType, name, stagedFile = file)) }
     }
     fun removeAttachment(id: String) {
-        _state.value.pendingAttachments.firstOrNull { it.id == id }?.stagedFile?.delete()
+        if (unsentComposer?.source?.attachments?.none { it.id == id } != false) {
+            _state.value.pendingAttachments.firstOrNull { it.id == id }?.stagedFile?.delete()
+        }
         mutateState { it.withoutAttachment(id) }
     }
 
@@ -1482,13 +1494,113 @@ class ChatViewModel @Inject constructor(
      */
     private val failedSends = LinkedHashMap<String, FailedSend>()
 
+    private class PendingSend {
+        var job: Job? = null
+        var submitted = false
+        var remoteAttachmentStarted = false
+    }
+    private val pendingSends = LinkedHashMap<String, PendingSend>()
+    private data class UnsentComposerState(val messageId: String, val source: FailedSend, val withdrawn: Boolean)
+    private var unsentComposer: UnsentComposerState? = null
+    private val _editingUnsentId = MutableStateFlow<String?>(null)
+    val editingUnsentId: StateFlow<String?> = _editingUnsentId.asStateFlow()
+    private val _composerRecoveryError = MutableStateFlow<com.hermes.client.data.error.AppError?>(null)
+    val composerRecoveryError = _composerRecoveryError.asStateFlow()
+    private val composerActionMutex = Mutex()
+    private var unsentWriteJob: Job? = null
+
+    // A slow attachment cache write must not resurrect a record after its replacement cleared it.
+    private fun writeUnsent(block: suspend () -> Unit): Job {
+        val previous = unsentWriteJob
+        return draftScope.launch { previous?.join(); block() }.also { unsentWriteJob = it }
+    }
+
+    private fun saveUnsentComposer(editor: UnsentComposerState, text: String, attachments: List<PendingAttachment>): Job {
+        val token = unsentToken
+        return writeUnsent {
+            if (token == null) return@writeUnsent
+            val original = unsentStore.readAll(token).firstOrNull { it.messageId == editor.messageId }
+                ?: return@writeUnsent
+            if (editor.withdrawn && text.isBlank() && attachments.isEmpty()) {
+                unsentStore.clearMessage(token, editor.messageId)
+                if (unsentComposer === editor) unsentComposer = null
+                return@writeUnsent
+            }
+            unsentStore.save(original.copy(updatedAt = System.currentTimeMillis(), composer = com.hermes.client.data.repository.UnsentComposer(
+                withdrawn = editor.withdrawn, text = text, attachments = attachments.size,
+                attachmentMeta = stageUnsentAttachments(attachments),
+            )))
+        }
+    }
+
+    data class ComposerMessageResult(val text: String? = null, val error: com.hermes.client.data.error.AppError? = null)
+
+    /** Move only a provably unsent turn into the composer. No server history is modified. */
+    suspend fun prepareUnsentComposer(messageId: String, currentDraft: String, withdraw: Boolean = false): ComposerMessageResult =
+        composerActionMutex.withLock {
+            fun refusal(code: com.hermes.client.data.error.AppErrorCode) = ComposerMessageResult(
+                error = com.hermes.client.data.error.AppError(code, retryable = false, stage = "unsent_composer"),
+            )
+            val message = _state.value.messages.firstOrNull { it.id == messageId } ?: return@withLock ComposerMessageResult()
+            val expectedKey = runtimeKey
+            if (message.delivery == com.hermes.client.domain.DeliveryState.SENT) {
+                if (unsentComposer != null) return@withLock refusal(com.hermes.client.data.error.AppErrorCode.UNSENT_COMPOSER_OCCUPIED)
+                return@withLock if (withdraw) ComposerMessageResult() else ComposerMessageResult(text = message.text)
+            }
+            if (currentDraft.isNotBlank() || !_initialDraft.value.isNullOrBlank() ||
+                _state.value.pendingAttachments.isNotEmpty() || unsentComposer != null) {
+                return@withLock refusal(com.hermes.client.data.error.AppErrorCode.UNSENT_COMPOSER_OCCUPIED)
+            }
+            val pending = pendingSends[messageId]
+            if (pending != null && !pending.submitted && !pending.remoteAttachmentStarted) {
+                pending.job?.cancel()
+                pending.job?.join()
+                if (runtimeKey != expectedKey) return@withLock ComposerMessageResult()
+            } else if (messageId !in failedSends) {
+                runtimeKey?.let(runtimeStore::requestReuseReconcile)
+                return@withLock refusal(com.hermes.client.data.error.AppErrorCode.MESSAGE_DELIVERY_UNCONFIRMED)
+            }
+            val source = failedSends[messageId] ?: return@withLock ComposerMessageResult()
+            if (source.error.code == com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST) {
+                return@withLock refusal(com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST)
+            }
+            val editor = UnsentComposerState(messageId, source, withdraw)
+            unsentComposer = editor
+            saveUnsentComposer(editor, source.text, source.attachments).join()
+            if (runtimeKey != expectedKey || unsentComposer !== editor) return@withLock ComposerMessageResult()
+            _editingUnsentId.value = if (withdraw) null else messageId
+            mutateState { it.copy(pendingAttachments = source.attachments) }
+            if (withdraw) {
+                failedSends.remove(messageId)
+                runtimeKey?.let { runtimeStore.removeMessage(it, messageId) }
+                    ?: mutateState { it.withoutMessage(messageId) }
+            }
+            ComposerMessageResult(text = source.text)
+        }
+
+    fun cancelUnsentEdit() {
+        val editor = unsentComposer ?: return
+        unsentComposer = null
+        _editingUnsentId.value = null
+        _composerRecoveryError.value = null
+        draftSaveJob?.cancel()
+        mutateState { it.copy(pendingAttachments = emptyList()) }
+        val token = unsentToken
+        writeUnsent {
+            token?.let { unsentStore.readAll(it) }?.firstOrNull { it.messageId == editor.messageId }?.let {
+                if (editor.withdrawn) unsentStore.clearMessage(it.token, editor.messageId) else unsentStore.save(it.copy(composer = null))
+            }
+        }
+        clearDraft()
+    }
+
     /** Which conversation the entries in [failedSends] belong to, so the store write is addressed. */
     private var unsentToken: String? = null
 
     private fun rememberUnsent(messageId: String, failed: FailedSend, token: String? = unsentToken) {
         if (token == unsentToken) failedSends[messageId] = failed
         if (token == null) return
-        draftScope.launch {
+        writeUnsent {
             unsentStore.save(
                 com.hermes.client.data.repository.UnsentRecord(
                     token = token,
@@ -1539,9 +1651,9 @@ class ChatViewModel @Inject constructor(
     private fun forgetUnsent(messageId: String) {
         failedSends.remove(messageId)
         val token = unsentToken ?: return
-        draftScope.launch {
+        writeUnsent {
             // A later successful turn must not erase an earlier unsent turn (HG-214).
-            if (unsentStore.read(token)?.messageId == messageId) unsentStore.clear(token)
+            unsentStore.clearMessage(token, messageId)
         }
     }
 
@@ -1559,35 +1671,65 @@ class ChatViewModel @Inject constructor(
      */
     private fun seedUnsent(token: String, sessionId: String, key: SessionRuntimeKey?) {
         viewModelScope.launch {
-            val record = unsentStore.read(token) ?: return@launch
-            if (storedSessionId != sessionId || unsentToken != token) return@launch
-            if (failedSends.containsKey(record.messageId)) return@launch
-            val restored = withContext(defaultDispatcher) { restoreUnsentAttachments(record) }
-            val lost = record.attachments > 0 && restored == null
-            val code = if (lost) {
-                com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST
-            } else {
-                com.hermes.client.data.error.AppErrorCode.entries.firstOrNull { it.value == record.code }
-                    ?: com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
+            unsentWriteJob?.join()
+            unsentStore.readAll(token).forEach { record ->
+                if (storedSessionId != sessionId || unsentToken != token) return@launch
+                if (failedSends.containsKey(record.messageId)) return@forEach
+                val restored = withContext(defaultDispatcher) { restoreUnsentAttachments(record) }
+                if (storedSessionId != sessionId || unsentToken != token) return@launch
+                val lost = record.attachments > 0 && restored == null
+                val code = if (lost) {
+                    com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST
+                } else {
+                    com.hermes.client.data.error.AppErrorCode.entries.firstOrNull { it.value == record.code }
+                        ?: com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
+                }
+                failedSends[record.messageId] = FailedSend(
+                    record.text,
+                    restored ?: emptyList(),
+                    com.hermes.client.data.error.AppError(
+                        code,
+                        retryable = record.retryable && !lost,
+                        stage = "prompt_submit",
+                    ),
+                )
+                record.composer?.let { composer ->
+                    val attachments = withContext(defaultDispatcher) {
+                        restoreUnsentAttachments(record.copy(attachments = composer.attachments, attachmentMeta = composer.attachmentMeta))
+                    }
+                    if (storedSessionId != sessionId || unsentToken != token) return@launch
+                    val source = failedSends[record.messageId] ?: return@forEach
+                    // An evicted cache never turns an attachment message into a text-only send.
+                    if (!lost && attachments != null) {
+                        unsentComposer = UnsentComposerState(record.messageId, source, composer.withdrawn)
+                        _editingUnsentId.value = if (composer.withdrawn) null else record.messageId
+                        mutateState { it.copy(pendingAttachments = attachments) }
+                        _initialDraft.value = composer.text
+                        if (composer.withdrawn) {
+                            failedSends.remove(record.messageId)
+                            key?.let { runtimeStore.removeMessage(it, record.messageId) }
+                            return@forEach
+                        }
+                    } else {
+                        unsentComposer = UnsentComposerState(record.messageId, source, composer.withdrawn)
+                        _editingUnsentId.value = record.messageId
+                        _composerRecoveryError.value = com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST, retryable = false,
+                        )
+                        _initialDraft.value = composer.text
+                        if (composer.withdrawn) return@forEach
+                    }
+                }
+                val present = (key?.let { runtimeStore.runtimes.value[it]?.chat?.messages } ?: _state.value.messages)
+                    .any { it.id == record.messageId }
+                if (present) return@forEach
+                val restore: (ChatUiState) -> ChatUiState = { state ->
+                    state.withUserMessage(record.text, messageId = record.messageId)
+                        .withDelivery(record.messageId, com.hermes.client.domain.DeliveryState.FAILED)
+                        .copy(isGenerating = false)
+                }
+                key?.let { runtimeStore.updateChat(it, restore) } ?: mutateState(restore)
             }
-            failedSends[record.messageId] = FailedSend(
-                record.text,
-                restored ?: emptyList(),
-                com.hermes.client.data.error.AppError(
-                    code,
-                    retryable = record.retryable && !lost,
-                    stage = "prompt_submit",
-                ),
-            )
-            val present = (key?.let { runtimeStore.runtimes.value[it]?.chat?.messages } ?: _state.value.messages)
-                .any { it.id == record.messageId }
-            if (present) return@launch
-            val restore: (ChatUiState) -> ChatUiState = { state ->
-                state.withUserMessage(record.text, messageId = record.messageId)
-                    .withDelivery(record.messageId, com.hermes.client.domain.DeliveryState.FAILED)
-                    .copy(isGenerating = false)
-            }
-            key?.let { runtimeStore.updateChat(it, restore) } ?: mutateState(restore)
         }
     }
 
@@ -1631,6 +1773,7 @@ class ChatViewModel @Inject constructor(
 
     /** Replays a failed turn as a fresh message: the failed bubble is removed, then sent again. */
     fun retrySend(messageId: String) {
+        if (unsentComposer?.messageId == messageId) return
         val failed = failedSends[messageId] ?: return
         // A terminal failure (the conversation is gone upstream) keeps its bubble and its code.
         // Re-dispatching would only repeat the same 4001/4007 and replace one dead error with
@@ -1662,14 +1805,25 @@ class ChatViewModel @Inject constructor(
             ?: mutateState { it.withDelivery(messageId, delivery) }
     }
 
-    fun send(text: String) {
-        if (_sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE) return
+    fun send(text: String): Boolean {
+        if (_sessionAccessState.value == SessionAccessState.OWNED_ELSEWHERE || _composerRecoveryError.value != null) return false
         val atts = _state.value.pendingAttachments
-        if (text.isBlank() && atts.isEmpty()) return
+        if (text.isBlank() && atts.isEmpty()) return false
+        unsentComposer?.let { editor ->
+            unsentComposer = null
+            _editingUnsentId.value = null
+            draftSaveJob?.cancel()
+            forgetUnsent(editor.messageId)
+            if (!editor.withdrawn) {
+                runtimeKey?.let { runtimeStore.removeMessage(it, editor.messageId) }
+                    ?: mutateState { it.withoutMessage(editor.messageId) }
+            }
+        }
         // Clear the staging strip immediately. The cached thumbnails are attached to the sent turn
         // on an IO dispatcher below, so large images never block the Compose main thread.
         mutateState { it.copy(pendingAttachments = emptyList()) }
         dispatch(text, atts)
+        return true
     }
 
     /** HG-196: final speech completes the composer; rejected auto-sends leave its contents intact. */
@@ -1678,8 +1832,7 @@ class ChatViewModel @Inject constructor(
             connectionState.value !is ConnectionState.Connected || _state.value.isGenerating ||
             _attachingSessions.value > 0) return false
         val combined = if (draft.isBlank()) text.trim() else draft.trimEnd() + "\n" + text.trim()
-        send(combined)
-        return true
+        return send(combined)
     }
 
     private fun dispatch(
@@ -1687,6 +1840,8 @@ class ChatViewModel @Inject constructor(
         atts: List<PendingAttachment>,
     ) {
         val messageId = "u-${java.util.UUID.randomUUID()}"
+        val pending = PendingSend()
+        pendingSends[messageId] = pending
         val expectedStoredId = storedSessionId
         val expectedProfile = currentProfile
         val expectedKey = runtimeKey
@@ -1781,6 +1936,7 @@ class ChatViewModel @Inject constructor(
                     ?.takeIf { it.isNotBlank() }
                     ?: initialHandle
                 val isSlash = isKnownSlashCommand(text, commandsForSend(text))
+                val sendContext = currentCoroutineContext()
                 submitTurnWithRecovery(
                     initialHandle = currentHandle,
                     storedId = storedSessionId,
@@ -1789,8 +1945,9 @@ class ChatViewModel @Inject constructor(
                     isSlash = isSlash,
                     attachments = atts,
                     messageId = messageId,
-                    onSubmitStarted = { submitStarted = true },
-                    onSubmitRejected = { submitStarted = false },
+                    onSubmitStarted = { sendContext.ensureActive(); submitStarted = true; pending.submitted = true },
+                    onSubmitRejected = { submitStarted = false; pending.submitted = false },
+                    onRemoteAttachmentStarted = { sendContext.ensureActive(); pending.remoteAttachmentStarted = true },
                 )
                 atts.forEach { it.stagedFile?.delete() }
                 // The gateway acknowledged the turn: the bubble goes from "sending" to solid.
@@ -1931,6 +2088,7 @@ class ChatViewModel @Inject constructor(
                 )
                 runtimeKey?.let(runtimeStore::finishLocal) ?: mutateState { it.copy(isGenerating = false) }
             } finally {
+                pendingSends.remove(messageId)
                 // The bubble has reached its final state (sent, failed or undeliverable), so it is
                 // safe to hand the screen the new id and let it re-navigate.
                 pendingRecreatedId?.let { recreated ->
@@ -1939,6 +2097,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
+        pending.job = sendJob
     }
 
     private suspend fun commandsForSend(text: String): List<Pair<String, String>> {
@@ -1967,6 +2126,7 @@ class ChatViewModel @Inject constructor(
         messageId: String,
         onSubmitStarted: () -> Unit,
         onSubmitRejected: () -> Unit,
+        onRemoteAttachmentStarted: () -> Unit,
     ) {
         suspend fun submitOn(handle: String) {
             com.hermes.client.data.diagnostics.DebugLog.log(
@@ -1981,6 +2141,8 @@ class ChatViewModel @Inject constructor(
                 } catch (error: HermesApiException) {
                     throw UploadHttpFailure(error)
                 }
+                currentCoroutineContext().ensureActive()
+                onRemoteAttachmentStarted()
                 when (attachment.kind) {
                     AttachmentKind.IMAGE -> {
                         val attached = chat.attachImagePath(handle, uploaded.path)

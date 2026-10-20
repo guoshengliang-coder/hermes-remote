@@ -50,6 +50,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -1668,6 +1669,7 @@ internal fun UserBubble(
         else com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
     val failedLabel = failedSendLabel(failedErrorCode, language)
     val failedCode = failedErrorCode.compact
+    val attachmentsLost = failedErrorCode == com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST
     // Whether the tap is offered follows the same rule as the copy: the code decides, not the
     // delivery state. `retryable = failed && !undeliverable` was true for every FAILED bubble,
     // so a terminal code that never got its own DeliveryState — SESS-015's restored send whose
@@ -1767,7 +1769,12 @@ internal fun UserBubble(
                         add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                             copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                         })
-                        add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) })
+                        if (!attachmentsLost) {
+                            add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.id) })
+                        }
+                        if (sending) {
+                            add(MessageAction(Icons.Rounded.Undo, localized(language, "撤回", "Withdraw")) { onDiscardSend(msg.id) })
+                        }
                         if (failed && sendDiagnostic != null) {
                             add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制诊断信息", "Copy diagnostics")) {
                                 copyToClipboard(sendDiagnostic, clipboard, context, localized(language, "诊断信息已复制", "Diagnostics copied"))
@@ -1814,11 +1821,10 @@ internal fun UserBubble(
                     softWrap = false,
                 )
                 // Withdraw sits at the row's end because it is the one thing the failure state
-                // cannot infer: tap on the bubble or this row retries, this discards. An unsent
-                // bubble never reached the Mac, so withdrawing is local — it drops the turn and
-                // clears the record a cold start would otherwise put back on screen (HG-162).
+                // cannot infer: tap on the bubble or this row retries; withdraw restores the
+                // turn to the composer (HG-220), leaving the sentence's retry target intact.
                 Text(
-                    localized(language, "撤回", "Withdraw"),
+                    if (attachmentsLost) localized(language, "丢弃", "Discard") else localized(language, "撤回", "Withdraw"),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
@@ -1829,6 +1835,11 @@ internal fun UserBubble(
                         .clickable(role = androidx.compose.ui.semantics.Role.Button) { onDiscardSend(msg.id) }
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                 )
+            }
+            if (!attachmentsLost) {
+                TextButton(onClick = { onEditResend(msg.id) }) {
+                    Text(localized(language, "编辑并重新发送", "Edit & resend"))
+                }
             }
         }
       }

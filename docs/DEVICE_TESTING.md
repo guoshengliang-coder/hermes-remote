@@ -51,6 +51,15 @@ done
 
 ## 1. 构建与装哪个包
 
+HG-220（2026-10-20）在 API 36 模拟器上发现：当前依赖中的 Espresso 触控注入器反射调用
+`InputManager.getInstance()`，该入口已不存在，`performClick()` 会报 `NoSuchMethodException`。
+这是测试注入失败，不能据此判定 App 点击失败。Compose 测试 Rule 的空闲同步也会初始化该入口，
+所以仅替换 `performClick()` 不够。可用 `ActivityScenarioRule` 挂载 Compose，从框架无障碍树取得
+文字节点的 `boundsInScreen`，用公开 `UiAutomation.injectInputEvent` 注入真实触摸；不按截图猜
+坐标、不调用不存在的私有入口。示例为 `UnsentComposerDeviceTest`；JVM 的 Compose 点击测试不受此限制。
+组件级 Activity 验证页也要提供 `systemBarsPadding`：它没有主页面的 Scaffold inset，若把消息放在
+屏幕最上沿，触摸会被系统状态栏接收，不能把这种测试画布错误当成组件点击失效。
+
 ```bash
 cd android && ./gradlew :app:assembleDebug
 ```
