@@ -531,8 +531,9 @@ false `realDependencyGenerationVerified`. This observer publishes NO maintenance
 not add evidence to that policy or the GO Operating Machine. Dependency closure/ABI/dlopen/OS/whole
 Hermes activation, service boot/business, durable consent/recovery, full startup/global admission and
 upgrade certification remain false/unverified. The selected packaging import is not a business test.
-Next work must bind an independently planned actual generation and acceptance policy to a transaction,
-then cover the missing services/writers; an observed current environment cannot authorize itself.
+The prepared-target diagnostic below adds explicit plan comparison. Trusted production plan origin,
+actual code-generation transitions and the missing services/writers remain unverified; an observed
+current environment cannot authorize itself.
 
 Local 2026-10-16 evidence: the complete new-home `--provision --fault-matrix` run passed in
 `/private/tmp/hg199-pm-generation-n0r7sgc8`. Official sync completed from a new tools/cache root,
@@ -543,3 +544,46 @@ prototype writer remained blocked by intent. `activationInputsCurrent=false` and
 terminal/production/durable/full-startup/global/upgrade claim remained false. This is not a full
 Hermes cold-install, CLI activation, service or business acceptance result. Portable unit baseline:
 110 tests passed; the pinned real-selector synthetic matrix passed one selection/three refusals.
+
+### Prepared-target plan diagnostic (2026-10-20)
+
+`pm_target.py` compares a separately supplied canonical plan with a marked PM fixture while holding
+the actual drained home/checkout exclusive leases. It has no plan builder, finish, clear or admission
+API. The plan requires the exact original 11-file context, all six PM selector/lock input hashes,
+environment/Python-base paths and directory identities, both complete tree digests, exact Python
+and packaging versions, and one of two fixed policies. Expected run, source and canonical plan SHA
+are separate required arguments. Both intent slots must still contain exactly this transaction;
+neither an idle/partial slot nor a new run can borrow it. Two fresh observations and a final context/
+intent/input recheck reject drift; saved observations and booleans are not plans.
+
+`pm-prepared-target-diagnostic-v1` permits an explicitly unstamped prepared environment for diagnosis.
+`pm-activated-target-diagnostic-v1` additionally requires current real activation input stamps; it
+never fabricates them. Neither policy establishes upgrade readiness or production authority.
+
+```bash
+python -I -S -B scripts/compat/hermes-maintenance-target.py \
+  --fixture-root <marked-disposable-pm-fixture> --plan-file <owner-only-canonical-plan> \
+  --expected-run <original-run> --expected-source 818c13be1dc4fd28987e1e881a9408224afd4535 \
+  --expected-plan-sha <independently-supplied-canonical-plan-sha256>
+```
+
+The CLI accepts only private 0600 bounded regular plan files, verifies the pinned full Git source
+before copied code execution, and uses the existing macOS sandbox for selector/runtime children.
+It closes inspection custody and then confirms an actual ordinary writer is still blocked. Failures
+use registered bilingual `HR-HERMESUPDATE-002`, retryable false, without private paths/exceptions.
+The CLI reacquires fixture custody; it does not implement a durable authenticated recovery handoff.
+
+Thirteen portable tests use synthetic reports, including the negative control where omitting the
+second observation misses dependency drift. Linux full discovery and the macOS prototype job run
+them. The actual Mac rehearsal reused the previously prepared new-home fixture: a one-off external
+test launcher recorded tree/input expectations before starting the verifier, with known producer
+versions Python 3.14.7/packaging 26.0. It identified the existing transaction from the intent **only as
+test comparison data**, not as recovered consent. No plan was inferred inside the verifier. The
+prepared policy matched 8477 environment/2013 base entries; the activated policy and wrong version,
+tree digest, independent plan SHA and independent run all refused (five refusals). All intent bytes
+remained unchanged and an ordinary writer remained blocked after every check released its locks.
+This is a baseline of an already-prepared fixture, not a before-sync target decision, a real old/new
+source upgrade, independently authenticated production expectations, service/business acceptance,
+dependency closure or durable authorization after Desktop death. Every completion/authority/
+handoff/upgrade certification flag remains false. Nothing connects this result to the older synthetic
+`finish_fixture`, the Operating Machine or the execution UI.

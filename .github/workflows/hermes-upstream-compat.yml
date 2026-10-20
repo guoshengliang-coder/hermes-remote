@@ -97,6 +97,7 @@ jobs:
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_transition.py'
           python -I -S -B scripts/compat/hermes-maintenance-transition.py --candidate-root .upstream/candidate
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_pm.py'
+          python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_target.py'
           python -I -S -B scripts/compat/hermes-maintenance-pm.py --selector-matrix .upstream/candidate
   upstream-main-warning:
     if: github.event_name != 'pull_request'

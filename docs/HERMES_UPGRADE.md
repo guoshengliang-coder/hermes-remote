@@ -334,3 +334,17 @@ main e473bec3713294ecf29cff374970394bd80f478b，保留主干已发布版本值�
 主干 Connector 的限时/可取消轻量健康探测保留，并纳入维护接入计数：暂停拒绝新健康读，
 已接收但未读完的响应仍计 busy，到真实完成/取消才释放。测试 mailbox 改为与 Desktop 相同的
 原子 rename 发布，避免另一个进程观察到测试夹具的半写入，未放宽生产私有文件校验。
+
+### 2026-10-20 已准备 PM 目标的计划绑定诊断
+
+仅兼容 harness 新增 `hermes-maintenance-target.py` / `pm_target.py`，不导入 Desktop。调用方必须
+单独提供私有规范计划及预期 run/source/计划 SHA；不能把当前观察、布尔值或日志当作授权。
+检查当前双域意图、源输入、精确环境/Python base 身份与内容、版本和固定策略，并实际重查。
+真实隔离 PM 夹具的准备策略通过；缺激活戳的激活策略、错版本、错内容摘要、错计划 SHA、错 run
+共五次拒绝。意图未变，释放全部检查锁后 writer 仍被阻断。已准备夹具的测试基线不证明生产
+计划来源、同步前目标决策或耐久恢复授权；没有新装 PM、实际旧/新源码转换或服务/业务验收。
+详细格式、命令及边界见 `scripts/compat/upstream-maintenance-prototype/README.md`。
+
+本轮新增 13 项合成回归，CI Linux 全量发现/macOS 专项均纳入。未改产品行为/协议/UI，未重复本地
+Desktop/Node/Web/Android 构建或 L1/L2/L3，未分配版本、交付应用、合并、发布或操作现用 Hermes。
+升级执行继续关闭，完成/授权/耐久交接/认证结果均为 false。

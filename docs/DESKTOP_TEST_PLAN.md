@@ -1036,3 +1036,15 @@ Final merged-baseline validation: focused upgrade inspection/consumer suites 71 
 Web typecheck/905 tests/build; Android 2498 JVM tests/assembleDebug. The host probe reports L2
 A5DN9X4708H02629 unauthorized and L3 Pixel_API_37 available but not exercised. No new visual
 layout or targetSdk change was made; no APK/app handed off, no live Hermes or service operation.
+
+2026-10-20 HG-199 prepared-target diagnostic (compat harness only): 13 new synthetic tests cover
+strict plans/policies, independently supplied run/source/SHA, exact generation/runtime/content,
+active two-slot intent, final transaction recheck, absent activation stamps, private bounded plan
+files and bilingual HR-HERMESUPDATE-002 redaction. A negative control skips the second observation
+and misses dependency drift. The real Mac reused the marked disposable PM fixture: prepared policy
+matched; missing activation evidence, wrong Python version/tree digest/plan SHA/run refused. Both
+intent slots stayed byte-identical, and ordinary admission remained blocked after inspector exit.
+Expectations were a baseline of an already-prepared test fixture, not authenticated production
+consent or a before-sync upgrade plan. No UI/Operating/finish integration, service/business or durable
+handoff was verified. Local Desktop/Android L1/L2/L3 were not rerun for this harness-only change;
+CI macOS/Linux exercise the new tests. No version bump, app delivery or live installation operation.
