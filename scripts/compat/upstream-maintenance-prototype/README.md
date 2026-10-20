@@ -587,3 +587,52 @@ source upgrade, independently authenticated production expectations, service/bus
 dependency closure or durable authorization after Desktop death. Every completion/authority/
 handoff/upgrade certification flag remains false. Nothing connects this result to the older synthetic
 `finish_fixture`, the Operating Machine or the execution UI.
+
+### Inspection interruption and fresh recheck (2026-10-20)
+
+`hermes-maintenance-inspection-recovery.py` exercises death of a **read-only inspector**, not death
+inside PM sync or an official updater. It requires the same external plan/run/source/SHA arguments
+as the prepared-target CLI. The surviving test supervisor validates the original active transaction,
+retains the independently supplied comparison inputs and closes ALL of its maintenance descriptors
+before starting an inspector. Each new inspector receives an owner-only read-only/unlinked plan FD;
+the actor rejects linked/writable descriptors, reacquires its own exclusive leases and runs the
+existing full-source guard and sandboxed selected-runtime observations. There is no saved-verdict
+input, authorization recovery from the journal or finish/admission operation.
+
+The target verifier exposes test checkpoints after initial plan validation (zero observations),
+after the first actual observation, and after both observations and final transaction recheck.
+The supervisor observes each exact bounded checkpoint, SIGKILLs only that Popen and confirms its
+signal exit. At these checkpoints all selector/runtime children have exited; this does not test
+death while PM/observer descendants are active. A fresh EX acquisition confirms inspector custody
+is gone, both intent slots must remain byte-identical, and an ordinary writer must still be blocked.
+Another new interpreter then rechecks the retained original plan and must exit zero with one exact
+diagnostic result. Nonzero exit, extra output, boolean checkpoints and completion/authority flags
+refuse. The last three runs separately reject a wrong run, independent plan SHA and environment
+digest. Cleanup only stops processes this harness created; it never discovers or signals a PID.
+
+```bash
+python -I -S -B scripts/compat/hermes-maintenance-inspection-recovery.py \
+  --fixture-root <marked-disposable-pm-fixture> --plan-file <owner-only-canonical-plan> \
+  --expected-run <original-run> --expected-source 818c13be1dc4fd28987e1e881a9408224afd4535 \
+  --expected-plan-sha <independently-retained-canonical-plan-sha256>
+```
+
+The public rehearsal is macOS-only; it neither provisions PM nor edits a selected generation. Ten
+portable tests use real POSIX files, locks and test-process deaths with explicitly SYNTHETIC selector/
+runtime reports. They check checkpoint placement, new-process launches, changed actual dependency
+after a verified inspector dies, invalid expectations, descriptor custody, strict result/exit/output
+handling, cleanup and bilingual redaction. A negative control accepts the saved report's shape after
+dependency drift; the fresh inspector rejects that actual drift. Report shape alone proves no
+freshness. The synthetic child implementation is confined to the test file, with no shipping CLI
+option to enable it. Linux discovery and the macOS compatibility job run these tests.
+
+The Mac opt-in reused the prior externally recorded prepared fixture baseline (Python 3.14.7,
+packaging 26.0): three observed SIGKILL checkpoints, three new-process matches and three changed-
+expectation refusals passed. Intent bytes stayed identical and ordinary admission remained blocked
+after every inspector exit. `activationInputsCurrent=false`; no stamps were manufactured. The
+supervisor survives this entire test. Expectations still originate from an already-prepared test
+fixture, not authenticated production consent, a pre-sync target decision or durable authorization
+after Desktop/supervisor death. No actual old/new source transition, updater interruption/resume,
+service/business recovery, OS reboot, dependency closure or global writer coverage is verified.
+`updaterRecoveryVerified`, `durableHandoffVerified`, `targetAuthorityVerified`,
+`productionCompletionVerified` and `certifiesUpgrade` all remain false. Product execution stays off.

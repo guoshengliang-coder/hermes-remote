@@ -362,3 +362,19 @@ release-server 37、scripts 429（1 跳过）；脚本加密恢复测试需本�
 assembleDebug 和 Web typecheck/943 测试/build 已通过；L2
 A5DN9X4708H02629 未授权，L3 Pixel_API_37 可用但未运行，本次没有新布局或平台行为修改。
 Desktop 本地基线未重跑，仍需当前 PR 的 CI 门禁；无安装、服务重启、APK/app 交付或发布。
+
+### 2026-10-20 检查进程中断后的原计划重查
+
+新增仅限隔离夹具的 inspection-recovery harness。监督方保留原外部计划、关闭全部维护 FD，
+在三个检查点分别终止自建检查进程；重新取得检查锁，复核意图不变及普通 writer 仍阻断，再
+启动新解释器，使用私有只读/unlinked 计划 FD 重新读取真实 PM 环境。检查返回必须形状完整、
+退出 0 且无额外输出；旧成功 JSON 不作为重查输入，错误 run/独立 SHA/代次摘要均拒绝。
+真实 Mac 夹具完成 3 次 SIGKILL、3 次新进程匹配、3 次拒绝；Python 3.14.7/packaging 26.0 的
+已准备代次未改动，未再安装 PM，激活输入仍 false。新增 10 项测试的运行时报告为合成数据，
+但锁和死亡进程真实；包含死后依赖漂移拒绝及保存结果会漏检的反例。全量兼容基线为 133 项。
+固定输入与命令见 `scripts/compat/upstream-maintenance-prototype/README.md`。
+
+该矩阵只验证只读检查中断、监督方一直存活、检查点的观察子进程均已退出；不代表官方 updater/
+PM 同步中断恢复、真实旧→新转换、耐久生产授权、服务/业务或依赖闭包通过。所有授权/完成/
+交接/认证以及 updaterRecoveryVerified 仍 false。此次只改 harness/CI/文档，本地 Desktop、
+Node、Web、Android L1/L2/L3 未重复运行；未升版、交付应用、合入 main、发布或操作现用安装。

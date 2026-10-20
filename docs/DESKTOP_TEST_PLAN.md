@@ -1056,3 +1056,15 @@ system LibreSSL had failed two decrypt cases. Local Android 2534 JVM/assembleDeb
 typecheck/943 tests/build passed after integration.
 Local Desktop was not rerun; L2 A5DN9X4708H02629 is unauthorized and available L3 Pixel_API_37 was
 not exercised. No new visual or targetSdk behavior is introduced by the conflict resolution.
+
+HG-199 inspection interruption/recheck follow-up (compat harness only): 10 portable tests use real
+process death/locks and synthetic runtime reports. They verify all three checkpoint positions, new
+inspector processes, dependency drift after a verified inspector dies, independent expectations,
+private plan FDs, malformed checkpoints/results, nonzero exit/extra output, cleanup and bilingual
+HR-HERMESUPDATE-002 redaction. The real Mac PM fixture passes 3 SIGKILL checkpoints, 3 fresh matches
+and 3 changed-expectation refusals; intent stays byte-identical and ordinary admission stays blocked.
+No active observer descendants exist at the checkpoints. The test supervisor survives throughout;
+updater/PM interruption, real code upgrade, durable consent, services/business, OS reboot and global
+writer coverage remain unverified. Activation inputs and every authority/completion/certification
+flag remain false. No Desktop/Node/Web/Android local rebuild or L1/L2/L3 rerun for this follow-up;
+Linux/macOS compatibility CI runs the new tests. No live installation, version or release operation.

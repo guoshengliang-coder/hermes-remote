@@ -37,7 +37,7 @@ def read_plan(path):
         os.close(fd)
 
 
-def inspect(root, plan, expected_run, expected_source, expected_sha):
+def inspect(root, plan, expected_run, expected_source, expected_sha, *, checkpoint=None):
     target.pm.fixture(root)
     if expected_source != driver.COMMIT:
         raise ValueError("source requires review")
@@ -45,7 +45,8 @@ def inspect(root, plan, expected_run, expected_source, expected_sha):
     worker.verify_source(root / "checkout", expected_source, installation=True)
     held = driver.held(root)
     try:
-        result = target.verify(held, plan, expected_run, expected_source, expected_sha, driver.sandbox(root))
+        result = target.verify(held, plan, expected_run, expected_source, expected_sha, driver.sandbox(root),
+                               checkpoint=checkpoint)
     finally:
         held.close()
     lease = driver.load("target_writer_probe", driver.PROTOTYPE / "maintenance_lease.py")

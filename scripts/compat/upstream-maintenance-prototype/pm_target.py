@@ -71,9 +71,13 @@ def validate(held, plan, expected_run, expected_source, expected_sha):
     return root
 
 
-def verify(held, plan, expected_run, expected_source, expected_sha, command_prefix=()):
+def verify(held, plan, expected_run, expected_source, expected_sha, command_prefix=(), *, checkpoint=None):
     validate(held, plan, expected_run, expected_source, expected_sha)
+    if checkpoint:
+        checkpoint("validated", 0)
     observed = pm.observe(held, command_prefix)
+    if checkpoint:
+        checkpoint("observed", 1)
     generation = plan["generation"]
     actual = {"environment": observed["selected"]["environment"],
               "environmentIdentity": binding.directory(observed["selected"]["environment"]),
@@ -87,6 +91,8 @@ def verify(held, plan, expected_run, expected_source, expected_sha, command_pref
         raise ValueError("target activation inputs have not been published")
     pm.revalidate(held, observed, command_prefix)
     validate(held, plan, expected_run, expected_source, expected_sha)
+    if checkpoint:
+        checkpoint("verified", 2)
     return {"preparedTargetMatched": True, "policy": plan["policy"],
             "activationInputsCurrent": observed["activationInputsCurrent"],
             "targetAuthorityVerified": False, "durableHandoffVerified": False,
