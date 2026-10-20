@@ -2,6 +2,12 @@
 
 The selected base is [`adebnar/hermes-android`](https://github.com/adebnar/hermes-android), pinned at tag `v0.1.52` / commit `9f08f39ed2b9fc7cb29a551b1d9b695a409fdb7a`.
 
+Conversation search navigates to each marked occurrence, including multiple matches inside a long
+reply (HG-221). Counts and marks use the same rendered Markdown text; hidden link destinations,
+image metadata and code fences do not inflate the counter. Matching is prepared off the UI thread.
+New conversations do not prefetch older history until a persisted window is known (HG-218);
+structured device errors and failures in real history remain visible.
+
 Chat image previews resolve from the same displayed conversation turn as the transcript (HG-198).
 An assistant answer split across tool-call records opens all of that answer's cached images in order;
 history message-id replacement retains the viewer through the stable image id. User messages and

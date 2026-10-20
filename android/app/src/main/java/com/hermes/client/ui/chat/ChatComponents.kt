@@ -483,7 +483,7 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     }
 }
 
-private val LocalChatViewportController = staticCompositionLocalOf<ChatViewportController?> { null }
+internal val LocalChatViewportController = staticCompositionLocalOf<ChatViewportController?> { null }
 
 @Composable
 fun ChatMessageList(
@@ -903,12 +903,12 @@ fun ChatMessageList(
     // Search-highlight navigation, mapped from turn order to the reversed list order. The size is
     // a key on purpose: new turns shift the reversed index of the same logical match. Offset 1
     // skips the permanent bottom-edge slot at index 0.
-    LaunchedEffect(highlightIndex, displayMessages.size) {
+    LaunchedEffect(highlightIndex, searchContext, displayMessages.size) {
         val target = highlightIndex ?: return@LaunchedEffect
         val listIndex = 1 + (displayMessages.lastIndex - target)
         if (listIndex >= 0) {
             try {
-                listState.animateScrollToItem(listIndex)
+                listState.scrollToItem(listIndex)
             } catch (stolen: CancellationException) {
                 currentCoroutineContext().ensureActive()
             }
@@ -1743,8 +1743,11 @@ internal fun UserBubble(
                     }
                     CompositionLocalProvider(LocalUriHandler provides rememberSafeUriHandler()) {
                         SelectionContainer(Modifier.testTag("chat-selectable-${msg.id}")) {
+                            val searchTarget = rememberSearchTextTarget()
                             Text(
                                 visibleText,
+                                modifier = searchTarget.modifier,
+                                onTextLayout = searchTarget::onTextLayout,
                                 style = MaterialTheme.typography.bodyLarge.copy(
                                     fontSize = 17.sp,
                                     lineHeight = 25.sp,
@@ -2149,11 +2152,13 @@ internal fun AssistantTurn(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
+                        val searchTarget = rememberSearchTextTarget()
                         Text(
                             searchHighlighted(renderedText),
+                            onTextLayout = searchTarget::onTextLayout,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(12.dp),
+                            modifier = searchTarget.modifier.padding(12.dp),
                         )
                     }
                 } else {
@@ -2161,14 +2166,17 @@ internal fun AssistantTurn(
                     // Which mark is "the one" is answered by ordinal, not by position: prefix sums
                     // of the marks per block let each block name its own marks in turn coordinates.
                     val searchQuery = LocalChatSearch.current?.query
-                    val markPrefix = remember(blocks, searchQuery) {
+                    val preparedRanges = LocalChatSearch.current?.markdownRanges.orEmpty()
+                    val isCurrentHit = LocalTurnIsCurrentHit.current
+                    val markPrefix = remember(blocks, searchQuery, preparedRanges, isCurrentHit) {
                         val terms = searchQuery?.let { searchHighlightTerms(it) }.orEmpty()
-                        if (terms.isEmpty()) IntArray(blocks.size) else {
+                        if (terms.isEmpty() || !isCurrentHit) IntArray(blocks.size) else {
                             val prefix = IntArray(blocks.size)
                             var running = 0
                             blocks.forEachIndexed { i, block ->
                                 prefix[i] = running
-                                running += searchHighlightRangesFor(withCjkEmphasisRepaired(block), terms).size
+                                val content = withCjkEmphasisRepaired(block)
+                                running += (preparedRanges[content] ?: markdownSearchRangesFor(content, terms)).size
                             }
                             prefix
                         }
@@ -2514,6 +2522,12 @@ private fun chatMarkdownComponents(
     anchorPrefix: String,
 ): MarkdownComponents =
     markdownComponents(
+        paragraph = { m -> SearchableMarkdownText(m.content, m.node, m.typography.paragraph) },
+        text = { m -> SearchableMarkdownText(m.content, m.node, m.typography.text) },
+        heading5 = { m -> SearchableMarkdownHeader(m.content, m.node, m.typography.h5) },
+        heading6 = { m -> SearchableMarkdownHeader(m.content, m.node, m.typography.h6) },
+        setextHeading1 = { m -> SearchableMarkdownHeader(m.content, m.node, m.typography.h1, setext = true) },
+        setextHeading2 = { m -> SearchableMarkdownHeader(m.content, m.node, m.typography.h2, setext = true) },
         codeFence = { m ->
             MarkdownCodeFence(m.content, m.node, style = m.typography.code) { code, language, style ->
                 CodeWithCopy(code, language, style)
@@ -2530,22 +2544,22 @@ private fun chatMarkdownComponents(
         // line rather than as its title.
         heading1 = { m ->
             Column(Modifier.padding(top = MD_H1_TOP, bottom = MD_H_BOTTOM_LARGE)) {
-                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h1)
+                SearchableMarkdownHeader(m.content, m.node, m.typography.h1)
             }
         },
         heading2 = { m ->
             Column(Modifier.padding(top = MD_H2_TOP, bottom = MD_H_BOTTOM_LARGE)) {
-                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h2)
+                SearchableMarkdownHeader(m.content, m.node, m.typography.h2)
             }
         },
         heading3 = { m ->
             Column(Modifier.padding(top = MD_H3_TOP, bottom = MD_H_BOTTOM_SMALL)) {
-                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h3)
+                SearchableMarkdownHeader(m.content, m.node, m.typography.h3)
             }
         },
         heading4 = { m ->
             Column(Modifier.padding(top = MD_H4_TOP, bottom = MD_H_BOTTOM_SMALL)) {
-                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h4)
+                SearchableMarkdownHeader(m.content, m.node, m.typography.h4)
             }
         },
         // A proportional marker column let "10." push its text further right than "9.", so the
@@ -2667,7 +2681,9 @@ private fun StyledMarkdownTable(
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
                     .tableGrid(cellCount(header)),
             ) {
-                com.mikepenz.markdown.compose.elements.MarkdownTableHeader(
+                if (LocalChatSearch.current != null) {
+                    SearchableMarkdownTableRow(c, header, tableWidth, s.copy(fontWeight = FontWeight.Bold), header = true)
+                } else com.mikepenz.markdown.compose.elements.MarkdownTableHeader(
                     c,
                     header,
                     tableWidth,
@@ -2683,7 +2699,9 @@ private fun StyledMarkdownTable(
                 anchorKey = anchorPrefix?.let { "$it:row:${row.startOffset}" },
                 modifier = Modifier.tableGrid(cellCount(row)),
             ) {
-                com.mikepenz.markdown.compose.elements.MarkdownTableRow(
+                if (LocalChatSearch.current != null) {
+                    SearchableMarkdownTableRow(c, row, tableWidth, s)
+                } else com.mikepenz.markdown.compose.elements.MarkdownTableRow(
                     c,
                     row,
                     tableWidth,

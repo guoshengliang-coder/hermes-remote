@@ -968,7 +968,7 @@ class ChatViewModel @Inject constructor(
                 // the normal opening second of every new conversation, not a failure — reporting it
                 // as one puts "无法加载历史消息" under a chat that is working fine, and buries the
                 // real 404s (a conversation upstream actually reaped) in the noise.
-                if (e.code == 404 && sessionKnownEmpty) {
+                if (e.code == 404 && e.errorCode == null && sessionKnownEmpty) {
                     com.hermes.client.data.diagnostics.DebugLog.log(
                         "history", "history($id) 404 — new session has no stored turn yet",
                     )
@@ -1296,7 +1296,11 @@ class ChatViewModel @Inject constructor(
         val id = storedSessionId
         val profile = currentProfile
         val device = currentDeviceId
-        if (id.isBlank() || sessions.hasOlderHistory(id, profile, device) == false) return
+        val hasOlder = sessions.hasOlderHistory(id, profile, device)
+        // HG-218: a locally created conversation has no REST transcript before its first
+        // persisted turn. The first local bubble must not trigger a pointless 404 prefetch.
+        // A real cached window overrides this hint, so later persisted history can still page.
+        if (id.isBlank() || hasOlder == false || (sessionKnownEmpty && hasOlder == null)) return
         _olderHistory.value = OlderHistoryUiState(loading = true)
         try {
             var pages = 0

@@ -40,4 +40,22 @@ class ChatSearchHighlightTest {
             assertEquals("query=$query", (0 until marks).toList(), hits.map { it.occurrence })
         }
     }
+
+    @Test fun markdown_counts_only_marks_that_can_be_drawn() {
+        val text = "学习 **学习** [学习](https://example.com/学习)\n\n```text\n学习\n```"
+        val hits = searchHits(listOf(ChatMessage(id = "m", role = Role.ASSISTANT, text = text)), "学习")
+        assertEquals(listOf(0, 1, 2), hits.map { it.occurrence })
+        assertTrue(searchHits(listOf(ChatMessage(id = "m", role = Role.ASSISTANT, text = text)), "https").isEmpty())
+    }
+
+    @Test fun user_link_tokens_search_the_label_that_is_displayed() {
+        val message = ChatMessage(id = "u", role = Role.USER, text = "查看 @url:`https://example.com/hidden`")
+        assertTrue(searchHits(listOf(message), "hidden").isEmpty())
+        assertEquals(1, searchHits(listOf(message), "example.com").size)
+    }
+    @Test fun inline_code_and_repaired_cjk_emphasis_share_the_rendered_ordinals() {
+        val text = "**学习：**学习与 `学习`"
+        val hits = searchHits(listOf(ChatMessage(id = "m", role = Role.ASSISTANT, text = text)), "学习")
+        assertEquals(listOf(0, 1, 2), hits.map { it.occurrence })
+    }
 }
