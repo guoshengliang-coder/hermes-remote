@@ -3,6 +3,17 @@
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
 
+## Connector 0.1.15 — HG-219 heartbeat diagnostics
+
+Release allocation for the metadata-only diagnostics merged in PR #599. Managed manifests advance
+from 0.4.9 to 0.4.10 with the existing Node 22.23.2 and immutable Hermes Server archive. This is a
+Connector-only publication; Gateway remains at 0.4.33/schema18 by the owner's 2026-10-20 decision.
+The owner authorized reuse of the existing trusted local signing key for this publication only,
+with both independent signature verifiers, full public readback and paired-index gates retained.
+The signing exception does not apply to later releases. No heartbeat deadline or reconnect policy
+changes; the underlying M4 outage remains unresolved. Verify installation on M4 before collecting
+the next natural recurrence. Publication/install evidence is recorded separately after the gates.
+
 ## Generated files in temporary directories (HG-217, Connector 0.1.14)
 
 `GET /api/files` retains the existing `FILES_ROOT` grant and additionally permits files in
