@@ -49,6 +49,15 @@ The historical Google-account onboarding, one-account/one-Connector rule, multi-
 legacy migration, and shared acceptance matrix are documented in `docs/ACCOUNT_MODE_DESIGN.md`.
 The corresponding work breakdown, dependencies, estimates, test gates, and staged rollout are in
 `docs/ACCOUNT_MODE_IMPLEMENTATION_PLAN.md`.
+The proposed Android/Web account-data sync inventory, offline/conflict model, migration boundaries,
+and staged acceptance plan are in `docs/ACCOUNT_DATA_SYNC_PLAN.md` (HG-216). It is a documentation
+proposal; it does not implement sync or replace the current local-state contracts.
+The P0 executable contract, approved follow-up decisions, and the still-unmet full-read-version
+gate are in `docs/ACCOUNT_DATA_SYNC_P0.md`; its reference model runs only in tests.
+The default-off P1a account-profile runtime and its rollout boundaries are documented in
+`docs/ACCOUNT_DATA_SYNC_P1A.md`; other planned entities remain gated.
+The separate pin-incarnation gate and reproducible upstream restore counterexamples are in
+`docs/ACCOUNT_DATA_SYNC_PIN_IDENTITY.md`; cloud pin sync has not been implemented.
 The I0 implementation contracts are split into `docs/ACCOUNT_MODE_API.md`,
 `docs/ACCOUNT_MODE_SECURITY.md`, `docs/ACCOUNT_MODE_MIGRATION.md`, and
 `docs/ACCOUNT_MODE_TEST_PLAN.md`; all are explicitly non-production until their go/no-go gate passes.

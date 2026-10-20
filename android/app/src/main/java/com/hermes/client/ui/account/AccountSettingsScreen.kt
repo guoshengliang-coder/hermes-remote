@@ -463,20 +463,25 @@ private fun AccountContent(state: AccountDevicesUiState) {
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                account.accountDisplayName ?: localized(language, "Hermes GO 账号", "Hermes GO account"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (account.accountProfileRevision != null) AccountProfileAvatar(
+                "${account.baseUrl}/${account.accountId}", account.accountDisplayName, account.accountAvatarFile,
             )
-            account.accountEmail?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    account.accountDisplayName ?: localized(language, "Hermes GO 账号", "Hermes GO account"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                account.accountEmail?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(
+                    localized(language, "本机：${account.installationDisplayName}", "This phone: ${account.installationDisplayName}"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text(
-                localized(language, "本机：${account.installationDisplayName}", "This phone: ${account.installationDisplayName}"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

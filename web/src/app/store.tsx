@@ -35,6 +35,10 @@ export interface AppContextValue {
   account: PublicAccount | null;
   /** Replace the signed-in account after the profile page saves a name or avatar (HG-181). */
   updateAccount: (account: PublicAccount) => void;
+  saveAccountProfile?: (displayName?: string, avatar?: Blob, baseRevision?: string) => Promise<boolean>;
+  profileSyncRevisions?: { nameRevision: string; avatarRevision: string };
+  profileSyncStatus?: import("../account/profileSync").ProfileSyncStatus;
+  modelSync?: { view: import("../account/modelPreferences").ModelSyncView; client: import("../account/modelPreferences").AccountModelPreferences | null };
   devices: AccountDevice[];
   device: AccountDevice | null;
   chooseDevice: () => void;

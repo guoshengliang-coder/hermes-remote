@@ -15,6 +15,11 @@ spec.loader.exec_module(driver)
 target = driver.load("prepared_pm_target", driver.PROTOTYPE / "pm_target.py")
 
 
+class PlanArguments(argparse.ArgumentParser):
+    def error(self, message):
+        raise ValueError("explicit target arguments required")
+
+
 def read_plan(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
@@ -60,14 +65,14 @@ def inspect(root, plan, expected_run, expected_source, expected_sha):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = PlanArguments(description=__doc__)
     parser.add_argument("--fixture-root", type=Path, required=True)
     parser.add_argument("--plan-file", type=Path, required=True)
     parser.add_argument("--expected-run", required=True)
     parser.add_argument("--expected-source", required=True)
     parser.add_argument("--expected-plan-sha", required=True)
-    args = parser.parse_args()
     try:
+        args = parser.parse_args()
         result = inspect(args.fixture_root.resolve(), read_plan(args.plan_file), args.expected_run,
                          args.expected_source, args.expected_plan_sha)
     except (ValueError, TypeError, OSError, RuntimeError, subprocess.SubprocessError):

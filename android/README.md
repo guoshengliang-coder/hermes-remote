@@ -13,6 +13,20 @@ unsent turn in its original conversation, including attachments. Unsent turns do
 completed history, and sending another message does not erase their retry record (HG-213/214).
 Cancellation or response timeout after submission starts waits for server reconciliation to avoid duplicate prompts.
 
+Cached history preparation runs off the main thread (HG-215). Embedded-object scanning and parsing
+have bounded work; very long literal paragraphs render in smaller blocks without dropping text.
+Leaving a chat cancels pending memory-cache preparation, and newer authoritative history wins.
+
+HG-216 adds optional account-profile consumption: compatible Gateways advertise `accountProfile`;
+foreground refresh updates the name/photo on Settings → Hermes GO account. The photo cache is
+private and separate from Hermes identity decoration. Editing remains on Web in this first slice;
+no sync capability means the existing account flow is retained. See `../docs/ACCOUNT_DATA_SYNC_P1A.md`.
+
+HG-216 P1c separately gates account model favorites and remembered reasoning. Account mode uses
+an app-private SQLite snapshot/outbox, exact field revisions and explicit import/conflict review.
+Legacy remains local; recents and group expansion do not sync. Remote updates never change a live
+conversation or Mac default. See `../docs/ACCOUNT_DATA_SYNC_MODELS.md` for scope and schema20 gates.
+
 The upstream client is Kotlin + Jetpack Compose and already implements Hermes REST, `/api/ws` JSON-RPC, sessions, streaming chat, Markdown, attachments, reconnect, and encrypted credential storage. Hermes Remote retains those foundations and routes them through the HK Relay.
 
 ## First UI pass

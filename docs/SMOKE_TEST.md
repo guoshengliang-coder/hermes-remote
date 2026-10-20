@@ -1,5 +1,26 @@
 # Local relay smoke test
 
+## HG-219 heartbeat diagnosis — actual M4 recurrence verification pending
+
+This change adds diagnostics, not an established cure for the underlying outage. It changes no
+heartbeat deadline or reconnect backoff. After separately authorized Gateway and Connector releases:
+
+1. On an isolated test binding, suppress pong responses while retaining inbound application messages
+   and ping frames. A real Connector must still time out and reconnect; `relay.heartbeat_timeout`
+   must show recent inbound activity, `pingWriteState=written`, and no invented `lastPongAgoMs`.
+   Its following `relay.disconnected` must carry the same local `controlConnectionId`.
+2. In the local test stack, delay the ping write callback and separately delay the timer callback.
+   Expect `pending` plus the local buffer size for the former and a larger `tickDelayMs` or
+   `sweepDelayMs` for the latter. Fake clocks cover these classifications; actual network congestion,
+   compression starvation and OS scheduling require runtime evidence, not merely that test passing.
+3. Observe M4 naturally under its normal workload. Correlate Android `conn` with Gateway
+   `clientConnectionId`, then align Connector timeout/disconnect, Gateway timeout/offline and HTTP
+   failures. Capture buffer sizes, write state, inbound ages and timer delay without collecting
+   frames, endpoints, tokens or other request content. Do not pause a live user process to reproduce.
+4. Keep the case unresolved unless the resulting evidence identifies the blocking layer and a
+   subsequent fix is verified on that Mac and phone. A successful public health check alone does
+   not exercise the M4 control connection. See `HG_219_CONNECTION_DIAGNOSTICS.md` for the incident.
+
 ## Account Connector health resilience — production verification pending
 
 Automated tests cover the local deadline, auth cancellation, credential proof, stale replies,
@@ -281,7 +302,8 @@ With Gateway and Connector running locally and `FILES_ROOT` pointing at a dedica
    Confirm the image opens full screen and the file card opens/shares through the Android system UI.
 4. Download a file larger than the former whole-message ceiling (for example 24 MiB but below
    `MAX_FILE_BYTES`). Confirm the download completes and the Connector remains online afterward.
-5. Attempt a path outside `FILES_ROOT`, an upload above `MAX_UPLOAD_BYTES`, and a download above
+5. Attempt a path outside both `FILES_ROOT` and the permitted temporary directories, an upload
+   above `MAX_UPLOAD_BYTES`, and a download above
    `MAX_FILE_BYTES`. Expect request-scoped 403/413 errors with no control-WebSocket disconnect.
 6. From both the in-chat picker and Android share sheet, send a file above 6 MiB and another close
    to 50 MiB. Check the Mac file's size and SHA-256, the correct model's receipt of the full file,
@@ -292,6 +314,32 @@ With Gateway and Connector running locally and `FILES_ROOT` pointing at a dedica
    If the server is configured with a lower limit, expect `HR-FILE-010`. Cancel an upload or drop
    the connection mid-transfer, retry, and verify that no `.part` file or abandoned phone staging
    file remains after cleanup. Keep image compression and thumbnails working.
+
+### HG-217: desktop-generated temporary attachments
+
+After a separately authorized Connector publication and installation on the target Mac:
+
+1. In a desktop Hermes conversation, generate a harmless HTML report under `/tmp` and deliver
+   its file reference. Open the same existing conversation in Android (0.1.173 is compatible).
+   Tap the attachment and share it; compare the received bytes with the Mac original. Repeat
+   with its `/private/tmp` canonical path and a report under the Connector user's system temporary
+   directory. Do not move files to `FILES_ROOT` as a workaround for this check.
+2. Repeat with an ordinary `FILES_ROOT` attachment. Confirm large downloads still use bounded
+   streaming and the control connection stays online.
+3. On a disposable local test setup, try a different user's temporary file, a symlink outside
+   the matching temporary root, a hard link, and a file beneath a group/world-writable child
+   directory. Expect 403 / Android `HR-FILE-003`. A missing temporary file must produce 404 /
+   `HR-FILE-005`; an oversized one must produce 413 / `HR-FILE-004`. An escape symlink inside
+   `FILES_ROOT` remains forbidden even if its target is a permitted temporary file.
+4. Reopen an older desktop conversation's existing report reference, if its file still exists.
+   Confirm open/share on a named physical phone; record the phone, Connector source/version and
+   any missing viewer (`HR-FILE-007`). System cleanup is not recoverable by this change: removed
+   reports still require regeneration.
+
+Automated coverage: `connector/src/artifact-file.test.ts` (ownership, directories, links,
+traversal and file-replacement checks) and `artifact-download.integration.test.ts` (real Connector,
+legacy file URL and acknowledged streamed bytes). These do not prove an installed production
+Connector or an Android viewer. The physical open/share steps remain pending until rollout.
 
 ## Single-screen navigation and profile-scope smoke test (2026-08 redesign)
 
@@ -1883,3 +1931,38 @@ chat, fullscreen recommendation, collapsed Adjust, filter/reset, complete source
 100-point page navigation, long labels, resizing, close/reopen and scroll restore. Unsuitable tables
 must expand without required setup. Verify live Gateway CSP, storage denial, renderer retry and
 account/session isolation. DOM and local Chrome checks do not prove Safari or live-account behavior.
+
+## HG-216 · P1a accountProfile enablement (pending release verification)
+
+Use an isolated staging Gateway/schema19 and compatible Web/Android; no production flag changes
+are implied. Full implementation contract: [ACCOUNT_DATA_SYNC_P1A.md](ACCOUNT_DATA_SYNC_P1A.md).
+
+1. With the capability absent/off, sign in on both clients. The old Web editor and native account
+   routing still work, and neither client calls a sync endpoint. Pins/read/model/prompt behavior stays local.
+2. With the explicit version-1 accountProfile capability, sign in to the same test account in Web
+   and Android. Change name and a square avatar in Web. Within one visible 30s refresh, both account
+   cards show the cloud values. The Hermes identity avatar and selected Mac do not change. Check
+   light and app-dark themes with large text; name/email stay readable.
+3. After an initial snapshot, take Web offline and save a name or image. It says waiting to sync,
+   not saved to cloud. Reload: the bounded queue survives. Reconnect: the original operation settles
+   once. Change the same field on another client before delivery: show HR-SYNC-006, retain the typed
+   name, show the cloud name, and require a new explicit Save. Different fields do not conflict.
+4. Interrupt a successful mutation response and restore the connection. Replays keep the original
+   opId/base/issuedAt; no stale ACK replaces newer cloud state. Disable browser storage: an attempted
+   edit shows HR-SYNC-011 and sends no mutation. Never copy tokens/image bodies into diagnostics.
+5. Leave an edit pending in one tab, sign out/switch accounts in another, then reconnect the old tab.
+   No old edit reaches the new account, no old queue returns on a later sign-in, and private avatar
+   responses are not in the Service Worker cache. Hold an Android avatar response across sign-out:
+   the name/photo and session must not return.
+   Block the second tab's network before signing out in the first: it must immediately hide its
+   account/chat content and show ordinary login, without waiting for a server 401 or rebroadcasting.
+6. Revoke the installation, then replay a previously successful sync operation. It is rejected even
+   if the idempotency metadata still exists. On a disposable database, exercise the 30-day deletion
+   deadline and bounded retries: account_profiles bytes and sync operations are removed before the
+   account is marked cleaned. No Mac history or other account is removed.
+
+Automated PostgreSQL/HTTP/queue/DTO/L1 regressions cover these boundaries separately. Local live
+browser/Android consumer evidence and repeatable isolated smoke drivers are recorded in
+[ACCOUNT_DATA_SYNC_VALIDATION.md](ACCOUNT_DATA_SYNC_VALIDATION.md). Physical phone interaction,
+device appearance, Service Worker behavior and production recovery still require their own gates;
+an emulator cannot certify vendor behavior, and local source verification is not a published artifact.

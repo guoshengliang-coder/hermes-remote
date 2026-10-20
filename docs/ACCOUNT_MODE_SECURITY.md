@@ -409,3 +409,13 @@ separate IndexedDB, never the shell cache. Logout resets the local channel befor
 so queued packets and clicks from an old account are discarded even while offline. Pending
 selection links are bounded identifiers; after login the actual account and Mac list are checked
 before opening the Mac/profile/session. No push payload authorizes a mutation or grants access.
+
+## HG-216 模型偏好边界
+
+schema20 增加账号私有模型收藏与推理偏好；不依赖 Mac/profile/session 身份，不授予 Hermes 操作权限。
+独立 default-off 能力、Cookie/CSRF 或 Native Bearer、事务内当前主体检查均在旧成功重放之前。
+模型 tuple HMAC key 随账号数据库备份；双字段取消后实体擦除原名，只留最小 HMAC/修订。
+增量私人 payload 和终态保留 90 天，账号删除清四表。Web IndexedDB/Android app-private SQLite
+按 origin/account 及退出代际隔离，不保存登录令牌或 Hermes 秘密；不宣称端到端加密。
+旧数据须明确导入、歧义键隔离、base=0 不覆盖取消标记；完整威胁/配额/回退说明见
+[ACCOUNT_DATA_SYNC_MODELS.md](ACCOUNT_DATA_SYNC_MODELS.md)。

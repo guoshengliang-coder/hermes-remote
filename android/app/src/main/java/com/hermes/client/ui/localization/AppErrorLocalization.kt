@@ -216,6 +216,20 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "Mac 上的 Hermes 返回了错误，请检查 Mac 端。", "Hermes on the Mac returned an error. Check the Mac.")
         AppErrorCode.HISTORY_UNREADABLE ->
             localized(language, "无法解析会话内容，请更新 App。", "This conversation could not be read. Update the app.")
+        AppErrorCode.ACCOUNT_PROFILE_CONFLICT ->
+            localized(language, "资料已在其他设备更新，请刷新后重新确认修改。", "Your profile changed on another device. Refresh and confirm your edit again.")
+        AppErrorCode.MODEL_SYNC_CONFLICT -> localized(language, "模型偏好已在其他设备更新，请选择保留云端值或重新应用本机选择。", "Model preferences changed on another device. Keep the cloud value or apply your local choice again.")
+        AppErrorCode.MODEL_SYNC_RESET -> localized(language, "模型同步记录已失效，请刷新并确认待同步选择。", "This model-sync record expired. Refresh and review your pending choices.")
+        AppErrorCode.MODEL_SYNC_INVALID -> localized(language, "无法保存此模型偏好，请检查选择后重试。", "Couldn't save this model preference. Check your choice and try again.")
+        AppErrorCode.MODEL_SYNC_QUOTA -> localized(language, "模型偏好存储已达上限，本机待同步选择仍保留。", "Model preference storage is full. Your pending local choices are retained.")
+        AppErrorCode.MODEL_SYNC_PENDING -> localized(language, "此模型偏好仍在等待同步，请联网后重试。", "This model preference is waiting to sync. Connect to the network and try again.")
+        AppErrorCode.MODEL_SYNC_STORAGE -> localized(language, "无法保存待同步模型偏好，请检查本机存储后重试。", "Couldn't store the pending model preference. Check local storage and try again.")
+        AppErrorCode.ACCOUNT_PROFILE_SYNC_RESET ->
+            localized(language, "同步记录已失效，请刷新资料后重试。", "This sync record is no longer valid. Refresh your profile and try again.")
+        AppErrorCode.ACCOUNT_PROFILE_NAME_INVALID ->
+            localized(language, "无法保存名字，请使用 1–40 个字符后重试。", "Couldn't save that name. Use 1–40 characters and try again.")
+        AppErrorCode.ACCOUNT_PROFILE_AVATAR_INVALID ->
+            localized(language, "无法保存头像，请选择不超过 4 MiB 的 PNG、JPEG 或 WebP 图片。", "Couldn't save that avatar. Choose a PNG, JPEG or WebP image up to 4 MiB.")
         AppErrorCode.HISTORY_PREVIEW_FAILED ->
             localized(language, "无法读取折叠内容，请重试。", "Couldn't load the folded content. Retry.")
         AppErrorCode.NOTIFICATION_ACTION_FAILED ->

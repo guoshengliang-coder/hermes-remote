@@ -212,4 +212,21 @@ class ModelSelectorScreenshotTest {
             )
         },
     )
+    private fun syncedPicker(dark: Boolean, scale: Float, name: String) {
+        val sync = io.mockk.mockk<com.hermes.client.data.sync.AccountModelPreferences>()
+        io.mockk.every { sync.state } returns kotlinx.coroutines.flow.MutableStateFlow(
+            com.hermes.client.data.sync.AccountModelPreferenceState(ownerKey="synthetic",accountLabel="dev@example.test",useCloud=true,enabled=true,ready=true))
+        snap(name,darkTheme=dark,fontScale=scale) {
+            ModelSelectorContent(
+                groups=modelSelectorGroups(providers,setOf(favKey("openai","gpt-5.6-sol"),favKey("remote-provider","unavailable-model")),"openai","gpt-5.6-sol",includeUnavailable=true),
+                onToggleFavorite={_,_->},onSelect={_,_->},onToggleGroup={},pendingKey=null,error=null,
+                currentSummary=summary("跟随默认"),
+                syncPanel={AccountModelSyncPanel(sync,{com.hermes.client.data.sync.LegacyModelImport(emptyList(),0)})},
+            )
+        }
+    }
+    @Test fun accountModelSyncLight() = syncedPicker(false,1f,"model-sync-light")
+    @Test fun accountModelSyncDark() = syncedPicker(true,1f,"model-sync-dark")
+    @Test fun accountModelSyncLargeText() = syncedPicker(false,1.3f,"model-sync-fontscale-1_3")
+
 }

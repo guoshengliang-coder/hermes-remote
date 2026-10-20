@@ -10,6 +10,10 @@ data class AccountSession(
     val accountId: String,
     val accountDisplayName: String? = null,
     val accountEmail: String? = null,
+    val accountProfileRevision: String? = null,
+    val accountAvatarRevision: String? = null,
+    /** App-private file, managed separately from Hermes profile avatars. Never uploaded as a path. */
+    val accountAvatarFile: String? = null,
     val installationId: String,
     val installationDisplayName: String,
     val accessToken: String,
@@ -27,6 +31,8 @@ data class AccountSession(
     val deviceRouteMode: AccountDeviceRouteMode = AccountDeviceRouteMode.EXPLICIT_DEVICE,
     /** Reused after a lost refresh response; cleared only when rotation commits. */
     val pendingRefreshIdempotencyKey: String? = null,
+    /** Stable for one login, independent of bearer refresh; fences stale on-disk preference caches. */
+    val modelSyncGeneration: String = "legacy-session",
 )
 
 enum class AccountDeviceRouteMode {

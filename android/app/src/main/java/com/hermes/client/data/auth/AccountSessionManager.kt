@@ -68,8 +68,13 @@ class AccountSessionManager(
      * credential still works. Best effort and bounded: a failure here never blocks sign-out.
      */
     private val beforeSignOut: suspend (AccountControlConnection) -> Unit = {},
+    private val profileAvatars: AccountProfileAvatarCache? = null,
+    private val modelCache: com.hermes.client.data.sync.ModelPreferenceCacheStore? = null,
 ) {
     private val refreshMutex = Mutex()
+    private val profileSyncMutex = Mutex()
+    private val profileOwnerLock = Any()
+    private val profileOwnerEpoch = java.util.concurrent.atomic.AtomicLong()
     // Hilt creates networking singletons while HermesApp starts, including in pure Robolectric UI
     // tests where AndroidKeyStore is intentionally unavailable. Defer opening encrypted storage
     // until account state is actually observed or used.
@@ -78,6 +83,7 @@ class AccountSessionManager(
     }
     private val _session: MutableStateFlow<AccountSession?> get() = sessionDelegate.value
     val session: StateFlow<AccountSession?> get() = _session.asStateFlow()
+    fun accountDataEpoch(): Long = profileOwnerEpoch.get()
     @Volatile private var transportDeviceId: String? = null
 
     /** App-start background services must not force AndroidKeyStore open before an Activity exists. */
@@ -103,27 +109,33 @@ class AccountSessionManager(
         response: AccountExchangeResponseDto,
         keepLegacyTransportUntilProbe: Boolean = false,
     ) {
-        val value = AccountSession(
-            baseUrl = normalizeGatewayBaseUrl(baseUrl),
-            accountId = response.account.id,
-            accountDisplayName = response.account.displayName,
-            accountEmail = response.account.email,
-            installationId = response.installation.id,
-            installationDisplayName = response.installation.displayName,
-            accessToken = response.session.accessToken,
-            accessExpiresAt = response.session.accessExpiresAt,
-            refreshToken = response.session.refreshToken,
-            refreshExpiresAt = response.session.refreshExpiresAt,
-            activationPending = keepLegacyTransportUntilProbe,
-        )
-        store.saveAccountSession(value)
-        // Fail closed across a process crash: commit the new account first, then activate it.
-        // If the second write is interrupted the app remains in explicit Legacy mode.
-        store.setExplicitLegacyConnectionSelected(false)
-        store.setAccountDeletionCommitted(false)
-        store.clearPendingEmailChallenge()
-        store.clearPendingAccountDeletion()
-        _session.value = value
+        synchronized(profileOwnerLock) {
+            profileOwnerEpoch.incrementAndGet()
+            profileAvatars?.clear()
+            runCatching { modelCache?.clear() }
+            val value = AccountSession(
+                baseUrl = normalizeGatewayBaseUrl(baseUrl),
+                modelSyncGeneration = java.util.UUID.randomUUID().toString(),
+                accountId = response.account.id,
+                accountDisplayName = response.account.displayName,
+                accountEmail = response.account.email,
+                installationId = response.installation.id,
+                installationDisplayName = response.installation.displayName,
+                accessToken = response.session.accessToken,
+                accessExpiresAt = response.session.accessExpiresAt,
+                refreshToken = response.session.refreshToken,
+                refreshExpiresAt = response.session.refreshExpiresAt,
+                activationPending = keepLegacyTransportUntilProbe,
+            )
+            store.saveAccountSession(value)
+            // Fail closed across a process crash: commit the new account first, then activate it.
+            // If the second write is interrupted the app remains in explicit Legacy mode.
+            store.setExplicitLegacyConnectionSelected(false)
+            store.setAccountDeletionCommitted(false)
+            store.clearPendingEmailChallenge()
+            store.clearPendingAccountDeletion()
+            _session.value = value
+        }
     }
 
     fun selectDevice(
@@ -188,6 +200,54 @@ class AccountSessionManager(
 
     private fun loadedSession(): AccountSession? =
         if (sessionDelegate.isInitialized()) sessionDelegate.value.value else null
+
+    /** Quiet foreground refresh: cached values survive offline; no task/profile identity is changed. */
+    suspend fun refreshAccountProfile() = profileSyncMutex.withLock {
+        val before = loadedSession() ?: return@withLock
+        if (transportMode() == AccountTransportMode.LEGACY || before.activationPending) return@withLock
+        val epoch = profileOwnerEpoch.get()
+        fun stillOwner(): Boolean = epoch == profileOwnerEpoch.get() && _session.value?.let {
+            it.baseUrl == before.baseUrl && it.accountId == before.accountId && it.installationId == before.installationId
+        } == true
+        try {
+            val capability = api.capabilities(before.baseUrl).accountAuth.accountDataSync
+            if (capability?.version != 1 || "accountProfile" !in capability.entities || !stillOwner()) return@withLock
+            val bearer = accessToken() ?: return@withLock
+            if (!stillOwner()) return@withLock
+            val snapshot = api.accountProfile(before.baseUrl, bearer)
+            val profile = snapshot.profile ?: return@withLock
+            val revision = syncRevision(snapshot.revision) ?: return@withLock
+            if (snapshot.version != 1 || snapshot.hasMore || profile.account.id != before.accountId ||
+                syncRevision(profile.nameRevision)?.let { it > revision } != false ||
+                syncRevision(profile.avatarRevision)?.let { it > revision } != false ||
+                profile.account.displayName.isNullOrBlank() || profile.account.displayName.length > 40) return@withLock
+            if (!stillOwner()) return@withLock
+            val latest = _session.value ?: return@withLock
+            if ((latest.accountProfileRevision?.let(::syncRevision) ?: java.math.BigInteger.ZERO) > revision) return@withLock
+            val needsAvatar = profile.avatarRevision != "0" && profileAvatars != null &&
+                (latest.accountAvatarRevision != profile.avatarRevision || latest.accountAvatarFile?.let { java.io.File(it).isFile } != true)
+            val bytes = if (needsAvatar) api.accountProfileAvatar(before.baseUrl, bearer, profile.avatarRevision) else null
+            // No suspension between this ownership check, committing private bytes, and publishing state.
+            synchronized(profileOwnerLock) {
+                if (!stillOwner()) return@synchronized
+                val current = _session.value ?: return@synchronized
+                val file = when {
+                    profile.avatarRevision == "0" -> { profileAvatars?.clear(); null }
+                    bytes != null -> profileAvatars?.write(before.baseUrl, before.accountId, profile.avatarRevision, bytes)
+                    else -> current.accountAvatarFile
+                }
+                update(current.copy(accountDisplayName = profile.account.displayName, accountEmail = profile.account.email,
+                    accountProfileRevision = snapshot.revision, accountAvatarRevision = profile.avatarRevision, accountAvatarFile = file))
+            }
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (error: AccountApiException) {
+            synchronized(profileOwnerLock) { if (stillOwner()) handleRestRejection(error.statusCode, error.errorCode, null) }
+        } catch (_: Exception) { /* The next foreground poll retries; never delete a valid offline cache. */ }
+    }
+
+    private fun syncRevision(value: String): java.math.BigInteger? = value.takeIf {
+        it.matches(Regex("0|[1-9][0-9]{0,19}"))
+    }?.toBigIntegerOrNull()?.takeIf { it <= java.math.BigInteger("18446744073709551615") }
 
     suspend fun accessToken(): String? {
         val current = _session.value ?: return null
@@ -277,10 +337,15 @@ class AccountSessionManager(
 
     /** Called only after the server committed permanent account deletion (or confirmed it did). */
     fun completeAccountDeletion() {
-        store.completeAccountDeletion()
-        store.clearPendingEmailChallenge()
-        _session.value = null
-        transportDeviceId = null
+        synchronized(profileOwnerLock) {
+            profileOwnerEpoch.incrementAndGet()
+            profileAvatars?.clear()
+            runCatching { modelCache?.clear() }
+            store.completeAccountDeletion()
+            store.clearPendingEmailChallenge()
+            _session.value = null
+            transportDeviceId = null
+        }
     }
 
     /** Terminal account WebSocket handshake failures map to the narrowest durable recovery. */
@@ -337,16 +402,21 @@ class AccountSessionManager(
      * on the explicit sign-out path — see [AccountSessionStore.clearAccountSession].
      */
     fun clearLocal(requireReauthentication: Boolean = true, reason: String? = null) {
-        store.clearAccountSession(
-            requireReauthentication,
-            reason.takeIf { requireReauthentication }?.let(::normalizeReauthenticationReason),
-        )
-        store.setExplicitLegacyConnectionSelected(false)
-        store.clearPendingEmailChallenge()
-        store.clearPendingAccountDeletion()
-        store.setAccountDeletionCommitted(false)
-        _session.value = null
-        transportDeviceId = null
+        synchronized(profileOwnerLock) {
+            profileOwnerEpoch.incrementAndGet()
+            profileAvatars?.clear()
+            runCatching { modelCache?.clear() }
+            store.clearAccountSession(
+                requireReauthentication,
+                reason.takeIf { requireReauthentication }?.let(::normalizeReauthenticationReason),
+            )
+            store.setExplicitLegacyConnectionSelected(false)
+            store.clearPendingEmailChallenge()
+            store.clearPendingAccountDeletion()
+            store.setAccountDeletionCommitted(false)
+            _session.value = null
+            transportDeviceId = null
+        }
     }
 
     /** A failed opt-in probe restores Legacy; an already-active account still fails closed. */

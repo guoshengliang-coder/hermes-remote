@@ -13,6 +13,44 @@ Connector processes. No Gateway/protocol version or production credentials are c
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
 
+## Connector 0.1.15 — HG-219 heartbeat diagnostics
+
+Release allocation for the metadata-only diagnostics merged in PR #599. Managed manifests advance
+from 0.4.9 to 0.4.10 with the existing Node 22.23.2 and immutable Hermes Server archive. This is a
+Connector-only publication; Gateway remains at 0.4.33/schema18 by the owner's 2026-10-20 decision.
+The owner authorized reuse of the existing trusted local signing key for this publication only,
+with both independent signature verifiers, full public readback and paired-index gates retained.
+The signing exception does not apply to later releases. No heartbeat deadline or reconnect policy
+changes; the underlying M4 outage remains unresolved. Verify installation on M4 before collecting
+the next natural recurrence. Publication/install evidence is recorded separately after the gates.
+
+## Generated files in temporary directories (HG-217, Connector 0.1.14)
+
+`GET /api/files` retains the existing `FILES_ROOT` grant and additionally permits files in
+`/tmp`, `/private/tmp`, and the Connector process's `os.tmpdir()` (including their canonical
+aliases). This lets an existing desktop conversation's generated report download through the
+same Android/Web file reference without moving or regenerating it. The file must still exist.
+
+The temporary grant requires a known effective user ID, an ordinary file owned by that user,
+and exactly one hard link. Its resolved target must stay within the matching temporary root.
+Intermediate directories must belong to the same user and have no group/other write permission;
+the shared temporary root may instead be root-owned with the sticky bit. The opener validates
+the opened file's device/inode, type and ownership and rechecks the temporary path/directories.
+It rejects path traversal and symlink escapes. A symlink out of `FILES_ROOT` is still refused,
+even if it points into a temporary directory. This is read-only; upload/cache roots do not change.
+
+The existing download size cap, acknowledged streaming, filename headers and error responses
+remain compatible. Refusal uses HTTP 403 (`HR-FILE-003` in Android), a removed file uses 404
+(`HR-FILE-005`), and an oversized file uses 413 (`HR-FILE-004`). There is no new client protocol,
+error code or Android version requirement. Publish/install the updated Connector separately;
+a source merge alone does not change an installed Mac.
+
+`artifact-file.test.ts` covers the filesystem policy, including deterministic replacement races.
+`artifact-download.integration.test.ts` runs a real Connector against a loopback relay to verify
+historical `/tmp` and canonical paths, the process temporary directory, exact streamed bytes,
+existing root behavior and unchanged rejection responses. See the HG-217 smoke steps in
+`docs/SMOKE_TEST.md` for actual Android open/share verification after an authorized rollout.
+
 ## Account-mode Hermes health and control readiness
 
 The unauthenticated key proof still expires after 5 seconds. Once authenticated, a local Hermes
@@ -104,6 +142,16 @@ effective ceiling. The local 50 MiB frame and Connector tests peaked near 182 Mi
 their test fixtures; the Gateway container limit is 256 MiB, so production still needs observation.
 
 ## Verification
+
+HG-219 adds metadata-only heartbeat diagnostics without changing the recovery policy. A local
+timeout writes `relay.heartbeat_timeout`; that and `relay.disconnected` share one per-connection
+`controlConnectionId`. Snapshots include last inbound message/ping/pong ages, the most recent
+outgoing ping's local write state/times, `bufferedBytes`, and timer delay. A completed write is not
+proof of remote delivery, and missing observations are omitted rather than reported as zero. No
+frames, ping payloads, endpoints, credentials or raw write errors enter these records. Gateway's
+existing heartbeat-timeout event has corresponding fields. The M4 incident and unresolved root
+cause are recorded in `docs/HG_219_CONNECTION_DIAGNOSTICS.md`; production verification still needs
+a separately authorized release and observation on the actual Mac/phone.
 
 ```sh
 npm run build -w @hermes-remote/protocol

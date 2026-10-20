@@ -147,3 +147,20 @@ it("lifts the default-model sheet above the card page drawer, and only when open
   expect(direct.host.querySelector(".picker-sheet")?.classList.contains("above-drawer")).toBe(false);
   expect(direct.host.querySelector(".sheet-scrim.above-drawer")).toBeNull();
 });
+
+
+it("cloud model updates stay account-owned, preserve local originals and never switch the live conversation", async () => {
+  const api=client(),a=actions(),s=sheet(api,a);await flush();
+  const set=vi.fn(),ctx=context(api);
+  ctx.modelSync={view:{owner:"account-a",enabled:true,ready:true,rows:[{key:"a".repeat(64),provider:"elsewhere",model:"missing",favorite:true,reasoningPreset:"ultra",revision:"9",favoriteRevision:"8",reasoningRevision:"9"}],pending:[],error:null},client:{set} as unknown as import("../account/modelPreferences").AccountModelPreferences};
+  act(()=>render(<AppContext.Provider value={ctx}>{s.node}</AppContext.Provider>,s.host));await flush();
+  const missing=[...s.host.querySelectorAll<HTMLButtonElement>(".model-pick")].find(b=>b.textContent?.includes("missing"))!;
+  expect(missing.disabled).toBe(true);expect(s.host.textContent).toContain("此 Mac 不可用");
+  expect(a.switchModel).not.toHaveBeenCalled();expect(a.setReasoning).not.toHaveBeenCalled();expect(api.setDefaultModel).not.toHaveBeenCalled();
+  const star=missing.closest(".model-row")!.querySelector<HTMLButtonElement>(".model-star")!;
+  act(()=>star.click());expect(set).toHaveBeenCalledWith("elsewhere","missing","favorite",false);
+  expect(modelPrefs("mac-a").favorites).toEqual([]);
+  const refreshed={...ctx,modelSync:{...ctx.modelSync,view:{...ctx.modelSync.view,rows:[]}}};
+  act(()=>render(<AppContext.Provider value={refreshed}>{s.node}</AppContext.Provider>,s.host));await flush();
+  expect(s.host.textContent).not.toContain("missing");expect(a.switchModel).not.toHaveBeenCalled();expect(a.setReasoning).not.toHaveBeenCalled();
+});

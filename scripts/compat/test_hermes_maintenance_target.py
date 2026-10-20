@@ -220,6 +220,10 @@ class PMTargetTest(unittest.TestCase):
         self.assertEqual(value["summaryEn"], "Hermes cannot be upgraded safely yet. Review the upgrade conditions and check again.")
         for private in ("TOKEN", "private-path", "secret-plan", str(self.case.root)):
             self.assertNotIn(private, output.getvalue())
+        missing = io.StringIO()
+        with patch.object(sys, "argv", ["target"]), contextlib.redirect_stdout(missing):
+            self.assertEqual(cli.main(), 1)
+        self.assertEqual(json.loads(missing.getvalue())["code"], "HR-HERMESUPDATE-002")
 
 
 if __name__ == "__main__":

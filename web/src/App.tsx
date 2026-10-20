@@ -1,3 +1,5 @@
+import { AccountProfileSyncClient, clearAccountProfileSync, PROFILE_SYNC_LOGOUT, type ProfileSyncStatus } from "./account/profileSync";
+import { AccountModelPreferences, clearModelPreferences, type ModelSyncView } from "./account/modelPreferences";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 import {
   GatewayClient,
@@ -107,6 +109,14 @@ export function App() {
   const t = translator(language);
   const [phase, setPhase] = useState<Phase>({ name: "boot" });
   const [account, setAccount] = useState<PublicAccount | null>(null);
+  const [profileSyncEnabled, setProfileSyncEnabled] = useState(false);
+  const [modelSyncEnabled,setModelSyncEnabled]=useState(false);
+  const [modelSyncView,setModelSyncView]=useState<ModelSyncView|undefined>();
+  const [modelSyncLoadedFor,setModelSyncLoadedFor]=useState<string|null>(null);
+  const modelSync=useRef<AccountModelPreferences|null>(null);
+  const [profileSyncStatus, setProfileSyncStatus] = useState<ProfileSyncStatus>({ pending: false, error: null });
+  const profileSync = useRef<AccountProfileSyncClient | null>(null);
+  const [profileSyncRevisions, setProfileSyncRevisions] = useState<{ nameRevision: string; avatarRevision: string } | undefined>();
   const [pushRoute,setPushRoute] = useState<ReturnType<typeof pendingPushTarget>>(null);
   const [pushEnabled,setPushEnabled] = useState(false);
   const [pickingDevice, setPickingDevice] = useState(false);
@@ -227,11 +237,13 @@ export function App() {
     try {
       const caps = await client.capabilities();
       if (!currentAttempt()) return;
+      setModelSyncEnabled(caps.accountAuth.modelPreferencesSync?.version===1 && caps.accountAuth.modelPreferencesSync.maxModels===500 && caps.accountAuth.modelPreferencesSync.retentionDays===90);
       if (!supportsWebDeviceAccess(caps)) {
         setPhase({ name: "disabled" });
         return;
       }
       setFeatures(webDeviceFeatures(caps));
+      setProfileSyncEnabled(caps.accountAuth.accountDataSync?.version === 1 && caps.accountAuth.accountDataSync.entities.includes("accountProfile"));
       let web = await client.webSession();
       if (!currentAttempt()) return;
       // Not authenticated at boot usually means only that the 15-minute access cookie lapsed
@@ -264,6 +276,11 @@ export function App() {
     void boot();
     const unsubscribe = client.onSignedOut((error) => {
       bootRequest.current++;
+      profileSync.current?.stop();
+      profileSync.current = null;
+      void clearAccountProfileSync().catch(() => undefined);
+      modelSync.current?.stop();modelSync.current=null;setModelSyncView(undefined);
+      void clearModelPreferences(false).catch(()=>undefined);
       clearConversationMemory();
       if (signingOut.current) return;
       setPushEnabled(false);
@@ -274,7 +291,43 @@ export function App() {
       setSessions([]);
       setPhase({ name: "signed-out", reason: reasonFor(error) });
     });
-    return () => { bootRequest.current++; unbind?.(); unsubscribe(); };
+    const remoteLogout = (event: StorageEvent) => {
+      if (event.key !== PROFILE_SYNC_LOGOUT || !event.newValue || event.newValue === event.oldValue) return;
+      // This signal is shared with the durable queue. Hide private state even if this tab is
+      // offline; do not sign the server out again or rebroadcast a new logout generation.
+      modelSync.current?.stop();modelSync.current=null;setModelSyncView(undefined);
+      void clearModelPreferences(false).catch(()=>undefined);
+      bootRequest.current++;
+      pickerRequest.current++;
+      cancelSessionLoads(client);
+      client.stopKeepAlive();
+      profileSync.current?.stop();
+      profileSync.current = null;
+      clearPushTarget();
+      void resetPushWorker().catch(() => undefined);
+      void clearCaches();
+      clearAllPins();
+      clearAllDrafts();
+      clearConversationMemory();
+      clearPageSnapshots();
+      clearPrompts();
+      clearLocalPrefs();
+      clearBotNotices();
+      writeStoredDevice(null);
+      setCollapsed(new Set());
+      setProjectFilter(null);
+      setToast(null);
+      setPushEnabled(false);
+      setPickingDevice(false);
+      setAccount(null);
+      setDevice(null);
+      setDevices([]);
+      setSessions([]);
+      intended.current = { name: "list" };
+      setPhase({ name: "signed-out", reason: null });
+    };
+    window.addEventListener("storage", remoteLogout);
+    return () => { bootRequest.current++; unbind?.(); unsubscribe(); window.removeEventListener("storage", remoteLogout); };
   }, [boot]);
 
   useEffect(() => {
@@ -391,10 +444,41 @@ export function App() {
     return () => window.removeEventListener("hermes-push-state",changed);
   },[]);
 
+  useEffect(() => {
+    if (!profileSyncEnabled || !account?.id || signingOut.current) return;
+    const owner = account.id;
+    setProfileSyncStatus({ pending: false, error: null });
+    setProfileSyncRevisions(undefined);
+    const sync = new AccountProfileSyncClient(client, owner, (snapshot) => {
+      if (!signingOut.current && snapshot.profile) {
+        setAccount((current) => current?.id === owner ? snapshot.profile!.account : current);
+        setProfileSyncRevisions({ nameRevision: snapshot.profile.nameRevision, avatarRevision: snapshot.profile.avatarRevision });
+      }
+    }, setProfileSyncStatus);
+    profileSync.current = sync;
+    void sync.start();
+    return () => { sync.stop(); if (profileSync.current === sync) profileSync.current = null; };
+  }, [profileSyncEnabled, account?.id]);
+
+  useEffect(()=>{
+    if(!account?.id||signingOut.current)return;
+    const owner=account.id;
+    setModelSyncView(undefined);setModelSyncLoadedFor(null);
+    const sync=new AccountModelPreferences(client,owner,modelSyncEnabled,(view)=>{
+      if(!signingOut.current){setModelSyncView(view);setModelSyncLoadedFor(owner);}
+    });modelSync.current=sync;void sync.start();
+    return()=>{sync.stop();if(modelSync.current===sync)modelSync.current=null;};
+  },[account?.id,modelSyncEnabled]);
+
   // ---- actions ----
 
   const signOut = useCallback(async () => {
     signingOut.current = true;
+    profileSync.current?.stop();
+    profileSync.current = null;
+    await clearAccountProfileSync().catch(() => undefined);
+    modelSync.current?.stop();modelSync.current=null;setModelSyncView(undefined);
+    await clearModelPreferences(false).catch(()=>undefined);
     pickerRequest.current++;
     try {
       // Sign-out is a CSRF-checked mutation: make sure the access cookie is fresh first.
@@ -521,7 +605,22 @@ export function App() {
     setVoiceFeedback: chooseVoiceFeedback,
     t,
     account,
-    updateAccount: (next) => setAccount(next),
+    updateAccount: (next) => setAccount((current) => current?.id === next.id && !signingOut.current ? next : current),
+    profileSyncStatus: profileSyncEnabled ? profileSyncStatus : undefined,
+    profileSyncRevisions: profileSyncEnabled ? profileSyncRevisions : undefined,
+    modelSync: account && modelSyncLoadedFor!==account.id
+      ? {view:{owner:account.id,enabled:false,ready:false,rows:[],pending:[],error:null},client:null}
+      : modelSyncView?.owner===account?.id && modelSyncView
+        ? {view:{...modelSyncView,enabled:modelSyncEnabled && modelSyncView.enabled},client:modelSync.current}:undefined,
+    saveAccountProfile: async (displayName, avatar, baseRevision) => {
+      if (profileSyncEnabled) {
+        if (!profileSync.current) throw appError("HR-SYNC-007");
+        return profileSync.current.save(displayName, avatar, baseRevision ?? "0");
+      }
+      const next = avatar ? await client.uploadAccountAvatar(avatar) : await client.updateAccountProfile(displayName ?? "");
+      if (!signingOut.current) setAccount((current) => current?.id === next.account.id ? next.account : current);
+      return true;
+    },
     devices,
     device,
     chooseDevice: () => {

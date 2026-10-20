@@ -1046,5 +1046,13 @@ matched; missing activation evidence, wrong Python version/tree digest/plan SHA/
 intent slots stayed byte-identical, and ordinary admission remained blocked after inspector exit.
 Expectations were a baseline of an already-prepared test fixture, not authenticated production
 consent or a before-sync upgrade plan. No UI/Operating/finish integration, service/business or durable
-handoff was verified. Local Desktop/Android L1/L2/L3 were not rerun for this harness-only change;
-CI macOS/Linux exercise the new tests. No version bump, app delivery or live installation operation.
+handoff was verified. CI macOS/Linux exercise the new tests. No version bump, app delivery or live
+installation operation. A subsequent task-branch merge of already-green main e45917a1 preserves
+HG-215/216 and both HG-199 maintenance/HG-219 heartbeat imports. The health integration fixture now
+awaits its own child/server shutdown before mailbox removal; the observed ENOTEMPTY regression
+passes. Local Node build/tests passed (Protocol 16, Connector 175, Gateway 248 with 31 skips,
+release-server 37, scripts 429 with 1 skip), using installed OpenSSL 3 for CMS recovery tests;
+system LibreSSL had failed two decrypt cases. Local Android 2534 JVM/assembleDebug and Web
+typecheck/943 tests/build passed after integration.
+Local Desktop was not rerun; L2 A5DN9X4708H02629 is unauthorized and available L3 Pixel_API_37 was
+not exercised. No new visual or targetSdk behavior is introduced by the conflict resolution.

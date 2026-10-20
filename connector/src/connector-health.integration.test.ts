@@ -14,7 +14,11 @@ import { canonicalConnectorChallenge } from "./account-connector.js";
 
 test("the real Connector reports degraded/recovered health on one authenticated socket and cancels local work on close", { timeout: 10_000 }, async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "connector-health-")));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let stopFixture: (() => Promise<void>) | undefined;
+  t.after(async () => {
+    // Hooks run in registration order. Stop the mailbox writer before removing its root.
+    try { await stopFixture?.(); } finally { await rm(root, { recursive: true, force: true }); }
+  });
   const keys = generateKeyPairSync("ed25519");
   const fingerprint = createHash("sha256").update(keys.publicKey.export({ format: "der", type: "spki" }).subarray(-32)).digest("hex");
   const bindingId = randomUUID();
@@ -88,7 +92,7 @@ test("the real Connector reports degraded/recovered health on one authenticated 
   let output = "";
   child.stdout.on("data", (data) => { output += data.toString(); });
   child.stderr.on("data", (data) => { output += data.toString(); });
-  t.after(async () => {
+  stopFixture = async () => {
     if (child.exitCode === null) {
       const exited = once(child, "exit"); child.kill("SIGTERM");
       const force = setTimeout(() => child.kill("SIGKILL"), 2_000);
@@ -98,7 +102,7 @@ test("the real Connector reports degraded/recovered health on one authenticated 
     server.closeAllConnections();
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await new Promise<void>((resolve) => server.close(() => resolve()));
-  });
+  };
   const waitFor = (predicate: () => boolean) => new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { waits.delete(wake); reject(new Error("fixture message timeout")); }, 3_000);
     const wake = () => { if (predicate()) { clearTimeout(timer); waits.delete(wake); resolve(); } };

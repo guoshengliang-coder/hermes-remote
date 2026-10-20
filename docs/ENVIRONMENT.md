@@ -336,7 +336,13 @@ The deployment copies the certificate into `/etc/hermes-remote/tls` with narrowl
 The Mac Connector reads only the two Basic Auth values it needs from the existing local Hermes dotenv file. The values are never copied into launchd, the HK server, or the Android app.
 
 Attachment deployments additionally configure `FILES_ROOT` to the narrowest Mac directory that may
-be returned to the phone. `UPLOAD_ROOT` must remain inside it; its defaults are
+be returned to the phone. Downloads also permit current-user-owned regular files in `/tmp`,
+`/private/tmp`, and the Connector process's system temporary directory (`os.tmpdir()`), subject
+to real-path, owner, directory-permission and opened-file checks described in `connector/README.md`
+(HG-217). This does not grant other users' temporary files, permit links outside the matching
+root, or make files durable after system cleanup. No temporary grant is made when the effective
+user ID is unavailable; a filesystem-root temporary directory is never accepted.
+`UPLOAD_ROOT` must remain inside `FILES_ROOT`; its defaults are
 `$HOME/.hermes-remote/uploads`, 50 MiB per upload, 100 MiB per download, 200 cached uploads, 512 MiB
 cached total, and seven-day retention. Gateway and the edge proxy permit 50 MiB only on
 `POST /api/files/upload` (also under an account device prefix); other request bodies remain capped
@@ -380,3 +386,15 @@ adds no new secret mount. Egress HTTPS must reach Apple Push, FCM and Mozilla Pu
 VAPID private keys nor subscription endpoints/keys may appear in application logs or comments.
 Schema migration, flag changes and Gateway restart require explicit production authorization;
 then deploy Gateway before the Web bundle. Disabling the flag restores foreground-only reminders.
+
+### HG-216 账号资料同步（尚未启用）
+
+`ACCOUNT_DATA_SYNC_ENABLED` 默认 0；需要 schema19 和兼容 Android/Web 后再独立授权启用。
+新增键不携带秘密，不复用生产账号配置进行开发测试。完整部署顺序与回退限制见
+[ACCOUNT_DATA_SYNC_P1A.md](ACCOUNT_DATA_SYNC_P1A.md)。
+
+### HG-216 模型偏好同步（尚未启用）
+
+`ACCOUNT_MODEL_SYNC_ENABLED` 默认 0，与 `ACCOUNT_DATA_SYNC_ENABLED` 独立。要求 schema20
+与兼容 Web/Android，具体门禁见 [ACCOUNT_DATA_SYNC_MODELS.md](ACCOUNT_DATA_SYNC_MODELS.md)。
+R4 环境重建仅保留已明确配置的 0/1，不自动添加或开启。无新秘密文件、端口或独立服务。

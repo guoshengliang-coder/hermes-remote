@@ -345,6 +345,20 @@ main e473bec3713294ecf29cff374970394bd80f478b，保留主干已发布版本值�
 计划来源、同步前目标决策或耐久恢复授权；没有新装 PM、实际旧/新源码转换或服务/业务验收。
 详细格式、命令及边界见 `scripts/compat/upstream-maintenance-prototype/README.md`。
 
-本轮新增 13 项合成回归，CI Linux 全量发现/macOS 专项均纳入。未改产品行为/协议/UI，未重复本地
-Desktop/Node/Web/Android 构建或 L1/L2/L3，未分配版本、交付应用、合并、发布或操作现用 Hermes。
+本轮新增 13 项合成回归，CI Linux 全量发现/macOS 专项均纳入。目标诊断仅改 harness/CI/文档，
+不改产品行为/协议/UI；后续主干整合基线单独记录如下。未分配版本、交付应用、合入 main、
+发布或操作现用 Hermes。
 升级执行继续关闭，完成/授权/耐久交接/认证结果均为 false。
+
+同日为恢复草稿 PR 的检查调度，在任务分支整合主干 e45917a1（其 CI/SAST/OCI 均已成功；
+9 项检查中 5 项成功、4 项按组件选择跳过）。唯一文本冲突为 Connector import，保留 HG-199
+维护准入及主干 HG-219 心跳诊断两个模块；自动合并部分保留 HG-215 历史准备与 HG-216 账号
+同步，并核对 Android/错误码/Web 的维护行为仍在。Connector 沿用主干 0.1.15，不新分配版本。
+整合测试暴露 health 夹具先删除 mailbox 再停止子进程的 ENOTEMPTY/遗留进程竞态；改为单个
+清理 hook 先等待自建子进程/服务器结束，再删除目录，原失败用例已转绿。新增检查不改变生产
+Connector 行为。Node build/test 通过：Protocol 16、Connector 175、Gateway 248（31 跳过）、
+release-server 37、scripts 429（1 跳过）；脚本加密恢复测试需本机已有 OpenSSL 3，系统 LibreSSL
+导致的两项解密失败在仅对测试命令设置 PATH 后转绿，未修改全局环境。Android 2534 项 JVM/
+assembleDebug 和 Web typecheck/943 测试/build 已通过；L2
+A5DN9X4708H02629 未授权，L3 Pixel_API_37 可用但未运行，本次没有新布局或平台行为修改。
+Desktop 本地基线未重跑，仍需当前 PR 的 CI 门禁；无安装、服务重启、APK/app 交付或发布。

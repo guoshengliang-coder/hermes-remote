@@ -1,8 +1,8 @@
 import { WebSocket } from "ws";
 import { constants, readFileSync } from "node:fs";
-import { mkdir, open, readdir, realpath, rename, stat, unlink, type FileHandle } from "node:fs/promises";
+import { mkdir, open, readdir, rename, stat, unlink, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, isAbsolute, resolve, sep } from "node:path";
+import { basename, extname, resolve, sep } from "node:path";
 import {
   ACCOUNT_CONNECTOR_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
@@ -35,6 +35,7 @@ import {
 import { ObserverStateStore } from "./session-observer.js";
 import { loadHermesSessionToken } from "./hermes-session-token.js";
 import { describeRejectedPath } from "./file-log.js";
+import { ArtifactFileError, openArtifactFile } from "./artifact-file.js";
 import { tunnelCloseForApp } from "./tunnel-close.js";
 import { decideOversizedFrame } from "./oversized-frame.js";
 import { InFlightHttpRequests, ResponseChunkWaiters } from "./http-request-lifecycle.js";
@@ -48,6 +49,7 @@ import { HermesCapabilityMonitor } from "./hermes-capabilities.js";
 import { resolveHermesMode, type ConnectorMode } from "./connector-config.js";
 import { ControlReconnectBackoff } from "./control-reconnect.js";
 import { HermesMaintenanceAdmission, MAINTENANCE_CODE, maintenanceError, maintenanceFrameDecision } from "./hermes-maintenance.js";
+import { ControlHeartbeatDiagnostics } from "./control-heartbeat-diagnostics.js";
 import { ConnectorHealthResponder, probeHermesHealth, CONNECTOR_HEALTH_PROBE_TIMEOUT_MS } from "./connector-health.js";
 import {
   isThumbnailable,
@@ -182,6 +184,8 @@ function connect(): void {
   });
   let heartbeatTimer: NodeJS.Timeout | undefined;
   let awaitingPong = false;
+  const controlConnectionId = randomUUID();
+  const heartbeatDiagnostics = new ControlHeartbeatDiagnostics(controlHeartbeatMs);
   controlSocket = socket;
   controlAuthenticated = false;
   const healthResponder = new ConnectorHealthResponder(
@@ -197,6 +201,7 @@ function connect(): void {
   healthResponders.set(socket, healthResponder);
 
   socket.on("open", () => {
+    heartbeatDiagnostics.start();
     if (accountAuthenticator) {
       socket.send(encodeWireMessage(accountAuthenticator.identify()));
     } else {
@@ -215,34 +220,43 @@ function connect(): void {
     // one interval to answer, then terminates it so the normal reconnect path takes over.
     heartbeatTimer = setInterval(() => {
       if (controlSocket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      const heartbeatFields = heartbeatDiagnostics.tick(socket.bufferedAmount);
       if (awaitingPong) {
+        log.error("relay.heartbeat_timeout", {
+          mode: connectorMode, controlConnectionId, timeoutMs: controlHeartbeatMs, ...heartbeatFields,
+        });
         console.log("Control heartbeat timed out; forcing reconnect");
         socket.terminate();
         return;
       }
       awaitingPong = true;
-      socket.ping();
+      socket.ping(undefined, undefined, heartbeatDiagnostics.queuedPing());
     }, controlHeartbeatMs);
   });
 
   socket.on("pong", () => {
     if (controlSocket !== socket) return;
+    heartbeatDiagnostics.pong();
     if (awaitingPong) reconnectBackoff.markPong();
     awaitingPong = false;
   });
 
   socket.on("message", (raw) => {
+    heartbeatDiagnostics.message();
     void handleGatewayMessage(socket, raw.toString()).catch((error) => {
       console.error("Unable to handle gateway message", safeError(error));
     });
   });
 
+  socket.on("ping", () => heartbeatDiagnostics.receivedPing());
+
   socket.on("close", (code) => {
     healthResponder.stop();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     log.info("relay.disconnected", {
-      mode: connectorMode, closeCode: code, authenticated: controlAuthenticated,
+      mode: connectorMode, controlConnectionId, closeCode: code, authenticated: controlAuthenticated,
       lifetimeMs: Math.round(performance.now() - startedAt), stopping,
+      ...heartbeatDiagnostics.tick(socket.bufferedAmount),
     });
     inFlightHttpRequests.abortAll("control_socket_closed");
     responseChunkWaiters.rejectAll(new Error("control_socket_closed"));
@@ -554,32 +568,10 @@ async function handleFileRequest(
     return;
   }
 
-  if (requestedPath.includes("\0")
-      || !isAbsolute(requestedPath)
-      || requestedPath.split(/[\\/]+/).includes("..")) {
-    fail(400, "invalid_path");
-    return;
-  }
-
   try {
-    const canonicalRoot = await realpath(filesRoot);
-    const resolvedPath = resolve(requestedPath);
-    if (!isWithinRoot(resolvedPath, filesRoot)) {
-      fail(403, "forbidden");
-      return;
-    }
-
-    const canonicalPath = await realpath(resolvedPath);
-    if (!isWithinRoot(canonicalPath, canonicalRoot)) {
-      fail(403, "forbidden");
-      return;
-    }
-
+    const { canonicalPath, handle, metadata } = await openArtifactFile(requestedPath, { filesRoot });
     const noFollow = constants.O_NOFOLLOW ?? 0;
-    const handle = await open(canonicalPath, constants.O_RDONLY | noFollow);
     try {
-      const metadata = await handle.stat();
-      if (!metadata.isFile()) { fail(400, "invalid_file"); return; }
       if (metadata.size > maxFileBytes) { fail(413, "file_too_large"); return; }
 
       // A preview is served in the original's place when one was asked for and could be made;
@@ -632,6 +624,7 @@ async function handleFileRequest(
     }
   } catch (error) {
     if (signal.aborted) return;
+    if (error instanceof ArtifactFileError) { fail(error.status, error.reason); return; }
     const code = (error as NodeJS.ErrnoException).code;
     if (streamStarted) {
       sendControl(socket, {

@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.*
+import com.hermes.client.data.sync.AccountModelPreferences
 
 private val Context.modelFavoritesDataStore by preferencesDataStore(name = "model_favorites")
 
@@ -16,14 +16,36 @@ private val Context.modelFavoritesDataStore by preferencesDataStore(name = "mode
  */
 fun favKey(provider: String, model: String): String = "$provider\u0000$model"
 
-/** Device-local, global (not per-profile) set of starred favorite models. */
-class ModelFavoritesStore(private val context: Context) {
+/** Account-owned when supported; the original device-global set remains the Legacy source. */
+class ModelFavoritesStore(private val context: Context, val sync: AccountModelPreferences? = null) {
     private val key = stringSetPreferencesKey("favorites")
 
-    val favorites: Flow<Set<String>> =
+    val legacyFavorites: Flow<Set<String>> =
         context.modelFavoritesDataStore.data.map { it[key] ?: emptySet() }
 
-    suspend fun toggle(provider: String, model: String) {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val favorites: Flow<Set<String>> = flow {
+        val cloud = sync
+        if (cloud == null) emitAll(legacyFavorites) else {
+            cloud.ensureBound()
+            emitAll(cloud.state.flatMapLatest { state ->
+                if (state.useCloud) flowOf(state.projected().filter { it.favorite }.map { favKey(it.provider, it.model) }.toSet())
+                else legacyFavorites
+            })
+        }
+    }
+
+    suspend fun toggle(provider: String, model: String, confirmedOwner: String? = null) {
+        sync?.let { cloud ->
+            val expected = confirmedOwner ?: cloud.currentOwnerKey()
+            cloud.ensureBound()
+            if (cloud.currentOwnerKey() != expected) return
+            if (cloud.state.value.useCloud) {
+                val before = cloud.state.value.projected().find { it.provider == provider && it.model == model }?.favorite == true
+                cloud.setFavorite(provider, model, !before, expected)
+                return
+            }
+        }
         val k = favKey(provider, model)
         context.modelFavoritesDataStore.edit { prefs ->
             val cur = prefs[key] ?: emptySet()

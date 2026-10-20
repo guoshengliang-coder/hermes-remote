@@ -265,7 +265,8 @@ seeing the Mac, listing conversations, reading one — and its absence is **brea
 Deliberately **not** in the table, because upstream's `openapi.json` cannot vouch for them:
 
 - `/api/files`, `/api/files/upload` — upstream has routes with these names, but **this Connector
-  answers them itself** (`handleFileRequest`, bounded by `FILES_ROOT`) and never forwards them to
+  answers them itself** (`handleFileRequest`, bounded by `FILES_ROOT` plus HG-217's owner-checked
+  temporary-file grant described in `connector/README.md`) and never forwards them to
   Hermes. They are our surface, not upstream's. Being ours is what lets `GET /api/files` take a
   `thumb=<px>` parameter upstream knows nothing about (HG-115): it asks for a downscaled preview,
   is ignored for anything that is not a raster image, and falls back to the original whenever a

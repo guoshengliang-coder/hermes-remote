@@ -484,6 +484,10 @@ class ChatViewModel @Inject constructor(
         draftScope.launch { drafts.clear(token) }
     }
 
+    val modelSync get() = favoritesStore.sync
+    suspend fun legacyModels(): com.hermes.client.data.sync.LegacyModelImport =
+        com.hermes.client.data.sync.legacyModelImport(favoritesStore.legacyFavorites.first(), reasoningPresets.legacyPresets.first())
+
     val favorites: kotlinx.coroutines.flow.StateFlow<Set<String>> =
         favoritesStore.favorites.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptySet())
 
@@ -712,6 +716,7 @@ class ChatViewModel @Inject constructor(
     private var resumeJob: Job? = null
     private var sendJob: Job? = null
     private var refreshJob: Job? = null
+    private var cachedHistoryJob: Job? = null
     private var runtimeKey: SessionRuntimeKey? = null
     /** Set when [open] finds a restored approval wait; emitted once the transcript is on screen. */
     private var approvalLostNoticePending = false
@@ -792,6 +797,7 @@ class ChatViewModel @Inject constructor(
         }
         refreshJob?.cancel()
         _refreshing.value = false
+        cachedHistoryJob?.cancel()
         olderHistoryJob?.cancel()
         _olderHistory.value = OlderHistoryUiState()
         sendJob?.cancel()
@@ -838,16 +844,26 @@ class ChatViewModel @Inject constructor(
         }
         _explicitSessionOverride.value = false
         _reasoningEffort.value = null
-        val cachedHistory = sessions.cachedHistory(id, profile, currentDeviceId)?.map { it.organizedForDisplay() }
+        val cachedHistory = sessions.cachedHistory(id, profile, currentDeviceId)
         sessionReclaimed = false
         sessionKnownEmpty = isNewSession && cachedHistory.isNullOrEmpty()
-        runtimeStore.markHistoryLoading(key, cachedHistory)
+        runtimeStore.markHistoryLoading(key, null)
         // Cached transcripts carry image REFERENCES, not files: a row parsed out of history has a
         // remote path and no local one, which the bubble draws as a waiting mark. Neither cache
         // path used to hydrate, so a cold open showed waiting marks until the network answered —
         // and until HG-44 the network path's own hydration was being discarded, so they stayed
         // (docs/IMAGE_ATTACHMENT_REQUIREMENTS.md §5: waiting is a state, not a resting place).
-        if (!cachedHistory.isNullOrEmpty()) hydrateImages(key)
+        if (!cachedHistory.isNullOrEmpty()) {
+            cachedHistoryJob = viewModelScope.launch {
+                val organized = withContext(defaultDispatcher) {
+                    cachedHistory.map { it.organizedForDisplay() }
+                }
+                if (runtimeKey != key) return@launch
+                // Like disk preparation, a late memory snapshot yields to network/live content.
+                runtimeStore.acceptCachedHistory(key, organized)
+                hydrateImages(key)
+            }
+        }
         // The memory cache holds ten transcripts and dies with the process, so with ~200 sessions
         // a cold open is the normal case, not the exception. Ask the disk in parallel with the
         // network: whichever answers first ends the skeleton, and acceptCachedHistory stands down
@@ -2408,8 +2424,10 @@ class ChatViewModel @Inject constructor(
         runtimeKey?.let { runtimeStore.setVisible(it, visible) }
     }
 
-    fun toggleFavorite(provider: String, model: String) =
-        viewModelScope.launch { favoritesStore.toggle(provider, model) }
+    fun toggleFavorite(provider: String, model: String): kotlinx.coroutines.Job {
+        val preferenceOwner = modelSync?.currentOwnerKey()
+        return viewModelScope.launch { favoritesStore.toggle(provider, model, preferenceOwner) }
+    }
 
     /** A lost reply cannot establish whether a session switch took effect. */
     private fun modelSwitchError(e: Throwable, stage: String): com.hermes.client.data.error.AppError {
@@ -2507,7 +2525,7 @@ class ChatViewModel @Inject constructor(
     private val _reasoningPending = MutableStateFlow(false)
     val reasoningPending: StateFlow<Boolean> = _reasoningPending.asStateFlow()
 
-    /** Per-model remembered efforts (device-local), for the sheet's row suffixes. */
+    /** Per-model remembered efforts (account or Legacy), for the sheet's row suffixes. */
     val reasoningPresetMap: StateFlow<Map<String, String>> =
         reasoningPresets.presets.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), emptyMap())
 
@@ -2534,17 +2552,22 @@ class ChatViewModel @Inject constructor(
      */
     fun setReasoning(level: String) {
         if (_reasoningPending.value) return
+        val provider = _currentProvider.value
+        val model = _currentModel.value
+        modelSync?.state?.value?.let { s ->
+            if (s.useCloud && provider != null && model != null && s.blocked(provider, model, "reasoningPreset")) return
+        }
+        val preferenceOwner = modelSync?.currentOwnerKey()
+        val targetSession = sessionId
         val previous = _reasoningEffort.value
         _reasoningPending.value = true
         _reasoningEffort.value = level
         _modelSheet.value = _modelSheet.value.copy(error = null)
         viewModelScope.launch {
-            runCatching { chat.reasoningSet(sessionId, level) }
+            runCatching { chat.reasoningSet(targetSession, level) }
                 .onSuccess {
-                    val provider = _currentProvider.value
-                    val model = _currentModel.value
                     if (!provider.isNullOrBlank() && !model.isNullOrBlank()) {
-                        runCatching { reasoningPresets.set(provider, model, level) }
+                        runCatching { reasoningPresets.set(provider, model, level, preferenceOwner) }
                     }
                 }
                 .onFailure { e ->
@@ -2567,12 +2590,15 @@ class ChatViewModel @Inject constructor(
      * value so the sheet and chip stay truthful.
      */
     private fun applyReasoningPresetFor(provider: String, model: String) {
+        val targetSession = sessionId
+        val preferenceOwner = modelSync?.currentOwnerKey()
         viewModelScope.launch {
             val preset = runCatching { reasoningPresets.presets.first() }.getOrNull()
                 ?.get(com.hermes.client.data.repository.favKey(provider, model))
+            if (sessionId != targetSession || modelSync?.currentOwnerKey() != preferenceOwner) return@launch
             if (preset != null && preset != _reasoningEffort.value) {
-                runCatching { chat.reasoningSet(sessionId, preset) }
-                    .onSuccess { _reasoningEffort.value = preset }
+                runCatching { chat.reasoningSet(targetSession, preset) }
+                    .onSuccess { if (sessionId == targetSession && modelSync?.currentOwnerKey() == preferenceOwner) _reasoningEffort.value = preset }
                 // Failure is silent — the model switch itself succeeded.
             } else if (preset == null) {
                 refreshReasoning()

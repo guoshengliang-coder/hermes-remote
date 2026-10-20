@@ -23,6 +23,8 @@ data class AccountAuthCapabilityDto(
     val providers: List<String> = emptyList(),
     val android: Boolean = false,
     val accountDeletion: Boolean = false,
+    val accountDataSync: AccountDataSyncCapabilityDto? = null,
+    val modelPreferencesSync: ModelPreferencesCapabilityDto? = null,
 )
 
 @Serializable
@@ -32,6 +34,33 @@ data class AccountBindingCapabilityDto(
     val supportsDeviceSelection: Boolean = false,
     val supportsDeviceSharing: Boolean = false,
 )
+
+@Serializable
+data class ModelPreferencesCapabilityDto(val version: Int = 0, val maxModels: Int = 0, val retentionDays: Int = 0)
+
+@Serializable
+data class ModelPreferenceDto(
+    val key: String, val provider: String, val model: String, val favorite: Boolean,
+    val reasoningPreset: String? = null, val revision: String, val favoriteRevision: String, val reasoningRevision: String,
+)
+
+@Serializable
+data class ModelPreferencesSnapshotDto(
+    val version: Int, val revision: String, val cursor: String, val lease: String,
+    val rows: List<ModelPreferenceDto>, val hasMore: Boolean,
+)
+
+@Serializable
+data class ModelPreferenceOperationDto(
+    val opId: String, val lease: String, val provider: String, val model: String,
+    val field: String, val baseRevision: String, val value: kotlinx.serialization.json.JsonElement,
+)
+
+@Serializable
+data class ModelPreferenceResultDto(val status: String, val row: ModelPreferenceDto)
+
+@Serializable
+data class ModelPreferenceResolveDto(val row: ModelPreferenceDto)
 
 @Serializable
 data class AccountLegacyCapabilityDto(
@@ -174,4 +203,23 @@ internal data class AccountErrorDto(
     val retryable: Boolean = false,
     val recoveryAction: String = "none",
     val correlationId: String? = null,
+)
+
+@Serializable
+data class AccountDataSyncCapabilityDto(val version: Int = 0, val entities: List<String> = emptyList())
+
+@Serializable
+data class AccountProfileSyncDto(
+    val version: Int,
+    val revision: String,
+    val cursor: String,
+    val hasMore: Boolean = false,
+    val profile: AccountProfileSyncEntityDto? = null,
+)
+
+@Serializable
+data class AccountProfileSyncEntityDto(
+    val nameRevision: String,
+    val avatarRevision: String,
+    val account: AccountDto,
 )

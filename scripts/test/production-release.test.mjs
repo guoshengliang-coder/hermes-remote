@@ -94,6 +94,50 @@ test("HG-191 preserves explicit Web Push provisioning and rejects partial or uns
   }
 });
 
+test("HG-216 preserves an explicit profile-sync switch while old environments stay off and unsafe switches fail closed", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const base = await emailEnvironment(config, "blue");
+  const voice = "DOUBAO_ASR_API_KEY_FILE=/run/hermes-go/secrets/doubao-asr-api-key\n";
+  const write = (content) => writeFile(environmentPath(config, "blue"), content, { mode: 0o600 });
+  await write(base);
+  const legacy = await inspectProductionReleaseEnvironment(config, "blue");
+  assert(!renderProductionReleaseEnvironment(config, "green", legacy).includes("ACCOUNT_DATA_SYNC_ENABLED"));
+  for (const value of ["0", "1"]) {
+    const suffix = `ACCOUNT_DATA_SYNC_ENABLED=${value}\n${voice}`;
+    await write(base + suffix);
+    const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+    assert(renderProductionReleaseEnvironment(config, "green", inspected).endsWith(suffix));
+    assert(renderBindingRolloutEnvironment(config, "green", inspected).endsWith(suffix));
+  }
+  for (const suffix of ["ACCOUNT_DATA_SYNC_ENABLED=yes\n", "ACCOUNT_DATA_SYNC_ENABLED=1\nACCOUNT_DATA_SYNC_ENABLED=0\n"]) {
+    await write(base + suffix);
+    await assert.rejects(() => inspectProductionReleaseEnvironment(config, "blue"));
+  }
+});
+
+test("HG-216 preserves an explicit model preferences-sync switch while old environments stay off and unsafe switches fail closed", async (t) => {
+  const fixture = await createFixture(t);
+  const config = await loadManagedBaselineConfig(fixture.configPath);
+  const base = await emailEnvironment(config, "blue");
+  const voice = "DOUBAO_ASR_API_KEY_FILE=/run/hermes-go/secrets/doubao-asr-api-key\n";
+  const write = (content) => writeFile(environmentPath(config, "blue"), content, { mode: 0o600 });
+  await write(base);
+  const legacy = await inspectProductionReleaseEnvironment(config, "blue");
+  assert(!renderProductionReleaseEnvironment(config, "green", legacy).includes("ACCOUNT_MODEL_SYNC_ENABLED"));
+  for (const value of ["0", "1"]) {
+    const suffix = `ACCOUNT_MODEL_SYNC_ENABLED=${value}\n${voice}`;
+    await write(base + suffix);
+    const inspected = await inspectProductionReleaseEnvironment(config, "blue");
+    assert(renderProductionReleaseEnvironment(config, "green", inspected).endsWith(suffix));
+    assert(renderBindingRolloutEnvironment(config, "green", inspected).endsWith(suffix));
+  }
+  for (const suffix of ["ACCOUNT_MODEL_SYNC_ENABLED=yes\n", "ACCOUNT_MODEL_SYNC_ENABLED=1\nACCOUNT_MODEL_SYNC_ENABLED=0\n"]) {
+    await write(base + suffix);
+    await assert.rejects(() => inspectProductionReleaseEnvironment(config, "blue"));
+  }
+});
+
 test("R5-F1 preserves the exact email-only runtime while changing only the candidate port", async (t) => {
   const fixture = await createFixture(t);
   const config = await loadManagedBaselineConfig(fixture.configPath);

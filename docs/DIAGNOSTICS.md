@@ -8,6 +8,20 @@
 「列表说思考中、聊天页空白」「跑完了气泡还在转」「重连后等待态变成思考中」——这一类问题永远归结为
 **三个问题**。按顺序回答，每一步都写明去哪里看、看什么。
 
+**系统已经弹「无响应」时先查主线程（HG-215）。** 这三问用于会话状态／事件问题；ANR 是
+另一个取证入口，不能只凭白屏、骨架或日志里的连接超时推断传输故障。先对齐视频、截图与
+日志的时间、App 版本和进程；不同时段的日志不能冒充那一次卡死的堆栈。
+
+在已授权设备上，固定 `adb -s <serial>`，读取 `shell dumpsys activity lastanr` 的时间和 Reason；
+系统 ANR trace 或 bugreport 里看 Hermes GO 进程的 `"main"` 栈。采集及分享前只保留相关
+进程／时间段并脱敏，不收集整机无关内容。没有原始 ANR 栈时明确说缺失，不把普通诊断日志
+当作主线程证据。模拟器合成复现也要标明合成输入，不能声称证明了原机唯一根因。
+
+HG-215 的 API 37 合成取证确认两条阻塞：缓存重新打开停在
+`ChatViewModel.open → organizedForDisplay → parseEmbeddedObject`；消除重复扫描后，超长
+单段文本还可停在 `LineBreaker.computeLineBreaks / GreedyLineBreaker`。前者需要有界扫描和
+后台准备，后者需要有界纯文本渲染块。仅看 REST/WS 仍正常不能排除这两条 UI 路径。
+
 ## 三个问题，三个数据源
 
 | # | 问题 | 谁知道答案 | 在哪 |
@@ -118,6 +132,16 @@ Connector 控制 socket 发 ping；超过 `CONTROL_HEARTBEAT_TIMEOUT_MS` 未收�
 Gateway 自己超时或拒绝流式序列，Gateway 还会发 `tunnel.http.cancel`；新 Connector 记录
 `http.cancelled`，并中止本地 fetch、文件读写和分块 ACK 等待。看到超时后旧请求仍持续占资源，通常说明
 Gateway/Connector 尚未一起升级；滚动升级期间旧 Connector 会忽略这个新增消息，安全但不会获得取消收益。
+
+**双向心跳反复失联（HG-219）**：先分清谁作出的超时决定。Gateway 写
+`connector.heartbeat_timeout`，Connector 写 `relay.heartbeat_timeout`，并在 `relay.disconnected`
+里沿用本地 `controlConnectionId`。两端日志都有 `bufferedBytes`、最近消息/ping/pong 的相对时间、
+`pingWriteState`、最近 ping 排队/写出时间，以及定时器延迟（Connector `tickDelayMs`、Gateway
+`sweepDelayMs`）。`pending` 表示本地写回调尚未完成，`written` 只证明本地写完成，不证明对端已收到；
+收到普通消息也不能证明反向链路可用。字段缺失表示还没观测到该事件，不是距今 0 ms。计时器延迟大时，
+结合该主机的负载/睡眠证据再判断，不直接归因为网络。实际部署前旧日志不会有这些字段。
+M4 的 2026-10-20 只读证据与未解决边界见 `HG_219_CONNECTION_DIAGNOSTICS.md`；其托管日志在
+`~/Library/Application Support/Hermes Go/Managed/logs/`，旧 `Hermes Remote/` 日志不能替代。
 
 **故障记录随反馈一起到**：详细诊断可能被关闭，而 HG-27 和 HG-42 都是用户先发现、事后
 才想起开日志——App 其实早就自己检测到了故障，只是没有地方把它留下来。现在客户端每次**自己修好**一次

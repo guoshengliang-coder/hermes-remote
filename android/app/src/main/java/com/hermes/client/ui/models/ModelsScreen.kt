@@ -79,6 +79,7 @@ fun ModelsScreen(
                 )
                 else -> {
                     val favorites by vm.favorites.collectAsStateWithLifecycle()
+                    val syncState = vm.modelSync?.state?.collectAsStateWithLifecycle()?.value
                     // Collapsible groups, same defaults as the chat sheet: the group holding the
                     // current default opens, the rest collapse to a scannable line each.
                     var expandedGroups by remember { mutableStateOf<Set<String>?>(null) }
@@ -87,11 +88,14 @@ fun ModelsScreen(
                         providers = state.providers, favorites = favorites,
                         currentProvider = state.defaultProvider, currentModel = state.defaultModel,
                         expandedGroups = effectiveExpanded,
+                        includeUnavailable = syncState?.useCloud == true,
                     )
                     // Settings edits the profile default only; the session reasoning row and the
                     // 快捷切换 chips are deliberately absent here (both belong to a chat).
                     com.hermes.client.ui.models.ModelSelectorContent(
                         groups = groups,
+                        syncPanel = { AccountModelSyncPanel(vm.modelSync, vm::legacyModels) },
+                        favoriteBlocked = { p, m -> syncState?.let { it.useCloud && it.blocked(p, m, "favorite") } == true },
                         onToggleFavorite = vm::toggleFavorite,
                         onSelect = { p, m -> vm.select(p, m) },
                         onToggleGroup = { slug ->

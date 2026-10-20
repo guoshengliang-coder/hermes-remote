@@ -1,3 +1,5 @@
+import { AccountProfileSync, PostgresProfileSyncStore } from "./account-profile-sync.js";
+import { AccountModelSync } from "./account-model-sync.js";
 import { readFileSync } from "node:fs";
 import { Pool } from "pg";
 import { AccountHttpController } from "./account-http-controller.js";
@@ -183,6 +185,8 @@ export function createAccountRuntime(
     "ACCOUNT_IDENTITY_MANAGEMENT_ENABLED",
     false,
   );
+  const profileSyncEnabled = booleanFlag(environment, "ACCOUNT_DATA_SYNC_ENABLED", false);
+  const modelSyncEnabled = booleanFlag(environment, "ACCOUNT_MODEL_SYNC_ENABLED", false);
   const accountDeletionEnabled = booleanFlag(environment, "ACCOUNT_DELETION_ENABLED", false);
   const webAccountCenterEnabled = booleanFlag(
     environment,
@@ -403,6 +407,8 @@ export function createAccountRuntime(
   retention.start();
   return {
     controller: new AccountHttpController(true, service, {
+      ...(profileSyncEnabled ? { profileSync: new AccountProfileSync(new PostgresProfileSyncStore(pool), tokens) } : {}),
+      ...(modelSyncEnabled ? { modelSync: new AccountModelSync(pool, tokens) } : {}),
       voiceEnabled,
       trustLoopbackProxy,
       controlEnabled,

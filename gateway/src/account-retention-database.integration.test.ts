@@ -49,6 +49,7 @@ test("PostgreSQL account retention is bounded, dependency-safe, and concurrency-
     const fixture = await seedRetentionFixture(pool);
     const store = new PostgresAccountRetentionStore(pool);
     assert.deepEqual(await store.sweep(now, 2), {
+      profileSyncOperations: 0, modelSyncRecords: 0,
       idempotencyRecords: 2,
       emailWebhookReceipts: 2,
       emailOtpChallenges: 2,
@@ -63,6 +64,7 @@ test("PostgreSQL account retention is bounded, dependency-safe, and concurrency-
       accountsAnonymized: 0,
     });
     assert.deepEqual(await store.sweep(now, 2), {
+      profileSyncOperations: 0, modelSyncRecords: 0,
       idempotencyRecords: 1,
       emailWebhookReceipts: 1,
       emailOtpChallenges: 1,
@@ -658,6 +660,7 @@ function hash(character: string, index: number): string {
 
 function emptyCounts(): AccountRetentionCounts {
   return {
+    profileSyncOperations: 0, modelSyncRecords: 0,
     idempotencyRecords: 0,
     emailWebhookReceipts: 0,
     emailOtpChallenges: 0,
