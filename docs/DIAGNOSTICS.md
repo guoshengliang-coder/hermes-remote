@@ -133,6 +133,16 @@ Gateway 自己超时或拒绝流式序列，Gateway 还会发 `tunnel.http.cance
 `http.cancelled`，并中止本地 fetch、文件读写和分块 ACK 等待。看到超时后旧请求仍持续占资源，通常说明
 Gateway/Connector 尚未一起升级；滚动升级期间旧 Connector 会忽略这个新增消息，安全但不会获得取消收益。
 
+**双向心跳反复失联（HG-219）**：先分清谁作出的超时决定。Gateway 写
+`connector.heartbeat_timeout`，Connector 写 `relay.heartbeat_timeout`，并在 `relay.disconnected`
+里沿用本地 `controlConnectionId`。两端日志都有 `bufferedBytes`、最近消息/ping/pong 的相对时间、
+`pingWriteState`、最近 ping 排队/写出时间，以及定时器延迟（Connector `tickDelayMs`、Gateway
+`sweepDelayMs`）。`pending` 表示本地写回调尚未完成，`written` 只证明本地写完成，不证明对端已收到；
+收到普通消息也不能证明反向链路可用。字段缺失表示还没观测到该事件，不是距今 0 ms。计时器延迟大时，
+结合该主机的负载/睡眠证据再判断，不直接归因为网络。实际部署前旧日志不会有这些字段。
+M4 的 2026-10-20 只读证据与未解决边界见 `HG_219_CONNECTION_DIAGNOSTICS.md`；其托管日志在
+`~/Library/Application Support/Hermes Go/Managed/logs/`，旧 `Hermes Remote/` 日志不能替代。
+
 **故障记录随反馈一起到**：详细诊断可能被关闭，而 HG-27 和 HG-42 都是用户先发现、事后
 才想起开日志——App 其实早就自己检测到了故障，只是没有地方把它留下来。现在客户端每次**自己修好**一次
 停滞（`connect()` 强换，或下面那条监督者兜底），都会在一个**始终开启**的小记录里存下时间、类型和当时

@@ -122,6 +122,16 @@ their test fixtures; the Gateway container limit is 256 MiB, so production still
 
 ## Verification
 
+HG-219 adds metadata-only heartbeat diagnostics without changing the recovery policy. A local
+timeout writes `relay.heartbeat_timeout`; that and `relay.disconnected` share one per-connection
+`controlConnectionId`. Snapshots include last inbound message/ping/pong ages, the most recent
+outgoing ping's local write state/times, `bufferedBytes`, and timer delay. A completed write is not
+proof of remote delivery, and missing observations are omitted rather than reported as zero. No
+frames, ping payloads, endpoints, credentials or raw write errors enter these records. Gateway's
+existing heartbeat-timeout event has corresponding fields. The M4 incident and unresolved root
+cause are recorded in `docs/HG_219_CONNECTION_DIAGNOSTICS.md`; production verification still needs
+a separately authorized release and observation on the actual Mac/phone.
+
 ```sh
 npm run build -w @hermes-remote/protocol
 npm run test -w @hermes-remote/connector
