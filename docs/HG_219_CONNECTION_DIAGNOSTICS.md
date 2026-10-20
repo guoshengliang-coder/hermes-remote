@@ -65,6 +65,13 @@ Connector 增加结构化 `relay.heartbeat_timeout`；现有 `relay.disconnected
 真实 Connector 子进程对接 loopback Relay：Relay 继续发送合法消息和 ping，却不回复 Connector 的 ping；
 必须记录 `written`、最近入站活动以及相同连接编号的断线事件，并沿原有路径重连。
 
-生产尚未安装本次诊断代码。需分别授权 Gateway 和 Connector 发布后，在 M4 自然复发时收集新字段，
-再决定修复方向；不能把本 PR、单测通过或一次健康检查当作“连接已修好”。使用独立测试绑定执行故障注入，
-不要为诊断而暂停用户当前的 Connector、Hermes 或调整其网络设置。具体步骤见 `SMOKE_TEST.md` 的 HG-219 段。
+2026-10-20 经用户授权，Connector **0.1.15**（managed **0.4.10**）已发布并通过 Desktop 的签名升级
+事务安装到 M4。安装源为 `e45917a1324ce146b39ef9b96ce5dc0fa94fc6d8`，新进程与构建标识核对通过；
+16:51 北京时间的 Agent、Gateway、Hermes 和端到端检查正常。Hermes 仍为本机 **0.21.3**，启动命令、
+`HERMES_HOME` 与会话数据库文件身份未变。完整发布凭据见 `DEPLOYMENT.md` 的 HG-219 记录。
+
+用户选择 Gateway 保持 **0.4.33 / schema18**，没有执行 main 的 schema20 迁移，因此 Gateway 的新增
+诊断字段尚未上线，HG-219 保持开发完成。先在 M4 自然复发时收集 Connector 新字段，与旧 Gateway 的
+断线记录对齐，再决定修复方向；目前尚未捕获升级后的自然复发，不能把本 PR、单测或一次健康检查当作
+“连接已修好”。使用独立测试绑定执行故障注入，不要为诊断暂停用户当前的 Connector、Hermes 或调整
+其网络设置。具体步骤见 `SMOKE_TEST.md` 的 HG-219 段。

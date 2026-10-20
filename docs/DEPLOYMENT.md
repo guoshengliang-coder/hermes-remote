@@ -2673,3 +2673,64 @@ or DMG was published. Target-Mac installation and Android L1/L2/L3 were not run.
 components 0.4.9 through Desktop on the originating Mac before checking the original Android
 conversation's HTML open/share flow in `SMOKE_TEST.md`; files removed by system cleanup still
 need regeneration. Publication and pending verification do not establish device acceptance.
+
+### HG-219 — Connector 0.1.15 / managed 0.4.10 and M4 installation, 2026-10-20
+
+The owner authorized merge/publication, then chose **Connector to the M4 Mac mini only** while
+Gateway remains 0.4.33/schema18. The owner separately approved reuse of the existing trusted local
+signing key **for this publication only**, retaining signature verification, full public readback and
+paired-index gates. No GitHub signing environment or key was provisioned. The existing key stayed
+on M4 and its public key matched installed Desktop trust and both live 0.4.9 manifests.
+
+Diagnostic PR [#599](https://github.com/guoshengliang-coder/hermes-remote/pull/599) and version PR
+[#600](https://github.com/guoshengliang-coder/hermes-remote/pull/600) passed their PR/main gates.
+Release source **`e45917a1324ce146b39ef9b96ce5dc0fa94fc6d8`** was a clean isolated current-main
+checkout on M4; the existing M4 development checkout was untouched. Node **22.23.2** produced both
+Connector layouts. The immutable Hermes Server **0.21.0** archive was reused with SHA-256
+`06513b2a2d137d70541d2a7b190ea305365a421f8f90d6e21ebb9e814852dc1e`.
+
+Both candidate signature verifiers passed. Six root-owned 0644 versioned files were staged behind
+exact GET/HEAD routes. The first route candidate failed `nginx -t` and was restored without reload;
+the corrected candidate passed and Nginx was reloaded. New artifact POST returns 403. The unchanged
+`scripts/publish-desktop-release.sh` completed full public file comparison, switched/read back both
+indexes, retained 0.4.9 as the rollback pair, pushed **`desktop-managed-v0.4.10`**, and returned
+`DESKTOP_RELEASE_OK`. Its SCP wrapper only selects the legacy transport; all gates remain enabled.
+An independent M5 download reverified every file, both signatures, build identities and PR ancestry.
+
+Both public indexes report **0.4.10**. Manifest SHA-256 values are
+`bb1cc480d6bfd809e01d7f1a1dfdf941301651242d0ef6148258e9a9719bcca8` (v1) and
+`7fe7eb165055eb84bb166d45a608281eb8644abe01d46ae0a42bc3f13f18cf73` (v2).
+
+| Layout | Public path under `https://mrlgs.net` | Bytes | SHA-256 |
+|---|---|---|---|
+| v1 | `/desktop/releases/0.4.10/Hermes-Connector-0.1.15-arm64.tar.gz` | 37082368 | `8d15ff5cd5af1e5749a1e152253acd3ddb29b3f2164c2c1972a43f0e6ad0e8f8` |
+| v2 | `/desktop/components/0.4.10/Hermes-Component-connector-0.1.15-arm64.tar.gz` | 83198 | `4bed87b1cd227be5a39aff3e0221488bb857ddf94070e82c2dc575509a87fe4c` |
+
+M4 installed the signed v1 update through its existing Desktop **0.2.30/build33**:
+download/verify, exact 0.4.10 confirmation, standard upgrade and health transaction. The journal
+committed `account_active`, `Managed/current` points to `releases/0.4.10`, and PID 54955 executes
+that release's Connector. `BUILD-IDENTITY.json` identifies **0.1.15** and the source above; the
+installed diagnostic module matches the verified build. At **16:51 CST**, Desktop reported Agent
+online, Gateway available, Hermes accessible **0.21.3**, and account end-to-end healthy. The upgrade
+briefly restarted the two managed services but retained the local Hermes launch command,
+`HERMES_HOME` and `state.db` inode (825066). No second Hermes or new database was activated.
+
+Gateway stayed on `5438b4ef8cc498a6cda228efb9fd2273de8d0b72`, 0.4.33/schema18; its original
+container remains running since October 11 with zero restarts and public health `ok`. No migration
+was performed. No APK or DMG was published. **This is diagnostic instrumentation, not a root-cause
+fix**: no timeout/reconnect policy changed, and no post-upgrade natural recurrence has yet been
+captured. Continue sampling on M4; no live fault injection or Android acceptance was performed.
+
+M4 preparation with OpenSSL 3 passed `npm ci --ignore-scripts`, `npm run build`, and `npm test`:
+**845 passed, 32 skipped** (31 database prerequisites, one script case), zero failures. Thirteen
+release-metadata/protected-publisher tests also passed on M5. The earlier M5 LibreSSL CMS failures
+did not recur with OpenSSL 3. No recovery checks were disabled.
+
+Equivalent `hermes-go-batch-release-receipt-v1` evidence, full candidate snapshot and M4 installation
+proof are retained under M4 `~/.hermes-go-releases/internal/0.4.10/`; receipt SHA-256
+`926e0dbc3a93d9a359bd5b48668cee62b331199c0590b67e3de5002a3ccaf465`.
+This repository has no `scripts/release-notices.mjs`. Its actual PR file mapping requires both
+Connector and Gateway for HG-219, and the live Gateway does not contain #599, so HG-219 remains
+**development complete**. The full one-page release candidate check also skips HG-215/HG-148
+(Android) and HG-134 (macOS App), which this publication did not deliver. No verification transition
+or acceptance was submitted.
