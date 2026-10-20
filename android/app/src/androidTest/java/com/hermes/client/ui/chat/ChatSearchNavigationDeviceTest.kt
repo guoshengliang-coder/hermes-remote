@@ -39,6 +39,7 @@ class ChatSearchNavigationDeviceTest {
     @Test fun long_reply() = exercise(Role.ASSISTANT, dark = false)
     @Test fun dark_user_bubble() = exercise(Role.USER, dark = true)
     @Test fun long_table_cell() = exercise(Role.ASSISTANT, dark = false, table = true)
+    @Test fun reference_links() = exercise(Role.ASSISTANT, dark = false, reference = true)
 
     private fun rootFor(view: View): ViewRootForTest? {
         if (view is ViewRootForTest) return view
@@ -61,12 +62,21 @@ class ChatSearchNavigationDeviceTest {
         return null
     }
 
-    private fun exercise(role: Role, dark: Boolean, table: Boolean = false) {
+    private fun exercise(role: Role, dark: Boolean, table: Boolean = false, reference: Boolean = false) {
         val instrument = InstrumentationRegistry.getInstrumentation()
         val prose = (0..70).joinToString(if (table) " " else "\n") { i ->
-            if (i == 10 || i == 60) "学习目标 $i" else "第 $i 行，保留足够阅读距离。"
+            when {
+                reference && i == 10 -> "[学习][学习]"
+                reference && i == 60 -> "[学习]"
+                i == 10 || i == 60 -> "学习目标 $i"
+                else -> "第 $i 行，保留足够阅读距离。"
+            }
         }
-        val text = if (table) "| 内容 |\n| --- |\n| $prose |" else prose
+        val text = when {
+            table -> "| 内容 |\n| --- |\n| $prose |"
+            reference -> "$prose\n\n[学习]: https://example.com/hidden"
+            else -> prose
+        }
         val context = mutableStateOf(ChatSearchContext("学习", "answer", 0))
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
@@ -102,7 +112,7 @@ class ChatSearchNavigationDeviceTest {
                 // evidence images available for an explicit adb pull and visual inspection.
                 val resolver = instrument.targetContext.contentResolver
                 val uri = requireNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, "hg221-search-$role-$dark-$table-$occurrence.png")
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "hg221-search-$role-$dark-$table-$reference-$occurrence.png")
                     put(MediaStore.Images.Media.MIME_TYPE, "image/png")
                     put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/hermes-ui-verification")
                 }))

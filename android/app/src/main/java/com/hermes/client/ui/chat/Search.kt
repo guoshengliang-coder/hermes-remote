@@ -2,6 +2,8 @@ package com.hermes.client.ui.chat
 
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
+import com.mikepenz.markdown.utils.getUnescapedTextInNode
+import java.util.Locale
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
@@ -91,12 +93,32 @@ internal fun markdownSearchRangesFor(content: String, terms: List<String>): List
     if (terms.isEmpty() || content.isEmpty()) return emptyList()
     val root = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(content)
     val ranges = mutableListOf<IntRange>()
+    val references = mutableSetOf<String>()
+    fun collectReferences(node: ASTNode) {
+        if (node.type == MarkdownElementTypes.LINK_DEFINITION) {
+            val label = node.children.firstOrNull { it.type == MarkdownElementTypes.LINK_LABEL }
+            val destination = node.children.firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION }
+            if (label != null && destination?.getUnescapedTextInNode(content)?.isNotBlank() == true) {
+                references += label.getUnescapedTextInNode(content).lowercase(Locale.ROOT)
+            }
+        } else node.children.forEach(::collectReferences)
+    }
+    collectReferences(root)
     fun visit(node: ASTNode) {
         when (node.type) {
             MarkdownElementTypes.CODE_FENCE, MarkdownElementTypes.CODE_BLOCK,
             MarkdownElementTypes.IMAGE, MarkdownElementTypes.LINK_DESTINATION,
             MarkdownElementTypes.LINK_TITLE, MarkdownElementTypes.LINK_DEFINITION,
             MarkdownElementTypes.AUTOLINK -> return
+            MarkdownElementTypes.FULL_REFERENCE_LINK -> {
+                val label = node.children.firstOrNull { it.type == MarkdownElementTypes.LINK_LABEL }
+                val text = node.children.firstOrNull { it.type == MarkdownElementTypes.LINK_TEXT }
+                // Resolved [visible][label] renders only visible. With no definition the
+                // renderer keeps both pieces as literal text, and both remain searchable.
+                if (text != null && label?.getUnescapedTextInNode(content)?.lowercase(Locale.ROOT) in references) {
+                    visit(text)
+                } else node.children.forEach(::visit)
+            }
             MarkdownTokenTypes.TEXT -> {
                 searchHighlightRangesFor(content.substring(node.startOffset, node.endOffset), terms)
                     .forEach { ranges += (it.first + node.startOffset)..(it.last + node.startOffset) }

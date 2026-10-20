@@ -58,4 +58,15 @@ class ChatSearchHighlightTest {
         val hits = searchHits(listOf(ChatMessage(id = "m", role = Role.ASSISTANT, text = text)), "学习")
         assertEquals(listOf(0, 1, 2), hits.map { it.occurrence })
     }
+
+    @Test fun resolved_reference_links_do_not_count_hidden_reference_labels() {
+        val text = "[学习][学习] 和 [学习]\n\n[学习]: https://example.com/学习"
+        val hits = searchHits(listOf(ChatMessage(id = "m", role = Role.ASSISTANT, text = text)), "学习")
+        assertEquals(listOf(0, 1), hits.map { it.occurrence })
+    }
+
+    @Test fun unresolved_reference_labels_remain_visible_searchable_text() {
+        val text = "[学习][学习]"
+        assertEquals(2, searchHits(listOf(ChatMessage(id = "m", role = Role.ASSISTANT, text = text)), "学习").size)
+    }
 }

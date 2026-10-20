@@ -908,7 +908,11 @@ fun ChatMessageList(
         val listIndex = 1 + (displayMessages.lastIndex - target)
         if (listIndex >= 0) {
             try {
-                listState.scrollToItem(listIndex)
+                // A visible oversized turn is already mounted. Resetting it to its edge
+                // would first move away from the current mark before the precise relocation.
+                if (listState.layoutInfo.visibleItemsInfo.none { it.index == listIndex }) {
+                    listState.scrollToItem(listIndex)
+                }
             } catch (stolen: CancellationException) {
                 currentCoroutineContext().ensureActive()
             }

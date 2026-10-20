@@ -44,13 +44,26 @@ class ChatSearchNavigationTest {
         exercise(Role.ASSISTANT, dark = false, table = true)
     }
 
-    private fun exercise(role: Role, dark: Boolean, table: Boolean = false) {
+    @Test fun reference_link_marks_keep_the_same_visible_ordinals_as_the_counter() {
+        exercise(Role.ASSISTANT, dark = false, reference = true)
+    }
+
+    private fun exercise(role: Role, dark: Boolean, table: Boolean = false, reference: Boolean = false) {
         // One Markdown paragraph / one user bubble, far taller than the viewport. Scrolling to
         // its lazy index cannot make both marks visible; the second arrow must move within it.
         val prose = (0..70).joinToString(if (table) " " else "\n") { i ->
-            if (i == 10 || i == 60) "学习目标 $i" else "第 $i 行，保留足够阅读距离。"
+            when {
+                reference && i == 10 -> "[学习][学习]"
+                reference && i == 60 -> "[学习]"
+                i == 10 || i == 60 -> "学习目标 $i"
+                else -> "第 $i 行，保留足够阅读距离。"
+            }
         }
-        val text = if (table) "| 内容 |\n| --- |\n| $prose |" else prose
+        val text = when {
+            table -> "| 内容 |\n| --- |\n| $prose |"
+            reference -> "$prose\n\n[学习]: https://example.com/hidden"
+            else -> prose
+        }
         val context = mutableStateOf(ChatSearchContext("学习", "answer", 0))
         compose.setContent {
             HermesTheme(darkTheme = dark) {
@@ -84,10 +97,10 @@ class ChatSearchNavigationTest {
             assertTrue(focusedRectangle() != null)
         }
         assertVisible()
-        compose.onRoot().captureRoboImage("build/outputs/hg221/search-${role.name}-$dark-$table-first.png")
+        compose.onRoot().captureRoboImage("build/outputs/hg221/search-${role.name}-$dark-$table-$reference-first.png")
         compose.runOnIdle { context.value = context.value.copy(currentOccurrence = 1) }
         assertVisible()
-        compose.onRoot().captureRoboImage("build/outputs/hg221/search-${role.name}-$dark-$table-second.png")
+        compose.onRoot().captureRoboImage("build/outputs/hg221/search-${role.name}-$dark-$table-$reference-second.png")
         compose.runOnIdle { context.value = context.value.copy(currentOccurrence = 0) }
         assertVisible()
     }
