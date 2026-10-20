@@ -515,6 +515,58 @@ class ChatViewModelTest {
         assertTrue(vm.state.value.historyError?.contains("HR-BIND-011") == true)
     }
 
+
+    @Test fun a_new_unpersisted_conversation_does_not_prefetch_older_history() = runTest {
+        coEvery { sessionRepo.history("fresh", null, null) } throws
+            com.hermes.client.data.network.HermesApiException(404, "Session not found")
+        every { sessionRepo.hasOlderHistory("fresh", null, null) } returns null
+        coEvery { sessionRepo.olderHistory("fresh", null, null) } throws
+            com.hermes.client.data.network.HermesApiException(404, "Session not found")
+        val vm = buildVm()
+        vm.open("fresh", isNewSession = true)
+        advanceUntilIdle()
+        vm.loadOlderHistory()
+        advanceUntilIdle()
+        assertNull(vm.olderHistory.value.error)
+        assertFalse(vm.olderHistory.value.loading)
+        coVerify(exactly = 0) { sessionRepo.olderHistory("fresh", null, null) }
+    }
+
+    @Test fun a_new_conversation_must_not_hide_a_revoked_device_404() = runTest {
+        coEvery { sessionRepo.history("fresh", null, null) } throws
+            com.hermes.client.data.network.HermesApiException(404, "revoked", errorCode = "HR-BIND-011")
+        val vm = buildVm()
+        vm.open("fresh", isNewSession = true)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.historyError?.contains("HR-BIND-011") == true)
+    }
+
+    @Test fun an_existing_conversation_404_is_still_an_error() = runTest {
+        every { sessionRepo.hasOlderHistory("existing", null, null) } returns null
+        coEvery { sessionRepo.olderHistory("existing", null, null) } throws
+            com.hermes.client.data.network.HermesApiException(404, "Session not found")
+        val vm = buildVm()
+        vm.open("existing")
+        advanceUntilIdle()
+        vm.loadOlderHistory()
+        advanceUntilIdle()
+        assertNotNull(vm.olderHistory.value.error)
+        coVerify(exactly = 1) { sessionRepo.olderHistory("existing", null, null) }
+    }
+
+    @Test fun known_persisted_history_still_pages_and_reports_real_failures() = runTest {
+        every { sessionRepo.hasOlderHistory("fresh", null, null) } returns true
+        coEvery { sessionRepo.olderHistory("fresh", null, null) } throws
+            com.hermes.client.data.network.HermesApiException(500, "upstream failed")
+        val vm = buildVm()
+        vm.open("fresh", isNewSession = true)
+        advanceUntilIdle()
+        vm.loadOlderHistory()
+        advanceUntilIdle()
+        assertEquals(com.hermes.client.data.error.AppErrorCode.HISTORY_UPSTREAM_FAILED, vm.olderHistory.value.error?.code)
+        assertFalse(vm.olderHistory.value.error!!.retryable)
+    }
+
     // The chat subtitle follows the gateway's session.info (cwd/branch) — the workspace the
     // chat's tools actually run in, not a stale list row.
     @Test fun session_info_updates_the_workspace_subtitle() = runTest {

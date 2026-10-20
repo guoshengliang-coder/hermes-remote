@@ -27,6 +27,8 @@ data class ChatSearchContext(
     val query: String,
     val currentMessageId: String?,
     val currentOccurrence: Int?,
+    /** Prepared off the UI thread with the counter; renderers reuse these exact ranges. */
+    val markdownRanges: Map<String, List<IntRange>> = emptyMap(),
 )
 
 val LocalChatSearch = compositionLocalOf<ChatSearchContext?> { null }
@@ -102,6 +104,7 @@ fun searchHighlighted(text: String, rangeOffset: Int = 0): AnnotatedString {
         ranges.forEachIndexed { index, r ->
             val style = if (rangeOffset + index == focusIndex) focusStyle else otherStyle
             addStyle(style, r.first, r.last + 1)
+            if (rangeOffset + index == focusIndex) addStringAnnotation(SEARCH_FOCUS_TAG, focusIndex.toString(), r.first, r.last + 1)
         }
     }
 }
@@ -124,21 +127,30 @@ fun rememberSearchAnnotator(rangeOffset: Int = 0): MarkdownAnnotator {
     val focusStyle = searchMarkStyle(focus = true)
     val otherStyle = searchMarkStyle(focus = false)
     val terms = remember(ctx?.query) { ctx?.let { searchHighlightTerms(it.query) }.orEmpty() }
-    return remember(terms, focusStyle, otherStyle, focusIndex, rangeOffset) {
+    return remember(terms, focusStyle, otherStyle, focusIndex, rangeOffset, ctx?.markdownRanges) {
         if (terms.isEmpty()) {
             markdownAnnotator()
         } else {
+            var previousContent: String? = null
+            var sourceRanges = emptyList<IntRange>()
             markdownAnnotator { content, child ->
                 if (child.type != MarkdownTokenTypes.TEXT) return@markdownAnnotator false
                 val text = content.substring(child.startOffset, child.endOffset)
                 val ranges = searchHighlightRangesFor(text, terms)
                 if (ranges.isEmpty()) return@markdownAnnotator false
-                val before = searchHighlightRangesFor(content, terms).count { it.first < child.startOffset }
+                if (focusIndex != null && previousContent != content) {
+                    previousContent = content
+                    sourceRanges = ctx?.markdownRanges?.get(content) ?: markdownSearchRangesFor(content, terms)
+                }
+                val before = sourceRanges.count { it.first < child.startOffset }
                 val base = length
                 append(text)
                 ranges.forEachIndexed { index, r ->
                     val style = if (rangeOffset + before + index == focusIndex) focusStyle else otherStyle
                     addStyle(style, base + r.first, base + r.last + 1)
+                    if (rangeOffset + before + index == focusIndex) {
+                        addStringAnnotation(SEARCH_FOCUS_TAG, focusIndex.toString(), base + r.first, base + r.last + 1)
+                    }
                 }
                 true
             }

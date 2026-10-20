@@ -355,7 +355,15 @@ fun ChatScreen(
     val conversationTurns = remember(state.messages, searchOpen) {
         if (searchOpen) state.messages.organizedConversationTurns() else emptyList()
     }
-    val matches = remember(query, conversationTurns) { searchHits(conversationTurns, query) }
+    val searchLinkWord = localized(language, "链接", "Link")
+    var preparedMatches by remember { mutableStateOf<PreparedChatSearch?>(null) }
+    LaunchedEffect(query, conversationTurns, searchLinkWord) {
+        preparedMatches = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            prepareChatSearch(conversationTurns, query, searchLinkWord)
+        }
+    }
+    val currentSearch = preparedMatches?.takeIf { it.query == query && it.messages === conversationTurns }
+    val matches = currentSearch?.hits.orEmpty()
     // Reset the cursor when the QUERY changes — not when `matches` changes: `matches` is a fresh
     // list instance on every streamed token, which would otherwise yank the cursor to 0 mid-search.
     var previousQuery by rememberConversationState("chat:$sessionId:previousQuery") { query }
@@ -372,6 +380,7 @@ fun ChatScreen(
             query = query,
             currentMessageId = currentHit?.let { conversationTurns.getOrNull(it.turnIndex)?.id },
             currentOccurrence = currentHit?.occurrence,
+            markdownRanges = currentSearch?.markdownRanges.orEmpty(),
         )
     } else null
     // Highlight scrolling lives inside ChatMessageList: with reverseLayout the turn index must be
