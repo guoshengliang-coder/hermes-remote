@@ -422,13 +422,38 @@ fun ChatScreen(
         if (composerFocused) focusRequester.requestFocus()
     }
     val initialDraft by vm.initialDraft.collectAsStateWithLifecycle()
+    val editingUnsentId by vm.editingUnsentId.collectAsStateWithLifecycle()
+    val composerRecoveryError by vm.composerRecoveryError.collectAsStateWithLifecycle()
+    val messageActionScope = androidx.compose.runtime.rememberCoroutineScope()
+    var messageActionBusy by remember(sessionId) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(initialDraft) {
-        initialDraft?.takeIf { it.isNotEmpty() }?.let { draft = vm.initialDraftForComposer(draft); vm.clearInitialDraft() }
+        initialDraft?.let { draft = vm.initialDraftForComposer(draft); vm.clearInitialDraft() }
     }
     // Persist the unsent composer text (HG-41). Keyed on the value rather than wired into each
     // assignment: `draft` is written by typing, dictation, slash fill, prompt insert, @-mention
     // completion, edit-and-resend and the share handoff, and one missed site is a lost draft.
-    androidx.compose.runtime.LaunchedEffect(sessionId, draft) { vm.rememberDraft(draft) }
+    androidx.compose.runtime.LaunchedEffect(sessionId, draft, state.pendingAttachments) { vm.rememberDraft(draft) }
+
+    fun editUnsent(messageId: String, withdraw: Boolean = false) {
+        if (messageActionBusy) return
+        messageActionBusy = true
+        val previousDraft = draft
+        messageActionScope.launch {
+            try {
+                val result = vm.prepareUnsentComposer(messageId, previousDraft, withdraw)
+                result.error?.let {
+                    android.widget.Toast.makeText(context, it.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
+                }
+                result.text?.let {
+                    draft = if (draft == previousDraft) it else appendDictation(draft, it)
+                    composerFocused = true
+                    focusRequester.requestFocus()
+                }
+            } finally {
+                messageActionBusy = false
+            }
+        }
+    }
     // Slash-command palette: when the draft is a "/query", show matching commands.
     val slashMatches = if (draft.startsWith("/") && !draft.contains(' ')) {
         val q = draft.drop(1).lowercase()
@@ -452,7 +477,7 @@ fun ChatScreen(
     }
     var preparingAttachments by remember(sessionId) { androidx.compose.runtime.mutableIntStateOf(0) }
     val attachingSessions by vm.attachingSessions.collectAsStateWithLifecycle()
-    val canSend = preparingAttachments == 0 && attachingSessions == 0 && canSend(
+    val canSend = !messageActionBusy && composerRecoveryError == null && preparingAttachments == 0 && attachingSessions == 0 && canSend(
         connected,
         draft.isNotBlank(),
         state.pendingAttachments.isNotEmpty(),
@@ -475,7 +500,7 @@ fun ChatScreen(
             return
         }
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-        vm.send(draft)
+        if (!vm.send(draft)) return
         draft = ""
         // Ahead of the debounce: the row must lose its 「草稿」 marker as the message leaves, not
         // a moment later.
@@ -1197,6 +1222,15 @@ fun ChatScreen(
                 // HG-38: the chips all arrive at once when the last conversation is rendered, so
                 // this line is the only thing saying work is in flight. Sits above the chip row,
                 // where the chips it is promising will appear.
+                if (editingUnsentId != null) {
+                    composerRecoveryError?.let {
+                        Text(it.localizedMessage(language), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    UnsentEditingNotice(onCancel = {
+                        vm.cancelUnsentEdit()
+                        draft = ""
+                    })
+                }
                 if (attachingSessions > 0) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -1341,7 +1375,7 @@ fun ChatScreen(
                             OutlinedTextField(
                                 value = draft,
                                 onValueChange = { draft = it },
-                                readOnly = !sessionWritable,
+                                readOnly = !sessionWritable || messageActionBusy,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .focusRequester(focusRequester)
@@ -1606,9 +1640,12 @@ fun ChatScreen(
                         openPromptListTick = promptListTick,
                         viewportController = viewportController,
                         isGenerating = state.isGenerating,
-                        onEditResend = { text -> draft = text; focusRequester.requestFocus() },
-                        onRetrySend = { vm.retrySend(it) },
-                        onDiscardSend = { vm.discardFailedSend(it) },
+                        onEditResend = { editUnsent(it) },
+                        onRetrySend = { if (editingUnsentId == it) editUnsent(it) else vm.retrySend(it) },
+                        onDiscardSend = {
+                            if (vm.sendErrorCode(it) == AppErrorCode.UNSENT_ATTACHMENTS_LOST) vm.discardFailedSend(it)
+                            else editUnsent(it, withdraw = true)
+                        },
                         sendDiagnosticFor = { vm.sendDiagnostic(it) },
                         sendErrorCodeFor = { vm.sendErrorCode(it) },
                         onRegenerate = { vm.regenerate() },
@@ -2197,11 +2234,12 @@ fun ChatScreen(
                             pendingVoiceText = null
                         } else {
                             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                            vm.send(draft)
-                            draft = ""
-                            vm.clearDraft()
-                            sendToBottomTick = System.currentTimeMillis()
-                            collapseComposer()
+                            if (vm.send(draft)) {
+                                draft = ""
+                                vm.clearDraft()
+                                sendToBottomTick = System.currentTimeMillis()
+                                collapseComposer()
+                            }
                         }
                     },
                 ) { Text(localized(language, "知道了，发送", "Got it, send")) }
@@ -2488,6 +2526,20 @@ fun ChatScreen(
             onDismiss = { projectSheetOpen = false },
             onPick = { project -> vm.moveToProject(project) { projectSheetOpen = false } },
         )
+    }
+}
+
+@Composable
+internal fun UnsentEditingNotice(onCancel: () -> Unit) {
+    val language = LocalAppLanguage.current
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            localized(language, "正在编辑未发送的消息", "Editing an unsent message"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).padding(start = 8.dp),
+        )
+        TextButton(onClick = onCancel) { Text(localized(language, "取消编辑", "Cancel edit")) }
     }
 }
 

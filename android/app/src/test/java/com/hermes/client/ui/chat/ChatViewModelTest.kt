@@ -2438,4 +2438,285 @@ class ChatViewModelTest {
         vm.stopReading()
         io.mockk.verify { tts.stop() }
     }
+    private fun runUnsentComposerTest(block: suspend kotlinx.coroutines.test.TestScope.() -> Unit) = runTest {
+        try { block() } finally { runtimeJobs.forEach(Job::cancel) }
+    }
+
+    // HG-220: cancel preparation, keep source identity during editing, and never replay ambiguity.
+    @Test fun withdrawing_pre_submit_returns_text_and_does_not_resurrect_the_bubble() = runUnsentComposerTest {
+        val resume = kotlinx.coroutines.CompletableDeferred<String>()
+        coEvery { chatRepo.resume("s1", null) } coAnswers { resume.await() }
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.send("pending")
+        runCurrent()
+        val id = vm.state.value.messages.single { it.role == Role.USER }.id
+        val result = vm.prepareUnsentComposer(id, "", withdraw = true)
+        runCurrent()
+        assertNull(result.error)
+        assertEquals("pending", result.text)
+        assertTrue(vm.state.value.messages.none { it.id == id })
+        assertFalse(vm.state.value.isGenerating)
+        assertEquals(true, unsent.peek(draftToken)?.composer?.withdrawn)
+        assertNull(vm.sendDiagnostic(id))
+        resume.complete("live-1")
+        runCurrent()
+        assertTrue(vm.state.value.messages.none { it.id == id })
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun editing_a_failed_send_replaces_it_only_when_the_composer_is_sent() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        coEvery { chatRepo.submit("s1", "original") } throws com.hermes.client.data.network.GatewayRpcException(5000, "refused")
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.send("original")
+        runCurrent()
+        val id = vm.state.value.messages.single { it.role == Role.USER }.id
+        assertEquals("original", vm.prepareUnsentComposer(id, "").text)
+        runCurrent()
+        assertEquals(id, vm.editingUnsentId.value)
+        assertTrue(vm.state.value.messages.any { it.id == id })
+        vm.retrySend(id)
+        runCurrent()
+        coVerify(exactly = 1) { chatRepo.submit("s1", "original") }
+        vm.send("edited")
+        runCurrent()
+        assertNull(vm.editingUnsentId.value)
+        assertEquals(listOf("edited"), vm.state.value.messages.filter { it.role == Role.USER }.map { it.text })
+        assertNull(unsent.peek(draftToken))
+        coVerify(exactly = 1) { chatRepo.submit("s1", "edited") }
+    }
+
+    @Test fun cancellation_of_edit_keeps_original_file_and_failure_record() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        val file = java.io.File.createTempFile("hg220-edit", ".txt").apply { writeText("attachment") }
+        try {
+            coEvery { chatRepo.submit(any(), any()) } throws com.hermes.client.data.network.GatewayRpcException(5000, "refused")
+            val vm = buildVm()
+            vm.open("s1")
+            runCurrent()
+            vm.stageAttachment(file, "text/plain", "source.txt")
+            vm.send("original")
+            runCurrent()
+            val id = vm.state.value.messages.single { it.role == Role.USER }.id
+            assertEquals("original", vm.prepareUnsentComposer(id, "").text)
+            runCurrent()
+            val attachment = vm.state.value.pendingAttachments.single()
+            vm.removeAttachment(attachment.id)
+            assertTrue("editing must not delete the original's attachment", file.isFile)
+            vm.rememberDraft("changed")
+            vm.cancelUnsentEdit()
+            runCurrent()
+            assertNull(vm.editingUnsentId.value)
+            assertTrue(vm.state.value.messages.any { it.id == id && it.text == "original" })
+            assertEquals("original", unsent.peek(draftToken)?.text)
+            assertNull(unsent.peek(draftToken)?.composer)
+            assertTrue(vm.state.value.pendingAttachments.isEmpty())
+        } finally { file.delete() }
+    }
+
+    @Test fun a_submitted_prompt_cannot_be_withdrawn_or_replaced_while_awaiting_ack() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        val acknowledgement = kotlinx.coroutines.CompletableDeferred<Unit>()
+        coEvery { chatRepo.submit("s1", "original") } coAnswers { acknowledgement.await() }
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.send("original")
+        runCurrent()
+        val id = vm.state.value.messages.single { it.role == Role.USER }.id
+        for (withdraw in listOf(false, true)) {
+            val result = vm.prepareUnsentComposer(id, "", withdraw)
+            assertEquals("HR-SESS-020", result.error?.code?.value)
+            assertFalse(result.error!!.retryable)
+            assertNull(result.text)
+        }
+        assertTrue(vm.state.value.messages.any { it.id == id })
+        assertTrue(vm.state.value.pendingAttachments.isEmpty())
+        assertNull(vm.editingUnsentId.value)
+        acknowledgement.complete(Unit)
+        runCurrent()
+        assertEquals(com.hermes.client.domain.DeliveryState.SENT, vm.state.value.messages.single { it.id == id }.delivery)
+        coVerify(exactly = 1) { chatRepo.submit("s1", "original") }
+        vm.stop()
+        runCurrent()
+    }
+
+    @Test fun timed_out_submission_stays_pending_when_withdraw_is_requested() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        coEvery { chatRepo.submit("s1", "original") } throws com.hermes.client.data.network.GatewayResponseTimeoutException("unconfirmed")
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.send("original")
+        runCurrent()
+        val id = vm.state.value.messages.single { it.role == Role.USER }.id
+        assertEquals("HR-SESS-020", vm.prepareUnsentComposer(id, "", withdraw = true).error?.code?.value)
+        assertTrue(vm.state.value.messages.any { it.id == id })
+        assertNull(unsent.peek(draftToken))
+        coVerify(exactly = 1) { chatRepo.submit("s1", "original") }
+        vm.stop()
+        runCurrent()
+    }
+
+    @Test fun an_existing_draft_is_not_overwritten_and_does_not_cancel_preparation() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        vm.send("original")
+        runCurrent()
+        val id = vm.state.value.messages.single { it.role == Role.USER }.id
+        val result = vm.prepareUnsentComposer(id, "existing draft", withdraw = true)
+        assertEquals("HR-SESS-021", result.error?.code?.value)
+        assertNull(result.text)
+        assertEquals(com.hermes.client.domain.DeliveryState.SENDING, vm.state.value.messages.single { it.id == id }.delivery)
+        assertNull(unsent.peek(draftToken))
+    }
+
+    @Test fun restored_edit_keeps_the_target_identity_and_replaces_the_old_bubble() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(
+            com.hermes.client.data.repository.UnsentRecord(token = draftToken, messageId = "original-id", text = "original", code = "HR-SESS-007",
+                composer = com.hermes.client.data.repository.UnsentComposer(text = "edited before restart")),
+        ))
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        assertEquals("original-id", vm.editingUnsentId.value)
+        assertEquals("edited before restart", vm.initialDraft.value)
+        assertTrue(vm.state.value.messages.any { it.id == "original-id" })
+        vm.send("edited before restart")
+        runCurrent()
+        assertEquals(listOf("edited before restart"), vm.state.value.messages.filter { it.role == Role.USER }.map { it.text })
+        assertNull(unsent.peek(draftToken))
+    }
+
+    @Test fun a_withdrawn_file_restores_to_the_composer_without_restoring_its_bubble() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        val file = java.io.File.createTempFile("hg220-withdraw", ".txt").apply { writeText("attachment") }
+        try {
+            val attachment = com.hermes.client.data.repository.UnsentAttachment("file-id", "source.txt", "text/plain", file.absolutePath, file.length())
+            unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(
+                com.hermes.client.data.repository.UnsentRecord(token = draftToken, messageId = "withdrawn-id", text = "original", code = "HR-SESS-007",
+                    attachments = 1, attachmentMeta = listOf(attachment),
+                    composer = com.hermes.client.data.repository.UnsentComposer(withdrawn = true, text = "editable", attachments = 1, attachmentMeta = listOf(attachment))),
+            ))
+            val vm = buildVm()
+            vm.open("s1")
+            runCurrent()
+            assertTrue(vm.state.value.messages.none { it.id == "withdrawn-id" })
+            assertEquals("editable", vm.initialDraft.value)
+            assertEquals("source.txt", vm.state.value.pendingAttachments.single().name)
+            vm.send("editable")
+            runCurrent()
+            assertNull(unsent.peek(draftToken))
+            coVerify(exactly = 1) { fileRepo.uploadStagedFile(any(), "source.txt", "text/plain") }
+            coVerify(exactly = 1) { chatRepo.submit(any(), match { it.startsWith("editable") }) }
+        } finally { file.delete() }
+    }
+
+    @Test fun a_restored_editor_with_missing_attachments_cannot_silently_send_text_only() = runUnsentComposerTest {
+        val missing = com.hermes.client.data.repository.UnsentAttachment("lost", "source.txt", "text/plain", "/missing/hg220.txt", 5)
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(
+            com.hermes.client.data.repository.UnsentRecord(token = draftToken, messageId = "old", text = "original", code = "HR-SESS-007",
+                attachments = 1, attachmentMeta = listOf(missing),
+                composer = com.hermes.client.data.repository.UnsentComposer(text = "edited", attachments = 1, attachmentMeta = listOf(missing))),
+        ))
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        assertEquals("HR-SESS-015", vm.composerRecoveryError.value?.code?.value)
+        assertFalse(vm.send("edited"))
+        assertNotNull(unsent.peek(draftToken))
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun withdrawing_an_upload_waits_for_cancellation_and_never_attaches_or_sends_its_late_result() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        coEvery { fileRepo.uploadStagedFile(any(), any(), any()) } coAnswers {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { gate.await() }
+            com.hermes.client.data.network.UploadedArtifact("/tmp/late", "source.txt", 10)
+        }
+        val file = java.io.File.createTempFile("hg220-late", ".txt").apply { writeText("attachment") }
+        try {
+            val vm = buildVm()
+            vm.open("s1")
+            runCurrent()
+            vm.stageAttachment(file, "text/plain", "source.txt")
+            vm.send("original")
+            runCurrent()
+            val id = vm.state.value.messages.single { it.role == Role.USER }.id
+            var result: ChatViewModel.ComposerMessageResult? = null
+            val withdrawal = launch { result = vm.prepareUnsentComposer(id, "", withdraw = true) }
+            runCurrent()
+            assertNull(result)
+            gate.complete(Unit)
+            withdrawal.join()
+            runCurrent()
+            assertEquals("original", result?.text)
+            assertEquals("source.txt", vm.state.value.pendingAttachments.single().name)
+            assertTrue(file.isFile)
+            assertTrue(vm.state.value.messages.none { it.id == id })
+            coVerify(exactly = 0) { chatRepo.attachFilePath(any(), any(), any()) }
+            coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+        } finally { file.delete() }
+    }
+
+    @Test fun an_attachment_already_staged_on_the_mac_cannot_be_claimed_as_withdrawn() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        coEvery { chatRepo.attachFilePath(any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val file = java.io.File.createTempFile("hg220-remote", ".txt").apply { writeText("attachment") }
+        try {
+            val vm = buildVm()
+            vm.open("s1")
+            runCurrent()
+            vm.stageAttachment(file, "text/plain", "source.txt")
+            vm.send("original")
+            runCurrent()
+            val id = vm.state.value.messages.single { it.role == Role.USER }.id
+            assertEquals("HR-SESS-020", vm.prepareUnsentComposer(id, "", withdraw = true).error?.code?.value)
+            assertTrue(vm.state.value.messages.any { it.id == id })
+            coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+        } finally { file.delete() }
+    }
+
+    @Test fun editing_one_failed_message_preserves_other_messages_and_their_restart_records() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(
+            com.hermes.client.data.repository.UnsentRecord(token = draftToken, messageId = "old", text = "old source", code = "HR-SESS-007", updatedAt = 1),
+            com.hermes.client.data.repository.UnsentRecord(token = draftToken, messageId = "other", text = "other source", code = "HR-SESS-007", updatedAt = 2),
+        ))
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        assertEquals("old source", vm.prepareUnsentComposer("old", "").text)
+        vm.send("replacement")
+        runCurrent()
+        assertEquals(setOf("other source", "replacement"), vm.state.value.messages.filter { it.role == Role.USER }.map { it.text }.toSet())
+        assertEquals(listOf("other"), unsent.readAll(draftToken).map { it.messageId })
+    }
+
+    @Test fun editing_a_sent_message_copies_text_without_replacing_history_or_stealing_an_unsent_edit() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        coEvery { sessionRepo.history("s1", null) } returns listOf(ChatMessage("sent", Role.USER, "sent source", serverId = 1L))
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(
+            com.hermes.client.data.repository.UnsentRecord(token = draftToken, messageId = "failed", text = "failed source", code = "HR-SESS-007"),
+        ))
+        val vm = buildVm()
+        vm.open("s1")
+        runCurrent()
+        val sentId = vm.state.value.messages.first { it.text == "sent source" }.id
+        assertEquals("sent source", vm.prepareUnsentComposer(sentId, "").text)
+        assertNull(vm.editingUnsentId.value)
+        assertEquals("failed source", vm.prepareUnsentComposer("failed", "").text)
+        assertEquals("HR-SESS-021", vm.prepareUnsentComposer(sentId, "typed edit").error?.code?.value)
+        assertEquals("failed", vm.editingUnsentId.value)
+        assertTrue(vm.state.value.messages.any { it.id == sentId })
+    }
+
 }

@@ -1011,6 +1011,16 @@ Freezing a new built-in default happens in a later release, after the user suppl
 
 ## Conversation entry
 
+HG-220 lets a preparing message be withdrawn into the composer with its text and attachments.
+Once a prompt or remote attachment staging RPC has started, the original bubble remains until
+delivery is reconciled; withdrawal does not imply that an ambiguous request was never accepted.
+Editing an unsent message retains its identity and replaces its bubble only when Send is confirmed.
+Cancel edit keeps the original message and attachments. Composer recovery survives restart, and
+records are isolated per message so editing one failure preserves other outstanding messages.
+An existing draft is preserved with `HR-SESS-021`; ambiguous delivery uses `HR-SESS-020`.
+These codes are local Android outcomes; Desktop, Web, Cloud and the upstream wire contract are
+unchanged. Already-sent messages retain their existing text-copy edit behavior.
+
 Transcript presentation readiness is local to each mounted conversation. Cached completed and live
 answers wait for their initial Markdown parsing, saved reading position and layout to settle before
 reveal, without waiting for a network refresh or showing a cold-load skeleton. Once revealed, the

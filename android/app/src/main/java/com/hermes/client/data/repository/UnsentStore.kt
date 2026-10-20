@@ -31,6 +31,15 @@ data class UnsentAttachment(
     val sizeBytes: Long = 0L,
 )
 
+/** Saved editor state alongside the original refused message; never attachment bytes. */
+@Serializable
+data class UnsentComposer(
+    val withdrawn: Boolean = false,
+    val text: String = "",
+    val attachments: Int = 0,
+    val attachmentMeta: List<UnsentAttachment> = emptyList(),
+)
+
 /**
  * One conversation's message that was typed, submitted, and refused. [token] is a
  * [SessionReadStore.token].
@@ -61,6 +70,8 @@ data class UnsentRecord(
      */
     val attachmentMeta: List<UnsentAttachment> = emptyList(),
     val updatedAt: Long = 0L,
+    /** HG-220: the original remains recoverable until editing is confirmed or cancelled. */
+    val composer: UnsentComposer? = null,
 )
 
 const val UNSENT_RECORD_VERSION = 2
@@ -97,7 +108,9 @@ fun encodeUnsent(records: List<UnsentRecord>): String {
         .filter { it.token.isNotBlank() && it.messageId.isNotBlank() && (it.text.isNotBlank() || it.attachments > 0) }
         .sortedByDescending { it.updatedAt }
         .take(MAX_PERSISTED_UNSENT)
-        .map { if (it.text.length <= MAX_UNSENT_CHARS) it else it.copy(text = it.text.take(MAX_UNSENT_CHARS)) }
+        .map { it.copy(text = it.text.take(MAX_UNSENT_CHARS), composer = it.composer?.let { composer ->
+            composer.copy(text = composer.text.take(MAX_UNSENT_CHARS))
+        }) }
     val kept = mutableListOf<UnsentRecord>()
     var budget = MAX_UNSENT_PAYLOAD_CHARS
     for (record in ordered) {
@@ -110,13 +123,10 @@ fun encodeUnsent(records: List<UnsentRecord>): String {
 }
 
 /**
- * Record [record]'s refused send, replacing any earlier one for the same conversation.
- *
- * One per conversation on purpose: the chat screen only ever has one failed turn outstanding,
- * because sending again is what clears the previous one.
+ * Replace only this message. Editing one failed turn must not erase another turn's recovery data.
  */
 fun putUnsent(records: List<UnsentRecord>, record: UnsentRecord): List<UnsentRecord> =
-    records.filterNot { it.token == record.token } + record
+    records.filterNot { it.token == record.token && it.messageId == record.messageId } + record
 
 fun removeUnsent(records: List<UnsentRecord>, token: String): List<UnsentRecord> =
     records.filterNot { it.token == token }
@@ -130,8 +140,10 @@ interface UnsentSnapshot {
     /** Which conversations currently hold a refused send. The session list's 未发送 line reads this. */
     val tokens: Flow<Set<String>>
     suspend fun read(token: String): UnsentRecord?
+    suspend fun readAll(token: String): List<UnsentRecord>
     suspend fun save(record: UnsentRecord)
     suspend fun clear(token: String)
+    suspend fun clearMessage(token: String, messageId: String)
 }
 
 private val Context.unsentDataStore by preferencesDataStore(name = "session_unsent")
@@ -172,11 +184,17 @@ class UnsentStore(private val context: Context) : UnsentSnapshot {
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { decodeUnsent(it[key]) }
 
-    override val tokens: Flow<Set<String>> = records.map { list -> list.mapTo(mutableSetOf()) { it.token } }
+    override val tokens: Flow<Set<String>> = records.map { list ->
+        list.filter { it.composer?.withdrawn != true }.mapTo(mutableSetOf()) { it.token }
+    }
 
     override suspend fun read(token: String): UnsentRecord? = runCatching {
         records.first().firstOrNull { it.token == token }
     }.getOrNull()
+
+    override suspend fun readAll(token: String): List<UnsentRecord> = runCatching {
+        records.first().filter { it.token == token }
+    }.getOrDefault(emptyList())
 
     override suspend fun save(record: UnsentRecord) {
         runCatching {
@@ -190,6 +208,14 @@ class UnsentStore(private val context: Context) : UnsentSnapshot {
         runCatching {
             context.unsentDataStore.edit { prefs ->
                 prefs[key] = encodeUnsent(removeUnsent(decodeUnsent(prefs[key]), token))
+            }
+        }
+    }
+
+    override suspend fun clearMessage(token: String, messageId: String) {
+        runCatching {
+            context.unsentDataStore.edit { prefs ->
+                prefs[key] = encodeUnsent(decodeUnsent(prefs[key]).filterNot { it.token == token && it.messageId == messageId })
             }
         }
     }

@@ -71,6 +71,10 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "新建会话未收到确认，连接正在恢复，请稍后重试。", "New conversation was not confirmed. The connection is recovering; try again shortly.")
         AppErrorCode.SUBAGENT_UNFINISHED ->
             localized(language, "子代理未完成，可在输入框重新说明任务。", "Subagent did not finish. Ask again in the composer.")
+        AppErrorCode.MESSAGE_DELIVERY_UNCONFIRMED ->
+            localized(language, "消息已提交，正在确认投递结果，暂时无法撤回或替换。请稍后查看消息状态。", "The message was submitted and delivery is being checked. It cannot be withdrawn or replaced yet. Check its status shortly.")
+        AppErrorCode.UNSENT_COMPOSER_OCCUPIED ->
+            localized(language, "输入框已有草稿，请先发送或清空，再编辑或撤回这条消息。", "There is already a draft. Send or clear it before editing or withdrawing this message.")
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->
