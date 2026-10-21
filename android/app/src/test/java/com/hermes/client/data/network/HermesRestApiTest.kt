@@ -52,6 +52,7 @@ class HermesRestApiTest {
 
         val recorded = serverRule.server.takeRequest()
         assertTrue(recorded.target.contains("inline_images=false"))
+        assertEquals("true", recorded.url.queryParameter("include_compacted"))
         assertTrue(recorded.target.contains("profile=personal"))
     }
 
@@ -92,6 +93,7 @@ class HermesRestApiTest {
         assertEquals("1", serverRule.server.takeRequest().url.queryParameter("hr_preview"))
         assertEquals("full", api.fullHistoryRow("s1", "work", null, 42, 100)?.content)
         val url = serverRule.server.takeRequest().url
+        assertEquals("true", url.queryParameter("include_compacted"))
         assertEquals("42", url.queryParameter("hr_full_message_id"))
         assertEquals("100", url.queryParameter("hr_full_offset"))
         assertEquals("work", url.queryParameter("profile"))

@@ -85,6 +85,9 @@ import kotlinx.serialization.json.contentOrNull
     // Kept as a fallback: no upstream Hermes emits this, but a future gateway or a recorded
     // fixture might, and an ISO string costs nothing to accept.
     @SerialName("created_at") val createdAt: String? = null,
+    /** Upstream display-only projection of a compaction carrier; raw content stays for audit. */
+    @SerialName("display_content")
+    @Serializable(with = MessageContentSerializer::class) val displayContent: String? = null,
     // Server-injected timeline markers (async_delegation_complete, model_switch, hidden, …).
     // Optional: older gateways and plain user turns simply omit them.
     @SerialName("display_kind") val displayKind: String? = null,

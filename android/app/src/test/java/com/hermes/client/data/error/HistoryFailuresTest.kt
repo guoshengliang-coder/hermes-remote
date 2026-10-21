@@ -118,4 +118,16 @@ class HistoryFailuresTest {
 
         assertEquals("three causes, three sentences", messages.size, messages.toSet().size)
     }
+    @Test fun a_changed_paging_boundary_is_retryable_bilingual_and_contains_no_private_rows() {
+        val error = historyFailure(HistoryPageChangedException())
+        assertEquals(AppErrorCode.HISTORY_INCOMPLETE, error.code)
+        assertTrue(error.retryable)
+        val zh = error.localizedMessage(AppLanguage.ZH)
+        val en = error.localizedMessage(AppLanguage.EN)
+        assertTrue(zh.contains("HR-SYNC-001") && en.contains("HR-SYNC-001"))
+        assertNotEquals(zh, en)
+        assertFalse(zh.contains("overlaps"))
+        assertTrue(error.sanitizedDiagnostic().contains("boundary"))
+    }
+
 }

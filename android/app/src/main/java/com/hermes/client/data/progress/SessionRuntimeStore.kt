@@ -2191,7 +2191,11 @@ class SessionRuntimeStore(
         /** Turns of [role] a snapshot beginning at row [start] must contain; all of them when null. */
         fun turnsFrom(role: Role, start: Long?): Int = when {
             start == null || turns.isEmpty() -> if (role == Role.USER) userTurns else assistantTurns
-            else -> turns.count { (r, id) -> r == role && (id == null || id >= start) }
+            else -> {
+                val boundary = turns.indexOfFirst { it.second == start }
+                if (boundary >= 0) turns.drop(boundary).count { it.first == role }
+                else turns.count { it.first == role && it.second == null }
+            }
         }
     }
 
@@ -2389,9 +2393,8 @@ class SessionRuntimeStore(
         }
         if (pending.isEmpty()) return grafted
         val start = grafted.firstOrNull()?.serverId
-        val spannedAssistants = runtime.chat.messages.count {
-            it.role == Role.ASSISTANT && (start == null || (it.serverId ?: Long.MAX_VALUE) >= start)
-        }
+        val spannedAssistants = com.hermes.client.ui.chat.rowsFrom(runtime.chat.messages, start)
+            .count { it.role == Role.ASSISTANT }
         val snapshotAssistants = grafted.count { it.role == Role.ASSISTANT }
         return if (snapshotAssistants >= spannedAssistants) grafted else grafted + pending
     }
@@ -2431,7 +2434,7 @@ class SessionRuntimeStore(
         // forever while the page sat stale (HG-141). A null id keeps the test — that is an
         // unacknowledged local send the snapshot genuinely must still show.
         val userTurnInWindow = expectation.lastUserServerId == null ||
-            start == null || expectation.lastUserServerId >= start
+            start == null || any { it.serverId == expectation.lastUserServerId }
         if (userTurnInWindow &&
             expectation.lastUserText.isNotBlank() &&
             users.none {
@@ -2447,7 +2450,7 @@ class SessionRuntimeStore(
         // Same window exemption too: a turn that slid out of the newest page cannot be demanded
         // back from it (HG-141).
         val assistantTurnInWindow = expectation.lastAssistantServerId == null ||
-            start == null || expectation.lastAssistantServerId >= start
+            start == null || any { it.serverId == expectation.lastAssistantServerId }
         if (!assistantTurnInWindow) return null
         if (assistants.any {
                 val persisted = it.text.orEmpty().matchText()

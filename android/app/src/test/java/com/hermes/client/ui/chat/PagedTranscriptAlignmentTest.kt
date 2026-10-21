@@ -94,4 +94,14 @@ class PagedTranscriptAlignmentTest {
         assertEquals((1L..4L).toList(), olderRowsFor(merged, current).map { it.serverId })
         assertEquals(emptyList<ChatMessage>(), olderRowsFor(merged, listOf(row(null, "u-0", Role.USER))))
     }
+    @Test fun compacted_representative_ids_do_not_decide_display_order() {
+        val current = listOf(row(90, "old", Role.USER), row(3, "u", Role.USER), row(4, "a", Role.ASSISTANT))
+        val tail = listOf(row(3, "h3", Role.USER), row(4, "h4", Role.ASSISTANT))
+        assertEquals(0 to 1, windowSkips(tail, current))
+        assertEquals(listOf("u", "a"), alignMessageIds(tail, current).map { it.id })
+        assertEquals(listOf(90L, 3L, 4L), graftOlderHead(tail, current).map { it.serverId })
+        assertEquals(listOf(3L, 4L), rowsFrom(current, 3).map { it.serverId })
+        assertEquals(listOf(90L), olderRowsFor(current, tail).map { it.serverId })
+    }
+
 }

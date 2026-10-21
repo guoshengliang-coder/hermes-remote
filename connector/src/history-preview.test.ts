@@ -69,3 +69,19 @@ test("a moved row that is absent from the bounded lookup returns the same retrya
   assert.equal(result?.status, 404);
   assert.equal(((await result!.json()) as any).error.code, "HR-SYNC-005");
 });
+
+
+test("compacted display history keeps its query, server ordering and full-row view", async () => {
+  const requested: string[] = [];
+  const upstream = async (p: string) => {
+    requested.push(p);
+    return Response.json({ messages: [{ id: 90, role: "tool", content: long }, { id: 3, role: "user", content: "ask" }] });
+  };
+  const archived = `${path}&include_compacted=true&profile=work`;
+  const preview = await historyProjection("GET", `${archived}&hr_preview=1`, upstream);
+  assert.deepEqual(((await preview!.json()) as any).messages.map((r: any) => r.id), [90, 3]);
+  const full = await historyProjection("GET", `${archived}&hr_full_message_id=90&hr_full_offset=0`, upstream);
+  assert.equal(((await full!.json()) as any).messages[0].content, long);
+  assert.ok(requested.every((p) => new URL(p, "http://local").searchParams.get("include_compacted") === "true"));
+  assert.ok(requested.every((p) => new URL(p, "http://local").searchParams.get("profile") === "work"));
+});
