@@ -2039,3 +2039,27 @@ No physical device was attached. Root `npm run build` passed; root `npm test` pa
 had 432 passed / 1 skipped / 2 failures in unchanged `legacy-recovery.test.mjs` CMS decryption
 under this Mac's LibreSSL 3.3.6; the same two failures reproduced when run alone. CI remains a
 separate merge gate. No APK distribution, version allocation or production deployment occurred.
+
+
+## HG-222 original-quality video streaming follow-up
+
+- On compatible Gateway/Mac versions, tap both a <100 MiB and a >100 MiB MP4: a first frame must
+  appear before the entire body transfers, with a separate Download action. Repeat with moov at
+  the tail and seek near the end; verify closed bounded ranges, not a growing full-file download.
+- Start Download, then play that video: the current uncommitted range is cancelled, progress rolls
+  back only to its durable checkpoint, and the task says Waiting for playback. Pause/close the
+  player; the download resumes and reuses validated playback blocks. A user-paused/cancelled task
+  must remain paused/cancelled, including while leaving the Activity/backgrounding the phone.
+- Complete a download, disconnect the Mac and play locally. Share/Open externally only complete
+  large files; a playback cache hit alone must not enable large-file sharing.
+- Force reference expiry and reconnect the Mac: unchanged size/ETag resumes. Replace the source
+  or switch account/Mac: stop with the appropriate stable HR code, with no mixed-generation bytes.
+- Interrupt cellular/Wi-Fi mid-playback: retry from the saved position, preserving generation.
+  Concurrent second-phone playback may show HR-FILE-013 and Retry; it must not starve control RPCs.
+- Background and return: no playback/network loader in background; position retained, tap Play to
+  continue. Explicit download still uses the existing transfer job and completion notification.
+- Try unsupported/corrupt codec/container: HR-FILE-016, localized text, Download and Copy diagnostics;
+  no raw exception. Verify light/dark, Chinese/English, enlarged text and portrait/landscape controls.
+
+The synthetic decoder/Range device tests do not replace real HONOR/Xiaomi ROM, original user MP4,
+cellular/home-NAT and targetSdk-level checks. Record the actual available layers with the result.

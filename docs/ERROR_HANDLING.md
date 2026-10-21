@@ -314,6 +314,8 @@ logs only a route category, phase, elapsed time, and allowlisted transport error
 | `HR-FILE-013` | Independent file channel is at per-Mac/global capacity | 这台 Mac 正在传输文件，请稍后重试。 | This Mac is transferring a file. Retry shortly. | Yes (retry with backoff) |
 | `HR-FILE-014` | Insufficient Android storage before or during download | 手机存储空间不足，请清理空间后继续下载。 | Phone storage is full. Free some space, then resume. | No (free space, then resume) |
 | `HR-FILE-015` | An opaque download reference expired or its Mac connection restarted | 下载引用已失效，请重新获取文件后继续。 | The download reference expired. Fetch the file again to continue. | Yes (prepare a fresh reference, preserving only a matching source generation) |
+| `HR-FILE-016` | Video container or codec cannot be decoded on this device | 此设备无法播放该视频，请下载后用其他播放器打开。 | This device cannot play this video. Download it and open it in another player. | No (download and use an external player) |
+| `HR-FILE-017` | Playback failed without a more specific file/auth error | 视频播放中断，请重试或下载后观看。 | Video playback stopped. Retry, or download it to watch. | Yes (retry from the saved position or download) |
 | `HR-MEDIA-001` | Image save, preparation, or share operation failed | 图片操作失败，请重试。 | The image operation failed. Retry. | Yes |
 | `HR-MEDIA-003` | The transcript image could not be rendered or shared | 无法生成对话长图，请重试或改用 Markdown 文件。 | Couldn't render the transcript image. Retry, or share it as a Markdown file. | Yes |
 | `HR-MEDIA-002` | A picked avatar photo could not be decoded, cropped, or encoded (ImageDecoder/BitmapFactory failure, unreadable URI, empty image) | 无法读取所选照片，请换一张再试。 | Couldn't read the selected photo. Try a different one. | Yes |

@@ -77,3 +77,8 @@ internal fun artifactLimitMessage(info: FileCardInfo, language: com.hermes.clien
             com.hermes.client.data.error.AppErrorCode.ARTIFACT_TOO_LARGE, retryable = false,
         ).localizedMessage(language)
 }
+
+/** MIME is preferred; common containers remain discoverable when upstream omitted it. */
+fun isVideoAttachment(file: com.hermes.client.domain.ChatFile): Boolean =
+    file.mimeType?.startsWith("video/", ignoreCase = true) == true ||
+        file.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT) in setOf("mp4", "m4v", "mov", "webm", "mkv", "3gp", "avi", "mpeg", "mpg")

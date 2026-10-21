@@ -153,6 +153,7 @@ class ChatViewModelTest {
         conversationDevices: com.hermes.client.data.auth.ConversationDeviceStore? = null,
         runtimeStore: SessionRuntimeStore = newRuntimeStore(),
         defaultDispatcher: kotlinx.coroutines.CoroutineDispatcher = mainDispatcherRule.dispatcher,
+        artifactDownloads: com.hermes.client.data.downloads.ArtifactDownloadManager? = null,
     ): ChatViewModel {
         val runtimeJob = SupervisorJob()
         runtimeJobs += runtimeJob
@@ -169,13 +170,37 @@ class ChatViewModelTest {
                 mockk(relaxed = true), sessionRepo, profileManager, projectPrefs,
             ),
             botSendNotice, drafts, unsent, CoroutineScope(runtimeJob + Dispatchers.Main),
-            accountSessions, conversationDevices,
+            accountSessions, conversationDevices, artifactDownloads = artifactDownloads,
         )
     }
 
     // ── HG-41: the unsent draft. Token shape mirrors SessionReadStore.token(profile, id, device);
     // profileManager.active is null in these tests, hence "default/…".
     private val draftToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s1")
+
+    @Test fun small_legacy_video_retains_full_download_fallback_and_owner_scoped_position() = runTest {
+        val downloads = mockk<com.hermes.client.data.downloads.ArtifactDownloadManager>()
+        val ranges = mockk<com.hermes.client.data.video.ArtifactRangeRepository>()
+        coEvery { downloads.owner(any()) } returns "owner-a"
+        coEvery { downloads.awaitTask(any()) } returns null
+        every { downloads.videoRanges } returns ranges
+        coEvery { ranges.prepare(any(), any()) } throws com.hermes.client.data.network.HermesApiException(501, "old peer", errorCode = "HR-FILE-012")
+        val file = com.hermes.client.domain.ChatFile("v", "video.mp4", "video/mp4", 10, remotePath = "/video.mp4")
+        val local = java.io.File.createTempFile("legacy-video", ".mp4").apply { writeText("fixture") }
+        try {
+            coEvery { fileRepo.metadata(file, any()) } returns com.hermes.client.domain.ArtifactMetadata(10)
+            coEvery { fileRepo.download(file, any()) } returns local
+            val vm = buildVm(artifactDownloads = downloads)
+            vm.prepareVideo(file).positionMs = 7_000
+            assertEquals(7_000L, vm.prepareVideo(file).positionMs)
+            coEvery { downloads.owner(any()) } returns "owner-b"
+            assertEquals(0L, vm.prepareVideo(file).positionMs)
+            coEvery { fileRepo.metadata(file, any()) } returns com.hermes.client.domain.ArtifactMetadata(126L * 1024 * 1024)
+            try { vm.prepareVideo(file); org.junit.Assert.fail("large legacy video bypassed channel limit") }
+            catch (error: com.hermes.client.data.network.HermesApiException) { assertEquals("HR-FILE-012", error.errorCode) }
+            coVerify(exactly = 3) { fileRepo.download(file, any()) }
+        } finally { local.delete() }
+    }
 
     @Test fun cachedHistoryPreparationUsesDefaultDispatcherAndKeepsNavigationResponsive() = runTest {
         val background = kotlinx.coroutines.test.TestCoroutineScheduler()

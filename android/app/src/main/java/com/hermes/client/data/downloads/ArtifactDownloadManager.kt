@@ -23,6 +23,7 @@ import kotlinx.coroutines.sync.withLock
 class ArtifactDownloadManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val rest: HermesRestApi,
+    val videoRanges: com.hermes.client.data.video.ArtifactRangeRepository = com.hermes.client.data.video.ArtifactRangeRepository(context, rest),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val store = ArtifactDownloadStore(context)
@@ -62,7 +63,7 @@ class ArtifactDownloadManager @Inject constructor(
             val reset = old?.errorCode == AppErrorCode.ARTIFACT_CHANGED.value || old?.status == ArtifactDownloadStatus.CANCELLED
             if (reset && old != null) partial(old).delete()
             val task = (old ?: ArtifactDownloadTask(id, owner, deviceId, remote, file.name, file.mimeType, sizeBytes = file.sizeBytes))
-                .copy(status = ArtifactDownloadStatus.QUEUED, errorCode = null, progressBytes = null,
+                .copy(status = ArtifactDownloadStatus.QUEUED, errorCode = null, progressBytes = null, waitingForPlayback = false,
                     etag = if (reset) null else old?.etag,
                     downloaded = if (reset) 0 else old?.downloaded ?: 0)
             put(task)
@@ -85,7 +86,7 @@ class ArtifactDownloadManager @Inject constructor(
         scope.launch {
             ready.await()
             val job = synchronized(lock) {
-                edit(id) { it.copy(status = if (cancel) ArtifactDownloadStatus.CANCELLED else ArtifactDownloadStatus.PAUSED, progressBytes = null) }
+                edit(id) { it.copy(status = if (cancel) ArtifactDownloadStatus.CANCELLED else ArtifactDownloadStatus.PAUSED, progressBytes = null, waitingForPlayback = false) }
                 jobs[id]?.also { it.cancel() }
             }
             ArtifactTransferScheduler.cancel(context, id)
@@ -137,12 +138,29 @@ class ArtifactDownloadManager @Inject constructor(
                         if (owner(task.deviceId) != task.owner) throw HermesApiException(401, "download owner changed")
                         val committed = task.downloaded
                         try {
-                            var lastProgress = 0L
-                            rest.downloadArtifactRange(descriptor, partial, task.deviceId, task.owner) { received ->
-                                if (System.currentTimeMillis() - lastProgress > 500) {
-                                    lastProgress = System.currentTimeMillis()
-                                    notify(task.copy(downloaded = received))
-                                    publishProgress(id, received)
+                            videoRanges.arbiter.download(task.owner,
+                                onYield = {
+                                    RandomAccessFile(partial, "rw").use { it.setLength(committed) }
+                                    publishProgress(id, committed)
+                                },
+                                waiting = { waiting ->
+                                    synchronized(lock) {
+                                        _tasks.value = _tasks.value.map { if (it.id == id && it.status == ArtifactDownloadStatus.RUNNING) it.copy(waitingForPlayback = waiting) else it }
+                                    }
+                                }) {
+                                videoRanges.checkOwner(task.owner, task.deviceId)
+                                val cached = videoRanges.cached(task.owner, task.remotePath, descriptor, partial.length())
+                                if (cached != null) {
+                                    java.io.FileOutputStream(partial, true).use { it.write(cached); it.fd.sync() }
+                                } else {
+                                    var lastProgress = 0L
+                                    rest.downloadArtifactRange(descriptor, partial, task.deviceId, task.owner) { received ->
+                                        if (System.currentTimeMillis() - lastProgress > 500) {
+                                            lastProgress = System.currentTimeMillis()
+                                            notify(task.copy(downloaded = received))
+                                            publishProgress(id, received)
+                                        }
+                                    }
                                 }
                             }
                         } catch (error: Exception) {
@@ -157,6 +175,7 @@ class ArtifactDownloadManager @Inject constructor(
                             throw error
                         }
                         task = edit(id) { it.copy(downloaded = partial.length(), progressBytes = null) }!!
+                        videoRanges.publish(task.owner, task.remotePath, descriptor, partial, committed)
                         notify(task)
                     }
                     currentCoroutineContext().ensureActive()
@@ -166,13 +185,13 @@ class ArtifactDownloadManager @Inject constructor(
                     notify(task)
                     false
                 } catch (cancelled: CancellationException) {
-                    edit(id) { if (it.status == ArtifactDownloadStatus.RUNNING) it.copy(status = ArtifactDownloadStatus.WAITING, downloaded = task.downloaded) else it }
+                    edit(id) { if (it.status == ArtifactDownloadStatus.RUNNING) it.copy(status = ArtifactDownloadStatus.WAITING, downloaded = task.downloaded, waitingForPlayback = false) else it }
                     throw cancelled
                 } catch (error: Exception) {
                     // Closing an OkHttp call during cancellation can throw IOException rather
                     // than CancellationException. Never turn an explicit Pause/Cancel into retry.
                     if (!currentCoroutineContext().isActive) {
-                        edit(id) { if (it.status == ArtifactDownloadStatus.RUNNING) it.copy(status = ArtifactDownloadStatus.WAITING, downloaded = task.downloaded) else it }
+                        edit(id) { if (it.status == ArtifactDownloadStatus.RUNNING) it.copy(status = ArtifactDownloadStatus.WAITING, downloaded = task.downloaded, waitingForPlayback = false) else it }
                         currentCoroutineContext().ensureActive()
                     }
                     val full = error is java.io.IOException && directory.usableSpace < 1024 * 1024
@@ -180,7 +199,7 @@ class ArtifactDownloadManager @Inject constructor(
                     task = edit(id) {
                         if (it.status in setOf(ArtifactDownloadStatus.PAUSED, ArtifactDownloadStatus.CANCELLED)) it
                         else it.copy(status = if (failure.retryable) ArtifactDownloadStatus.WAITING else ArtifactDownloadStatus.FAILED,
-                            errorCode = failure.code.value, downloaded = task.downloaded)
+                            errorCode = failure.code.value, downloaded = task.downloaded, waitingForPlayback = false)
                     } ?: task
                     notify(task)
                     failure.retryable && task.status == ArtifactDownloadStatus.WAITING

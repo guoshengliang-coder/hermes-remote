@@ -589,7 +589,7 @@ class HermesRestApi(
         requireArtifactOwner(owner, deviceId)
         val start = destination.length()
         require(start in 0 until descriptor.sizeBytes)
-        val end = minOf(descriptor.sizeBytes - 1, start + 1024L * 1024L - 1)
+        val end = minOf(descriptor.sizeBytes - 1, start + 256L * 1024L - 1)
         val request = builder("/api/files/downloads/${descriptor.artifactId}", deviceId)
             .header("If-Match", descriptor.etag).header("Range", "bytes=$start-$end").get().build()
         requireArtifactOwner(owner, deviceId)
@@ -625,6 +625,46 @@ class HermesRestApi(
                     output.fd.sync()
                 }
                 if (received != expected) throw HermesApiException(502, "incomplete range")
+            }
+        } finally { cancellation.complete(); call.cancel() }
+    }
+
+    /** Authenticated bounded random access for the player; never expose an authenticated URL. */
+    suspend fun readArtifactRange(
+        descriptor: com.hermes.client.domain.ArtifactDownloadDescriptor,
+        start: Long, count: Int, deviceId: String?, owner: String,
+    ): ByteArray = withContext(Dispatchers.IO) {
+        require(count in 1..(256 * 1024) && start >= 0 && start <= descriptor.sizeBytes - count)
+        requireArtifactOwner(owner, deviceId)
+        val end = start + count - 1
+        val request = builder("/api/files/downloads/${descriptor.artifactId}", deviceId)
+            .header("If-Match", descriptor.etag).header("Range", "bytes=$start-$end").get().build()
+        requireArtifactOwner(owner, deviceId)
+        val call = clientFor(request).newBuilder().followRedirects(false).followSslRedirects(false)
+            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.MILLISECONDS).build().newCall(request)
+        val cancellation = kotlinx.coroutines.Job(kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job])
+        cancellation.invokeOnCompletion { call.cancel() }
+        try {
+            call.execute().use { response ->
+                if (response.code == 200) throw HermesApiException(501, "range not supported", errorCode = "HR-FILE-012")
+                if (response.code != 206) throw artifactResponseError(response)
+                if (response.header("etag") != descriptor.etag ||
+                    response.header("content-range") != "bytes $start-$end/${descriptor.sizeBytes}" ||
+                    response.body.contentLength() != count.toLong()) throw HermesApiException(502, "invalid video range")
+                val bytes = ByteArray(count)
+                response.body.byteStream().use { input ->
+                    var received = 0
+                    while (received < count) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        val read = input.read(bytes, received, count - received)
+                        if (read < 0) throw HermesApiException(502, "incomplete video range")
+                        received += read
+                    }
+                    if (input.read() != -1) throw HermesApiException(502, "video range exceeded")
+                }
+                requireArtifactOwner(owner, deviceId)
+                bytes
             }
         } finally { cancellation.complete(); call.cancel() }
     }

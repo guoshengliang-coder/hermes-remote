@@ -58,8 +58,10 @@ detected explicitly and small legacy downloads remain available; no silent large
 ## Android and design
 
 100 MiB is an interaction threshold: a small file can transparently finish downloading before
-opening/sharing; an undownloaded large file exposes Download first. All completed files can open
-or share. No streaming media player is added. Explicit downloads are durable app-private files,
+opening/sharing; an undownloaded large non-video file exposes Download first. All completed files can open
+or share. The approved video follow-up adds original-quality in-app playback below and above 100 MiB
+within the existing safety ceiling; explicit Download remains available and external sharing still
+requires a completed file. Explicit downloads are durable app-private files,
 not the evictable 512 MiB chat cache. Tasks and partial files survive process loss; no bearer token
 is serialized. Resume reauthenticates against the original account, Gateway and Mac and checks
 the file generation. Account changes cannot silently reroute an old task.
@@ -144,3 +146,65 @@ The product-specific publication receipt has SHA-256
 `55e57ffef1a2750c06e871363f9a92ae8d25de7e4fd064e4c604344d8d447de9` (canonical sorted JSON). It binds
 the before/after sources, Gateway production switch and identity, public Range smoke, both
 Desktop indexes/signatures/files, and the official Android workflow/package/public-file proof.
+
+
+## Video streaming follow-up — approved 2026-10-21
+
+Android uses Media3 1.11.1 with an authenticated custom DataSource. The player uses opaque local
+media URIs; bearer credentials, original paths and Gateway URLs are never passed to a media intent.
+Legacy peers retain full-download-then-play for small videos; large videos report HR-FILE-012.
+Both playback and download request closed 256 KiB ranges, verify strong If-Match/ETag, exact
+Content-Range and body length, and reject 200 responses. Seeking may fetch any aligned range,
+including the MP4 tail index. No whole-file staging, transcoding or HLS service is introduced.
+
+A separate app-private 256 MiB LRU block cache stores only complete validated blocks using atomic
+replacement, a stored length and SHA-256 corruption check. Its key binds Gateway/account/Mac,
+original path, file size and ETag; changing the ten-minute opaque reference does not invalidate
+matching bytes. The player retains at most one 256 KiB block per DataSource in memory. Explicit
+downloads reuse cached blocks and persist only committed sequential prefixes; gaps never count as
+a finished download. Cache eviction or cache storage pressure does not invalidate durable files.
+
+A per-owner arbiter retains the existing one-transfer-per-Mac limit. Active playback cancels only
+an in-progress local download range, rolls it back to the last committed prefix and holds download
+work until playback stops. This is an automatic yield, distinct from user Pause/Cancel. User-paused
+tasks never restart on lease release. Other phones remain subject to Gateway capacity and receive
+HR-FILE-013 with retry. No wire/capability/protocol change is needed; Gateway, Connector, Desktop,
+Web and release-server consumers keep their existing contracts and require no new release.
+
+Expired references or a transport reconnect re-prepare once and compare ETag and size before any
+new data is accepted. Changed sources and switched owners stop playback. Controls preserve position
+for the current ViewModel and source generation, including retry and close/reopen (not across process
+death). Pausing, leaving the screen or backgrounding releases the player and its network loader;
+returning waits for Play. Explicitly started downloads continue under the existing job/service.
+
+Test impact: add cache integrity/eviction/isolation and arbiter cancellation tests, including OkHttp
+IOException during preemption; random-access API validation; generation-preserving renewal;
+playback/download reuse; bilingual playback errors with diagnostic redaction; update the old large
+video hard-disable UI expectation. Device tests use an original generated H.264/AAC MP4 and virtual
+free atoms before its tail moov to prove both <100 MiB and >100 MiB first-frame-before-full transfer
+and seeking through the production DataSource and real decoder. No new APK publication is implied.
+
+
+### Follow-up verification — 2026-10-22
+
+- Full Android JVM baseline: **2,613 tests, zero failures**. Final related regressions after audio
+  focus/external-player integration: **200/200**; two additional UI policy/recovery cases and the
+  existing screenshot cases: **12/12**. Final request-owner race guard: **8/8** network API cases;
+  switching credentials while building a request is rejected before any HTTP request. assembleDebug, assembleDebugAndroidTest and lintDebug pass.
+  LocalizationCoverage initially flagged the neutral duration string; it now carries the explicit
+  language-neutral rationale. No test or lint rule was disabled.
+- L1: six updated/new attachment and player-error screenshots cover light/dark, Chinese/English
+  and enlarged text; inspected directly. Complete-file Other player recovery and large non-video
+  Download-first policies are exercised separately.
+- L3: **Pixel_9_API_36_1 / emulator-5554, API 36**, VideoStreamingDeviceTest **3/3**. For the
+  134,986,891-byte tail-index MP4, first frame arrived after **1,031,307 bytes**, also less than the
+  2,866,315-byte actual MP4 media payload. The 4,963,467-byte sample gives the same startup count.
+  Real decoder/surface, 12-second seek, authenticated headers, cache-reusing explicit download,
+  actual player Pause/Play/Download and background/foreground network stop pass. A real player
+  screenshot was also inspected directly. The device fixture uses system accessibility windows
+  because this API-36 image cannot initialize Espresso's old InputManager reflection adapter.
+- L2 unavailable: no physical phone attached. This does not certify targetSdk 37, the original
+  HONOR MP4/codec, cellular/home NAT, or OEM background policy; retain the smoke gates above.
+- Local development APK signing certificate matches SIGNING.md:
+  `06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5`.
+  No version bump, distributed APK, production deployment or release is part of this follow-up.

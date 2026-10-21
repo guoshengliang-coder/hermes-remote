@@ -58,7 +58,7 @@ class ChatFileScreenshotTest {
             }
         }
         compose.waitForIdle()
-        compose.onNodeWithText(if (language == AppLanguage.EN) "Download before opening or sharing" else "请先下载，再打开或分享").assertIsDisplayed()
+        compose.onNodeWithText(if (language == AppLanguage.EN) "Play online or download" else "可在线播放，也可下载").assertIsDisplayed()
         compose.onRoot().captureRoboImage("screenshots/$name.png")
     }
 
@@ -105,7 +105,7 @@ class ChatFileScreenshotTest {
         assertEquals(1, shares)
     }
 
-    @Test fun a_large_file_downloads_first_and_becomes_openable_when_complete() {
+    @Test fun large_video_plays_online_but_shares_only_when_complete() {
         val file = ChatFile("video", "large.mp4", "video/mp4", 126L * 1024 * 1024, remotePath = "/tmp/large.mp4")
         val metadata = ChatFileMetadataState { ArtifactMetadata(file.sizeBytes!!, 8L * 1024 * 1024 * 1024, true) }
         val tasks = androidx.compose.runtime.mutableStateOf(emptyList<com.hermes.client.data.downloads.ArtifactDownloadTask>())
@@ -118,8 +118,10 @@ class ChatFileScreenshotTest {
         } }
         compose.waitUntil { metadata.info(file).independentDownloads }
         compose.onNodeWithContentDescription("Share file").assertIsNotEnabled()
+        compose.onNodeWithText("large.mp4").performClick()
+        assertEquals(1, opened); assertEquals(0, shared)
         compose.onNodeWithText("Download").performClick()
-        assertEquals(1, downloaded); assertEquals(0, opened); assertEquals(0, shared)
+        assertEquals(1, downloaded)
         tasks.value = listOf(com.hermes.client.data.downloads.ArtifactDownloadTask("id", "owner", "mac", file.remotePath!!,
             file.name, file.mimeType, status = com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE,
             sizeBytes = file.sizeBytes, downloaded = file.sizeBytes!!))
@@ -127,7 +129,26 @@ class ChatFileScreenshotTest {
         compose.onNodeWithText("Downloaded").assertIsDisplayed()
         compose.onNodeWithText("large.mp4").performClick()
         compose.onNodeWithContentDescription("Share file").assertIsEnabled().performClick()
-        assertEquals(1, opened); assertEquals(1, shared)
+        assertEquals(2, opened); assertEquals(1, shared)
+    }
+
+    @Test fun large_document_keeps_download_first_while_video_can_stream() {
+        val file = ChatFile("doc", "large.pdf", "application/pdf", 126L * 1024 * 1024, remotePath = "/large.pdf")
+        val metadata = ChatFileMetadataState { ArtifactMetadata(file.sizeBytes!!, 8L * 1024 * 1024 * 1024, true) }
+        var downloaded = 0; var opened = 0
+        compose.setContent { HermesTheme {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN, LocalChatFileMetadata provides metadata,
+                LocalChatFileDownloads provides ChatFileDownloads(emptyList(), { downloaded++ }, {}, {})) {
+                ChatFileList(listOf(file), { opened++ }, {})
+            }
+        } }
+        compose.waitUntil { metadata.info(file).independentDownloads }
+        compose.onNodeWithText("Download before opening or sharing").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Share file").assertIsNotEnabled()
+        compose.onNodeWithText("large.pdf").performTouchInput { click() }
+        assertEquals(0, opened)
+        compose.onNodeWithText("Download").performClick()
+        assertEquals(1, downloaded)
     }
 
     @Test fun a_restored_waiting_task_can_resume_or_cancel_without_a_live_system_job() {
