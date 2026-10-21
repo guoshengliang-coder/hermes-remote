@@ -2779,3 +2779,36 @@ Connector and Gateway for HG-219, and the live Gateway does not contain #599, so
 **development complete**. The full one-page release candidate check also skips HG-215/HG-148
 (Android) and HG-134 (macOS App), which this publication did not deliver. No verification transition
 or acceptance was submitted.
+
+### 2026-10-21 — HG-222 Gateway 0.4.34 and schema 18→20 publication
+
+The owner approved the controlled two-step schema path and publication. PR #606's default
+single-step restriction remains; only the explicit plan binding the old/new immutable manifests,
+image/archive, SQL 019/020 and fresh off-host rehearsal admitted this transition. No feature
+flags were enabled. Release source is `8fbb9ebdd59b5810c26c3266a1e745b96a6124ec`.
+
+Fresh encrypted schema18 generation `20261021T131406111Z-84f11a19a368` was copied, decrypted and
+restored off-host on M4. A disposable PostgreSQL18 instance passed the source account smoke,
+both target migrations and target account smoke. The bound rehearsal digest was
+`92c75a4c4256904a5145ae70ada409cd35dc1c4b31d1f474b5eaffc16ca16d8c`. The production schema entrypoint
+committed run `d465d65a-c992-4365-9821-b7fce8566e9c`, switching blue→green (18788); Gateway 0.4.34
+reports the exact source, clean build and schema20. Public capabilities, protected internal
+identity, readiness, built-in production smoke and observation gates passed. This is forward-only;
+the prior schema18 image is not a database rollback route.
+
+Capture/off-host/monitor schema pins now expect20, and off-host recovery pins the exact target
+image. A new schema20 encrypted backup (5,178,726 bytes, SHA-256
+`ec8befb5b3afbdc9fd14532bbdac6b08d90b000a8b13778460921dbd42d8875a`) completed capture at
+13:34:09Z and off-host copy/restore verification at 13:35:13Z. Activation succeeded and the
+production monitor returned success. The existing backup LaunchAgent was restored after the
+pin update; capture and monitoring timers remain enabled. The existing M4 Docker daemon was
+started to run disposable recovery containers; Hermes itself was not restarted there.
+
+The live hand-maintained nginx site includes a dedicated file-channel/download route file before
+generic account API routes. Binary paths disable request/response buffering and caching, with an
+8 MiB body bound and 75s progress-idle timeouts. A separate exact bare preparation path prevents
+nginx's automatic slash redirect. Existing phone-upload limits and unrelated routes were retained;
+nginx validation and reload passed. The authenticated 128 MiB+7-byte public smoke verified Range,
+full hash, legacy cap and control responsiveness; see ARTIFACT_CHANNEL.md for versions, public
+hashes, receipt and the outstanding physical-device gates. Publication does not imply installation
+or acceptance. No Desktop App/DMG, upstream Hermes or release-server binary was published.

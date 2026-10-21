@@ -6,6 +6,20 @@ import { renderNginxConfig } from "../../ops/lib/system.mjs";
 import { renderDeployNginxConfig } from "../../ops/lib/deploy-system.mjs";
 import { renderMultiDeviceNginxRoutes } from "../../ops/lib/production-multi-device-rollout.mjs";
 
+test("download preparation POST has an exact route so nginx never appends a slash", async () => {
+  const configs = [renderNginxConfig(await loadOpsConfig("ops/staging.example.json")),
+    renderDeployNginxConfig(await loadDeployConfig("ops/staging.deploy.example.json")),
+    await readFile("deploy/hermes-edge.nginx.conf.template", "utf8")];
+  for (const config of configs) {
+    // A proxied prefix ending in / makes nginx redirect the bare path with 301. Following
+    // that redirect changes POST into GET and the prepared artifact reference is never made.
+    const route = config.match(/location = \/api\/files\/downloads \{([^}]+)\}/);
+    assert.ok(route, "bare preparation path must beat nginx's automatic slash redirect");
+    assert.match(route[1], /proxy_pass [^;]+;/);
+    assert.doesNotMatch(route[1], /return\s+30[1278]\b|rewrite\b/);
+  }
+});
+
 test("all managed edge templates stream file data without request/response staging", async () => {
   const configs = [renderNginxConfig(await loadOpsConfig("ops/staging.example.json")),
     renderDeployNginxConfig(await loadDeployConfig("ops/staging.deploy.example.json")),
