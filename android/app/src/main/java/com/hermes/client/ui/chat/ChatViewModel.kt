@@ -523,11 +523,14 @@ class ChatViewModel @Inject constructor(
     fun stopReading() = tts.stop()
 
     fun fetchFile(file: com.hermes.client.domain.ChatFile, onResult: (Result<java.io.File>) -> Unit) {
+        val device = currentDeviceId
         viewModelScope.launch {
-            val result = runCatching { fileRepository.download(file) }
+            val result = runCatching { fileRepository.download(file, device) }
             onResult(result)
         }
     }
+
+    suspend fun fileMetadata(file: com.hermes.client.domain.ChatFile) = fileRepository.metadata(file, currentDeviceId)
 
     /**
      * Fetch the files behind whatever images the transcript currently references (HG-44).

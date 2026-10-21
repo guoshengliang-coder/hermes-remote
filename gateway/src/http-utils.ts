@@ -11,7 +11,7 @@ export function selectRequestHeaders(request: IncomingMessage): Record<string, s
 
 export function selectResponseHeaders(headers: Record<string, string>): Record<string, string> {
   const selected: Record<string, string> = {};
-  for (const name of ["content-type", "content-length", "content-disposition", "cache-control"]) {
+  for (const name of ["content-type", "content-length", "content-disposition", "cache-control", "x-hermes-max-file-bytes"]) {
     const value = headers[name];
     if (value) selected[name] = value;
   }

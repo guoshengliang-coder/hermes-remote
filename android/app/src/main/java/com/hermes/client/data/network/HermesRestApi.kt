@@ -509,6 +509,27 @@ class HermesRestApi(
     fun parseMessages(raw: String): List<MessageDto> =
         json.decodeFromString<MessagesDto>(raw).messages
 
+    /** HEAD only: an old Connector returns 405. Never fall back to GET to discover the size. */
+    suspend fun artifactMetadata(path: String, deviceId: String? = null): com.hermes.client.domain.ArtifactMetadata? =
+        withContext(Dispatchers.IO) {
+            val encoded = java.net.URLEncoder.encode(path, "UTF-8")
+            val request = builder("/api/files?path=$encoded", deviceId).head().build()
+            val call = restCall(request)
+            try {
+                call.execute().use { response ->
+                    if (response.code == 405 || response.code == 501) return@withContext null
+                    if (!response.isSuccessful) throw HermesApiException(response.code, "artifact metadata unavailable")
+                    val size = response.header("content-length")?.toLongOrNull()?.takeIf { it >= 0 }
+                        ?: return@withContext null
+                    val remoteLimit = response.header("x-hermes-max-file-bytes")?.toLongOrNull()?.takeIf { it > 0 }
+                        ?: com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES
+                    com.hermes.client.domain.ArtifactMetadata(size, minOf(remoteLimit, com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES))
+                }
+            } finally {
+                call.cancel()
+            }
+        }
+
     /**
      * Stream a Connector-authorized artifact to disk; large files never become strings/ByteArrays.
      *
@@ -520,14 +541,15 @@ class HermesRestApi(
     suspend fun downloadArtifact(
         path: String,
         destination: File,
-        maxBytes: Long = 100L * 1024L * 1024L,
+        maxBytes: Long = com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES,
         thumbWidth: Int? = null,
+        deviceId: String? = null,
         onProgress: (downloaded: Long, total: Long?) -> Unit = { _, _ -> },
     ): File = withContext(Dispatchers.IO) {
         val encoded = java.net.URLEncoder.encode(path, "UTF-8")
         val thumb = thumbWidth?.let { "&thumb=$it" }.orEmpty()
         val target = "/api/files?path=$encoded$thumb"
-        val request = builder(target).get().build()
+        val request = builder(target, deviceId).get().build()
         val call = clientFor(request).newCall(request).apply {
             timeout().timeout(10, TimeUnit.MINUTES)
         }

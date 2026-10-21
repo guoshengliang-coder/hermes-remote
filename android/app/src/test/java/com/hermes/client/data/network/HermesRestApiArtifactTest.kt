@@ -165,4 +165,79 @@ class HermesRestApiArtifactTest {
         assertTrue("the failure line must mark the outcome, got $line", line.contains("✗"))
         assertTrue("the failure line must carry the byte count, got $line", line.contains("3b"))
     }
+    @Test fun metadata_uses_only_head_and_reads_original_size_and_smaller_mac_limit() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200)
+            .addHeader("Content-Length", "132120576")
+            .addHeader("X-Hermes-Max-File-Bytes", "52428800").build())
+        val info = api(serverRule.server).artifactMetadata("/tmp/视频.mp4")!!
+        assertEquals(132120576L, info.sizeBytes)
+        assertEquals(52428800L, info.maxBytes)
+        val request = serverRule.server.takeRequest()
+        assertEquals("HEAD", request.method)
+        assertEquals("secret", request.headers["X-Hermes-Session-Token"])
+        assertTrue(request.target!!.startsWith("/api/files?path="))
+        assertEquals(1, serverRule.server.requestCount)
+    }
+
+    @Test fun old_connector_does_not_trigger_a_get_fallback() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(405).build())
+        assertEquals(null, api(serverRule.server).artifactMetadata("/tmp/video.mp4"))
+        assertEquals("HEAD", serverRule.server.takeRequest().method)
+        assertEquals(1, serverRule.server.requestCount)
+    }
+
+    @Test fun metadata_never_increases_the_app_limit() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200).addHeader("Content-Length", "0")
+            .addHeader("X-Hermes-Max-File-Bytes", "9999999999").build())
+        val info = api(serverRule.server).artifactMetadata("/tmp/empty.txt")!!
+        assertEquals(0L, info.sizeBytes)
+        assertEquals(com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES, info.maxBytes)
+    }
+
+    @Test fun chunked_oversize_is_rejected_and_partial_file_is_removed() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200)
+            .chunkedBody("x".repeat(1025), 64).build())
+        val target = File.createTempFile("artifact-chunked", ".part").apply { delete() }
+        try {
+            api(serverRule.server).downloadArtifact("/tmp/video.mp4", target, maxBytes = 1024)
+            fail("expected size rejection")
+        } catch (error: HermesApiException) {
+            assertEquals(413, error.code)
+        }
+        assertFalse(target.exists())
+    }
+
+    @Test fun exact_limit_download_still_succeeds() = runTest {
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("x".repeat(1024)).build())
+        val target = File.createTempFile("artifact-boundary", ".part").apply { delete() }
+        try {
+            api(serverRule.server).downloadArtifact("/tmp/video.mp4", target, maxBytes = 1024)
+            assertEquals(1024L, target.length())
+        } finally { target.delete() }
+    }
+
+    @Test fun metadata_and_download_keep_the_conversations_explicit_mac_and_account_bearer() = runTest {
+        val manager = io.mockk.mockk<com.hermes.client.data.auth.AccountSessionManager>(relaxed = true)
+        io.mockk.coEvery { manager.connection("original-mac") } returns com.hermes.client.data.auth.AccountConnection(
+            serverRule.server.url("/").toString().trimEnd('/'), "fixture-bearer", "original-mac",
+            com.hermes.client.data.auth.AccountDeviceRouteMode.EXPLICIT_DEVICE,
+        )
+        val api = HermesRestApi(testHttpClient(), Json { ignoreUnknownKeys = true }, manager, testHttpClient()) {
+            GatewayConfig("https://unrelated-legacy.invalid", "legacy-secret")
+        }
+        serverRule.server.enqueue(MockResponse.Builder().code(200).addHeader("Content-Length", "3").build())
+        serverRule.server.enqueue(MockResponse.Builder().code(200).body("mp4").build())
+        assertEquals(3L, api.artifactMetadata("/tmp/video.mp4", "original-mac")!!.sizeBytes)
+        val target = File.createTempFile("artifact-device", ".mp4").apply { delete() }
+        try {
+            api.downloadArtifact("/tmp/video.mp4", target, deviceId = "original-mac")
+            repeat(2) {
+                val request = serverRule.server.takeRequest()
+                assertTrue(request.target!!.startsWith("/v2/devices/original-mac/api/files?"))
+                assertEquals("Bearer fixture-bearer", request.headers["Authorization"])
+                assertEquals(null, request.headers["X-Hermes-Session-Token"])
+            }
+        } finally { target.delete() }
+    }
+
 }

@@ -1966,3 +1966,13 @@ browser/Android consumer evidence and repeatable isolated smoke drivers are reco
 [ACCOUNT_DATA_SYNC_VALIDATION.md](ACCOUNT_DATA_SYNC_VALIDATION.md). Physical phone interaction,
 device appearance, Service Worker behavior and production recovery still require their own gates;
 an emulator cannot certify vendor behavior, and local source verification is not a published artifact.
+
+## HG-222 attachment metadata
+
+After a separately authorized Gateway/Connector/Android rollout, verify an allowed small MP4,
+an allowed oversized MP4, a missing file and a forbidden path. HEAD must return exact original
+size with no payload even above the cap; missing/forbidden paths remain 404/403. Neither a HEAD
+nor an oversized GET may disconnect the control socket. Inspect the card before tapping: type,
+size and HR-FILE-004/recovery are visible for the oversized file and both open/share are disabled.
+Small files still download completely before opening in the phone player. Reopen with an older
+Connector: metadata stays unknown and the existing GET error boundary remains available.

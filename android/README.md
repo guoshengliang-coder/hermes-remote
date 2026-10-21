@@ -1,5 +1,11 @@
 # Hermes Remote Android
 
+Attachments show their size before download and warn on the card when the effective limit is
+exceeded (HG-222). Opening and sharing are disabled for known oversized files; common file types
+have distinct thin-stroke icons. The 100 MiB ceiling and complete-download-before-external-viewer
+flow remain. See `../docs/ARTIFACT_DOWNLOAD.md` for the optional HEAD metadata contract and rollout
+compatibility.
+
 The selected base is [`adebnar/hermes-android`](https://github.com/adebnar/hermes-android), pinned at tag `v0.1.52` / commit `9f08f39ed2b9fc7cb29a551b1d9b695a409fdb7a`.
 
 Conversation search navigates to each marked occurrence, including multiple matches inside a long

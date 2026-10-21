@@ -80,6 +80,26 @@ test("legacy HTTP routing preserves authentication, header filtering, and comple
     assert.equal(response.headers.get("cache-control"), "private, max-age=5");
     assert.equal(response.headers.get("set-cookie"), null);
     assert.equal(await response.text(), "created");
+
+    // HG-222: HEAD keeps the authenticated tunnel and returns metadata without file bytes.
+    const metadataRequest = nextMessage(connector, "tunnel.http.request");
+    const metadataResponse = fetch(`${gateway.origin}/api/files?path=%2Ftmp%2Fvideo.mp4`, {
+      method: "HEAD", headers: { "x-hermes-session-token": gateway.appToken },
+    });
+    const inspected = await metadataRequest;
+    assert.equal(inspected.method, "HEAD");
+    connector.send(encodeWireMessage({
+      type: "tunnel.http.response", version: PROTOCOL_VERSION, requestId: inspected.id,
+      status: 200, headers: {
+        "content-length": "132120576", "x-hermes-max-file-bytes": "104857600", "cache-control": "no-store",
+      },
+    }));
+    const info = await metadataResponse;
+    assert.equal(info.status, 200);
+    assert.equal(info.headers.get("content-length"), "132120576");
+    assert.equal(info.headers.get("x-hermes-max-file-bytes"), "104857600");
+    assert.equal((await info.arrayBuffer()).byteLength, 0);
+
   } finally {
     sockets.forEach((socket) => socket.close());
     await stopGateway(gateway);

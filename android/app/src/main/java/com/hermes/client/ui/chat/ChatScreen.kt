@@ -732,13 +732,31 @@ fun ChatScreen(
         }
     }
 
+    val fileMetadata = remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { ChatFileMetadataState(vm::fileMetadata) }
+    var oversizedFile by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { mutableStateOf<com.hermes.client.domain.ChatFile?>(null) }
+    oversizedFile?.let { file ->
+        AlertDialog(
+            onDismissRequest = { oversizedFile = null },
+            title = { Text(localized(language, "文件超过下载上限", "File exceeds download limit")) },
+            text = { Text(artifactLimitMessage(fileMetadata.info(file), language)) },
+            confirmButton = {
+                TextButton(onClick = { oversizedFile = null }) { Text(localized(language, "知道了", "OK")) }
+            },
+        )
+    }
+
     fun handleFile(file: com.hermes.client.domain.ChatFile, share: Boolean) {
+        val info = fileMetadata.info(file)
+        if (info.tooLarge) {
+            oversizedFile = file
+            return
+        }
         android.widget.Toast.makeText(
             context,
             localized(language, "正在准备文件…", "Preparing file…"),
             android.widget.Toast.LENGTH_SHORT,
         ).show()
-        vm.fetchFile(file) { result ->
+        vm.fetchFile(file.copy(sizeBytes = info.sizeBytes)) { result ->
             result.onSuccess { local ->
                 val contentUri = FileProvider.getUriForFile(
                     context,
@@ -773,10 +791,11 @@ fun ChatScreen(
                     )
                 }
             }.onFailure { error ->
-                showAttachmentError(
-                    com.hermes.client.data.error.artifactDownloadError(error)
-                        .localizedMessage(language),
-                )
+                val failure = com.hermes.client.data.error.artifactDownloadError(error)
+                if (failure.code == com.hermes.client.data.error.AppErrorCode.ARTIFACT_TOO_LARGE) {
+                    fileMetadata.reject(file)
+                    oversizedFile = file
+                } else showAttachmentError(failure.localizedMessage(language))
             }
         }
     }
@@ -1117,6 +1136,7 @@ fun ChatScreen(
         LocalTableChartScope provides chartScope,
         LocalBotOrigin provides botOrigin,
         LocalLocallySentIds provides locallySentIds,
+        LocalChatFileMetadata provides fileMetadata,
     ) {
     // HG-146: the recording surface is a full-screen layer over the chat (scrim + card + swipe
     // targets + "正在聆听" dome), so the Scaffold is boxed instead of squeezing it into the bar.

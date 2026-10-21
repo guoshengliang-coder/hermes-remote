@@ -514,6 +514,7 @@ async function handleFileRequest(
   signal: AbortSignal,
 ): Promise<void> {
   let streamStarted = false;
+  const head = request.method.toUpperCase() === "HEAD";
   const fail = (status: number, error: string, extraHeaders: Record<string, string> = {}): void => {
     if (signal.aborted) return;
     // Log every rejection. Without this a refused download left no trace on either side: the phone
@@ -522,7 +523,7 @@ async function handleFileRequest(
     // directory layout in a file shipped with diagnostics; the extension and length are enough to
     // tell a whitelist problem from a traversal one.
     console.warn(`File request rejected status=${status} reason=${error} ${describeRejectedPath(request.path, rawQueryParameter)}`);
-    sendFileError(socket, request.id, status, error, extraHeaders);
+    sendJsonResponse(socket, request.id, status, { error }, extraHeaders, head);
   };
   let url: URL;
   try {
@@ -535,8 +536,8 @@ async function handleFileRequest(
     await handleUploadRequest(socket, request, url, signal);
     return;
   }
-  if (request.method.toUpperCase() !== "GET") {
-    fail(405, "method_not_allowed", { allow: "GET" });
+  if (request.method.toUpperCase() !== "GET" && !head) {
+    fail(405, "method_not_allowed", { allow: "GET, HEAD" });
     return;
   }
   let requestedPath: string;
@@ -560,6 +561,21 @@ async function handleFileRequest(
     const { canonicalPath, handle, metadata } = await openArtifactFile(requestedPath, { filesRoot });
     const noFollow = constants.O_NOFOLLOW ?? 0;
     try {
+      // Same authorized descriptor as GET. HEAD reports the original size even above the cap,
+      // without thumbnail work or reading/transmitting file bytes (HG-222).
+      if (head) {
+        sendControl(socket, {
+          type: "tunnel.http.response", version: PROTOCOL_VERSION, requestId: request.id,
+          status: 200,
+          headers: {
+            "content-type": contentTypeFor(canonicalPath),
+            "content-length": String(metadata.size),
+            "x-hermes-max-file-bytes": String(maxFileBytes),
+            "cache-control": "no-store",
+          },
+        });
+        return;
+      }
       if (metadata.size > maxFileBytes) { fail(413, "file_too_large"); return; }
 
       // A preview is served in the original's place when one was asked for and could be made;

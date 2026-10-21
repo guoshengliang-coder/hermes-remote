@@ -1895,7 +1895,7 @@ private fun DeliveryTailMarker(failed: Boolean, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ChatFileList(
+internal fun ChatFileList(
     files: List<ChatFile>,
     onOpen: (ChatFile) -> Unit,
     onShare: (ChatFile) -> Unit,
@@ -1903,12 +1903,17 @@ private fun ChatFileList(
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         files.forEach { file ->
+            val metadata = LocalChatFileMetadata.current
+            LaunchedEffect(file.remotePath, file.localPath, file.state, metadata) {
+                if (file.state == FileTransferState.READY) metadata?.load(file)
+            }
+            val info = metadata?.info(file) ?: FileCardInfo(file.sizeBytes)
             // The whole card opens the file (docs/DESIGN.md §5.4, HG-12). It used to be inert
             // everywhere except two small icon buttons, so tapping the obvious target — the file
             // name — did nothing at all. A file still uploading or failed stays UNCLICKABLE: a
             // ripple that leads nowhere is the same dead end in a friendlier costume.
             val openable = file.state == FileTransferState.READY &&
-                (file.remotePath != null || file.localPath != null)
+                (file.remotePath != null || file.localPath != null) && !info.tooLarge
             val openLabel = localized(LocalAppLanguage.current, "打开文件", "Open file")
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -1927,15 +1932,27 @@ private fun ChatFileList(
                     Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, modifier = Modifier.size(25.dp))
+                    Icon(
+                        com.hermes.client.ui.components.attachmentIcon(com.hermes.client.ui.components.fileIconKind(file.name, file.mimeType)),
+                        contentDescription = null, modifier = Modifier.size(25.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                         Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                         val detail = listOfNotNull(
-                            file.mimeType?.substringAfter('/'),
-                            file.sizeBytes?.let(::attachmentSizeLabel),
+                            file.name.substringAfterLast('.', "").uppercase(java.util.Locale.ROOT).ifBlank { file.mimeType?.substringAfter('/') },
+                            info.sizeBytes?.let(::artifactSizeLabel) ?: localized(LocalAppLanguage.current, "大小未知", "Size unknown"),
                         ).joinToString(" · ")
                         if (detail.isNotBlank()) {
                             Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (info.tooLarge) {
+                            Text(
+                                artifactLimitMessage(info, LocalAppLanguage.current),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
                         }
                     }
                     when (file.state) {
@@ -1944,8 +1961,8 @@ private fun ChatFileList(
                         // Only 分享 keeps a button: 打开 is the whole card now, and one action
                         // does not get two entry points.
                         FileTransferState.READY -> {
-                            if (openable) {
-                                IconButton(onClick = { onShare(file) }, modifier = Modifier.size(38.dp)) {
+                            if (file.remotePath != null || file.localPath != null) {
+                                IconButton(onClick = { onShare(file) }, enabled = openable, modifier = Modifier.size(38.dp)) {
                                     Icon(Icons.Rounded.Share, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(19.dp))
                                 }
                             }

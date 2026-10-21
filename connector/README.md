@@ -1,5 +1,12 @@
 # Connector control connection recovery
 
+## Attachment metadata (HG-222)
+
+`HEAD /api/files` reads the authorized original file size and configured limit without a payload,
+including for oversized files. GET retains its original rejection and streaming behavior. See
+`../docs/ARTIFACT_DOWNLOAD.md`; the full Android experience requires separately published Gateway,
+Connector and Android updates.
+
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
 

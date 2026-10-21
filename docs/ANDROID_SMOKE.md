@@ -753,3 +753,13 @@ L2：连接的设备未授权 USB 调试，型号无法读取；HONOR MBH-AN10 /
 自动化覆盖：Markdown 计数、用户链接、未落库新会话不预取、设备撤销与真实历史故障的区分，
 以及长正文/长用户气泡的具体命中矩形可见性。真实 Hermes 的首条消息落库时序、键盘遮挡与厂商
 字体仍需设备验证；模拟器结果单独记录，不视为真机结论。
+
+## HG-222 — original video and OEM player (pending physical device)
+
+JVM/loopback tests prove byte limits and UI gating but cannot prove a particular phone's installed
+player accepts the original video's encoding and content URI. After authorized component releases,
+on the reporting HONOR MBH-AN10 Android 16 verify that the original oversized video shows its true
+size and HR-FILE-004 before tapping, with open/share disabled. Ask Hermes to produce a smaller
+MP4 below the effective cap, then verify full download, playback and share. Record phone/player
+version and file sizes without recording private paths or credentials. This remains unverified
+until exercised on that physical device; a JVM screenshot is not OEM player verification.
