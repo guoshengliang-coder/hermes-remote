@@ -5,6 +5,7 @@ import { OpsError } from "./errors.mjs";
 import { loadCurrentManifest, resolveActiveSlot } from "./deploy-command.mjs";
 import { executeProductionRelease, verifyProductionReleaseAdmission } from "./production-release.mjs";
 import { createCommandRunner } from "./system.mjs";
+import { verifySchemaAdvancePlan } from "./schema-advance-plan.mjs";
 
 const BACKUP_STATUS_KIND = "hermes-go-postgresql-backup-status-v1";
 
@@ -12,12 +13,14 @@ const BACKUP_STATUS_KIND = "hermes-go-postgresql-backup-status-v1";
  * R5-F8: a production release whose Gateway needs the next database schema.
  *
  * The routine release (R5-F1) refuses a schema change in any account mode. This entrypoint is the
- * dedicated path docs/DEPLOYMENT.md requires instead: it admits exactly one forward step, only
+ * dedicated path docs/DEPLOYMENT.md requires instead: it defaults to one forward step, only
  * when the published backup status proves a fresh encrypted backup of the current schema that was
  * copied off-host and restore-verified, and then drives the same R5-F1 machine with the database
  * enabled, so the target image's migrator runs under the deployment lock after the checkpoint and
  * before the candidate starts. The migration is forward-only: once it ran, the older image reports
  * `mismatch` readiness, so a failed switch leaves it serving degraded and the fix is a newer release.
+ * An explicit two-step plan additionally binds both commits, contiguous SQL hashes and a fresh
+ * off-host migration rehearsal to the exact backup accepted by the ordinary backup gate.
  */
 export async function executeProductionSchemaRelease(config, targetManifest, schemaConfig, input = {}) {
   // Admission is called directly here, so supply the defaults R5-F1's own entry would add first.
@@ -39,14 +42,19 @@ export async function executeProductionSchemaRelease(config, targetManifest, sch
   }
   const sourceSchema = admission.sourceManifest.releaseContract?.databaseSchemaVersion;
   const targetSchema = targetManifest.releaseContract?.databaseSchemaVersion;
-  if (!Number.isSafeInteger(sourceSchema) || targetSchema !== sourceSchema + 1) {
+  if (!Number.isSafeInteger(sourceSchema) || (targetSchema !== sourceSchema + 1 && !schemaConfig.schemaAdvancePlan)) {
     fail("schema_release_requires_exactly_one_schema_step", "production_schema_release_admission");
   }
-  await (options.verifyBackup ?? verifyFreshOffHostBackup)(schemaConfig.backup, {
+  const backup = await (options.verifyBackup ?? verifyFreshOffHostBackup)(schemaConfig.backup, {
     hostname: config.host.hostname,
     databaseSchemaVersion: sourceSchema,
     now,
   });
+  const schemaAdvancePlan = schemaConfig.schemaAdvancePlan
+    ? await verifySchemaAdvancePlan(schemaConfig.schemaAdvancePlan, {
+      source: admission.sourceManifest, target: targetManifest, hostname: config.host.hostname,
+      backup, maximumAgeMinutes: schemaConfig.backup.maximumAgeMinutes, now,
+    }) : undefined;
 
   try {
     return {
@@ -55,9 +63,11 @@ export async function executeProductionSchemaRelease(config, targetManifest, sch
         operation: "deploy",
         schemaMigration: true,
         migrationDatabase: schemaConfig.database,
+        ...(schemaAdvancePlan ? { schemaAdvancePlan } : {}),
       }),
       command: "production-schema-release",
       databaseSchemaVersion: { from: sourceSchema, to: targetSchema },
+      ...(schemaAdvancePlan ? { schemaAdvancePlan } : {}),
     };
   } catch (error) {
     // Whether the migration ran decides what the operator does next, and the older image's own
@@ -103,7 +113,7 @@ export async function verifyFreshOffHostBackup(backup, { hostname, databaseSchem
   if (ageMs < 0 || ageMs > backup.maximumAgeMinutes * 60 * 1000) {
     fail("schema_release_backup_too_old", "production_schema_release_backup");
   }
-  return { backupCompletedAt: status.backupCompletedAt, offHostCopiedAt: status.offHostCopiedAt };
+  return { backupCompletedAt: status.backupCompletedAt, offHostCopiedAt: status.offHostCopiedAt, artifactSha256: status.artifactSha256 };
 }
 
 /**

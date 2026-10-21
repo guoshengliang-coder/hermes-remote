@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { OpsError } from "./errors.mjs";
+import { validateSchemaAdvancePlan } from "./schema-advance-plan.mjs";
 
 const TOP_LEVEL_KEYS = Object.freeze([
   "schemaVersion", "environment", "operator", "productionReleaseConfig", "database", "backup",
@@ -22,7 +23,7 @@ export async function loadProductionSchemaReleaseConfig(filePath) {
       fail("schema_release_config_file_unsafe");
     }
     const raw = JSON.parse(await handle.readFile("utf8"));
-    exactKeys(raw, TOP_LEVEL_KEYS, "config");
+    exactKeys(raw, [...TOP_LEVEL_KEYS, ...(Object.hasOwn(raw, "schemaAdvancePlan") ? ["schemaAdvancePlan"] : [])], "config");
     exactKeys(raw.database, ["urlSource", "ssl", "migrationLockId"], "database");
     exactKeys(raw.backup, ["activeStatusFile", "maximumAgeMinutes"], "backup");
     if (raw.schemaVersion !== 1 || raw.environment !== "production") fail("schema_release_config_invalid");
@@ -31,6 +32,7 @@ export async function loadProductionSchemaReleaseConfig(filePath) {
       schemaVersion: 1,
       environment: "production",
       operator: token(raw.operator, /^[A-Za-z0-9._-]{1,64}$/, "operator"),
+      ...(Object.hasOwn(raw, "schemaAdvancePlan") ? { schemaAdvancePlan: validateSchemaAdvancePlan(raw.schemaAdvancePlan) } : {}),
       productionReleaseConfig: absolutePath(raw.productionReleaseConfig, "productionReleaseConfig"),
       database: Object.freeze({
         urlSource: absolutePath(raw.database.urlSource, "database.urlSource"),

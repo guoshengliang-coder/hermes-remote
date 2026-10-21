@@ -68,6 +68,7 @@ export async function executeProductionRelease(config, targetManifest, options =
     result = await execute(deploymentConfig, targetManifest, {
       operation: admission.operation,
       ...(options.schemaMigration === true ? { allowDatabaseSchemaAdvance: true } : {}),
+      ...(options.schemaMigration === true && options.schemaAdvancePlan ? { schemaAdvancePlan: options.schemaAdvancePlan } : {}),
       confirmation: options.confirmation,
       candidateSmoke,
       publicSmoke,

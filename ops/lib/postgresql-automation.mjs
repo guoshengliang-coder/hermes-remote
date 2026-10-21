@@ -358,7 +358,7 @@ export async function runDisposablePostgresqlRestore(config, paths, options = {}
     await symlinkExecutable(toolsRoot, "docker", docker);
     await symlinkExecutable(toolsRoot, "openssl", config.opensslPath);
     process.env.PATH = `${toolsRoot}:${originalPath ?? "/usr/bin:/bin"}`;
-    await verifyPostgresqlRestore({
+    return await (options.verifyRestore ?? verifyPostgresqlRestore)({
       schemaVersion: 2,
       environment: "isolated-restore",
       operator: config.operator,

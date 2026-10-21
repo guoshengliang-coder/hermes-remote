@@ -10,8 +10,10 @@ Android 0.1.174/code 175. Allocation is not publication. Production currently ru
 0.4.33/schema 18, while this main branch declares schema 20. R5-F8 admits exactly one
 schema step, so the current bundle must not be sent to the routine or single-step production
 entrypoint. Resolve and verify the migration path before deployment; do not lower the manifest's
-declared schema or bypass backup/admission checks. The existing protected Desktop signing
-environment also needs configuration or a new owner-approved exception before signing this pair.
+declared schema or bypass backup/admission checks. On 2026-10-21 the owner approved the
+bounded, proof-gated two-step path described in DEPLOYMENT.md and a one-publication exception
+to use the existing trusted M4 signing key. The key is not generated, rotated or transferred;
+independent signature verification, full public readback and paired-index gates still apply.
 
 The existing authenticated control socket carries only preparation/cancellation instructions.
 Each file response uses a separate outbound HTTP(S) PUT from the Mac to the configured Gateway

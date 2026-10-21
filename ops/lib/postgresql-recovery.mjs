@@ -315,7 +315,7 @@ async function restoreEncryptedArchive(config, databaseUrl) {
   }
 }
 
-async function runAccountSmoke(config, runner, targetManifest) {
+export async function runAccountSmoke(config, runner, targetManifest) {
   const allowedImageIds = runtimeImageIds(targetManifest);
   const inspected = runner.run(
     "docker",
