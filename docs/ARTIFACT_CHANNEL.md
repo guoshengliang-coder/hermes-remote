@@ -189,7 +189,8 @@ and seeking through the production DataSource and real decoder. No new APK publi
 
 - Full Android JVM baseline: **2,613 tests, zero failures**. Final related regressions after audio
   focus/external-player integration: **200/200**; two additional UI policy/recovery cases and the
-  existing screenshot cases: **12/12**. assembleDebug, assembleDebugAndroidTest and lintDebug pass.
+  existing screenshot cases: **12/12**. Final request-owner race guard: **8/8** network API cases;
+  switching credentials while building a request is rejected before any HTTP request. assembleDebug, assembleDebugAndroidTest and lintDebug pass.
   LocalizationCoverage initially flagged the neutral duration string; it now carries the explicit
   language-neutral rationale. No test or lint rule was disabled.
 - L1: six updated/new attachment and player-error screenshots cover light/dark, Chinese/English

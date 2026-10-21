@@ -639,6 +639,7 @@ class HermesRestApi(
         val end = start + count - 1
         val request = builder("/api/files/downloads/${descriptor.artifactId}", deviceId)
             .header("If-Match", descriptor.etag).header("Range", "bytes=$start-$end").get().build()
+        requireArtifactOwner(owner, deviceId)
         val call = clientFor(request).newBuilder().followRedirects(false).followSslRedirects(false)
             .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(0, TimeUnit.MILLISECONDS).build().newCall(request)

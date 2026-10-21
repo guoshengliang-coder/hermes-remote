@@ -18,6 +18,20 @@ class ArtifactRangeApiTest {
     }
     private val descriptor = ArtifactDownloadDescriptor("a".repeat(64), 6, "\"${"b".repeat(64)}\"", "video/mp4", 1024)
 
+    @Test fun owner_switch_while_building_a_video_request_stops_before_any_network_call() = runBlocking {
+        var reads = 0
+        val api = HermesRestApi(testHttpClient(), Json { ignoreUnknownKeys = true }) {
+            reads++
+            GatewayConfig(server.server.url("/").toString().trimEnd('/'), if (reads < 3) "owner-a" else "owner-b")
+        }
+        val owner = api.artifactOwnerKey("mac-a")!!
+        server.server.enqueue(MockResponse.Builder().code(206).addHeader("ETag", descriptor.etag)
+            .addHeader("Content-Range", "bytes 4-5/6").body("ef").build())
+        try { api.readArtifactRange(descriptor, 4, 2, "mac-a", owner); fail("owner switch accepted") }
+        catch (error: HermesApiException) { assertEquals(401, error.code) }
+        assertEquals("new credentials must not transmit an old reference", 0, server.server.requestCount)
+    }
+
     @Test fun player_random_read_uses_a_closed_range_and_validates_generation() = runBlocking {
         val api = api(); val owner = api.artifactOwnerKey("mac-a")!!
         server.server.enqueue(MockResponse.Builder().code(206).addHeader("ETag", descriptor.etag)
