@@ -177,6 +177,18 @@ server {
         proxy_send_timeout 75s;
     }
 
+    # Keep POST intact: the trailing-slash proxy prefix otherwise issues nginx's automatic 301.
+    location = /api/files/downloads {
+        proxy_pass http://${upstreamName(config)};
+        client_max_body_size 8m;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        ${forwardedHeaders()}
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 75s;
+        proxy_send_timeout 75s;
+    }
+
     location /api/files/downloads/ {
         proxy_pass http://${upstreamName(config)};
         client_max_body_size 8m;

@@ -1989,3 +1989,12 @@ Local 2026-10-21 real-process loopback transferred 1,073,741,824 bytes in about 
 paced 128 MiB/s fixture configuration. Observed RSS peaks: Mac 109,664 KiB, Gateway 126,864 KiB;
 maximum concurrent mock-command response was 26 ms. This proves neither mobile-network throughput
 nor real Hermes/OEM latency; production defaults pace file output at 4 MiB/s.
+
+For an edge-backed download, prepare with `POST /api/files/downloads` and redirects disabled:
+it must respond directly with the descriptor, without a 301/302/307/308 or appended slash. Nginx
+automatically redirects a bare path when only a proxied trailing-slash prefix exists, so every
+edge template must retain its exact preparation location. The authenticated production-edge
+synthetic smoke on 2026-10-21 first reproduced this 301→GET→400 failure, then passed preparation,
+134,217,735 bytes of resumed Range responses, full SHA-256, legacy cap, missing-auth rejection
+and stale-ETag rejection after the exact route was installed. Concurrent control REST latency
+peaked at 29 ms. It used a disposable synthetic Connector, not the user's bound Mac or phone.

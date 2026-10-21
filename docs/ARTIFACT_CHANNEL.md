@@ -110,3 +110,37 @@ separate gates. No production rollout is authorized by this source implementatio
   transfer; see SMOKE_TEST.md for observed memory and mock-command latency, not production claims.
 - No production service was restarted, no Android version allocated and no distributable APK
   published. Both source merge and the three required artifact releases remain separate gates.
+
+## Publication — 2026-10-21
+
+The owner separately approved publication, the bounded schema 18→20 path and a one-publication
+exception to use M4's existing trusted signing identity in place. Source PR #604, version PR #605
+and migration-gate PR #606 are merged. All three distributed binaries use source
+`8fbb9ebdd59b5810c26c3266a1e745b96a6124ec`: Gateway **0.4.34**, Connector **0.1.16** in signed managed
+pair **0.4.11**, and Android **0.1.174 (175)**. Desktop App and upstream Hermes were not upgraded.
+
+The official publishers completed their package, signature, immutable-file and index gates. A
+second full public download verified every Desktop file and both signed envelopes; the Connector
+BUILD-IDENTITY matches the source above. Android's full public APK is 33,652,799 bytes, SHA-256
+`d85ae19de5b7da0264edb2bce23690a99aff648a357083cb9cfcf3510b2301ac`; its package/version and canonical
+debug certificate match the index. The public URL is
+`https://mrlgs.net/releases/Hermes-Remote-0.1.174-debug.apk`; unversioned APK URLs return 404.
+No published component was installed onto a user's Mac or phone by this publication.
+
+An authenticated public-edge synthetic transfer downloaded 134,217,735 bytes in bounded Range
+requests with matching SHA-256; control REST responses during transfer peaked at 29 ms. The
+legacy 100 MiB GET cap, unauthenticated rejection and stale ETag rejection were verified. This
+does not measure a home/cellular link or original HONOR MP4 playback. Those device smoke gates
+remain open, including every available OEM's background-download policy.
+
+Public smoke caught nginx's automatic 301 for bare `/api/files/downloads`: a trailing-slash
+proxy prefix redirects the preparation POST and changes it to GET. The live edge now has an
+exact preparation route, and all repository edge generators/templates have the same exception
+with a regression test. This follow-up changes operator templates, not the already published
+binaries. Keep the account binary regex before the generic account API regex when integrating
+routes into an existing site; preserve unrelated routes and validate nginx before reloading.
+
+The product-specific publication receipt has SHA-256
+`55e57ffef1a2750c06e871363f9a92ae8d25de7e4fd064e4c604344d8d447de9` (canonical sorted JSON). It binds
+the before/after sources, Gateway production switch and identity, public Range smoke, both
+Desktop indexes/signatures/files, and the official Android workflow/package/public-file proof.
