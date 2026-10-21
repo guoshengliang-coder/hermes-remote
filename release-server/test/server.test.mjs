@@ -67,3 +67,49 @@ test('index references to missing or wrong-size APKs return 404',async()=>{
   assert.equal((await request(`/releases/${entry.fileName}`)).status,404);
 });
 test('rejects symlink APKs and oversized indexes',async()=>{const request=await fixture();await writeFile(path.join(request.root,'real.apk'),'apk');await writeFile(path.join(request.root,entry.fileName),'gone');await (await import('node:fs/promises')).rm(path.join(request.root,entry.fileName));await symlink(path.join(request.root,'real.apk'),path.join(request.root,entry.fileName));assert.equal((await request(`/releases/${entry.fileName}`)).status,404);await writeFile(path.join(request.root,'index.json'),' '.repeat(1024*1024+1));assert.equal((await request('/releases/index.json')).status,500);});
+
+// HG-223: Android's DownloadManager can only resume a transfer pinned by a validator. These
+// assertions are the server half of that contract; the client half lives in
+// android/.../update/UpdateDownloadTransfer.kt.
+test('every APK response carries a strong ETag and Last-Modified', async()=>{
+  const request=await fixture();
+  const etag=`"${entry.sha256}"`;
+  const lastModified=new Date(entry.publishedAt).toUTCString();
+  for(const method of ['GET','HEAD']){
+    const full=await request(`/releases/${entry.fileName}`,method);
+    assert.equal(full.headers.get('etag'),etag);
+    assert.equal(full.headers.get('last-modified'),lastModified);
+  }
+  const partial=await request(`/releases/${entry.fileName}`,'GET',{range:'bytes=1-2'});
+  assert.equal(partial.status,206);
+  assert.equal(partial.headers.get('etag'),etag);
+  assert.equal(partial.headers.get('last-modified'),lastModified);
+});
+
+test('a matching If-Match keeps the range resumable', async()=>{
+  const request=await fixture();
+  const r=await request(`/releases/${entry.fileName}`,'GET',{range:'bytes=2-2','if-match':`"${entry.sha256}"`});
+  assert.equal(r.status,206);
+  assert.equal(await r.text(),'k');
+});
+
+test('a changed validator makes If-Match fail instead of splicing bytes', async()=>{
+  const request=await fixture();
+  const stale=await request(`/releases/${entry.fileName}`,'GET',{range:'bytes=2-2','if-match':'"'+'b'.repeat(64)+'"'});
+  assert.equal(stale.status,412);
+  assert.equal(stale.headers.get('etag'),`"${entry.sha256}"`);
+  assert.equal(await stale.text(),'');
+});
+
+test('If-Range falls back to the full entity when the validator changed', async()=>{
+  const request=await fixture();
+  const stale=await request(`/releases/${entry.fileName}`,'GET',{range:'bytes=1-2','if-range':'"'+'b'.repeat(64)+'"'});
+  assert.equal(stale.status,200);
+  assert.equal(await stale.text(),'apk');
+  const fresh=await request(`/releases/${entry.fileName}`,'GET',{range:'bytes=1-2','if-range':`"${entry.sha256}"`});
+  assert.equal(fresh.status,206);
+  assert.equal(await fresh.text(),'pk');
+  const byDate=await request(`/releases/${entry.fileName}`,'GET',{range:'bytes=1-2','if-range':new Date(entry.publishedAt).toUTCString()});
+  assert.equal(byDate.status,206);
+  assert.equal(await byDate.text(),'pk');
+});

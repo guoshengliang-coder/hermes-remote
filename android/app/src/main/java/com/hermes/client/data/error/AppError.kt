@@ -50,6 +50,9 @@ enum class AppErrorCode(val value: String) {
     UPDATE_INSTALLER_FAILED("HR-UPDATE-007"),
     UPDATE_CLEANUP_FAILED("HR-UPDATE-008"),
     UPDATE_SUPERSEDED("HR-UPDATE-009"),
+    // The transfer itself is fine; there is nowhere to put it. Telling the user to "retry"
+    // without naming storage would loop them through the same failure.
+    UPDATE_STORAGE_FULL("HR-UPDATE-010"),
     FILE_READ_FAILED("HR-FILE-001"),
     TRANSCRIPT_FILE_FAILED("HR-FILE-002"),
     // Downloading a Hermes-delivered artifact. Split by cause: a 403/413/missing file is not worth

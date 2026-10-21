@@ -80,6 +80,13 @@ class HermesNotifier(
             NotificationManager.IMPORTANCE_DEFAULT,
             localized(language, "新版本下载并校验完成", "A new version was downloaded and verified"),
         )
+        channel(
+            Notif.CHANNEL_UPDATE_PROGRESS,
+            localized(language, "更新下载进度", "Update download progress"),
+            NotificationManager.IMPORTANCE_LOW,
+            localized(language, "更新包下载中的静默进度通知", "Silent progress while an update downloads"),
+            badge = false,
+        )
         // Channel importance cannot be changed after creation, so the old approvals/activity
         // channels are retired rather than reused; their user settings do not carry over.
         channel(

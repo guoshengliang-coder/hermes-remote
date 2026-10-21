@@ -773,3 +773,22 @@ and content URI work in the installed player. After separately authorized compon
 
 Record device/OS/player versions, byte counts and results without private paths or credentials.
 Local emulator coverage is recorded separately; original MP4 and OEM verification remain pending.
+
+## HG-223 — 更新包的后台下载与断点续传（待真机）
+
+自动化已覆盖：四段范围规划与分块边界、续传只请求缺失字节、ETag 变化时整包重下而不是拼接、
+永久 4xx 不重试、暂停后可继续、发布服务器返回 ETag/Last-Modified 且 If-Match/If-Range 语义正确。
+JVM 无法证明前台服务在 HONOR 后台策略下存活、通知按钮可用、真实跨境链路的稳定性。
+
+1. 在「检查更新」页开始下载，立即返回上级页面或切到其他应用。通知栏应持续显示进度；
+   回到页面时任务仍在，进度不归零。
+2. 下载中途开启飞行模式约 10 秒再关闭。恢复网络后应从已下载位置继续，百分比与字节数不回退；
+   等待期间不得显示「更新下载失败」。
+3. 下载中途从最近任务划掉应用，重新打开「检查更新」。任务应恢复并继续，已下载部分保留；
+   若服务被系统停止，页面应显示「继续下载」。
+4. 通知栏点「暂停」，再回到页面点「继续下载」：进度从暂停处继续。点「取消」后任务状态、
+   临时文件与已下载 APK 都应被清理。
+5. 下载完成后应校验并通过系统安装器安装；在页面不在前台时先收到「已下载」通知，回到页面
+   完成校验后再收到「已就绪」。
+6. 另测存储不足（保留空间检查给出 HR-UPDATE-010）、通知权限被拒、以及弱网下长时间挂起后
+   的恢复。记录机型、ROM、网络类型和字节进度，不记录私有路径或凭据。

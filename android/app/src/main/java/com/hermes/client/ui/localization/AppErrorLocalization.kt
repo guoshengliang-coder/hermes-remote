@@ -101,6 +101,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法清理更新下载，请重试。", "Couldn't clean up the update download. Retry.")
         AppErrorCode.UPDATE_SUPERSEDED ->
             localized(language, "已发布更新版本，请删除旧下载后获取最新版。", "A newer release is available. Delete the old download and get the latest version.")
+        AppErrorCode.UPDATE_STORAGE_FULL ->
+            localized(language, "设备存储空间不足，无法下载更新。请清理空间后重试。", "There is not enough storage for the update. Free some space and retry.")
         AppErrorCode.FILE_READ_FAILED ->
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
         AppErrorCode.TRANSCRIPT_FILE_FAILED ->

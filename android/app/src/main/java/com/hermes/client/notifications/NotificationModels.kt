@@ -162,6 +162,8 @@ object Notif {
     const val CHANNEL_SERVICE = "service"
     /** Downloaded-and-verified app updates. */
     const val CHANNEL_UPDATES = "updates"
+    /** Ongoing update download progress; silent, and removed when the transfer stops. */
+    const val CHANNEL_UPDATE_PROGRESS = "update_progress"
     /**
      * A messaging channel stopped connecting. Its own category so it can be silenced without
      * muting run failures — and so a silent DingTalk outage is not something you find out about
@@ -178,9 +180,10 @@ object Notif {
     const val SUMMARY_NOTIFICATION_ID = 1002
     const val UPDATE_NOTIFICATION_ID = 990_101
     const val MESSAGING_HEALTH_NOTIFICATION_ID = 990_201
+    const val UPDATE_PROGRESS_NOTIFICATION_ID = 990_103
     val RESERVED_IDS = setOf(
         SERVICE_NOTIFICATION_ID, SUMMARY_NOTIFICATION_ID, 1003, UPDATE_NOTIFICATION_ID,
-        MESSAGING_HEALTH_NOTIFICATION_ID,
+        MESSAGING_HEALTH_NOTIFICATION_ID, UPDATE_PROGRESS_NOTIFICATION_ID,
     )
 
     // Notifiable events on the app's WebSocket (/api/ws), verified against the gateway source:
