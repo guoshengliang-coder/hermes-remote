@@ -245,6 +245,22 @@ location ~ ^/v2/devices/[^/]+/api/files/upload$ {
     proxy_send_timeout 600s;
 }
 
+location ~ ^/v2/devices/[^/]+/api/files/downloads/ {
+    client_max_body_size 8m;
+    proxy_pass http://hermes_go_gateway_production;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_cache off;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 75s;
+    proxy_send_timeout 75s;
+}
+
 location ~ ^/v2/devices/[^/]+/api(?:/|$) {
     proxy_pass http://hermes_go_gateway_production;
     proxy_http_version 1.1;

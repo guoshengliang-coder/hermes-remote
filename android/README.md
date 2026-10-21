@@ -1,5 +1,14 @@
 # Hermes Remote Android
 
+Attachments show size and distinct file-type icons before download (HG-222). With compatible
+Gateway and Mac components, downloads use an independent binary HTTP channel, durable task records
+and app-private files. The 100 MiB threshold controls quick open/share: larger files download first;
+any completed file can open/share through installed apps. Android 14+ uses user-initiated transfer
+jobs, with an older-platform foreground-service fallback. Cards show progress, pause/resume/cancel
+and recoverable errors; background completion notifies without launching a viewer. Source generation
+and account/device identity are checked on resume. Legacy small-file opening stays compatible.
+See `../docs/ARTIFACT_DOWNLOAD.md` and `../docs/ARTIFACT_CHANNEL.md` for API and release requirements.
+
 The selected base is [`adebnar/hermes-android`](https://github.com/adebnar/hermes-android), pinned at tag `v0.1.52` / commit `9f08f39ed2b9fc7cb29a551b1d9b695a409fdb7a`.
 
 Conversation search navigates to each marked occurrence, including multiple matches inside a long

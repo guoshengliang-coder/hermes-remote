@@ -137,6 +137,16 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "这台 Mac 正在接收另一个大文件，请稍后重试。", "This Mac is receiving another large file. Retry shortly.")
         AppErrorCode.UPLOAD_SERVER_LIMIT ->
             localized(language, "文件在 50 MiB 范围内，但服务端拒绝了上传。请检查 Relay 和 Mac 端版本或配置。", "The file is within 50 MiB, but the service refused it. Check the Relay and Mac versions or settings.")
+        AppErrorCode.ARTIFACT_CHANGED ->
+            localized(language, "Mac 上的文件已改变，请重新下载。", "The file on the Mac changed. Download it again.")
+        AppErrorCode.ARTIFACT_CHANNEL_UNAVAILABLE ->
+            localized(language, "当前服务不支持独立下载，请更新 Relay 和 Mac 端后重试。", "Independent downloads are unavailable. Update the Relay and Mac components, then retry.")
+        AppErrorCode.ARTIFACT_CHANNEL_BUSY ->
+            localized(language, "这台 Mac 正在传输文件，请稍后重试。", "This Mac is transferring a file. Retry shortly.")
+        AppErrorCode.ARTIFACT_STORAGE_FULL ->
+            localized(language, "手机存储空间不足，请清理空间后继续下载。", "Phone storage is full. Free some space, then resume.")
+        AppErrorCode.ARTIFACT_REFERENCE_EXPIRED ->
+            localized(language, "下载引用已失效，请重新获取文件后继续。", "The download reference expired. Fetch the file again to continue.")
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->

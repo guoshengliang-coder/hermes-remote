@@ -753,3 +753,23 @@ L2：连接的设备未授权 USB 调试，型号无法读取；HONOR MBH-AN10 /
 自动化覆盖：Markdown 计数、用户链接、未落库新会话不预取、设备撤销与真实历史故障的区分，
 以及长正文/长用户气泡的具体命中矩形可见性。真实 Hermes 的首条消息落库时序、键盘遮挡与厂商
 字体仍需设备验证；模拟器结果单独记录，不视为真机结论。
+
+## HG-222 — original video and background downloads (pending physical devices)
+
+JVM and loopback tests cannot prove OEM background survival or whether the original video's encoding
+and content URI work in the installed player. After separately authorized component releases:
+
+1. On HONOR MBH-AN10 Android 16, confirm the original large MP4 shows size/type and Download before
+   tapping. Open/share stay unavailable until complete; 100 MiB is guidance, not HR-FILE-004.
+2. Download it, pause after progress, switch Wi-Fi/cellular, resume and background the app. Check
+   notification/progress, completion without an unsolicited player launch, then tap to open/share.
+3. Repeat background/notification checks on every available OEM ROM. Test process reclamation and
+   reboot recovery by explicit Resume; force-stop must be respected, not bypassed.
+4. Sleep/disconnect the Mac, retain the checkpoint, then resume with the Mac back online. Modify the
+   source and confirm HR-FILE-011 with explicit Download again; no mixed-version output is opened.
+5. Repeat with a small MP4: automatic full download then external playback/share, no duplicate job.
+6. Check storage shortage recovery, notification permission denied, sign-out/account switch, and
+   that the old task never downloads through a newly selected Mac/account. Inspect dark/large text.
+
+Record device/OS/player versions, byte counts and results without private paths or credentials.
+Local emulator coverage is recorded separately; original MP4 and OEM verification remain pending.

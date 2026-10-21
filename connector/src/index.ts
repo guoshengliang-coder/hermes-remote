@@ -20,6 +20,8 @@ import {
   type WireMessage,
 } from "@hermes-remote/protocol";
 import { randomUUID } from "node:crypto";
+import { ArtifactDownloadSource } from "./artifact-download-source.js";
+import { ARTIFACT_DEFAULT_MAX_BYTES, ARTIFACT_DOWNLOADS_PATH, artifactFailure } from "@hermes-remote/protocol";
 import {
   AccountConnectorAuthenticator,
   loadAccountConnectorCredential,
@@ -84,6 +86,9 @@ const uploadRoot = resolve(process.env.UPLOAD_ROOT ?? resolve(filesRoot, ".herme
 const thumbnailRoot = resolve(process.env.THUMBNAIL_ROOT ?? resolve(filesRoot, ".hermes-remote", "thumbs"));
 const maxUploadBytes = Math.min(positiveIntEnv("MAX_UPLOAD_BYTES", MAX_PHONE_UPLOAD_BYTES), MAX_PHONE_UPLOAD_BYTES);
 const maxFileBytes = positiveIntEnv("MAX_FILE_BYTES", 100 * 1024 * 1024);
+const fileDownloads = new ArtifactDownloadSource(filesRoot, gatewayUrl, contentTypeFor,
+  positiveIntEnv("MAX_DOWNLOAD_BYTES", ARTIFACT_DEFAULT_MAX_BYTES, Number.MAX_SAFE_INTEGER),
+  positiveIntEnv("FILE_DOWNLOAD_BYTES_PER_SECOND", 4 * 1024 * 1024, 128 * 1024 * 1024));
 const maxUploadCacheBytes = positiveIntEnv("MAX_UPLOAD_CACHE_BYTES", 512 * 1024 * 1024);
 const maxUploadCacheFiles = positiveIntEnv("MAX_UPLOAD_CACHE_FILES", 200, 10_000);
 const uploadRetentionMs = positiveIntEnv("UPLOAD_RETENTION_HOURS", 7 * 24, 24 * 365) * 60 * 60 * 1000;
@@ -254,6 +259,7 @@ function connect(): void {
       ...heartbeatDiagnostics.tick(socket.bufferedAmount),
     });
     inFlightHttpRequests.abortAll("control_socket_closed");
+    fileDownloads.clear();
     responseChunkWaiters.rejectAll(new Error("control_socket_closed"));
     void abortAllStreamUploads(socket);
     closeLocalSockets();
@@ -514,6 +520,7 @@ async function handleFileRequest(
   signal: AbortSignal,
 ): Promise<void> {
   let streamStarted = false;
+  const head = request.method.toUpperCase() === "HEAD";
   const fail = (status: number, error: string, extraHeaders: Record<string, string> = {}): void => {
     if (signal.aborted) return;
     // Log every rejection. Without this a refused download left no trace on either side: the phone
@@ -522,7 +529,7 @@ async function handleFileRequest(
     // directory layout in a file shipped with diagnostics; the extension and length are enough to
     // tell a whitelist problem from a traversal one.
     console.warn(`File request rejected status=${status} reason=${error} ${describeRejectedPath(request.path, rawQueryParameter)}`);
-    sendFileError(socket, request.id, status, error, extraHeaders);
+    sendJsonResponse(socket, request.id, status, { error }, extraHeaders, head);
   };
   let url: URL;
   try {
@@ -535,8 +542,36 @@ async function handleFileRequest(
     await handleUploadRequest(socket, request, url, signal);
     return;
   }
-  if (request.method.toUpperCase() !== "GET") {
-    fail(405, "method_not_allowed", { allow: "GET" });
+  if (url.pathname === ARTIFACT_DOWNLOADS_PATH) {
+    if (request.method !== "POST") { fail(405, "method_not_allowed"); return; }
+    try {
+      const raw = request.bodyBase64 ? Buffer.from(request.bodyBase64, "base64") : Buffer.alloc(0);
+      if (raw.length > 16 * 1024) { fail(400, "invalid_path"); return; }
+      const body: unknown = JSON.parse(raw.toString("utf8"));
+      if (!body || typeof body !== "object" || Array.isArray(body)
+          || Object.keys(body).length !== 1 || typeof (body as { path?: unknown }).path !== "string") {
+        fail(400, "invalid_path"); return;
+      }
+      const descriptor = await fileDownloads.prepare((body as { path: string }).path);
+      signal.throwIfAborted();
+      sendJsonResponse(socket, request.id, 200, { ...descriptor });
+    } catch (error) {
+      if (signal.aborted) return;
+      const code = (error as NodeJS.ErrnoException).code;
+      const status = error instanceof ArtifactFileError ? error.status
+        : ["ENOENT", "ENOTDIR"].includes(code ?? "") ? 404
+        : ["EACCES", "EPERM"].includes(code ?? "") ? 403 : error instanceof SyntaxError ? 400 : 500;
+      sendJsonResponse(socket, request.id, status, artifactFailure(
+        status === 501 ? "HR-FILE-012" : status === 500 ? "HR-FILE-006" : status === 413 ? "HR-FILE-004" : status === 403 ? "HR-FILE-003" : "HR-FILE-005"));
+    }
+    return;
+  }
+  if (url.pathname.startsWith(`${ARTIFACT_DOWNLOADS_PATH}/`)) {
+    await fileDownloads.respond(request, signal);
+    return;
+  }
+  if (request.method.toUpperCase() !== "GET" && !head) {
+    fail(405, "method_not_allowed", { allow: "GET, HEAD" });
     return;
   }
   let requestedPath: string;
@@ -560,6 +595,22 @@ async function handleFileRequest(
     const { canonicalPath, handle, metadata } = await openArtifactFile(requestedPath, { filesRoot });
     const noFollow = constants.O_NOFOLLOW ?? 0;
     try {
+      // Same authorized descriptor as GET. HEAD reports the original size even above the cap,
+      // without thumbnail work or reading/transmitting file bytes (HG-222).
+      if (head) {
+        sendControl(socket, {
+          type: "tunnel.http.response", version: PROTOCOL_VERSION, requestId: request.id,
+          status: 200,
+          headers: {
+            "content-type": contentTypeFor(canonicalPath),
+            "content-length": String(metadata.size),
+            "x-hermes-max-file-bytes": String(maxFileBytes),
+            ...(fileDownloads.enabled ? { "x-hermes-max-download-bytes": String(fileDownloads.maxBytes) } : {}),
+            "cache-control": "no-store",
+          },
+        });
+        return;
+      }
       if (metadata.size > maxFileBytes) { fail(413, "file_too_large"); return; }
 
       // A preview is served in the original's place when one was asked for and could be made;

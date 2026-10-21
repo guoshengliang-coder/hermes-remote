@@ -95,12 +95,12 @@ test("HG-217: existing temporary attachments stream through the real Connector",
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
   await Promise.race([connected, once(child, "exit").then(() => { throw new Error(output); })]);
-  const download = (path: string): Promise<Reply> => new Promise((resolve) => {
+  const download = (path: string, method = "GET"): Promise<Reply> => new Promise((resolve) => {
     const id = randomUUID();
     pending.set(id, { reply: { status: 0, headers: {}, body: Buffer.alloc(0), chunks: 0 }, resolve });
     socket.send(JSON.stringify({
       type: "tunnel.http.request", version: 1, id, targetDeviceId: "test-mac",
-      method: "GET", path: `/api/files?path=${encodeURIComponent(path)}`, headers: {},
+      method, path: `/api/files?path=${encodeURIComponent(path)}`, headers: {},
     }));
   });
 
@@ -113,6 +113,15 @@ test("HG-217: existing temporary attachments stream through the real Connector",
   assert.deepEqual((await download(await realpath(report))).body, content);
   assert.equal((await download(join(root, "report.txt"))).body.toString(), "system temporary report");
   assert.equal((await download(join(filesRoot, "existing.txt"))).body.toString(), "existing attachment");
+  // HG-222: inspection must not download even one chunk, including files above the limit.
+  for (const [path, size] of [[report, content.length], [join(shared, "large.bin"), 1024 * 1024 + 1]] as const) {
+    const info = await download(path, "HEAD");
+    assert.equal(info.status, 200);
+    assert.equal(info.headers["content-length"], String(size));
+    assert.equal(info.headers["x-hermes-max-file-bytes"], String(1024 * 1024));
+    assert.equal(info.body.length, 0);
+    assert.equal(info.chunks, 0);
+  }
   for (const [path, status, error] of [
     [join(filesRoot, "escape.html"), 403, "forbidden"],
     [join(shared, "missing.html"), 404, "not_found"],
@@ -123,6 +132,12 @@ test("HG-217: existing temporary attachments stream through the real Connector",
     const refused = await download(path);
     assert.equal(refused.status, status, path);
     assert.deepEqual(JSON.parse(refused.body.toString()), { error });
+    if (status !== 413) {
+      const inspected = await download(path, "HEAD");
+      assert.equal(inspected.status, status, `HEAD preserves filesystem policy: ${path}`);
+      assert.equal(inspected.body.length, 0);
+      assert.equal(inspected.chunks, 0);
+    }
   }
   assert.ok(!output.includes(report), "refusal logs must not expose the requested path");
 });

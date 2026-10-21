@@ -107,6 +107,7 @@ class ChatViewModel @Inject constructor(
     private val conversationDevices: ConversationDeviceStore? = null,
     private val tableCredentials: com.hermes.client.data.auth.CredentialStore? = null,
     private val gatewayForVoice: com.hermes.client.data.network.HermesGatewayClient? = null,
+    private val artifactDownloads: com.hermes.client.data.downloads.ArtifactDownloadManager? = null,
 ) : ViewModel() {
 
     private val legacyChartOrigin by lazy { runCatching { tableCredentials?.load()?.baseUrl }.getOrNull().orEmpty() }
@@ -523,11 +524,58 @@ class ChatViewModel @Inject constructor(
     fun stopReading() = tts.stop()
 
     fun fetchFile(file: com.hermes.client.domain.ChatFile, onResult: (Result<java.io.File>) -> Unit) {
+        val device = currentDeviceId
         viewModelScope.launch {
-            val result = runCatching { fileRepository.download(file) }
+            val result = runCatching {
+                file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }?.let { return@runCatching it }
+                val downloads = artifactDownloads
+                if (downloads != null && file.remotePath != null) {
+                    downloads.owner(device)?.let { owner ->
+                        downloads.awaitTask(com.hermes.client.data.downloads.ArtifactDownloadManager.taskId(owner, file.remotePath))
+                            ?.let(downloads::completedFile)?.let { return@runCatching it }
+                    }
+                }
+                val metadata = fileRepository.metadata(file, device)
+                if (downloads == null || metadata?.independentDownloads != true) {
+                    if ((metadata?.sizeBytes ?: file.sizeBytes ?: 0) > com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES) {
+                        throw HermesApiException(501, "channel unavailable", errorCode = "HR-FILE-012")
+                    }
+                    return@runCatching fileRepository.download(file, device)
+                }
+                val task = downloads.enqueue(file, device)
+                downloads.completedFile(task)?.let { return@runCatching it }
+                downloads.schedule(task)
+                val final = downloads.tasks.first { list -> list.any { it.id == task.id && it.status in setOf(
+                    com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE,
+                    com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED,
+                    com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED,
+                    com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED,
+                ) } }.first { it.id == task.id }
+                if (final.status in setOf(com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED,
+                    com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED)) throw kotlinx.coroutines.CancellationException()
+                downloads.completedFile(final) ?: throw HermesApiException(500, "download failed", errorCode = final.errorCode)
+            }
+            if (result.exceptionOrNull() is kotlinx.coroutines.CancellationException) return@launch
             onResult(result)
         }
     }
+
+    val fileDownloads get() = artifactDownloads?.tasks ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.hermes.client.data.downloads.ArtifactDownloadTask>())
+    suspend fun fileDownloadOwner() = artifactDownloads?.owner(currentDeviceId)
+    fun completedDownload(task: com.hermes.client.data.downloads.ArtifactDownloadTask) = artifactDownloads?.completedFile(task)
+    fun pauseFileDownload(id: String) { artifactDownloads?.pause(id) }
+    fun cancelFileDownload(id: String) { artifactDownloads?.cancel(id) }
+    fun downloadFile(file: com.hermes.client.domain.ChatFile, onFailure: (Throwable) -> Unit) {
+        val device = currentDeviceId
+        viewModelScope.launch {
+            try {
+                val downloads = artifactDownloads ?: throw HermesApiException(501, "channel unavailable", errorCode = "HR-FILE-012")
+                downloads.schedule(downloads.enqueue(file, device))
+            } catch (error: Exception) { if (error !is kotlinx.coroutines.CancellationException) onFailure(error) }
+        }
+    }
+
+    suspend fun fileMetadata(file: com.hermes.client.domain.ChatFile) = fileRepository.metadata(file, currentDeviceId)
 
     /**
      * Fetch the files behind whatever images the transcript currently references (HG-44).
