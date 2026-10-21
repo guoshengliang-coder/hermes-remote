@@ -22,6 +22,7 @@ test("independent source is outbound-only and retains the original filesystem gr
   await assert.rejects(() => source.prepare(join(root, "escape")));
   await writeFile(file, "ghijkl");
   assert.notEqual((await source.prepare(file)).etag, first.etag);
+  // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- negative test: this origin must disable downloads; no connection is opened.
   const insecure = new ArtifactDownloadSource(root, "ws://public.example/v1/connect", () => "video/mp4");
   assert.equal(insecure.enabled, false);
   await assert.rejects(() => insecure.prepare(file));

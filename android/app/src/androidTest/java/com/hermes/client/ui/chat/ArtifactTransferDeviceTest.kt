@@ -85,6 +85,7 @@ class ArtifactTransferDeviceTest {
 private class SlowFileSource : AutoCloseable {
     val size = 4 * 1024 * 1024
     val offsets = CopyOnWriteArrayList<Long>()
+    // nosemgrep: kotlin.lang.security.unencrypted-socket.unencrypted-socket -- androidTest-only synthetic source, bound exclusively to device loopback; production uses HTTPS.
     private val server = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
     val port get() = server.localPort
     private val workers = Executors.newCachedThreadPool()
