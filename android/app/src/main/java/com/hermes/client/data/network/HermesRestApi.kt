@@ -482,7 +482,7 @@ class HermesRestApi(
         // Stored rows remain unchanged. This read projection replaces only inline data-image
         // payloads, keeping old image-heavy conversations below the relay response ceiling.
         buildString {
-            append("/api/sessions/$sessionId/messages?inline_images=false")
+            append("/api/sessions/$sessionId/messages?inline_images=false&include_compacted=true")
             limit?.let { append("&limit=$it") }
             offset?.let { append("&offset=$it") }
             order?.let { append("&order=${it.wire}") }
@@ -500,7 +500,7 @@ class HermesRestApi(
         sourceOffset: Int,
     ): MessageDto? {
         val raw = getRaw(buildString {
-            append("/api/sessions/$sessionId/messages?inline_images=false")
+            append("/api/sessions/$sessionId/messages?inline_images=false&include_compacted=true")
             append("&hr_full_message_id=$rowId&hr_full_offset=$sourceOffset")
             append(profileParam(profile))
         }, deviceId)

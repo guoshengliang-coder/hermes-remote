@@ -326,12 +326,12 @@ export class ChatSession {
   }
 
   private loadingOlder = false;
+  private olderBoundaryChanged = false;
 
   /**
-   * The next older page (the reader scrolled to the top). `offset` is the number of stored rows
-   * already loaded: rows that arrived since then shift it forward, so the answer can overlap what
-   * is loaded (merged away by id) but never leaves a gap. A page that brings nothing older skips
-   * ahead by its own length. One request at a time.
+   * The next older page includes one held boundary row (offset=heldRows-1, limit=101).
+   * Appends can shift it newer: bounded skips search for that identity, without assuming IDs
+   * increase with display order. A lost boundary is retryable and never becomes a false join.
    */
   async loadOlder(loaded: { rows: readonly MessageRow[]; epoch: number }): Promise<void> {
     const id = this.storedId;
@@ -339,9 +339,17 @@ export class ChatSession {
     this.loadingOlder = true;
     this.o.dispatch({ type: "older-loading" });
     try {
-      let offset = loaded.rows.length;
+      if (this.olderBoundaryChanged) {
+        if (!await this.loadHistory({ quiet: true })) throw new Error("History boundary refresh failed");
+        this.olderBoundaryChanged = false;
+        // The reducer may have advanced the history epoch. Clear the old loader and let the
+        // next scroll use the freshly committed window instead of the caller's stale rows.
+        this.o.dispatch({ type: "older-loaded", rows: [], hasMore: true, epoch: loaded.epoch });
+        return;
+      }
+      let offset = Math.max(0, loaded.rows.length - 1);
       for (let skips = 0; ; skips++) {
-        const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile, latestPage(offset), true);
+        const body = await this.o.client.messages(this.o.deviceId, id, this.o.profile, latestPage(offset, HISTORY_PAGE_SIZE + 1), true);
         if (this.disposed) return;
         if (id !== this.storedId) {
           // The conversation was replaced meanwhile: a stale epoch only clears the loader.
@@ -349,12 +357,21 @@ export class ChatSession {
           return;
         }
         const rows = rowsOf(body);
-        const hasMore = pageHasMore(body, HISTORY_PAGE_SIZE);
+        const hasMore = pageHasMore(body, HISTORY_PAGE_SIZE + 1);
+        const boundary = loaded.rows[0]?.id;
+        if (boundary != null && !rows.some((row) => row.id === boundary)) {
+          if (!hasMore || skips >= OLDER_PAGE_MAX_SKIPS) {
+            this.olderBoundaryChanged = true;
+            throw new Error("History page no longer overlaps the loaded boundary");
+          }
+          offset += HISTORY_PAGE_SIZE;
+          continue;
+        }
         if (!hasMore || olderRowsIn(loaded.rows, rows) > 0 || skips >= OLDER_PAGE_MAX_SKIPS) {
           this.o.dispatch({ type: "older-loaded", rows, hasMore, epoch: loaded.epoch });
           return;
         }
-        offset += rows.length;
+        offset += HISTORY_PAGE_SIZE;
       }
     } catch (error) {
       if (this.disposed) return;

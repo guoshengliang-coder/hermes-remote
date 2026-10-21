@@ -7,6 +7,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -51,7 +52,7 @@ class SessionRepositoryPagingTest {
     }
 
     private fun serveOlder(offset: Int, range: LongRange) {
-        coEvery { rest.messagesRaw("s1", "default", null, page, offset, MessageOrder.LATEST, true) } returns body(range)
+        coEvery { rest.messagesRaw("s1", "default", null, page + 1, maxOf(0, offset - 1), MessageOrder.LATEST, true) } returns body(range.first..range.last + 1)
     }
 
     @Test fun history_asks_only_for_the_newest_page() = runTest(scheduler) {
@@ -101,7 +102,7 @@ class SessionRepositoryPagingTest {
 
         // At the start, no further request goes out.
         repository.olderHistory("s1", "default")
-        coVerify(exactly = 1) { rest.messagesRaw("s1", "default", null, page, 200, MessageOrder.LATEST, true) }
+        coVerify(exactly = 1) { rest.messagesRaw("s1", "default", null, page + 1, 199, MessageOrder.LATEST, true) }
     }
 
     @Test fun an_older_page_inside_held_rows_skips_a_page_instead_of_stopping() = runTest(scheduler) {
@@ -126,10 +127,10 @@ class SessionRepositoryPagingTest {
         serveTail(101L..200L)
         repository.history("s1", "default")
         val offsets = mutableListOf<Int>()
-        for (offset in listOf(100, 200, 300, 400, 500)) {
-            coEvery { rest.messagesRaw("s1", "default", null, page, offset, MessageOrder.LATEST, true) } answers {
+        for (offset in listOf(99, 199, 299, 399, 499)) {
+            coEvery { rest.messagesRaw("s1", "default", null, page + 1, offset, MessageOrder.LATEST, true) } answers {
                 offsets += offset
-                body(101L..200L)
+                body(101L..201L)
             }
         }
 
@@ -137,11 +138,11 @@ class SessionRepositoryPagingTest {
 
         assertEquals(0, older.added)
         assertFalse(older.reachedStart)
-        assertEquals(listOf(100, 200, 300, 400, 500), offsets)
+        assertEquals(listOf(99, 199, 299, 399, 499), offsets)
         // Export reads unabridged oldest pages, independently of the UI preview window.
         coEvery { rest.messagesRaw("s1", "default", null, 500, 0, MessageOrder.OLDEST, false) } returns body(101L..200L)
         repository.fullHistory("s1", "default")
-        assertEquals(listOf(100, 200, 300, 400, 500), offsets)
+        assertEquals(listOf(99, 199, 299, 399, 499), offsets)
     }
 
     @Test fun full_history_pages_to_exhaustion() = runTest(scheduler) {
@@ -189,4 +190,40 @@ class SessionRepositoryPagingTest {
 
         assertEquals(200, second.history("s1", "default").size)
     }
+    @Test fun compacted_order_survives_paging_refresh_and_restart() = runTest(scheduler) {
+        val repository = SessionRepository(rest, this, store)
+        coEvery { rest.messagesRaw("s1", "default", null, page, null, MessageOrder.LATEST, true) } returns
+            body(51L..150L).replace("\"id\":51,", "\"id\":900,")
+        repository.history("s1", "default")
+        coEvery { rest.messagesRaw("s1", "default", null, page + 1, 99, MessageOrder.LATEST, true) } returns
+            body(1L..51L).replace("\"id\":51,", "\"id\":900,")
+        repository.olderHistory("s1", "default")
+        serveTail(53L..152L)
+        val merged = repository.history("s1", "default")
+        assertEquals((1L..152L).map { "m$it" }, merged.map { it.text })
+        assertEquals(900L, merged[50].serverId)
+        advanceUntilIdle()
+        assertEquals(merged, SessionRepository(rest, this, store).diskHistory("s1", "default"))
+    }
+
+    @Test fun late_older_page_cannot_revive_rows_after_an_authoritative_short_refresh() = runTest(scheduler) {
+        val repository = SessionRepository(rest, this, store)
+        serveTail(101L..200L)
+        repository.history("s1", "default")
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        coEvery { rest.messagesRaw("s1", "default", null, page + 1, 99, MessageOrder.LATEST, true) } coAnswers {
+            started.complete(Unit)
+            release.await()
+            body(1L..101L)
+        }
+        val older = async { repository.olderHistory("s1", "default") }
+        started.await()
+        serveTail(1L..5L)
+        repository.history("s1", "default")
+        release.complete(Unit)
+        assertEquals((1L..5L).toList(), older.await().messages.map { it.serverId })
+        assertEquals((1L..5L).toList(), repository.cachedHistory("s1", "default")!!.map { it.serverId })
+    }
+
 }

@@ -347,21 +347,30 @@ describe("ChatSession", () => {
     });
 
     it("asks for the next page at the count of stored rows loaded", async () => {
-      const { session, pages, actions } = make((page) => paged(range(1, 60), page));
+      const { session, pages, actions } = make((page) => paged(range(1, 61), page));
       await session.loadOlder({ rows: range(61, 260), epoch: 3 });
-      expect(pages).toEqual([{ order: "latest", limit: 100, offset: 200 }]);
-      expect(actions).toEqual([{ type: "older-loading" }, { type: "older-loaded", rows: range(1, 60), hasMore: false, epoch: 3 }]);
+      expect(pages).toEqual([{ order: "latest", limit: 101, offset: 199 }]);
+      expect(actions).toEqual([{ type: "older-loading" }, { type: "older-loaded", rows: range(1, 61), hasMore: false, epoch: 3 }]);
     });
 
     it("skips ahead when a page only overlaps what is loaded (a page or more arrived since)", async () => {
-      const { session, pages, actions } = make((page) => paged(page.offset === 100 ? range(301, 400) : range(1, 100), page));
+      const { session, pages, actions } = make((page) => paged(page.offset === 99 ? range(301, 401) : range(1, 101), page));
       await session.loadOlder({ rows: range(101, 200), epoch: 1 });
-      expect(pages.map((p) => p.offset)).toEqual([100, 200]);
-      expect(actions.at(-1)).toEqual({ type: "older-loaded", rows: range(1, 100), hasMore: true, epoch: 1 });
+      expect(pages.map((p) => p.offset)).toEqual([99, 199]);
+      expect(actions.at(-1)).toEqual({ type: "older-loaded", rows: range(1, 101), hasMore: true, epoch: 1 });
+    });
+
+    it("a lost compaction boundary keeps history and retry refreshes the authoritative tail", async () => {
+      const { session, pages, actions } = make((page) => paged(range(401, 405), page));
+      await session.loadOlder({ rows: range(101, 200), epoch: 1 });
+      expect(actions.at(-1)).toMatchObject({ type: "older-failed", error: { code: "HR-SYNC-001", retryable: true } });
+      await session.loadOlder({ rows: range(101, 200), epoch: 1 });
+      expect(pages.at(-1)).toEqual({ order: "latest", limit: 100, offset: 0 });
+      expect(actions).toContainEqual({ type: "history", rows: range(401, 405), hasOlder: false });
     });
 
     it("one request at a time", async () => {
-      const { session, pages } = make((page) => paged(range(1, 10), page));
+      const { session, pages } = make((page) => paged(range(1, 11), page));
       await Promise.all([session.loadOlder({ rows: range(11, 20), epoch: 1 }), session.loadOlder({ rows: range(11, 20), epoch: 1 })]);
       expect(pages).toHaveLength(1);
     });

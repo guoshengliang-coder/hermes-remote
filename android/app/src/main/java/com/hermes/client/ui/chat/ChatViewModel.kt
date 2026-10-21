@@ -1319,8 +1319,15 @@ class ChatViewModel @Inject constructor(
 
     fun retryOlderHistory() {
         if (olderHistoryJob?.isActive == true) return
+        val resync = _olderHistory.value.error?.code == com.hermes.client.data.error.AppErrorCode.HISTORY_INCOMPLETE
         _olderHistory.value = OlderHistoryUiState()
-        olderHistoryJob = viewModelScope.launch { loadOlderPages(untilStart = false) }
+        olderHistoryJob = viewModelScope.launch {
+            if (resync) {
+                startManualRefresh()
+                refreshJob?.join()
+            }
+            loadOlderPages(untilStart = false)
+        }
     }
 
     suspend fun fullHistoryRow(locator: com.hermes.client.domain.HistoryLocator): com.hermes.client.data.network.MessageDto? {
@@ -1337,8 +1344,15 @@ class ChatViewModel @Inject constructor(
      */
     suspend fun loadEntireHistory(): Boolean {
         olderHistoryJob?.let { running -> if (running.isActive) running.join() }
+        val resync = _olderHistory.value.error?.code == com.hermes.client.data.error.AppErrorCode.HISTORY_INCOMPLETE
         if (_olderHistory.value.error != null) _olderHistory.value = OlderHistoryUiState()
-        val job = viewModelScope.launch { loadOlderPages(untilStart = true) }
+        val job = viewModelScope.launch {
+            if (resync) {
+                startManualRefresh()
+                refreshJob?.join()
+            }
+            loadOlderPages(untilStart = true)
+        }
         olderHistoryJob = job
         job.join()
         return _olderHistory.value.error == null

@@ -101,6 +101,24 @@ class TranscriptWindowTest {
         assertFalse(merge.window.reachedStart)
     }
 
+    @Test fun compacted_rows_follow_page_order_even_when_representative_ids_go_backwards() {
+        val known = TranscriptWindow(listOf(row(1), row(90), row(3), row(4)), reachedStart = true)
+        val merged = TranscriptWindow.mergeTail(known, listOf(row(90), row(3), row(4), row(100)), limit)
+        assertEquals(listOf(1L, 90L, 3L, 4L, 100L), merged.rows.ids())
+        assertTrue(merged.reachedStart)
+        val older = TranscriptWindow.mergeOlder(
+            TranscriptWindow(listOf(row(4), row(100)), false), listOf(row(90), row(3), row(4), row(100)), limit,
+        )
+        assertEquals(listOf(90L, 3L, 4L, 100L), older.window.rows.ids())
+    }
+
+    @Test fun archived_page_with_no_overlap_is_kept_in_its_server_order() {
+        val older = TranscriptWindow.mergeOlder(
+            TranscriptWindow(listOf(row(4), row(5)), false), listOf(row(90), row(3)), limit,
+        )
+        assertEquals(listOf(90L, 3L, 4L, 5L), older.window.rows.ids())
+    }
+
     @Test fun a_stored_window_round_trips_with_its_start_marker() {
         val window = TranscriptWindow(rows(1L..3L), reachedStart = true)
 
@@ -110,11 +128,10 @@ class TranscriptWindowTest {
         assertTrue(restored.reachedStart)
     }
 
-    @Test fun a_payload_from_before_paging_may_have_older_rows() {
+    @Test fun an_active_only_cache_is_invalidated_instead_of_trusting_its_incomplete_middle() {
         val legacy = """{"messages":[{"id":1,"role":"user","content":"hi"}]}"""
-        val restored = TranscriptWindow.fromStored(legacy)!!
-        assertEquals(1, restored.serverRows)
-        assertFalse(restored.reachedStart)
+        assertNull(TranscriptWindow.fromStored(legacy))
+        assertNull(TranscriptWindow.fromStored(legacy.dropLast(1) + ",\"hr_reached_start\":true}"))
     }
 
     @Test fun an_unreadable_payload_is_not_a_window() {
