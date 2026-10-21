@@ -751,6 +751,21 @@ fun ChatScreen(
         )
     }
 
+    var videoFile by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) {
+        mutableStateOf<com.hermes.client.domain.ChatFile?>(null)
+    }
+    videoFile?.let { file ->
+        val complete = file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }
+            ?: scopedFileTasks.firstOrNull { it.remotePath == file.remotePath }?.let(vm::completedDownload)
+        VideoPlayerDialog(file.name, prepare = { vm.prepareVideo(file) },
+            downloaded = complete != null,
+            openExternally = complete?.let { local -> { openCompletedVideo(context, local, file.mimeType) {
+                showAttachmentError(it.localizedMessage(language))
+            } } },
+            download = { vm.downloadFile(file) { showAttachmentError(com.hermes.client.data.error.artifactDownloadError(it).localizedMessage(language)) } },
+            onDismiss = { videoFile = null })
+    }
+
     fun handleFile(file: com.hermes.client.domain.ChatFile, share: Boolean) {
         val info = fileMetadata.info(file)
         val savedTask = scopedFileTasks.firstOrNull { it.remotePath == file.remotePath }
@@ -759,6 +774,10 @@ fun ChatScreen(
             .getMimeTypeFromExtension(file.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) ?: "application/octet-stream"
         if (info.tooLarge && saved == null) {
             oversizedFile = file
+            return
+        }
+        if (!share && isVideoAttachment(file)) {
+            videoFile = file.copy(localPath = saved?.path ?: file.localPath)
             return
         }
         android.widget.Toast.makeText(

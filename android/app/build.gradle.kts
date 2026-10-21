@@ -235,6 +235,8 @@ tasks.matching { it.name == "assembleDebug" }.configureEach {
 }
 
 dependencies {
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime)
     implementation(libs.lifecycle.runtime.compose)

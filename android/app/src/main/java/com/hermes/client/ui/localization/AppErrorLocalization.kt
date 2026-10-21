@@ -147,6 +147,10 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "手机存储空间不足，请清理空间后继续下载。", "Phone storage is full. Free some space, then resume.")
         AppErrorCode.ARTIFACT_REFERENCE_EXPIRED ->
             localized(language, "下载引用已失效，请重新获取文件后继续。", "The download reference expired. Fetch the file again to continue.")
+        AppErrorCode.VIDEO_UNSUPPORTED ->
+            localized(language, "此设备无法播放该视频，请下载后用其他播放器打开。", "This device cannot play this video. Download it and open it in another player.")
+        AppErrorCode.VIDEO_PLAYBACK_FAILED ->
+            localized(language, "视频播放中断，请重试或下载后观看。", "Video playback stopped. Retry, or download it to watch.")
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->

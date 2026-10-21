@@ -575,6 +575,36 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private val videoPositions = object : LinkedHashMap<String, Long>(16, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 64
+    }
+
+    suspend fun prepareVideo(file: com.hermes.client.domain.ChatFile): com.hermes.client.data.video.VideoPlayback {
+        val device = currentDeviceId
+        fun local(video: java.io.File, owner: String): com.hermes.client.data.video.VideoPlayback {
+            val key = "$owner#${video.path}#${video.length()}#${video.lastModified()}"
+            return com.hermes.client.data.video.VideoPlayback(localFile = video,
+                initialPosition = videoPositions[key] ?: 0, rememberPosition = { videoPositions[key] = it })
+        }
+        val downloads = artifactDownloads ?: throw HermesApiException(501, "channel unavailable", errorCode = "HR-FILE-012")
+        val owner = downloads.owner(device) ?: throw HermesApiException(401, "video owner unavailable")
+        file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }?.let { return local(it, owner) }
+        if (file.remotePath != null) {
+            downloads.awaitTask(com.hermes.client.data.downloads.ArtifactDownloadManager.taskId(owner, file.remotePath))
+                ?.let(downloads::completedFile)?.let { return local(it, owner) }
+        }
+        val remote = try { downloads.videoRanges.prepare(file, device) }
+        catch (error: HermesApiException) {
+            // Older peers cannot serve Range video; retain their small-file full-download path.
+            if (error.errorCode != "HR-FILE-012") throw error
+            val metadata = fileRepository.metadata(file, device) ?: throw error
+            if (metadata.independentDownloads || metadata.sizeBytes > com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES) throw error
+            return local(fileRepository.download(file, device), owner)
+        }
+        return com.hermes.client.data.video.VideoPlayback(repository = downloads.videoRanges, source = remote,
+            initialPosition = videoPositions[remote.key] ?: 0, rememberPosition = { videoPositions[remote.key] = it })
+    }
+
     suspend fun fileMetadata(file: com.hermes.client.domain.ChatFile) = fileRepository.metadata(file, currentDeviceId)
 
     /**

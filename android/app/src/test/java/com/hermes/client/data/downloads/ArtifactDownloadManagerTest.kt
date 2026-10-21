@@ -29,9 +29,29 @@ class ArtifactDownloadManagerTest {
         context = ApplicationProvider.getApplicationContext()
         context.deleteDatabase("artifact-downloads.db")
         File(context.filesDir, "attachment-downloads").deleteRecursively()
+        File(context.cacheDir, "video-ranges").deleteRecursively()
         rest = mockk()
         coEvery { rest.artifactOwnerKey(any()) } returns "owner-a"
         coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns descriptor
+    }
+
+    @Test fun explicit_download_reuses_playback_blocks_without_requesting_them_again() = runBlocking {
+        val size = 2L * com.hermes.client.data.video.ArtifactRangeCache.BLOCK_BYTES
+        val desc = descriptor.copy(sizeBytes = size)
+        coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns desc
+        coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } answers { ByteArray(thirdArg()) { 7 } }
+        val manager = ArtifactDownloadManager(context, rest)
+        manager.videoRanges.read(manager.videoRanges.prepare(file, "mac-a"), 0)
+        coEvery { rest.downloadArtifactRange(any(), any(), any(), any(), any()) } coAnswers {
+            val target = secondArg<File>()
+            assertEquals(size / 2, target.length())
+            target.appendBytes(ByteArray((size / 2).toInt()) { 8 })
+        }
+        val task = manager.enqueue(file, "mac-a")
+        assertFalse(manager.runTask(task.id) {})
+        val bytes = manager.completedFile(manager.awaitTask(task.id)!!)!!.readBytes()
+        assertEquals(7.toByte(), bytes.first()); assertEquals(8.toByte(), bytes.last())
+        coVerify(exactly = 1) { rest.downloadArtifactRange(any(), any(), any(), any(), any()) }
     }
 
     @Test fun crash_recovery_keeps_only_committed_ranges_and_reuses_complete_files() = runBlocking {

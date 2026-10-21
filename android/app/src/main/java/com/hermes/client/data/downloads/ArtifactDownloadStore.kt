@@ -22,6 +22,7 @@ data class ArtifactDownloadTask(
     val sizeBytes: Long? = null,
     val downloaded: Long = 0,
     @kotlinx.serialization.Transient val progressBytes: Long? = null,
+    @kotlinx.serialization.Transient val waitingForPlayback: Boolean = false,
     val etag: String? = null,
     val errorCode: String? = null,
 )

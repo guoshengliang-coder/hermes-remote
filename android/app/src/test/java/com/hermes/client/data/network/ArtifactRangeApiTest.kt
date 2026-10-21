@@ -18,6 +18,26 @@ class ArtifactRangeApiTest {
     }
     private val descriptor = ArtifactDownloadDescriptor("a".repeat(64), 6, "\"${"b".repeat(64)}\"", "video/mp4", 1024)
 
+    @Test fun player_random_read_uses_a_closed_range_and_validates_generation() = runBlocking {
+        val api = api(); val owner = api.artifactOwnerKey("mac-a")!!
+        server.server.enqueue(MockResponse.Builder().code(206).addHeader("ETag", descriptor.etag)
+            .addHeader("Content-Range", "bytes 4-5/6").body("ef").build())
+        assertEquals("ef", api.readArtifactRange(descriptor, 4, 2, "mac-a", owner).decodeToString())
+        val request = server.server.takeRequest()
+        assertEquals("bytes=4-5", request.headers["Range"])
+        assertEquals(descriptor.etag, request.headers["If-Match"])
+        assertEquals("fixture-secret", request.headers["X-Hermes-Session-Token"])
+        for (response in listOf(
+            MockResponse.Builder().code(200).body("abcdef").build(),
+            MockResponse.Builder().code(206).addHeader("ETag", "wrong").addHeader("Content-Range", "bytes 4-5/6").body("ef").build(),
+            MockResponse.Builder().code(206).addHeader("ETag", descriptor.etag).addHeader("Content-Range", "bytes 0-1/6").body("ef").build(),
+        )) {
+            server.server.enqueue(response)
+            try { api.readArtifactRange(descriptor, 4, 2, "mac-a", owner); fail("unverified data accepted") }
+            catch (_: HermesApiException) { }
+        }
+    }
+
     @Test fun metadata_enables_large_files_only_when_both_peers_support_the_channel() = runBlocking {
         val api = api()
         for (enabled in listOf(true, false)) {

@@ -1918,10 +1918,14 @@ internal fun ChatFileList(
             // everywhere except two small icon buttons, so tapping the obvious target — the file
             // name — did nothing at all. A file still uploading or failed stays UNCLICKABLE: a
             // ripple that leads nowhere is the same dead end in a friendlier costume.
-            val openable = file.state == FileTransferState.READY &&
+            val video = isVideoAttachment(file)
+            val shareable = file.state == FileTransferState.READY &&
                 (file.remotePath != null || file.localPath != null) && !busy &&
                 (complete || (!info.tooLarge && !needsDownload))
-            val openLabel = localized(LocalAppLanguage.current, "打开文件", "Open file")
+            val openable = if (video) file.state == FileTransferState.READY &&
+                (file.remotePath != null || file.localPath != null) && (complete || !info.tooLarge) else shareable
+            val openLabel = if (video) localized(LocalAppLanguage.current, "播放视频", "Play video")
+                else localized(LocalAppLanguage.current, "打开文件", "Open file")
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
@@ -1964,13 +1968,18 @@ internal fun ChatFileList(
                         if (complete) {
                             Text(localized(LocalAppLanguage.current, "已下载", "Downloaded"),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (video && !info.tooLarge && task == null) {
+                            Text(if (info.limitKnown && !info.independentDownloads)
+                                localized(LocalAppLanguage.current, "当前服务需先下载再播放", "This service downloads before playback")
+                                else localized(LocalAppLanguage.current, "可在线播放，也可下载", "Play online or download"),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else if (needsDownload && !info.tooLarge && task == null) {
                             Text(localized(LocalAppLanguage.current, "请先下载，再打开或分享", "Download before opening or sharing"),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (task != null && !complete && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) {
                             val received = if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) task.progressBytes ?: task.downloaded else task.downloaded
-                            val status = when (task.status) {
+                            val status = if (task.waitingForPlayback) localized(LocalAppLanguage.current, "为播放让路", "Waiting for playback") else when (task.status) {
                                 com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED -> localized(LocalAppLanguage.current, "已暂停", "Paused")
                                 com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "等待重试", "Waiting to retry")
                                 com.hermes.client.data.downloads.ArtifactDownloadStatus.QUEUED -> localized(LocalAppLanguage.current, "等待下载", "Queued")
@@ -2021,7 +2030,7 @@ internal fun ChatFileList(
                         // does not get two entry points.
                         FileTransferState.READY -> {
                             if (file.remotePath != null || file.localPath != null) {
-                                IconButton(onClick = { onShare(file) }, enabled = openable, modifier = Modifier.size(38.dp)) {
+                                IconButton(onClick = { onShare(file) }, enabled = shareable, modifier = Modifier.size(38.dp)) {
                                     Icon(Icons.Rounded.Share, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(19.dp))
                                 }
                             }
