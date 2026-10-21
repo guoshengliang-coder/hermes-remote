@@ -63,6 +63,8 @@ export interface MessageRow {
   id?: number | null;
   role: string;
   content?: MessageContent;
+  /** Upstream display-only compaction projection; absent on older Hermes. */
+  display_content?: MessageContent;
   /** `REAL NOT NULL`, Unix **seconds** as a float. Not `created_at`, not ISO. */
   timestamp?: number | null;
   /** Never emitted by upstream; accepted as a fallback only. */

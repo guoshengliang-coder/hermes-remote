@@ -436,21 +436,20 @@ internal fun showsTimeSeparator(previousTs: Long?, ts: Long?, gapMinutes: Long =
  * position and per-role ordinal identified the same turn on both sides. A transcript held in pages
  * breaks that: the phone may hold older pages the snapshot does not carry, or (after a gap) the
  * snapshot may start with rows the phone never had. Both ends are measured by [ChatMessage.serverId];
- * rows without one (live, unpersisted turns, or a gateway that sends no ids) never count as outside,
- * so lists that start at the same row get `(0, 0)` and the old behaviour exactly.
+ * IDs identify shared rows; their numeric values do not order a compacted display view. With no
+ * shared ID, only the pending local tail can inherit history identities by role ordinal.
  */
 internal fun windowSkips(history: List<ChatMessage>, current: List<ChatMessage>): Pair<Int, Int> {
-    val historyStart = history.firstOrNull()?.serverId
-    val currentStart = current.firstOrNull()?.serverId
-    val skipCurrent = if (historyStart == null) 0 else current.takeWhile { message ->
-        val id = message.serverId
-        id != null && id < historyStart
-    }.size
-    val skipHistory = if (currentStart == null) 0 else history.takeWhile { message ->
-        val id = message.serverId
-        id != null && id < currentStart
-    }.size
-    return skipHistory to skipCurrent
+    val positions = current.mapIndexedNotNull { i, message -> message.serverId?.let { it to i } }.toMap()
+    history.forEachIndexed { i, message ->
+        val shared = message.serverId?.let { positions[it] }
+        if (shared != null) return i to shared
+    }
+    // Before REST has assigned IDs, retain the existing per-role live-tail alignment.
+    // Otherwise there is no shared identity and no safe numeric ordering to infer.
+    val pendingStart = current.indexOfFirst { it.serverId == null }
+    return if (history.firstOrNull()?.serverId == null) 0 to 0
+        else 0 to if (pendingStart >= 0) pendingStart else current.size
 }
 
 /**
@@ -503,23 +502,22 @@ internal fun alignMessageIds(history: List<ChatMessage>, current: List<ChatMessa
  */
 internal fun graftOlderHead(incoming: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> {
     val start = incoming.firstOrNull()?.serverId ?: return incoming
-    val overlaps = current.any { message -> message.serverId?.let { it >= start } == true }
-    if (!overlaps) return incoming
-    val head = current.takeWhile { message ->
-        val id = message.serverId
-        id != null && id < start
-    }
-    return if (head.isEmpty()) incoming else head + incoming
+    val boundary = current.indexOfFirst { it.serverId == start }
+    if (boundary <= 0) return incoming
+    val incomingIds = incoming.mapNotNullTo(HashSet()) { it.serverId }
+    val head = current.take(boundary).filterNot { it.serverId in incomingIds }
+    return head + incoming
 }
 
 /**
  * The rows of [current] a snapshot starting at [snapshotStart] can speak for: everything except
  * held rows older than it. A null start (no ids) means all of them, as before paging.
  */
-internal fun rowsFrom(current: List<ChatMessage>, snapshotStart: Long?): List<ChatMessage> =
-    if (snapshotStart == null) current else current.filter { message ->
-        message.serverId?.let { it >= snapshotStart } ?: true
-    }
+internal fun rowsFrom(current: List<ChatMessage>, snapshotStart: Long?): List<ChatMessage> {
+    if (snapshotStart == null) return current
+    val boundary = current.indexOfFirst { it.serverId == snapshotStart }
+    return if (boundary >= 0) current.drop(boundary) else current.filter { it.serverId == null }
+}
 
 /**
  * Older rows to put in front of [current] from [merged], the whole transcript after an older page
@@ -529,11 +527,10 @@ internal fun rowsFrom(current: List<ChatMessage>, snapshotStart: Long?): List<Ch
  */
 internal fun olderRowsFor(merged: List<ChatMessage>, current: List<ChatMessage>): List<ChatMessage> {
     val first = current.firstOrNull()?.serverId ?: return emptyList()
-    val ids = current.mapTo(HashSet()) { it.id }
-    return merged.filter { message ->
-        val id = message.serverId
-        id != null && id < first && message.id !in ids
-    }
+    val boundary = merged.indexOfFirst { it.serverId == first }
+    if (boundary <= 0) return emptyList()
+    val held = current.mapNotNullTo(HashSet()) { it.serverId }
+    return merged.take(boundary).filter { it.serverId != null && it.serverId !in held }
 }
 
 /**

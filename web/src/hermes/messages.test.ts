@@ -113,3 +113,14 @@ describe("toolLabel", () => {
     expect(toolLabel("tool_call", null)).toBe("tool_call");
   });
 });
+
+
+it("prefers upstream compaction display_content and keeps raw-content legacy fallback", () => {
+  const messages = parseHistory([
+    { id: 90, role: "user", content: "old context and machine summary", display_content: "real live ask" },
+    { id: 3, role: "assistant", content: "answer" },
+    { id: 4, role: "user", content: "legacy" },
+  ]);
+  expect(messages.map((m) => m.text)).toEqual(["real live ask", "answer", "legacy"]);
+  expect(parseHistory([{ id: 5, role: "user", content: "machine", display_content: "" }])).toEqual([]);
+});

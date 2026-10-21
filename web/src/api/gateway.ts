@@ -239,7 +239,7 @@ export const hermesPaths = {
   profileSessions: "profiles/sessions",
   /** `inline_images=false` keeps base64 images out of the page (Android does the same). */
   messages: (sessionId: string, profile?: string | null, page?: MessagesPage, preview = false) =>
-    `sessions/${encodePathSegment(sessionId)}/messages?inline_images=false${profile ? `&profile=${encodeURIComponent(profile)}` : ""}${
+    `sessions/${encodePathSegment(sessionId)}/messages?inline_images=false&include_compacted=true${profile ? `&profile=${encodeURIComponent(profile)}` : ""}${
       page ? `&order=${page.order}&limit=${page.limit}&offset=${page.offset}` : ""
     }${preview ? "&hr_preview=1" : ""}`,
   /** Message search, with the non-conversation sources excluded like Android does. */

@@ -35,52 +35,29 @@ function idOf(row: MessageRow): number | null {
   return typeof row.id === "number" && Number.isFinite(row.id) ? row.id : null;
 }
 
-function minId(rows: readonly MessageRow[]): number | null {
-  let min: number | null = null;
-  for (const row of rows) {
-    const id = idOf(row);
-    if (id !== null && (min === null || id < min)) min = id;
-  }
-  return min;
-}
-
-function maxId(rows: readonly MessageRow[]): number | null {
-  let max: number | null = null;
-  for (const row of rows) {
-    const id = idOf(row);
-    if (id !== null && (max === null || id > max)) max = id;
-  }
-  return max;
-}
-
 /**
- * Merge a freshly fetched newest page into the rows already loaded.
- *
- * The page is authoritative for everything from its oldest row onwards (a row deleted or rewritten
- * there disappears or changes, exactly as the old full reload did); loaded rows older than it are
- * kept. `reset` means the page replaces everything and the paging state starts over: nothing was
- * loaded, a row has no id to merge by, the page is the whole conversation (`full` false), or the
- * page does not reach back to the loaded rows (more than a page arrived meanwhile: a gap).
+ * Compaction chooses new representative IDs for old logical messages. Respect server display
+ * order and join only at an actual boundary identity; numeric IDs cannot establish chronology.
+ * An unknown gap resets the window so older pages can fill it without inventing adjacency.
  */
 export function mergeTail(existing: readonly MessageRow[], page: readonly MessageRow[], full: boolean): { rows: MessageRow[]; reset: boolean } {
-  if (!existing.length || !full || !page.length) return { rows: [...page], reset: true };
-  if (existing.some((r) => idOf(r) === null) || page.some((r) => idOf(r) === null)) return { rows: [...page], reset: true };
-  const oldestInPage = minId(page)!;
-  if (oldestInPage > maxId(existing)!) return { rows: [...page], reset: true };
-  return { rows: [...existing.filter((r) => idOf(r)! < oldestInPage), ...page], reset: false };
+  const reset = () => ({ rows: [...page], reset: true });
+  if (!existing.length || !full || !page.length) return reset();
+  if (existing.some((r) => idOf(r) === null) || page.some((r) => idOf(r) === null)) return reset();
+  const boundary = existing.findIndex((r) => idOf(r) === idOf(page[0]!));
+  if (boundary < 0) return reset();
+  const pageIds = new Set(page.map(idOf));
+  return { rows: [...existing.slice(0, boundary).filter((r) => !pageIds.has(idOf(r))), ...page], reset: false };
 }
 
-/**
- * Prepend an older page. Offsets drift forward when new rows arrive after the first load, so the
- * page may overlap what is loaded; only rows older than the oldest loaded one are taken.
- */
+/** Only the prefix before the first held row precedes the window; offsets can drift newer. */
 export function mergeOlder(existing: readonly MessageRow[], older: readonly MessageRow[]): MessageRow[] {
-  const oldest = minId(existing);
-  if (oldest === null) return existing.length ? [...existing] : [...older];
-  return [...older.filter((r) => {
-    const id = idOf(r);
-    return id !== null && id < oldest;
-  }), ...existing];
+  if (!existing.length) return [...older];
+  if (existing.some((r) => idOf(r) === null)) return [...existing];
+  const held = new Set(existing.map(idOf));
+  const overlap = older.findIndex((r) => held.has(idOf(r)));
+  const prefix = overlap < 0 ? older : older.slice(0, overlap);
+  return [...prefix.filter((r) => idOf(r) !== null), ...existing];
 }
 
 /** Rows of `page` that are older than everything in `existing` (what an older page adds). */

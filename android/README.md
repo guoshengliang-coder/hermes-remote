@@ -1157,3 +1157,12 @@ Per-table settings are local and scoped; the global Data presentation setting an
 are no longer used. The shared renderer remains isolated without credentials or network access.
 See `../docs/DESIGN.md` §5.22, `../docs/ANDROID_SMOKE.md` and
 `../docs/TABLE_CHART_FULLSCREEN_VERIFICATION.md`.
+
+
+HG-224 reads compaction-archived display history for chat, older pages, prompt lists, search,
+sharing/attachments and full tool/reasoning rows. Pages retain upstream logical order even when
+representative row IDs go backwards. Older requests overlap one boundary row and fail safely
+with retryable HR-SYNC-001 if the window moved; retry refreshes the tail. Android invalidates its
+old active-only disk windows once. Old Hermes without display projections retains the existing
+content parser. No upstream code/schema, Gateway/Connector runtime, credentials or versions change.
+Real incident history and physical-device acceptance remain in `docs/SMOKE_TEST.md` (HG-224).

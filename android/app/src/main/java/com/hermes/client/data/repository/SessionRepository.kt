@@ -351,8 +351,10 @@ class SessionRepository(
             do {
                 val raw = rest.messagesRaw(
                     sessionId, profile, deviceId,
-                    limit = TranscriptWindow.HISTORY_PAGE_SIZE,
-                    offset = (before?.serverRows ?: 0) + skip,
+                    // Include one held boundary row: IDs can go backwards after compaction,
+                    // so only an actual overlap proves that this page precedes the window.
+                    limit = TranscriptWindow.HISTORY_PAGE_SIZE + 1,
+                    offset = maxOf(0, (before?.serverRows ?: 0) - 1) + skip,
                     order = MessageOrder.LATEST,
                     preview = true,
                 )
@@ -362,7 +364,21 @@ class SessionRepository(
                 result = windowLock.withLock {
                     // Re-read: a tail merge may have landed while the page was in flight.
                     val current = knownWindow(key) ?: TranscriptWindow(emptyList(), reachedStart = false)
-                    val merge = TranscriptWindow.mergeOlder(current, page, TranscriptWindow.HISTORY_PAGE_SIZE)
+                    // A refresh may have reset to another compaction generation or reached the
+                    // beginning while this request travelled. Its old offset no longer names the
+                    // current window; do not revive removed/rewound rows from the stale page.
+                    if (current.reachedStart || (before != null && before.rows.isNotEmpty() &&
+                            current.rows.none { it["id"] == before.rows.first()["id"] })) {
+                        return@withLock OlderHistoryPage(mapWindow(current), current.reachedStart, added = 0)
+                    }
+                    val boundary = current.rows.firstOrNull()?.get("id")
+                    if (boundary != null && page.none { it["id"] == boundary }) {
+                        if (page.size < TranscriptWindow.HISTORY_PAGE_SIZE + 1 || attempt == OLDER_PAGE_MAX_ATTEMPTS) {
+                            throw com.hermes.client.data.error.HistoryPageChangedException()
+                        }
+                        return@withLock OlderHistoryPage(mapWindow(current), reachedStart = false, added = 0)
+                    }
+                    val merge = TranscriptWindow.mergeOlder(current, page, TranscriptWindow.HISTORY_PAGE_SIZE + 1)
                     val committed = commitWindow(key, merge.window)
                     OlderHistoryPage(committed.messages, merge.window.reachedStart, merge.added)
                 }

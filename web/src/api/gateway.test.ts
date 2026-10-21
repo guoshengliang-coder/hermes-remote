@@ -45,14 +45,14 @@ describe("paths", () => {
     expect(encodePathSegment("mac mini+1/(x)!'~*")).toBe("mac%20mini%2B1%2F%28x%29%21%27%7E*");
     expect(paths.deviceApi("dev 1", "sessions")).toBe("/v2/devices/dev%201/api/sessions");
     expect(paths.deviceApi("d", "/api/sessions/abc/messages")).toBe("/v2/devices/d/api/sessions/abc/messages");
-    expect(paths.deviceApi("d", hermesPaths.messages("20260918_204034_16def7"))).toBe("/v2/devices/d/api/sessions/20260918_204034_16def7/messages?inline_images=false");
-    expect(hermesPaths.messages("s1", "work team")).toBe("sessions/s1/messages?inline_images=false&profile=work%20team");
+    expect(paths.deviceApi("d", hermesPaths.messages("20260918_204034_16def7"))).toBe("/v2/devices/d/api/sessions/20260918_204034_16def7/messages?inline_images=false&include_compacted=true");
+    expect(hermesPaths.messages("s1", "work team")).toBe("sessions/s1/messages?inline_images=false&include_compacted=true&profile=work%20team");
     expect(hermesPaths.messages("s1", "work", { order: "latest", limit: 100, offset: 200 })).toBe(
-      "sessions/s1/messages?inline_images=false&profile=work&order=latest&limit=100&offset=200",
+      "sessions/s1/messages?inline_images=false&include_compacted=true&profile=work&order=latest&limit=100&offset=200",
     );
-    expect(hermesPaths.messages("s1", null, { order: "oldest", limit: 500, offset: 0 })).toBe("sessions/s1/messages?inline_images=false&order=oldest&limit=500&offset=0");
+    expect(hermesPaths.messages("s1", null, { order: "oldest", limit: 500, offset: 0 })).toBe("sessions/s1/messages?inline_images=false&include_compacted=true&order=oldest&limit=500&offset=0");
     expect(hermesPaths.messages("s1", "work", { order: "latest", limit: 100, offset: 0 }, true)).toBe(
-      "sessions/s1/messages?inline_images=false&profile=work&order=latest&limit=100&offset=0&hr_preview=1",
+      "sessions/s1/messages?inline_images=false&include_compacted=true&profile=work&order=latest&limit=100&offset=0&hr_preview=1",
     );
   });
 
@@ -89,7 +89,7 @@ describe("GatewayClient requests", () => {
     const { client, calls } = fake(() => json(200, { messages: [{ id: 42, role: "tool", content: "full" }] }));
     await expect(client.fullHistoryRow("dev", { sessionId: "s1", profile: "work", rowId: 42, offset: 100 }))
       .resolves.toMatchObject({ messages: [{ content: "full" }] });
-    expect(calls[0]!.url).toBe("/v2/devices/dev/api/sessions/s1/messages?inline_images=false&profile=work&hr_full_message_id=42&hr_full_offset=100");
+    expect(calls[0]!.url).toBe("/v2/devices/dev/api/sessions/s1/messages?inline_images=false&include_compacted=true&profile=work&hr_full_message_id=42&hr_full_offset=100");
   });
   it("GET: same-origin credentials, no CSRF header, parses JSON", async () => {
     const { client, calls } = fake(() => json(200, { sessions: [] }));
@@ -172,7 +172,7 @@ describe("single-flight refresh", () => {
     expect(results.map((r) => (r as unknown as { ok: string }).ok)).toEqual([
       "/v2/devices/d/api/sessions",
       "/v2/devices/d/api/profiles/sessions",
-      "/v2/devices/d/api/sessions/s1/messages?inline_images=false",
+      "/v2/devices/d/api/sessions/s1/messages?inline_images=false&include_compacted=true",
     ]);
     const refreshCall = calls.find((c) => c.url === paths.refresh)!;
     expect(refreshCall.method).toBe("POST");

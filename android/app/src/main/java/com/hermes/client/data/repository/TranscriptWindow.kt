@@ -29,12 +29,13 @@ internal data class TranscriptWindow(
     /** True once the oldest row of the conversation is in [rows]: there is nothing older to load. */
     val reachedStart: Boolean,
 ) {
-    /** How many server rows are held — the `offset` of the next older page. */
+    /** Held raw rows, including tools/hidden carriers; older reads overlap one boundary row. */
     val serverRows: Int get() = rows.size
 
     fun payload(): String = buildJsonObject {
         put("messages", JsonArray(rows))
         put(REACHED_START_KEY, reachedStart)
+        put("hr_history_view", "compacted-v1")
     }.toString()
 
     companion object {
@@ -42,9 +43,8 @@ internal data class TranscriptWindow(
         const val HISTORY_PAGE_SIZE = 100
 
         /**
-         * Client-side marker on a stored window. A payload without it is either a REST body or a
-         * transcript cached before paging existed; both are treated as "may have older rows", and
-         * the first older-page request settles it for the price of one small response.
+         * Client-side completeness marker on the versioned compacted-display window. Legacy
+         * active-only windows are invalidated, including any old reached-start marker.
          */
         const val REACHED_START_KEY = "hr_reached_start"
 
@@ -64,55 +64,40 @@ internal data class TranscriptWindow(
             return array.map { it as? JsonObject ?: throw SerializationException("transcript row is not an object") }
         }
 
-        /** A window read back from disk; null when the payload no longer parses. */
+        /** Null for unreadable or legacy active-only payloads; the caller refetches. */
         fun fromStored(raw: String): TranscriptWindow? = runCatching {
             val root = parser.parseToJsonElement(raw) as? JsonObject ?: return@runCatching null
+            // Active-only windows may have holes in their middle, not just a missing prefix.
+            // Refetch them instead of trusting their row count or old reached-start marker.
+            if ((root["hr_history_view"] as? JsonPrimitive)?.content != "compacted-v1") return@runCatching null
             val reached = (root[REACHED_START_KEY] as? JsonPrimitive)?.booleanOrNull ?: false
             TranscriptWindow(rowsOf(raw), reached)
         }.getOrNull()
 
         /**
-         * Merge a freshly fetched newest page into [known].
-         *
-         * - A page shorter than [limit] is the whole conversation: it replaces everything.
-         * - Otherwise the rows of [known] that are OLDER than the page's first row are kept in
-         *   front of it, and the overlapping rows are replaced by the page's (they may have been
-         *   rewritten, or the phone's copy may predate the end of a turn).
-         * - That is only sound when [known] reaches into the page. If every known row is older
-         *   than the page, more rows than one page were added since, and the gap between the two
-         *   is unknown: the known rows are dropped rather than shown out of order, and scrolling up
-         *   loads the gap like any other older page.
+         * The server orders logical messages, not representative row IDs: compaction copies the
+         * protected tail under new IDs. Join at the first row's identity and keep page order.
+         * With no boundary overlap the gap is unknown, so discard the old window and page again.
          */
         fun mergeTail(known: TranscriptWindow?, tail: List<JsonObject>, limit: Int): TranscriptWindow {
             if (tail.size < limit) return TranscriptWindow(tail, reachedStart = true)
-            val first = tail.first().rowId() ?: return TranscriptWindow(tail, reachedStart = false)
-            if (known == null || known.rows.isEmpty()) return TranscriptWindow(tail, reachedStart = false)
-            val knownIds = known.rows.map { it.rowId() }
-            if (knownIds.any { it == null }) return TranscriptWindow(tail, reachedStart = false)
-            if (knownIds.none { it!! >= first }) return TranscriptWindow(tail, reachedStart = false)
-            val older = known.rows.filter { it.rowId()!! < first }
-            return TranscriptWindow(older + tail, reachedStart = known.reachedStart)
+            val first = tail.firstOrNull()?.rowId() ?: return TranscriptWindow(tail, false)
+            val boundary = known?.rows?.indexOfFirst { it.rowId() == first } ?: -1
+            if (boundary < 0) return TranscriptWindow(tail, false)
+            val tailIds = tail.mapNotNullTo(HashSet()) { it.rowId() }
+            val older = known!!.rows.take(boundary).filterNot { it.rowId() in tailIds }
+            return TranscriptWindow(older + tail, known.reachedStart)
         }
 
         /**
-         * Prepend an older [page] (fetched with `offset = window.serverRows`) to [window].
-         *
-         * Rows already held are dropped: if the conversation grew since the window was loaded,
-         * the offset now points a few rows too new and the page overlaps. Only rows strictly older
-         * than the window's first row are taken. Only a page shorter than [limit] means the start
-         * has been reached. A full page that adds nothing (more than a page was added upstream
-         * since, so it lies entirely inside rows already held) is NOT the start: the caller skips
-         * one page further and asks again — see [SessionRepository.olderHistory].
+         * Older pages are already in display order. Only their prefix before the first held
+         * identity is older; rows after that boundary may be newer than the whole window when
+         * offsets drift during a run. A disjoint page is the preceding page, regardless of IDs.
          */
         fun mergeOlder(window: TranscriptWindow, page: List<JsonObject>, limit: Int): OlderMerge {
-            val first = window.rows.firstOrNull()?.rowId()
             val held = window.rows.mapNotNullTo(HashSet()) { it.rowId() }
-            val fresh = page.filter { row ->
-                val id = row.rowId() ?: return@filter false
-                id !in held && (first == null || id < first)
-            }
-            val reached = page.size < limit
-            return OlderMerge(TranscriptWindow(fresh + window.rows, reached), added = fresh.size)
+            val fresh = page.takeWhile { it.rowId() !in held }.filter { it.rowId() != null }
+            return OlderMerge(TranscriptWindow(fresh + window.rows, page.size < limit), fresh.size)
         }
 
         private fun JsonObject.rowId(): Long? = (this["id"] as? JsonPrimitive)?.longOrNull

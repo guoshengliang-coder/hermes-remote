@@ -492,3 +492,10 @@ The website gate authorizes website downloads only; it does not authorize a clie
 | `HR-CHART-003` | A requested filter extends beyond the source table. Recovery: reset the local filter or prepare a fresh-data question for the user to review and send. This is not a network request. | 所需范围超出原表，请准备重新取数提问并检查后发送。 | The requested range exceeds the table. Prepare a new-data question, review it, then send. | No |
 
 Unsuitable data, ambiguous columns and duplicate dimensions are explanatory empty states, not renderer failures. They never replace the original table. Technical diagnostics contain codes/stages only; table contents and credentials are excluded.
+
+
+HG-224 uses the existing retryable `HR-SYNC-001` when an older-history page cannot be joined to
+its held boundary after bounded reads. The shown transcript remains; retry resynchronizes the
+latest page before paging again. Diagnostics contain only the fixed boundary-failure explanation,
+not message text, row IDs, profile/device identifiers or credentials. The registered Chinese/English
+summary and meaning are unchanged; no new error code is allocated.
