@@ -15,6 +15,17 @@ import java.io.IOException
  * blip were indistinguishable, and the reported direction was backwards.
  */
 class ArtifactErrorsTest {
+    @Test fun independent_download_errors_have_bilingual_copy_retryability_and_redaction() {
+        for ((value, retryable) in listOf("HR-FILE-011" to false, "HR-FILE-012" to false,
+            "HR-FILE-013" to true, "HR-FILE-014" to false, "HR-FILE-015" to true)) {
+            val error = artifactDownloadError(HermesApiException(500, "Authorization: Bearer private", errorCode = value))
+            assertEquals(value, error.code.value)
+            assertEquals(retryable, error.retryable)
+            assertTrue(error.localizedMessage(AppLanguage.ZH).contains(value))
+            assertTrue(error.localizedMessage(AppLanguage.EN).contains(value))
+            assertFalse(error.sanitizedDiagnostic().contains("private"))
+        }
+    }
 
     @Test fun forbidden_path_is_not_retryable_and_keeps_its_own_code() {
         val error = artifactDownloadError(HermesApiException(403, "forbidden"))

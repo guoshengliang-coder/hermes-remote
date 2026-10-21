@@ -171,6 +171,38 @@ export function renderNginxConfig(config) {
         proxy_send_timeout 3600s;
     }
 
+    location /api/file-channel/ {
+        proxy_pass ${gateway};
+        client_max_body_size 8m;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 75s;
+        proxy_send_timeout 75s;
+    }
+
+    location /api/files/downloads/ {
+        proxy_pass ${gateway};
+        client_max_body_size 8m;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 75s;
+        proxy_send_timeout 75s;
+    }
+
     location /api/ {
         proxy_pass ${gateway};
         proxy_http_version 1.1;

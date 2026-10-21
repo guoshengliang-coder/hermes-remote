@@ -1967,12 +1967,25 @@ browser/Android consumer evidence and repeatable isolated smoke drivers are reco
 device appearance, Service Worker behavior and production recovery still require their own gates;
 an emulator cannot certify vendor behavior, and local source verification is not a published artifact.
 
-## HG-222 attachment metadata
+## HG-222 independent attachment channel
 
-After a separately authorized Gateway/Connector/Android rollout, verify an allowed small MP4,
-an allowed oversized MP4, a missing file and a forbidden path. HEAD must return exact original
-size with no payload even above the cap; missing/forbidden paths remain 404/403. Neither a HEAD
-nor an oversized GET may disconnect the control socket. Inspect the card before tapping: type,
-size and HR-FILE-004/recovery are visible for the oversized file and both open/share are disabled.
-Small files still download completely before opening in the phone player. Reopen with an older
-Connector: metadata stays unknown and the existing GET error boundary remains available.
+After separately authorized Gateway/Connector/Android rollout:
+
+- HEAD ordinary/large files returns exact original metadata without a body. New capability requires
+  both Gateway and the selected Mac; legacy GET retains MAX_FILE_BYTES and thumbnail behavior.
+- POST prepare returns opaque IDs, never original paths. New GET URLs contain only opaque IDs.
+  Verify Range/ETag/Content-Range and cancellation. A wrong/replayed return ticket is refused.
+- Transfer a 1 GiB fixture while chatting. Observe bounded Mac/Gateway memory, progress, heartbeat
+  health, latency and cancellation. Public HTTPS Nginx routes must disable request/response buffering
+  in both legacy and device-scoped paths. This is a real-network gate, not proof from loopback.
+- Interrupt the phone and the Mac independently. Resume the exact generation, invalidate replaced
+  sources, and reject access after account/session/installation/binding revocation or Mac replacement.
+- Verify actual-cap HR-FILE-004, changed-source HR-FILE-011, unavailable-channel HR-FILE-012,
+  capacity HR-FILE-013, storage HR-FILE-014 and expired-reference HR-FILE-015, with recovery actions.
+- Roll back one component: small legacy opening remains; large independent downloads must not
+  silently use control-stream bodies. No directory listing or public unauthenticated file access.
+
+Local 2026-10-21 real-process loopback transferred 1,073,741,824 bytes in about 21.4 seconds with
+paced 128 MiB/s fixture configuration. Observed RSS peaks: Mac 109,664 KiB, Gateway 126,864 KiB;
+maximum concurrent mock-command response was 26 ms. This proves neither mobile-network throughput
+nor real Hermes/OEM latency; production defaults pace file output at 4 MiB/s.

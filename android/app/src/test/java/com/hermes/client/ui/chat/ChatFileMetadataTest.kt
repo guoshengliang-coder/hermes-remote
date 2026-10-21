@@ -14,9 +14,10 @@ class ChatFileMetadataTest {
 
     @Test fun exact_limit_is_allowed_but_one_more_byte_is_not() {
         assertFalse(FileCardInfo(ARTIFACT_DOWNLOAD_LIMIT_BYTES).tooLarge)
-        assertTrue(FileCardInfo(ARTIFACT_DOWNLOAD_LIMIT_BYTES + 1).tooLarge)
+        assertTrue(FileCardInfo(ARTIFACT_DOWNLOAD_LIMIT_BYTES + 1, limitKnown = true).tooLarge)
+        assertFalse(FileCardInfo(ARTIFACT_DOWNLOAD_LIMIT_BYTES + 1).tooLarge)
         assertFalse(FileCardInfo().tooLarge)
-        assertTrue(FileCardInfo(51, 50).tooLarge)
+        assertTrue(FileCardInfo(51, 50, limitKnown = true).tooLarge)
         assertEquals("100.1 MiB", artifactSizeLabel(ARTIFACT_DOWNLOAD_LIMIT_BYTES + 1))
     }
 

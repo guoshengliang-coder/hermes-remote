@@ -24,6 +24,7 @@
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Launcher icon badge on Huawei/HONOR; both skins ignore the AOSP notification dot and
@@ -85,6 +86,10 @@
             android:name=".notifications.GatewayConnectionService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service android:name=".data.downloads.ArtifactTransferService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".data.downloads.ArtifactTransferJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <receiver android:name=".data.downloads.ArtifactDownloadActionReceiver" android:exported="false" />
+        <activity android:name=".data.downloads.ArtifactDownloadOpenActivity" android:exported="false" android:excludeFromRecents="true" />
         <service
             android:name=".notifications.LifecycleEventJobService"
             android:exported="false"

@@ -733,6 +733,12 @@ fun ChatScreen(
     }
 
     val fileMetadata = remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { ChatFileMetadataState(vm::fileMetadata) }
+    val fileTasks by vm.fileDownloads.collectAsStateWithLifecycle()
+    var fileOwner by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { mutableStateOf<String?>(null) }
+    LaunchedEffect(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { fileOwner = vm.fileDownloadOwner() }
+    val scopedFileTasks = fileTasks.filter { it.owner == fileOwner &&
+        (it.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE || vm.completedDownload(it) != null) }
+    val fileLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
     var oversizedFile by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { mutableStateOf<com.hermes.client.domain.ChatFile?>(null) }
     oversizedFile?.let { file ->
         AlertDialog(
@@ -747,7 +753,11 @@ fun ChatScreen(
 
     fun handleFile(file: com.hermes.client.domain.ChatFile, share: Boolean) {
         val info = fileMetadata.info(file)
-        if (info.tooLarge) {
+        val savedTask = scopedFileTasks.firstOrNull { it.remotePath == file.remotePath }
+        val saved = savedTask?.let(vm::completedDownload)
+        val fileMimeType = file.mimeType ?: savedTask?.mimeType ?: android.webkit.MimeTypeMap.getSingleton()
+            .getMimeTypeFromExtension(file.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) ?: "application/octet-stream"
+        if (info.tooLarge && saved == null) {
             oversizedFile = file
             return
         }
@@ -756,7 +766,10 @@ fun ChatScreen(
             localized(language, "正在准备文件…", "Preparing file…"),
             android.widget.Toast.LENGTH_SHORT,
         ).show()
-        vm.fetchFile(file.copy(sizeBytes = info.sizeBytes)) { result ->
+        val requestedWorkspace = vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)
+        vm.fetchFile(file.copy(sizeBytes = info.sizeBytes, localPath = saved?.path ?: file.localPath)) fileResult@ { result ->
+            if (!fileLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) ||
+                requestedWorkspace != vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) return@fileResult
             result.onSuccess { local ->
                 val contentUri = FileProvider.getUriForFile(
                     context,
@@ -765,12 +778,12 @@ fun ChatScreen(
                 )
                 val intent = if (share) {
                     android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                        type = file.mimeType ?: "application/octet-stream"
+                        type = fileMimeType
                         putExtra(android.content.Intent.EXTRA_STREAM, contentUri)
                     }
                 } else {
                     android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                        setDataAndType(contentUri, file.mimeType ?: "application/octet-stream")
+                        setDataAndType(contentUri, fileMimeType)
                     }
                 }.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 runCatching {
@@ -1137,6 +1150,9 @@ fun ChatScreen(
         LocalBotOrigin provides botOrigin,
         LocalLocallySentIds provides locallySentIds,
         LocalChatFileMetadata provides fileMetadata,
+        LocalChatFileDownloads provides ChatFileDownloads(scopedFileTasks,
+            download = { file -> vm.downloadFile(file) { error -> showAttachmentError(com.hermes.client.data.error.artifactDownloadError(error).localizedMessage(language)) } },
+            pause = vm::pauseFileDownload, cancel = vm::cancelFileDownload),
     ) {
     // HG-146: the recording surface is a full-screen layer over the chat (scrim + card + swipe
     // targets + "正在聆听" dome), so the Scaffold is boxed instead of squeezing it into the bar.

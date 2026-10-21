@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, open } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { WebSocket } from "ws";
 import {
@@ -482,6 +483,113 @@ test("legacy control preserves authentication, status, and Connector replacement
     sockets.forEach((socket) => socket.close());
     await stopGateway(gateway);
   }
+});
+
+test("HG-222: real Mac process returns binary ranges outside the control channel", {
+  ...networkTestOptions, timeout: 90_000,
+}, async (t) => {
+  const gateway = await startGateway({ REQUEST_TIMEOUT_MS: "5000" });
+  t.after(() => stopGateway(gateway));
+  const file = join(gateway.dataRoot, "video.mp4");
+  const bytes = Buffer.alloc(2 * 1024 * 1024 + 7, 37);
+  await writeFile(file, bytes);
+  let output = "";
+  const mac = spawn(process.execPath, [fileURLToPath(new URL("../../connector/dist/index.js", import.meta.url))], {
+    env: { PATH: process.env.PATH, HOME: gateway.dataRoot, TMPDIR: gateway.dataRoot,
+      CONNECTOR_MODE: "legacy", HERMES_MODE: "mock", SESSION_OBSERVER_ENABLED: "0",
+      DEVICE_ID: gateway.deviceId, GATEWAY_URL: `${gateway.wsOrigin}/v1/connect`,
+      CONNECTOR_TOKEN: gateway.connectorToken, HERMES_SESSION_TOKEN: "fixture-local-only",
+      HERMES_BASE_URL: gateway.origin, FILES_ROOT: gateway.dataRoot,
+      MAX_FILE_BYTES: "1048576", FILE_DOWNLOAD_BYTES_PER_SECOND: "134217728" }, stdio: "pipe",
+  });
+  mac.stdout.on("data", (chunk) => { output += chunk.toString(); });
+  mac.stderr.on("data", (chunk) => { output += chunk.toString(); });
+  t.after(async () => {
+    const exited = new Promise<void>((resolve) => mac.exitCode !== null ? resolve() : mac.once("exit", () => resolve()));
+    mac.kill("SIGTERM"); await exited;
+  });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { clearInterval(poll); reject(new Error("Mac startup timeout")); }, 5000);
+    const poll = setInterval(() => {
+      if (output.includes("Connected to gateway")) { clearInterval(poll); clearTimeout(timer); resolve(); }
+      if (mac.exitCode !== null) { clearInterval(poll); clearTimeout(timer); reject(new Error("Mac exited")); }
+    }, 20);
+  });
+  const headers = { "x-hermes-session-token": gateway.appToken };
+  const metadata = await fetch(`${gateway.origin}/api/files?path=${encodeURIComponent(file)}`, { method: "HEAD", headers });
+  assert.equal(metadata.headers.get("x-hermes-file-channel"), "1");
+  assert.equal((await fetch(`${gateway.origin}/api/files?path=${encodeURIComponent(file)}`, { headers })).status, 413,
+    "old GET keeps its old cap");
+  const prepared = await fetch(`${gateway.origin}/api/files/downloads`, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ path: file }),
+  });
+  assert.equal(prepared.status, 200);
+  assert.equal(prepared.headers.get("x-hermes-file-channel"), "1");
+  const descriptor = await prepared.json() as { artifactId: string; etag: string; sizeBytes: number };
+  assert.equal(descriptor.sizeBytes, bytes.length);
+  assert.match(descriptor.artifactId, /^[a-f0-9]{64}$/);
+  assert.ok(!JSON.stringify(descriptor).includes(file));
+  const target = `${gateway.origin}/api/files/downloads/${descriptor.artifactId}`;
+  assert.equal((await fetch(target, { headers: { "if-match": descriptor.etag } })).status, 401);
+  const part = await fetch(target, { headers: { ...headers, "if-match": descriptor.etag, range: "bytes=100-999999" } });
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get("content-range"), `bytes 100-999999/${bytes.length}`);
+  assert.equal(part.headers.get("etag"), descriptor.etag);
+  assert.deepEqual(Buffer.from(await part.arrayBuffer()), bytes.subarray(100, 1000000));
+  const rest = await fetch(target, { headers: { ...headers, "if-match": descriptor.etag, range: `bytes=1000000-${bytes.length - 1}` } });
+  assert.equal(rest.status, 206);
+  assert.deepEqual(Buffer.from(await rest.arrayBuffer()), bytes.subarray(1000000));
+  const unsatisfiable = await fetch(target, { headers: { ...headers, "if-match": descriptor.etag, range: `bytes=${bytes.length}-${bytes.length}` } });
+  assert.equal(unsatisfiable.status, 416); await unsatisfiable.text();
+  await writeFile(file, Buffer.alloc(bytes.length, 12));
+  const changed = await fetch(target, { headers: { ...headers, "if-match": descriptor.etag, range: "bytes=0-100" } });
+  assert.equal(changed.status, 412);
+  assert.equal((await changed.json() as { error: { code: string } }).error.code, "HR-FILE-011");
+  assert.ok(!output.includes(file), "Mac logs omit original paths");
+
+  // A sparse source exercises a real 1 GiB transfer without allocating a 1 GiB fixture buffer.
+  const big = join(gateway.dataRoot, "big.bin"), total = 1024 * 1024 * 1024;
+  const fd = await open(big, "w"); await fd.truncate(total); await fd.close();
+  const bigResponse = await fetch(`${gateway.origin}/api/files/downloads`, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ path: big }),
+  });
+  const info = await bigResponse.json() as typeof descriptor;
+  assert.equal(info.sizeBytes, total);
+  const app = await openLegacyPeer(gateway, "app");
+  t.after(() => app.close());
+  const latencies: number[] = [];
+  let peakMacKiB = 0, peakGatewayKiB = 0, received = 0;
+  const started = performance.now();
+  for (let offset = 0; offset < total; offset += 8 * 1024 * 1024) {
+    const response = await fetch(`${gateway.origin}/api/files/downloads/${info.artifactId}`, {
+      headers: { ...headers, "if-match": info.etag, range: `bytes=${offset}-${offset + 8 * 1024 * 1024 - 1}` },
+    });
+    assert.equal(response.status, 206);
+    const reader = response.body!.getReader();
+    let first = true;
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      received += value.length;
+      if (first && offset % (128 * 1024 * 1024) === 0) {
+        first = false;
+        const events = nextWireMessages(app, 4), time = performance.now();
+        app.send(encodeWireMessage({ type: "command", version: 1, id: `chat-${offset}`, targetDeviceId: gateway.deviceId,
+          payload: { kind: "chat", input: "control channel remains responsive" } }));
+        const replies = await events;
+        assert.equal(replies.at(-1)!.type, "event");
+        latencies.push(performance.now() - time);
+      }
+    }
+    const rss = (pid: number | undefined) => Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim());
+    peakMacKiB = Math.max(peakMacKiB, rss(mac.pid));
+    peakGatewayKiB = Math.max(peakGatewayKiB, rss(gateway.child.pid));
+  }
+  assert.equal(received, total);
+  assert.ok(peakMacKiB < 256 * 1024, "Mac memory remains below 256 MiB during 1 GiB transfer");
+  assert.ok(peakGatewayKiB < 256 * 1024, "Gateway memory remains below 256 MiB during 1 GiB transfer");
+  assert.ok(Math.max(...latencies) < 2000, "control commands respond during file transfer");
+  console.log(JSON.stringify({ bytes: received, durationMs: Math.round(performance.now() - started), peakMacKiB, peakGatewayKiB,
+    maxMockChatLatencyMs: Math.round(Math.max(...latencies)) }));
 });
 
 interface GatewayProcess {

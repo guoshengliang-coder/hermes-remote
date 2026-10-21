@@ -14,6 +14,7 @@ import type { GatewayPeer } from "./gateway-peer.js";
 import { GatewayPeerCoordinator } from "./gateway-peer-coordinator.js";
 import { GatewayServer } from "./gateway-server.js";
 import { HttpTunnelBroker } from "./http-tunnel-broker.js";
+import { ArtifactDownloadBroker } from "./artifact-download-broker.js";
 import { firstHeader, sendJson } from "./http-utils.js";
 import { LegacyControlSessionHandler } from "./legacy-control-session.js";
 import { LifecycleEventStore } from "./lifecycle-event-store.js";
@@ -88,9 +89,11 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     log,
   );
   const voiceProxy = new DoubaoVoiceProxy(doubaoAsrApiKey);
+  const fileDownloads = new ArtifactDownloadBroker(send);
   const unsubscribeAccessRevocations = accountRuntime.gatewayControl?.subscribeAccessRevocations?.(
     (event) => {
       voiceProxy.revoke(event);
+      fileDownloads.revalidateAll();
       switch (event.kind) {
         case "account": webSocketTunnels.revokeAccount(event.accountId); break;
         case "session": webSocketTunnels.revokeAccountSession(
@@ -164,6 +167,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
     connectorRegistry,
     lifecycleEvents,
     httpTunnels,
+    fileDownloads,
     resolveAccountConnector: (authorization, deviceId) => (
       appWebSocketAuthorizer.resolveAccountConnector(authorization, deviceId)
     ),
@@ -260,6 +264,7 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
       );
     },
     closeDependencies: async () => {
+      fileDownloads.close();
       unsubscribeAccessRevocations?.();
       await accountRuntime.close();
     },
@@ -281,7 +286,8 @@ export function createGatewayRuntime(environment: NodeJS.ProcessEnv): GatewaySer
       // interrupt unrelated chats on the same Mac.
       if (message.type === "tunnel.http.request.start" || message.type === "tunnel.http.request.chunk"
           || message.type === "tunnel.http.request.end"
-          || (message.type === "tunnel.http.request" && message.path.split("?")[0] === "/api/files/upload")) {
+          || (message.type === "tunnel.http.request" && (message.path.split("?")[0] === "/api/files/upload"
+            || message.path.startsWith("/api/files/downloads")))) {
         return false;
       }
       socket.close(1013, "backpressure limit reached");

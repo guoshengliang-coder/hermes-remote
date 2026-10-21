@@ -14,8 +14,10 @@ internal data class FileCardInfo(
     val sizeBytes: Long? = null,
     val maxBytes: Long = ARTIFACT_DOWNLOAD_LIMIT_BYTES,
     val rejected: Boolean = false,
+    val independentDownloads: Boolean = false,
+    val limitKnown: Boolean = false,
 ) {
-    val tooLarge: Boolean get() = rejected || (sizeBytes ?: 0L) > maxBytes
+    val tooLarge: Boolean get() = rejected || (limitKnown && (sizeBytes ?: 0L) > maxBytes)
 }
 
 /** One conversation-screen lifetime: no process-wide path cache shared between accounts or Macs. */
@@ -34,7 +36,7 @@ internal class ChatFileMetadataState(private val inspect: suspend (ChatFile) -> 
         try {
             val metadata = slots.withPermit { inspect(file) }
             if (metadata != null) {
-                values[key] = FileCardInfo(metadata.sizeBytes, metadata.maxBytes, values[key]?.rejected == true)
+                values[key] = FileCardInfo(metadata.sizeBytes, metadata.maxBytes, values[key]?.rejected == true, metadata.independentDownloads, limitKnown = true)
             }
             inspected.add(key)
         } catch (cancelled: CancellationException) {
@@ -52,6 +54,14 @@ internal class ChatFileMetadataState(private val inspect: suspend (ChatFile) -> 
 }
 
 internal val LocalChatFileMetadata = staticCompositionLocalOf<ChatFileMetadataState?> { null }
+
+internal data class ChatFileDownloads(
+    val tasks: List<com.hermes.client.data.downloads.ArtifactDownloadTask>,
+    val download: (ChatFile) -> Unit,
+    val pause: (String) -> Unit,
+    val cancel: (String) -> Unit,
+)
+internal val LocalChatFileDownloads = staticCompositionLocalOf<ChatFileDownloads?> { null }
 
 /** Round upwards so a file one byte above the cap cannot look like exactly 100 MiB. */
 internal fun artifactSizeLabel(bytes: Long): String = when {

@@ -38,17 +38,27 @@ class ChatFileScreenshotTest {
             ChatFile("web", "网页报告.html", "text/html", remotePath = "/tmp/report.html"),
             ChatFile("pdf", "文档.pdf", "application/pdf", 64L * 1024, remotePath = "/tmp/doc.pdf"),
         )
+        val metadata = ChatFileMetadataState { file -> file.sizeBytes?.let { ArtifactMetadata(it, 8L * 1024 * 1024 * 1024, true) } }
+        val tasks = listOf(
+            com.hermes.client.data.downloads.ArtifactDownloadTask("video", "owner", "mac", "/tmp/video.mp4", "视频试片.mp4", "video/mp4",
+                status = com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING, sizeBytes = 68L * 1024 * 1024, downloaded = 25L * 1024 * 1024),
+            com.hermes.client.data.downloads.ArtifactDownloadTask("doc", "owner", "mac", "/tmp/a.md", "项目说明.md", "text/markdown",
+                status = com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE, sizeBytes = 1500, downloaded = 1500),
+            com.hermes.client.data.downloads.ArtifactDownloadTask("pdf", "owner", "mac", "/tmp/doc.pdf", "文档.pdf", "application/pdf",
+                status = com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED, sizeBytes = 64L * 1024, downloaded = 32L * 1024),
+        )
         compose.setContent {
             HermesTheme(darkTheme = dark) {
                 val density = LocalDensity.current
-                CompositionLocalProvider(LocalAppLanguage provides language,
+                CompositionLocalProvider(LocalAppLanguage provides language, LocalChatFileMetadata provides metadata,
+                    LocalChatFileDownloads provides ChatFileDownloads(tasks, {}, {}, {}),
                     LocalDensity provides Density(density.density, scale)) {
                     Surface { Column(Modifier.padding(12.dp)) { ChatFileList(files, {}, {}) } }
                 }
             }
         }
         compose.waitForIdle()
-        compose.onNodeWithText("HR-FILE-004", substring = true).assertIsDisplayed()
+        compose.onNodeWithText(if (language == AppLanguage.EN) "Download before opening or sharing" else "请先下载，再打开或分享").assertIsDisplayed()
         compose.onRoot().captureRoboImage("screenshots/$name.png")
     }
 
@@ -93,5 +103,47 @@ class ChatFileScreenshotTest {
         compose.onNodeWithContentDescription("Share file").assertIsEnabled().performClick()
         assertEquals(1, opens)
         assertEquals(1, shares)
+    }
+
+    @Test fun a_large_file_downloads_first_and_becomes_openable_when_complete() {
+        val file = ChatFile("video", "large.mp4", "video/mp4", 126L * 1024 * 1024, remotePath = "/tmp/large.mp4")
+        val metadata = ChatFileMetadataState { ArtifactMetadata(file.sizeBytes!!, 8L * 1024 * 1024 * 1024, true) }
+        val tasks = androidx.compose.runtime.mutableStateOf(emptyList<com.hermes.client.data.downloads.ArtifactDownloadTask>())
+        var opened = 0; var shared = 0; var downloaded = 0
+        compose.setContent { HermesTheme {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN, LocalChatFileMetadata provides metadata,
+                LocalChatFileDownloads provides ChatFileDownloads(tasks.value, { downloaded++ }, {}, {})) {
+                ChatFileList(listOf(file), { opened++ }, { shared++ })
+            }
+        } }
+        compose.waitUntil { metadata.info(file).independentDownloads }
+        compose.onNodeWithContentDescription("Share file").assertIsNotEnabled()
+        compose.onNodeWithText("Download").performClick()
+        assertEquals(1, downloaded); assertEquals(0, opened); assertEquals(0, shared)
+        tasks.value = listOf(com.hermes.client.data.downloads.ArtifactDownloadTask("id", "owner", "mac", file.remotePath!!,
+            file.name, file.mimeType, status = com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE,
+            sizeBytes = file.sizeBytes, downloaded = file.sizeBytes!!))
+        compose.waitForIdle()
+        compose.onNodeWithText("Downloaded").assertIsDisplayed()
+        compose.onNodeWithText("large.mp4").performClick()
+        compose.onNodeWithContentDescription("Share file").assertIsEnabled().performClick()
+        assertEquals(1, opened); assertEquals(1, shared)
+    }
+
+    @Test fun a_restored_waiting_task_can_resume_or_cancel_without_a_live_system_job() {
+        val file = ChatFile("a", "large.mp4", "video/mp4", 126L * 1024 * 1024, remotePath = "/tmp/a.mp4")
+        val task = com.hermes.client.data.downloads.ArtifactDownloadTask("id", "owner", "mac", file.remotePath!!,
+            file.name, file.mimeType, status = com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING,
+            sizeBytes = file.sizeBytes, downloaded = 0)
+        var resumed = 0; var cancelled = 0
+        compose.setContent { HermesTheme {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN,
+                LocalChatFileDownloads provides ChatFileDownloads(listOf(task), { resumed++ }, {}, { cancelled++ })) {
+                ChatFileList(listOf(file), {}, {})
+            }
+        } }
+        compose.onNodeWithText("Resume").performClick()
+        compose.onNodeWithText("Cancel").performClick()
+        assertEquals(1, resumed); assertEquals(1, cancelled)
     }
 }

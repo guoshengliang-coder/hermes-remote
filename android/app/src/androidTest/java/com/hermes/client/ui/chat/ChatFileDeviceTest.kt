@@ -25,6 +25,42 @@ import org.junit.runner.RunWith
 class ChatFileDeviceTest {
     @get:Rule val activity = ActivityScenarioRule(ComponentActivity::class.java)
 
+    @Test fun large_file_download_pause_resume_and_completed_actions_accept_real_touches() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val file = ChatFile("big", "large.mp4", "video/mp4", 126L * 1024 * 1024, remotePath = "/tmp/large.mp4")
+        val state = androidx.compose.runtime.mutableStateOf(emptyList<com.hermes.client.data.downloads.ArtifactDownloadTask>())
+        var starts = 0; var pauses = 0; var opens = 0; var shares = 0
+        fun task(status: com.hermes.client.data.downloads.ArtifactDownloadStatus) = com.hermes.client.data.downloads.ArtifactDownloadTask(
+            "id", "owner", "mac", file.remotePath!!, file.name, file.mimeType, status = status,
+            sizeBytes = file.sizeBytes, downloaded = if (status == com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE) file.sizeBytes!! else 25L * 1024 * 1024)
+        activity.scenario.onActivity { host -> host.setContent { HermesTheme {
+            val metadata = androidx.compose.runtime.remember { ChatFileMetadataState { com.hermes.client.domain.ArtifactMetadata(file.sizeBytes!!, 8L * 1024 * 1024 * 1024, true) } }
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN, LocalChatFileMetadata provides metadata,
+                LocalChatFileDownloads provides ChatFileDownloads(state.value, {
+                    starts++
+                    state.value = listOf(task(if (starts == 1) com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING else com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE))
+                }, { pauses++; state.value = listOf(task(com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED)) }, {})) {
+                Surface { Column(Modifier.systemBarsPadding().padding(16.dp)) { ChatFileList(listOf(file), { opens++ }, { shares++ }) } }
+            }
+        } } }
+        val deadline = android.os.SystemClock.uptimeMillis() + 10_000
+        while (find(automation.rootInActiveWindow, "Download before") == null && android.os.SystemClock.uptimeMillis() < deadline) android.os.SystemClock.sleep(50)
+        assertNotNull(find(automation.rootInActiveWindow, "Download before"))
+        val download = all(automation.rootInActiveWindow).first { it.text?.toString() == "Download" }
+        tap(automation, download)
+        assertEquals(1, starts)
+        tap(automation, find(automation.rootInActiveWindow, "Pause")!!)
+        assertEquals(1, pauses)
+        tap(automation, find(automation.rootInActiveWindow, "Resume")!!)
+        assertNotNull(find(automation.rootInActiveWindow, "Downloaded"))
+        tap(automation, find(automation.rootInActiveWindow, "large.mp4")!!)
+        tap(automation, all(automation.rootInActiveWindow).first { it.contentDescription?.toString() == "Share file" })
+        activity.scenario.onActivity { assertEquals(1, opens); assertEquals(1, shares) }
+        automation.executeShellCommand("screencap -p /sdcard/Download/hg222-download-cards.png").use {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).use { input -> input.readBytes() }
+        }
+    }
+
     @Test fun size_limit_and_disabled_actions_are_visible_on_android() {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         automation.serviceInfo = automation.serviceInfo.apply {
@@ -35,7 +71,8 @@ class ChatFileDeviceTest {
         activity.scenario.onActivity { host ->
             host.setContent {
                 HermesTheme(darkTheme = false) {
-                    CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+                    CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN,
+                        LocalChatFileMetadata provides ChatFileMetadataState { file -> file.sizeBytes?.let { com.hermes.client.domain.ArtifactMetadata(it) } }) {
                         Surface { Column(Modifier.systemBarsPadding().padding(16.dp)) {
                             ChatFileList(listOf(
                                 ChatFile("big", "large.mp4", "video/mp4", 126L * 1024 * 1024, remotePath = "/tmp/large.mp4"),
