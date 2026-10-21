@@ -1061,16 +1061,20 @@ test("the R4 deployment command admits production-release only for a committed m
   const calls = [];
   const stubs = {
     prepareCandidate: async (_config, source, _target, options) => {
+      assert.equal(options.schemaAdvancePlan, common.schemaAdvancePlan);
       calls.push(["prepare", source.serverVersion, options.activeSlot, options.authorization]);
       return { stage: "candidate_verified" };
     },
     switchCandidate: async (_config, source, _target, options) => {
+      assert.equal(options.schemaAdvancePlan, common.schemaAdvancePlan);
       calls.push(["switch", source.serverVersion, options.activeSlot, options.authorization]);
       return { ok: true, stage: "committed" };
     },
   };
   const common = {
     operation: "deploy",
+    allowDatabaseSchemaAdvance: true,
+    schemaAdvancePlan: { fromSchemaVersion: 7, toSchemaVersion: 9, targetSourceCommit: NEXT_COMMIT },
     confirmation: "production:prod-host",
     sourceManifest: fixture.currentManifest,
     candidateSmoke: async () => {},
@@ -1455,12 +1459,15 @@ test("R5-F1 leaves account-mode schema changes to R5-F8 and never rolls back bel
 
   // R5-F8 hands the database to the deployment machine only; admission above still saw null.
   const database = { urlSource: "/secure-input/hermes-go/account-database-url", ssl: false, migrationLockId: 7 };
+  const schemaAdvancePlan = { fromSchemaVersion: 7, toSchemaVersion: 9, sourceCommit: CURRENT_COMMIT,
+    targetSourceCommit: NEXT_COMMIT, rehearsalDigest: "a".repeat(64) };
   let delegatedConfig;
   let delegatedOptions;
   await executeProductionRelease(config, schemaAhead, {
     ...releaseOptions(fixture),
     schemaMigration: true,
     migrationDatabase: database,
+    schemaAdvancePlan,
     executeDeployment: async (deploymentConfig, _target, options) => {
       delegatedConfig = deploymentConfig;
       delegatedOptions = options;
@@ -1470,6 +1477,7 @@ test("R5-F1 leaves account-mode schema changes to R5-F8 and never rolls back bel
   assert.equal(config.database, null);
   assert.deepEqual(delegatedConfig.database, database);
   assert.equal(delegatedOptions.allowDatabaseSchemaAdvance, true);
+  assert.deepEqual(delegatedOptions.schemaAdvancePlan, schemaAdvancePlan);
   let routine;
   await executeProductionRelease(config, fixture.nextManifest, {
     ...releaseOptions(fixture),

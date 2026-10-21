@@ -48,6 +48,7 @@ test("R5-F8 backup gate accepts only a fresh off-host copy of the schema being m
   assert.deepEqual(await verifyFreshOffHostBackup({ activeStatusFile: ok.filePath, maximumAgeMinutes: 120 }, gate), {
     backupCompletedAt: "2026-09-22T11:30:00.000Z",
     offHostCopiedAt: "2026-09-22T11:40:00.000Z",
+    artifactSha256: SHA,
   });
   const cases = [
     [backupStatus({ backupCompletedAt: "2026-09-22T09:00:00.000Z", offHostCopiedAt: "2026-09-22T09:10:00.000Z" }), "schema_release_backup_too_old"],

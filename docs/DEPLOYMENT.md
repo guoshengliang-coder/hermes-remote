@@ -1086,6 +1086,51 @@ Not rehearsed: the disposable-host R5-D workflow has no account-mode database pa
 (admission, backup gate, delegation, failure classification, the transition allowance) and by the step-by-step
 verification of the production run only.
 
+### Explicit two-step migration plan (HG-222, owner-approved 2026-10-21)
+
+The default R5-F8 admission remains exactly +1. For a reviewed +2 transition only, the private
+schema-release configuration may include `schemaAdvancePlan`: `fromSchemaVersion`,
+`toSchemaVersion`, `sourceCommit`, `targetSourceCommit`, `targetImageId`, `targetArchiveSha256`, the ordered `migrations` array
+(`fileName` and SHA-256 for each of the two SQL files), and an absolute `rehearsalEvidenceFile`.
+Both schemas and commits must match the actual source/target manifests. No routine deploy or
+rollback accepts a schema change, and no three-step plan is accepted.
+
+Run from the verified target operator bundle on the **off-host recovery Mac**, against a new,
+empty disposable PostgreSQL instance and a protected restore config for the current schema:
+
+```bash
+node scripts/rehearse-schema-advance.mjs \
+  --offhost-config /secure-recovery/postgresql-offhost.json \
+  --generation <the-fresh-verified-backup-generation> \
+  --target-manifest /secure-recovery/target.manifest.json \
+  --evidence /secure-recovery/schema-rehearsal.json \
+  --confirm isolated:<actual-recovery-hostname>
+```
+
+This restores the encrypted backup and runs the old image's exact-schema/account checks first,
+then runs the target image's official migrator and requires both contiguous migration numbers,
+exact target schema and target account smoke before writing an exclusive mode-0600 receipt.
+This mode uses the existing off-host container lifecycle and removes the disposable database,
+random URL/password files and source-restore scratch files on success or failure. A manual
+`--restore-config <private-file>` mode without `--generation` also exists for a separately
+managed empty isolated database; its caller must own cleanup on success and failure.
+The private recovery key and plaintext database never leave the recovery host. The operator
+bundle includes the migration SQL, so their hashes are checked again at production admission.
+
+Transfer only the receipt, not the recovery private key. Its production hostname, different
+recovery hostname, source/target commits, SQL hashes and encrypted-backup hash must match the
+private plan and the fresh off-host backup status. The receipt has the same maximum age bound
+as the backup and cannot predate it. Missing, stale, symlinked, non-private or mismatched proof
+blocks the release. Only the resulting verified plan is passed through prepare and switch;
+the existing deployment lock, immutable-image checks, migration advisory lock, readiness,
+public smoke, observation and forward-only failure handling are unchanged.
+
+HG-222's approved path is schema **18→20** through SQL **019 then 020**, using the existing
+Gateway 0.4.33 backup and the new 0.4.34 image. This does not enable the separate profile/model
+sync feature flags. After migration, update the capture, off-host and monitor pins to schema20
+and the verified image, then complete the new backup/restore/activation/monitor cycle above.
+Publication and physical-device acceptance still require their own evidence.
+
 ### 2026-09-22 authorized production result (Gateway 0.4.18, schema 15 → 16)
 
 Owner-authorized (HG-94: version gate 0.4.18, no rollback below 0.4.18, the compatibility-check allowance).

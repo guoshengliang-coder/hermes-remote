@@ -22,8 +22,9 @@ The Connector opens the outbound WebSocket to Gateway. See the root README for t
 
 Allocated with Gateway 0.4.34 and Android 0.1.174 for the independent attachment channel.
 The next signed managed pair is planned as 0.4.11, retaining Node 22.23.2 and the immutable
-Hermes Server archive. The previous one-publication local-signing exception does not authorize
-this release; the protected signing path or a new explicit owner decision is still required.
+Hermes Server archive. On 2026-10-21 the owner approved a new one-publication exception to
+use the existing trusted M4 signing key, retaining both independent verifiers, full public
+readback and paired-index gates. It does not authorize creating, rotating or transferring a key.
 Deploy the compatible Gateway and streaming edge routes before this component and Android.
 Publication and installation must be verified separately; this version allocation changes neither.
 
