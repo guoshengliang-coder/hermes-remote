@@ -352,6 +352,10 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.174 adds durable resumable attachment downloads over a separate file channel with
+  size/type metadata, and includes the merged history/search and unsent-message improvements. Large
+  files require Download before external Open/Share; Gateway and Connector must be updated first
+  (HG-222).
 - Version 0.1.173 fixes durable-session recovery after reclamation, bounds send preparation,
   preserves cancelled unsent messages and attachments, and reconciles completed replies without
   duplicate prompt replay (HG-211, HG-213, HG-214).
@@ -1074,7 +1078,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.173-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.174-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

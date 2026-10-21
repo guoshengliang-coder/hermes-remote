@@ -5,6 +5,14 @@ Approved in the dispatch conversation on 2026-10-21. This supersedes the origina
 
 ## Transport and compatibility
 
+Release allocation: Gateway 0.4.34, Connector 0.1.16 (planned managed pair 0.4.11),
+Android 0.1.174/code 175. Allocation is not publication. Production currently runs Gateway
+0.4.33/schema 18, while this main branch declares schema 20. R5-F8 admits exactly one
+schema step, so the current bundle must not be sent to the routine or single-step production
+entrypoint. Resolve and verify the migration path before deployment; do not lower the manifest's
+declared schema or bypass backup/admission checks. The existing protected Desktop signing
+environment also needs configuration or a new owner-approved exception before signing this pair.
+
 The existing authenticated control socket carries only preparation/cancellation instructions.
 Each file response uses a separate outbound HTTP(S) PUT from the Mac to the configured Gateway
 origin. Gateway streams its body into the waiting, authenticated Android GET with backpressure;
