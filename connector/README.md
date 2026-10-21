@@ -18,6 +18,15 @@ advertise independent downloads. See `../docs/ARTIFACT_CHANNEL.md` for compatibi
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
 
+## Connector 0.1.16 — HG-222 independent downloads (allocated, not published)
+
+Allocated with Gateway 0.4.34 and Android 0.1.174 for the independent attachment channel.
+The next signed managed pair is planned as 0.4.11, retaining Node 22.23.2 and the immutable
+Hermes Server archive. The previous one-publication local-signing exception does not authorize
+this release; the protected signing path or a new explicit owner decision is still required.
+Deploy the compatible Gateway and streaming edge routes before this component and Android.
+Publication and installation must be verified separately; this version allocation changes neither.
+
 ## Connector 0.1.15 — HG-219 heartbeat diagnostics
 
 Release allocation for the metadata-only diagnostics merged in PR #599. Managed manifests advance
