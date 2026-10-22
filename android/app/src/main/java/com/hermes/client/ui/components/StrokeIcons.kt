@@ -616,6 +616,23 @@ val RefreshStrokeIcon: ImageVector by lazy {
     }
 }
 
+/** Three connected nodes — sharing a received attachment. */
+val ShareStrokeIcon: ImageVector by lazy {
+    strokeIcon("StrokeShare") {
+        moveTo(8f, 10.8f); lineTo(16f, 6.2f)
+        moveTo(8f, 13.2f); lineTo(16f, 17.8f)
+        moveTo(8.5f, 12f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 3.5f, 12f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 8.5f, 12f)
+        moveTo(20.5f, 5f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 15.5f, 5f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 20.5f, 5f)
+        moveTo(20.5f, 19f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 15.5f, 19f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 20.5f, 19f)
+    }
+}
+
 /** Dog-eared page with rules — the prompt card's header. */
 val DocumentStrokeIcon: ImageVector by lazy {
     strokeIcon("StrokeDocument") {

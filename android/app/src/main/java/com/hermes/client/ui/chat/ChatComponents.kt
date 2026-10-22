@@ -1908,6 +1908,7 @@ internal fun ChatFileList(
                 if (file.state == FileTransferState.READY) metadata?.load(file)
             }
             val info = metadata?.info(file) ?: FileCardInfo(file.sizeBytes)
+            val fileKind = com.hermes.client.ui.components.fileIconKind(file.name, file.mimeType)
             val downloads = LocalChatFileDownloads.current
             val task = downloads?.tasks?.firstOrNull { it.remotePath == file.remotePath }
             val complete = file.localPath != null || task?.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE
@@ -1928,7 +1929,7 @@ internal fun ChatFileList(
                 else localized(LocalAppLanguage.current, "打开文件", "Open file")
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
@@ -1939,99 +1940,111 @@ internal fun ChatFileList(
                         }
                     ),
             ) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        com.hermes.client.ui.components.attachmentIcon(com.hermes.client.ui.components.fileIconKind(file.name, file.mimeType)),
-                        contentDescription = null, modifier = Modifier.size(25.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                        Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
-                        val detail = listOfNotNull(
-                            file.name.substringAfterLast('.', "").uppercase(java.util.Locale.ROOT).ifBlank { file.mimeType?.substringAfter('/') },
-                            info.sizeBytes?.let(::artifactSizeLabel) ?: localized(LocalAppLanguage.current, "大小未知", "Size unknown"),
-                        ).joinToString(" · ")
-                        if (detail.isNotBlank()) {
-                            Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (info.tooLarge && !complete) {
-                            Text(
-                                artifactLimitMessage(info, LocalAppLanguage.current),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = 4.dp),
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top) {
+                        Box(Modifier.width(32.dp).height(48.dp), contentAlignment = Alignment.TopCenter) {
+                            Icon(
+                                com.hermes.client.ui.components.attachmentIcon(fileKind),
+                                contentDescription = null, modifier = Modifier.padding(top = 4.dp).size(24.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        if (complete) {
-                            Text(localized(LocalAppLanguage.current, "已下载", "Downloaded"),
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else if (video && !info.tooLarge && task == null) {
-                            Text(if (info.limitKnown && !info.independentDownloads)
-                                localized(LocalAppLanguage.current, "当前服务需先下载再播放", "This service downloads before playback")
-                                else localized(LocalAppLanguage.current, "可在线播放，也可下载", "Play online or download"),
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else if (needsDownload && !info.tooLarge && task == null) {
-                            Text(localized(LocalAppLanguage.current, "请先下载，再打开或分享", "Download before opening or sharing"),
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (task != null && !complete && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) {
-                            val received = if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) task.progressBytes ?: task.downloaded else task.downloaded
-                            val status = if (task.waitingForPlayback) localized(LocalAppLanguage.current, "为播放让路", "Waiting for playback") else when (task.status) {
-                                com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED -> localized(LocalAppLanguage.current, "已暂停", "Paused")
-                                com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "等待重试", "Waiting to retry")
-                                com.hermes.client.data.downloads.ArtifactDownloadStatus.QUEUED -> localized(LocalAppLanguage.current, "等待下载", "Queued")
-                                com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED -> localized(LocalAppLanguage.current, "下载未完成", "Download incomplete")
-                                else -> localized(LocalAppLanguage.current, "正在下载", "Downloading")
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(file.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                            val detail = listOfNotNull(
+                                if (fileKind == com.hermes.client.ui.components.FileIconKind.WEB) "HTML"
+                                else file.name.substringAfterLast('.', "").uppercase(java.util.Locale.ROOT).ifBlank { file.mimeType?.substringAfter('/') },
+                                info.sizeBytes?.let(::artifactSizeLabel) ?: localized(LocalAppLanguage.current, "大小未知", "Size unknown"),
+                            ).joinToString(" · ")
+                            if (detail.isNotBlank()) {
+                                Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            val progressLabel = listOf(status, "${artifactSizeLabel(received)} / ${task.sizeBytes?.let(::artifactSizeLabel) ?: "—"}").joinToString(" · ")
-                            Text(progressLabel,
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) {
-                                androidx.compose.material3.LinearProgressIndicator(
-                                    progress = { (received.toFloat() / (task.sizeBytes ?: 1).coerceAtLeast(1)).coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-                            }
-                            task.errorCode?.let { value -> com.hermes.client.data.error.AppErrorCode.fromValue(value)?.let { code ->
-                                Text(com.hermes.client.data.error.AppError(code, false).localizedMessage(LocalAppLanguage.current),
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                            } }
                         }
-                        if (downloads != null && file.state == FileTransferState.READY && file.remotePath != null && !complete) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (busy && task != null) {
-                                    TextButton(onClick = { downloads.pause(task.id) }) { Text(localized(LocalAppLanguage.current, "暂停", "Pause")) }
-                                    TextButton(onClick = { downloads.cancel(task.id) }) { Text(localized(LocalAppLanguage.current, "取消", "Cancel")) }
-                                } else if (!info.tooLarge && (info.independentDownloads || task != null || needsDownload)) {
-                                    TextButton(onClick = { downloads.download(file) }) {
-                                        Text(when (task?.status) {
-                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED,
-                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "继续", "Resume")
-                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED ->
-                                                if (task.errorCode == "HR-FILE-011") localized(LocalAppLanguage.current, "重新下载", "Download again")
-                                                else if (task.downloaded > 0) localized(LocalAppLanguage.current, "继续", "Resume")
-                                                else localized(LocalAppLanguage.current, "重试", "Retry")
-                                            else -> localized(LocalAppLanguage.current, "下载", "Download")
-                                        })
-                                    }
-                                    if (task != null && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) TextButton(onClick = { downloads.cancel(task.id) }) {
-                                        Text(localized(LocalAppLanguage.current, "取消", "Cancel"))
+                        when (file.state) {
+                            FileTransferState.UPLOADING -> com.hermes.client.ui.components.LoadingDots(size = 22.dp)
+                            FileTransferState.FAILED -> Icon(com.hermes.client.ui.components.AlertTriangleIcon, contentDescription = localized(LocalAppLanguage.current, "文件不可用", "File unavailable"))
+                            // Only 分享 keeps a button: 打开 is the whole card now, and one action
+                            // does not get two entry points.
+                            FileTransferState.READY -> {
+                                if (file.remotePath != null || file.localPath != null) {
+                                    IconButton(onClick = { onShare(file) }, enabled = shareable, modifier = Modifier.size(48.dp)) {
+                                        Icon(com.hermes.client.ui.components.ShareStrokeIcon, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(22.dp))
                                     }
                                 }
                             }
                         }
                     }
-                    when (file.state) {
-                        FileTransferState.UPLOADING -> com.hermes.client.ui.components.LoadingDots(size = 22.dp)
-                        FileTransferState.FAILED -> Icon(Icons.Rounded.BrokenImage, contentDescription = localized(LocalAppLanguage.current, "文件不可用", "File unavailable"))
-                        // Only 分享 keeps a button: 打开 is the whole card now, and one action
-                        // does not get two entry points.
-                        FileTransferState.READY -> {
-                            if (file.remotePath != null || file.localPath != null) {
-                                IconButton(onClick = { onShare(file) }, enabled = shareable, modifier = Modifier.size(38.dp)) {
-                                    Icon(Icons.Rounded.Share, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(19.dp))
+                    // Download controls never participate in the header's vertical alignment (HG-227).
+                    val hasDownloadActions = downloads != null && file.state == FileTransferState.READY &&
+                        file.remotePath != null && !complete &&
+                        (busy || (!info.tooLarge && (info.independentDownloads || task != null || needsDownload)))
+                    if (complete || info.tooLarge || (video && task == null) || (needsDownload && task == null) ||
+                        (task != null && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) || hasDownloadActions) {
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (info.tooLarge && !complete) {
+                                Text(
+                                    artifactLimitMessage(info, LocalAppLanguage.current),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            if (complete) {
+                                Text(localized(LocalAppLanguage.current, "已下载", "Downloaded"),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else if (video && !info.tooLarge && task == null) {
+                                Text(if (info.limitKnown && !info.independentDownloads)
+                                    localized(LocalAppLanguage.current, "当前服务需先下载再播放", "This service downloads before playback")
+                                    else localized(LocalAppLanguage.current, "可在线播放，也可下载", "Play online or download"),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else if (needsDownload && !info.tooLarge && task == null) {
+                                Text(localized(LocalAppLanguage.current, "请先下载，再打开或分享", "Download before opening or sharing"),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (task != null && !complete && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) {
+                                val received = if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) task.progressBytes ?: task.downloaded else task.downloaded
+                                val status = if (task.waitingForPlayback) localized(LocalAppLanguage.current, "为播放让路", "Waiting for playback") else when (task.status) {
+                                    com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED -> localized(LocalAppLanguage.current, "已暂停", "Paused")
+                                    com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "等待重试", "Waiting to retry")
+                                    com.hermes.client.data.downloads.ArtifactDownloadStatus.QUEUED -> localized(LocalAppLanguage.current, "等待下载", "Queued")
+                                    com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED -> localized(LocalAppLanguage.current, "下载未完成", "Download incomplete")
+                                    else -> localized(LocalAppLanguage.current, "正在下载", "Downloading")
+                                }
+                                val progressLabel = listOf(status, "${artifactSizeLabel(received)} / ${task.sizeBytes?.let(::artifactSizeLabel) ?: "—"}").joinToString(" · ")
+                                Text(progressLabel,
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) {
+                                    androidx.compose.material3.LinearProgressIndicator(
+                                        progress = { (received.toFloat() / (task.sizeBytes ?: 1).coerceAtLeast(1)).coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                                }
+                                task.errorCode?.let { value -> com.hermes.client.data.error.AppErrorCode.fromValue(value)?.let { code ->
+                                    Text(com.hermes.client.data.error.AppError(code, false).localizedMessage(LocalAppLanguage.current),
+                                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                } }
+                            }
+                            if (downloads != null && file.state == FileTransferState.READY && file.remotePath != null && !complete) {
+                                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    if (busy && task != null) {
+                                        TextButton(onClick = { downloads.pause(task.id) }) { Text(localized(LocalAppLanguage.current, "暂停", "Pause")) }
+                                        TextButton(onClick = { downloads.cancel(task.id) }) { Text(localized(LocalAppLanguage.current, "取消", "Cancel")) }
+                                    } else if (!info.tooLarge && (info.independentDownloads || task != null || needsDownload)) {
+                                        TextButton(onClick = { downloads.download(file) }) {
+                                            Text(when (task?.status) {
+                                                com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED,
+                                                com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "继续", "Resume")
+                                                com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED ->
+                                                    if (task.errorCode == "HR-FILE-011") localized(LocalAppLanguage.current, "重新下载", "Download again")
+                                                    else if (task.downloaded > 0) localized(LocalAppLanguage.current, "继续", "Resume")
+                                                    else localized(LocalAppLanguage.current, "重试", "Retry")
+                                                else -> localized(LocalAppLanguage.current, "下载", "Download")
+                                            })
+                                        }
+                                        if (task != null && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) TextButton(onClick = { downloads.cancel(task.id) }) {
+                                            Text(localized(LocalAppLanguage.current, "取消", "Cancel"))
+                                        }
+                                    }
                                 }
                             }
                         }

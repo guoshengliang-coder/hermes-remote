@@ -1172,3 +1172,10 @@ with retryable HR-SYNC-001 if the window moved; retry refreshes the tail. Androi
 old active-only disk windows once. Old Hermes without display projections retains the existing
 content parser. No upstream code/schema, Gateway/Connector runtime, credentials or versions change.
 Real incident history and physical-device acceptance remain in `docs/SMOKE_TEST.md` (HG-224).
+
+HG-227 gives all chat file cards a stable header (type icon, up to two filename lines, type/size,
+and Share) above a separate download status/progress/action area. HTML/HTM and HTML MIME types
+use a webpage outline with an explicit HTML label. Download-state changes no longer move the
+header controls; localized actions wrap at narrow widths. Existing quick-open, large-file
+download-first, and video playback rules remain in place. See `docs/DESIGN.md` §5.4 and the
+HG-227 physical-device checks in `docs/ANDROID_SMOKE.md`.
