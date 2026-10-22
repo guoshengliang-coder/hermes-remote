@@ -1,3 +1,13 @@
+HG-231 follows the initiating pointer outside the hold button and uses the final release position.
+Matching touch-end/cancel events provide a fallback when WebKit omits a pointer end; other fingers
+cannot finish the recording. Pointer cancellation, unexpected capture loss, window blur and missed
+mouse/pen releases stop capture immediately and preserve partial text in the existing draft without
+sending. Explicit Cancel/Edit buttons work even if gesture bookkeeping is missing. One terminal
+action owns each recording; duplicate/late events cannot send again. Existing send, deliberate
+cancel, final-result wait and five-minute rules remain. DOM regressions cover these paths; physical
+iPhone Home Screen Web App acceptance is still required in `../docs/SMOKE_TEST.md` (HG-231).
+No Gateway, Connector, Android, protocol, version or error-code changes are required.
+
 HG-216 P1c adds separately capability-gated account model favorites and remembered reasoning.
 Legacy stays local; existing local data requires explicit import confirmation. A durable IndexedDB
 outbox uses field CAS, signed leases and explicit conflict review. Cloud updates never switch a

@@ -441,7 +441,7 @@ export function Composer({ t, language, generating, disabled, onSend, onInterrup
         ))}
         {voiceMode ? <>
           <button type="button" class="icon-button composer-voice" aria-label={t("切换键盘输入", "Switch to keyboard")} disabled={voicePhase !== "idle"} onClick={() => { cancelVoice(); setVoiceMode(false); setFocused(true); area.current?.focus(); }}><KeyboardIcon /></button>
-          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} limited={voiceLimited} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} disabled={disabled || generating || !voiceReady || preparing || generatingCount > 0} onBegin={beginVoice} onRelease={releaseVoice} onCancelWait={() => cancelVoice(true)} />
+          <VoiceComposer t={t} phase={voicePhase} recording={voiceRecording} limited={voiceLimited} feedbackEnabled={app.voiceFeedback === "on"} text={voiceText} disabled={disabled || generating || !voiceReady || preparing || generatingCount > 0} onBegin={beginVoice} onRelease={releaseVoice} onInterrupted={() => cancelVoice(true)} onCancelWait={() => cancelVoice(true)} />
           {generating ? sendOrStop() : addButton()}
         </> : <>
         {!focused && voiceAvailable ? <button type="button" class="icon-button composer-voice" aria-label={t("切换语音输入", "Switch to voice input")} disabled={disabled || requestingMic} onClick={() => void enterVoice()}>{requestingMic ? <span class="spinner tiny" /> : <MicIcon />}</button> : null}
