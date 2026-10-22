@@ -2863,3 +2863,33 @@ was allocated for it. The existing ad-hoc 0.2.32 internal pointer remains unchan
 app index remains 404. Provision the protected inputs documented in
 `docs/DESKTOP_RELEASE_CHANNEL.md` before continuing the official candidate/publisher gates.
 Physical HONOR background/resume and old-Mac application-update acceptance remain unverified.
+
+### 2026-10-22 — Desktop 0.2.33 temporary-signing internal publication
+
+The owner clarified that the remaining Desktop package continues to use temporary signing.
+This supersedes treating the missing Apple credentials above as a blocker for internal distribution.
+Version PR #615 passed all PR and main checks (`MERGED_GREEN`); the isolated clean release source is
+`d2a900a0142e046a1c8cca74992fe4d147d04d2e`. Desktop **0.2.33 / build 36** includes HG-226's
+managed-setup stages, elapsed time and completion behavior. Assets, 569 Swift tests (zero failures),
+app/DMG builds, strict ad-hoc signing, arm64 bundle identity/version and image integrity passed.
+The app retains the installed client's public account/bootstrap/update settings and signing trust.
+
+The unified internal publisher uploaded the immutable DMG and completed full public readback and
+website index synchronization (`DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK`):
+https://mrlgs.net/desktop/apps/0.2.33/Hermes-Go-Desktop-0.2.33-dev.dmg .
+The file is **3,696,937 bytes**, SHA-256
+`4b4914042163599ce3c0f65d7b005a61bb8a5638ddf6885c9e03eba5a93c32cc`.
+The first invocation stopped after artifact installation; the old pointer stayed on 0.2.32.
+An independent complete download matched the original package, then an idempotent invocation with
+the same bytes, receipt time and notes completed publication. No versioned file was replaced.
+`/desktop/apps/internal-index.json` and `https://go.mrlgs.net/api/releases` both report 0.2.33
+and the same size/hash. Publication receipt SHA-256:
+`1cf9bd34465657d5d0179c7cb4a9e92f277d9054f2766fb2127057df32688fed`.
+
+The package is explicitly ad-hoc and not notarized, with manual-install instructions. The official
+`/desktop/apps/index.json` remains 404; this does not complete HG-134's official in-app-update gate.
+Signed release/component pointers remain 0.4.11 with unchanged manifest hashes
+`dc8e65b717f06391fd348e18311c87ff695dc3ccd4ec51d36585e4421c63c5e9` and
+`f41ad5226dbca9a6dbe72435e53f658bbfc7d9ab9862b16e5a588ec8ebbc68bc` respectively.
+No Android/Web/Gateway/Connector release was repeated, and no user Mac service was restarted.
+Chrome and physical-device installation/upgrade acceptance were not performed.
