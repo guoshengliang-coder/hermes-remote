@@ -28,6 +28,10 @@ An assistant answer split across tool-call records opens all of that answer's ca
 history message-id replacement retains the viewer through the stable image id. User messages and
 pending attachments keep their own image scope.
 
+The image viewer accumulates continuous pinch and pan gestures from live transform state (HG-225).
+Zoom remains between 1–5x, persists after finger release and original-image hydration, and double-tap
+can reset it before paging. Pan follows viewport pixels at every zoom level.
+
 Sending recovers a reclaimed runtime by resuming the original durable conversation (HG-211).
 Live-handle preparation has a total deadline; leaving before submission preserves a retryable
 unsent turn in its original conversation, including attachments. Unsent turns do not block later

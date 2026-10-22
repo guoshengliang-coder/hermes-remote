@@ -172,8 +172,10 @@ internal fun ImageViewerContent(
                 item = items[page],
                 // Only the settled page wears the transform; a neighbour sliding in during a swipe
                 // must not be drawn with the outgoing page's zoom.
-                scale = if (page == pagerState.currentPage) scale else IMAGE_VIEWER_MIN_SCALE,
-                offset = if (page == pagerState.currentPage) offset else Offset.Zero,
+                // Read the owning snapshot state inside the long-lived pointer coroutine. Passing
+                // Float/Offset values here freezes every gesture at the first composition's 1x/0.
+                currentScale = { if (page == pagerState.currentPage) scale else IMAGE_VIEWER_MIN_SCALE },
+                currentOffset = { if (page == pagerState.currentPage) offset else Offset.Zero },
                 onTransform = { nextScale, nextOffset -> scale = nextScale; offset = nextOffset },
             )
         }
@@ -271,8 +273,8 @@ private fun PendingImageActions(chrome: ImageViewerChrome.Pending, attachmentId:
 @Composable
 private fun ImageViewerPage(
     item: ImageViewerItem,
-    scale: Float,
-    offset: Offset,
+    currentScale: () -> Float,
+    currentOffset: () -> Offset,
     onTransform: (Float, Offset) -> Unit,
 ) {
     val language = LocalAppLanguage.current
@@ -314,25 +316,27 @@ private fun ImageViewerPage(
                 contentDescription = localized(language, "查看原图", "View full image"),
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offset.x,
-                        translationY = offset.y,
-                    )
                     .pointerInput(item.id) {
                         detectTapGestures(
-                            onDoubleTap = { onTransform(doubleTapScale(scale), Offset.Zero) },
+                            onDoubleTap = { onTransform(doubleTapScale(currentScale()), Offset.Zero) },
                         )
                     }
                     .pointerInput(item.id, container, displayed) {
                         awaitImageTransform(
-                            currentScale = { scale },
-                            currentOffset = { offset },
+                            currentScale = currentScale,
+                            currentOffset = currentOffset,
                             container = container,
                             displayed = displayed,
                             onTransform = onTransform,
                         )
+                    }
+                    // Input stays in viewport pixels; only drawing is transformed. At 3x, a
+                    // detector inside this layer would turn a 60px finger drag into a 20px pan.
+                    .graphicsLayer {
+                        scaleX = currentScale()
+                        scaleY = currentScale()
+                        translationX = currentOffset().x
+                        translationY = currentOffset().y
                     },
                 contentScale = ContentScale.Fit,
             )
@@ -387,9 +391,9 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitIma
             val next = clampPan(before + pan, nextScale, container, displayed)
             val moved = panDidMove(before, next) || nextScale != scaleBefore
             if (moved) onTransform(nextScale, next)
-            // An edge pan that changed nothing stays unconsumed so the pager can take over and the
-            // user keeps swiping instead of hitting a wall.
-            if (moved) event.changes.forEach { if (it.positionChanged()) it.consume() }
+            // Two pointers stay ours even at the scale/pan bounds. Only an unmoved single-finger
+            // edge pan is left unconsumed, matching the existing pager arbitration.
+            if (pressed.size >= 2 || moved) event.changes.forEach { if (it.positionChanged()) it.consume() }
         } while (true)
     }
 }
