@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, readFile, mkdir, rm } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInternalIndex, verifyPublicDmg, publishInternalIndex, remoteTransaction } from '../src/internal-publication.mjs';
+import { createInternalIndex, createAppUpdateIndex, DESKTOP_APP_INDEX, verifyPublicDmg, publishInternalIndex, remoteTransaction } from '../src/internal-publication.mjs';
 import { DESKTOP_INTERNAL_INDEX } from '../src/releases.mjs';
 
 const data = Buffer.from('test artifact bytes');
@@ -91,4 +91,56 @@ test('actual filesystem transaction preserves other channels and refuses downgra
   run('rollback', newer, 'newer');
   assert.equal(JSON.parse(await readFile(join(root, 'internal-index.json'), 'utf8')).appVersion, '0.2.32');
   assert.equal(await readFile(join(root, 'index.json'), 'utf8'), 'official pointer');
+});
+
+test('legacy Desktop discovery uses the same verified bytes and exact legacy schema', async () => {
+  const internal = JSON.parse(await readFile(new URL('./fixtures/desktop-internal-index.json', import.meta.url)));
+  const expected = JSON.parse(await readFile(new URL('./fixtures/desktop-app-index.json', import.meta.url)));
+  assert.deepEqual(createAppUpdateIndex(internal), expected);
+  assert.deepEqual(createAppUpdateIndex({ ...internal, futureWebsiteField: 'ignored by legacy schema' }), expected);
+  assert.equal(expected.sha256, internal.sha256);
+  assert.equal(expected.sizeBytes, internal.sizeBytes);
+  assert.match(expected.releaseNotes.join(' '), /临时签名/);
+  assert.equal(Object.hasOwn(expected, 'notarized'), false);
+});
+
+test('both public files are verified before switching; either pointer readback failure rolls back both', async t => {
+  const { index } = await fixture(t);
+  for (const failure of [index.downloadURL.replace('-dev.dmg', '.dmg'), DESKTOP_INTERNAL_INDEX, DESKTOP_APP_INDEX]) {
+    const actions = [];
+    const fetcher = async url => new Response(url === failure ? 'wrong bytes' : url.endsWith('.dmg') ? data
+      : `${JSON.stringify(url === DESKTOP_APP_INDEX ? createAppUpdateIndex(index) : index)}\n`);
+    await assert.rejects(publishInternalIndex(index, { syncAppUpdate: true, fetcher,
+      executeRemote: async action => actions.push(action) }));
+    assert.deepEqual(actions, failure.endsWith('.dmg') ? [] : ['publish', 'rollback']);
+  }
+});
+
+test('paired pointer transaction restores absent/existing indexes, refuses conflicting channels and concurrent rollback', async t => {
+  const { index } = await fixture(t);
+  const root = await mkdtemp(join(tmpdir(), 'desktop-paired-pointers-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = remoteTransaction.replace("'/srv/hermes-desktop-apps'", JSON.stringify(root));
+  const payload = { internalIndex: index, appUpdateIndex: createAppUpdateIndex(index) };
+  const run = (action, value = payload, id = 'pair') => execFileSync('python3', ['-c', source, action,
+    Buffer.from(`${JSON.stringify(value)}\n`).toString('base64'), id], { stdio: 'pipe' });
+  await mkdir(join(root, index.appVersion));
+  await writeFile(join(root, index.appVersion, `Hermes-Go-Desktop-${index.appVersion}-dev.dmg`), data);
+  run('publish');
+  assert.deepEqual(JSON.parse(await readFile(join(root, 'index.json'))), payload.appUpdateIndex);
+  run('rollback');
+  for (const name of ['index.json', 'internal-index.json']) await assert.rejects(readFile(join(root, name)));
+  const olderApp = { ...payload.appUpdateIndex, appVersion: '0.2.31', buildNumber: 34 };
+  const oldBytes = `${JSON.stringify(olderApp)}\n`;
+  await writeFile(join(root, 'index.json'), oldBytes);
+  run('publish', payload, 'existing'); run('rollback', payload, 'existing');
+  assert.equal(await readFile(join(root, 'index.json'), 'utf8'), oldBytes);
+  await writeFile(join(root, 'index.json'), JSON.stringify({ ...olderApp, channel: 'stable' }));
+  assert.throws(() => run('publish', payload, 'other-channel'));
+  await assert.rejects(readFile(join(root, 'internal-index.json')));
+  await writeFile(join(root, 'index.json'), oldBytes);
+  run('publish', payload, 'concurrent');
+  await writeFile(join(root, 'index.json'), 'new concurrent pointer');
+  assert.throws(() => run('rollback', payload, 'concurrent'));
+  assert.deepEqual(JSON.parse(await readFile(join(root, 'internal-index.json'))), index);
 });

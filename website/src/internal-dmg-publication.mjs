@@ -23,16 +23,18 @@ export async function prepareInternalDmg({ receipt, dmg, notes, architecture = '
     updatedAt: new Date(receipt.verifiedAt).toISOString().replace(/\.\d+Z$/, 'Z') });
 }
 
-// Publication success includes website synchronization. There is deliberately no skip-sync flag.
+// Publication success includes both website and existing Desktop update discovery.
 export async function publishInternalDmg(index, { installArtifact, executeRemote, fetcher = fetch }) {
   validateDesktopInternal(index);
   await installArtifact(index);
   // Includes full public DMG readback, atomic index switch and public index readback/rollback.
-  await publishInternalIndex(index, { executeRemote, fetcher });
+  await publishInternalIndex(index, { executeRemote, fetcher, syncAppUpdate: true });
   return { verified: true, stage: 'internal-test-published-and-public-readback-verified',
     channel: 'internal-ad-hoc', notarized: false, version: index.appVersion, build: index.buildNumber,
     sourceCommit: index.sourceCommit, url: index.downloadURL, sizeBytes: index.sizeBytes,
-    sha256: index.sha256, verifiedAt: index.updatedAt, websiteSynchronized: true };
+    sha256: index.sha256, verifiedAt: index.updatedAt, websiteSynchronized: true,
+    appUpdateSynchronized: true, appUpdateIndexURL: 'https://mrlgs.net/desktop/apps/index.json',
+    appUpdateVerifiedAt: new Date().toISOString() };
 }
 
 export const remoteArtifactInstall = String.raw`
@@ -48,8 +50,17 @@ source = stage / filename
 payload = source.read_bytes()
 assert len(payload) == index['sizeBytes'] and hashlib.sha256(payload).hexdigest() == index['sha256']
 destination = root / version / filename
+def artifact_route(public_path):
+    return '\nlocation = ' + public_path + ' {\n    alias ' + str(destination) + ';\n    default_type application/x-apple-diskimage;\n    add_header Cache-Control "public, max-age=31536000, immutable" always;\n    add_header X-Content-Type-Options nosniff always;\n    limit_except GET HEAD { deny all; }\n}\n'
+# The no-dev URL is a compatibility alias for installed Desktop clients. Both routes serve the
+# exact same immutable file, while the website retains explicit ad-hoc/notarized-false metadata.
 public_path = '/desktop/apps/' + version + '/' + filename
-block = '\nlocation = ' + public_path + ' {\n    alias ' + str(destination) + ';\n    default_type application/x-apple-diskimage;\n    add_header Cache-Control "public, max-age=31536000, immutable" always;\n    add_header X-Content-Type-Options nosniff always;\n    limit_except GET HEAD { deny all; }\n}\n'
+legacy_path = public_path.replace('-dev.dmg', '.dmg')
+index_path = '/desktop/apps/index.json'
+index_block = '\nlocation = ' + index_path + ' {\n    alias ' + str(root / 'index.json') + ';\n    default_type application/json;\n    add_header Cache-Control "no-store" always;\n    add_header X-Content-Type-Options nosniff always;\n    limit_except GET HEAD { deny all; }\n}\n'
+desired_routes = [(public_path, str(destination), artifact_route(public_path)),
+                  (legacy_path, str(destination), artifact_route(legacy_path)),
+                  (index_path, str(root / 'index.json'), index_block)]
 with (root / '.internal-index.lock').open('a') as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
     assert root.stat().st_uid == 0 and not root.is_symlink()
@@ -69,16 +80,22 @@ with (root / '.internal-index.lock').open('a') as lock:
         finally:
             pathlib.Path(candidate).unlink(missing_ok=True)
     before = routes.read_text()
-    marker = 'location = ' + public_path + ' {'
-    if marker in before:
-        assert before.count(marker) == 1
-        start = before.index(marker); end = start + len(marker); depth = 1
-        while depth and end < len(before):
-            depth += (before[end] == '{') - (before[end] == '}'); end += 1
-        assert depth == 0
-        existing = before[start:end]
-        assert 'alias ' + str(destination) + ';' in existing and 'limit_except GET HEAD { deny all; }' in existing
-    else:
+    candidate = before
+    for path, alias, block in desired_routes:
+        marker = 'location = ' + path + ' {'
+        if marker in before:
+            assert before.count(marker) == 1
+            start = before.index(marker); end = start + len(marker); depth = 1
+            while depth and end < len(before):
+                depth += (before[end] == '{') - (before[end] == '}'); end += 1
+            assert depth == 0
+            existing = before[start:end]
+            assert 'alias ' + alias + ';' in existing and 'limit_except GET HEAD { deny all; }' in existing
+            if path == index_path:
+                assert 'Cache-Control "no-store"' in existing
+        else:
+            candidate += block
+    if candidate != before:
         def replace_routes(text):
             fd, name = tempfile.mkstemp(prefix='.desktop-routes-', dir=routes.parent)
             try:
@@ -87,7 +104,6 @@ with (root / '.internal-index.lock').open('a') as lock:
                 os.replace(name, routes)
             finally:
                 pathlib.Path(name).unlink(missing_ok=True)
-        candidate = before + block
         replace_routes(candidate)
         try:
             subprocess.run(['nginx', '-t'], check=True, capture_output=True)
