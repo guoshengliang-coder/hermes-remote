@@ -1903,6 +1903,37 @@ attachment/draft ownership, reading/search restoration and navigation races. Des
 WebKit size/keyboard emulation is useful evidence, but does not count as physical Android/iOS,
 TalkBack/VoiceOver or an actual folding gesture.
 
+# HG-231 · Web recording release and interruption recovery
+
+Primary acceptance target: the **iPhone Home Screen installed Web App** reported by the owner.
+Record iPhone model, iOS version, Web build and entry mode; record Safari-tab and Android Chrome
+results separately. DOM tests in `VoiceComposer.test.tsx` and `Composer.test.tsx` prove event
+routing, terminal-action deduplication, partial-text/attachment retention and late-callback rejection.
+They do not prove WebKit's physical touch sequence or that the system microphone indicator clears.
+Physical iPhone acceptance has not been performed for this change.
+
+1. In a disposable chat, prepare draft text and an attachment. Hold to talk, speak, slide away from
+   the original button (including beyond the overlay's central card), then release. The microphone
+   must stop promptly. Ordinary release sends the draft, final speech and attachment exactly once;
+   release in the left cancel or right edit target follows the drawn action even on a fast slide
+   without pausing. Cancel discards only this speech; Edit appends the final text to the draft.
+2. Repeat while moving near the screen edge, using another finger to tap/release outside the
+   targets, and with rapid press/release (under 250ms). Another finger must not finish the original
+   hold; a short original press cancels. Repeated end/cancel signals must not send twice.
+3. While recording with partial text visible, open Control Center, switch apps, lock the phone or
+   otherwise interrupt the gesture. Capture and the connection must close immediately; on return,
+   partial text is appended once to the existing draft, attachments remain, and nothing is sent.
+   If the OS never reports an interruption until the page resumes, record that sequence and delay
+   explicitly rather than calling it verified. Check the OS microphone indicator as well as the UI.
+4. If the recording becomes stuck after a missed release, independently tap Cancel or Edit.
+   Cancel must stop/discard this recording; Edit must stop capture, wait for the bounded final
+   result and put it in the draft. Neither operation may require a fresh slide. Repeat with
+   VoiceOver activation. Keep partial/final text, attachments and submitted messages under review.
+5. Confirm normal keyboard Space/Enter holds, arrow target selection, Escape, Cancel waiting,
+   five-minute-to-draft completion, chat switching, sign-out and network/final-result errors still
+   work. On desktop also release beyond the button and outside the browser window, then re-enter;
+   no live microphone may remain after a detected window blur or a move reporting no pressed button.
+
 # HG-201 · Web session long-press release isolation
 
 Automated: `web/src/ui/useLongPress.test.tsx` exercises the real SessionRow/SessionActionSheet
