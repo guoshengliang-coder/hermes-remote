@@ -27,8 +27,6 @@ data class UpdateTask(
     val percent: Int? = null,
     val downloadedBytes: Long = 0,
     val totalBytes: Long = -1,
-    /** The raw DownloadManager pause/failure reason, mapped to copy by [downloadPauseText]. */
-    val reason: Int? = null,
     val verifiedFile: File? = null,
     /** One-shot: the page already launched the installer for this task automatically. */
     val autoInstallAttempted: Boolean = false,
@@ -133,8 +131,8 @@ class UpdateViewModel(
         monitorJob?.cancel()
         monitorJob = viewModelScope.launch {
             val saved = runCatching { repository.saved() }.getOrNull() ?: return@launch
-            _state.value = _state.value.copy(task = UpdateTask(saved.second, DownloadPhase.WAITING))
-            monitor(saved.first, saved.second, generation)
+            _state.value = _state.value.copy(task = UpdateTask(saved, DownloadPhase.WAITING))
+            monitor(saved, generation)
         }
     }
 
@@ -149,19 +147,20 @@ class UpdateViewModel(
         val allowed = (version.versionCode == recommended?.version?.versionCode && recommended.eligibility == VersionEligibility.UPDATE) ||
             (recommended == null && version.versionCode == current.task?.version?.versionCode)
         if (!allowed) return
-        if (current.task?.phase in BUSY_DOWNLOAD_PHASES) return
+        // PAUSED is the one busy phase a tap may leave: "继续下载" continues the same task.
+        if (current.task?.phase in BUSY_DOWNLOAD_PHASES && current.task?.phase != DownloadPhase.PAUSED) return
 
-        // Claim the slot synchronously: enqueue() suspends, and a second tap that lands before it
-        // returns would otherwise queue a duplicate DownloadManager job.
+        // Claim the slot synchronously: start() suspends, and a second tap that lands before it
+        // returns would otherwise queue a duplicate transfer for the same APK.
         _state.value = current.copy(task = UpdateTask(version, DownloadPhase.ENQUEUING), taskError = null)
         val generation = ++monitorGeneration
         monitorJob?.cancel()
         monitorJob = viewModelScope.launch {
-            runCatching { repository.enqueue(version) }
-                .onSuccess { id ->
+            runCatching { repository.start(version) }
+                .onSuccess {
                     if (generation != monitorGeneration) return@launch
                     update(generation) { it.copy(phase = DownloadPhase.WAITING) }
-                    monitor(id, version, generation)
+                    monitor(version, generation)
                 }
                 .onFailure {
                     fail(generation, AppErrorCode.UPDATE_ENQUEUE_FAILED, "download_enqueue", it.message)
@@ -242,9 +241,9 @@ class UpdateViewModel(
         }
     }
 
-    private suspend fun monitor(id: Long, version: UpdateVersion, generation: Long) {
+    private suspend fun monitor(version: UpdateVersion, generation: Long) {
         while (generation == monitorGeneration) {
-            val snapshot = runCatching { repository.query(id) }.getOrElse {
+            val snapshot = runCatching { repository.query() }.getOrElse {
                 fail(generation, AppErrorCode.UPDATE_DOWNLOAD_FAILED, "download_query", it.message)
                 return
             }
@@ -259,18 +258,12 @@ class UpdateViewModel(
                     percent = downloadPercent(snapshot.downloaded, snapshot.total),
                     downloadedBytes = snapshot.downloaded,
                     totalBytes = snapshot.total,
-                    reason = snapshot.reason.takeIf { _ -> phase == DownloadPhase.PAUSED || phase == DownloadPhase.FAILED },
                 )
             }
             when (phase) {
                 DownloadPhase.DOWNLOADED -> {
-                    val localUri = snapshot.localUri
-                    if (localUri == null) {
-                        fail(generation, AppErrorCode.UPDATE_FILE_MISSING, "downloaded_file", null)
-                        return
-                    }
                     update(generation) { it.copy(phase = DownloadPhase.VERIFYING) }
-                    runCatching { repository.verify(version, localUri) }
+                    runCatching { repository.verify(version) }
                         .onSuccess { file ->
                             if (generation != monitorGeneration) return
                             _state.value = _state.value.copy(
@@ -292,10 +285,13 @@ class UpdateViewModel(
                     return
                 }
                 DownloadPhase.FAILED -> {
-                    fail(generation, AppErrorCode.UPDATE_DOWNLOAD_FAILED, "download_failed", downloadReasonDiagnostic(snapshot.reason))
+                    val code = snapshot.errorCode?.let { code -> AppErrorCode.fromValue(code) } ?: AppErrorCode.UPDATE_DOWNLOAD_FAILED
+                    fail(generation, code, "download_failed", snapshot.errorCode)
                     return
                 }
-                // A pause is not a failure: keep polling, DownloadManager may resume on its own.
+                // A pause is the user's decision or a stopped transfer: keep the task and its
+                // partial file, and let the page offer "继续下载" instead of polling forever.
+                DownloadPhase.PAUSED -> return
                 else -> delay(POLL_INTERVAL_MS)
             }
         }

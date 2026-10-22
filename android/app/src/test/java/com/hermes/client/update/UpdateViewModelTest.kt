@@ -28,17 +28,17 @@ class UpdateViewModelTest {
         3, "a".repeat(64), cert, 26, listOf("note"), "abcdef1",
     )
 
-    private fun snapshot(status: Int, downloaded: Long = 1, total: Long = 10, uri: String? = null, reason: Int = 0) =
-        DownloadSnapshot(status, downloaded, total, uri, reason)
+    private fun snapshot(status: UpdateDownloadStatus, downloaded: Long = 1, total: Long = 10, errorCode: String? = null) =
+        UpdateDownloadSnapshot(status, downloaded, total, errorCode)
 
-    private val done = snapshot(android.app.DownloadManager.STATUS_SUCCESSFUL, 3, 3, "file:///safe.apk")
+    private val done = snapshot(UpdateDownloadStatus.COMPLETE, 3, 3)
 
     // ---- page entry -------------------------------------------------------------------------
 
     // The two jobs are independent on purpose: a restored download is local state and must render
     // even when the network check fails, and an empty index must not erase it either.
     @Test fun `entry resumes a saved download even when the index check fails`() = runTest {
-        val repo = FakeRepository(fetchError = IllegalStateException("offline"), saved = 7L to version, snapshots = mutableListOf(done))
+        val repo = FakeRepository(fetchError = IllegalStateException("offline"), saved = version, snapshots = mutableListOf(done))
         val vm = UpdateViewModel(repo) { 1_000L }
         vm.onOpen(); advanceUntilIdle()
         assertEquals(DownloadPhase.INSTALLABLE, vm.state.value.task?.phase)
@@ -50,7 +50,7 @@ class UpdateViewModelTest {
     }
 
     @Test fun `entry resumes a saved download when the index has no versions`() = runTest {
-        val repo = FakeRepository(index = empty, saved = 7L to version, snapshots = mutableListOf(done))
+        val repo = FakeRepository(index = empty, saved = version, snapshots = mutableListOf(done))
         val vm = UpdateViewModel(repo) { 1_000L }
         vm.onOpen(); advanceUntilIdle()
         assertEquals(DownloadPhase.INSTALLABLE, vm.state.value.task?.phase)
@@ -113,8 +113,8 @@ class UpdateViewModelTest {
     }
 
     // Without a synchronous busy state the second tap lands while the state still reads IDLE and
-    // DownloadManager ends up with two jobs for the same APK.
-    @Test fun `a second tap during enqueue cannot start a second job`() = runTest {
+    // the engine ends up with two transfers for the same APK.
+    @Test fun `a second tap during start cannot begin a second transfer`() = runTest {
         val enqueueGate = CompletableDeferred<Unit>()
         val repo = FakeRepository(index = index, snapshots = mutableListOf(done), enqueueGate = enqueueGate)
         val vm = UpdateViewModel(repo) { 1L }
@@ -142,40 +142,40 @@ class UpdateViewModelTest {
 
     // ---- running a download -----------------------------------------------------------------
 
-    @Test fun `paused downloads report why and keep polling until they resume`() = runTest {
+    // A pause is the user's decision or an interrupted transfer, not a failure: the task and its
+    // downloaded bytes stay, and resuming starts the transfer again from the checkpoint.
+    @Test fun `a paused download keeps the task and resume continues from its bytes`() = runTest {
         val repo = FakeRepository(
             index = index,
             snapshots = mutableListOf(
-                snapshot(android.app.DownloadManager.STATUS_PAUSED, reason = android.app.DownloadManager.PAUSED_WAITING_FOR_NETWORK),
-                snapshot(android.app.DownloadManager.STATUS_RUNNING, downloaded = 5, total = 10),
+                snapshot(UpdateDownloadStatus.PAUSED, downloaded = 4, total = 10),
                 done,
             ),
         )
         val vm = UpdateViewModel(repo) { 1L }
         vm.onOpen(); advanceUntilIdle()
-        vm.download(version); runCurrent()
+        vm.download(version); advanceUntilIdle()
         assertEquals(DownloadPhase.PAUSED, vm.state.value.task?.phase)
-        assertEquals(android.app.DownloadManager.PAUSED_WAITING_FOR_NETWORK, vm.state.value.task?.reason)
+        assertEquals(4L, vm.state.value.task?.downloadedBytes)
         assertNull("a pause is not a failure", vm.state.value.taskError)
-        advanceTimeBy(1_000); runCurrent()
-        assertEquals(DownloadPhase.DOWNLOADING, vm.state.value.task?.phase)
-        assertEquals(50, vm.state.value.task?.percent)
-        advanceUntilIdle()
+
+        vm.retry(); advanceUntilIdle()
+
+        assertEquals(2, repo.enqueued.size)
         assertEquals(DownloadPhase.INSTALLABLE, vm.state.value.task?.phase)
     }
 
-    @Test fun `download failure reports the reason and retry restarts the job`() = runTest {
+    @Test fun `download failure carries the shared error code and retry resumes`() = runTest {
         val repo = FakeRepository(
             index = index,
-            snapshots = mutableListOf(snapshot(android.app.DownloadManager.STATUS_FAILED, reason = android.app.DownloadManager.ERROR_INSUFFICIENT_SPACE)),
+            snapshots = mutableListOf(snapshot(UpdateDownloadStatus.FAILED, errorCode = "HR-UPDATE-010")),
         )
         val vm = UpdateViewModel(repo) { 1L }
         vm.onOpen(); advanceUntilIdle()
         vm.download(version); advanceUntilIdle()
         assertEquals(DownloadPhase.FAILED, vm.state.value.task?.phase)
-        assertEquals(AppErrorCode.UPDATE_DOWNLOAD_FAILED, vm.state.value.taskError?.code)
-        assertTrue(vm.state.value.taskError!!.sanitizedDiagnostic().contains("storage"))
-        assertEquals(android.app.DownloadManager.ERROR_INSUFFICIENT_SPACE, vm.state.value.task?.reason)
+        assertEquals(AppErrorCode.UPDATE_STORAGE_FULL, vm.state.value.taskError?.code)
+        assertTrue(vm.state.value.taskError!!.sanitizedDiagnostic().contains("HR-UPDATE-010"))
 
         repo.snapshots.add(done)
         vm.retry(); advanceUntilIdle()
@@ -187,9 +187,9 @@ class UpdateViewModelTest {
     @Test fun `offline restored failure can retry without a loaded index`() = runTest {
         val repo = FakeRepository(
             fetchError = IllegalStateException("offline"),
-            saved = 7L to version,
+            saved = version,
             snapshots = mutableListOf(
-                snapshot(android.app.DownloadManager.STATUS_FAILED, reason = android.app.DownloadManager.ERROR_CANNOT_RESUME),
+                snapshot(UpdateDownloadStatus.FAILED, errorCode = "HR-UPDATE-004"),
                 done,
             ),
         )
@@ -212,8 +212,8 @@ class UpdateViewModelTest {
         assertEquals(AppErrorCode.UPDATE_FILE_MISSING, vm.state.value.taskError?.code)
     }
 
-    @Test fun `cancel removes the download manager job and the task`() = runTest {
-        val repo = FakeRepository(index = index, snapshots = mutableListOf(snapshot(android.app.DownloadManager.STATUS_RUNNING)))
+    @Test fun `cancel removes the task and its partial file`() = runTest {
+        val repo = FakeRepository(index = index, snapshots = mutableListOf(snapshot(UpdateDownloadStatus.RUNNING)))
         val vm = UpdateViewModel(repo) { 1L }
         vm.onOpen(); advanceUntilIdle()
         vm.download(version); runCurrent()
@@ -228,7 +228,7 @@ class UpdateViewModelTest {
         val cancelGate = CompletableDeferred<Unit>()
         val repo = FakeRepository(
             index = index,
-            snapshots = mutableListOf(snapshot(android.app.DownloadManager.STATUS_RUNNING)),
+            snapshots = mutableListOf(snapshot(UpdateDownloadStatus.RUNNING)),
             cancelGate = cancelGate,
         )
         val vm = UpdateViewModel(repo) { 1L }
@@ -248,7 +248,7 @@ class UpdateViewModelTest {
     @Test fun `cancel failure restores the task and reports a cleanup error`() = runTest {
         val repo = FakeRepository(
             index = index,
-            snapshots = mutableListOf(snapshot(android.app.DownloadManager.STATUS_RUNNING)),
+            snapshots = mutableListOf(snapshot(UpdateDownloadStatus.RUNNING)),
             cancelError = IllegalStateException("preferences not cleared"),
         )
         val vm = UpdateViewModel(repo) { 1L }
@@ -286,7 +286,7 @@ class UpdateViewModelTest {
     }
 
     @Test fun `a restored intermediate update cannot install after a newer latest is known`() = runTest {
-        val repo = FakeRepository(index = index, saved = 7L to older, snapshots = mutableListOf(done))
+        val repo = FakeRepository(index = index, saved = older, snapshots = mutableListOf(done))
         val vm = UpdateViewModel(repo) { 1L }
         vm.onOpen(); advanceUntilIdle()
         assertEquals(DownloadPhase.INSTALLABLE, vm.state.value.task?.phase)
@@ -318,8 +318,8 @@ class UpdateViewModelTest {
         var fetchError: Throwable? = null,
         var enqueueError: Throwable? = null,
         var verifyError: Throwable? = null,
-        var saved: Pair<Long, UpdateVersion>? = null,
-        val snapshots: MutableList<DownloadSnapshot> = mutableListOf(),
+        var saved: UpdateVersion? = null,
+        val snapshots: MutableList<UpdateDownloadSnapshot> = mutableListOf(),
         val enqueueGate: CompletableDeferred<Unit>? = null,
         val cancelGate: CompletableDeferred<Unit>? = null,
         var cancelError: Throwable? = null,
@@ -342,15 +342,14 @@ class UpdateViewModelTest {
         override suspend fun exportApk(version: UpdateVersion): ExportResult { exports += version; return exportResult }
 
         override suspend fun fetch() = fetchError?.let { throw it } ?: requireNotNull(index)
-        override suspend fun enqueue(version: UpdateVersion): Long {
+        override suspend fun start(version: UpdateVersion) {
             enqueueError?.let { throw it }
             enqueued += version
             enqueueGate?.await()
-            return nextId++
         }
         override suspend fun saved() = saved
-        override suspend fun query(id: Long) = queryError?.let { throw it } ?: if (snapshots.isEmpty()) null else snapshots.removeAt(0)
-        override suspend fun verify(version: UpdateVersion, localUri: String) = verifyError?.let { throw it } ?: verified
+        override suspend fun query() = queryError?.let { throw it } ?: if (snapshots.isEmpty()) null else snapshots.removeAt(0)
+        override suspend fun verify(version: UpdateVersion) = verifyError?.let { throw it } ?: verified
         override suspend fun cancel() {
             cancelGate?.await()
             cancelError?.let { throw it }

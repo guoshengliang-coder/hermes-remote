@@ -7,6 +7,28 @@ import {MAX_INDEX_BYTES, validateIndex} from './schema.mjs';
 
 const send = (res,status,headers={},body='') => {res.writeHead(status,headers);res.end(body);};
 
+// A strong validator is not optional here: Android's DownloadManager refuses to resume a
+// transfer whose origin never sent an ETag ("To resume an interrupted download, we need an
+// ETag"), turning every network drop into ERROR_CANNOT_RESUME. The manifest SHA-256 is already
+// the identity of these immutable, version-named files.
+function validators(version) {
+  return {etag: `"${version.sha256}"`, lastModified: new Date(version.publishedAt).toUTCString()};
+}
+
+function ifMatchSatisfied(header, etag) {
+  return header.split(',').some((value) => {
+    const candidate = value.trim();
+    return candidate === '*' || candidate === etag;
+  });
+}
+
+// If-Range holds either an entity tag or an HTTP date; a mismatch means "send the whole file".
+function ifRangeSatisfied(header, etag, lastModified) {
+  if (header.startsWith('"') || header.startsWith('W/')) return header === etag;
+  const date = Date.parse(header);
+  return !Number.isNaN(date) && date === Date.parse(lastModified);
+}
+
 function parseRange(value, size) {
   if (!value) return null;
   const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
@@ -46,10 +68,16 @@ export function createReleaseHandler(dataRoot) {
       if(!version) return send(res,404);
       const filePath=path.join(dataRoot,fileName);const file=await open(filePath,constants.O_RDONLY|constants.O_NOFOLLOW);const info=await file.stat();
       if(!info.isFile()||info.size!==version.sizeBytes){await file.close();return send(res,404);}
-      const range=parseRange(req.headers?.range,info.size);
+      const {etag,lastModified}=validators(version);
+      const ifMatch=(req.headers?.['if-match']??'').trim();
+      if(ifMatch&&!ifMatchSatisfied(ifMatch,etag)){await file.close();return send(res,412,{'ETag':etag,'Accept-Ranges':'bytes'});}
+      // A stale If-Range must not be answered with a spliced 206: fall back to the full entity.
+      const ifRange=(req.headers?.['if-range']??'').trim();
+      const rangeHeader=(ifRange&&!ifRangeSatisfied(ifRange,etag,lastModified))?undefined:req.headers?.range;
+      const range=parseRange(rangeHeader,info.size);
       if(range===false){await file.close();return send(res,416,{'Content-Range':`bytes */${info.size}`,'Accept-Ranges':'bytes'});}
       const contentLength=range?range.end-range.start+1:info.size;
-      const headers={'Content-Type':'application/vnd.android.package-archive','Content-Length':String(contentLength),'Content-Disposition':`attachment; filename="${fileName}"`,'Cache-Control':'public, max-age=31536000, immutable','X-Content-Type-Options':'nosniff','Accept-Ranges':'bytes'};
+      const headers={'Content-Type':'application/vnd.android.package-archive','Content-Length':String(contentLength),'Content-Disposition':`attachment; filename="${fileName}"`,'Cache-Control':'public, max-age=31536000, immutable','X-Content-Type-Options':'nosniff','Accept-Ranges':'bytes','ETag':etag,'Last-Modified':lastModified};
       if(range) headers['Content-Range']=`bytes ${range.start}-${range.end}/${info.size}`;
       if(req.method==='HEAD'){await file.close();return send(res,range?206:200,headers);}
       res.writeHead(range?206:200,headers);file.createReadStream({autoClose:true,...(range??{})}).pipe(res);

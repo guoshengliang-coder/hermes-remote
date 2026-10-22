@@ -87,6 +87,8 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
         <service android:name=".data.downloads.ArtifactTransferService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".update.UpdateDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <receiver android:name=".update.UpdateDownloadActionReceiver" android:exported="false" />
         <service android:name=".data.downloads.ArtifactTransferJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <receiver android:name=".data.downloads.ArtifactDownloadActionReceiver" android:exported="false" />
         <activity android:name=".data.downloads.ArtifactDownloadOpenActivity" android:exported="false" android:excludeFromRecents="true" />

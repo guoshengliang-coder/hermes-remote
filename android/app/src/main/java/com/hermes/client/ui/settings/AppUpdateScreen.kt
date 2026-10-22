@@ -74,8 +74,6 @@ import com.hermes.client.update.UpdateUiState
 import com.hermes.client.update.UpdateVersion
 import com.hermes.client.update.UpdateViewModel
 import com.hermes.client.update.VersionEligibility
-import com.hermes.client.update.downloadFailureText
-import com.hermes.client.update.downloadPauseText
 import com.hermes.client.update.taskIsSuperseded
 import java.time.Instant
 import java.time.ZoneId
@@ -395,7 +393,11 @@ private fun TaskSection(
             LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
         }
         Text(
-            localized(language, "可离开本页，下载会在后台继续；完成后回到这里安装。", "You can leave this page — the download continues in the background. Come back here to install."),
+            localized(
+                language,
+                "可离开本页，下载会在后台继续；网络中断也会从已下载的位置续传，完成后回到这里安装。",
+                "You can leave this page — the download continues in the background and resumes from the downloaded part after a network drop. Come back here to install.",
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
         )
@@ -417,8 +419,7 @@ private fun TaskSection(
         com.hermes.client.data.error.AppError(com.hermes.client.data.error.AppErrorCode.UPDATE_SUPERSEDED, retryable = false, stage = "update_superseded")
     } else state.taskError
     visibleError?.let { error ->
-        val detail = task.reason?.takeIf { task.phase == DownloadPhase.FAILED }?.let { downloadFailureText(it).resolve(language) }
-        ErrorBlock(error.localizedMessage(language), error.sanitizedDiagnostic(), detail)
+        ErrorBlock(error.localizedMessage(language), error.sanitizedDiagnostic())
     }
 
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -441,6 +442,14 @@ private fun TaskSection(
                     }
                     OutlinedButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
                         Text(localized(language, "取消更新", "Cancel update"))
+                    }
+                }
+                DownloadPhase.PAUSED -> {
+                    Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(localized(language, "继续下载", "Resume download"))
+                    }
+                    OutlinedButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(localized(language, "取消下载", "Cancel download"))
                     }
                 }
                 DownloadPhase.ENQUEUING, DownloadPhase.CANCELLING -> Unit
@@ -692,8 +701,7 @@ private fun ErrorBlock(summary: String, diagnostic: String, detail: String? = nu
 private fun phaseAnnouncement(task: UpdateTask, language: AppLanguage): String = when (task.phase) {
     DownloadPhase.ENQUEUING -> localized(language, "正在开始下载…", "Starting the download…")
     DownloadPhase.WAITING -> localized(language, "已排队，等待开始下载。", "Queued and waiting to start.")
-    DownloadPhase.PAUSED -> task.reason?.let { downloadPauseText(it).resolve(language) }
-        ?: localized(language, "下载已暂停。", "The download is paused.")
+    DownloadPhase.PAUSED -> localized(language, "下载已暂停，已下载部分会保留。", "The download is paused. Downloaded bytes are kept.")
     DownloadPhase.DOWNLOADING -> localized(language, "正在下载…", "Downloading…")
     DownloadPhase.DOWNLOADED, DownloadPhase.VERIFYING -> localized(language, "正在校验安装包…", "Verifying the package…")
     DownloadPhase.CANCELLING -> localized(language, "正在取消并清理下载…", "Cancelling and cleaning up the download…")
