@@ -1,5 +1,13 @@
 # Hermes Go Desktop
 
+HG-226 adds actual managed-setup stages, per-second elapsed time and per-run system/runtime
+telemetry to both installer confirmation sheets. Confirmed execution and rollback remain
+non-cancellable; success/failure closes the sheet, while a cleanup retry handle remains available
+without reopening installation. The original permanent-loading hypothesis remains unproven.
+See the Desktop design and test plan for the behavior and pending physical upgrade acceptance.
+This is a source change for a later Desktop release; it does not publish or bump an app version.
+
+
 Approved internal test version: **0.2.32** (build 35), containing HG-212's startup-failure
 diagnostics and PM/runtime recovery follow-up (#582, #583). It selects the published PM launcher,
 verifies the actual command and authenticated local service, refreshes local/account evidence with

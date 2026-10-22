@@ -694,11 +694,15 @@ extension DesktopComponentReleaseInstallerTests {
         defer { fixture.remove() }
         let underlying = try fixture.installer(downloader: FixtureComponentDownloader())
         let installer = FailOnceInstalledDiscardComponentInstaller(underlying: underlying)
+        let recorder = SetupTestTelemetry()
+        let progress = recorder.makeProgress()
         let executor = DesktopComponentBootstrapExecutor(
             installer: installer,
-            migration: RecordingComponentBootstrapMigration()
+            migration: RecordingComponentBootstrapMigration(),
+            progress: progress
         )
         let runID = "e0000000-0000-4000-8000-000000000001"
+        progress.begin(runID: runID)
         let preparation = try await executor.prepare(
             trustedPreflight: try fixture.trustedPreflight(),
             workspaceRoot: fixture.workspace,
@@ -722,6 +726,12 @@ extension DesktopComponentReleaseInstallerTests {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: fixture.workspace.appendingPathComponent(runID).path
         ))
+        XCTAssertEqual(progress.snapshot?.stage, .cleaning)
+        XCTAssertEqual(recorder.lines.filter { $0.contains("stage-start stage=staging") }.count, 1)
+        XCTAssertFalse(DesktopComponentBootstrapOperation.completed(
+            releaseVersion: outcome.migration.releaseVersion, cleanupPending: true
+        ).presentsConfirmation)
+
     }
 }
 

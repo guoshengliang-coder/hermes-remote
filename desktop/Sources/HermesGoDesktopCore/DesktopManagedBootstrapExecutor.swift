@@ -227,6 +227,7 @@ public struct DesktopManagedBootstrapOutcome: Equatable, Sendable {
 public actor DesktopManagedBootstrapExecutor {
     private let acquisition: any DesktopReleaseAcquiring
     private let migration: any DesktopReleaseMigrating
+    private let progress: DesktopSetupProgress?
     private var state: State = .idle
 
     private enum State {
@@ -244,10 +245,12 @@ public actor DesktopManagedBootstrapExecutor {
 
     public init(
         acquisition: any DesktopReleaseAcquiring,
-        migration: any DesktopReleaseMigrating
+        migration: any DesktopReleaseMigrating,
+        progress: DesktopSetupProgress? = nil
     ) {
         self.acquisition = acquisition
         self.migration = migration
+        self.progress = progress
     }
 
     public func prepare(
@@ -342,6 +345,7 @@ public actor DesktopManagedBootstrapExecutor {
             throw DesktopManagedBootstrapExecutorError.confirmationRequired
         }
         let launchAgents = try configuration.launchAgents(for: pending.acquired.manifest)
+        progress?.advance(.staging, runID: preparation.runID)
         state = .committing
 
         let migrationOutcome: DesktopMigrationOutcome
@@ -379,6 +383,7 @@ public actor DesktopManagedBootstrapExecutor {
             throw error
         }
 
+        progress?.advance(.cleaning, runID: preparation.runID)
         let workspaceRemoved: Bool
         do {
             try acquisition.discard(pending.acquired)

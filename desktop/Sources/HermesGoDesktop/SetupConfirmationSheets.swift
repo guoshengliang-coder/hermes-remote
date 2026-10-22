@@ -22,7 +22,10 @@ struct SetupConfirmationSheets: ViewModifier {
                 )
             }
             .sheet(item: Binding(
-                get: { model.managedBootstrapPreparation },
+                get: {
+                    model.managedBootstrapOperation.presentsConfirmation
+                        ? model.managedBootstrapPreparation : nil
+                },
                 set: { value in
                     if value == nil, model.managedBootstrapOperation == .awaitingConfirmation {
                         Task { await model.cancelManagedBootstrapConfirmation() }
@@ -33,12 +36,8 @@ struct SetupConfirmationSheets: ViewModifier {
             }
             .sheet(item: Binding(
                 get: {
-                    switch model.componentBootstrapOperation {
-                    case .awaitingConfirmation, .committing:
-                        model.componentBootstrapPreparation
-                    default:
-                        nil
-                    }
+                    model.componentBootstrapOperation.presentsConfirmation
+                        ? model.componentBootstrapPreparation : nil
                 },
                 set: { value in
                     if value == nil, model.componentBootstrapOperation == .awaitingConfirmation {
@@ -180,11 +179,7 @@ struct SetupConfirmationSheets: ViewModifier {
                 .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
 
             if model.managedBootstrapOperation == .committing {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("正在执行并验证，失败时会在提交前自动恢复。")
-                        .font(.system(size: 12))
-                }
+                SetupExecutionProgress(progress: model.managedSetupProgress)
             } else {
                 HStack {
                     Button("取消") {
@@ -228,11 +223,7 @@ struct SetupConfirmationSheets: ViewModifier {
                 .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
 
             if model.componentBootstrapOperation == .committing {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("正在提交并验证，失败时会按迁移日志自动恢复。")
-                        .font(.system(size: 12))
-                }
+                SetupExecutionProgress(progress: model.componentSetupProgress)
             } else {
                 HStack {
                     Button("取消") {

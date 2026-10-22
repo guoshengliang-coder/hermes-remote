@@ -1,5 +1,30 @@
 # Hermes Go Desktop phase 0
 
+## HG-226: observable managed setup
+
+The original six-hour-loading diagnosis was withdrawn by its reporter; no retained UI evidence
+proves that failure. The 0.2.30 source already sets request timeouts and finite health-poll counts,
+and sets completion before post-commit refresh. A finite poll count is not a total wall-clock
+deadline because each poll may perform several requests. This change does not add a global timeout
+or bypass the system proxy.
+
+Both managed executors share per-run telemetry with their migration coordinator and SwiftUI sheet.
+Typed events describe real work, journal transitions are recorded only after persistence succeeds,
+and the UI derives elapsed time from system uptime rather than callback count or wall-clock time.
+It is telemetry only: it changes neither journal schema, health criteria, service ordering nor rollback
+decisions. Old-run and post-terminal events are ignored. The confirmed operation locks immediately
+before its final preflight; both terminal sheet bindings are independent of retained cleanup handles.
+
+UI lifecycle, stage boundaries (with total/stage duration), journal transitions and terminal outcomes
+are logged to unified logging (subsystem `com.hermesgo.desktop`, category `managed-setup`) and the
+existing private rotated `Managed/logs/desktop-runtime.log` when that directory exists. The new events
+accept only fixed enums, canonical run UUIDs and durations: no account, URL, credential, path, raw
+exception or arbitrary release-version text is interpolated. Nothing logs once a second; only the UI
+timer ticks. There is no new error code; existing migration/cleanup errors retain their recovery actions.
+This source change requires a later Desktop app release; no version, publication or service restart
+is part of this work.
+
+
 ## PM runtime and diagnostics recovery (HG-212 follow-up, 2026-10-12)
 
 Standard-install detection now prefers `~/.hermes/hermes-agent/.hermes/bin/hermes` when present;
