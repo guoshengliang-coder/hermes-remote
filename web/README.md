@@ -97,3 +97,10 @@ The pre-stream status is not a transcript item; real streaming replaces it witho
 A reconnecting Stop resolves the live handle and sends the interrupt. No server, upstream, credential,
 version or error-code contract changes are required. Physical Safari/PWA and Android Chrome checks
 remain in `../docs/SMOKE_TEST.md`.
+
+HG-230 aligns live progress with Android: a five-line reasoning preview appears during the whole
+run and folds at completion unless the reader explicitly expands/hides it; settled history starts
+folded. Tool timelines preview only the newest call with access to the full list. Status text wraps
+up to three lines without 24/64-character pre-truncation; tapping opens a selectable snapshot in a
+sheet. A measured footer retains the status height when completion replaces it with actions.
+No server, credential, error-code or protocol changes. See `../docs/SMOKE_TEST.md` for visual checks.

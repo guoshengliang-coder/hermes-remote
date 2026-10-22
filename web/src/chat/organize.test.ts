@@ -58,8 +58,8 @@ describe("tool payloads (SemanticCards.kt)", () => {
   });
 
   it("running status: the running tool, else a thinking tail, else generating", () => {
-    expect(runningStatus({ tools: [tool("a", { done: false, command: "npm test\nmore" })], text: "", reasoning: "" })).toEqual({ kind: "tool", label: "npm test" });
-    expect(runningStatus({ tools: [], text: "", reasoning: "line one\nthe quick brown fox jumps over the dog\n" })).toEqual({ kind: "thinking", preview: "…n fox jumps over the dog" });
+    expect(runningStatus({ tools: [tool("a", { done: false, command: "npm test\nmore" })], text: "", reasoning: "" })).toEqual({ kind: "tool", label: "npm test\nmore" });
+    expect(runningStatus({ tools: [], text: "", reasoning: "line one\nthe quick brown fox jumps over the dog\n" })).toEqual({ kind: "thinking", preview: "the quick brown fox jumps over the dog" });
     expect(runningStatus({ tools: [], text: "writing", reasoning: "r" })).toEqual({ kind: "generating" });
   });
 

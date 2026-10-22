@@ -1179,3 +1179,9 @@ use a webpage outline with an explicit HTML label. Download-state changes no lon
 header controls; localized actions wrap at narrow widths. Existing quick-open, large-file
 download-first, and video playback rules remain in place. See `docs/DESIGN.md` §5.4 and the
 HG-227 physical-device checks in `docs/ANDROID_SMOKE.md`.
+
+HG-230 (source change, no APK release): live reasoning uses a five-line preview until the run ends,
+then folds automatically; explicit expand/hide survives updates and completion. Tool timelines
+preview the newest call only. Running status uses up to three lines and opens the complete clicked
+snapshot in a selectable dialog. The measured footer retains its height when actions replace status.
+Both Android and Web share these rules; see `docs/DESIGN.md` and `docs/SMOKE_TEST.md`.

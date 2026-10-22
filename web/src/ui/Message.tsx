@@ -1,5 +1,5 @@
 import type { ChartContext } from "../charts/card";
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useApp } from "../app/store";
 import { appError } from "../errors";
 import type { HistoryLocator, MessageRow } from "../hermes/types";
@@ -21,6 +21,7 @@ import {
 } from "../chat/organize";
 import { onSpeaking, speakingNow, speechSupported, toggleSpeak } from "../chat/speech";
 import { isAllowedHref, readableText } from "../markdown/render";
+import { Sheet } from "./Sheet";
 import { ErrorNotice } from "./ErrorNotice";
 import { ChevronIcon, CopyIcon, MoreHorizontalIcon, RefreshIcon, SpeakerIcon, ThumbDownIcon, ThumbUpIcon } from "./icons";
 import type { ViewerImage } from "./ImageViewer";
@@ -34,7 +35,7 @@ import { FileCard, MacImage } from "./Media";
 // message's images only. Injected system turns render as one quiet timeline note.
 
 const TOOL_PREVIEW_CHARS = 12_000;
-const RUNNING_TOOL_PREVIEW_ROWS = 3;
+const RUNNING_TOOL_PREVIEW_ROWS = 1;
 
 const LABELS: Record<ToolLabelKey, [string, string]> = {
   terminal: ["终端结果", "Terminal result"],
@@ -254,21 +255,36 @@ function Tools({ tools, completed }: { tools: ToolCard[]; completed: boolean }) 
 
 function Reasoning({ text, streaming, parts = [] }: { text: string; streaming: boolean; parts?: Array<{ text: string; source?: HistoryLocator }> }) {
   const { t, language } = useApp();
-  const [open, setOpen] = useState(false);
+  // null follows the run; an explicit choice survives deltas and completion.
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? streaming;
+  const preview = userOpen === null && streaming;
+  const previewRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = previewRef.current;
+    if (!preview || !el) return;
+    const follow = () => { el.scrollTop = el.scrollHeight; };
+    follow();
+    const observer = new ResizeObserver(follow);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [preview, text]);
   const sources = parts.flatMap((part) => part.source ? [part.source] : []);
-  const full = useFullReasoning(sources, open);
+  const full = useFullReasoning(sources, userOpen === true);
   const shown = full.rows ? parts.map((part) => {
     const row = full.rows?.find((candidate) => candidate.id === part.source?.rowId);
     return row ? row.reasoning_content || row.reasoning || part.text : part.text;
   }).join("\n\n") : text;
   return (
     <div class="reasoning">
-      <button type="button" class="reasoning-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" class="reasoning-head" aria-expanded={open} onClick={() => setUserOpen(preview ? true : !open)}>
         <ChevronIcon open={open} />
-        <span>{streaming && !open ? t("思考中…", "Thinking…") : open ? t("收起思考过程", "Hide reasoning") : t("查看思考过程", "View reasoning")}</span>
+        <span>{streaming && !open ? t("思考中…", "Thinking…") : preview ? t("展开思考过程", "Expand reasoning") : open ? t("收起思考过程", "Hide reasoning") : t("查看思考过程", "View reasoning")}</span>
       </button>
       {open ? <>
-        <p class="reasoning-text">{shown}</p>
+        <div ref={previewRef} class={`reasoning-body${preview ? " preview" : ""}`}><p class="reasoning-text">{shown}</p></div>
+        {preview ? <button type="button" class="reasoning-hide" onClick={() => setUserOpen(false)}>{t("收起思考过程", "Hide reasoning")}</button> : null}
         {full.loading ? <p class="tool-note">{t("正在读取全文…", "Loading full content…")}</p> : null}
         {full.failed ? <ErrorNotice error={appError("HR-SYNC-005")} language={language} onRetry={full.retry} variant="inline" /> : null}
       </> : null}
@@ -279,6 +295,7 @@ function Reasoning({ text, streaming, parts = [] }: { text: string; streaming: b
 /** What a streaming turn is doing right now, with the run's true elapsed time (HG-56). */
 export function RunningStatusLine({ item }: { item: { tools: ToolCard[]; text: string; reasoning: string; timestampMs: number | null } }) {
   const { t, language } = useApp();
+  const [details, setDetails] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -307,7 +324,8 @@ export function RunningStatusLine({ item }: { item: { tools: ToolCard[]; text: s
         <i />
         <i />
       </span>
-      <span class="running-text mono">{label}</span>
+      <button type="button" class="running-text mono" aria-label={t("查看完整状态", "View full status")} onClick={() => setDetails(label)}>{label}</button>
+      {details !== null ? <Sheet title={t("运行状态", "Run status")} closeLabel={t("关闭", "Close")} onClose={() => setDetails(null)}><p class="running-details">{details}</p></Sheet> : null}
     </div>
   );
 }
@@ -379,6 +397,20 @@ function ActionRow({ item, actions }: { item: ChatItem; actions: MessageActions 
 
 export function MessageView({ item, actions = {}, chartContext }: { item: ChatItem; actions?: MessageActions; chartContext?: ChartContext }) {
   const { language, t } = useApp();
+  const footerRef = useRef<HTMLDivElement>(null);
+  const footerHeight = useRef(48);
+  useLayoutEffect(() => {
+    const el = footerRef.current;
+    if (!el) return;
+    const retain = () => {
+      footerHeight.current = Math.max(footerHeight.current, el.getBoundingClientRect().height);
+      el.style.minHeight = `${footerHeight.current}px`;
+    };
+    retain();
+    const observer = new ResizeObserver(retain);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [item.streaming]);
 
   // While streaming, mask unfinished payloads and pull finished ones into cards per snapshot, so
   // a payload never first explodes into Markdown and then collapses (Android stabilizedForStreaming).
@@ -451,7 +483,7 @@ export function MessageView({ item, actions = {}, chartContext }: { item: ChatIt
 
   return (
     <div class="turn turn-assistant" data-key={item.key}>
-      {item.reasoning.trim() ? <Reasoning text={item.reasoning} streaming={item.streaming && !display.text} parts={item.reasoningParts} /> : null}
+      {item.reasoning.trim() ? <Reasoning text={item.reasoning} streaming={item.streaming} parts={item.reasoningParts} /> : null}
       {display.tools.length ? <Tools tools={display.tools} completed={!item.streaming} /> : null}
       {gallery.length ? (
         <div class={`assistant-media${mediaClass}`}>
@@ -466,9 +498,13 @@ export function MessageView({ item, actions = {}, chartContext }: { item: ChatIt
         </a>
       ))}
       {files.map((a) => <FileCard key={a.path} attachment={a} />)}
-      {item.streaming ? <RunningStatusLine item={{ tools: display.tools, text: display.text, reasoning: item.reasoning, timestampMs: item.timestampMs }} /> : null}
-      {item.interrupted ? <span class="interrupted-note">{t("已中断", "Interrupted")}</span> : null}
-      {!item.streaming && item.text.trim() ? <ActionRow item={item} actions={actions} /> : null}
+      {item.streaming || item.interrupted || item.text.trim() ? (
+        <div ref={footerRef} class="turn-footer">
+          {item.streaming ? <RunningStatusLine item={{ tools: display.tools, text: display.text, reasoning: item.reasoning, timestampMs: item.timestampMs }} /> : null}
+          {item.interrupted ? <span class="interrupted-note">{t("已中断", "Interrupted")}</span> : null}
+          {!item.streaming && item.text.trim() ? <ActionRow item={item} actions={actions} /> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
