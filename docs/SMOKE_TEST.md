@@ -2063,3 +2063,35 @@ separate merge gate. No APK distribution, version allocation or production deplo
 
 The synthetic decoder/Range device tests do not replace real HONOR/Xiaomi ROM, original user MP4,
 cellular/home-NAT and targetSdk-level checks. Record the actual available layers with the result.
+
+## HG-228 Web chat running state (2026-10-22)
+
+1. On iPhone Safari/Home Screen and Android Chrome, send a long task. While Hermes is accepting it
+   and before the first token, expect one three-dot status line and the Stop button, then the same
+   single status line under live reasoning/tools/text. Completing must clear both running controls.
+2. Leave a running conversation for the list and return; repeat a cold-open URL and reload.
+   `session.resume.running` must restore the chat status even without a `session.info` push.
+   Returning after the task finished must show its final transcript and idle composer.
+3. Disconnect/reconnect while running, including a completion during the gap. The resumed snapshot
+   must clear an ended run and refresh history, retaining one final answer. Stop during reconnect
+   must send `session.interrupt` after restoring the handle, not only hide the status locally.
+4. Delay inbox delivery and the `prompt.submit` reply. Old run.started/run.completed notifications
+   must trigger a current-state check rather than resurrect/stop a newer run; notifications during
+   submission must be checked afterwards. A reply arriving after completion must not revive Stop.
+5. Force a refused submit/upload failure, retry, then stop. Keep the localized existing HR error and
+   its recovery action; no empty assistant bubble or stuck dots. An already active run must survive
+   a refused extra submit. Approval/clarify cards must still restore and remain answerable.
+6. Switch conversations and Macs, and repeat both themes at phone and split-pane widths. Status
+   must stay with the selected conversation; no duplicate waiting/streaming status, misplaced scroll
+   anchor, empty-chat greeting during a run, or newly exposed raw diagnostic text.
+
+Automated: fake-WebSocket + real reducer cases cover silent resume, pre-ack state, failed/late submit,
+reader ordering, lifecycle invalidation/deferral/serialization, reconnect, real Stop RPC and older
+Hermes without a running field. DOM cases cover dots/Stop, completion, interrupt and selected-session
+invalidation. Three regression cases failed on the old implementation before the repair.
+Local Chrome/Playwright checks passed at 393×852 (light/dark) and 1100×800 (split): silent running
+resume, Stop, submit wait, streaming, completion and late acknowledgement, with no page errors.
+Screenshots after startup dismissal were visually inspected. These use mocked API/WebSocket traffic,
+not production or a physical phone. Safari/WebKit is unavailable in this host's Playwright installation;
+iPhone Safari/Home Screen, Android Chrome on a physical device and the original incident conversation
+still need verification. No production deployment or version allocation occurred.

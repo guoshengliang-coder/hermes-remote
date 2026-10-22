@@ -277,7 +277,7 @@ function Reasoning({ text, streaming, parts = [] }: { text: string; streaming: b
 }
 
 /** What a streaming turn is doing right now, with the run's true elapsed time (HG-56). */
-function RunningStatusLine({ item }: { item: { tools: ToolCard[]; text: string; reasoning: string; timestampMs: number | null } }) {
+export function RunningStatusLine({ item }: { item: { tools: ToolCard[]; text: string; reasoning: string; timestampMs: number | null } }) {
   const { t, language } = useApp();
   const [now, setNow] = useState(Date.now());
   useEffect(() => {

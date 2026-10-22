@@ -118,7 +118,7 @@ describe("ChatSession", () => {
         ["dev-mac", "photo.png", photo, "image/png"], ["dev-mac", "report.pdf", file, "application/pdf"],
       ]);
       expect(actions).toContainEqual(expect.objectContaining({ type: "user-failed", key: "voice-message", error: expect.objectContaining({ code: "HR-SESS-007" }) }));
-      expect(actions).toContainEqual({ type: "user-delivered", key: "voice-message" });
+      expect(actions).toContainEqual({ type: "user-delivered", key: "voice-message", startRun: false });
     } finally { session.dispose(); }
   });
 

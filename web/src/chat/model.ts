@@ -67,6 +67,8 @@ export interface OlderHistoryState {
 export interface ChatState {
   items: ChatItem[];
   generating: boolean;
+  /** Local observation of run start, retained while waiting for the first stream item. */
+  runStartedAtMs: number | null;
   historyLoaded: boolean;
   /** Every stored row loaded so far, oldest first: the history part of `items` is built from it. */
   historyRows: MessageRow[];
@@ -96,6 +98,7 @@ export interface ChatState {
 export const initialChatState: ChatState = {
   items: [],
   generating: false,
+  runStartedAtMs: null,
   historyLoaded: false,
   historyRows: [],
   older: { hasMore: false, loading: false, error: null },
@@ -131,7 +134,7 @@ export type ChatAction =
   | { type: "open-requests"; snapshot: OpenRequestsSnapshot }
   | { type: "questions"; action: QuestionAction }
   | { type: "user-sent"; key: string; text: string; localImages?: string[]; localFiles?: string[]; nowMs: number }
-  | { type: "user-delivered"; key: string }
+  | { type: "user-delivered"; key: string; startRun?: boolean }
   /** Without an error the bubble is only marked failed: a page-level notice explains it. */
   | { type: "user-failed"; key: string; error?: AppError }
   | { type: "user-retry"; key: string }
@@ -174,7 +177,7 @@ function ensureStreaming(state: ChatState): ChatState {
     items[settled] = { ...prev, streaming: true, raw: kept, segmentStart: kept.length };
     return { ...state, items, generating: true };
   }
-  return { ...state, items: [...state.items, assistant(`a-${state.items.length}-${Date.now()}`, Date.now())], generating: true };
+  return { ...state, items: [...state.items, assistant(`a-${state.items.length}-${Date.now()}`, state.runStartedAtMs ?? Date.now())], generating: true };
 }
 
 function mutateStreaming(state: ChatState, block: (item: ChatItem) => ChatItem): ChatState {
@@ -287,7 +290,7 @@ function applyEvent(state: ChatState, event: ServerEvent): ChatState {
       const withModel = model && model.trim() && model !== state.liveModel ? { ...state, liveModel: model.trim() } : state;
       const withWorkspace = cwd && cwd.trim() ? { ...withModel, workspace: { cwd: cwd.trim(), branch: str(p, "branch") } } : withModel;
       if (p.running === false) return finishStreaming(withWorkspace, false);
-      if (p.running === true && !withWorkspace.generating) return { ...withWorkspace, generating: true };
+      if (p.running === true && !withWorkspace.stopped) return startRunning(withWorkspace);
       return withWorkspace;
     }
     default:
@@ -311,7 +314,11 @@ function finishStreaming(state: ChatState, interrupted: boolean): ChatState {
       ? { ...i, streaming: false, ...(interrupted ? { interrupted: true } : {}), tools: i.tools.map((t) => ({ ...t, done: true })) }
       : i,
   );
-  return { ...state, items, generating: false };
+  return { ...state, items, generating: false, runStartedAtMs: null };
+}
+
+function startRunning(state: ChatState): ChatState {
+  return state.generating ? state : { ...state, generating: true, runStartedAtMs: Date.now() };
 }
 
 export function historyItems(rows: MessageRow[]): ChatItem[] {
@@ -434,7 +441,7 @@ export function reduceChat(state: ChatState, action: ChatAction): ChatState {
     case "user-delivered":
       return {
         ...state,
-        generating: true,
+        ...(action.startRun === false ? {} : { generating: true, runStartedAtMs: state.runStartedAtMs ?? Date.now() }),
         items: state.items.map((i) => {
           if (i.key !== action.key) return i;
           const { send: _s, error: _e, ...rest } = i;
@@ -455,7 +462,7 @@ export function reduceChat(state: ChatState, action: ChatAction): ChatState {
     case "interrupted":
       return { ...finishStreaming(state, true), stopped: true };
     case "running":
-      return action.running ? (state.generating ? state : { ...state, generating: true }) : finishStreaming(state, false);
+      return action.running ? (state.stopped ? state : startRunning(state)) : finishStreaming(state, false);
     case "connection":
       return state.connection === action.state ? state : { ...state, connection: action.state };
     case "notice":

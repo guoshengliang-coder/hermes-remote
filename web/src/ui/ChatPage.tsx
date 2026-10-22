@@ -48,7 +48,7 @@ import {
 } from "./icons";
 import { ImageEditor } from "./ImageEditor";
 import { ImageViewer, type ViewerImage } from "./ImageViewer";
-import { MessageView, type MessageActions } from "./Message";
+import { MessageView, RunningStatusLine, type MessageActions } from "./Message";
 import { QuestionSheet } from "./QuestionSheet";
 import { loadSessions } from "./SessionList";
 import { followChatVisualViewport } from "./chatViewport";
@@ -243,6 +243,15 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     }, state.generating ? 4000 : 0);
     return () => clearTimeout(timer);
   }, [storedId, device?.deviceId]);
+
+  // Re-entering from a running list row and later lifecycle changes both re-check Hermes.
+  // Inbox timestamps can lag the live socket, so they must not directly set generating.
+  const lifecycle = storedId ? app.inbox.latest[storedId] : undefined;
+  useEffect(() => {
+    if (lifecycle && sessionRef.current?.storedSessionId === storedId) {
+      sessionRef.current.reconcileLifecycle(lifecycle);
+    }
+  }, [lifecycle, storedId, device?.deviceId]);
 
   // Only a card this page saw close counts as settled; a page that opens with no card yet (before
   // the resume replays open requests) or that is left with one open reports nothing of the kind.
@@ -729,7 +738,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           ) : state.older.error ? (
             <ErrorNotice error={state.older.error} language={language} onRetry={loadOlder} variant="inline" />
           ) : null}
-          {state.historyLoaded && state.items.length === 0 ? (
+          {state.historyLoaded && state.items.length === 0 && !state.generating ? (
             sessionId === null ? (
               <div class="greeting">
                 <span class="greeting-avatar"><AccountAvatar account={app.account} /></span>
@@ -765,6 +774,9 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
               </Fragment>
             );
           })}
+          {state.generating && !state.items.some(item => item.streaming) && !open ? (
+            <RunningStatusLine item={{ tools: [], text: "", reasoning: "", timestampMs: state.runStartedAtMs }} />
+          ) : null}
           {state.notice ? (
             <ErrorNotice
               error={state.notice}

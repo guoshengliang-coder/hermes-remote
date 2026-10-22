@@ -95,6 +95,12 @@ export class ChatSession {
   private storedRowCount: number | null = null;
   private socketWasReady = false;
   private everReady = false;
+  private runRevision = 0;
+  private running: boolean | null = null;
+  private submitting = false;
+  private lifecycleSequence = -1;
+  private lifecycleDirty = false;
+  private lifecycleProbe: Promise<void> | null = null;
   private readonly onVisible = () => {
     if (document.visibilityState === "visible") this.reconnectNow();
   };
@@ -247,6 +253,13 @@ export class ChatSession {
       this.liveId = null;
       return;
     }
+    if ((event.type === "message.start" || event.type === "message.delta" || event.type === "message.complete") ||
+        event.type === "reasoning.delta" || event.type === "reasoning.available" || event.type === "tool.start" ||
+        event.type === "error" || (event.type === "session.info" && typeof event.payload.running === "boolean")) {
+      this.runRevision += 1;
+      this.running = event.type === "message.complete" || event.type === "error" ? false
+        : event.type === "session.info" ? event.payload.running as boolean : true;
+    }
     this.o.dispatch({ type: "event", event });
     if (event.type === "error") {
       const message = typeof event.payload.message === "string" ? event.payload.message : "error event";
@@ -394,7 +407,7 @@ export class ChatSession {
   resume(force = false): Promise<string> {
     if (!this.storedId) return Promise.reject(new Error("no stored session"));
     if (!force && this.liveId) return Promise.resolve(this.liveId);
-    if (!force && this.resuming) return this.resuming;
+    if (this.resuming) return this.resuming;
     const { method, params } = sessionResume(this.storedId, { profile: this.o.profile });
     const run = this.call<SessionResumeResult>(method, params, 60_000).then(
       (result) => {
@@ -412,6 +425,35 @@ export class ChatSession {
     );
     this.resuming = run;
     return run;
+  }
+
+  /** Inbox events can be delayed: use them as invalidations, never as current run snapshots. */
+  reconcileLifecycle(entry: { sequence: number }): void {
+    if (entry.sequence <= this.lifecycleSequence) return;
+    this.lifecycleSequence = entry.sequence;
+    this.lifecycleDirty = true;
+    this.reconcileRun();
+  }
+
+  private reconcileRun(): void {
+    if (this.disposed || !this.storedId || this.submitting || this.lifecycleProbe || !this.lifecycleDirty) return;
+    this.lifecycleProbe = (async () => {
+      while (this.lifecycleDirty && !this.disposed && !this.submitting) {
+        this.lifecycleDirty = false;
+        try {
+          // A resume that left before the invalidation may already contain an old snapshot.
+          // Drain it first, then request one captured after this lifecycle notification.
+          if (this.resuming) await this.resuming;
+          if (this.disposed) break;
+          if (this.submitting) { this.lifecycleDirty = true; break; }
+          await this.resume(true);
+          if (!this.disposed && !this.submitting && this.running === false) await this.loadHistory({ quiet: true });
+        } catch { /* resume already reports a structured notice */ }
+      }
+    })().finally(() => {
+      this.lifecycleProbe = null;
+      this.reconcileRun();
+    });
   }
 
   /** Hermes reclaimed the session (4007) and nothing was ever said in it. */
@@ -449,6 +491,7 @@ export class ChatSession {
   }
 
   private async liveHandle(): Promise<string> {
+    if (this.resuming) return this.resuming;
     if (this.liveId) return this.liveId;
     if (this.storedId) return this.resume();
     return this.create();
@@ -489,6 +532,9 @@ export class ChatSession {
    * ref_text lines are appended to the prompt — Android's flow), then prompt.submit.
    */
   async send(key: string, text: string, attachments: readonly PendingAttachment[]): Promise<void> {
+    let submittedRevision: number | null = null;
+    let previousRunning: boolean | null = null;
+    this.submitting = true;
     try {
       let prompt = text;
       if (attachments.length) {
@@ -505,10 +551,22 @@ export class ChatSession {
           }
         }
       }
-      await this.onLive((live) => promptSubmit(live, prompt));
+      await this.onLive((live) => {
+        // The preparation/upload/resume has finished; the run now waits on Hermes, not on its
+        // first token (or even the submit reply). A failed submit unwinds only this optimism.
+        submittedRevision = this.runRevision;
+        previousRunning = this.running;
+        this.running = true;
+        this.o.dispatch({ type: "running", running: true });
+        return promptSubmit(live, prompt);
+      });
       this.storedRowCount = null;
-      this.o.dispatch({ type: "user-delivered", key });
+      this.o.dispatch({ type: "user-delivered", key, startRun: false });
     } catch (error) {
+      if (submittedRevision !== null && submittedRevision === this.runRevision) {
+        this.running = previousRunning;
+        this.o.dispatch({ type: "running", running: previousRunning === true });
+      }
       // One place per failure. A session that no longer exists (4007) is terminal for the whole page,
       // so its page notice explains the disabled composer and the bubble is only marked failed. Every
       // other failure, including "owned elsewhere" (4090), stays on the bubble, whose Retry resends it.
@@ -518,6 +576,9 @@ export class ChatSession {
       } else {
         this.o.dispatch({ type: "user-failed", key, error: this.submitError(error) });
       }
+    } finally {
+      this.submitting = false;
+      this.reconcileRun();
     }
   }
 
@@ -530,12 +591,14 @@ export class ChatSession {
   }
 
   async interrupt(): Promise<void> {
-    if (!this.liveId) {
+    if (!this.liveId && !this.storedId) {
       this.o.dispatch({ type: "interrupted" });
       return;
     }
     try {
       await this.onLive((live) => sessionInterrupt(live));
+      this.runRevision += 1;
+      this.running = false;
       this.o.dispatch({ type: "interrupted" });
     } catch (error) {
       this.o.dispatch({ type: "notice", error: toAppError(error) });
