@@ -87,3 +87,13 @@ with retryable HR-SYNC-001 if the window moved; retry refreshes the tail. Androi
 old active-only disk windows once. Old Hermes without display projections retains the existing
 content parser. No upstream code/schema, Gateway/Connector runtime, credentials or versions change.
 Real incident history and physical-device acceptance remain in `docs/SMOKE_TEST.md` (HG-224).
+
+HG-228 restores chat run state from `session.resume.running` (or `info.running`) without depending
+on a later `session.info` push. Snapshot application stays in WebSocket reader order, before newer
+stream frames. Lifecycle inbox changes invalidate the snapshot and re-check Hermes; delayed inbox
+entries never directly start or stop a run. Submissions wait for an in-flight snapshot, show the
+existing dots/Stop UI while awaiting Hermes, and cannot be restarted by a late submit acknowledgement.
+The pre-stream status is not a transcript item; real streaming replaces it without a duplicate.
+A reconnecting Stop resolves the live handle and sends the interrupt. No server, upstream, credential,
+version or error-code contract changes are required. Physical Safari/PWA and Android Chrome checks
+remain in `../docs/SMOKE_TEST.md`.

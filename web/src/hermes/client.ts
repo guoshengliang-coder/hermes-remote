@@ -363,7 +363,18 @@ export class HermesSocket {
    */
   private onResumeAnswered(result: JsonValue, arrivedDuringResume: Set<string>): void {
     if (typeof result !== "object" || result === null || Array.isArray(result)) return;
-    if (typeof result.session_id === "string" && result.session_id) this.emit("resumed", result.session_id);
+    if (typeof result.session_id === "string" && result.session_id) {
+      this.emit("resumed", result.session_id);
+      // Consume the snapshot on the reader, before any following stream frame. Applying it in
+      // the RPC promise would let an older idle snapshot overwrite a newer message.start.
+      const info = result.info && typeof result.info === "object" && !Array.isArray(result.info) ? result.info : {};
+      if (Object.keys(info).length || typeof result.running === "boolean") {
+        this.emit("event", {
+          type: "session.info", sessionId: result.session_id,
+          payload: { ...info, ...(typeof result.running === "boolean" ? { running: result.running } : {}) },
+        });
+      }
+    }
     if (this._serverRequests !== "advertised") return;
     const entries = Array.isArray(result.open_requests) ? result.open_requests : [];
     const listed: string[] = [];

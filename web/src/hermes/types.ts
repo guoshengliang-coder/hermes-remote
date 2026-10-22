@@ -185,6 +185,8 @@ export interface SessionCreateResult {
 /** `session.resume` result with `omit_messages: true`: a live handle and maybe open requests. */
 export interface SessionResumeResult {
   session_id: string;
+  /** Current run snapshot; absent on older Hermes versions. */
+  running?: boolean;
   message_count?: number;
   open_requests?: OpenRequest[];
   info?: SessionInfo | null;
