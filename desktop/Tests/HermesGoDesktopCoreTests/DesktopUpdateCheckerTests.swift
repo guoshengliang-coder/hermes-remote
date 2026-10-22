@@ -40,6 +40,30 @@ final class DesktopUpdateCheckerTests: XCTestCase {
         XCTAssertFalse(report.hasUpdates)
     }
 
+    func testPublishedInternalPackageIsDiscoveredByLegacyClientSchema() async throws {
+        // Shared with the publisher's Node test, so filename/schema drift fails on either side.
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../../website/test/fixtures/desktop-app-index.json")
+        let appData = try Data(contentsOf: fixture)
+        let managedData = managedIndex(version: "0.4.11")
+        let appURL = appIndexURL
+        UpdateURLProtocol.handler = { request in
+            (200, [:], request.url == appURL ? appData : managedData)
+        }
+        let report = try await checker().check(
+            sources: sources(), installedAppVersion: "0.2.31", installedManagedVersion: "0.4.11"
+        )
+        XCTAssertEqual(report.appUpdate?.version, "0.2.33")
+        XCTAssertEqual(report.appUpdate?.appReference?.buildNumber, 36)
+        XCTAssertEqual(report.appUpdate?.appReference?.downloadURL.lastPathComponent, "Hermes-Go-Desktop-0.2.33.dmg")
+        XCTAssertTrue(report.appUpdate?.releaseNotes.joined().contains("临时签名") == true)
+        XCTAssertNil(report.managedUpdate)
+        let current = try await checker().check(
+            sources: sources(), installedAppVersion: "0.2.33", installedManagedVersion: "0.4.11"
+        )
+        XCTAssertFalse(current.hasUpdates)
+    }
+
     func testManagedUpdateIsNotReportedWhenNothingIsInstalled() async throws {
         stubIndexes(appVersion: "0.2.28", managedVersion: "0.4.4")
 

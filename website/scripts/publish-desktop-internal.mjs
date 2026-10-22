@@ -87,6 +87,8 @@ try {
     });
     await writeFile(join(values['evidence-dir'], 'publication-receipt.json'), `${JSON.stringify(completed, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     console.log('DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK');
+    console.log('DESKTOP_INTERNAL_APP_UPDATE_SYNC_OK');
+    console.log('APP_INDEX=https://mrlgs.net/desktop/apps/index.json');
     console.log(`VERSION=${index.appVersion}`);
     console.log(`URL=${index.downloadURL}`);
   }

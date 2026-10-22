@@ -19,7 +19,8 @@ export function validateDesktop(value) {
   return value;
 }
 
-// The website-only test pointer cannot be consumed by the notarized app-update channel.
+// Explicit test-distribution metadata for the website. Legacy Desktop clients use the exact
+// schema generated separately by createAppUpdateIndex; they reject these additional fields.
 export function validateDesktopInternal(value) {
   if (value?.distribution !== 'ad-hoc' || value.notarized !== false
       || value.downloadURL !== `${RELEASE_ORIGIN}/desktop/apps/${value.appVersion}/Hermes-Go-Desktop-${value.appVersion}-dev.dmg`) throw new Error('invalid internal desktop download');

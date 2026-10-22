@@ -668,6 +668,12 @@ Automated (JVM-free Swift unit tests, `npm run desktop:test`):
 3. `scripts/test/desktop-app-update-index.test.mjs` proves the generator writes an index matching the
    DMG bytes, refuses a misnamed DMG, rejects oversized/multi-line notes, and never overwrites an
    existing index.
+4. Internal publisher tests verify both complete public DMG URLs before either index changes,
+   reject cross-channel/downgrade/same-version conflicts, and restore both pointers after either
+   failed readback while refusing concurrent rollback. Real isolated-filesystem tests exercise the
+   exact remote Python transactions and Nginx route rollback. A shared publisher fixture is parsed
+   by `DesktopUpdateCheckerTests`: 0.2.31 discovers app 0.2.33 while unchanged components stay current;
+   installed 0.2.33 reports no app update. No client parser or installed app must be replaced first.
 
 Manual, on a real Mac (not reproducible in CI):
 

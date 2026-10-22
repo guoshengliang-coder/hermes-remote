@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "channel": "internal",
+  "architecture": "arm64",
+  "appVersion": "0.2.33",
+  "buildNumber": 36,
+  "minimumMacOS": "14.0",
+  "downloadURL": "https://mrlgs.net/desktop/apps/0.2.33/Hermes-Go-Desktop-0.2.33.dmg",
+  "sizeBytes": 3696937,
+  "sha256": "4b4914042163599ce3c0f65d7b005a61bb8a5638ddf6885c9e03eba5a93c32cc",
+  "releaseNotes": [
+    "托管组件升级显示真实阶段和已用时间，便于了解当前进度（HG-226）。",
+    "完善升级成功、失败与回滚后的窗口收尾，并记录阶段诊断信息（HG-226）。",
+    "内部测试版，使用临时签名，尚未通过 Apple 公证；请手动安装或替换应用。"
+  ],
+  "sourceCommit": "d2a900a0142e046a1c8cca74992fe4d147d04d2e",
+  "updatedAt": "2026-10-22T10:25:56Z"
+}

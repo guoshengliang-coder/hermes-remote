@@ -13,7 +13,10 @@ confirmed that distribution continues with temporary ad-hoc signing. The version
 the unified internal publisher, verify the full public file, and synchronize the website's
 internal download index. Publication and full public readback completed on 2026-10-22;
 the website now offers this version. It retains the existing managed-component trust configuration.
-This manual-install test channel does not imply Apple notarization or an official app-update index.
+The owner subsequently requested connecting this temporary-signing channel to Desktop's existing
+update checker. The unified internal publisher now synchronizes the compatible app index as well
+as the website, using the same verified DMG bytes. This does not imply Apple notarization;
+see the release-channel document for the repair command and physical-update acceptance gate.
 
 Previous internal test version: **0.2.32** (build 35), containing HG-212's startup-failure
 diagnostics and PM/runtime recovery follow-up (#582, #583). It selects the published PM launcher,

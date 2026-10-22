@@ -63,7 +63,8 @@ fail closed with `HR-SITE-004`; 404/empty indexes show **安装包暂未开放**
 
 The owner authorized website distribution and continued test-release synchronization on 2026-10-14.
 Desktop downloads explicitly identify the internal test build, its Mac architecture, pending Apple
-notarization and manual installation/update instructions. This does not enable in-app GUI updates.
+notarization and manual installation/update instructions. The approved internal publisher also
+registers the compatible app index consumed by Desktop's existing user-confirmed update flow.
 
 ## Synchronize each approved macOS test publication
 
@@ -90,19 +91,29 @@ allocate a version, build an app, or authorize release by itself.
 The publisher also checks the actual mounted DMG's bundle ID/version/build/minimum OS/architecture,
 image integrity and strict ad-hoc signature on macOS. It checks the clean current main again before
 uploading, verifies server bytes, refuses to overwrite an existing version with different bytes,
-installs only that artifact's GET/HEAD route with Nginx validation/rollback, then calls the existing
-full public DMG verification and atomic internal-index publication in the same command.
-**Website synchronization is automatic and mandatory after DMG publication.** Its final marker is
-`DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK`; an index/readback failure fails the whole command,
+installs exact GET/HEAD routes with Nginx validation/rollback, and verifies both public DMG URLs.
+The existing `-dev.dmg` URL and a legacy-compatible `.dmg` alias serve the same immutable file.
+The alias does not claim Apple signing or notarization. The app index has exactly the legacy schema
+and retains the original version/build, source, date, notes, size and hash; the website index keeps
+its explicit ad-hoc/notarized-false metadata. `/desktop/apps/index.json` is served with `no-store`.
+Both indexes are validated before writing, atomically replaced under one lock, and read back;
+a failed readback rolls back both, without overwriting a concurrent publication. A different
+channel/architecture, downgrade or changed same-version metadata is refused before either switch.
+**Website and app-update synchronization are mandatory after DMG publication.** Its final markers are
+`DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK` and `DESKTOP_INTERNAL_APP_UPDATE_SYNC_OK`;
+an index/readback failure fails the whole command,
 so an upload alone must not be reported as a completed publication. Evidence is stored in the new
 outside-tree directory. Existing immutable files may remain unreferenced after failure; preserve them.
 
 A verified completed publication receipt (the stage below) is also accepted for idempotent retry of
 an already published package. Use the exact same DMG, notes and original receipt time; it retains the
-original source commit, which must be an ancestor of current main. Same-version metadata changes are
-refused by the pointer transaction. Do not rebuild or overwrite a version when retrying.
+original source commit, which must be an ancestor of current main. This is also how to repair missing
+app discovery for an existing verified package: pass the completed publication receipt with the same
+bytes and notes. Same-version metadata changes are refused by the pointer transaction. Do not rebuild
+or overwrite a version when retrying. No Desktop version bump is required for this publication repair.
 
-The standalone index command remains for recovery or registering an already published package:
+The standalone index command remains for website-only recovery or registration. It does not repair
+Desktop app discovery; use the unified publisher for that:
 
 ```bash
 node website/scripts/desktop-internal-index.mjs \
