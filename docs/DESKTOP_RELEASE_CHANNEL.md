@@ -1,5 +1,17 @@
 # Desktop release channel
 
+## Explicitly approved internal test distribution: 0.2.33
+
+On 2026-10-22 the owner confirmed that the remaining Desktop artifact should continue to use
+temporary signing. **0.2.33/build 36** includes HG-226's managed-setup progress and completion
+behavior. Build its `Hermes-Go-Desktop-0.2.33-dev.dmg` from clean current `origin/main`, retain
+the installed public release trust/settings, and verify the strict ad-hoc signature, bundle
+identity/version/build, arm64 architecture and image integrity. Run the unified internal publisher
+described below to upload the immutable DMG, verify the full public bytes and automatically switch
+the website's internal-test index. Preserve the signed managed-component pointers and the official
+app-update index. This authorization is for manual-install internal distribution; it does not
+claim Developer ID signing, notarization or physical-device acceptance.
+
 ## Explicitly approved internal test distribution: 0.2.32
 
 On 2026-10-12 the owner explicitly approved distributing **0.2.32/build 35** as an internal
