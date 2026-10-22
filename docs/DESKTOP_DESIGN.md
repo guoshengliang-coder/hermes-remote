@@ -1,5 +1,23 @@
 # Hermes Go Desktop design contract
 
+## Managed setup progress (HG-226)
+
+Both schema-v1 and schema-v2 confirmation sheets show the actual execution stage and elapsed time
+after the owner confirms. Stages describe checking, staging, stopping the old services, waiting for
+shutdown, starting/verifying Hermes, starting Connector, waiting for Cloud health, committing,
+cleanup, and rollback. Show only stages the transaction actually reaches; there is no percentage
+or promised completion time. Elapsed time uses a monotonic clock and updates once per second even
+when a network callback has not arrived. The current stage is the primary line; elapsed time and
+the instruction to keep Desktop open are secondary, in the existing native 540 pt sheet style.
+
+Execution, including rollback, remains non-cancellable and non-dismissible. The lock begins with
+the confirmation's final preflight, so double confirmation cannot start overlapping preflights.
+A terminal success or failure closes the execution sheet before account/overview refreshes. Results
+and existing structured errors remain on the main surface. A committed install with pending cleanup
+keeps its retry handle and “重试清理”, but must not keep or reopen an installation confirmation.
+Closing a sheet never implies cancelling a committed transaction.
+
+
 ## PM runtime and connection recovery (HG-212 follow-up)
 
 Diagnostics' “重新诊断” and “再次尝试” refresh local evidence and the authenticated account snapshot

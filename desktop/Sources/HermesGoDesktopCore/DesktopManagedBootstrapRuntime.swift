@@ -277,6 +277,7 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
     public let executor: DesktopManagedBootstrapExecutor
     public let commitConfiguration: DesktopManagedBootstrapCommitConfiguration
     public let journal: DesktopMigrationJournalStore
+    public let progress: DesktopSetupProgress
     private let migration: DesktopMigrationCoordinator<SystemCommandRunner>
     private let launchAgent: DesktopLaunchAgentController<SystemCommandRunner>
 
@@ -300,6 +301,8 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
         )
         let journal = try DesktopMigrationJournalStore(root: paths.migrationJournalRoot)
         let operationLog = DesktopServiceOperationLog(layout: layout)
+        let progress = DesktopSetupProgress(operationLog: operationLog)
+        self.progress = progress
         let launchAgent = try DesktopLaunchAgentController(
             userID: userID,
             launchAgentsRoot: paths.launchAgentsRoot,
@@ -313,6 +316,7 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
             launchAgent: launchAgent,
             hermesShutdown: DesktopHermesShutdownChecker(log: operationLog),
             operationLog: operationLog,
+            progress: progress,
             localHermesForFreshInstall: DesktopLocalHermesRuntimeSetting.freshInstallProvider(
                 detector: (try? DesktopLocalHermesPaths(homeDirectory: paths.hermesHome.deletingLastPathComponent()))
                     .map { DesktopLocalHermesDetector(paths: $0) }
@@ -323,7 +327,8 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
         workspaceRoot = paths.workspaceRoot
         executor = DesktopManagedBootstrapExecutor(
             acquisition: acquisition,
-            migration: migration
+            migration: migration,
+            progress: progress
         )
         commitConfiguration = try DesktopManagedBootstrapCommitConfiguration(
             layout: layout,

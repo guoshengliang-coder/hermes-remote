@@ -1,5 +1,45 @@
 # Hermes Go Desktop test plan
 
+## HG-226: progress and terminal sheet acceptance
+
+Automated coverage in `DesktopSetupProgressTests` and the real migration-coordinator fixtures:
+both schemas present confirmation only while awaiting confirmation/executing, including completed
+cleanup-pending and failed-with-retained-handle cases; elapsed time advances without callbacks,
+formats minutes, freezes at terminal state, and resets on the next run; old-run/invalid-ID and
+post-terminal events cannot overwrite progress or inject log text; real successful upgrade service
+order and journal transitions produce corresponding progress events; a failed candidate reports
+rollback while restoring exact old files/services. Existing executor tests retain cleanup-only retry,
+same-binding upgrade, preparation validation and rollback coverage.
+
+Run `npm run desktop:assets:test`, `npm run desktop:test`, `npm run desktop:app`, and
+`git diff --check`. Inspect the actual progress view locally in light/dark mode with an injected
+read-only preview; that does not validate real service mutation or a public release.
+
+Local evidence (2026-10-22): 569 Desktop tests passed, the canonical icon equality check passed,
+and `desktop:app` built and verified the ad-hoc app. Native `NSHostingView` previews of the actual
+progress view were visually inspected at 540 pt in light/dark appearance, including Cloud waiting,
+rollback and a 1 min 25 s elapsed label; no truncation was observed. This was an inert injected
+preview, not a real upgrade, terminal-sheet interaction test, signed distribution or device acceptance.
+
+Physical acceptance remains required on a disposable, already managed Mac with an approved package:
+
+1. Confirm a newer signed target on both schema-v1 and schema-v2. The action immediately disables
+   duplicate confirmation and dismissal during the final preflight. Do not kill the running app.
+2. Observe stopping, starting, local verification, and Cloud-health waiting as they occur. Elapsed
+   time must keep advancing during a delayed response; no fake percentage or completion estimate.
+3. On success the sheet closes without waiting for the overview/account refresh; the main card shows
+   the target version. Verify the same binding and expected service topology.
+4. Inject candidate health failure. The sheet says it is restoring the original connection and
+   stays locked until recovery finishes. Then it closes and the main surface shows the existing
+   structured error. Verify the prior services/version, or the existing manual-recovery guidance.
+5. Inject temporary-workspace cleanup failure after a successful commit. The sheet closes, the
+   connected result and `HR-MIGRATE-005` remain with “重试清理”, and no install confirmation reappears.
+   Cleanup retry must not reinstall or restart either service.
+6. Inspect unified logging and the private runtime log for run/stage/journal/UI transitions,
+   durations and terminal outcome. Check that no credential, email, private path or account response
+   is present. Network/proxy changes and a successful local preview are not evidence of this matrix.
+
+
 ## HG-212 PM runtime and recovery follow-up
 
 Automated coverage adds: PM plus stale legacy venv (the three detector cases failed on old code),

@@ -3,25 +3,6 @@ import Darwin
 import Foundation
 import HermesGoDesktopCore
 
-enum DesktopManagedBootstrapOperation: Equatable {
-    case idle
-    case preparing
-    case awaitingConfirmation
-    case committing
-    case recovering
-    case completed(releaseVersion: String, cleanupPending: Bool)
-    case failed
-}
-
-enum DesktopComponentBootstrapOperation: Equatable {
-    case idle
-    case preparing
-    case awaitingConfirmation
-    case committing
-    case completed(releaseVersion: String, cleanupPending: Bool)
-    case failed
-}
-
 /// Install-when-missing (`DesktopHermesInstaller`): where the owner is in deciding how a Mac with no
 /// Hermes gets one. Nothing runs before `.running`, which only `startHermesInstall()` enters — from
 /// the confirmation sheet or an explicit retry.
@@ -87,7 +68,13 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var isAccountOperationInProgress = false
     @Published private(set) var bootstrapPlan: DesktopBootstrapPlan = .checking
     @Published private(set) var agentPresentation: DesktopAgentPresentation = .checking
-    @Published private(set) var managedBootstrapOperation: DesktopManagedBootstrapOperation = .idle
+    @Published private(set) var managedBootstrapOperation: DesktopManagedBootstrapOperation = .idle {
+        didSet {
+            if oldValue != managedBootstrapOperation {
+                managedBootstrapRuntime?.progress.recordUI(managedBootstrapOperation.uiState)
+            }
+        }
+    }
     @Published private(set) var managedBootstrapPreparation: DesktopManagedBootstrapPreparation?
     @Published private(set) var managedBootstrapIssue: DesktopIssue?
     @Published private(set) var serviceRepairNeeded = false
@@ -115,7 +102,13 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         DesktopComponentPreflightPresentation?
     @Published private(set) var isComponentPreflightRefreshing = false
     @Published private(set) var componentBootstrapCanBegin = false
-    @Published private(set) var componentBootstrapOperation: DesktopComponentBootstrapOperation = .idle
+    @Published private(set) var componentBootstrapOperation: DesktopComponentBootstrapOperation = .idle {
+        didSet {
+            if oldValue != componentBootstrapOperation {
+                componentBootstrapRuntime?.progress.recordUI(componentBootstrapOperation.uiState)
+            }
+        }
+    }
     @Published private(set) var componentBootstrapPreparation: DesktopComponentBootstrapPreparation?
     @Published private(set) var componentBootstrapIssue: DesktopIssue?
     /// Per-account onboarding facts (`DesktopOnboardingRecord`); reloaded when the account changes.
@@ -1461,12 +1454,23 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }
     }
 
+    var managedSetupProgress: DesktopSetupProgress? { managedBootstrapRuntime?.progress }
+    var componentSetupProgress: DesktopSetupProgress? { componentBootstrapRuntime?.progress }
+
     func confirmManagedBootstrap() async {
         guard managedBootstrapOperation == .awaitingConfirmation,
               let preparation = managedBootstrapPreparation,
               let runtime = managedBootstrapRuntime
         else { return }
 
+        runtime.progress.begin(runID: preparation.runID)
+        managedBootstrapIssue = nil
+        managedBootstrapOperation = .committing
+        defer {
+            if managedBootstrapOperation == .failed {
+                runtime.progress.advance(.failed, runID: preparation.runID)
+            }
+        }
         let preflight = await refreshManagedBootstrapPreflight()
         guard preflight.plan.canBegin else {
             do { try await runtime.executor.cancel(preparation) }
@@ -1476,8 +1480,6 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             return
         }
 
-        managedBootstrapIssue = nil
-        managedBootstrapOperation = .committing
         do {
             let outcome = try await runtime.executor.commit(
                 preparation,
@@ -1493,6 +1495,10 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             if !outcome.temporaryWorkspaceRemoved {
                 managedBootstrapIssue = DesktopIssue(code: .migrationCleanupPending)
             }
+            runtime.progress.advance(
+                outcome.temporaryWorkspaceRemoved ? .completed : .cleanupPending,
+                runID: preparation.runID
+            )
             await refreshAccount()
             await refresh()
         } catch {
@@ -1606,6 +1612,14 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
               let runtime = componentBootstrapRuntime
         else { return }
 
+        runtime.progress.begin(runID: preparation.runID)
+        componentBootstrapIssue = nil
+        componentBootstrapOperation = .committing
+        defer {
+            if componentBootstrapOperation == .failed {
+                runtime.progress.advance(.failed, runID: preparation.runID)
+            }
+        }
         let machine: (
             legacy: LegacyConnectorSnapshot,
             plan: DesktopBootstrapPlan,
@@ -1637,8 +1651,6 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }
 
         do {
-            componentBootstrapIssue = nil
-            componentBootstrapOperation = .committing
             let outcome = try await runtime.executor.commit(
                 preparation,
                 configuration: runtime.commitConfiguration,
@@ -1653,6 +1665,10 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             if !outcome.temporaryWorkspaceRemoved {
                 componentBootstrapIssue = DesktopIssue(code: .migrationCleanupPending)
             }
+            runtime.progress.advance(
+                outcome.temporaryWorkspaceRemoved ? .completed : .cleanupPending,
+                runID: preparation.runID
+            )
             await refreshAccount()
             await refresh()
             await refreshComponentPreflight()
