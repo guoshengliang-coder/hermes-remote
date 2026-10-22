@@ -5,13 +5,14 @@ telemetry to both installer confirmation sheets. Confirmed execution and rollbac
 non-cancellable; success/failure closes the sheet, while a cleanup retry handle remains available
 without reopening installation. The original permanent-loading hypothesis remains unproven.
 See the Desktop design and test plan for the behavior and pending physical upgrade acceptance.
-This change is included in the **0.2.33 / build 36** internal test candidate.
+This change is included in the **0.2.33 / build 36** internal test release.
 
-Current approved internal test candidate: **0.2.33** (build 36). On 2026-10-22 the owner
+Current published internal test version: **0.2.33** (build 36). On 2026-10-22 the owner
 confirmed that distribution continues with temporary ad-hoc signing. The versioned package is
 `https://mrlgs.net/desktop/apps/0.2.33/Hermes-Go-Desktop-0.2.33-dev.dmg`; publication must use
 the unified internal publisher, verify the full public file, and synchronize the website's
-internal download index. It retains the existing managed-component trust configuration.
+internal download index. Publication and full public readback completed on 2026-10-22;
+the website now offers this version. It retains the existing managed-component trust configuration.
 This manual-install test channel does not imply Apple notarization or an official app-update index.
 
 Previous internal test version: **0.2.32** (build 35), containing HG-212's startup-failure
