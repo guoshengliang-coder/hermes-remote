@@ -398,20 +398,17 @@ export const RUN_WAIT_ELAPSED_AFTER_MS = 5000;
 
 export type RunningStatus = { kind: "tool"; label: string } | { kind: "thinking"; preview: string } | { kind: "generating" };
 
-const THINKING_PREVIEW_CHARS = 24;
-
 export function runningStatus(item: { tools: readonly ToolCard[]; text: string; reasoning: string }): RunningStatus {
   const tool = [...item.tools].reverse().find((t) => !t.done);
   if (tool) {
     const label = tool.command?.trim() ? tool.command : tool.name;
-    return { kind: "tool", label: (label.split("\n")[0] ?? "").slice(0, 64) };
+    return { kind: "tool", label: label.trim() };
   }
   if (!item.text.trim() && item.reasoning.trim()) {
     const lines = item.reasoning.trimEnd().split("\n").filter((l) => l.trim());
     const line = (lines[lines.length - 1] ?? "").trim();
     if (line) {
-      const chars = Array.from(line);
-      return { kind: "thinking", preview: chars.length > THINKING_PREVIEW_CHARS ? `…${chars.slice(-THINKING_PREVIEW_CHARS).join("")}` : line };
+      return { kind: "thinking", preview: line };
     }
   }
   return { kind: "generating" };

@@ -154,9 +154,6 @@ internal sealed interface RunningStatus {
     data object Generating : RunningStatus
 }
 
-/** Max characters of a thinking line kept for the one-line preview; the TAIL is what matters. */
-private const val THINKING_PREVIEW_CHARS = 24
-
 /** "12秒" / "1分24秒" (or "12s" / "1m24s"): live elapsed time for the running-status line. */
 internal fun formatElapsedTime(elapsedMs: Long, zh: Boolean): String {
     val totalSeconds = (elapsedMs / 1000).coerceAtLeast(0)
@@ -197,14 +194,12 @@ internal fun runningStatusFor(message: ChatMessage): RunningStatus {
     val tool = message.tools.lastOrNull { it.status == ToolStatus.RUNNING }
     if (tool != null) {
         val label = tool.command?.takeIf { it.isNotBlank() } ?: tool.name
-        return RunningStatus.Tool(label.lineSequence().first().take(64))
+        return RunningStatus.Tool(label.trim())
     }
     if (message.text.isBlank() && message.thinking.isNotBlank()) {
         val line = message.thinking.trimEnd().lineSequence().lastOrNull { it.isNotBlank() }?.trim().orEmpty()
         if (line.isNotEmpty()) {
-            val truncated = line.length > THINKING_PREVIEW_CHARS
-            val cut = surrogateSafeCut(line, line.length - THINKING_PREVIEW_CHARS)
-            return RunningStatus.Thinking(if (truncated) "…" + line.substring(cut) else line)
+            return RunningStatus.Thinking(line)
         }
     }
     return RunningStatus.Generating
@@ -763,7 +758,7 @@ private fun ContainerOrPlain(plain: Boolean, content: @Composable () -> Unit) {
 @Composable
 internal fun ToolTimelineCard(
     tools: List<ToolCall>,
-    // docs/DESIGN.md §5.4 + HG-75: running cards default to the newest three rows. A manual expand
+    // docs/DESIGN.md §5.4 + HG-230: running cards default to the newest row. A manual expand
     // remains expanded through completion; otherwise completion leaves the one-line summary.
     completed: Boolean = false,
     stateKey: String = tools.firstOrNull()?.id.orEmpty(),
@@ -930,7 +925,7 @@ internal fun ToolTimelineCard(
     }
 }
 
-internal const val RUNNING_TOOL_PREVIEW_ROWS = 3
+internal const val RUNNING_TOOL_PREVIEW_ROWS = 1
 
 // Rows toggle without a ripple so the card reads as one quiet timeline.
 internal fun Modifier.clickableNoIndication(onClick: () -> Unit): Modifier = this.then(
