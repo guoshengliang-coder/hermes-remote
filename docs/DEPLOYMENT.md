@@ -2916,7 +2916,8 @@ in four concurrent 1 MiB ranges, verified the complete SHA-256, authentication a
 Its 4.187 s and maximum 41 ms mock-control latency measure that HK test, not a user Mac uplink or phone.
 
 Connector **0.1.17**, managed pair **0.4.12**, was built/tested in the isolated M4 source checkout with
-Node 22.23.2. Both layouts passed independent Ed25519 verification. Immutable files were staged as
+Node 22.23.2. The v1 server archive reuses the pinned, unchanged Hermes Server 0.21.0 bundle
+from 0.4.3. Both layouts passed independent Ed25519 verification. Immutable files were staged as
 root-owned 0644 behind exact GET/HEAD routes under the deployment lock; Nginx validation/reload and
 POST=403 checks passed. The unchanged publisher completed full public byte comparison, switched and
 read back both indexes, retained the 0.4.11 rollback pair, pushed `desktop-managed-v0.4.12`, and returned
