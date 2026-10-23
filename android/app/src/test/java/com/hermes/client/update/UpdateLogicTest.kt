@@ -1,6 +1,5 @@
 package com.hermes.client.update
 
-import android.app.DownloadManager
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Test
@@ -15,38 +14,15 @@ class UpdateLogicTest {
         listOf("http://mrlgs.net/releases/Hermes-Remote-0.1.18-debug.apk","https://evil.test/releases/Hermes-Remote-0.1.18-debug.apk","https://mrlgs.net:444/releases/Hermes-Remote-0.1.18-debug.apk","https://mrlgs.net/releases/Hermes-Remote-0.1.18-debug.apk?q=1","https://mrlgs.net/other/Hermes-Remote-0.1.18-debug.apk").forEach { bad -> assertThrows(IllegalArgumentException::class.java) { parser.parse(manifest(bad)) } }
     }
 
-    // Pending ("queued, will start") and paused ("stalled, tell the user why") are different
-    // products of the same DownloadManager cursor and must not collapse into one label.
-    @Test fun `maps pending paused running and failed statuses and safe progress`() {
-        assertEquals(DownloadPhase.WAITING, mapDownloadStatus(DownloadManager.STATUS_PENDING))
-        assertEquals(DownloadPhase.PAUSED, mapDownloadStatus(DownloadManager.STATUS_PAUSED))
-        assertEquals(DownloadPhase.DOWNLOADING, mapDownloadStatus(DownloadManager.STATUS_RUNNING))
-        assertEquals(DownloadPhase.DOWNLOADED, mapDownloadStatus(DownloadManager.STATUS_SUCCESSFUL))
-        assertEquals(DownloadPhase.FAILED, mapDownloadStatus(DownloadManager.STATUS_FAILED))
+    // WAITING ("queued, will start") and PAUSED ("stopped, tell the user how to continue") are
+    // different products of the same record and must not collapse into one label.
+    @Test fun `maps downloader statuses and safe progress`() {
+        assertEquals(DownloadPhase.WAITING, mapDownloadStatus(UpdateDownloadStatus.WAITING))
+        assertEquals(DownloadPhase.PAUSED, mapDownloadStatus(UpdateDownloadStatus.PAUSED))
+        assertEquals(DownloadPhase.DOWNLOADING, mapDownloadStatus(UpdateDownloadStatus.RUNNING))
+        assertEquals(DownloadPhase.DOWNLOADED, mapDownloadStatus(UpdateDownloadStatus.COMPLETE))
+        assertEquals(DownloadPhase.FAILED, mapDownloadStatus(UpdateDownloadStatus.FAILED))
         assertEquals(50, downloadPercent(5,10)); assertNull(downloadPercent(5,-1))
-    }
-
-    @Test fun `pause and failure reasons carry localized meaning in both languages`() {
-        val network = downloadPauseText(DownloadManager.PAUSED_WAITING_FOR_NETWORK)
-        assertTrue(network.zh.contains("网络") && network.en.contains("network"))
-        assertTrue(downloadPauseText(DownloadManager.PAUSED_QUEUED_FOR_WIFI).zh.contains("Wi-Fi"))
-        assertTrue(downloadPauseText(DownloadManager.PAUSED_WAITING_TO_RETRY).en.contains("Retrying"))
-        val space = downloadFailureText(DownloadManager.ERROR_INSUFFICIENT_SPACE)
-        assertTrue(space.zh.contains("存储空间") && space.en.contains("storage"))
-        // Unknown codes stay diagnosable without leaking a raw platform message.
-        assertTrue(downloadFailureText(494).en.contains("494"))
-    }
-
-    // A persisted record survives process death; it must never resurrect a job for a build the
-    // user already runs, and a half-written record must heal instead of failing forever.
-    @Test fun `saved download decision resumes heals corrupt records and drops installed ones`() {
-        val version = parser.parse(manifest()).versions.single()
-        assertEquals(SavedDownloadDecision.Resume(7L, version), decideSavedDownload(7L, true, version, 18))
-        assertEquals(SavedDownloadDecision.None, decideSavedDownload(-1L, false, null, 18))
-        assertEquals(SavedDownloadDecision.Discard(DiscardReason.CORRUPT), decideSavedDownload(7L, true, null, 18))
-        assertEquals(SavedDownloadDecision.Discard(DiscardReason.CORRUPT), decideSavedDownload(-1L, true, version, 18))
-        assertEquals(SavedDownloadDecision.Discard(DiscardReason.ALREADY_INSTALLED), decideSavedDownload(7L, true, version, 19))
-        assertEquals(SavedDownloadDecision.Discard(DiscardReason.ALREADY_INSTALLED), decideSavedDownload(7L, true, version, 20))
     }
 
     @Test fun `APK pure verification covers size hash and identity`() {
@@ -101,13 +77,6 @@ class UpdateLogicTest {
     private fun indexOf(entries: List<String>): String {
         val latest = Regex("\"versionCode\":(\\d+)").find(entries.first())!!.groupValues[1]
         return """{"schemaVersion":1,"channel":"internal","latestVersionCode":$latest,"generatedAt":"2026-08-30T00:00:00Z","versions":[${entries.joinToString(",")}]}"""
-    }
-
-    @Test fun `failed enqueue persistence rolls back new download`() = kotlinx.coroutines.test.runTest {
-        var removed:Long?=null
-        val failure=runCatching { persistEnqueuedDownload(42,{false}){removed=it} }.exceptionOrNull()
-        assertTrue(failure is IllegalStateException)
-        assertEquals(42L,removed)
     }
 
     private fun version(name: String, code: Int) = UpdateVersion(

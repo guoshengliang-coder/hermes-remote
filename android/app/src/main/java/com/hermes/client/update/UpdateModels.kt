@@ -1,8 +1,5 @@
 package com.hermes.client.update
 
-import android.app.DownloadManager
-import com.hermes.client.ui.localization.LocalizedText
-import com.hermes.client.ui.localization.localizedText
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URI
@@ -97,7 +94,7 @@ const val KEPT_APK_VERSIONS = 5
  * Which locally stored release APKs to delete. Pure: [existingFileNames] is the download
  * directory listing, [keepFileNames] the newest [KEPT_APK_VERSIONS] releases plus the file an
  * active download task owns. Only files matching the release naming scheme are ever touched —
- * DownloadManager temp files and anything foreign stay untouched.
+ * downloader scratch files and anything foreign stay untouched.
  */
 fun selectApksToPrune(existingFileNames: List<String>, keepFileNames: Set<String>): List<String> =
     existingFileNames.filter { name ->
@@ -137,10 +134,10 @@ fun historyRows(rows: List<UpdateRow>, latest: UpdateRow?): List<UpdateRow> =
 /**
  * One user-visible download stage.
  *
- * [ENQUEUING] exists purely so the UI has a busy state during the suspend call that hands the job
- * to DownloadManager: without it a second tap lands while the state still reads IDLE and queues a
- * duplicate job. [PAUSED] is deliberately separate from [WAITING] — "queued" and "stalled, here is
- * why" need different copy and different recovery.
+ * [ENQUEUING] exists purely so the UI has a busy state during the suspend call that hands the
+ * job to the in-app downloader: without it a second tap lands while the state still reads IDLE
+ * and queues a duplicate task. [PAUSED] is deliberately separate from [WAITING] — "queued" and
+ * "paused, here is how to continue" need different copy and different recovery.
  */
 enum class DownloadPhase { IDLE, ENQUEUING, WAITING, PAUSED, DOWNLOADING, VERIFYING, CANCELLING, FAILED, DOWNLOADED, INSTALLABLE }
 
@@ -156,12 +153,12 @@ val BUSY_DOWNLOAD_PHASES = setOf(
     DownloadPhase.INSTALLABLE,
 )
 
-fun mapDownloadStatus(status: Int) = when (status) {
-    DownloadManager.STATUS_PENDING -> DownloadPhase.WAITING
-    DownloadManager.STATUS_PAUSED -> DownloadPhase.PAUSED
-    DownloadManager.STATUS_RUNNING -> DownloadPhase.DOWNLOADING
-    DownloadManager.STATUS_SUCCESSFUL -> DownloadPhase.DOWNLOADED
-    else -> DownloadPhase.FAILED
+fun mapDownloadStatus(status: UpdateDownloadStatus) = when (status) {
+    UpdateDownloadStatus.WAITING -> DownloadPhase.WAITING
+    UpdateDownloadStatus.PAUSED -> DownloadPhase.PAUSED
+    UpdateDownloadStatus.RUNNING -> DownloadPhase.DOWNLOADING
+    UpdateDownloadStatus.COMPLETE -> DownloadPhase.DOWNLOADED
+    UpdateDownloadStatus.FAILED -> DownloadPhase.FAILED
 }
 fun downloadPercent(downloaded: Long, total: Long) = if (total <= 0) null else ((downloaded * 100 / total).coerceIn(0, 100)).toInt()
 
@@ -179,60 +176,18 @@ sealed interface InstallResult {
     data class Failure(val message: String) : InstallResult
 }
 
-/** Why DownloadManager stalled the job, in the user's language (the code stays for diagnostics). */
-fun downloadPauseText(reason: Int): LocalizedText = when (reason) {
-    DownloadManager.PAUSED_WAITING_FOR_NETWORK ->
-        localizedText("已暂停：正在等待网络连接。", "Paused: waiting for a network connection.")
-    DownloadManager.PAUSED_QUEUED_FOR_WIFI ->
-        localizedText("已暂停：文件较大，正在等待 Wi-Fi。", "Paused: the file is large and is waiting for Wi-Fi.")
-    DownloadManager.PAUSED_WAITING_TO_RETRY ->
-        localizedText("已暂停：网络不稳定，正在自动重试。", "Paused: the network is unstable. Retrying automatically.")
-    else -> localizedText("已暂停（原因 $reason），可稍后重试。", "Paused (reason $reason). You can retry later.")
-}
-
-/** Why DownloadManager gave up, in the user's language. */
-fun downloadFailureText(reason: Int): LocalizedText = when (reason) {
-    DownloadManager.ERROR_INSUFFICIENT_SPACE ->
-        localizedText("设备存储空间不足。", "There is not enough storage space on the device.")
-    DownloadManager.ERROR_DEVICE_NOT_FOUND ->
-        localizedText("下载目录不可用。", "The download storage is unavailable.")
-    DownloadManager.ERROR_CANNOT_RESUME ->
-        localizedText("下载无法续传，请重新下载。", "The download could not be resumed. Download it again.")
-    DownloadManager.ERROR_HTTP_DATA_ERROR ->
-        localizedText("下载数据出错，请重试。", "The download data was corrupted. Retry.")
-    DownloadManager.ERROR_TOO_MANY_REDIRECTS, DownloadManager.ERROR_UNHANDLED_HTTP_CODE ->
-        localizedText("更新服务器响应异常，请稍后重试。", "The update server responded unexpectedly. Retry later.")
-    else -> localizedText("下载失败（原因 $reason）。", "The download failed (reason $reason).")
-}
-
-/** Sanitized, developer-facing form of a DownloadManager reason for copyable diagnostics. */
-fun downloadReasonDiagnostic(reason: Int): String = "reason=$reason ${downloadFailureText(reason).en}"
-
-enum class DiscardReason { CORRUPT, ALREADY_INSTALLED }
-
-sealed interface SavedDownloadDecision {
-    /** Nothing was persisted; nothing to clean up. */
-    data object None : SavedDownloadDecision
-    data class Resume(val id: Long, val version: UpdateVersion) : SavedDownloadDecision
-    data class Discard(val reason: DiscardReason) : SavedDownloadDecision
-}
-
 /**
- * Decide what to do with the persisted download record.
- *
- * A record half-written across process death (id without metadata, or metadata that no longer
- * deserializes) is discarded rather than re-verified forever, and a record for a build the device
- * already runs is discarded too — otherwise the page would keep re-verifying an APK the user has
- * long since installed.
+ * A persisted record the page should restore. A record for a build the device already runs is
+ * discarded, otherwise the page would keep re-verifying an APK the user long since installed.
+ * Records that no longer deserialize never reach here: the engine drops them at load time.
  */
-fun decideSavedDownload(
-    id: Long,
-    rawVersionPresent: Boolean,
-    version: UpdateVersion?,
-    currentVersionCode: Int,
-): SavedDownloadDecision = when {
-    !rawVersionPresent && id < 0 -> SavedDownloadDecision.None
-    version == null || id < 0 -> SavedDownloadDecision.Discard(DiscardReason.CORRUPT)
-    currentVersionCode >= version.versionCode -> SavedDownloadDecision.Discard(DiscardReason.ALREADY_INSTALLED)
-    else -> SavedDownloadDecision.Resume(id, version)
+sealed interface SavedDownloadDecision {
+    data class Resume(val version: UpdateVersion) : SavedDownloadDecision
+    /** The APK belongs to the running build (or older); remove it instead of showing a task. */
+    data object AlreadyInstalled : SavedDownloadDecision
+}
+
+fun decideSavedDownload(record: UpdateDownloadRecord, currentVersionCode: Int): SavedDownloadDecision = when {
+    currentVersionCode >= record.version.versionCode -> SavedDownloadDecision.AlreadyInstalled
+    else -> SavedDownloadDecision.Resume(record.version)
 }

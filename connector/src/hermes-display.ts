@@ -12,8 +12,8 @@ export interface HermesDisplayProjection {
 export function projectHermesDisplay(row: Record<string, unknown>): HermesDisplayProjection {
   const explicit = typeof row.display_kind === "string" && row.display_kind ? row.display_kind : null;
   const base: HermesDisplayProjection = { schema: GO_DISPLAY_SCHEMA, kind: explicit };
-  if (explicit || row.role !== "user" || typeof row.content !== "string") return base;
-  const text = row.content;
+  const text = row.display_content ?? row.content;
+  if (explicit || row.role !== "user" || typeof text !== "string") return base;
   const positions = COMPRESSION_HEADERS.map(header => text.indexOf(header)).filter(index => index >= 0);
   if (!positions.length) return base;
   const body = text.slice(0, Math.min(...positions)).trimEnd();

@@ -3,6 +3,9 @@ package com.hermes.client.data.repository
 import android.content.Context
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.domain.ChatFile
+import com.hermes.client.domain.ArtifactMetadata
+import com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES
+import com.hermes.client.data.network.HermesApiException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,16 +21,24 @@ class ChatFileRepository @Inject constructor(
 ) {
     private val directory = File(context.cacheDir, "chat-files").apply { mkdirs() }
 
-    suspend fun download(file: ChatFile): File = withContext(Dispatchers.IO) {
+    suspend fun metadata(file: ChatFile, deviceId: String? = null): ArtifactMetadata? = withContext(Dispatchers.IO) {
+        file.localPath?.let(::File)?.takeIf { it.isFile }?.let { return@withContext ArtifactMetadata(it.length()) }
+        file.remotePath?.let { rest.artifactMetadata(it, deviceId) }
+    }
+
+    suspend fun download(file: ChatFile, deviceId: String? = null): File = withContext(Dispatchers.IO) {
+        if ((file.sizeBytes ?: 0L) > ARTIFACT_DOWNLOAD_LIMIT_BYTES) {
+            throw HermesApiException(413, "artifact exceeds app download limit")
+        }
         file.localPath?.let(::File)?.takeIf { it.isFile && it.length() > 0 }?.let { return@withContext it }
         val remote = file.remotePath ?: error("This file has no downloadable reference")
         val safeName = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(100).ifBlank { "attachment" }
-        val target = File(directory, "${sha256(remote).take(20)}-$safeName")
+        val target = File(directory, "${sha256("${deviceId.orEmpty()}\n$remote").take(20)}-$safeName")
         if (target.isFile && target.length() > 0) return@withContext target
         val partial = File(directory, "${target.name}.part")
         runCatching { partial.delete() }
         try {
-            rest.downloadArtifact(remote, partial)
+            rest.downloadArtifact(remote, partial, deviceId = deviceId)
             check(partial.length() > 0) { "Downloaded file is empty" }
             check(partial.renameTo(target)) { "Unable to finalize downloaded file" }
             trimCache()

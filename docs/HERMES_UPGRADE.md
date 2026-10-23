@@ -392,4 +392,22 @@ Node、Web、Android L1/L2/L3 未重复运行；未升版、交付应用、合�
 失败，再加入变更前对象核对后通过。Linux/macOS CI 另使用两份固定真实上游 checkout 跑矩阵。
 此实验执行 Git 与自有原型，未执行上游 Python、PM、官方 updater 或服务；不认证中途 checkout
 恢复、真实运行时/依赖代次、跨监督方死亡授权、原服务/业务/全 writer 或升级完成。实验只改
-harness/CI/文档，本地产品构建与 L1/L2/L3 不重复；无现用安装操作、升版、应用交付或发布。
+harness/CI/文档；后续主干整合基线单独记录如下。无现用安装操作、升版、应用交付或发布。
+
+本机固定源矩阵实际通过：3 次自建协调进程 SIGKILL、6 次错误身份/阶段/内容拒绝，原意图历史/
+inode 保持、部分计划保留、普通 writer 始终阻断。旧临时 Git 缓存已经失效，因此在新的私有
+目录准备固定 commit 与完整 tip 对象；实际使用的两份源码均经 worker 完整源码守卫通过。
+没有用残缺缓存降低校验，也没有执行上游代码/PM/updater 或服务。
+
+同日为恢复草稿检查，在任务分支整合主干 2d15e2e7：当前 9 项检查中 7 项成功、2 项按组件跳过，
+CI/SAST/Website 三工作流成功。保留主干已有版本值与下载/视频/历史功能，未分配版本。五处
+文本冲突保留维护错误及主干分页错误映射、两套历史测试和文档；Android/Web 内容选择遵循
+主干的 `display_content`（空串亦有效）优先，再用 GO body/raw 回退，Connector 从同一显示
+内容推导回退，避免旧压缩载体复活。三端扩展回归通过；Connector 新回归先在旧投影实现失败，
+调整后 11 项专项通过。未改变 wire schema/错误码意义或视觉设计。
+
+整合后本地 Node build/test 通过（已有 OpenSSL 3）：Protocol18、Connector179、Gateway254
+（32 环境跳过）、release-server41、scripts436（1 环境跳过）；Web typecheck/946 tests/build；
+Android2634 JVM/assembleDebug。L1 JVM 已跑，L2 A5DN9X4708H02629 未授权，L3 Pixel_API_37
+可用未跑，无新增布局或 targetSdk 变化。Desktop 源码未改，本地未重跑；全草稿 CI 另核对。
+独立下载通道的维护/排空未做新增专项，不能把保留其主干行为算作全 writer 证明。无应用交付。

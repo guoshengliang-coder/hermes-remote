@@ -7,6 +7,7 @@ import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonElement
@@ -200,6 +201,7 @@ class HermesRestApi(
                 ),
             )
         if (cfg.token.isNotBlank()) b.header("X-Hermes-Session-Token", cfg.token)
+        deviceIdOverride?.takeIf { it.isNotBlank() }?.let { b.header("X-Hermes-Device-Id", it) }
         return b
     }
 
@@ -480,7 +482,7 @@ class HermesRestApi(
         // Stored rows remain unchanged. This read projection replaces only inline data-image
         // payloads, keeping old image-heavy conversations below the relay response ceiling.
         buildString {
-            append("/api/sessions/$sessionId/messages?inline_images=false")
+            append("/api/sessions/$sessionId/messages?inline_images=false&include_compacted=true")
             limit?.let { append("&limit=$it") }
             offset?.let { append("&offset=$it") }
             order?.let { append("&order=${it.wire}") }
@@ -498,7 +500,7 @@ class HermesRestApi(
         sourceOffset: Int,
     ): MessageDto? {
         val raw = getRaw(buildString {
-            append("/api/sessions/$sessionId/messages?inline_images=false")
+            append("/api/sessions/$sessionId/messages?inline_images=false&include_compacted=true")
             append("&hr_full_message_id=$rowId&hr_full_offset=$sourceOffset")
             append(profileParam(profile))
         }, deviceId)
@@ -508,6 +510,174 @@ class HermesRestApi(
     /** Parses a transcript payload, whether it arrived just now or came back off the disk. */
     fun parseMessages(raw: String): List<MessageDto> =
         json.decodeFromString<MessagesDto>(raw).messages
+
+    /** HEAD only: an old Connector returns 405. Never fall back to GET to discover the size. */
+    suspend fun artifactMetadata(path: String, deviceId: String? = null): com.hermes.client.domain.ArtifactMetadata? =
+        withContext(Dispatchers.IO) {
+            val encoded = java.net.URLEncoder.encode(path, "UTF-8")
+            val request = builder("/api/files?path=$encoded", deviceId).head().build()
+            val call = restCall(request)
+            try {
+                call.execute().use { response ->
+                    if (response.code == 405 || response.code == 501) return@withContext null
+                    if (!response.isSuccessful) throw HermesApiException(response.code, "artifact metadata unavailable")
+                    val size = response.header("content-length")?.toLongOrNull()?.takeIf { it >= 0 }
+                        ?: return@withContext null
+                    val remoteLimit = response.header("x-hermes-max-file-bytes")?.toLongOrNull()?.takeIf { it > 0 }
+                        ?: com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES
+                    val independent = response.header("x-hermes-file-channel") == "1"
+                    val downloadLimit = response.header("x-hermes-max-download-bytes")?.toLongOrNull()?.takeIf { it > 0 }
+                    com.hermes.client.domain.ArtifactMetadata(size,
+                        if (independent && downloadLimit != null) downloadLimit else minOf(remoteLimit, com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES),
+                        independent && downloadLimit != null)
+                }
+            } finally {
+                call.cancel()
+            }
+        }
+
+    /** Stable task owner. Credentials are never persisted, and selecting another default Mac
+     * must not change the explicit originating device of an existing task. */
+    suspend fun artifactOwnerKey(deviceId: String?): String? {
+        accountSessionManager?.connection(deviceId)?.let { account ->
+            val owner = accountSessionManager.session.value ?: return null
+            return "account:${account.baseUrl.trimEnd('/')}#${owner.accountId}#${owner.installationId}#${account.deviceId}"
+        }
+        if (accountSessionManager?.requiresAccountReauthentication() == true ||
+            accountSessionManager?.transportMode() == AccountTransportMode.DEVICE_SELECTION_REQUIRED ||
+            accountSessionManager?.transportMode() == AccountTransportMode.ACCOUNT_DELETION_COMMITTED) return null
+        val cfg = configProvider() ?: return null
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(cfg.token.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return "legacy:${normalizeGatewayBaseUrl(cfg.baseUrl).trimEnd('/')}#$digest#${deviceId.orEmpty()}"
+    }
+
+    suspend fun prepareArtifactDownload(path: String, deviceId: String?, owner: String): com.hermes.client.domain.ArtifactDownloadDescriptor =
+        withContext(Dispatchers.IO) {
+            requireArtifactOwner(owner, deviceId)
+            val payload = buildJsonObject { put("path", path) }.toString().toRequestBody("application/json".toMediaType())
+            val request = builder("/api/files/downloads", deviceId).post(payload).build()
+            requireArtifactOwner(owner, deviceId)
+            val call = restCall(request)
+            val cancellation = kotlinx.coroutines.Job(kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job])
+            cancellation.invokeOnCompletion { call.cancel() }
+            try {
+                call.execute().use { response ->
+                    val failure = if (!response.isSuccessful) artifactResponseError(response) else null
+                    if ((response.code in listOf(404, 405, 501) && failure?.errorCode == null) ||
+                        (response.isSuccessful && response.header("x-hermes-file-channel") != "1")) {
+                        throw HermesApiException(501, "independent channel unavailable", errorCode = "HR-FILE-012")
+                    }
+                    if (failure != null) throw failure
+                    val descriptor = json.decodeFromString<com.hermes.client.domain.ArtifactDownloadDescriptor>(response.body.string())
+                    if (!descriptor.artifactId.matches(Regex("[a-f0-9]{64}")) ||
+                        !descriptor.etag.matches(Regex("\"[a-f0-9]{64}\"")) || descriptor.sizeBytes < 0 ||
+                        descriptor.maxBytes < descriptor.sizeBytes || descriptor.contentType.length > 128) {
+                        throw HermesApiException(502, "invalid download descriptor")
+                    }
+                    descriptor
+                }
+            } finally { cancellation.complete(); call.cancel() }
+        }
+
+    /** A bounded Range goes over the independent data channel. Never append a 200 response. */
+    suspend fun downloadArtifactRange(
+        descriptor: com.hermes.client.domain.ArtifactDownloadDescriptor,
+        destination: File, deviceId: String?, owner: String,
+        onProgress: (Long) -> Unit = {},
+    ): Unit = withContext(Dispatchers.IO) {
+        requireArtifactOwner(owner, deviceId)
+        val start = destination.length()
+        require(start in 0 until descriptor.sizeBytes)
+        val end = minOf(descriptor.sizeBytes - 1, start + 256L * 1024L - 1)
+        val request = builder("/api/files/downloads/${descriptor.artifactId}", deviceId)
+            .header("If-Match", descriptor.etag).header("Range", "bytes=$start-$end").get().build()
+        requireArtifactOwner(owner, deviceId)
+        val call = clientFor(request).newBuilder().followRedirects(false).followSslRedirects(false)
+            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+            // A progressing slow mobile transfer must not repeatedly lose the same range.
+            // Read-idle timeout, bounded ranges and OS/job cancellation own its lifetime.
+            .callTimeout(0, TimeUnit.MILLISECONDS).build().newCall(request)
+        val cancellation = kotlinx.coroutines.Job(kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job])
+        cancellation.invokeOnCompletion { call.cancel() }
+        try {
+            call.execute().use { response ->
+                if (response.code == 200) throw HermesApiException(501, "range not supported", errorCode = "HR-FILE-012")
+                if (response.code != 206) throw artifactResponseError(response)
+                val expected = end - start + 1
+                if (response.header("etag") != descriptor.etag ||
+                    response.header("content-range") != "bytes $start-$end/${descriptor.sizeBytes}" ||
+                    response.body.contentLength() != expected) throw HermesApiException(502, "invalid range response")
+                var received = 0L
+                java.io.FileOutputStream(destination, true).use { output ->
+                    response.body.byteStream().use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            if (received + read > expected) throw HermesApiException(502, "range exceeded")
+                            output.write(buffer, 0, read)
+                            received += read
+                            onProgress(start + received)
+                        }
+                    }
+                    output.fd.sync()
+                }
+                if (received != expected) throw HermesApiException(502, "incomplete range")
+            }
+        } finally { cancellation.complete(); call.cancel() }
+    }
+
+    /** Authenticated bounded random access for the player; never expose an authenticated URL. */
+    suspend fun readArtifactRange(
+        descriptor: com.hermes.client.domain.ArtifactDownloadDescriptor,
+        start: Long, count: Int, deviceId: String?, owner: String,
+    ): ByteArray = withContext(Dispatchers.IO) {
+        require(count in 1..(256 * 1024) && start >= 0 && start <= descriptor.sizeBytes - count)
+        requireArtifactOwner(owner, deviceId)
+        val end = start + count - 1
+        val request = builder("/api/files/downloads/${descriptor.artifactId}", deviceId)
+            .header("If-Match", descriptor.etag).header("Range", "bytes=$start-$end").get().build()
+        requireArtifactOwner(owner, deviceId)
+        val call = clientFor(request).newBuilder().followRedirects(false).followSslRedirects(false)
+            .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.MILLISECONDS).build().newCall(request)
+        val cancellation = kotlinx.coroutines.Job(kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job])
+        cancellation.invokeOnCompletion { call.cancel() }
+        try {
+            call.execute().use { response ->
+                if (response.code == 200) throw HermesApiException(501, "range not supported", errorCode = "HR-FILE-012")
+                if (response.code != 206) throw artifactResponseError(response)
+                if (response.header("etag") != descriptor.etag ||
+                    response.header("content-range") != "bytes $start-$end/${descriptor.sizeBytes}" ||
+                    response.body.contentLength() != count.toLong()) throw HermesApiException(502, "invalid video range")
+                val bytes = ByteArray(count)
+                response.body.byteStream().use { input ->
+                    var received = 0
+                    while (received < count) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        val read = input.read(bytes, received, count - received)
+                        if (read < 0) throw HermesApiException(502, "incomplete video range")
+                        received += read
+                    }
+                    if (input.read() != -1) throw HermesApiException(502, "video range exceeded")
+                }
+                requireArtifactOwner(owner, deviceId)
+                bytes
+            }
+        } finally { cancellation.complete(); call.cancel() }
+    }
+
+    private suspend fun requireArtifactOwner(owner: String, deviceId: String?) {
+        if (artifactOwnerKey(deviceId) != owner) throw HermesApiException(401, "download owner changed", errorCode = "HR-AUTH-001")
+    }
+
+    private fun artifactResponseError(response: okhttp3.Response): HermesApiException {
+        val code = runCatching { json.parseToJsonElement(response.peekBody(4096).string())
+            .jsonObject["error"]?.jsonObject?.get("code")?.jsonPrimitive?.content }.getOrNull()
+        return HermesApiException(response.code, "artifact request failed", errorCode = code)
+    }
 
     /**
      * Stream a Connector-authorized artifact to disk; large files never become strings/ByteArrays.
@@ -520,14 +690,15 @@ class HermesRestApi(
     suspend fun downloadArtifact(
         path: String,
         destination: File,
-        maxBytes: Long = 100L * 1024L * 1024L,
+        maxBytes: Long = com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES,
         thumbWidth: Int? = null,
+        deviceId: String? = null,
         onProgress: (downloaded: Long, total: Long?) -> Unit = { _, _ -> },
     ): File = withContext(Dispatchers.IO) {
         val encoded = java.net.URLEncoder.encode(path, "UTF-8")
         val thumb = thumbWidth?.let { "&thumb=$it" }.orEmpty()
         val target = "/api/files?path=$encoded$thumb"
-        val request = builder(target).get().build()
+        val request = builder(target, deviceId).get().build()
         val call = clientFor(request).newCall(request).apply {
             timeout().timeout(10, TimeUnit.MINUTES)
         }
@@ -538,7 +709,7 @@ class HermesRestApi(
                     val elapsed = System.currentTimeMillis() - startedAt
                     val detail = runCatching { response.body.string() }.getOrDefault("").ifBlank { "HTTP ${response.code}" }
                     com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                        "GET $target ← ${response.code} (${elapsed}ms) ${detail.take(200)}"
+                        "GET /api/files ← ${response.code} (${elapsed}ms)"
                     }
                     throw HermesApiException(response.code, detail)
                 }
@@ -562,7 +733,7 @@ class HermesRestApi(
                 }
                 val elapsed = System.currentTimeMillis() - startedAt
                 com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                    "GET $target ← ${response.code} (${elapsed}ms) ${downloaded}b → ${destination.name}"
+                    "GET /api/files ← ${response.code} (${elapsed}ms) ${downloaded}b"
                 }
             }
         } catch (error: Throwable) {

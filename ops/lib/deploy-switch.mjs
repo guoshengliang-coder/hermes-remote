@@ -49,6 +49,7 @@ export async function switchCandidate(config, sourceManifest, targetManifest, op
       operation,
       databaseEnabled: config.database !== null,
       allowDatabaseSchemaAdvance: options.allowDatabaseSchemaAdvance === true,
+      schemaAdvancePlan: options.schemaAdvancePlan,
     });
     if (transition.maintenanceRequired !== true) {
       fail("target_must_declare_maintenance_window", "switch_authorize");

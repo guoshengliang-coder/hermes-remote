@@ -750,3 +750,53 @@ function stringRecord(value: unknown, error: string): Record<string, string> {
   }
   return result;
 }
+
+/** HTTP contract for the independent, outbound-only artifact data channel (HG-222). */
+export const ARTIFACT_DOWNLOADS_PATH = "/api/files/downloads";
+export const ARTIFACT_RETURN_PATH = "/api/file-channel/";
+export const ARTIFACT_QUICK_OPEN_BYTES = 100 * 1024 * 1024;
+export const ARTIFACT_DEFAULT_MAX_BYTES = 8 * 1024 * 1024 * 1024;
+export const ARTIFACT_ID = /^[a-f0-9]{64}$/;
+export const TRANSFER_ID = /^[a-f0-9-]{36}$/;
+
+export interface ArtifactDownloadDescriptor {
+  artifactId: string;
+  sizeBytes: number;
+  etag: string;
+  contentType: string;
+  maxBytes: number;
+  quickOpenBytes: number;
+}
+
+export class ArtifactRangeError extends Error {}
+
+/** Single explicit byte range only. A suffix or multipart range is never silently misread. */
+export function artifactRange(value: string | undefined, size: number): { start: number; end: number } {
+  if (!Number.isSafeInteger(size) || size < 0) throw new ArtifactRangeError();
+  if (value === undefined) return { start: 0, end: size - 1 };
+  const match = /^bytes=(\d+)-(\d*)$/.exec(value);
+  if (!match) throw new ArtifactRangeError();
+  const start = Number(match[1]);
+  const end = match[2] ? Number(match[2]) : size - 1;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+      || start < 0 || start >= size || end < start) throw new ArtifactRangeError();
+  return { start, end: Math.min(end, size - 1) };
+}
+
+const downloadErrors = {
+  "HR-FILE-003": ["这个文件不在 Mac 允许访问的目录内，无法下载。请让 Hermes 把它放到允许的目录。", "The file sits outside the folder the Mac allows, so it can't be downloaded. Ask Hermes to place it inside that folder.", false],
+  "HR-FILE-004": ["文件超过传输上限，无法下载。请让 Hermes 压缩或拆分后再发。", "The file exceeds the transfer limit. Ask Hermes to compress or split it.", false],
+  "HR-FILE-005": ["这个文件在 Mac 上已不存在，请让 Hermes 重新生成。", "The file is no longer on the Mac. Ask Hermes to produce it again.", false],
+  "HR-FILE-006": ["文件下载失败，请重试。", "The download failed. Retry.", true],
+  "HR-FILE-011": ["Mac 上的文件已改变，请重新下载。", "The file on the Mac changed. Download it again.", false],
+  "HR-FILE-012": ["当前服务不支持独立下载，请更新 Relay 和 Mac 端后重试。", "Independent downloads are unavailable. Update the Relay and Mac components, then retry.", false],
+  "HR-FILE-013": ["这台 Mac 正在传输文件，请稍后重试。", "This Mac is transferring a file. Retry shortly.", true],
+  "HR-FILE-014": ["手机存储空间不足，请清理空间后继续下载。", "Phone storage is full. Free some space, then resume.", false],
+  "HR-FILE-015": ["下载引用已失效，请重新获取文件后继续。", "The download reference expired. Fetch the file again to continue.", true],
+} as const;
+
+export type ArtifactErrorCode = keyof typeof downloadErrors;
+export function artifactFailure(code: ArtifactErrorCode) {
+  const [summaryZh, summaryEn, retryable] = downloadErrors[code];
+  return { error: { code, message: `${summaryZh} / ${summaryEn}`, summaryZh, summaryEn, retryable } };
+}

@@ -28,6 +28,7 @@ import com.hermes.client.data.repository.ProfileRepository
 import com.hermes.client.data.repository.ProjectsRepository
 import com.hermes.client.data.repository.SessionRepository
 import com.hermes.client.data.repository.ToolsRepository
+import com.hermes.client.update.UpdateDownloadEngine
 import com.hermes.client.update.UpdateRepository
 import com.hermes.client.update.UpdateRepositoryContract
 import com.hermes.client.update.createUpdateHttpClient
@@ -164,7 +165,8 @@ object AppModule {
         @ApplicationContext context: Context,
         json: Json,
         @UpdateHttpClient client: OkHttpClient,
-    ): UpdateRepositoryContract = UpdateRepository(context, json, client)
+        engine: UpdateDownloadEngine,
+    ): UpdateRepositoryContract = UpdateRepository(context, json, client, engine)
 
     @Provides
     @Singleton

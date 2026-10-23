@@ -28,6 +28,72 @@
         "activeStatusFile": { "$ref": "#/$defs/path" },
         "maximumAgeMinutes": { "type": "integer", "minimum": 5, "maximum": 720 }
       }
+    },
+    "schemaAdvancePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromSchemaVersion",
+        "toSchemaVersion",
+        "sourceCommit",
+        "targetSourceCommit",
+        "targetImageId",
+        "targetArchiveSha256",
+        "migrations",
+        "rehearsalEvidenceFile"
+      ],
+      "properties": {
+        "fromSchemaVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "toSchemaVersion": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "sourceCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "targetSourceCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "rehearsalEvidenceFile": {
+          "$ref": "#/$defs/path"
+        },
+        "migrations": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fileName",
+              "sha256"
+            ],
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "pattern": "^[0-9]{3}_gateway_schema_state[.]sql$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "targetImageId": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "targetArchiveSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
     }
   },
   "$defs": {

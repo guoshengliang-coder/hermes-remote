@@ -609,7 +609,7 @@ internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
  */
 fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): ChatMessage {
     val display = displayProjection?.takeIf { it.schema == 1 }
-    val parsed = parseMessageContent((display?.body ?: content).orEmpty(), userHistory = role.equals("user", ignoreCase = true))
+    val parsed = parseMessageContent((displayContent ?: display?.body ?: content).orEmpty(), userHistory = role.equals("user", ignoreCase = true))
     // Compaction handoffs ride the user-role channel. Project them the way upstream projects a
     // transcript for display, keeping any real content merged into the carrier; a turn left with
     // nothing is dropped by [isRenderable].

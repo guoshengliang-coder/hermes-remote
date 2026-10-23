@@ -1,4 +1,5 @@
 import { OpsError } from "./errors.mjs";
+import { matchesSchemaAdvance } from "./schema-advance-plan.mjs";
 
 const OPERATIONS = new Set(["deploy", "rollback"]);
 
@@ -6,6 +7,7 @@ export function assessReleaseTransition(current, target, {
   operation,
   databaseEnabled = false,
   allowDatabaseSchemaAdvance = false,
+  schemaAdvancePlan,
 } = {}) {
   try {
     if (!OPERATIONS.has(operation)) incompatible("operation_invalid");
@@ -48,9 +50,10 @@ export function assessReleaseTransition(current, target, {
         incompatible("database_migration_contract_required");
       }
       const schemaDelta = target.releaseContract.databaseSchemaVersion - current.releaseContract.databaseSchemaVersion;
-      // R5-F8 alone may advance the schema, one forward-only step per deploy, after its own
-      // backup gate; every other path (and every rollback) still needs an identical schema.
-      const schemaAdvance = allowDatabaseSchemaAdvance === true && operation === "deploy" && schemaDelta === 1;
+      // R5-F8 defaults to one forward step. A verified explicit two-step plan binds both release
+      // identities; every other path (and every rollback) still needs an identical schema.
+      const schemaAdvance = allowDatabaseSchemaAdvance === true && operation === "deploy"
+        && (schemaDelta === 1 || matchesSchemaAdvance(schemaAdvancePlan, current, target));
       if (schemaDelta !== 0 && !schemaAdvance) {
         incompatible("database_schema_change_requires_compatibility_contract");
       }

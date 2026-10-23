@@ -1335,7 +1335,7 @@ class ScreenshotTest {
      * one un-wrapping Row, so this is where a new sentence would push the code off the edge.
      */
     @Test
-    @Config(sdk = [34], qualifiers = "w360dp-h740dp-420dpi")
+    @Config(sdk = [34], qualifiers = "w360dp-h1100dp-420dpi")
     fun userBubbleDeliveryStatesZhNarrowLargeFont() = snapDelivery(
         "user-bubble-delivery-zh-360-fs13",
         darkTheme = false,

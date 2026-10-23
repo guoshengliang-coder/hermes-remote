@@ -1966,3 +1966,100 @@ browser/Android consumer evidence and repeatable isolated smoke drivers are reco
 [ACCOUNT_DATA_SYNC_VALIDATION.md](ACCOUNT_DATA_SYNC_VALIDATION.md). Physical phone interaction,
 device appearance, Service Worker behavior and production recovery still require their own gates;
 an emulator cannot certify vendor behavior, and local source verification is not a published artifact.
+
+## HG-222 independent attachment channel
+
+After separately authorized Gateway/Connector/Android rollout:
+
+- HEAD ordinary/large files returns exact original metadata without a body. New capability requires
+  both Gateway and the selected Mac; legacy GET retains MAX_FILE_BYTES and thumbnail behavior.
+- POST prepare returns opaque IDs, never original paths. New GET URLs contain only opaque IDs.
+  Verify Range/ETag/Content-Range and cancellation. A wrong/replayed return ticket is refused.
+- Transfer a 1 GiB fixture while chatting. Observe bounded Mac/Gateway memory, progress, heartbeat
+  health, latency and cancellation. Public HTTPS Nginx routes must disable request/response buffering
+  in both legacy and device-scoped paths. This is a real-network gate, not proof from loopback.
+- Interrupt the phone and the Mac independently. Resume the exact generation, invalidate replaced
+  sources, and reject access after account/session/installation/binding revocation or Mac replacement.
+- Verify actual-cap HR-FILE-004, changed-source HR-FILE-011, unavailable-channel HR-FILE-012,
+  capacity HR-FILE-013, storage HR-FILE-014 and expired-reference HR-FILE-015, with recovery actions.
+- Roll back one component: small legacy opening remains; large independent downloads must not
+  silently use control-stream bodies. No directory listing or public unauthenticated file access.
+
+Local 2026-10-21 real-process loopback transferred 1,073,741,824 bytes in about 21.4 seconds with
+paced 128 MiB/s fixture configuration. Observed RSS peaks: Mac 109,664 KiB, Gateway 126,864 KiB;
+maximum concurrent mock-command response was 26 ms. This proves neither mobile-network throughput
+nor real Hermes/OEM latency; production defaults pace file output at 4 MiB/s.
+
+For an edge-backed download, prepare with `POST /api/files/downloads` and redirects disabled:
+it must respond directly with the descriptor, without a 301/302/307/308 or appended slash. Nginx
+automatically redirects a bare path when only a proxied trailing-slash prefix exists, so every
+edge template must retain its exact preparation location. The authenticated production-edge
+synthetic smoke on 2026-10-21 first reproduced this 301→GET→400 failure, then passed preparation,
+134,217,735 bytes of resumed Range responses, full SHA-256, legacy cap, missing-auth rejection
+and stale-ETag rejection after the exact route was installed. Concurrent control REST latency
+peaked at 29 ms. It used a disposable synthetic Connector, not the user's bound Mac or phone.
+
+
+## HG-224 — compaction-archived conversation history
+
+Use a disposable conversation with at least 13 distinct user prompts and enough tool rows to cross
+three pages. Record the prompts before forcing upstream context compaction. Do not edit the DB.
+
+1. On Android and Web, reopen after at least two compactions. Scroll to the oldest question;
+   open 我的提问, select that question and search for its unique text. All original questions and
+   answers must remain ordered once; machine summaries must not become extra questions.
+2. Reopen Android after process restart (including an old active-only cache from the previous
+   version). Reopen Web. Repeat the prompt count/jump checks. Rebuilt history must reach the true
+   beginning rather than preserving a stale reached-start marker.
+3. While another client adds more than one page, load older history. Inspect requests: initial tail
+   is 100 rows, older pages request 101 with one overlapping boundary row, all with
+   `include_compacted=true`. No skipped or duplicated turns; refreshing keeps the reading anchor.
+4. Delay an older response, then refresh after Undo/Rewind. Releasing that response must not revive
+   removed turns. If compaction replaced the boundary meanwhile, HR-SYNC-001 retains the shown
+   transcript; Retry first resynchronizes the tail and permits further paging.
+5. Export/share/attach the whole conversation and open an archived tool result/reasoning card.
+   Original text must be complete; preview bytes must not be copied as full content. The selected
+   profile/Mac must remain unchanged. Repeat against older Hermes without `display_content`.
+
+Automated coverage: Android REST, mapping, raw windows, repository/disk, runtime alignment and
+error tests; Web paths, mapping, page merges/session/reducer; Connector projection pass-through.
+The API 36 `CompactedHistoryDeviceTest` exercises the prompt sheet and an archived first-question
+selection in both themes using synthetic history. This is not incident-Mac or physical-HONOR proof.
+
+Still required: identify the Mac serving incident session `20261018_222453_598255`, verify that its
+archived rows survive and compare Android/Web with the official upstream transcript. No production
+service, database, or installed Hermes source is modified by this change.
+
+Local HG-224 evidence (2026-10-22): Android 2,602 JVM tests and `:app:assembleDebug` passed,
+including canonical debug certificate verification; Web 938 tests and its type-checked production
+build passed. Pixel_9_API_36_1 / Android 16 ran both `CompactedHistoryDeviceTest` cases: the sheet
+showed 13 prompts and the archived first prompt was selectable. Both screenshots were inspected.
+No physical device was attached. Root `npm run build` passed; root `npm test` passed protocol
+(18), Connector (151), Gateway (222 passed / 32 skipped) and release server (37). Its scripts suite
+had 432 passed / 1 skipped / 2 failures in unchanged `legacy-recovery.test.mjs` CMS decryption
+under this Mac's LibreSSL 3.3.6; the same two failures reproduced when run alone. CI remains a
+separate merge gate. No APK distribution, version allocation or production deployment occurred.
+
+
+## HG-222 original-quality video streaming follow-up
+
+- On compatible Gateway/Mac versions, tap both a <100 MiB and a >100 MiB MP4: a first frame must
+  appear before the entire body transfers, with a separate Download action. Repeat with moov at
+  the tail and seek near the end; verify closed bounded ranges, not a growing full-file download.
+- Start Download, then play that video: the current uncommitted range is cancelled, progress rolls
+  back only to its durable checkpoint, and the task says Waiting for playback. Pause/close the
+  player; the download resumes and reuses validated playback blocks. A user-paused/cancelled task
+  must remain paused/cancelled, including while leaving the Activity/backgrounding the phone.
+- Complete a download, disconnect the Mac and play locally. Share/Open externally only complete
+  large files; a playback cache hit alone must not enable large-file sharing.
+- Force reference expiry and reconnect the Mac: unchanged size/ETag resumes. Replace the source
+  or switch account/Mac: stop with the appropriate stable HR code, with no mixed-generation bytes.
+- Interrupt cellular/Wi-Fi mid-playback: retry from the saved position, preserving generation.
+  Concurrent second-phone playback may show HR-FILE-013 and Retry; it must not starve control RPCs.
+- Background and return: no playback/network loader in background; position retained, tap Play to
+  continue. Explicit download still uses the existing transfer job and completion notification.
+- Try unsupported/corrupt codec/container: HR-FILE-016, localized text, Download and Copy diagnostics;
+  no raw exception. Verify light/dark, Chinese/English, enlarged text and portrait/landscape controls.
+
+The synthetic decoder/Range device tests do not replace real HONOR/Xiaomi ROM, original user MP4,
+cellular/home-NAT and targetSdk-level checks. Record the actual available layers with the result.

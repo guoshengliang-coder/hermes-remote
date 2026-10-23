@@ -9,6 +9,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun unsentComposerRefusalsHaveStableBilingualNonRetryableRedactedContracts() {
+        val cases = listOf(
+            AppErrorCode.MESSAGE_DELIVERY_UNCONFIRMED to "HR-SESS-020",
+            AppErrorCode.UNSENT_COMPOSER_OCCUPIED to "HR-SESS-021",
+        )
+        for ((code, value) in cases) {
+            val error = AppError(code, retryable = false, technicalCause = "token=secret Authorization: Bearer private")
+            assertEquals(value, code.value)
+            assertEquals(code, AppErrorCode.fromValue(value))
+            assertFalse(error.retryable)
+            for (language in AppLanguage.entries) assertTrue(error.localizedMessage(language).contains(value))
+            assertTrue(error.localizedSummary(AppLanguage.ZH) != error.localizedSummary(AppLanguage.EN))
+            assertFalse(error.sanitizedDiagnostic().contains("secret"))
+            assertFalse(error.sanitizedDiagnostic().contains("private"))
+        }
+    }
     @Test fun modelSyncErrorsHaveBilingualRedactedContracts() {
         for (code in listOf(AppErrorCode.MODEL_SYNC_CONFLICT, AppErrorCode.MODEL_SYNC_RESET,
             AppErrorCode.MODEL_SYNC_INVALID, AppErrorCode.MODEL_SYNC_QUOTA, AppErrorCode.MODEL_SYNC_PENDING, AppErrorCode.MODEL_SYNC_STORAGE)) {

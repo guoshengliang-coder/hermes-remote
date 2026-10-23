@@ -8,16 +8,36 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Posts the "update downloaded and verified" hand-off when the download finishes while the
- * update page is NOT in front (foreground completions auto-launch the installer instead —
- * see UpdateViewModel). Tapping the notification routes back to the update page, which
- * restores the persisted task in the INSTALLABLE state.
+ * The two hand-offs a download can make while the update page is not in front:
+ * [notifyDownloaded] when the bytes are on disk but not yet verified, and [notifyReady] once
+ * verification passed (foreground completions auto-launch the installer instead — see
+ * UpdateViewModel). Both route back to the update page, which restores the persisted task.
  */
 @Singleton
 class UpdateReadyNotifier @Inject constructor(
     private val notifier: HermesNotifier,
     private val languages: com.hermes.client.ui.localization.AppLanguageProvider,
 ) {
+    /**
+     * The transfer finished but nothing verified it yet (the page was not around to do that).
+     * Saying "已下载并校验通过" here would be a lie; verification still has to run.
+     */
+    fun notifyDownloaded(version: UpdateVersion) {
+        val language = languages.current
+        notifier.post(
+            NotificationSpec(
+                id = Notif.UPDATE_NOTIFICATION_ID,
+                channelId = Notif.CHANNEL_UPDATES,
+                title = localized(language, "Hermes GO ${version.versionName} 已下载", "Hermes GO ${version.versionName} downloaded"),
+                body = localized(language, "返回应用完成校验后即可安装。", "Open the app to verify and install."),
+                route = "app_update",
+                whenMs = System.currentTimeMillis(),
+                category = androidx.core.app.NotificationCompat.CATEGORY_RECOMMENDATION,
+                publicTitle = localized(language, "Hermes GO 更新已下载", "Hermes GO update downloaded"),
+            ),
+        )
+    }
+
     fun notifyReady(version: UpdateVersion) {
         val language = languages.current
         notifier.post(

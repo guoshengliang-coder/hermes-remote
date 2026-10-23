@@ -66,6 +66,7 @@ export async function prepareCandidate(config, sourceManifest, targetManifest, o
       operation,
       databaseEnabled: config.database !== null,
       allowDatabaseSchemaAdvance: options.allowDatabaseSchemaAdvance === true,
+      schemaAdvancePlan: options.schemaAdvancePlan,
     });
     verifyCurrentIdentity(await readReleaseLink(config.paths.installRoot, "current", true), sourceManifest);
     if (operation === "rollback") {

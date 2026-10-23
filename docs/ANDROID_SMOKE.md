@@ -669,6 +669,27 @@ L3 Pixel_9_API_36_1（API 36）已启动、安装本地调试包并连接隔离 
 打开前的阅读位置；退出会话后重进、重连或冷启动加载同一历史，再点图也应能打开。
 本机无真机连接，荣耀原始会话、双指手势及阅读位置仍待验。
 
+## HG-220 未发送消息撤回与编辑替换 — 真机及真实网络待验
+
+L1 回归覆盖准备／上传取消、迟到上传结果、提交中与确认超时禁止误撤回、失败消息编辑确认替换、
+取消编辑保留附件、已有草稿保护、重启恢复、缓存丢失拒绝半条发送，以及同会话多条失败记录隔离。
+Roborazzi 覆盖浅色／应用深色、大字号中文和英文；模拟器仅验证本机菜单与取消编辑交互，不证明
+真实网络中的服务端投递结果，也不代替 HONOR ROM 验证。
+L3 已在 Pixel_9_API_36_1（Android 16 / API 36）通过 1 条组件仪器测试，真实触摸验证撤回、按原
+消息 ID 编辑以及取消编辑；菜单和编辑提示截图已直接目检。L2 未运行：本次没有连接真机。
+
+1. 在真实手机等待句柄或上传文件期间点气泡 → 撤回：文字和全部附件回到输入框，旧气泡消失，
+   未发送标记清除；稍后恢复网络、退出重进和冷启动，都不得恢复旧气泡或自动发送。
+2. 对一条未发送消息点「编辑并重新发送」，修改文字再发送：旧气泡在确认前保留，确认后仅剩
+   新消息；附件不丢失。取消编辑后原消息仍可重试，原附件仍在。
+3. 输入框已有文字或附件时编辑／撤回另一条：显示 HR-SESS-021，两边内容均保留。
+4. 让提交已发出但应答丢失，再点撤回／编辑：显示 HR-SESS-020，保留原消息；重连按服务端
+   历史确认结果，不重放请求、不删历史、不把停止生成当成撤销已发送消息。
+5. 编辑途中／撤回回填后冷启动，再确认发送：仍替换原未发送气泡，不出现两条同源消息；两条
+   独立失败消息只操作其中一条时，另一条的恢复记录必须保留。
+6. 选一条已发送历史消息点编辑：仍只回填文字，不替换服务端历史。
+7. 旧附件缓存已被清理的 SESS-015 消息不能按纯文字重发；仍可复制原文或明确「丢弃」。
+
 ## HG-211 / HG-213 / HG-214 发送恢复与完成历史 — 真机及真实网络待验
 
 自动化覆盖运行回收后恢复原会话、持久会话缺失的保守处理、提交前导航／退出取消、等待句柄
@@ -714,3 +735,60 @@ L2：连接的设备未授权 USB 调试，型号无法读取；HONOR MBH-AN10 /
 
 如果仍出现「无响应」，保留发生时间与同一次 ANR 主线程 trace，按 `docs/DIAGNOSTICS.md`
 的 ANR 入口继续查，不能仅用另一时段的连接自愈记录认定原因。
+
+
+## HG-221 / HG-218 — 搜索定位与新会话历史边界
+
+1. 打开含长回复的会话，在同一回复顶部、中部、底部准备多处相同关键词；打开会话内搜索，
+   连续点上下箭头（含首尾循环）。每次当前实心标记必须完整进入列表可见区域，不能只改变计数。
+   再检查长用户气泡、跨段正文、标题、列表和窄列长表格单元格。保留键盘打开检查遮挡，
+   切换深色并提高字体到 1.3 倍后重复。
+2. 正文与 Markdown 链接标签含关键词，链接目标和代码块也含同词时，计数只包含能画出的标记。
+   用户 `@url:` 链接按显示的「链接 · 域名」搜索，隐藏路径不计数。思考与工具输出不计数。
+3. 新建会话，立即发送文本；再新建一个会话，上传文件后发送。首条消息尚未落库期间不得因
+   自动加载更早历史在顶部出现 HR-RPC-001；发送和回复继续正常。
+4. 已有长会话的历史翻页故障仍显示既有 HR 错误码与相应恢复动作；设备撤销的 HR-BIND-011
+   不得因会话为新建而被当作正常空历史吞掉。
+
+自动化覆盖：Markdown 计数、用户链接、未落库新会话不预取、设备撤销与真实历史故障的区分，
+以及长正文/长用户气泡的具体命中矩形可见性。真实 Hermes 的首条消息落库时序、键盘遮挡与厂商
+字体仍需设备验证；模拟器结果单独记录，不视为真机结论。
+
+## HG-222 — original video and background downloads (pending physical devices)
+
+JVM and loopback tests cannot prove OEM background survival or whether the original video's encoding
+and content URI work in the installed player. After separately authorized component releases:
+
+1. On HONOR MBH-AN10 Android 16, confirm the original large MP4 shows size/type and Download before
+   tapping. Open/share stay unavailable until complete; 100 MiB is guidance, not HR-FILE-004.
+2. Download it, pause after progress, switch Wi-Fi/cellular, resume and background the app. Check
+   notification/progress, completion without an unsolicited player launch, then tap to open/share.
+3. Repeat background/notification checks on every available OEM ROM. Test process reclamation and
+   reboot recovery by explicit Resume; force-stop must be respected, not bypassed.
+4. Sleep/disconnect the Mac, retain the checkpoint, then resume with the Mac back online. Modify the
+   source and confirm HR-FILE-011 with explicit Download again; no mixed-version output is opened.
+5. Repeat with a small MP4: automatic full download then external playback/share, no duplicate job.
+6. Check storage shortage recovery, notification permission denied, sign-out/account switch, and
+   that the old task never downloads through a newly selected Mac/account. Inspect dark/large text.
+
+Record device/OS/player versions, byte counts and results without private paths or credentials.
+Local emulator coverage is recorded separately; original MP4 and OEM verification remain pending.
+
+## HG-223 — 更新包的后台下载与断点续传（待真机）
+
+自动化已覆盖：四段范围规划与分块边界、续传只请求缺失字节、ETag 变化时整包重下而不是拼接、
+永久 4xx 不重试、暂停后可继续、发布服务器返回 ETag/Last-Modified 且 If-Match/If-Range 语义正确。
+JVM 无法证明前台服务在 HONOR 后台策略下存活、通知按钮可用、真实跨境链路的稳定性。
+
+1. 在「检查更新」页开始下载，立即返回上级页面或切到其他应用。通知栏应持续显示进度；
+   回到页面时任务仍在，进度不归零。
+2. 下载中途开启飞行模式约 10 秒再关闭。恢复网络后应从已下载位置继续，百分比与字节数不回退；
+   等待期间不得显示「更新下载失败」。
+3. 下载中途从最近任务划掉应用，重新打开「检查更新」。任务应恢复并继续，已下载部分保留；
+   若服务被系统停止，页面应显示「继续下载」。
+4. 通知栏点「暂停」，再回到页面点「继续下载」：进度从暂停处继续。点「取消」后任务状态、
+   临时文件与已下载 APK 都应被清理。
+5. 下载完成后应校验并通过系统安装器安装；在页面不在前台时先收到「已下载」通知，回到页面
+   完成校验后再收到「已就绪」。
+6. 另测存储不足（保留空间检查给出 HR-UPDATE-010）、通知权限被拒、以及弱网下长时间挂起后
+   的恢复。记录机型、ROM、网络类型和字节进度，不记录私有路径或凭据。

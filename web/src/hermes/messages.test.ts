@@ -116,3 +116,15 @@ describe("toolLabel", () => {
     expect(toolLabel("tool_call", null)).toBe("tool_call");
   });
 });
+
+
+it("prefers upstream compaction display_content and keeps raw-content legacy fallback", () => {
+  const messages = parseHistory([
+    { id: 90, role: "user", content: "old context and machine summary", display_content: "real live ask", hr_display: { schema: 1, kind: null, body: "legacy GO projection" } },
+    { id: 3, role: "assistant", content: "answer" },
+    { id: 4, role: "user", content: "legacy" },
+  ]);
+  expect(messages.map((m) => m.text)).toEqual(["real live ask", "answer", "legacy"]);
+  expect(parseHistory([{ id: 5, role: "user", content: "machine", display_content: "", hr_display: { schema: 1, kind: null, body: "legacy GO projection" } }])).toEqual([]);
+  expect(parseHistory([{ id: 6, role: "user", content: "raw", hr_display: { schema: 1, kind: null, body: "GO fallback" } }])[0]?.text).toBe("GO fallback");
+});

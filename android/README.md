@@ -1,6 +1,27 @@
 # Hermes Remote Android
 
+Attachments show size and distinct file-type icons before download (HG-222). With compatible
+Gateway and Mac components, downloads use an independent binary HTTP channel, durable task records
+and app-private files. The 100 MiB threshold controls non-video quick open and file sharing: larger files download first;
+any completed file can open/share through installed apps. Android 14+ uses user-initiated transfer
+jobs, with an older-platform foreground-service fallback. Cards show progress, pause/resume/cancel
+and recoverable errors; background completion notifies without launching a viewer. Source generation
+and account/device identity are checked on resume. Legacy small-file opening stays compatible.
+The HG-222 video follow-up adds in-app Media3 playback on compatible file channels for videos both
+below and above 100 MiB (within the Mac safety cap), with bounded Range reads, tail-index seeking,
+a shared 256 MiB evictable cache and playback priority over local downloads. Complete local videos
+play offline; explicit Download stays available and sharing waits for a complete file. Pausing or
+backgrounding stops the player loader and preserves position; user-paused downloads stay paused.
+Unsupported device codecs offer download/external playback instead of a raw decoder failure.
+See `../docs/ARTIFACT_DOWNLOAD.md` and `../docs/ARTIFACT_CHANNEL.md` for API and release requirements.
+
 The selected base is [`adebnar/hermes-android`](https://github.com/adebnar/hermes-android), pinned at tag `v0.1.52` / commit `9f08f39ed2b9fc7cb29a551b1d9b695a409fdb7a`.
+
+Conversation search navigates to each marked occurrence, including multiple matches inside a long
+reply (HG-221). Counts and marks use the same rendered Markdown text; hidden link destinations,
+image metadata and code fences do not inflate the counter. Matching is prepared off the UI thread.
+New conversations do not prefetch older history until a persisted window is known (HG-218);
+structured device errors and failures in real history remain visible.
 
 Chat image previews resolve from the same displayed conversation turn as the transcript (HG-198).
 An assistant answer split across tool-call records opens all of that answer's cached images in order;
@@ -337,6 +358,10 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.174 adds durable resumable attachment downloads over a separate file channel with
+  size/type metadata, and includes the merged history/search and unsent-message improvements. Large
+  files require Download before external Open/Share; Gateway and Connector must be updated first
+  (HG-222).
 - Version 0.1.173 fixes durable-session recovery after reclamation, bounds send preparation,
   preserves cancelled unsent messages and attachments, and reconciles completed replies without
   duplicate prompt replay (HG-211, HG-213, HG-214).
@@ -1011,6 +1036,16 @@ Freezing a new built-in default happens in a later release, after the user suppl
 
 ## Conversation entry
 
+HG-220 lets a preparing message be withdrawn into the composer with its text and attachments.
+Once a prompt or remote attachment staging RPC has started, the original bubble remains until
+delivery is reconciled; withdrawal does not imply that an ambiguous request was never accepted.
+Editing an unsent message retains its identity and replaces its bubble only when Send is confirmed.
+Cancel edit keeps the original message and attachments. Composer recovery survives restart, and
+records are isolated per message so editing one failure preserves other outstanding messages.
+An existing draft is preserved with `HR-SESS-021`; ambiguous delivery uses `HR-SESS-020`.
+These codes are local Android outcomes; Desktop, Web, Cloud and the upstream wire contract are
+unchanged. Already-sent messages retain their existing text-copy edit behavior.
+
 Transcript presentation readiness is local to each mounted conversation. Cached completed and live
 answers wait for their initial Markdown parsing, saved reading position and layout to settle before
 reveal, without waiting for a network refresh or showing a cold-load skeleton. Once revealed, the
@@ -1049,7 +1084,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.173-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.174-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
@@ -1122,3 +1157,12 @@ Per-table settings are local and scoped; the global Data presentation setting an
 are no longer used. The shared renderer remains isolated without credentials or network access.
 See `../docs/DESIGN.md` §5.22, `../docs/ANDROID_SMOKE.md` and
 `../docs/TABLE_CHART_FULLSCREEN_VERIFICATION.md`.
+
+
+HG-224 reads compaction-archived display history for chat, older pages, prompt lists, search,
+sharing/attachments and full tool/reasoning rows. Pages retain upstream logical order even when
+representative row IDs go backwards. Older requests overlap one boundary row and fail safely
+with retryable HR-SYNC-001 if the window moved; retry refreshes the tail. Android invalidates its
+old active-only disk windows once. Old Hermes without display projections retains the existing
+content parser. No upstream code/schema, Gateway/Connector runtime, credentials or versions change.
+Real incident history and physical-device acceptance remain in `docs/SMOKE_TEST.md` (HG-224).

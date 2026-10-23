@@ -16,6 +16,8 @@ import { handleAccountMobileEvents, handleLegacyMobileEvents } from "./mobile-ev
 import type { ServerReleaseController } from "./server-release.js";
 import type { WebAppHost } from "./web-app-host.js";
 import { RESEND_WEBHOOK_PATH } from "./account/resend-webhook-controller.js";
+import { ArtifactDownloadBroker } from "./artifact-download-broker.js";
+import { ARTIFACT_DOWNLOADS_PATH } from "@hermes-remote/protocol";
 
 interface HttpConnector {
   socket: import("ws").WebSocket;
@@ -41,6 +43,7 @@ interface GatewayHttpRouterOptions<TConnector extends HttpConnector> {
   connectorRegistry: ConnectorRegistry<TConnector>;
   lifecycleEvents: LifecycleEventStore;
   httpTunnels: HttpTunnelBroker;
+  fileDownloads?: ArtifactDownloadBroker;
   resolveAccountConnector(authorization: string, deviceId?: string): Promise<TConnector>;
   resolveAccountConnectorFor(principal: AccountPrincipal, deviceId?: string): Promise<TConnector>;
   sendAccountError(response: ServerResponse, error: unknown): void;
@@ -58,6 +61,7 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
 
   async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    if (await this.options.fileDownloads?.accept(request, response, url)) return;
     if (await this.options.serverRelease.handle(request, response, url)) return;
     if (this.options.webApp?.handles(url)) {
       await this.options.webApp.handle(request, response, url);
@@ -104,7 +108,10 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
           authorization,
           deviceApiRoute.deviceId,
         );
-        await this.options.httpTunnels.forward(request, response, deviceApiRoute.targetUrl, connector);
+        await this.forwardDevice(request, response, deviceApiRoute.targetUrl, connector, async () => {
+          const current = await this.options.resolveAccountConnector(authorization, connector.deviceId);
+          if (current.socket !== connector.socket) throw new Error("file_device_changed");
+        });
       } catch (error) {
         this.options.sendAccountError(response, error);
       }
@@ -202,7 +209,26 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
       return;
     }
 
-    await this.options.httpTunnels.forward(request, response, url, connector);
+    await this.forwardDevice(request, response, url, connector, authorization ? async () => {
+      const current = await this.options.resolveAccountConnector(authorization, connector.deviceId);
+      if (current.socket !== connector.socket) throw new Error("file_device_changed");
+    } : async () => {
+      if (this.options.connectorRegistry.getLegacy(connector.deviceId)?.socket !== connector.socket) {
+        throw new Error("file_device_changed");
+      }
+    });
+  }
+
+  private async forwardDevice(
+    request: IncomingMessage, response: ServerResponse, url: URL, connector: TConnector,
+    revalidate: () => Promise<void>,
+  ): Promise<void> {
+    const downloads = this.options.fileDownloads;
+    if (downloads?.handles(url)) { downloads.forward(request, response, url, connector, revalidate); return; }
+    await this.options.httpTunnels.forward(request, response, url, connector,
+      downloads && (url.pathname === ARTIFACT_DOWNLOADS_PATH || (url.pathname === "/api/files" && request.method === "HEAD"))
+        ? (headers) => ({ ...headers, ...((url.pathname === ARTIFACT_DOWNLOADS_PATH || headers["x-hermes-max-download-bytes"])
+          ? { "x-hermes-file-channel": "1" } : {}) }) : undefined);
   }
 
   private async forwardBrowser(

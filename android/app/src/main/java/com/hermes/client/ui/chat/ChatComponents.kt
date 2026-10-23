@@ -50,6 +50,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -483,7 +484,7 @@ class ChatViewportController(restored: ChatViewportAnchor? = null) {
     }
 }
 
-private val LocalChatViewportController = staticCompositionLocalOf<ChatViewportController?> { null }
+internal val LocalChatViewportController = staticCompositionLocalOf<ChatViewportController?> { null }
 
 @Composable
 fun ChatMessageList(
@@ -903,12 +904,16 @@ fun ChatMessageList(
     // Search-highlight navigation, mapped from turn order to the reversed list order. The size is
     // a key on purpose: new turns shift the reversed index of the same logical match. Offset 1
     // skips the permanent bottom-edge slot at index 0.
-    LaunchedEffect(highlightIndex, displayMessages.size) {
+    LaunchedEffect(highlightIndex, searchContext, displayMessages.size) {
         val target = highlightIndex ?: return@LaunchedEffect
         val listIndex = 1 + (displayMessages.lastIndex - target)
         if (listIndex >= 0) {
             try {
-                listState.animateScrollToItem(listIndex)
+                // A visible oversized turn is already mounted. Resetting it to its edge
+                // would first move away from the current mark before the precise relocation.
+                if (listState.layoutInfo.visibleItemsInfo.none { it.index == listIndex }) {
+                    listState.scrollToItem(listIndex)
+                }
             } catch (stolen: CancellationException) {
                 currentCoroutineContext().ensureActive()
             }
@@ -1668,6 +1673,7 @@ internal fun UserBubble(
         else com.hermes.client.data.error.AppErrorCode.MESSAGE_SEND_FAILED
     val failedLabel = failedSendLabel(failedErrorCode, language)
     val failedCode = failedErrorCode.compact
+    val attachmentsLost = failedErrorCode == com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST
     // Whether the tap is offered follows the same rule as the copy: the code decides, not the
     // delivery state. `retryable = failed && !undeliverable` was true for every FAILED bubble,
     // so a terminal code that never got its own DeliveryState — SESS-015's restored send whose
@@ -1743,8 +1749,11 @@ internal fun UserBubble(
                     }
                     CompositionLocalProvider(LocalUriHandler provides rememberSafeUriHandler()) {
                         SelectionContainer(Modifier.testTag("chat-selectable-${msg.id}")) {
+                            val searchTarget = rememberSearchTextTarget()
                             Text(
                                 visibleText,
+                                modifier = searchTarget.modifier,
+                                onTextLayout = searchTarget::onTextLayout,
                                 style = MaterialTheme.typography.bodyLarge.copy(
                                     fontSize = 17.sp,
                                     lineHeight = 25.sp,
@@ -1767,7 +1776,12 @@ internal fun UserBubble(
                         add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                             copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                         })
-                        add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.text) })
+                        if (!attachmentsLost) {
+                            add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.id) })
+                        }
+                        if (sending) {
+                            add(MessageAction(Icons.Rounded.Undo, localized(language, "撤回", "Withdraw")) { onDiscardSend(msg.id) })
+                        }
                         if (failed && sendDiagnostic != null) {
                             add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制诊断信息", "Copy diagnostics")) {
                                 copyToClipboard(sendDiagnostic, clipboard, context, localized(language, "诊断信息已复制", "Diagnostics copied"))
@@ -1814,11 +1828,10 @@ internal fun UserBubble(
                     softWrap = false,
                 )
                 // Withdraw sits at the row's end because it is the one thing the failure state
-                // cannot infer: tap on the bubble or this row retries, this discards. An unsent
-                // bubble never reached the Mac, so withdrawing is local — it drops the turn and
-                // clears the record a cold start would otherwise put back on screen (HG-162).
+                // cannot infer: tap on the bubble or this row retries; withdraw restores the
+                // turn to the composer (HG-220), leaving the sentence's retry target intact.
                 Text(
-                    localized(language, "撤回", "Withdraw"),
+                    if (attachmentsLost) localized(language, "丢弃", "Discard") else localized(language, "撤回", "Withdraw"),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
@@ -1829,6 +1842,11 @@ internal fun UserBubble(
                         .clickable(role = androidx.compose.ui.semantics.Role.Button) { onDiscardSend(msg.id) }
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                 )
+            }
+            if (!attachmentsLost) {
+                TextButton(onClick = { onEditResend(msg.id) }) {
+                    Text(localized(language, "编辑并重新发送", "Edit & resend"))
+                }
             }
         }
       }
@@ -1877,7 +1895,7 @@ private fun DeliveryTailMarker(failed: Boolean, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ChatFileList(
+internal fun ChatFileList(
     files: List<ChatFile>,
     onOpen: (ChatFile) -> Unit,
     onShare: (ChatFile) -> Unit,
@@ -1885,13 +1903,29 @@ private fun ChatFileList(
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         files.forEach { file ->
+            val metadata = LocalChatFileMetadata.current
+            LaunchedEffect(file.remotePath, file.localPath, file.state, metadata) {
+                if (file.state == FileTransferState.READY) metadata?.load(file)
+            }
+            val info = metadata?.info(file) ?: FileCardInfo(file.sizeBytes)
+            val downloads = LocalChatFileDownloads.current
+            val task = downloads?.tasks?.firstOrNull { it.remotePath == file.remotePath }
+            val complete = file.localPath != null || task?.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE
+            val busy = task?.status in setOf(com.hermes.client.data.downloads.ArtifactDownloadStatus.QUEUED,
+                com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING)
+            val needsDownload = !complete && (info.sizeBytes ?: 0) > com.hermes.client.domain.ARTIFACT_DOWNLOAD_LIMIT_BYTES
             // The whole card opens the file (docs/DESIGN.md §5.4, HG-12). It used to be inert
             // everywhere except two small icon buttons, so tapping the obvious target — the file
             // name — did nothing at all. A file still uploading or failed stays UNCLICKABLE: a
             // ripple that leads nowhere is the same dead end in a friendlier costume.
-            val openable = file.state == FileTransferState.READY &&
-                (file.remotePath != null || file.localPath != null)
-            val openLabel = localized(LocalAppLanguage.current, "打开文件", "Open file")
+            val video = isVideoAttachment(file)
+            val shareable = file.state == FileTransferState.READY &&
+                (file.remotePath != null || file.localPath != null) && !busy &&
+                (complete || (!info.tooLarge && !needsDownload))
+            val openable = if (video) file.state == FileTransferState.READY &&
+                (file.remotePath != null || file.localPath != null) && (complete || !info.tooLarge) else shareable
+            val openLabel = if (video) localized(LocalAppLanguage.current, "播放视频", "Play video")
+                else localized(LocalAppLanguage.current, "打开文件", "Open file")
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
@@ -1909,15 +1943,84 @@ private fun ChatFileList(
                     Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, modifier = Modifier.size(25.dp))
+                    Icon(
+                        com.hermes.client.ui.components.attachmentIcon(com.hermes.client.ui.components.fileIconKind(file.name, file.mimeType)),
+                        contentDescription = null, modifier = Modifier.size(25.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                         Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                         val detail = listOfNotNull(
-                            file.mimeType?.substringAfter('/'),
-                            file.sizeBytes?.let(::attachmentSizeLabel),
+                            file.name.substringAfterLast('.', "").uppercase(java.util.Locale.ROOT).ifBlank { file.mimeType?.substringAfter('/') },
+                            info.sizeBytes?.let(::artifactSizeLabel) ?: localized(LocalAppLanguage.current, "大小未知", "Size unknown"),
                         ).joinToString(" · ")
                         if (detail.isNotBlank()) {
                             Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (info.tooLarge && !complete) {
+                            Text(
+                                artifactLimitMessage(info, LocalAppLanguage.current),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                        if (complete) {
+                            Text(localized(LocalAppLanguage.current, "已下载", "Downloaded"),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (video && !info.tooLarge && task == null) {
+                            Text(if (info.limitKnown && !info.independentDownloads)
+                                localized(LocalAppLanguage.current, "当前服务需先下载再播放", "This service downloads before playback")
+                                else localized(LocalAppLanguage.current, "可在线播放，也可下载", "Play online or download"),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (needsDownload && !info.tooLarge && task == null) {
+                            Text(localized(LocalAppLanguage.current, "请先下载，再打开或分享", "Download before opening or sharing"),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (task != null && !complete && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) {
+                            val received = if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) task.progressBytes ?: task.downloaded else task.downloaded
+                            val status = if (task.waitingForPlayback) localized(LocalAppLanguage.current, "为播放让路", "Waiting for playback") else when (task.status) {
+                                com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED -> localized(LocalAppLanguage.current, "已暂停", "Paused")
+                                com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "等待重试", "Waiting to retry")
+                                com.hermes.client.data.downloads.ArtifactDownloadStatus.QUEUED -> localized(LocalAppLanguage.current, "等待下载", "Queued")
+                                com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED -> localized(LocalAppLanguage.current, "下载未完成", "Download incomplete")
+                                else -> localized(LocalAppLanguage.current, "正在下载", "Downloading")
+                            }
+                            val progressLabel = listOf(status, "${artifactSizeLabel(received)} / ${task.sizeBytes?.let(::artifactSizeLabel) ?: "—"}").joinToString(" · ")
+                            Text(progressLabel,
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) {
+                                androidx.compose.material3.LinearProgressIndicator(
+                                    progress = { (received.toFloat() / (task.sizeBytes ?: 1).coerceAtLeast(1)).coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                            }
+                            task.errorCode?.let { value -> com.hermes.client.data.error.AppErrorCode.fromValue(value)?.let { code ->
+                                Text(com.hermes.client.data.error.AppError(code, false).localizedMessage(LocalAppLanguage.current),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            } }
+                        }
+                        if (downloads != null && file.state == FileTransferState.READY && file.remotePath != null && !complete) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (busy && task != null) {
+                                    TextButton(onClick = { downloads.pause(task.id) }) { Text(localized(LocalAppLanguage.current, "暂停", "Pause")) }
+                                    TextButton(onClick = { downloads.cancel(task.id) }) { Text(localized(LocalAppLanguage.current, "取消", "Cancel")) }
+                                } else if (!info.tooLarge && (info.independentDownloads || task != null || needsDownload)) {
+                                    TextButton(onClick = { downloads.download(file) }) {
+                                        Text(when (task?.status) {
+                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED,
+                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "继续", "Resume")
+                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED ->
+                                                if (task.errorCode == "HR-FILE-011") localized(LocalAppLanguage.current, "重新下载", "Download again")
+                                                else if (task.downloaded > 0) localized(LocalAppLanguage.current, "继续", "Resume")
+                                                else localized(LocalAppLanguage.current, "重试", "Retry")
+                                            else -> localized(LocalAppLanguage.current, "下载", "Download")
+                                        })
+                                    }
+                                    if (task != null && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) TextButton(onClick = { downloads.cancel(task.id) }) {
+                                        Text(localized(LocalAppLanguage.current, "取消", "Cancel"))
+                                    }
+                                }
+                            }
                         }
                     }
                     when (file.state) {
@@ -1926,8 +2029,8 @@ private fun ChatFileList(
                         // Only 分享 keeps a button: 打开 is the whole card now, and one action
                         // does not get two entry points.
                         FileTransferState.READY -> {
-                            if (openable) {
-                                IconButton(onClick = { onShare(file) }, modifier = Modifier.size(38.dp)) {
+                            if (file.remotePath != null || file.localPath != null) {
+                                IconButton(onClick = { onShare(file) }, enabled = shareable, modifier = Modifier.size(38.dp)) {
                                     Icon(Icons.Rounded.Share, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(19.dp))
                                 }
                             }
@@ -2149,11 +2252,13 @@ internal fun AssistantTurn(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
+                        val searchTarget = rememberSearchTextTarget()
                         Text(
                             searchHighlighted(renderedText),
+                            onTextLayout = searchTarget::onTextLayout,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(12.dp),
+                            modifier = searchTarget.modifier.padding(12.dp),
                         )
                     }
                 } else {
@@ -2161,14 +2266,17 @@ internal fun AssistantTurn(
                     // Which mark is "the one" is answered by ordinal, not by position: prefix sums
                     // of the marks per block let each block name its own marks in turn coordinates.
                     val searchQuery = LocalChatSearch.current?.query
-                    val markPrefix = remember(blocks, searchQuery) {
+                    val preparedRanges = LocalChatSearch.current?.markdownRanges.orEmpty()
+                    val isCurrentHit = LocalTurnIsCurrentHit.current
+                    val markPrefix = remember(blocks, searchQuery, preparedRanges, isCurrentHit) {
                         val terms = searchQuery?.let { searchHighlightTerms(it) }.orEmpty()
-                        if (terms.isEmpty()) IntArray(blocks.size) else {
+                        if (terms.isEmpty() || !isCurrentHit) IntArray(blocks.size) else {
                             val prefix = IntArray(blocks.size)
                             var running = 0
                             blocks.forEachIndexed { i, block ->
                                 prefix[i] = running
-                                running += searchHighlightRangesFor(withCjkEmphasisRepaired(block), terms).size
+                                val content = withCjkEmphasisRepaired(block)
+                                running += (preparedRanges[content] ?: markdownSearchRangesFor(content, terms)).size
                             }
                             prefix
                         }
@@ -2514,6 +2622,12 @@ private fun chatMarkdownComponents(
     anchorPrefix: String,
 ): MarkdownComponents =
     markdownComponents(
+        paragraph = { m -> SearchableMarkdownText(m.content, m.node, m.typography.paragraph) },
+        text = { m -> SearchableMarkdownText(m.content, m.node, m.typography.text) },
+        heading5 = { m -> SearchableMarkdownHeader(m.content, m.node, m.typography.h5) },
+        heading6 = { m -> SearchableMarkdownHeader(m.content, m.node, m.typography.h6) },
+        setextHeading1 = { m -> SearchableMarkdownHeader(m.content, m.node, m.typography.h1, setext = true) },
+        setextHeading2 = { m -> SearchableMarkdownHeader(m.content, m.node, m.typography.h2, setext = true) },
         codeFence = { m ->
             MarkdownCodeFence(m.content, m.node, style = m.typography.code) { code, language, style ->
                 CodeWithCopy(code, language, style)
@@ -2530,22 +2644,22 @@ private fun chatMarkdownComponents(
         // line rather than as its title.
         heading1 = { m ->
             Column(Modifier.padding(top = MD_H1_TOP, bottom = MD_H_BOTTOM_LARGE)) {
-                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h1)
+                SearchableMarkdownHeader(m.content, m.node, m.typography.h1)
             }
         },
         heading2 = { m ->
             Column(Modifier.padding(top = MD_H2_TOP, bottom = MD_H_BOTTOM_LARGE)) {
-                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h2)
+                SearchableMarkdownHeader(m.content, m.node, m.typography.h2)
             }
         },
         heading3 = { m ->
             Column(Modifier.padding(top = MD_H3_TOP, bottom = MD_H_BOTTOM_SMALL)) {
-                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h3)
+                SearchableMarkdownHeader(m.content, m.node, m.typography.h3)
             }
         },
         heading4 = { m ->
             Column(Modifier.padding(top = MD_H4_TOP, bottom = MD_H_BOTTOM_SMALL)) {
-                com.mikepenz.markdown.compose.elements.MarkdownHeader(m.content, m.node, m.typography.h4)
+                SearchableMarkdownHeader(m.content, m.node, m.typography.h4)
             }
         },
         // A proportional marker column let "10." push its text further right than "9.", so the
@@ -2667,7 +2781,9 @@ private fun StyledMarkdownTable(
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
                     .tableGrid(cellCount(header)),
             ) {
-                com.mikepenz.markdown.compose.elements.MarkdownTableHeader(
+                if (LocalChatSearch.current != null) {
+                    SearchableMarkdownTableRow(c, header, tableWidth, s.copy(fontWeight = FontWeight.Bold), header = true)
+                } else com.mikepenz.markdown.compose.elements.MarkdownTableHeader(
                     c,
                     header,
                     tableWidth,
@@ -2683,7 +2799,9 @@ private fun StyledMarkdownTable(
                 anchorKey = anchorPrefix?.let { "$it:row:${row.startOffset}" },
                 modifier = Modifier.tableGrid(cellCount(row)),
             ) {
-                com.mikepenz.markdown.compose.elements.MarkdownTableRow(
+                if (LocalChatSearch.current != null) {
+                    SearchableMarkdownTableRow(c, row, tableWidth, s)
+                } else com.mikepenz.markdown.compose.elements.MarkdownTableRow(
                     c,
                     row,
                     tableWidth,

@@ -10,6 +10,15 @@ import org.junit.Test
  * detail that drifted.
  */
 class UnsentRecordTest {
+    @Test fun editingAndWithdrawnComposerRoundTripWithTheirOriginalMessageAndAttachments() {
+        val attachment = UnsentAttachment("a", "source.txt", "text/plain", "/cache/source.txt", 3L)
+        for (withdrawn in listOf(false, true)) {
+            val original = UnsentRecord(token = "p/s", messageId = "u-original", text = "original", code = "HR-SESS-007",
+                attachments = 1, attachmentMeta = listOf(attachment),
+                composer = UnsentComposer(withdrawn, "edited", 1, listOf(attachment)))
+            assertEquals(original, decodeUnsent(encodeUnsent(listOf(original))).single())
+        }
+    }
     private fun record(
         token: String,
         text: String,
@@ -103,13 +112,20 @@ class UnsentRecordTest {
         assertTrue(decodeUnsent(encoded).size < 40)
     }
 
-    /** One outstanding refusal per conversation: sending again is what clears the previous one. */
-    @Test fun writingReplacesTheSameConversationRatherThanAppending() {
+    @Test fun writingReplacesTheSameMessageRatherThanAppending() {
         val once = putUnsent(emptyList(), record("p/s1", "一", 1L))
         val twice = putUnsent(once, record("p/s1", "二", 2L))
         assertEquals(1, twice.size)
         assertEquals("二", twice.single().text)
         assertEquals(2L, twice.single().updatedAt)
+    }
+
+    @Test fun differentMessagesInTheSameConversationRetainIndependentRecoveryRecords() {
+        val first = record("p/s1", "一", 1L)
+        val second = record("p/s1", "二", 2L).copy(messageId = "u-second")
+        val records = putUnsent(putUnsent(emptyList(), first), second)
+        assertEquals(listOf(first, second), records)
+        assertEquals(listOf(second, first), decodeUnsent(encodeUnsent(records)))
     }
 
     @Test fun clearingDropsOnlyThatConversation() {

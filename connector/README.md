@@ -10,8 +10,33 @@ CLI/cron/task idleness. This source is not yet published or enabled by the produ
 See `docs/HERMES_UPGRADE.md`; `hermes-maintenance*.test.ts` uses disposable files and actual loopback
 Connector processes. No Gateway/protocol version or production credentials are changed.
 
+## Independent attachment downloads (HG-222)
+
+`HEAD /api/files` reads original metadata without a payload. Its legacy GET still uses
+`MAX_FILE_BYTES` (default 100 MiB). POST `/api/files/downloads` prepares an opaque, short-lived
+reference under the same filesystem policy. New Android clients request validated byte ranges
+through the Gateway; the Mac returns binary bytes over a separate outbound HTTP(S) request.
+No local listening port, extra phone client, cloud file staging or upstream Hermes change is needed.
+The control socket carries only instructions/cancellation, not the file body.
+
+`MAX_DOWNLOAD_BYTES` is a separate safety ceiling (default 8 GiB). `FILE_DOWNLOAD_BYTES_PER_SECOND`
+(default 4 MiB/s, maximum 128 MiB/s) paces the independent stream. One active download per Mac is
+admitted; the control heartbeat remains unchanged. Both components must support the channel before
+Android enables it. Non-loopback plain-HTTP Gateway origins retain legacy transport but do not
+advertise independent downloads. See `../docs/ARTIFACT_CHANNEL.md` for compatibility and verification.
+
 The Connector opens the outbound WebSocket to Gateway. See the root README for the topology and
 `docs/ENVIRONMENT.md` for configuration. Hermes credentials remain on the Mac.
+
+## Connector 0.1.16 — HG-222 independent downloads (allocated, not published)
+
+Allocated with Gateway 0.4.34 and Android 0.1.174 for the independent attachment channel.
+The next signed managed pair is planned as 0.4.11, retaining Node 22.23.2 and the immutable
+Hermes Server archive. On 2026-10-21 the owner approved a new one-publication exception to
+use the existing trusted M4 signing key, retaining both independent verifiers, full public
+readback and paired-index gates. It does not authorize creating, rotating or transferring a key.
+Deploy the compatible Gateway and streaming edge routes before this component and Android.
+Publication and installation must be verified separately; this version allocation changes neither.
 
 ## Connector 0.1.15 — HG-219 heartbeat diagnostics
 

@@ -18,7 +18,13 @@ import com.hermes.client.data.network.HermesApiException
  */
 fun artifactDownloadError(error: Throwable, stage: String = "artifact_download"): AppError {
     val status = (error as? HermesApiException)?.code
-    val code = when (status) {
+    val explicit = (error as? HermesApiException)?.errorCode?.let(AppErrorCode::fromValue)
+        ?.takeIf { it in setOf(AppErrorCode.ARTIFACT_CHANGED, AppErrorCode.ARTIFACT_CHANNEL_UNAVAILABLE,
+            AppErrorCode.ARTIFACT_CHANNEL_BUSY, AppErrorCode.ARTIFACT_STORAGE_FULL, AppErrorCode.ARTIFACT_REFERENCE_EXPIRED) }
+    val code = explicit ?: when (status) {
+        401 -> AppErrorCode.AUTHENTICATION_FAILED
+        412 -> AppErrorCode.ARTIFACT_CHANGED
+        507 -> AppErrorCode.ARTIFACT_STORAGE_FULL
         403 -> AppErrorCode.ARTIFACT_FORBIDDEN
         413 -> AppErrorCode.ARTIFACT_TOO_LARGE
         404 -> AppErrorCode.ARTIFACT_MISSING
@@ -30,7 +36,7 @@ fun artifactDownloadError(error: Throwable, stage: String = "artifact_download")
     }
     return AppError(
         code = code,
-        retryable = code == AppErrorCode.ARTIFACT_DOWNLOAD_FAILED,
+        retryable = code in setOf(AppErrorCode.ARTIFACT_DOWNLOAD_FAILED, AppErrorCode.ARTIFACT_CHANNEL_BUSY, AppErrorCode.ARTIFACT_REFERENCE_EXPIRED),
         technicalCause = buildString {
             status?.let { append("HTTP ").append(it).append(' ') }
             append(error.message ?: error::class.java.simpleName)

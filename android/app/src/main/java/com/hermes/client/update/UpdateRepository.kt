@@ -1,6 +1,5 @@
 package com.hermes.client.update
 
-import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.ActivityNotFoundException
@@ -48,12 +47,13 @@ suspend fun fetchUpdateIndex(
 
 interface UpdateRepositoryContract {
     suspend fun fetch(): UpdateIndex
-    suspend fun enqueue(version: UpdateVersion): Long
-    /** The persisted job, or null when nothing is pending or the record had to be healed away. */
-    suspend fun saved(): Pair<Long, UpdateVersion>?
-    suspend fun query(id: Long): DownloadSnapshot?
-    suspend fun verify(version: UpdateVersion, localUri: String): File
-    /** Remove the DownloadManager job, the persisted metadata, and the residual file. */
+    /** Start a new download, or continue the partial one for [version] from its checkpoint. */
+    suspend fun start(version: UpdateVersion)
+    /** The persisted task's version, or null when nothing is pending or it had to be healed away. */
+    suspend fun saved(): UpdateVersion?
+    suspend fun query(): UpdateDownloadSnapshot?
+    suspend fun verify(version: UpdateVersion): File
+    /** Remove the task state, the partial file, and the residual APK. */
     suspend fun cancel()
     fun install(file: File): InstallResult
     /** Version codes among [candidates] whose release APK is still on disk. */
@@ -76,93 +76,48 @@ sealed interface ExportResult {
     data class Failure(val message: String) : ExportResult
 }
 
-internal suspend fun persistEnqueuedDownload(id: Long, persist: () -> Boolean, rollback: suspend (Long) -> Unit): Long {
-    if (!persist()) {
-        rollback(id)
-        error("Unable to persist download state")
-    }
-    return id
-}
-
 class UpdateRepository(
     private val context: Context,
     private val json: Json,
     private val publicClient: OkHttpClient,
+    private val engine: UpdateDownloadEngine,
 ) : UpdateRepositoryContract {
-    private val downloads = context.getSystemService(DownloadManager::class.java)
-    private val prefs = context.getSharedPreferences("app_update", Context.MODE_PRIVATE)
     private val downloadDirectory get() = requireNotNull(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS))
 
     override suspend fun fetch(): UpdateIndex = withContext(Dispatchers.IO) {
         fetchUpdateIndex(publicClient, BuildConfig.UPDATE_INDEX_URL, UpdateManifestParser(json, BuildConfig.EXPECTED_UPDATE_CERT_SHA256))
     }
 
-    override suspend fun enqueue(version: UpdateVersion): Long = withContext(Dispatchers.IO) {
+    override suspend fun start(version: UpdateVersion): Unit = withContext(Dispatchers.IO) {
         validateDownloadUrl(version)
-        saved()?.let { (oldId, _) -> downloads.remove(oldId) }
-        prefs.edit().remove("download_id").remove("version").commit()
-        val target = File(downloadDirectory, version.fileName)
-        if (target.exists() && !target.delete()) error("Unable to prepare download")
-        val request = DownloadManager.Request(Uri.parse(version.downloadUrl))
-            .setTitle("Hermes GO ${version.versionName}")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, version.fileName)
-        val id = downloads.enqueue(request)
-        persistEnqueuedDownload(
-            id,
-            { prefs.edit().putLong("download_id", id).putString("version", json.encodeToString(UpdateVersion.serializer(), version)).commit() },
-            { downloads.remove(it) },
-        )
+        engine.prepare(version)
+        UpdateDownloadScheduler.start(context)
     }
 
-    override suspend fun saved(): Pair<Long, UpdateVersion>? = withContext(Dispatchers.IO) {
-        val id = prefs.getLong("download_id", -1)
-        val raw = prefs.getString("version", null)
-        val version = raw?.let { runCatching { json.decodeFromString(UpdateVersion.serializer(), it) }.getOrNull() }
-        when (val decision = decideSavedDownload(id, raw != null, version, BuildConfig.VERSION_CODE)) {
-            is SavedDownloadDecision.Resume -> decision.id to decision.version
-            SavedDownloadDecision.None -> null
-            // Half-written or superseded state heals itself instead of being re-verified forever.
-            is SavedDownloadDecision.Discard -> {
-                discard(id, version?.fileName)
+    override suspend fun saved(): UpdateVersion? = withContext(Dispatchers.IO) {
+        val record = engine.restore() ?: return@withContext null
+        when (val decision = decideSavedDownload(record, BuildConfig.VERSION_CODE)) {
+            SavedDownloadDecision.AlreadyInstalled -> {
+                engine.cancel()
                 null
             }
-        }
-    }
-
-    override suspend fun cancel(): Unit = withContext(Dispatchers.IO) {
-        val id = prefs.getLong("download_id", -1)
-        val raw = prefs.getString("version", null)
-        val fileName = raw?.let { runCatching { json.decodeFromString(UpdateVersion.serializer(), it) }.getOrNull() }?.fileName
-        discard(id, fileName)
-    }
-
-    /** Remove the queued job, the persisted record, and only the file this record owns. */
-    private fun discard(id: Long, fileName: String?) {
-        if (id >= 0) downloads.remove(id)
-        val safeName = fileName?.takeIf { it == File(it).name && it.isNotBlank() }
-        if (safeName != null) {
-            val target = File(downloadDirectory, safeName).canonicalFile
-            if (target.parentFile == downloadDirectory.canonicalFile && target.isFile) {
-                check(target.delete()) { "Unable to delete the update download" }
+            is SavedDownloadDecision.Resume -> {
+                // A user-paused or permanently failed task waits on the page; everything else
+                // continues now, even if the process/activity that owned it is long gone.
+                if (record.status == UpdateDownloadStatus.WAITING || record.status == UpdateDownloadStatus.RUNNING) {
+                    UpdateDownloadScheduler.start(context)
+                }
+                decision.version
             }
         }
-        check(prefs.edit().remove("download_id").remove("version").commit()) {
-            "Unable to clear persisted update state"
-        }
     }
 
-    override suspend fun query(id: Long): DownloadSnapshot? = withContext(Dispatchers.IO) { downloads.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
-        if (!cursor.moveToFirst()) return@use null
-        fun int(name: String, fallback: Int = 0) = cursor.getColumnIndex(name).takeIf { it >= 0 }?.let(cursor::getInt) ?: fallback
-        fun long(name: String, fallback: Long = -1) = cursor.getColumnIndex(name).takeIf { it >= 0 }?.let(cursor::getLong) ?: fallback
-        fun string(name: String) = cursor.getColumnIndex(name).takeIf { it >= 0 }?.let { if (cursor.isNull(it)) null else cursor.getString(it) }
-        DownloadSnapshot(int(DownloadManager.COLUMN_STATUS, DownloadManager.STATUS_FAILED), long(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR, 0), long(DownloadManager.COLUMN_TOTAL_SIZE_BYTES), string(DownloadManager.COLUMN_LOCAL_URI), int(DownloadManager.COLUMN_REASON))
-    } }
+    override suspend fun query(): UpdateDownloadSnapshot? = engine.record.value?.let {
+        UpdateDownloadSnapshot(it.status, it.downloadedBytes, it.totalBytes, it.errorCode)
+    }
 
-    override suspend fun verify(version: UpdateVersion, localUri: String): File = withContext(Dispatchers.IO) {
-        val uri = Uri.parse(localUri); require(uri.scheme == "file")
-        val file = File(requireNotNull(uri.path)).canonicalFile
+    override suspend fun verify(version: UpdateVersion): File = withContext(Dispatchers.IO) {
+        val file = updateDownloadTarget(downloadDirectory, version).canonicalFile
         val root = downloadDirectory.canonicalFile
         require(file.parentFile == root && file.name == version.fileName && file.isFile)
         val hash = MessageDigest.getInstance("SHA-256")
@@ -178,6 +133,10 @@ class UpdateRepository(
         val minSdk = requireNotNull(info.applicationInfo).minSdkVersion
         verifyApk(file.length(), sha, version, ApkIdentity(info.packageName, code, requireNotNull(info.versionName), cert, minSdk)).getOrThrow()
         require(cert.equals(BuildConfig.EXPECTED_UPDATE_CERT_SHA256, true)); file
+    }
+
+    override suspend fun cancel(): Unit = withContext(Dispatchers.IO) {
+        engine.cancel()
     }
 
     override fun install(file: File): InstallResult = try {
@@ -198,7 +157,7 @@ class UpdateRepository(
     }
 
     override suspend fun localApkVersions(candidates: List<UpdateVersion>): Set<Int> = withContext(Dispatchers.IO) {
-        candidates.filter { File(downloadDirectory, it.fileName).isFile }.map { it.versionCode }.toSet()
+        candidates.filter { updateDownloadTarget(downloadDirectory, it).isFile }.map { it.versionCode }.toSet()
     }
 
     override suspend fun pruneDownloads(keepFileNames: Set<String>): Unit = withContext(Dispatchers.IO) {
@@ -210,7 +169,7 @@ class UpdateRepository(
     }
 
     override suspend fun exportApk(version: UpdateVersion): ExportResult = withContext(Dispatchers.IO) {
-        val source = File(downloadDirectory, version.fileName)
+        val source = updateDownloadTarget(downloadDirectory, version)
         if (!source.isFile) return@withContext ExportResult.Failure("APK is no longer on disk")
         // Never let a tampered file out of the sandbox: re-hash against the signed manifest.
         val hash = MessageDigest.getInstance("SHA-256")
@@ -238,7 +197,7 @@ class UpdateRepository(
         } else {
             // API 26–28: writing public storage needs a runtime permission; the share sheet is
             // the friction-free path and lets the user land the file anywhere (Files, PC, IM).
-            val uri = FileProvider.getUriForFile(context, "${'$'}{context.packageName}.fileprovider", source)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", source)
             val intent = Intent(Intent.ACTION_SEND)
                 .setType("application/vnd.android.package-archive")
                 .putExtra(Intent.EXTRA_STREAM, uri)
@@ -260,6 +219,5 @@ class UpdateRepository(
     }
 }
 
-data class DownloadSnapshot(val status:Int,val downloaded:Long,val total:Long,val localUri:String?,val reason:Int)
 @Suppress("DEPRECATION") private fun legacySignatures(info:PackageInfo):Array<Signature>?=info.signatures
 @Suppress("DEPRECATION") private fun legacyVersionCode(info:PackageInfo):Long=info.versionCode.toLong()

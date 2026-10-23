@@ -138,7 +138,50 @@ class InlineTextSelectionTest {
         compose.onNodeWithText("帮我看看这段话").performClick()
         compose.waitForIdle()
         assertEquals(listOf("u"), retried)
+        compose.onNodeWithText("编辑并重新发送").assertExists()
+        compose.onAllNodesWithText("查看原文 / 选择").assertCountEquals(0)
+    }
+
+    @Test fun sending_message_menu_offers_withdraw_and_edit_by_message_identity() {
+        val edited = mutableListOf<String>()
+        val withdrawn = mutableListOf<String>()
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ZH, LocalDeliveryMotionEnabled provides false) {
+                com.hermes.client.ui.theme.HermesTheme(darkTheme = false) {
+                    UserBubble(
+                        msg = ChatMessage(id = "pending", role = Role.USER, text = "待发内容", delivery = DeliveryState.SENDING),
+                        onEditResend = { edited += it }, onDiscardSend = { withdrawn += it },
+                        onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText("待发内容").performClick()
+        compose.onNodeWithText("撤回").assertExists()
+        compose.onNodeWithText("编辑并重新发送").performClick()
+        assertEquals(listOf("pending"), edited)
+        compose.onNodeWithText("待发内容").performClick()
+        compose.onNodeWithText("撤回").performClick()
+        assertEquals(listOf("pending"), withdrawn)
+    }
+
+    @Test fun a_message_with_lost_attachments_keeps_explicit_discard_without_a_partial_edit_offer() {
+        val discarded = mutableListOf<String>()
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ZH) {
+                com.hermes.client.ui.theme.HermesTheme(darkTheme = false) {
+                    UserBubble(
+                        msg = ChatMessage("lost", Role.USER, "原文字", delivery = DeliveryState.FAILED),
+                        onEditResend = {}, onDiscardSend = { discarded += it },
+                        sendErrorCode = com.hermes.client.data.error.AppErrorCode.UNSENT_ATTACHMENTS_LOST,
+                        onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
+                    )
+                }
+            }
+        }
         compose.onAllNodesWithText("编辑并重新发送").assertCountEquals(0)
+        compose.onNodeWithText("丢弃").performClick()
+        assertEquals(listOf("lost"), discarded)
     }
 
     @Test fun user_url_token_shows_short_link_in_the_bubble() {

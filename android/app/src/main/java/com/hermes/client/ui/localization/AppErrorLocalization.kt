@@ -73,6 +73,10 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "新建会话未收到确认，连接正在恢复，请稍后重试。", "New conversation was not confirmed. The connection is recovering; try again shortly.")
         AppErrorCode.SUBAGENT_UNFINISHED ->
             localized(language, "子代理未完成，可在输入框重新说明任务。", "Subagent did not finish. Ask again in the composer.")
+        AppErrorCode.MESSAGE_DELIVERY_UNCONFIRMED ->
+            localized(language, "消息已提交，正在确认投递结果，暂时无法撤回或替换。请稍后查看消息状态。", "The message was submitted and delivery is being checked. It cannot be withdrawn or replaced yet. Check its status shortly.")
+        AppErrorCode.UNSENT_COMPOSER_OCCUPIED ->
+            localized(language, "输入框已有草稿，请先发送或清空，再编辑或撤回这条消息。", "There is already a draft. Send or clear it before editing or withdrawing this message.")
         AppErrorCode.CONFIG_READ_FAILED ->
             localized(language, "无法加载配置，请重试。", "Couldn't load the configuration. Retry.")
         AppErrorCode.CONFIG_WRITE_FAILED ->
@@ -99,6 +103,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法清理更新下载，请重试。", "Couldn't clean up the update download. Retry.")
         AppErrorCode.UPDATE_SUPERSEDED ->
             localized(language, "已发布更新版本，请删除旧下载后获取最新版。", "A newer release is available. Delete the old download and get the latest version.")
+        AppErrorCode.UPDATE_STORAGE_FULL ->
+            localized(language, "设备存储空间不足，无法下载更新。请清理空间后重试。", "There is not enough storage for the update. Free some space and retry.")
         AppErrorCode.FILE_READ_FAILED ->
             localized(language, "无法读取所选文件，请重新选择。", "Couldn't read the selected file. Choose it again.")
         AppErrorCode.TRANSCRIPT_FILE_FAILED ->
@@ -135,6 +141,20 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "这台 Mac 正在接收另一个大文件，请稍后重试。", "This Mac is receiving another large file. Retry shortly.")
         AppErrorCode.UPLOAD_SERVER_LIMIT ->
             localized(language, "文件在 50 MiB 范围内，但服务端拒绝了上传。请检查 Relay 和 Mac 端版本或配置。", "The file is within 50 MiB, but the service refused it. Check the Relay and Mac versions or settings.")
+        AppErrorCode.ARTIFACT_CHANGED ->
+            localized(language, "Mac 上的文件已改变，请重新下载。", "The file on the Mac changed. Download it again.")
+        AppErrorCode.ARTIFACT_CHANNEL_UNAVAILABLE ->
+            localized(language, "当前服务不支持独立下载，请更新 Relay 和 Mac 端后重试。", "Independent downloads are unavailable. Update the Relay and Mac components, then retry.")
+        AppErrorCode.ARTIFACT_CHANNEL_BUSY ->
+            localized(language, "这台 Mac 正在传输文件，请稍后重试。", "This Mac is transferring a file. Retry shortly.")
+        AppErrorCode.ARTIFACT_STORAGE_FULL ->
+            localized(language, "手机存储空间不足，请清理空间后继续下载。", "Phone storage is full. Free some space, then resume.")
+        AppErrorCode.ARTIFACT_REFERENCE_EXPIRED ->
+            localized(language, "下载引用已失效，请重新获取文件后继续。", "The download reference expired. Fetch the file again to continue.")
+        AppErrorCode.VIDEO_UNSUPPORTED ->
+            localized(language, "此设备无法播放该视频，请下载后用其他播放器打开。", "This device cannot play this video. Download it and open it in another player.")
+        AppErrorCode.VIDEO_PLAYBACK_FAILED ->
+            localized(language, "视频播放中断，请重试或下载后观看。", "Video playback stopped. Retry, or download it to watch.")
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->

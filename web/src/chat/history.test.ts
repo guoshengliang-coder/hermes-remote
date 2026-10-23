@@ -87,3 +87,12 @@ describe("fetchFullHistory", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+// HG-224: upstream replaces protected-tail rows during compaction; row IDs are identities,
+// not the order of the display transcript.
+it("merges compacted display pages by overlap position, never by numeric id", () => {
+  const existing = [row(1), row(90), row(3), row(4)];
+  expect(ids(mergeTail(existing, [row(90), row(3), row(4), row(100)], true).rows)).toEqual([1, 90, 3, 4, 100]);
+  expect(ids(mergeOlder([row(4), row(100)], [row(90), row(3), row(4), row(100)]))).toEqual([90, 3, 4, 100]);
+  expect(ids(mergeOlder([row(4), row(100)], [row(90), row(3)]))).toEqual([90, 3, 4, 100]);
+});

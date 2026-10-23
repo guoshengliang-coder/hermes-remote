@@ -1077,4 +1077,13 @@ coordinator deaths, and a first-slot interruption stays partial. Six wrong ident
 cases refuse. Ordinary admission stays blocked; no intent replacement, terminal or repair exists.
 No upstream Python, PM, updater, native startup, services/business or mid-checkout recovery runs.
 Production completion/durable authorization/upgrade certification remain false. Local Desktop/
-Node/Web/Android builds and L1/L2/L3 are not repeated for this harness-only addition; no release.
+The source-only addition has no local Desktop build or release. A subsequent merge of already-green
+main 2d15e2e7 preserves upstream display_content (including empty strings) before GO body/raw fallback
+on Android/Web; Connector derives fallback from that same content. Combined metadata regressions
+cover all three consumers. The prior Connector projector failed the new empty-row test; 11 focused
+cases pass after the correction. Local Node build/test passed (18/179/254/41/436; 32+1 environment
+skips), Web typecheck/946 tests/build and Android 2634 JVM/assembleDebug passed. L2
+A5DN9X4708H02629 is unauthorized; available L3 Pixel_API_37 was not run. No new visual or targetSdk
+behavior, app delivery or version allocation. The actual fixed-source Mac matrix passes 3 deaths/
+6 refusals without upstream code execution. New independent-download maintenance coverage is not
+claimed by these integration checks; whole-writer certification stays false.

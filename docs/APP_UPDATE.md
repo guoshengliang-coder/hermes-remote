@@ -13,9 +13,13 @@ application IDs/channels cannot install into internal.
 `release-server` is a Node HTTPS listener with no runtime dependency. It reads, but never generates,
 the data-root `index.json`; only filenames registered there are served. `/health` and `/ping` support
 GET/HEAD, `/releases/index.json` is `no-store`, registered APKs are immutable, byte ranges support
-resumable downloads, and `/` redirects to the latest versioned APK. Traversal and arbitrary-file reads
-fail closed. TLS is mandatory through `TLS_CERT`, `TLS_KEY`, `RELEASE_DATA_ROOT`, `HOST` (production
-`127.0.0.1`), and `PORT` (production `9443`).
+resumable downloads, and `/` redirects to the latest versioned APK. Every APK response carries a
+strong `ETag` equal to the manifest SHA-256 and a `Last-Modified` date from `publishedAt`; `If-Match`
+fails closed with 412 when the validator differs, and a stale `If-Range` is answered with the full
+entity instead of a 206 that would splice two builds. Without those validators Android's
+DownloadManager refused to resume (`ERROR_CANNOT_RESUME`), which is the failure HG-223 reported.
+Traversal and arbitrary-file reads fail closed. TLS is mandatory through `TLS_CERT`, `TLS_KEY`,
+`RELEASE_DATA_ROOT`, `HOST` (production `127.0.0.1`), and `PORT` (production `9443`).
 
 ## Manifest schema
 
@@ -31,18 +35,30 @@ each at most 500 characters and free of control characters.
 
 Opening the page independently starts an index check and resumes any persisted task. The task moves
 through enqueuing → waiting/paused → downloading(progress) → verifying → installable, cancelling, or
-failed. Failure exposes a stage-specific retry/recovery action. DownloadManager writes to the
-app-specific external Downloads directory. The download ID and selected version metadata are kept in
-private SharedPreferences, so navigation, process recreation, or an index/network failure cannot hide
-an already downloaded installable APK. Cancellation owns the task slot until DownloadManager,
-metadata, and the residual file have been cleaned up; failures keep the task visible.
+failed. Failure exposes a stage-specific retry/recovery action.
+
+Downloads run in `UpdateDownloadEngine` behind a foreground `dataSync` service, not in Android's
+DownloadManager (HG-223). The engine splits the APK into four contiguous ranges, requests 1 MiB per
+HTTP call with `Range` and `If-Range`, and writes each chunk at its absolute offset in
+`<file>.part`. A chunk is fsynced before its offset is journaled, so at most the chunk in flight can
+be lost; a checkpoint never counts bytes that are not on disk. Parallel ranges reduce the
+single-stream stall that made a 32 MB APK slow over the Hong Kong link.
+
+Leaving the page, backgrounding the app, a network drop, or process death only pauses the task: the
+service resumes from the committed offsets, and the journal (selected version, ETag, size, per-range
+progress) lives in private SharedPreferences. A permanently failed task keeps its `.part` file and
+exposes "继续下载"; cancellation deletes the journal, the partial file, and the residual APK, and owns
+the task slot until that cleanup finished. An origin that starts serving different bytes for the same
+URL restarts the transfer once rather than splicing builds. If a pre-0.1.180 install left a
+DownloadManager job behind, the engine removes that job the first time it restores state.
 
 Only the manifest's `latestVersionCode` is offered for download/install. History is collapsed and
 read-only. An offline restored task remains usable, but once a successful check discovers a higher
 latest code, the old task is marked superseded and installation/retry are blocked until it is deleted.
 
 Before installation, the client checks URL policy, byte length, SHA-256, archive application ID,
-manifest version code/name, and the sole APK signer certificate SHA-256. Any mismatch is terminal and
+manifest version code/name, and the sole APK signer certificate SHA-256. The `.part` file is renamed
+to the versioned APK name only after the engine has every byte; verification runs on that file. Any mismatch is terminal and
 does not open an installer. On Android 8+, missing unknown-source permission opens the per-app settings
 page; the user can return and press install again. Installation uses a FileProvider content URI and the
 system installer, and always requires user confirmation. Older versions remain visible with “in-place

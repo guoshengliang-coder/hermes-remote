@@ -165,6 +165,7 @@ async function stageRuntime(root) {
     "scripts/production-component-rollout.mjs",
     "scripts/production-web-app-rollout.mjs",
     "scripts/production-schema-release.mjs",
+    "scripts/rehearse-schema-advance.mjs",
     "scripts/production-push-rollout.mjs",
     "scripts/production-monitor.mjs",
     "scripts/postgresql-recovery.mjs",
@@ -212,6 +213,7 @@ async function stageRuntime(root) {
     "deploy/hermes-go-postgresql-automation-remote.template",
     "deploy/hermes-go-postgresql-automation.sudoers.template",
   ]) await copyFile(file, root);
+  await cp(path.join(repoRoot, "gateway/migrations"), path.join(root, "gateway/migrations"), { recursive: true });
   const connectorFiles = (await readdir(path.join(repoRoot, "connector/dist")))
     .filter((name) => name.endsWith(".js") && !name.endsWith(".test.js"))
     .sort();

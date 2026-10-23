@@ -355,7 +355,15 @@ fun ChatScreen(
     val conversationTurns = remember(state.messages, searchOpen) {
         if (searchOpen) state.messages.organizedConversationTurns() else emptyList()
     }
-    val matches = remember(query, conversationTurns) { searchHits(conversationTurns, query) }
+    val searchLinkWord = localized(language, "链接", "Link")
+    var preparedMatches by remember { mutableStateOf<PreparedChatSearch?>(null) }
+    LaunchedEffect(query, conversationTurns, searchLinkWord) {
+        preparedMatches = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            prepareChatSearch(conversationTurns, query, searchLinkWord)
+        }
+    }
+    val currentSearch = preparedMatches?.takeIf { it.query == query && it.messages === conversationTurns }
+    val matches = currentSearch?.hits.orEmpty()
     // Reset the cursor when the QUERY changes — not when `matches` changes: `matches` is a fresh
     // list instance on every streamed token, which would otherwise yank the cursor to 0 mid-search.
     var previousQuery by rememberConversationState("chat:$sessionId:previousQuery") { query }
@@ -372,6 +380,7 @@ fun ChatScreen(
             query = query,
             currentMessageId = currentHit?.let { conversationTurns.getOrNull(it.turnIndex)?.id },
             currentOccurrence = currentHit?.occurrence,
+            markdownRanges = currentSearch?.markdownRanges.orEmpty(),
         )
     } else null
     // Highlight scrolling lives inside ChatMessageList: with reverseLayout the turn index must be
@@ -422,13 +431,38 @@ fun ChatScreen(
         if (composerFocused) focusRequester.requestFocus()
     }
     val initialDraft by vm.initialDraft.collectAsStateWithLifecycle()
+    val editingUnsentId by vm.editingUnsentId.collectAsStateWithLifecycle()
+    val composerRecoveryError by vm.composerRecoveryError.collectAsStateWithLifecycle()
+    val messageActionScope = androidx.compose.runtime.rememberCoroutineScope()
+    var messageActionBusy by remember(sessionId) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(initialDraft) {
-        initialDraft?.takeIf { it.isNotEmpty() }?.let { draft = vm.initialDraftForComposer(draft); vm.clearInitialDraft() }
+        initialDraft?.let { draft = vm.initialDraftForComposer(draft); vm.clearInitialDraft() }
     }
     // Persist the unsent composer text (HG-41). Keyed on the value rather than wired into each
     // assignment: `draft` is written by typing, dictation, slash fill, prompt insert, @-mention
     // completion, edit-and-resend and the share handoff, and one missed site is a lost draft.
-    androidx.compose.runtime.LaunchedEffect(sessionId, draft) { vm.rememberDraft(draft) }
+    androidx.compose.runtime.LaunchedEffect(sessionId, draft, state.pendingAttachments) { vm.rememberDraft(draft) }
+
+    fun editUnsent(messageId: String, withdraw: Boolean = false) {
+        if (messageActionBusy) return
+        messageActionBusy = true
+        val previousDraft = draft
+        messageActionScope.launch {
+            try {
+                val result = vm.prepareUnsentComposer(messageId, previousDraft, withdraw)
+                result.error?.let {
+                    android.widget.Toast.makeText(context, it.localizedMessage(language), android.widget.Toast.LENGTH_LONG).show()
+                }
+                result.text?.let {
+                    draft = if (draft == previousDraft) it else appendDictation(draft, it)
+                    composerFocused = true
+                    focusRequester.requestFocus()
+                }
+            } finally {
+                messageActionBusy = false
+            }
+        }
+    }
     // Slash-command palette: when the draft is a "/query", show matching commands.
     val slashMatches = if (draft.startsWith("/") && !draft.contains(' ')) {
         val q = draft.drop(1).lowercase()
@@ -452,7 +486,7 @@ fun ChatScreen(
     }
     var preparingAttachments by remember(sessionId) { androidx.compose.runtime.mutableIntStateOf(0) }
     val attachingSessions by vm.attachingSessions.collectAsStateWithLifecycle()
-    val canSend = preparingAttachments == 0 && attachingSessions == 0 && canSend(
+    val canSend = !messageActionBusy && composerRecoveryError == null && preparingAttachments == 0 && attachingSessions == 0 && canSend(
         connected,
         draft.isNotBlank(),
         state.pendingAttachments.isNotEmpty(),
@@ -475,7 +509,7 @@ fun ChatScreen(
             return
         }
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-        vm.send(draft)
+        if (!vm.send(draft)) return
         draft = ""
         // Ahead of the debounce: the row must lose its 「草稿」 marker as the message leaves, not
         // a moment later.
@@ -698,13 +732,63 @@ fun ChatScreen(
         }
     }
 
+    val fileMetadata = remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { ChatFileMetadataState(vm::fileMetadata) }
+    val fileTasks by vm.fileDownloads.collectAsStateWithLifecycle()
+    var fileOwner by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { mutableStateOf<String?>(null) }
+    LaunchedEffect(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { fileOwner = vm.fileDownloadOwner() }
+    val scopedFileTasks = fileTasks.filter { it.owner == fileOwner &&
+        (it.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE || vm.completedDownload(it) != null) }
+    val fileLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var oversizedFile by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) { mutableStateOf<com.hermes.client.domain.ChatFile?>(null) }
+    oversizedFile?.let { file ->
+        AlertDialog(
+            onDismissRequest = { oversizedFile = null },
+            title = { Text(localized(language, "文件超过下载上限", "File exceeds download limit")) },
+            text = { Text(artifactLimitMessage(fileMetadata.info(file), language)) },
+            confirmButton = {
+                TextButton(onClick = { oversizedFile = null }) { Text(localized(language, "知道了", "OK")) }
+            },
+        )
+    }
+
+    var videoFile by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) {
+        mutableStateOf<com.hermes.client.domain.ChatFile?>(null)
+    }
+    videoFile?.let { file ->
+        val complete = file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }
+            ?: scopedFileTasks.firstOrNull { it.remotePath == file.remotePath }?.let(vm::completedDownload)
+        VideoPlayerDialog(file.name, prepare = { vm.prepareVideo(file) },
+            downloaded = complete != null,
+            openExternally = complete?.let { local -> { openCompletedVideo(context, local, file.mimeType) {
+                showAttachmentError(it.localizedMessage(language))
+            } } },
+            download = { vm.downloadFile(file) { showAttachmentError(com.hermes.client.data.error.artifactDownloadError(it).localizedMessage(language)) } },
+            onDismiss = { videoFile = null })
+    }
+
     fun handleFile(file: com.hermes.client.domain.ChatFile, share: Boolean) {
+        val info = fileMetadata.info(file)
+        val savedTask = scopedFileTasks.firstOrNull { it.remotePath == file.remotePath }
+        val saved = savedTask?.let(vm::completedDownload)
+        val fileMimeType = file.mimeType ?: savedTask?.mimeType ?: android.webkit.MimeTypeMap.getSingleton()
+            .getMimeTypeFromExtension(file.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) ?: "application/octet-stream"
+        if (info.tooLarge && saved == null) {
+            oversizedFile = file
+            return
+        }
+        if (!share && isVideoAttachment(file)) {
+            videoFile = file.copy(localPath = saved?.path ?: file.localPath)
+            return
+        }
         android.widget.Toast.makeText(
             context,
             localized(language, "正在准备文件…", "Preparing file…"),
             android.widget.Toast.LENGTH_SHORT,
         ).show()
-        vm.fetchFile(file) { result ->
+        val requestedWorkspace = vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)
+        vm.fetchFile(file.copy(sizeBytes = info.sizeBytes, localPath = saved?.path ?: file.localPath)) fileResult@ { result ->
+            if (!fileLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) ||
+                requestedWorkspace != vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) return@fileResult
             result.onSuccess { local ->
                 val contentUri = FileProvider.getUriForFile(
                     context,
@@ -713,12 +797,12 @@ fun ChatScreen(
                 )
                 val intent = if (share) {
                     android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                        type = file.mimeType ?: "application/octet-stream"
+                        type = fileMimeType
                         putExtra(android.content.Intent.EXTRA_STREAM, contentUri)
                     }
                 } else {
                     android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                        setDataAndType(contentUri, file.mimeType ?: "application/octet-stream")
+                        setDataAndType(contentUri, fileMimeType)
                     }
                 }.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 runCatching {
@@ -739,10 +823,11 @@ fun ChatScreen(
                     )
                 }
             }.onFailure { error ->
-                showAttachmentError(
-                    com.hermes.client.data.error.artifactDownloadError(error)
-                        .localizedMessage(language),
-                )
+                val failure = com.hermes.client.data.error.artifactDownloadError(error)
+                if (failure.code == com.hermes.client.data.error.AppErrorCode.ARTIFACT_TOO_LARGE) {
+                    fileMetadata.reject(file)
+                    oversizedFile = file
+                } else showAttachmentError(failure.localizedMessage(language))
             }
         }
     }
@@ -1083,6 +1168,10 @@ fun ChatScreen(
         LocalTableChartScope provides chartScope,
         LocalBotOrigin provides botOrigin,
         LocalLocallySentIds provides locallySentIds,
+        LocalChatFileMetadata provides fileMetadata,
+        LocalChatFileDownloads provides ChatFileDownloads(scopedFileTasks,
+            download = { file -> vm.downloadFile(file) { error -> showAttachmentError(com.hermes.client.data.error.artifactDownloadError(error).localizedMessage(language)) } },
+            pause = vm::pauseFileDownload, cancel = vm::cancelFileDownload),
     ) {
     // HG-146: the recording surface is a full-screen layer over the chat (scrim + card + swipe
     // targets + "正在聆听" dome), so the Scaffold is boxed instead of squeezing it into the bar.
@@ -1197,6 +1286,15 @@ fun ChatScreen(
                 // HG-38: the chips all arrive at once when the last conversation is rendered, so
                 // this line is the only thing saying work is in flight. Sits above the chip row,
                 // where the chips it is promising will appear.
+                if (editingUnsentId != null) {
+                    composerRecoveryError?.let {
+                        Text(it.localizedMessage(language), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    UnsentEditingNotice(onCancel = {
+                        vm.cancelUnsentEdit()
+                        draft = ""
+                    })
+                }
                 if (attachingSessions > 0) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -1341,7 +1439,7 @@ fun ChatScreen(
                             OutlinedTextField(
                                 value = draft,
                                 onValueChange = { draft = it },
-                                readOnly = !sessionWritable,
+                                readOnly = !sessionWritable || messageActionBusy,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .focusRequester(focusRequester)
@@ -1606,9 +1704,12 @@ fun ChatScreen(
                         openPromptListTick = promptListTick,
                         viewportController = viewportController,
                         isGenerating = state.isGenerating,
-                        onEditResend = { text -> draft = text; focusRequester.requestFocus() },
-                        onRetrySend = { vm.retrySend(it) },
-                        onDiscardSend = { vm.discardFailedSend(it) },
+                        onEditResend = { editUnsent(it) },
+                        onRetrySend = { if (editingUnsentId == it) editUnsent(it) else vm.retrySend(it) },
+                        onDiscardSend = {
+                            if (vm.sendErrorCode(it) == AppErrorCode.UNSENT_ATTACHMENTS_LOST) vm.discardFailedSend(it)
+                            else editUnsent(it, withdraw = true)
+                        },
                         sendDiagnosticFor = { vm.sendDiagnostic(it) },
                         sendErrorCodeFor = { vm.sendErrorCode(it) },
                         onRegenerate = { vm.regenerate() },
@@ -2197,11 +2298,12 @@ fun ChatScreen(
                             pendingVoiceText = null
                         } else {
                             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                            vm.send(draft)
-                            draft = ""
-                            vm.clearDraft()
-                            sendToBottomTick = System.currentTimeMillis()
-                            collapseComposer()
+                            if (vm.send(draft)) {
+                                draft = ""
+                                vm.clearDraft()
+                                sendToBottomTick = System.currentTimeMillis()
+                                collapseComposer()
+                            }
                         }
                     },
                 ) { Text(localized(language, "知道了，发送", "Got it, send")) }
@@ -2488,6 +2590,20 @@ fun ChatScreen(
             onDismiss = { projectSheetOpen = false },
             onPick = { project -> vm.moveToProject(project) { projectSheetOpen = false } },
         )
+    }
+}
+
+@Composable
+internal fun UnsentEditingNotice(onCancel: () -> Unit) {
+    val language = LocalAppLanguage.current
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            localized(language, "正在编辑未发送的消息", "Editing an unsent message"),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).padding(start = 8.dp),
+        )
+        TextButton(onClick = onCancel) { Text(localized(language, "取消编辑", "Cancel edit")) }
     }
 }
 

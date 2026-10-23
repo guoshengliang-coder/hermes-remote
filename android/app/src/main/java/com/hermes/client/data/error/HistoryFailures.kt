@@ -5,6 +5,9 @@ import com.hermes.client.data.network.GatewayRpcException
 import kotlinx.serialization.SerializationException
 import java.io.IOException
 
+/** The read window moved or rewound between pages; retry from an authoritative tail. */
+class HistoryPageChangedException : Exception("History page no longer overlaps the loaded boundary")
+
 /**
  * Why a conversation's transcript could not be loaded, in terms the person holding the phone can
  * act on.
@@ -26,6 +29,12 @@ fun historyFailure(error: Throwable): AppError = when {
     error is HermesApiException && error.errorCode == AppErrorCode.HERMES_MAINTENANCE.value -> AppError(
         code = AppErrorCode.HERMES_MAINTENANCE, retryable = false,
         technicalCause = "HTTP ${error.code}", stage = "history",
+    )
+    error is HistoryPageChangedException -> AppError(
+        code = AppErrorCode.HISTORY_INCOMPLETE,
+        retryable = true,
+        technicalCause = error.message,
+        stage = "history",
     )
     error is HermesApiException && error.errorCode == AppErrorCode.HERMES_UNREACHABLE.value -> AppError(
         code = AppErrorCode.HERMES_UNREACHABLE,

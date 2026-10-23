@@ -191,7 +191,7 @@ export function isRenderable(m: DisplayMessage): boolean {
 
 export function toDisplayMessage(row: MessageRow, index: number, toolResults: Map<string, MessageRow> = new Map()): DisplayMessage {
   const display = row.hr_display?.schema === 1 ? row.hr_display : null;
-  const flat = flattenContent(display?.body ?? row.content);
+  const flat = flattenContent(row.display_content ?? display?.body ?? row.content);
   const parsed = parseAttachments(flat.text ?? "");
   const assistant = row.role.toLowerCase() === "assistant";
   const rowId = typeof row.id === "number" ? row.id : null;

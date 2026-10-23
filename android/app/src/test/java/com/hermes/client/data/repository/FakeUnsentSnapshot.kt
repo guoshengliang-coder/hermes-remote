@@ -19,11 +19,16 @@ class FakeUnsentSnapshot(
         private set
 
     override val tokens: Flow<Set<String>> =
-        records.map { list -> list.mapTo(mutableSetOf()) { it.token } }
+        records.map { list -> list.filter { it.composer?.withdrawn != true }.mapTo(mutableSetOf()) { it.token } }
 
     override suspend fun read(token: String): UnsentRecord? {
         readGate?.await()
-        return records.value.firstOrNull { it.token == token }
+        return records.value.filter { it.token == token }.maxByOrNull { it.updatedAt }
+    }
+
+    override suspend fun readAll(token: String): List<UnsentRecord> {
+        readGate?.await()
+        return records.value.filter { it.token == token }
     }
 
     override suspend fun save(record: UnsentRecord) {
@@ -35,5 +40,9 @@ class FakeUnsentSnapshot(
         records.value = removeUnsent(records.value, token)
     }
 
-    fun peek(token: String): UnsentRecord? = records.value.firstOrNull { it.token == token }
+    override suspend fun clearMessage(token: String, messageId: String) {
+        records.value = records.value.filterNot { it.token == token && it.messageId == messageId }
+    }
+
+    fun peek(token: String): UnsentRecord? = records.value.filter { it.token == token }.maxByOrNull { it.updatedAt }
 }

@@ -182,7 +182,19 @@ What upstream does with these parameters:
   defaults to the latest 500. Any `order` other than `oldest`/`latest` is `400`.
 - Offsets shift when a row is appended between two page reads (a turn finishing while the person
   scrolls up), so the boundary row can arrive twice; a client must de-duplicate by message `id`.
-- `include_compacted` stays at its default (`false`); the paging above is over active rows.
+- **HG-224 correction:** display history sends `include_compacted=true` on Android and Web,
+  including export/attachment and full-row reads. Default `false` only reads the model's active
+  context; compaction can shrink it from hundreds of rows to a few prompts. Archived history is
+  not deletion: upstream includes `active=1 OR compacted=1`, excludes Undo/Rewind rows, deduplicates
+  copied generations and orders by the logical message's first occurrence. Verified in local
+  Hermes `633dda6d7f`, `sessions.py:get_session_messages` and `hermes_state_messages.py:get_messages`;
+  the affected Mac's source/data remains a separate incident-verification gate.
+- Upstream may return `display_content` for a carrier while keeping raw `content` for inspection.
+  Both clients prefer that projection; absence keeps the existing legacy carrier parser.
+- Older-page requests overlap one held row (`limit=101`, `offset=heldRows-1`). Only a shared
+  boundary proves adjacency. Bounded skips handle offset drift; losing the boundary is retryable
+  `HR-SYNC-001` and retry refreshes the tail first. A refresh that resets the window invalidates
+  older responses still in flight.
 
 **Session list.** `GET /api/sessions` declares `limit: Query(20, ge=0, le=100)`: a limit above 100
 is **rejected with `422`, not clamped**. The clients' fallback read of this endpoint (instead of
@@ -195,10 +207,12 @@ the parameters are not part of that contract (see §2) and are covered by checkl
 **Client assumptions the Android merge rests on** (`data/repository/TranscriptWindow.kt`, HG-104),
 to re-check on every upgrade alongside 8m:
 
-- **Message `id`s increase monotonically with time** within a conversation (SQLite `INTEGER PRIMARY
-  KEY` on `messages`). The client decides which of two pages is older, whether a refreshed newest
-  page overlaps what it already holds, and which rows of an older page to prepend by comparing ids
-  numerically — not only by equality.
+- **Message `id` is an identity, not a display-order key.** Compaction chooses a live/newer
+  representative of a copied message, so `[1, 90, 3, 4]` is a valid display order. Page merging,
+  runtime coverage, prompt navigation and viewport alignment must use sequence positions and
+  matching identities, never numeric min/max. Without boundary overlap a newest page resets the
+  held window rather than inventing a gap-free join. Active-only disk windows are invalidated
+  once (`hr_history_view=compacted-v1` marks the new window).
 - **`offset` counts every row the endpoint returns, tool/function rows included.** The client
   keeps the raw rows as returned (tool rows are only dropped later, when rows are mapped to turns)
   and sends `offset` = the number of raw rows it holds. If upstream ever counted `offset` over a
@@ -1137,7 +1151,11 @@ a cached compatible verdict.
 
 Opt-in history previews/full-row reads attach `hr_display: {schema: 1, kind, body}` beside the original
 message. Explicit upstream `display_kind` has priority; fallback recognizes both compression notice
-headers. Mixed rows retain real user text and keep the raw content available. Schema 1 is consumed
+headers. Canonical upstream `display_content` (including an empty string) precedes GO's body and raw
+content on Android/Web; Connector derives its fallback from that same canonical content when present,
+so a stale raw compression carrier cannot resurrect an upstream-hidden row. Without it, GO schema 1
+body and legacy raw content remain the fallback. Mixed rows retain real user text and keep the raw
+content available. Schema 1 is consumed
 by Android/Web; unknown schemas fall back to the upstream row. Unknown non-image content blocks
 retain a JSON payload instead of disappearing. Existing inline-image handling is preserved.
 `protocol/fixtures/hermes-display-v1.json` exercises all three parsers; fixture-only changes select

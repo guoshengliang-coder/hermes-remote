@@ -24,3 +24,11 @@ test("structured metadata wins and assistant quotations are never cut", () => {
   assert.deepEqual(projectHermesDisplay({ role: "user", content, display_kind: "future_kind" }), { schema: 1, kind: "future_kind" });
   assert.deepEqual(projectHermesDisplay({ role: "assistant", content }), { schema: 1, kind: null });
 });
+test("upstream display content prevents stale raw compaction projection and empty-row resurrection", () => {
+  for (const display_content of ["current ask", ""]) {
+    const row = { role: "user", content: COMPRESSION_HEADERS[1], display_content };
+    assert.deepEqual(projectHermesDisplay(row), { schema: 1, kind: null });
+    assert.equal(row.content, COMPRESSION_HEADERS[1]);
+    assert.equal(row.display_content, display_content);
+  }
+});
