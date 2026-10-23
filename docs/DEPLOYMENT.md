@@ -2962,3 +2962,55 @@ this operation did not install to a user Mac/phone. Follow `ATTACHMENT_PERFORMAN
 attachment download/open, first frame/seek/cache reuse, resume/source changes, account switch,
 pause/cancel and background checks. Real HONOR, household/cellular/NAT and OEM acceptance remain
 outstanding. Publication and pending verification do not establish acceptance.
+
+### HG-233 conversation artifacts — Android 0.1.179, Gateway 0.4.36 and Web, 2026-10-23
+
+The owner explicitly requested publication after implementation PR
+[#629](https://github.com/guoshengliang-coder/hermes-remote/pull/629) merged. Release preparation PR
+[#630](https://github.com/guoshengliang-coder/hermes-remote/pull/630) allocated Android **0.1.179 / code180**
+and Gateway **0.4.36**, including the pinned version assertions. Its final PR and main checks passed.
+All three published artifacts use clean source **`ee6305a2abbd7582ee86a4fa93bc25277c818074`**.
+Credential-free Android preparation passed **2667 tests and lint**; no development APK was distributed.
+
+Gateway used the paired Gateway/operator artifacts from successful main
+[OCI run 39951923648](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/39951923648).
+Both archives were verified before and after transfer. Gateway archive SHA-256 is
+`ff031edf8d23752c52dd35f6c1f4f608b9dac8712d9cf684a7ae207e9d77db46`; operator archive SHA-256 is
+`1161d2901c9312c52beb581b03acba365833b2c99fe297c31d669cf5a9b7af64`.
+Routine production run **`c3353b69-d050-4e0e-be10-3c21986b68b4`** completed candidate verification,
+switch, public smoke and observation, **blue → green, committed**. Independent protected identity
+confirmed 0.4.36, the exact source and `sourceDirty=false`; readiness passed. Schema **20**, protocols,
+minimum clients and existing capabilities remained unchanged; no migration ran. The previous
+`releases/0.4.35-cea90e66e791` remains the rollback point. Public shell headers now include the
+local-only **`media-src blob:`** policy, verified before publishing Web.
+
+The standard Web publisher passed typecheck, **99 files / 1009 tests**, and build, then atomically
+installed **`0.1.1-ee6305a2abbd`**, retaining **`0.1.1-19fb249c92ec`** for rollback. Independent public
+readback verified all **20 files**, their complete sizes and SHA-256 values, against the reproducible
+manifest, plus the current release link and strict shell CSP. Web remains package version 0.1.1;
+its source commit identifies this release. Gateway was published first because video previews depend
+on its CSP. This operation did not publish Connector, Desktop or upstream Hermes.
+
+The official [Android release run 39952934835](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/39952934835)
+completed `APK_RELEASE_OK`, feedback configuration, signing and publication gates. The complete public
+[Hermes-Remote-0.1.179-debug.apk](https://mrlgs.net/releases/Hermes-Remote-0.1.179-debug.apk) was independently
+downloaded: **36,917,139 bytes**, SHA-256
+`908ca72c1d4fd487a6dc87027451e8ecf964d8cc3bc965fc018b068afb8dd8ac`, matching CI and the public index.
+Package `com.hermes.remote`, version/code, minSdk26, canonical v2 certificate and conversation-artifact
+DEX code were independently checked. Both unversioned APK URLs returned404. Post-release production
+host, disk, fresh encrypted/off-host backup and Gateway readiness checks passed.
+
+Equivalent `hermes-go-batch-release-receipt-v1` evidence, complete candidate snapshots and independent
+verification remain outside Git at `~/.hermes-go-releases/hg233-20261023/`; canonical receipt SHA-256 is
+`6406df9e3776b761a84fa9031846da2c8e6585d00c19d567eeea35c12ec932e9`.
+HG-233 was fully reread (11 timeline events, no attachments); its three required artifacts matched.
+Release comment **`f19f7b4b-7f6b-4ef2-b9ae-97de4674a786`** preceded its transition to **pending verification**.
+The other candidate, HG-223, remains unchanged: its full PR includes release-server but its handover
+registers only Android and the product declares no release-server artifact. No attachment reread,
+comment or transition was performed for it.
+
+Verify More → Artifacts on Android 0.1.179 and the updated Web app: complete-conversation results,
+upload/process exclusion, duplicate display names, current-file references, preview/download and
+source navigation with list-position restoration. No phone was attached; physical Chrome/Safari/PWA,
+system opening, gestures, offline behavior and video codecs remain in the HG-233 smoke plan.
+Publication and pending verification do not establish acceptance.
