@@ -2242,7 +2242,7 @@ internal fun AssistantTurn(
                 // in place, and the turn's actions live in its action row below.
                 .padding(vertical = 2.dp),
         ) {
-            if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking, msg.thinkingParts, streaming = msg.isStreaming)
+            if (msg.thinking.isNotBlank()) ThinkingCard(msg.id, msg.thinking, msg.thinkingParts)
             remember(msg.tools) { groupToolsForDisplay(msg.tools) }.forEach { group ->
                 when (group) {
                     is ToolDisplayGroup.Single -> SemanticToolCard(group.tool, completed = !msg.isStreaming)
@@ -2331,16 +2331,10 @@ internal fun AssistantTurn(
             // An error turn gets the row too, trimmed to 复制 + ⋯: with the long-press menu gone,
             // the row is the only way left to its 重新生成 / 换个模型重试 (HG-95).
             val showCompletedActions = showActions && !msg.isStreaming && msg.text.isNotBlank()
-            val footerDensity = LocalDensity.current
-            var footerHeight by androidx.compose.runtime.saveable.rememberSaveable(msg.id) { mutableStateOf(48f) }
-            if (msg.isStreaming || showCompletedActions) Box(Modifier.fillMaxWidth().heightIn(min = footerHeight.dp).testTag("turn-footer-${msg.id}")
-                .onSizeChanged { size ->
-                    val height = with(footerDensity) { size.height.toDp().value }
-                    if (height > footerHeight) footerHeight = height
-                }) {
+            if (msg.isStreaming || showCompletedActions) Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("turn-footer-${msg.id}")) {
                 if (msg.isStreaming) {
-                    // Retain the measured status height through completion, including three-line
-                    // statuses at large font scales. Opening full status never resizes this footer.
+                    // Full status may be tall. Release that space when prose replaces it; only
+                    // the compact indicator/action-row minimum remains.
                     RunningStatusLine(msg)
                 } else {
                 Row(
@@ -3398,8 +3392,11 @@ internal fun sessionRunPlaceholder(sessionId: String, runStartedAt: Long? = null
 @Composable
 internal fun RunningStatusLine(msg: ChatMessage) {
     val language = LocalAppLanguage.current
+    val prose = msg.text.trim()
+    val placeholder = localized(language, "工具数据接收中…", "Receiving tool data…")
+    val showText = prose.isEmpty() || prose == placeholder || prose == "*$placeholder*"
     val hasOutput = msg.text.isNotBlank() || msg.tools.isNotEmpty() || msg.thinking.isNotBlank()
-    val status = runningStatusFor(msg)
+    val status = runningStatusFor(if (showText) msg.copy(text = "") else msg)
     // Live elapsed time, anchored on the turn's real timestamp (not a local counter), so a
     // process restart or reconnect still shows the true duration of the run.
     var nowTick by remember(msg.id) { mutableStateOf(System.currentTimeMillis()) }
@@ -3422,8 +3419,10 @@ internal fun RunningStatusLine(msg: ChatMessage) {
     }
     var details by androidx.compose.runtime.saveable.rememberSaveable(msg.id) { mutableStateOf<String?>(null) }
     Row(
-        Modifier.padding(top = 8.dp).fillMaxWidth()
-            .clickable(onClickLabel = localized(language, "查看完整状态", "View full status")) { details = label },
+        Modifier.padding(top = 8.dp).fillMaxWidth().then(
+            if (showText) Modifier.clickable(onClickLabel = localized(language, "查看完整状态", "View full status")) { details = label }
+            else Modifier,
+        ),
         verticalAlignment = Alignment.Top,
     ) {
         com.hermes.client.ui.components.LoadingDots(
@@ -3431,7 +3430,7 @@ internal fun RunningStatusLine(msg: ChatMessage) {
             modifier = Modifier.padding(end = 8.dp, top = 2.dp),
             contentDescription = localized(language, "正在生成", "Generating"),
         )
-        Text(
+        if (showText) Text(
             label,
             style = when (status) {
                 is RunningStatus.Tool -> MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
@@ -3439,8 +3438,6 @@ internal fun RunningStatusLine(msg: ChatMessage) {
                 else -> MaterialTheme.typography.bodySmall
             },
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).testTag("running-status-text"),
         )
     }
@@ -3489,24 +3486,20 @@ internal fun QuietFoldSummary(
 }
 
 @Composable
-internal fun ThinkingCard(messageId: String, text: String, parts: List<com.hermes.client.domain.HistoryThinkingPart> = emptyList(), streaming: Boolean = false) {
+internal fun ThinkingCard(messageId: String, text: String, parts: List<com.hermes.client.domain.HistoryThinkingPart> = emptyList()) {
     val language = LocalAppLanguage.current
     // rememberSaveable keyed by the message id: plain remember lost the expanded state whenever
     // the item scrolled out of the Lazy viewport and was recycled.
+    // Keep the nullable saved-state shape from the previous release; its automatic choice now folds.
     var userExpanded by androidx.compose.runtime.saveable.rememberSaveable(messageId) { mutableStateOf<Boolean?>(null) }
-    val expanded = userExpanded ?: streaming
-    val preview = userExpanded == null && streaming
-    val previewScroll = rememberScrollState()
-    LaunchedEffect(preview, text, previewScroll.maxValue) {
-        if (preview) previewScroll.scrollTo(previewScroll.maxValue)
-    }
+    val expanded = userExpanded == true
     val loader = LocalHistoryFullRowLoader.current
     var fullText by remember(messageId, parts) { mutableStateOf<String?>(null) }
     var loading by remember(messageId, parts) { mutableStateOf(false) }
     var failure by remember(messageId, parts) { mutableStateOf<com.hermes.client.data.error.AppError?>(null) }
     var retry by remember(messageId, parts) { androidx.compose.runtime.mutableIntStateOf(0) }
-    LaunchedEffect(userExpanded, parts, retry, loader) {
-        if (userExpanded != true || fullText != null || parts.none { it.source != null }) return@LaunchedEffect
+    LaunchedEffect(expanded, parts, retry, loader) {
+        if (!expanded || fullText != null || parts.none { it.source != null }) return@LaunchedEffect
         loading = true
         failure = null
         try {
@@ -3530,34 +3523,25 @@ internal fun ThinkingCard(messageId: String, text: String, parts: List<com.herme
         }
     }
     val shown = fullText ?: text
-    // The quiet header stays in place; only the automatic preview folds on completion.
+    // Live and historical reasoning both start folded; only a reader action changes it.
     QuietFoldSummary(
-        label = if (preview) localized(language, "展开思考过程", "Expand reasoning")
-        else if (expanded) localized(language, "收起思考过程", "Hide reasoning")
+        label = if (expanded) localized(language, "收起思考过程", "Hide reasoning")
         else localized(language, "查看思考过程", "View reasoning"),
         expanded = expanded,
         contentDescription = localized(language, "思考过程", "Reasoning"),
-        onClick = { userExpanded = if (preview) true else !expanded },
+        onClick = { userExpanded = !expanded },
     )
     if (expanded) {
-        val style = MaterialTheme.typography.bodySmall
-        val previewHeight = with(LocalDensity.current) { style.lineHeight.toDp() * 5 }
-        SelectionContainer(if (preview) Modifier.heightIn(max = previewHeight).verticalScroll(previewScroll) else Modifier) {
+        SelectionContainer {
             // Not search-marked: reasoning is out of the search scope (HG-45), and marking text
             // the counter does not count is a worse mismatch than not marking it.
             Text(
                 shown,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = if (preview) Modifier else Modifier.padding(top = 4.dp, bottom = 6.dp),
+                modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
             )
         }
-        if (preview) Text(
-            localized(language, "收起思考过程", "Hide reasoning"),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.clickable { userExpanded = false }.padding(vertical = 5.dp),
-        )
         if (loading) Text(localized(language, "正在读取全文…", "Loading full content…"))
         failure?.let { error -> androidx.compose.material3.TextButton(onClick = { retry++ }) {
             Text(error.localizedMessage(language))

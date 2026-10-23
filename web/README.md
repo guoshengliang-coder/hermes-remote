@@ -108,9 +108,10 @@ A reconnecting Stop resolves the live handle and sends the interrupt. No server,
 version or error-code contract changes are required. Physical Safari/PWA and Android Chrome checks
 remain in `../docs/SMOKE_TEST.md`.
 
-HG-230 aligns live progress with Android: a five-line reasoning preview appears during the whole
-run and folds at completion unless the reader explicitly expands/hides it; settled history starts
-folded. Tool timelines preview only the newest call with access to the full list. Status text wraps
-up to three lines without 24/64-character pre-truncation; tapping opens a selectable snapshot in a
-sheet. A measured footer retains the status height when completion replaces it with actions.
+HG-230 follow-up (2026-10-23) aligns progress with Android: reasoning starts folded for live runs
+and settled history; manual expand/hide survives updates and completion. Tool timelines preview
+only the newest call with access to the full list. Status text is shown without a line limit or
+24/64-character pre-truncation until visible prose starts; only the live dots remain after that.
+The footer releases the text's height instead of leaving a large blank. Tapping status still opens
+a selectable snapshot in a sheet.
 No server, credential, error-code or protocol changes. See `../docs/SMOKE_TEST.md` for visual checks.

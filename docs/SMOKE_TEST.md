@@ -2132,26 +2132,28 @@ still need verification. No production deployment or version allocation occurred
 Use a scripted local run with long multiline reasoning, four sequential tools (including one failure),
 then prose and completion. Check both clients in light/dark, narrow widths and fontScale 1.3 / browser zoom:
 
-1. Reasoning appears as a five-line bounded preview following the newest text, stays available while
-   tools/prose arrive, and automatically folds when the whole run ends. Reopening settled history
-   starts folded. An explicit Expand shows all reasoning and survives completion; an explicit Hide
+1. Reasoning starts folded during the run and when reopening settled history. Later reasoning,
+   tools and prose never open it automatically. An explicit Expand shows all reasoning and survives
+   completion; an explicit Hide
    remains hidden through later tokens. Opening historical reasoning still loads its full content.
 2. A running tool group shows only its newest call with total/failure counts. Expand shows all calls;
    new calls do not undo that choice. Collapse returns to one latest call. Completion folds only
    groups that were not manually expanded; each call's output is still accessible.
-3. The running status wraps to at most three lines, retains the full latest nonblank reasoning line
+3. Before visible prose starts, running status has no line limit and retains the full latest nonblank reasoning line
    or active tool command (including >64-character/multiline commands), and opens a selectable full
    snapshot on tap. Updates do not change the snapshot being read; close/Escape/back returns to the
    same transcript position. Text is plain text, never executed HTML/Markdown.
-4. While pinned at the bottom, grow the status from one to three lines and finish the run: status and
-   actions must fit, the footer must not shrink on replacement, and the reasoning fold must leave the
-   true latest content visible. While browsing older content, tokens/completion must not steal the
+4. Grow the status beyond three lines, then start the final prose while the run is still streaming:
+   status text must disappear immediately, the dots remain, and the footer releases the text's height
+   instead of leaving a large blank. Tool-only structured payloads and whitespace must not hide status.
+   Later reasoning does not bring status back over visible prose. Completion replaces dots with actions.
+   While browsing older content, tokens/completion must not steal the
    reading position. Exercise entering/reentering a running conversation and interrupted/reconnected runs.
 
 JVM/DOM tests cover disclosure transitions, preview rows and status text/snapshots. Actual device,
 Safari/PWA, gesture, text-selection and scroll behavior requires the visual/manual pass above.
 
-Local implementation evidence (2026-10-22): Android L1 has disclosure/footer regressions and
+Historical evidence for the superseded initial behavior (2026-10-22): Android L1 has disclosure/footer regressions and
 light / app-dark-on-light-system / fontScale 1.3 screenshots. The complete JVM suite passed
 (2645 tests) and `:app:assembleDebug` passed its canonical signing-key check. Web typecheck,
 959 tests and production build passed. Local Chrome component checks at 393px light/dark,
