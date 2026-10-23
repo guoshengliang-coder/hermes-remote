@@ -1068,3 +1068,13 @@ updater/PM interruption, real code upgrade, durable consent, services/business, 
 writer coverage remain unverified. Activation inputs and every authority/completion/certification
 flag remain false. No Desktop/Node/Web/Android local rebuild or L1/L2/L3 rerun for this follow-up;
 Linux/macOS compatibility CI runs the new tests. No live installation, version or release operation.
+
+2026-10-23 source-transition harness: eight unit tests use synthetic Git commits, real checkout/
+objects/locks/intent and test-owned process deaths. Future target hashes are checked against Git
+objects before any append/move (regression first failed without this check). The separate frozen
+matrix uses real 0.21.3/0.21.6 sources; original intent plus plan survives checkout and two completed
+coordinator deaths, and a first-slot interruption stays partial. Six wrong identity/stage/content
+cases refuse. Ordinary admission stays blocked; no intent replacement, terminal or repair exists.
+No upstream Python, PM, updater, native startup, services/business or mid-checkout recovery runs.
+Production completion/durable authorization/upgrade certification remain false. Local Desktop/
+Node/Web/Android builds and L1/L2/L3 are not repeated for this harness-only addition; no release.

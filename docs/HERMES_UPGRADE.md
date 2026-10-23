@@ -378,3 +378,18 @@ Desktop 本地基线未重跑，仍需当前 PR 的 CI 门禁；无安装、服�
 PM 同步中断恢复、真实旧→新转换、耐久生产授权、服务/业务或依赖闭包通过。所有授权/完成/
 交接/认证以及 updaterRecoveryVerified 仍 false。此次只改 harness/CI/文档，本地 Desktop、
 Node、Web、Android L1/L2/L3 未重复运行；未升版、交付应用、合入 main、发布或操作现用安装。
+
+### 2026-10-23 固定源码计划与真实 Git 切换
+
+新增 `hermes-maintenance-source.py` / `source_transition.py` 与测试 actor，在新建标记夹具中
+验证真实固定 17b5df02→818c13be Git checkout。变更前从两份独立干净源固定完整 commit/tree
+身份和四份共享入口摘要；目标摘要必须与目标 Git blob 匹配，再向原双槽意图追加计划并同步。
+切换后新协调方验证原意图+计划及真实目标，不把旧记录替换成新源码记录。完整计划、完整
+切换后和首槽部分发布后的进程死亡分别验证；六种错误预期/旧阶段/目标篡改拒绝，部分记录
+保留。没有 finish/clear/repair/开放准入，全部普通 writer 仍阻断。
+
+新增八项合成 Git/真实锁与进程单测，完整兼容基线为 141 项；目标 hash 不一致回归先在旧实现
+失败，再加入变更前对象核对后通过。Linux/macOS CI 另使用两份固定真实上游 checkout 跑矩阵。
+此实验执行 Git 与自有原型，未执行上游 Python、PM、官方 updater 或服务；不认证中途 checkout
+恢复、真实运行时/依赖代次、跨监督方死亡授权、原服务/业务/全 writer 或升级完成。实验只改
+harness/CI/文档，本地产品构建与 L1/L2/L3 不重复；无现用安装操作、升版、应用交付或发布。

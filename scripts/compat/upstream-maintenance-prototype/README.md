@@ -636,3 +636,52 @@ after Desktop/supervisor death. No actual old/new source transition, updater int
 service/business recovery, OS reboot, dependency closure or global writer coverage is verified.
 `updaterRecoveryVerified`, `durableHandoffVerified`, `targetAuthorityVerified`,
 `productionCompletionVerified` and `certifiesUpgrade` all remain false. Product execution stays off.
+
+### Planned real Git source switch (2026-10-23)
+
+`hermes-maintenance-source.py` fixes the old 0.21.3 commit `17b5df02` and target 0.21.6 commit
+`818c13be`, accepts two clean self-contained local Git sources and creates new marked private
+`hg199-source-transition-*` fixtures. It executes Git and prototype code only, never upstream
+Python, PM, the official updater, bootstrap or a service. Both input sources remain read-only.
+The clone copies objects without hardlinks; an explicit local fetch brings the verified target in
+before enrollment. Subsequent Git operations prohibit transport, hooks, filters and lazy fetches
+through the existing worker guard. All target commits/trees/blobs must already be present.
+
+The source-only plan binds both actual commit/tree IDs and before/after contexts with the same
+run/home/checkout/entry/domain identities. Four shared bootstrap source hashes are explicit; the
+existing worker additionally checks the full Git tree/object inventory, clean index and every
+Python source blob. Future file hashes are checked against target Git objects BEFORE plan append
+or checkout; recomputing the plan digest cannot make inconsistent target hashes valid. This guard
+has a regression that first failed without the target-object check. It is not runtime verification.
+
+Under drained exclusive custody, `source_transition.prepare` appends the canonical plan to both
+original stable intent slots, synchronizes slots/registry and rechecks. The original record is
+never rewritten. A fresh coordinator requires the exact external run/before/after/plan SHA and
+both identical histories, revalidates actual old inputs, then performs a local detached checkout
+without force/reset/stash. After movement, a new coordinator verifies the planned target while
+matching the ORIGINAL intent plus plan; it does not replace intent with a new-source context.
+There is no terminal, finish, repair or admission API. Existing ordinary writers reject this history.
+
+The matrix kills three test-owned coordinators: after full plan publication, after full checkout
+and target verification, and after the first slot's plan append. The supervisor retains the plan
+but no maintenance descriptor. Fresh EX acquisition/recheck verifies the first two boundaries;
+the partial append is refused and remains unchanged. Six refusals cover wrong run/from/to/SHA,
+old-stage reuse after checkout and changed actual target bytes. Intent inodes and published history
+remain unchanged across checkout; ordinary writers remain blocked. No mid-checkout interruption,
+official updater lock/PM handoff, service recovery, full startup or whole-writer coverage is tested.
+
+```bash
+python -I -S -B scripts/compat/hermes-maintenance-source.py \
+  --old-root <clean-fixed-0.21.3-git-source> --candidate-root <clean-fixed-0.21.6-git-source>
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_source.py'
+```
+
+Eight portable unit tests use SYNTHETIC Git commits with real checkout, objects, locks, stable
+intent files and process deaths. A negative control skips actual-source checks and then misses
+tampering despite a matching plan/journal. Linux/macOS CI separately run the matrix on the real
+fixed upstream commits; they do not install or execute Hermes. Public failures use the existing
+bilingual non-retryable `HR-HERMESUPDATE-002` and redact private paths/low-level output. Fixtures
+are retained for diagnosis, including the deliberately tampered target and incomplete plan.
+This is a source observation policy, not authenticated production consent or a before-PM runtime
+plan. `pmExecuted`, `runtimeVerified`, `updaterRecoveryVerified`, `productionCompletionVerified`,
+`durableHandoffVerified` and `certifiesUpgrade` stay false. Product execution remains disabled.
