@@ -108,6 +108,14 @@ A reconnecting Stop resolves the live handle and sends the interrupt. No server,
 version or error-code contract changes are required. Physical Safari/PWA and Android Chrome checks
 remain in `../docs/SMOKE_TEST.md`.
 
+HG-229 gates iOS chat keyboard geometry on editable focus. Blur/voice switching clears stale
+visualViewport height/top immediately, and document scroll/pageshow/visibility changes recover a
+leftover outer pan when no text field owns the keyboard and the page is not zoomed. Message scroll
+and draft data are untouched; search/sheet text fields retain keyboard ownership. Focused and
+Composer regressions replay the old failure; local iOS 26.5 Simulator Safari measurements and the
+remaining physical Safari/Home Screen checks are in `../docs/SMOKE_TEST.md` (HG-229). No server,
+credential, API, version or error-code changes are required.
+
 HG-230 follow-up (2026-10-23) aligns progress with Android: reasoning starts folded for live runs
 and settled history; manual expand/hide survives updates and completion. Tool timelines preview
 only the newest call with access to the full list. Status text is shown without a line limit or
