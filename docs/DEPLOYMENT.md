@@ -2893,3 +2893,72 @@ Signed release/component pointers remain 0.4.11 with unchanged manifest hashes
 `f41ad5226dbca9a6dbe72435e53f658bbfc7d9ab9862b16e5a588ec8ebbc68bc` respectively.
 No Android/Web/Gateway/Connector release was repeated, and no user Mac service was restarted.
 Chrome and physical-device installation/upgrade acceptance were not performed.
+
+### HG-232 attachment throughput — Gateway 0.4.35, Connector 0.1.17, Android 0.1.178, 2026-10-23
+
+The owner requested publication and separately approved reuse of the existing trusted M4 signing
+key **for this component publication only**. The key stayed on M4; signature verification, complete
+public readback and paired-index gates remained enabled. Implementation PR
+[#626](https://github.com/guoshengliang-coder/hermes-remote/pull/626) and version/preparation PR
+[#627](https://github.com/guoshengliang-coder/hermes-remote/pull/627) passed their PR and main gates.
+All three artifacts use clean source **`cea90e66e791de794113b61428b86a99b4308460`**, which contains #626.
+
+Gateway **0.4.35** completed the ordinary production candidate/switch/smoke/observation transaction,
+run `5b994c33-fe13-4389-9339-ecbb7b3c82db`, green→blue, committed. `current` points to
+`releases/0.4.35-cea90e66e791`; `previous` retains `releases/0.4.34-8fbb9ebdd59b`, a same-schema rollback
+point. Schema **20**, protocol versions and minimum clients are unchanged; no migration ran.
+The Gateway archive SHA-256 is
+`eebdac97cfe04aa22c9829cd3efe987743a72863fe36434d4e2c1d6b69d02522`.
+Independent protected identity confirmed the exact source, `sourceDirty=false` and schema20;
+readiness reports config/database/migrations `ok`, PostgreSQL `supported`. Public capabilities and
+health passed. A public-edge test using an isolated synthetic Connector transferred **16 MiB+7 bytes**
+in four concurrent 1 MiB ranges, verified the complete SHA-256, authentication and stale-entity rejection.
+Its 4.187 s and maximum 41 ms mock-control latency measure that HK test, not a user Mac uplink or phone.
+
+Connector **0.1.17**, managed pair **0.4.12**, was built/tested in the isolated M4 source checkout with
+Node 22.23.2. The v1 server archive reuses the pinned, unchanged Hermes Server 0.21.0 bundle
+from 0.4.3. Both layouts passed independent Ed25519 verification. Immutable files were staged as
+root-owned 0644 behind exact GET/HEAD routes under the deployment lock; Nginx validation/reload and
+POST=403 checks passed. The unchanged publisher completed full public byte comparison, switched and
+read back both indexes, retained the 0.4.11 rollback pair, pushed `desktop-managed-v0.4.12`, and returned
+`DESKTOP_RELEASE_OK`. An independent M5 download verified all six complete files, both signatures and
+both Connector build identities. Public file evidence under `https://mrlgs.net`:
+
+| Layout | File | Bytes | SHA-256 |
+|---|---|---|---|
+| release | `Hermes-Desktop-0.4.12-arm64.manifest.json` | 1324 | `45ad70aa65199a4853b68b699f916e23e0fe75887ca75515f021bf873ad62996` |
+| release | `Hermes-Server-0.21.0-arm64.tar.gz` | 285064472 | `06513b2a2d137d70541d2a7b190ea305365a421f8f90d6e21ebb9e814852dc1e` |
+| release | `Hermes-Connector-0.1.17-arm64.tar.gz` | 37087174 | `a8733c13302af73b793563f5c7a9d5898626efc8be4c53986dd94366e21e524a` |
+| components | `Hermes-Desktop-Components-0.4.12-arm64.manifest.json` | 2076 | `040f694383295bb34fe1fa7d8a127d5242538953d65c1e81f75d3f7497732540` |
+| components | `Hermes-Component-node_runtime-22.23.2-arm64.tar.gz` | 36999072 | `6ba9ff2a3cf04a5ec0fe906afb96b46bf4ed8143355c690bc02f6dbadaddba7c` |
+| components | `Hermes-Component-connector-0.1.17-arm64.tar.gz` | 88086 | `95db00fe236a35945a5ee713ed99bbfaeee1fa8a05a5e5be4ba11fbee5863475` |
+
+Android **0.1.178 / code179** passed the official
+[release run 39910558524](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/39910558524),
+including `APK_RELEASE_OK`, feedback configuration and canonical certificate checks. The independent
+full public [APK](https://mrlgs.net/releases/Hermes-Remote-0.1.178-debug.apk) is **36,884,375 bytes**,
+SHA-256 `c4706b25a3072ba8cd1ec2507dd34346405b611f895f31dd1f82c56a40419f3b`, matching the gate and index.
+Package `com.hermes.remote`, version/code, minSdk26 and the canonical v2 signer were rechecked.
+DEX contains the new `ArtifactDownloadBatch` and negotiated-range implementation. APK HEAD/validators
+passed; unversioned APK URLs return404. The source's queued-effect helper is test-only and scoped to
+two asynchronous rendering classes; the parallel APK test fixture uses thread-safe request/progress
+collectors. Existing assertions and thread checks remain enabled. Final PR/main/release CI passed;
+local Android full tests passed **2656**, targeted rendering/transfer suites **7+7**; the final M4 Node
+suites passed **869**, with **33** prerequisite skips and no failures. Final host/disk/fresh-off-host-
+backup monitoring and Gateway health passed.
+
+Equivalent `hermes-go-batch-release-receipt-v1` evidence, complete candidate snapshots and independent
+verification are retained outside Git under M4 `~/.hermes-go-releases/hg232-20261023/`; canonical receipt
+SHA-256 `e5bd3eae1af93c3d0aa0b21dce9fefb6e6d0592fddb03b7d52fbe955a384293a`.
+The final complete candidate snapshot contained HG-232 and HG-223. HG-232's three required artifacts
+matched; release comment `9e048156-3d6c-4b01-a573-674d81b55163` was written before moving it to
+**pending verification**. HG-223 remains unchanged: its full PR includes release-server, but its
+handover registers only Android and the product has no release-server artifact identifier. Its
+attachments were not reread and no new comment/transition was made for it.
+
+Install Android 0.1.178 and update the originating Mac's managed components to 0.4.12 before checking
+negotiated concurrency. The existing Desktop GUI and upstream Hermes were not published or restarted;
+this operation did not install to a user Mac/phone. Follow `ATTACHMENT_PERFORMANCE.md` for cold/hot
+attachment download/open, first frame/seek/cache reuse, resume/source changes, account switch,
+pause/cancel and background checks. Real HONOR, household/cellular/NAT and OEM acceptance remain
+outstanding. Publication and pending verification do not establish acceptance.
