@@ -18,6 +18,33 @@ class ArtifactRangeApiTest {
     }
     private val descriptor = ArtifactDownloadDescriptor("a".repeat(64), 6, "\"${"b".repeat(64)}\"", "video/mp4", 1024)
 
+    @Test fun negotiated_large_range_keeps_byte_progress_transient_until_a_verified_response_is_returned() = runBlocking {
+        val size = 1024 * 1024
+        val desc = descriptor.copy(sizeBytes = size.toLong(), maxBytes = size.toLong(), maxRangeBytes = size)
+        server.server.enqueue(MockResponse.Builder().code(206).addHeader("ETag", desc.etag)
+            .addHeader("Content-Range", "bytes 0-${size - 1}/$size").body(Buffer().write(ByteArray(size) { 7 })).build())
+        val api = api(); val progress = mutableListOf<Long>()
+        val data = api.readArtifactRangeWithProgress(desc, 0, size, null, api.artifactOwnerKey(null)!!) { progress += it }
+        assertEquals(size, data.size); assertEquals(size.toLong(), progress.last())
+        assertTrue(progress.zipWithNext().all { (before, after) -> after >= before })
+        assertEquals("bytes=0-${size - 1}", server.server.takeRequest().headers["Range"])
+    }
+
+    @Test fun parallel_capability_requires_both_Gateway_and_Connector_and_preserves_legacy_defaults() = runBlocking {
+        val api = api(); val owner = api.artifactOwnerKey(null)!!
+        for ((connector, gateway, expected) in listOf(Triple(4, null, 1), Triple(4, "2", 2), Triple(1, "4", 1), Triple(4, "4", 4))) {
+            val desc = descriptor.copy(maxConcurrentRanges = connector, maxRangeBytes = 1024 * 1024)
+            val response = MockResponse.Builder().code(200).addHeader("x-hermes-file-channel", "1")
+                .body(Json.encodeToString(ArtifactDownloadDescriptor.serializer(), desc))
+            gateway?.let { response.addHeader("x-hermes-file-concurrency", it) }
+            server.server.enqueue(response.build())
+            assertEquals(expected, api.prepareArtifactDownload("/tmp/video.mp4", null, owner).maxConcurrentRanges)
+        }
+        val old = """{"artifactId":"${descriptor.artifactId}","sizeBytes":6,"etag":${Json.encodeToString(kotlinx.serialization.serializer<String>(), descriptor.etag)},"contentType":"video/mp4","maxBytes":1024}"""
+        server.server.enqueue(MockResponse.Builder().code(200).addHeader("x-hermes-file-channel", "1").body(old).build())
+        assertEquals(descriptor, api.prepareArtifactDownload("/tmp/video.mp4", null, owner))
+    }
+
     @Test fun owner_switch_while_building_a_video_request_stops_before_any_network_call() = runBlocking {
         var reads = 0
         val api = HermesRestApi(testHttpClient(), Json { ignoreUnknownKeys = true }) {

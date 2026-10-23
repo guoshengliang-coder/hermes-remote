@@ -525,7 +525,9 @@ test("HG-222: real Mac process returns binary ranges outside the control channel
   });
   assert.equal(prepared.status, 200);
   assert.equal(prepared.headers.get("x-hermes-file-channel"), "1");
-  const descriptor = await prepared.json() as { artifactId: string; etag: string; sizeBytes: number };
+  assert.equal(prepared.headers.get("x-hermes-file-concurrency"), "4");
+  const descriptor = await prepared.json() as { artifactId: string; etag: string; sizeBytes: number; maxConcurrentRanges: number };
+  assert.equal(descriptor.maxConcurrentRanges, 4);
   assert.equal(descriptor.sizeBytes, bytes.length);
   assert.match(descriptor.artifactId, /^[a-f0-9]{64}$/);
   assert.ok(!JSON.stringify(descriptor).includes(file));
@@ -539,6 +541,13 @@ test("HG-222: real Mac process returns binary ranges outside the control channel
   const rest = await fetch(target, { headers: { ...headers, "if-match": descriptor.etag, range: `bytes=1000000-${bytes.length - 1}` } });
   assert.equal(rest.status, 206);
   assert.deepEqual(Buffer.from(await rest.arrayBuffer()), bytes.subarray(1000000));
+  await Promise.all(Array.from({ length: 4 }, async (_, index) => {
+    const start = index * 256 * 1024, end = start + 256 * 1024 - 1;
+    const response = await fetch(target, { headers: { ...headers, "if-match": descriptor.etag, range: `bytes=${start}-${end}` } });
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get("content-range"), `bytes ${start}-${end}/${bytes.length}`);
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes.subarray(start, end + 1));
+  }));
   const unsatisfiable = await fetch(target, { headers: { ...headers, "if-match": descriptor.etag, range: `bytes=${bytes.length}-${bytes.length}` } });
   assert.equal(unsatisfiable.status, 416); await unsatisfiable.text();
   await writeFile(file, Buffer.alloc(bytes.length, 12));

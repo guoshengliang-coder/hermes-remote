@@ -213,8 +213,9 @@ private class VideoFixtureSource(mp4: ByteArray, private val padding: Int) : Aut
                             val output = it.getOutputStream()
                             if (request.startsWith("POST /api/files/downloads ")) {
                                 val body = org.json.JSONObject().put("artifactId", "a".repeat(64)).put("sizeBytes", size)
-                                    .put("etag", etag).put("contentType", "video/mp4").put("maxBytes", 8L * 1024 * 1024 * 1024).toString()
-                                output.write(("HTTP/1.1 200 OK\r\nContent-Length: ${body.toByteArray().size}\r\nx-hermes-file-channel: 1\r\nConnection: close\r\n\r\n$body").toByteArray())
+                                    .put("etag", etag).put("contentType", "video/mp4").put("maxBytes", 8L * 1024 * 1024 * 1024)
+                                    .put("maxConcurrentRanges", 4).put("maxRangeBytes", 1024 * 1024).toString()
+                                output.write(("HTTP/1.1 200 OK\r\nContent-Length: ${body.toByteArray().size}\r\nx-hermes-file-channel: 1\r\nx-hermes-file-concurrency: 4\r\nConnection: close\r\n\r\n$body").toByteArray())
                             } else {
                                 if (headers["if-match"] != etag) validatedHeaders = false
                                 val range = Regex("bytes=(\\d+)-(\\d+)").matchEntire(headers["range"].orEmpty())!!

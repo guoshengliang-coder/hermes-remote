@@ -35,6 +35,32 @@ class ArtifactDownloadManagerTest {
         coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns descriptor
     }
 
+    @Test fun parallel_pause_and_cancel_keep_only_the_last_durable_batch_and_never_auto_restart() = runBlocking {
+        val size = 2L * 1024 * 1024
+        coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns descriptor.copy(sizeBytes = size,
+            maxConcurrentRanges = 4, maxRangeBytes = 1024 * 1024)
+        for (cancel in listOf(false, true)) {
+            val entered = CompletableDeferred<Unit>()
+            coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } coAnswers {
+                if (secondArg<Long>() >= 1024 * 1024) {
+                    entered.complete(Unit)
+                    try { awaitCancellation() } finally { throw IOException("parallel socket cancelled") }
+                }
+                ByteArray(thirdArg()) { 7 }
+            }
+            val manager = ArtifactDownloadManager(context, rest)
+            val task = manager.enqueue(file.copy(sizeBytes = size, remotePath = "/tmp/parallel-$cancel.mp4"), "mac-a")
+            val running = async(Dispatchers.Default) { manager.runTask(task.id) {} }
+            withTimeout(5000) { entered.await() }
+            (if (cancel) manager.cancel(task.id) else manager.pause(task.id)).join()
+            try { running.await() } catch (_: CancellationException) { }
+            val retained = manager.awaitTask(task.id)!!
+            assertEquals(if (cancel) ArtifactDownloadStatus.CANCELLED else ArtifactDownloadStatus.PAUSED, retained.status)
+            assertEquals(1024L * 1024, retained.downloaded)
+            assertNull(retained.progressBytes)
+        }
+    }
+
     @Test fun explicit_download_reuses_playback_blocks_without_requesting_them_again() = runBlocking {
         val size = 2L * com.hermes.client.data.video.ArtifactRangeCache.BLOCK_BYTES
         val desc = descriptor.copy(sizeBytes = size)

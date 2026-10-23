@@ -20,14 +20,15 @@ export function sendArtifactError(response: ServerResponse, status: number, code
   response.end(JSON.stringify(artifactFailure(code)));
 }
 
-/** One bounded binary response per Mac. No complete-file buffers or temporary files. */
+/** Up to four bounded ranges of one reference per Mac. No complete-file staging. */
 export class ArtifactDownloadBroker {
   private readonly pending = new Map<string, Transfer>();
-  private readonly active = new Set<WebSocket>();
+  private readonly active = new Map<WebSocket, { reference: string; count: number }>();
   constructor(
     private readonly send: (socket: WebSocket, message: WireMessage) => unknown,
     private readonly idleMs = 30_000,
     private readonly capacity = 64,
+    readonly maxConcurrentRanges = 4,
   ) {}
 
   handles(url: URL): boolean {
@@ -48,7 +49,10 @@ export class ArtifactDownloadBroker {
         || Number(match[2]) < Number(match[1]) || Number(match[2]) - Number(match[1]) >= 8 * 1024 * 1024) {
       sendArtifactError(response, 400, "HR-FILE-006"); return;
     }
-    if (this.active.has(connector.socket) || this.pending.size >= this.capacity) {
+    const reference = `${artifactId}:${etag}`;
+    const active = this.active.get(connector.socket);
+    if ((active && (active.reference !== reference || active.count >= this.maxConcurrentRanges))
+        || this.pending.size >= this.capacity) {
       sendArtifactError(response, 503, "HR-FILE-013"); return;
     }
     if (connector.socket.readyState !== WebSocket.OPEN) {
@@ -66,7 +70,7 @@ export class ArtifactDownloadBroker {
       },
     };
     this.pending.set(id, transfer);
-    this.active.add(connector.socket);
+    this.active.set(connector.socket, { reference, count: (active?.count ?? 0) + 1 });
     connector.socket.once("close", closed);
     request.once("aborted", closed);
     response.once("close", closed);
@@ -167,7 +171,8 @@ export class ArtifactDownloadBroker {
     const entry = this.pending.get(id);
     if (!entry) return;
     this.pending.delete(id);
-    this.active.delete(entry.connector.socket);
+    const active = this.active.get(entry.connector.socket);
+    if (active && --active.count === 0) this.active.delete(entry.connector.socket);
     clearTimeout(entry.timer); clearInterval(entry.accessTimer);
     entry.cleanup();
   }

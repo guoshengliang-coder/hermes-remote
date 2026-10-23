@@ -17,4 +17,6 @@ data class ArtifactDownloadDescriptor(
     val contentType: String,
     val maxBytes: Long,
     val quickOpenBytes: Long = ARTIFACT_DOWNLOAD_LIMIT_BYTES,
+    val maxConcurrentRanges: Int = 1,
+    val maxRangeBytes: Int = 256 * 1024,
 )

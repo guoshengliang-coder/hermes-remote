@@ -1,5 +1,12 @@
 # Hermes Remote Android
 
+HG-232 negotiates up to four attachment ranges with both Gateway and Connector. Downloads grow
+from 256 KiB to at most 1 MiB ranges on fast batches and shrink on slow ones, retaining only fully
+verified, fsynced sequential checkpoints. Video prefetch starts after sequential reads, stays one
+block ahead, and is cancelled on close/seek/background. Old peers keep their serial path; Web is
+unchanged. Source/testing scope and local measurements are in `../docs/ATTACHMENT_PERFORMANCE.md`.
+This source iteration does not allocate or publish a release.
+
 Attachments show size and distinct file-type icons before download (HG-222). With compatible
 Gateway and Mac components, downloads use an independent binary HTTP channel, durable task records
 and app-private files. The 100 MiB threshold controls non-video quick open and file sharing: larger files download first;

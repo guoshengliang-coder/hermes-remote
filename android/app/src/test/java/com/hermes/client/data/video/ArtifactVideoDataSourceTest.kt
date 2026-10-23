@@ -25,6 +25,43 @@ class ArtifactVideoDataSourceTest {
         ArtifactDownloadDescriptor("a".repeat(64), size, "etag", "video/mp4", size))
     private val uri = Uri.parse("hermes-video://attachment/video")
 
+    @Test fun sequential_playback_prefetches_one_block_and_close_cancels_speculation() = runBlocking {
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        val streaming = ArtifactRangeRepository.Source("owner", "mac", "/video.mp4",
+            ArtifactDownloadDescriptor("a".repeat(64), 3L * block, "etag", "video/mp4", 3L * block))
+        coEvery { repository.checkOwner(any(), any()) } returns Unit
+        val prefetch = CompletableDeferred<Unit>(); val stopped = CompletableDeferred<Unit>()
+        coEvery { repository.read(streaming, 0) } returns ByteArray(block) { 7 }
+        coEvery { repository.read(streaming, block.toLong()) } returns ByteArray(block) { 8 }
+        coEvery { repository.read(streaming, 2L * block) } coAnswers {
+            prefetch.complete(Unit)
+            try { awaitCancellation() } finally { stopped.complete(Unit) }
+        }
+        val data = ArtifactVideoDataSource(repository, streaming)
+        data.open(DataSpec.Builder().setUri(uri).build())
+        assertEquals(block, data.read(ByteArray(block), 0, block))
+        coVerify(exactly = 0) { repository.read(streaming, block.toLong()) }
+        assertEquals(1, data.read(ByteArray(1), 0, 1))
+        withTimeout(5000) { prefetch.await() }
+        data.close(); withTimeout(5000) { stopped.await() }
+    }
+
+    @Test fun a_cached_prefetch_is_consumed_once_without_another_network_read() {
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        val streaming = ArtifactRangeRepository.Source("owner", "mac", "/video.mp4",
+            ArtifactDownloadDescriptor("a".repeat(64), 2L * block + 8, "etag", "video/mp4", 3L * block))
+        coEvery { repository.checkOwner(any(), any()) } returns Unit
+        coEvery { repository.read(streaming, 0) } returns ByteArray(block) { 7 }
+        coEvery { repository.read(streaming, block.toLong()) } returns ByteArray(block) { 8 }
+        coEvery { repository.read(streaming, 2L * block) } returns ByteArray(8) { 9 }
+        val data = ArtifactVideoDataSource(repository, streaming)
+        data.open(DataSpec.Builder().setUri(uri).build())
+        repeat(2) { assertEquals(block, data.read(ByteArray(block), 0, block)) }
+        val tail = ByteArray(8); assertEquals(8, data.read(tail, 0, 8)); assertEquals(9.toByte(), tail[0])
+        coVerify(exactly = 1) { repository.read(streaming, 2L * block) }
+        data.close()
+    }
+
     @Test fun unknown_length_seek_and_eof_respect_the_requested_window() {
         coEvery { repository.checkOwner(any(), any()) } returns Unit
         coEvery { repository.read(source, any()) } answers { ByteArray(8) { (it + 1).toByte() } }
