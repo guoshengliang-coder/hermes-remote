@@ -21,6 +21,7 @@ import {
 } from "../chat/organize";
 import { onSpeaking, speakingNow, speechSupported, toggleSpeak } from "../chat/speech";
 import { isAllowedHref, readableText } from "../markdown/render";
+import { Sheet } from "./Sheet";
 import { ErrorNotice } from "./ErrorNotice";
 import { ChevronIcon, CopyIcon, MoreHorizontalIcon, RefreshIcon, SpeakerIcon, ThumbDownIcon, ThumbUpIcon } from "./icons";
 import type { ViewerImage } from "./ImageViewer";
@@ -34,7 +35,7 @@ import { FileCard, MacImage } from "./Media";
 // message's images only. Injected system turns render as one quiet timeline note.
 
 const TOOL_PREVIEW_CHARS = 12_000;
-const RUNNING_TOOL_PREVIEW_ROWS = 3;
+const RUNNING_TOOL_PREVIEW_ROWS = 1;
 
 const LABELS: Record<ToolLabelKey, [string, string]> = {
   terminal: ["终端结果", "Terminal result"],
@@ -252,8 +253,9 @@ function Tools({ tools, completed }: { tools: ToolCard[]; completed: boolean }) 
   );
 }
 
-function Reasoning({ text, streaming, parts = [] }: { text: string; streaming: boolean; parts?: Array<{ text: string; source?: HistoryLocator }> }) {
+function Reasoning({ text, parts = [] }: { text: string; parts?: Array<{ text: string; source?: HistoryLocator }> }) {
   const { t, language } = useApp();
+  // Live and historical reasoning both start folded. Only a reader action changes it.
   const [open, setOpen] = useState(false);
   const sources = parts.flatMap((part) => part.source ? [part.source] : []);
   const full = useFullReasoning(sources, open);
@@ -265,10 +267,10 @@ function Reasoning({ text, streaming, parts = [] }: { text: string; streaming: b
     <div class="reasoning">
       <button type="button" class="reasoning-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <ChevronIcon open={open} />
-        <span>{streaming && !open ? t("思考中…", "Thinking…") : open ? t("收起思考过程", "Hide reasoning") : t("查看思考过程", "View reasoning")}</span>
+        <span>{open ? t("收起思考过程", "Hide reasoning") : t("查看思考过程", "View reasoning")}</span>
       </button>
       {open ? <>
-        <p class="reasoning-text">{shown}</p>
+        <div class="reasoning-body"><p class="reasoning-text">{shown}</p></div>
         {full.loading ? <p class="tool-note">{t("正在读取全文…", "Loading full content…")}</p> : null}
         {full.failed ? <ErrorNotice error={appError("HR-SYNC-005")} language={language} onRetry={full.retry} variant="inline" /> : null}
       </> : null}
@@ -279,6 +281,10 @@ function Reasoning({ text, streaming, parts = [] }: { text: string; streaming: b
 /** What a streaming turn is doing right now, with the run's true elapsed time (HG-56). */
 export function RunningStatusLine({ item }: { item: { tools: ToolCard[]; text: string; reasoning: string; timestampMs: number | null } }) {
   const { t, language } = useApp();
+  const prose = item.text.trim();
+  const placeholder = t("工具数据接收中…", "Receiving tool data…");
+  const showText = !prose || prose === placeholder || prose === `*${placeholder}*`;
+  const [details, setDetails] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -292,7 +298,7 @@ export function RunningStatusLine({ item }: { item: { tools: ToolCard[]; text: s
   if (!hasOutput) {
     label = elapsed !== null && elapsed >= RUN_WAIT_ELAPSED_AFTER_MS ? `${t("已运行 ", "Running for ")}${formatElapsed(elapsed, zh)}` : t("正在准备…", "Preparing…");
   } else {
-    const status = runningStatus(item);
+    const status = runningStatus(showText ? { ...item, text: "" } : item);
     label =
       status.kind === "tool"
         ? `${t("正在运行 ", "Running ")}${status.label}…${suffix}`
@@ -301,13 +307,14 @@ export function RunningStatusLine({ item }: { item: { tools: ToolCard[]; text: s
           : `${t("生成中…", "Generating…")}${suffix}`;
   }
   return (
-    <div class="running-line" role="status">
+    <div class="running-line" role="status" aria-label={!showText ? t("正在生成", "Generating") : undefined}>
       <span class="loading-dots" aria-hidden="true">
         <i />
         <i />
         <i />
       </span>
-      <span class="running-text mono">{label}</span>
+      {showText ? <button type="button" class="running-text mono" aria-label={t("查看完整状态", "View full status")} onClick={() => setDetails(label)}>{label}</button> : null}
+      {details !== null ? <Sheet title={t("运行状态", "Run status")} closeLabel={t("关闭", "Close")} onClose={() => setDetails(null)}><p class="running-details">{details}</p></Sheet> : null}
     </div>
   );
 }
@@ -379,7 +386,6 @@ function ActionRow({ item, actions }: { item: ChatItem; actions: MessageActions 
 
 export function MessageView({ item, actions = {}, chartContext }: { item: ChatItem; actions?: MessageActions; chartContext?: ChartContext }) {
   const { language, t } = useApp();
-
   // While streaming, mask unfinished payloads and pull finished ones into cards per snapshot, so
   // a payload never first explodes into Markdown and then collapses (Android stabilizedForStreaming).
   const placeholder = t("工具数据接收中…", "Receiving tool data…");
@@ -451,7 +457,7 @@ export function MessageView({ item, actions = {}, chartContext }: { item: ChatIt
 
   return (
     <div class="turn turn-assistant" data-key={item.key}>
-      {item.reasoning.trim() ? <Reasoning text={item.reasoning} streaming={item.streaming && !display.text} parts={item.reasoningParts} /> : null}
+      {item.reasoning.trim() ? <Reasoning text={item.reasoning} parts={item.reasoningParts} /> : null}
       {display.tools.length ? <Tools tools={display.tools} completed={!item.streaming} /> : null}
       {gallery.length ? (
         <div class={`assistant-media${mediaClass}`}>
@@ -466,9 +472,13 @@ export function MessageView({ item, actions = {}, chartContext }: { item: ChatIt
         </a>
       ))}
       {files.map((a) => <FileCard key={a.path} attachment={a} />)}
-      {item.streaming ? <RunningStatusLine item={{ tools: display.tools, text: display.text, reasoning: item.reasoning, timestampMs: item.timestampMs }} /> : null}
-      {item.interrupted ? <span class="interrupted-note">{t("已中断", "Interrupted")}</span> : null}
-      {!item.streaming && item.text.trim() ? <ActionRow item={item} actions={actions} /> : null}
+      {item.streaming || item.interrupted || item.text.trim() ? (
+        <div class="turn-footer">
+          {item.streaming ? <RunningStatusLine item={{ tools: display.tools, text: display.text, reasoning: item.reasoning, timestampMs: item.timestampMs }} /> : null}
+          {item.interrupted ? <span class="interrupted-note">{t("已中断", "Interrupted")}</span> : null}
+          {!item.streaming && item.text.trim() ? <ActionRow item={item} actions={actions} /> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

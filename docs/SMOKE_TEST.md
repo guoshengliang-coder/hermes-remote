@@ -1903,6 +1903,37 @@ attachment/draft ownership, reading/search restoration and navigation races. Des
 WebKit size/keyboard emulation is useful evidence, but does not count as physical Android/iOS,
 TalkBack/VoiceOver or an actual folding gesture.
 
+# HG-231 · Web recording release and interruption recovery
+
+Primary acceptance target: the **iPhone Home Screen installed Web App** reported by the owner.
+Record iPhone model, iOS version, Web build and entry mode; record Safari-tab and Android Chrome
+results separately. DOM tests in `VoiceComposer.test.tsx` and `Composer.test.tsx` prove event
+routing, terminal-action deduplication, partial-text/attachment retention and late-callback rejection.
+They do not prove WebKit's physical touch sequence or that the system microphone indicator clears.
+Physical iPhone acceptance has not been performed for this change.
+
+1. In a disposable chat, prepare draft text and an attachment. Hold to talk, speak, slide away from
+   the original button (including beyond the overlay's central card), then release. The microphone
+   must stop promptly. Ordinary release sends the draft, final speech and attachment exactly once;
+   release in the left cancel or right edit target follows the drawn action even on a fast slide
+   without pausing. Cancel discards only this speech; Edit appends the final text to the draft.
+2. Repeat while moving near the screen edge, using another finger to tap/release outside the
+   targets, and with rapid press/release (under 250ms). Another finger must not finish the original
+   hold; a short original press cancels. Repeated end/cancel signals must not send twice.
+3. While recording with partial text visible, open Control Center, switch apps, lock the phone or
+   otherwise interrupt the gesture. Capture and the connection must close immediately; on return,
+   partial text is appended once to the existing draft, attachments remain, and nothing is sent.
+   If the OS never reports an interruption until the page resumes, record that sequence and delay
+   explicitly rather than calling it verified. Check the OS microphone indicator as well as the UI.
+4. If the recording becomes stuck after a missed release, independently tap Cancel or Edit.
+   Cancel must stop/discard this recording; Edit must stop capture, wait for the bounded final
+   result and put it in the draft. Neither operation may require a fresh slide. Repeat with
+   VoiceOver activation. Keep partial/final text, attachments and submitted messages under review.
+5. Confirm normal keyboard Space/Enter holds, arrow target selection, Escape, Cancel waiting,
+   five-minute-to-draft completion, chat switching, sign-out and network/final-result errors still
+   work. On desktop also release beyond the button and outside the browser window, then re-enter;
+   no live microphone may remain after a detected window blur or a move reporting no pressed button.
+
 # HG-201 · Web session long-press release isolation
 
 Automated: `web/src/ui/useLongPress.test.tsx` exercises the real SessionRow/SessionActionSheet
@@ -2133,3 +2164,45 @@ positions alone. No new user-visible failure or error code is introduced.
 
 Local Web baseline passed: `npm run typecheck`, `npm test` (96 files / 968 cases),
 `npm run build`, and `git diff --check`. No production deployment or version allocation occurred.
+Integration with `ef4d5d1b` preserved the HG-230/HG-231 behavior and documentation; the Web baseline
+passed again with 97 files / 994 cases. Only additive documentation conflicts required resolution.
+
+## HG-230 · live reasoning, tools and status (Android / Web)
+
+Use a scripted local run with long multiline reasoning, four sequential tools (including one failure),
+then prose and completion. Check both clients in light/dark, narrow widths and fontScale 1.3 / browser zoom:
+
+1. Reasoning starts folded during the run and when reopening settled history. Later reasoning,
+   tools and prose never open it automatically. An explicit Expand shows all reasoning and survives
+   completion; an explicit Hide
+   remains hidden through later tokens. Opening historical reasoning still loads its full content.
+2. A running tool group shows only its newest call with total/failure counts. Expand shows all calls;
+   new calls do not undo that choice. Collapse returns to one latest call. Completion folds only
+   groups that were not manually expanded; each call's output is still accessible.
+3. Before visible prose starts, running status has no line limit and retains the full latest nonblank reasoning line
+   or active tool command (including >64-character/multiline commands), and opens a selectable full
+   snapshot on tap. Updates do not change the snapshot being read; close/Escape/back returns to the
+   same transcript position. Text is plain text, never executed HTML/Markdown.
+4. Grow the status beyond three lines, then start the final prose while the run is still streaming:
+   status text must disappear immediately, the dots remain, and the footer releases the text's height
+   instead of leaving a large blank. Tool-only structured payloads and whitespace must not hide status.
+   Later reasoning does not bring status back over visible prose. Completion replaces dots with actions.
+   While browsing older content, tokens/completion must not steal the
+   reading position. Exercise entering/reentering a running conversation and interrupted/reconnected runs.
+
+JVM/DOM tests cover disclosure transitions, preview rows and status text/snapshots. Actual device,
+Safari/PWA, gesture, text-selection and scroll behavior requires the visual/manual pass above.
+
+Historical evidence for the superseded initial behavior (2026-10-22): Android L1 has disclosure/footer regressions and
+light / app-dark-on-light-system / fontScale 1.3 screenshots. The complete JVM suite passed
+(2645 tests) and `:app:assembleDebug` passed its canonical signing-key check. Web typecheck,
+959 tests and production build passed. Local Chrome component checks at 393px light/dark,
+393px with 1.3x text, and 1100px verified five-line preview tail-follow, three-line status,
+Escape dismissal, automatic completion folding and unchanged footer height. This is component
+verification; physical Android and Safari/PWA plus full-conversation reading/gesture acceptance
+remain manual. No version bump, distributed APK or production deployment is part of this change.
+L3: `MessageProgressDeviceTest` passed on Pixel_9_API_36_1 (Android 16 / SDK 36);
+its preview and full-status screenshots were pulled as nonempty PNGs and visually inspected.
+It covers native touch, manual disclosure through completion, newest-tool visibility and dialog
+open/close. This is an emulator result, not a physical-device result; no SDK-37-gated platform
+behavior is claimed. L2 was unavailable (no physical device attached).

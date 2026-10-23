@@ -2230,18 +2230,28 @@ html[data-theme="dark"] .group-header {
 /* Running status line (HG-56): dots + what the run is doing + elapsed. */
 .running-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   min-height: 1.75rem;
   color: var(--status-running);
   font-size: 0.8125rem;
 }
 
+.running-line > .loading-dots { flex: none; margin-top: 0.4375rem; }
+
 .running-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  text-align: left;
+  color: inherit;
+  font-size: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+
+.running-details { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.turn-footer { min-height: 3rem; }
+.reasoning-body { line-height: 1.5; font-size: 0.8125rem; }
+.reasoning-body .reasoning-text { margin: 0; line-height: inherit; font-size: inherit; }
 
 .loading-dots {
   display: inline-flex;

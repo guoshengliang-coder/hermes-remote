@@ -60,6 +60,12 @@ HG-220（2026-10-20）在 API 36 模拟器上发现：当前依赖中的 Espress
 组件级 Activity 验证页也要提供 `systemBarsPadding`：它没有主页面的 Scaffold inset，若把消息放在
 屏幕最上沿，触摸会被系统状态栏接收，不能把这种测试画布错误当成组件点击失效。
 
+HG-230 的 API 36 模拟器测试中，`UiAutomation.executeShellCommand("screencap -p <path>")`
+留下了零字节 PNG；命令完成、`adb pull` 成功都不是截图有效的证据。组件测试改用
+`UiAutomation.takeScreenshot()`，检查 Bitmap 非空并压成 PNG，再读取文件实际目检。
+connected 测试结束时 runner 可能卸载目标包并删除 externalFilesDir；要在结束后取回合成
+截图，可经 MediaStore 保存到独立测试目录，再核对文件非空。只存测试夹具，不存真实会话。
+
 全屏 Dialog 的设备测试还要处理 Android 首次沉浸式提示（英文为 `Viewing full screen` / `Got it`）。
 它可能在首帧后才弹出，拦截触摸并把底层图片变暗，导致手势/像素断言误失败。按无障碍树确认并点击
 该提示的按钮后再开始手势，不写全局 immersive 设置；示例见 `ImageViewerDeviceTest`（HG-225）。

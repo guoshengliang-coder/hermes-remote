@@ -15,12 +15,18 @@ export interface VoiceComposerProps {
   disabled: boolean;
   onBegin: () => void;
   onRelease: (action: VoiceAction) => void;
+  onInterrupted: () => void;
   onCancelWait: () => void;
 }
-export function VoiceComposer({ t, phase, recording, limited, feedbackEnabled, text, disabled, onBegin, onRelease, onCancelWait }: VoiceComposerProps) {
+export function VoiceComposer({ t, phase, recording, limited, feedbackEnabled, text, disabled, onBegin, onRelease, onInterrupted, onCancelWait }: VoiceComposerProps) {
   const [zone, setZone] = useState<VoiceAction>("send");
   const [elapsed, setElapsed] = useState(0);
-  const gesture = useRef<{ id: number | "keyboard"; started: number } | null>(null);
+  const gesture = useRef<{ id: number | "keyboard"; started: number; touchId?: number; key?: string } | null>(null);
+  const hold = useRef<HTMLButtonElement>(null), overlay = useRef<HTMLDivElement>(null);
+  const removeListeners = useRef(() => {});
+  const settled = useRef(false);
+  const latest = useRef({ phase, onRelease, onInterrupted });
+  latest.current = { phase, onRelease, onInterrupted };
   const action = useRef<VoiceAction>("send");
   const cancel = useRef<HTMLButtonElement>(null), edit = useRef<HTMLButtonElement>(null);
   const active = phase !== "idle";
@@ -47,18 +53,86 @@ export function VoiceComposer({ t, phase, recording, limited, feedbackEnabled, t
     const timer = setInterval(() => setElapsed(Math.min(VOICE_RECORDING_LIMIT_MS, Date.now() - started)), 120);
     return () => clearInterval(timer);
   }, [phase, recording, limited]);
-  useEffect(() => { if (phase === "idle") gesture.current = null; }, [phase]);
-  function begin(id: number | "keyboard") {
-    if (disabled || phase !== "idle" || gesture.current) return;
-    gesture.current = { id, started: Date.now() }; action.current = "send"; setZone("send"); onBegin();
+  useLayoutEffect(() => {
+    if (phase !== "held") clearGesture();
+    if (phase === "idle") settled.current = false;
+  }, [phase]);
+  useEffect(() => () => clearGesture(), []);
+  function clearGesture() {
+    const current = gesture.current;
+    gesture.current = null;
+    removeListeners.current(); removeListeners.current = () => {};
+    haptics.current.reset();
+    if (current && typeof current.id === "number") {
+      try { if (hold.current?.hasPointerCapture?.(current.id)) hold.current.releasePointerCapture(current.id); }
+      catch { /* Capture is only an optimization; the browser may have already released it. */ }
+    }
+  }
+  function begin(id: number | "keyboard", key?: string) {
+    if (disabled || phase !== "idle" || gesture.current) return false;
+    gesture.current = { id, started: Date.now(), key }; settled.current = false;
+    action.current = "send"; setZone("send");
+    // Install before onBegin renders the overlay. The end may target that overlay or the
+    // document even when capture is missing; effects would leave a fast-release gap.
+    removeListeners.current = watchGesture();
+    onBegin();
+    return true;
   }
   function release(force?: VoiceAction) {
     const current = gesture.current;
-    if (!current) return;
-    gesture.current = null;
-    haptics.current.reset();
-    if (phase !== "held") return;
-    onRelease(force ?? (Date.now() - current.started < 250 ? "cancel" : action.current));
+    if ((!current && !force) || latest.current.phase !== "held" || settled.current) return;
+    settled.current = true; clearGesture();
+    latest.current.onRelease(force ?? (Date.now() - current!.started < 250 ? "cancel" : action.current));
+  }
+  function interrupt() {
+    if (!gesture.current || latest.current.phase !== "held" || settled.current) return;
+    settled.current = true; clearGesture();
+    latest.current.onInterrupted();
+  }
+  function move(x: number, y: number) {
+    const next = voiceActionAt(x, y, target(cancel.current), target(edit.current), action.current);
+    action.current = next; setZone(next);
+  }
+  function watchGesture() {
+    const matches = (e: PointerEvent) => gesture.current?.id === e.pointerId;
+    const pointerMove = (e: PointerEvent) => {
+      if (!matches(e)) return;
+      // A missed mouse/pen up is observable on the next move. Touch buttons are not reliable.
+      if ((e.pointerType === "mouse" || e.pointerType === "pen") && e.buttons === 0) interrupt();
+      else move(e.clientX, e.clientY);
+    };
+    const pointerUp = (e: PointerEvent) => { if (matches(e)) { move(e.clientX, e.clientY); release(); } };
+    const pointerInterrupted = (e: PointerEvent) => { if (matches(e)) interrupt(); };
+    const touchEnd = (e: TouchEvent) => {
+      const touch = Array.from(e.changedTouches).find(t => t.identifier === gesture.current?.touchId);
+      if (!touch) return;
+      if (e.type === "touchcancel") interrupt();
+      else { move(touch.clientX, touch.clientY); release(); }
+    };
+    const hidden = () => { if (document.visibilityState === "hidden") interrupt(); };
+    const keyUp = (e: KeyboardEvent) => { if (gesture.current?.id === "keyboard" && e.key === gesture.current.key) { e.preventDefault(); release(); } };
+    window.addEventListener("pointermove", pointerMove, true);
+    window.addEventListener("pointerup", pointerUp, true);
+    window.addEventListener("pointercancel", pointerInterrupted, true);
+    window.addEventListener("lostpointercapture", pointerInterrupted, true);
+    window.addEventListener("touchend", touchEnd, true);
+    window.addEventListener("touchcancel", touchEnd, true);
+    window.addEventListener("keyup", keyUp, true);
+    window.addEventListener("blur", interrupt);
+    window.addEventListener("pagehide", interrupt);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pointermove", pointerMove, true);
+      window.removeEventListener("pointerup", pointerUp, true);
+      window.removeEventListener("pointercancel", pointerInterrupted, true);
+      window.removeEventListener("lostpointercapture", pointerInterrupted, true);
+      window.removeEventListener("touchend", touchEnd, true);
+      window.removeEventListener("touchcancel", touchEnd, true);
+      window.removeEventListener("keyup", keyUp, true);
+      window.removeEventListener("blur", interrupt);
+      window.removeEventListener("pagehide", interrupt);
+      document.removeEventListener("visibilitychange", hidden);
+    };
   }
   function target(el: HTMLElement | null): VoiceTarget | null {
     if (!el) return null;
@@ -72,32 +146,33 @@ export function VoiceComposer({ t, phase, recording, limited, feedbackEnabled, t
   // button and overlay unselectable (user-select / -webkit-touch-callout).
   const blockLongPress = (e: Event) => e.preventDefault();
   return <>
-    <button type="button" class="voice-hold" disabled={disabled && !active}
+    <button ref={hold} type="button" class="voice-hold" disabled={disabled && !active}
       aria-label={t("按住说话；向左上滑取消，向右上滑转文字", "Hold to talk; slide up left to cancel or up right to edit")}
       onContextMenu={blockLongPress}
       onPointerDown={(e) => {
         if (e.button !== 0 || gesture.current || disabled) return;
-        e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); begin(e.pointerId);
+        e.preventDefault();
+        if (begin(e.pointerId)) {
+          try { e.currentTarget.setPointerCapture?.(e.pointerId); }
+          catch { /* Global listeners still own the gesture when capture is unavailable. */ }
+        }
       }}
-      onPointerMove={(e) => {
-        if (gesture.current?.id !== e.pointerId) return;
-        const next = voiceActionAt(e.clientX, e.clientY, target(cancel.current), target(edit.current), action.current);
-        action.current = next; setZone(next);
+      onTouchStart={(e) => {
+        // WebKit can emit touchend/cancel without the pointer equivalent. Touch identifiers
+        // differ from pointerId: remember the initiating touch, never a later second finger.
+        const current = gesture.current;
+        if (current && typeof current.id === "number" && current.touchId === undefined) current.touchId = e.changedTouches[0]?.identifier;
       }}
-      onPointerUp={(e) => { if (gesture.current?.id === e.pointerId) release(); }}
-      onPointerCancel={() => release("cancel")}
-      onLostPointerCapture={() => release("cancel")}
       onKeyDown={(e) => {
         if (e.key === "Escape") { e.preventDefault(); phase === "waiting" ? onCancelWait() : release("cancel"); }
         if (gesture.current?.id === "keyboard" && ["ArrowLeft", "ArrowRight", "ArrowDown"].includes(e.key)) {
           e.preventDefault(); action.current = e.key === "ArrowLeft" ? "cancel" : e.key === "ArrowRight" ? "edit" : "send"; setZone(action.current);
         }
-        if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); begin("keyboard"); }
+        if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); begin("keyboard", e.key); }
       }}
-      onKeyUp={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); release(); } }}
-      onBlur={() => { if (gesture.current?.id === "keyboard") release("cancel"); }}
+      onBlur={(e) => { if (gesture.current?.id === "keyboard" && !overlay.current?.contains(e.relatedTarget as Node | null)) interrupt(); }}
     >{phase === "held" ? t("松开发送", "Release to send") : phase === "waiting" ? t("正在完成识别…", "Finishing recognition…") : t("按住说话", "Hold to talk")}</button>
-    {active ? <div class="voice-overlay" role="dialog" aria-modal="true" aria-label={t("语音输入", "Voice input")}
+    {active ? <div ref={overlay} class="voice-overlay" role="dialog" aria-modal="true" aria-label={t("语音输入", "Voice input")}
       onContextMenu={blockLongPress}
       onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); phase === "waiting" ? onCancelWait() : release("cancel"); } }}>
       <div class="voice-stage">

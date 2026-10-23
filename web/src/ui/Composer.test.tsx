@@ -373,6 +373,25 @@ it("partial results never submit, edit appends, and a callback from a previous c
   act(() => oldCallback({ kind: "final", text: "迟到" }));
   expect(h.host.querySelector("textarea")!.value).toBe(""); expect(h.props.onSend).not.toHaveBeenCalled();
 });
+it.each(["pointercancel", "lostpointercapture", "blur"])("HG-231: %s immediately stops capture, keeps partial text and rejects late finals", async (eventType) => {
+  const h = mount({ draftKey: "interrupted" }); type(h.host, "已有草稿");
+  await stageFiles(h, [new File(["file"], "notes.txt", { type: "text/plain" })]);
+  act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
+  act(() => { h.host.querySelector('.voice-hold')!.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 17, button: 0, bubbles: true })); });
+  const old = mocks.events!;
+  act(() => old({ kind: "partial", text: "半截语音" })); mocks.cancel.mockReturnValueOnce("半截语音");
+  act(() => {
+    if (eventType === "blur") window.dispatchEvent(new Event("blur"));
+    else document.body.dispatchEvent(new PointerEvent(eventType, { pointerId: 17, bubbles: true }));
+  });
+  expect(mocks.cancel).toHaveBeenCalledOnce(); expect(mocks.finish).not.toHaveBeenCalled();
+  expect(h.host.querySelector(".voice-overlay")).toBeNull();
+  expect(h.host.querySelector("textarea")!.value).toBe("已有草稿\n半截语音");
+  expect(h.host.querySelector(".attachment-strip")?.textContent).toContain("notes.txt");
+  act(() => old({ kind: "final", text: "迟到的完整文字" }));
+  expect(h.props.onSend).not.toHaveBeenCalled();
+  expect(h.host.querySelector("textarea")!.value).toBe("已有草稿\n半截语音");
+});
 it("a released voice message sends the draft, final speech and pending files together (HG-196)", async () => {
   const h = mount({ draftKey: "one" }); type(h.host, "已有草稿");
   const file = new File(["fixture"], "report.pdf", { type: "application/pdf" });

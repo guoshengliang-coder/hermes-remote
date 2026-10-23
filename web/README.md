@@ -1,3 +1,13 @@
+HG-231 follows the initiating pointer outside the hold button and uses the final release position.
+Matching touch-end/cancel events provide a fallback when WebKit omits a pointer end; other fingers
+cannot finish the recording. Pointer cancellation, unexpected capture loss, window blur and missed
+mouse/pen releases stop capture immediately and preserve partial text in the existing draft without
+sending. Explicit Cancel/Edit buttons work even if gesture bookkeeping is missing. One terminal
+action owns each recording; duplicate/late events cannot send again. Existing send, deliberate
+cancel, final-result wait and five-minute rules remain. DOM regressions cover these paths; physical
+iPhone Home Screen Web App acceptance is still required in `../docs/SMOKE_TEST.md` (HG-231).
+No Gateway, Connector, Android, protocol, version or error-code changes are required.
+
 HG-216 P1c adds separately capability-gated account model favorites and remembered reasoning.
 Legacy stays local; existing local data requires explicit import confirmation. A durable IndexedDB
 outbox uses field CAS, signed leases and explicit conflict review. Cloud updates never switch a
@@ -105,3 +115,11 @@ and draft data are untouched; search/sheet text fields retain keyboard ownership
 Composer regressions replay the old failure; local iOS 26.5 Simulator Safari measurements and the
 remaining physical Safari/Home Screen checks are in `../docs/SMOKE_TEST.md` (HG-229). No server,
 credential, API, version or error-code changes are required.
+
+HG-230 follow-up (2026-10-23) aligns progress with Android: reasoning starts folded for live runs
+and settled history; manual expand/hide survives updates and completion. Tool timelines preview
+only the newest call with access to the full list. Status text is shown without a line limit or
+24/64-character pre-truncation until visible prose starts; only the live dots remain after that.
+The footer releases the text's height instead of leaving a large blank. Tapping status still opens
+a selectable snapshot in a sheet.
+No server, credential, error-code or protocol changes. See `../docs/SMOKE_TEST.md` for visual checks.
