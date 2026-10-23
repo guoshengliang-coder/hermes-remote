@@ -53,6 +53,10 @@ describe("mergeOlder", () => {
 });
 
 describe("fetchFullHistory", () => {
+  it("rejects repeated full pages instead of presenting incomplete results as complete", async () => {
+    const messages = range(1, 500);
+    await expect(fetchFullHistory(async () => ({ messages, pagination: { returned: 500 } }))).rejects.toThrow("no progress");
+  });
   function server(total: number, paged = true) {
     const all = range(1, total);
     const calls: MessagesPage[] = [];

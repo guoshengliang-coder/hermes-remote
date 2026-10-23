@@ -133,6 +133,9 @@ data class ChatMessage(
      * transcript held in pages (HG-104) tell which of two windows is older and where they overlap.
      */
     val serverId: Long? = null,
+    /** Direct deliveries before tool/process media join the displayed answer. Null = unorganized. */
+    val deliveredImageIds: Set<String>? = null,
+    val deliveredFileIds: Set<String>? = null,
 )
 
 /** A server-authoritative project (explicit user project or an auto git-repo/discovered project). */

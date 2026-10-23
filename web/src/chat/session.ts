@@ -331,9 +331,10 @@ export class ChatSession {
         this.o.dispatch({ type: "history-missing" });
         return true;
       }
-      this.o.dispatch({ type: "history-missing" });
+      const failure = toAppError(error, "history");
+      this.o.dispatch({ type: "history-failed", error: failure });
       // A user-initiated refresh keeps what is on screen and reports through its own toast.
-      if (!options.quiet) this.o.dispatch({ type: "notice", error: toAppError(error, "history") });
+      if (!options.quiet) this.o.dispatch({ type: "notice", error: failure });
       return false;
     }
   }

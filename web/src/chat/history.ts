@@ -85,6 +85,7 @@ export async function fetchFullHistory(fetchPage: (page: MessagesPage) => Promis
   for (let n = 0; n < FULL_HISTORY_MAX_PAGES; n++) {
     const body = await fetchPage({ order: "oldest", limit: FULL_HISTORY_PAGE_SIZE, offset });
     const rows = rowsOf(body);
+    const before = out.length;
     for (const row of rows) {
       const id = idOf(row);
       if (id !== null) {
@@ -93,8 +94,9 @@ export async function fetchFullHistory(fetchPage: (page: MessagesPage) => Promis
       }
       out.push(row);
     }
-    if (!pageHasMore(body, FULL_HISTORY_PAGE_SIZE) || !rows.length) break;
+    if (!pageHasMore(body, FULL_HISTORY_PAGE_SIZE) || !rows.length) return out;
+    if (out.length === before) throw new Error("Full history made no progress");
     offset += rows.length;
   }
-  return out;
+  throw new Error("Full history exceeded the bounded page limit");
 }

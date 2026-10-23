@@ -15,6 +15,9 @@ import { hasOpenQuestion, initialChatState, reduceChat, type ChatItem } from "..
 import { ChatSession, type BackgroundProcess } from "../chat/session";
 import { followAfterScroll } from "../chat/followBottom";
 import { usePromptHistory } from "../chat/usePromptHistory";
+import { conversationArtifacts, type ConversationArtifact } from "../chat/artifacts";
+import { ArtifactsSheet } from "./ArtifactsSheet";
+import { ArtifactPreview } from "./ArtifactPreview";
 import { currentTurnGroup, pillGroup, turnGroups, TURN_PILL_IDLE_HIDE_MS, TURN_PILL_LIST_MIN_GROUPS, type TurnGroup } from "../chat/turns";
 import { formatTimeSeparator, greetingForHour, showsTimeSeparator } from "../chat/transcript";
 import { appError } from "../errors";
@@ -38,6 +41,7 @@ import {
   ChevronIcon,
   TerminalIcon,
   FolderIcon,
+  FileIcon,
   ListIcon,
   MoreVerticalIcon,
   PinOutlineIcon,
@@ -114,6 +118,11 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocus, setSearchFocus] = useState(0);
   const [promptsOpen, setPromptsOpen] = useState(false);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const [artifactPreview, setArtifactPreview] = useState<ConversationArtifact | null>(null);
+  const [artifactContext, setArtifactContext] = useState(false);
+  const artifactScroll = useRef(0);
+  const artifactScope = useRef<string | null>(null);
   const [promptPosition, setPromptPosition] = useState<string | null | undefined>(undefined);
   const [shareOpen, setShareOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -153,6 +162,8 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
       setSearchFocus(saved?.focus ?? 0);
       setSeed(null); setMenuOpen(false); setViewer(null); setPendingImage(null);
       setPromptsOpen(false); setShareOpen(false); setUserMenu(null); setSourceItem(null);
+      setArtifactsOpen(false); setArtifactPreview(null); setArtifactContext(false); artifactScroll.current = 0;
+      artifactScope.current = null;
       setManage(null); setModelOpen(false); setAnswerMenu(null); setBotNotice(null);
       setProcesses([]); setProcessesOpen(false); setOwnedElsewhere(false);
       pendingFiles.current.clear();
@@ -393,9 +404,30 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     setPromptPosition(current?.key);
     setPromptsOpen(true);
   }
-  const promptHistory = usePromptHistory(promptsOpen, Boolean(storedId), state,
+  const promptHistory = usePromptHistory(promptsOpen || artifactsOpen, Boolean(storedId), state,
     () => sessionRef.current?.loadFullHistory() ?? Promise.resolve([]),
     (rows, epoch) => dispatch({ type: "older-loaded", rows, hasMore: false, epoch }));
+  const artifacts = useMemo(() => artifactsOpen ? conversationArtifacts(state.items) : [], [artifactsOpen, state.items]);
+  function openArtifact(artifact: ConversationArtifact) {
+    if (artifact.attachment.kind === "image") setViewer({ images: [{ kind: "mac", path: artifact.attachment.path, name: artifact.displayName }], index: 0 });
+    else setArtifactPreview(artifact);
+  }
+  function artifactToContext(artifact: ConversationArtifact) {
+    const scope = viewKey;
+    setArtifactsOpen(false); setArtifactContext(true);
+    setSearchOpen(false); setSearchQuery("");
+    stick.current = false;
+    anchor.current = { key: artifact.messageKey, offset: 0 };
+    restoring.current = anchor.current;
+    setAtBottom(false);
+    requestAnimationFrame(() => {
+      if (artifactScope.current !== scope) return;
+      const el = scroller.current;
+      if (!el) return;
+      finishReadingRestore(el);
+      jumpTo(artifact.messageKey);
+    });
+  }
   function updatePill(el: HTMLDivElement) {
     const groups = turnGroups(state.items);
     const tops = groupTops(el, groups);
@@ -656,6 +688,9 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
                 <ListIcon size={18} />
                 {botRow ? t("对方的提问", "Their prompts") : t("我的提问", "Your prompts")}
               </button>
+              <button type="button" role="menuitem" class="menu-item with-icon" onClick={() => { setMenuOpen(false); artifactScope.current = viewKey; setArtifactContext(false); setArtifactsOpen(true); }}>
+                <FileIcon size={18} />{t("产物", "Artifacts")}
+              </button>
               <button type="button" role="menuitem" class="menu-item with-icon" disabled={refreshing} onClick={() => { setMenuOpen(false); void refresh(); }}>
                 <RefreshIcon size={18} />
                 {t("刷新对话", "Refresh conversation")}
@@ -792,6 +827,10 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
         </div>
       </div>
       <footer class={`chat-bottom${searchOpen ? " hidden" : ""}`}>
+        {artifactContext && !searchOpen && artifactScope.current === viewKey ? <>
+          <BackClose onClose={() => { setArtifactContext(false); setArtifactsOpen(true); }} />
+          <button type="button" class="return-artifacts" onClick={() => { setArtifactContext(false); setArtifactsOpen(true); }}>{t("返回产物", "Back to artifacts")}</button>
+        </> : null}
         {/* The jump-latest button is anchored to this footer's top edge, so it clears the composer
             at any height (a two-row or attachment-bearing composer is far taller than the old
             6.5rem offset — HG-179). */}
@@ -873,6 +912,12 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
           }}
         />
       ) : null}
+      {artifactsOpen && artifactScope.current === viewKey && !artifactPreview && !viewer ? <ArtifactsSheet artifacts={artifacts}
+        loading={promptHistory.loading && !state.historyError} error={promptHistory.error ?? state.historyError}
+        scrollTop={artifactScroll.current} onScroll={(top) => { artifactScroll.current = top; }}
+        onRetry={() => { if (state.historyError || !state.historyLoaded) void sessionRef.current?.loadHistory(); else promptHistory.retry(); }}
+        onOpen={openArtifact} onContext={artifactToContext} onClose={() => setArtifactsOpen(false)} /> : null}
+      {artifactPreview && artifactScope.current === viewKey ? <ArtifactPreview artifact={artifactPreview} onClose={() => setArtifactPreview(null)} /> : null}
       {promptsOpen ? (
         <PromptsSheet
           items={state.items}

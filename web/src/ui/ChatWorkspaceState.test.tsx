@@ -10,6 +10,7 @@ import type { ChatSessionOptions } from "../chat/session";
 import { ChatPage } from "./ChatPage";
 import { useState } from "preact/hooks";
 import { StartupContext } from "../startup/readiness";
+import { appError } from "../errors";
 
 const fixture = vi.hoisted(() => ({ connections: [] as { id: string | null; options: ChatSessionOptions; dispose: ReturnType<typeof vi.fn> }[], deferStart: false, deferPaint: false, variedHeights: false, paints: [] as (() => void)[] }));
 vi.mock("./Markdown", async importOriginal => {
@@ -24,6 +25,12 @@ vi.mock("./Markdown", async importOriginal => {
 vi.mock("../chat/session", () => ({ ChatSession: class {
   storedSessionId: string | null;
   dispose = vi.fn();
+  loadFullHistory = vi.fn(async () => [
+    { id: 1, role: "user", content: "生成报告" },
+    { id: 2, role: "assistant", content: "MEDIA:/tmp/early.md" },
+    { id: 3, role: "user", content: "继续" },
+    { id: 4, role: "assistant", content: "新的回答" },
+  ]);
   constructor(private options: ChatSessionOptions) { this.storedSessionId = options.storedSessionId; fixture.connections.push({ id: this.storedSessionId, options, dispose: this.dispose }); }
   start() {
     if (fixture.deferStart) return;
@@ -84,6 +91,39 @@ it("waits for delayed Markdown before applying an offset deep inside an answer",
   expect(port.scrollTop).toBe(2770);
 });
 afterEach(() => { act(() => render(null, host)); host.remove(); clearConversationMemory(); resetOverlays(); vi.restoreAllMocks(); });
+it("finds an artifact outside the loaded tail, navigates to its source and restores the artifact list", async () => {
+  fixture.deferStart = true;
+  await draw("a");
+  await act(async () => fixture.connections[0]!.options.dispatch({ type: "history", hasOlder: true, rows: [
+    { id: 3, role: "user", content: "继续" }, { id: 4, role: "assistant", content: "新的回答" },
+  ] }));
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多"]')!.click());
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>("button")].find(node => node.textContent === "产物")!.click());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(host.querySelector(".artifacts-list")?.textContent).toContain("early.md");
+  const list = host.querySelector<HTMLElement>(".artifacts-list")!;
+  act(() => { list.scrollTop = 160; list.dispatchEvent(new Event("scroll")); });
+  // jsdom/happy-dom has no scrolling implementation, but records the exact target element.
+  const scrollIntoView = vi.fn();
+  host.querySelector<HTMLElement>('[data-key="h-2"]')!.scrollIntoView = scrollIntoView;
+  await act(async () => { host.querySelector<HTMLButtonElement>(".artifact-details button")!.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
+  expect(scrollIntoView).toHaveBeenCalled();
+  expect(host.querySelector('[data-key="h-2"]')?.classList.contains("landing")).toBe(true);
+  act(() => host.querySelector<HTMLButtonElement>(".return-artifacts")!.click());
+  expect(host.querySelector<HTMLElement>(".artifacts-list")?.scrollTop).toBe(160);
+  await draw("b");
+  expect(host.querySelector(".artifacts-list")).toBeNull();
+  expect(host.querySelector(".return-artifacts")).toBeNull();
+});
+it("shows a failed first history read in artifacts instead of claiming there are no results", async () => {
+  fixture.deferStart = true;
+  await draw("a");
+  await act(async () => fixture.connections[0]!.options.dispatch({ type: "history-failed", error: appError("HR-SYNC-001", "history failed") }));
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多"]')!.click());
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>("button")].find(node => node.textContent === "产物")!.click());
+  expect(host.querySelector(".artifacts-list")?.textContent).toContain("HR-SYNC-001");
+  expect(host.querySelector(".artifacts-list")?.textContent).not.toContain("暂无产物");
+});
 it("keeps the reading turn through width changes and restores it after another conversation", async () => {
   await draw("a");
   const port = host.querySelector<HTMLElement>(".messages")!;

@@ -518,6 +518,8 @@ fun ChatMessageList(
     viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
     openPromptListTick: Long = 0L,
+    openArtifactsTick: Long = 0L,
+    artifactScope: String = sessionId,
     /** Active in-chat search (query + which mark the counter points at) for the text marks. */
     searchContext: ChatSearchContext? = null,
     /**
@@ -532,6 +534,7 @@ fun ChatMessageList(
     onRetryOlder: () -> Unit = {},
     /** 我的提问 opened; it lists the whole conversation, so the rest of it is paged in. */
     onPromptListOpened: () -> Unit = {},
+    onArtifactsOpened: () -> Unit = onPromptListOpened,
 ) {
     val language = LocalAppLanguage.current
     val enteredWithoutContent = remember(sessionId) { state.messages.isEmpty() }
@@ -725,7 +728,7 @@ fun ChatMessageList(
     val turnTopInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (2.dp - TURN_SPACING).roundToPx() }
     // One owner for programmatic turn jumps, mirroring bottomRequests: a user drag steals the
     // scroll mutex and surfaces as CancellationException, which is the user's call.
-    val jumpRequests = remember(sessionId) { Channel<TurnJumpRequest>(Channel.CONFLATED) }
+    val jumpRequests = remember(sessionId, artifactScope) { Channel<TurnJumpRequest>(Channel.CONFLATED) }
     // Landing feedback (docs/DESIGN.md §5.4, decision 2026-09-03): the prompt jumped to shows an
     // outline only — no fill, unlike the search highlight — that fades over TURN_JUMP_FLASH_MS.
     // It starts when the jump has LANDED, not when the row was tapped: closing the sheet and the
@@ -776,6 +779,33 @@ fun ChatMessageList(
         }
     }
     var promptListOpen by remember(sessionId) { mutableStateOf(false) }
+    var artifactsOpen by remember(artifactScope) { mutableStateOf(false) }
+    var artifactContext by remember(artifactScope) { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = artifactContext && !artifactsOpen && !searchOpen) {
+        artifactContext = false; artifactsOpen = true
+    }
+    val artifactsListState = androidx.compose.runtime.key(artifactScope) { rememberLazyListState() }
+    var artifacts by remember(artifactScope) { mutableStateOf(emptyList<ConversationArtifact>()) }
+    LaunchedEffect(artifactScope, artifactsOpen, displayMessages) {
+        if (artifactsOpen) artifacts = withContext(Dispatchers.Default) { conversationArtifacts(displayMessages) }
+    }
+    LaunchedEffect(openArtifactsTick) { if (openArtifactsTick > 0L) { artifactsOpen = true; artifactContext = false } }
+    val artifactsHistoryLoader by androidx.compose.runtime.rememberUpdatedState(onArtifactsOpened)
+    LaunchedEffect(artifactsOpen, state.historyLoaded) { if (artifactsOpen) artifactsHistoryLoader() }
+    if (artifactsOpen) {
+        ConversationArtifactsSheet(artifacts, olderHistory.copy(loading = olderHistory.loading || (!state.historyLoaded && state.historyError == null)), artifactsListState,
+            initialHistoryError = state.historyError,
+            onRetry = { artifactsHistoryLoader() }, onOpenImage = onOpenImage,
+            onOpenFile = onFileOpen, onShareFile = onFileShare,
+            onContext = { artifact ->
+                val index = displayMessages.indexOfFirst { it.id == artifact.messageId }
+                if (index >= 0) {
+                    artifactsOpen = false; artifactContext = true
+                    semanticViewport.cancelRestoreForUser()
+                    jumpRequests.trySend(TurnJumpRequest(messageListIndex(turnCount, index), index))
+                }
+            }, onDismiss = { artifactsOpen = false })
+    }
     LaunchedEffect(openPromptListTick) { if (openPromptListTick > 0L) promptListOpen = true }
     val latestPromptListOpened by androidx.compose.runtime.rememberUpdatedState(onPromptListOpened)
     LaunchedEffect(promptListOpen) { if (promptListOpen) latestPromptListOpened() }
@@ -1290,6 +1320,14 @@ fun ChatMessageList(
                 item(key = OLDER_HISTORY_ERROR_KEY) {
                     OlderHistoryFailedRow(error, onRetry = if (error.retryable) onRetryOlder else null)
                 }
+            }
+        }
+        if (artifactContext && !searchOpen) {
+            Surface(onClick = { artifactContext = false; artifactsOpen = true },
+                modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
+                color = MaterialTheme.colorScheme.surface, shape = CircleShape, shadowElevation = 4.dp) {
+                Text(localized(language, "返回产物", "Back to artifacts"), modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    style = MaterialTheme.typography.labelLarge)
             }
         }
         // Turn-jump pill: names the group under the viewport's top edge once its prompt has left

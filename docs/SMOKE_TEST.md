@@ -2206,3 +2206,21 @@ its preview and full-status screenshots were pulled as nonempty PNGs and visuall
 It covers native touch, manual disclosure through completion, newest-tool visibility and dialog
 open/close. This is an emulator result, not a physical-device result; no SDK-37-gated platform
 behavior is claimed. L2 was unavailable (no physical device attached).
+## HG-233 · Web conversation artifacts (physical browser acceptance pending)
+
+- In More → Artifacts, complete an old paged conversation, exclude original uploads and tool-only
+  outputs (including flattened envelopes), distinguish same-name files, and keep one latest source
+  for a repeated path. A failed initial read or failed/stalled older-page read must show the actual
+  structured failure and retry rather than claim no artifacts exist.
+- Preview Markdown/text, sandboxed static HTML, generated images and a browser-supported video.
+  HTML must have no script, parent-origin, network, form or navigation privilege; the original file
+  remains downloadable. Unsupported formats and text above the preview bound offer download.
+- Scroll the list, open and close a preview, then navigate to the source assistant turn. Check the
+  landing outline and restore list scroll using Back to artifacts or browser/system Back. Opening
+  chat search from context must let Back close search first. Keep composer text and attachments.
+- Switch conversation, profile, account and Mac; reject late work from the old scope. Verify empty,
+  loading, unreadable/missing-file and offline states. Existing media/download caches retain their
+  prior semantics; this change creates no immutable history copies or global library.
+- Local DOM tests, build and real in-app-browser fixture inspection cover the implementable paths.
+  Physical Android Chrome and iPhone Safari/Home Screen, codec support, real download UI and offline
+  transitions still require acceptance on those browsers before publication.
