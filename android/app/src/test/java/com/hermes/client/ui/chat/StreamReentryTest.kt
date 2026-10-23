@@ -1,7 +1,7 @@
 package com.hermes.client.ui.chat
 
 import androidx.compose.runtime.*
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.printToString
 import com.hermes.client.domain.ChatMessage
@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-notnight-420dpi")
 class StreamReentryTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
     private val question = ChatMessage("u", Role.USER, "提问")
     private val fullText = "已有正文。".repeat(600) + "回答末尾"
 

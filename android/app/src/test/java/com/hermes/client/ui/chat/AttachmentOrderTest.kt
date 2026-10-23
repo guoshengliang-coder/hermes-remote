@@ -1,7 +1,7 @@
 package com.hermes.client.ui.chat
 
 import androidx.compose.ui.test.getBoundsInRoot
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import com.hermes.client.domain.ChatFile
 import com.hermes.client.domain.ChatMessage
@@ -26,7 +26,7 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w411dp-h2400dp-420dpi")
 class AttachmentOrderTest {
     @get:Rule
-    val compose = createHermesComposeRule()
+    val compose = createComposeRule()
 
     @Test fun assistant_file_card_sits_below_the_prose() {
         compose.setContent {

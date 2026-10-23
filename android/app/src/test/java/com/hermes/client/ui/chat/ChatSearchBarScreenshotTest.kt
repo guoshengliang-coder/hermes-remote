@@ -5,7 +5,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
 import com.github.takahirom.roborazzi.RoborazziOptions
@@ -36,7 +36,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class ChatSearchBarScreenshotTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
 
     private val options = RoborazziOptions(
         compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.01f),

@@ -3,7 +3,7 @@ package com.hermes.client.ui.components
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import com.hermes.client.ui.theme.HermesTheme
 import com.hermes.client.ui.theme.Motion
@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class BrandLoaderTest {
     @get:Rule
-    val compose = createHermesComposeRule()
+    val compose = createComposeRule()
 
     @Test fun a_wait_shorter_than_the_gate_shows_no_loading_furniture() {
         compose.mainClock.autoAdvance = false

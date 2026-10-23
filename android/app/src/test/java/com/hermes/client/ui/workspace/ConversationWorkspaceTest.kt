@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -34,7 +34,7 @@ import org.intellij.markdown.parser.MarkdownParser
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w1100dp-h700dp-mdpi")
 class ConversationWorkspaceTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
 
     private fun workspace(width: State<Float>, dark: Boolean = false, fontScale: Float = 1f, preference: MutableState<WorkspacePreference> = mutableStateOf(WorkspacePreference()), mounted: () -> Unit = {}) {
         compose.setContent {

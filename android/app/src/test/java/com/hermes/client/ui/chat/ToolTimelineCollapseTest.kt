@@ -1,7 +1,7 @@
 package com.hermes.client.ui.chat
 
 import androidx.compose.ui.test.assertIsDisplayed
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -27,7 +27,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class ToolTimelineCollapseTest {
     @get:Rule
-    val compose = createHermesComposeRule()
+    val compose = createComposeRule()
 
     private val tools = listOf(
         ToolCall("a", "skill_view", ToolStatus.DONE, output = "---", durationMs = 1_200),

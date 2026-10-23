@@ -5,7 +5,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -28,7 +28,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class PromptListTest {
     @get:Rule
-    val compose = createHermesComposeRule()
+    val compose = createComposeRule()
 
     private val rows = listOf(
         PromptRow(0, ordinal = null, label = "会话开始", time = null, isCurrent = false, isLeading = true),

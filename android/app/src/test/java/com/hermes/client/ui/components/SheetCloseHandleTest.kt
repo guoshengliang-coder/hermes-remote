@@ -1,6 +1,6 @@
 package com.hermes.client.ui.components
 
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class SheetCloseHandleTest {
     @get:Rule
-    val compose = createHermesComposeRule()
+    val compose = createComposeRule()
 
     private fun show(onDismiss: () -> Unit) {
         compose.setContent { HermesTheme(darkTheme = false) { SheetCloseHandle(onDismiss) } }

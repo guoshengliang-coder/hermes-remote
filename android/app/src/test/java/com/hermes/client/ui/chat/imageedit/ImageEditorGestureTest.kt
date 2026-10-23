@@ -3,7 +3,7 @@ package com.hermes.client.ui.chat.imageedit
 import android.graphics.Bitmap
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
@@ -41,7 +41,7 @@ class ImageEditorGestureTest {
         const val SOURCE_HEIGHT = 300f
     }
 
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
 
     private fun pngBytes(width: Int = SOURCE_WIDTH.toInt(), height: Int = SOURCE_HEIGHT.toInt()): ByteArray {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

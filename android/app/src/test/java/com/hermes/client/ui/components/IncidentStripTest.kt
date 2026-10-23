@@ -4,7 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.hermes.client.ui.InChinese
@@ -31,7 +31,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class IncidentStripTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
 
     private fun show(onClick: (() -> Unit)?) {
         compose.setContent {

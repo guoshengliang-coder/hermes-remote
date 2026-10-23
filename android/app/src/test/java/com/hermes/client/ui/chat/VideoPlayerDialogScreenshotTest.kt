@@ -3,7 +3,7 @@ package com.hermes.client.ui.chat
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.hermes.client.data.network.HermesApiException
@@ -20,7 +20,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w360dp-h800dp-420dpi")
 class VideoPlayerDialogScreenshotTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
     private fun render(dark: Boolean, language: AppLanguage, scale: Float, name: String) {
         var downloads = 0
         compose.setContent {

@@ -3,7 +3,7 @@ package com.hermes.client.ui.settings
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.hermes.client.data.haptics.OutputHapticConfig
@@ -23,7 +23,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w360dp-h740dp-420dpi")
 class OutputHapticTuningScreenshotTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
 
     private fun render(dark: Boolean = false, language: AppLanguage = AppLanguage.ZH, font: Float = 1f, supported: Boolean = true,
         onDraft: (OutputHapticConfig) -> Unit = {}, onSave: () -> Unit = {}, onCopy: () -> Unit = {}, onPreview: (Boolean) -> Unit = {}) {

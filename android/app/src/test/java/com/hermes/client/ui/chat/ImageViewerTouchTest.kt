@@ -11,7 +11,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onRoot
@@ -43,7 +43,7 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w400dp-h800dp-mdpi")
 @OptIn(ExperimentalRoborazziApi::class)
 class ImageViewerTouchTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
     @get:Rule val folder = TemporaryFolder()
 
     private fun fixture(markerColor: Int = Color.RED, multiplier: Int = 1): ByteArray {

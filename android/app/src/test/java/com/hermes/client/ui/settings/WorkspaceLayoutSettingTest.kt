@@ -3,7 +3,7 @@ package com.hermes.client.ui.settings
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import com.hermes.client.ui.workspace.*
 import com.hermes.client.ui.localization.*
 import com.hermes.client.ui.theme.HermesTheme
@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class WorkspaceLayoutSettingTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
     @Test fun cancelDoesNotChangeTheModeAndSaveUsesTheChoice() {
         var mode: WorkspaceMode? = null
         var resets = 0

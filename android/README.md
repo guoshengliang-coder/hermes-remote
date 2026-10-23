@@ -1119,8 +1119,8 @@ See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distri
 
 ### JVM test safety (HG-160)
 
-Compose JVM tests use `createHermesComposeRule()`, which supplies a `StandardTestDispatcher` to
-the existing Compose rule. Composition and effect continuations are queued on the rule's scheduler;
+The asynchronous image-layout and streaming-Markdown JVM tests use `createHermesComposeRule()`,
+which supplies a `StandardTestDispatcher` to the existing Compose rule. Composition and effect continuations are queued on the rule's scheduler;
 use `waitForIdle()` / `runOnIdle()` to synchronize. The v1 unconfined default could resume UI work
 on a real image-decoder or Markdown-parser worker and intermittently fail thread/layout checks.
 The shared rule retains real asynchronous work, UI assertions, and thread checks. This follows

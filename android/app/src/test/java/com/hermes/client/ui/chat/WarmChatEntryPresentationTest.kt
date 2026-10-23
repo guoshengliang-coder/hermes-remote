@@ -10,7 +10,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.*
-import com.hermes.client.ui.createHermesComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import com.hermes.client.domain.ChatMessage
 import com.hermes.client.domain.Role
 import com.hermes.client.ui.theme.HermesTheme
@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-notnight-420dpi")
 class WarmChatEntryPresentationTest {
-    @get:Rule val compose = createHermesComposeRule()
+    @get:Rule val compose = createComposeRule()
 
     @Test fun completedAnswerDoesNotExposeItsReparseAndRestore() = exercise(false)
     @Test fun runningAnswerDoesNotExposeItsReparseAndRestore() = exercise(true)
