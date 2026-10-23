@@ -75,6 +75,8 @@ test("the app shell is never cached and carries a strict CSP without inline or e
       const csp = String(response.headers["content-security-policy"]);
       assert.match(csp, /default-src 'none'/);
       assert.match(csp, /script-src 'self';/);
+      // Artifact videos use in-memory files; this grants no network media origin.
+      assert.match(csp, /(?:^|; )media-src blob:;/);
       assert.match(csp, /connect-src 'self' wss:\/\/web\.example\.test;/);
       assert.match(csp, /frame-ancestors 'none'/);
       assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval|https:\/\/|\*/);

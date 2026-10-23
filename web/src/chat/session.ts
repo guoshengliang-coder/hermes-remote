@@ -331,9 +331,10 @@ export class ChatSession {
         this.o.dispatch({ type: "history-missing" });
         return true;
       }
-      this.o.dispatch({ type: "history-missing" });
+      const failure = toAppError(error, "history");
+      this.o.dispatch({ type: "history-failed", error: failure });
       // A user-initiated refresh keeps what is on screen and reports through its own toast.
-      if (!options.quiet) this.o.dispatch({ type: "notice", error: toAppError(error, "history") });
+      if (!options.quiet) this.o.dispatch({ type: "notice", error: failure });
       return false;
     }
   }
@@ -395,10 +396,11 @@ export class ChatSession {
   }
 
   /** Every stored row of this conversation, oldest first (sharing the whole transcript). */
-  loadFullHistory(): Promise<MessageRow[]> {
+  loadFullHistory(preview = false): Promise<MessageRow[]> {
     const id = this.storedId;
     if (!id) return Promise.resolve([]);
-    return fetchFullHistory((page) => this.o.client.messages(this.o.deviceId, id, this.o.profile, page));
+    return fetchFullHistory((page) => this.o.client.messages(this.o.deviceId, id, this.o.profile, page, preview),
+      preview ? HISTORY_PAGE_SIZE : undefined);
   }
 
   // ---- resume / create ----

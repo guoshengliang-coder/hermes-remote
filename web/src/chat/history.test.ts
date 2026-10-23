@@ -53,6 +53,10 @@ describe("mergeOlder", () => {
 });
 
 describe("fetchFullHistory", () => {
+  it("rejects repeated full pages instead of presenting incomplete results as complete", async () => {
+    const messages = range(1, 500);
+    await expect(fetchFullHistory(async () => ({ messages, pagination: { returned: 500 } }))).rejects.toThrow("no progress");
+  });
   function server(total: number, paged = true) {
     const all = range(1, total);
     const calls: MessagesPage[] = [];
@@ -73,6 +77,11 @@ describe("fetchFullHistory", () => {
       { order: "oldest", limit: 500, offset: 500 },
       { order: "oldest", limit: 500, offset: 1000 },
     ]);
+  });
+  it("collects artifacts with the reader's smaller bounded pages", async () => {
+    const { calls, fetchPage } = server(250);
+    expect(await fetchFullHistory(fetchPage, 100)).toHaveLength(250);
+    expect(calls.map((p) => [p.limit, p.offset])).toEqual([[100, 0], [100, 100], [100, 200]]);
   });
 
   it("stops after an empty page when the total is a multiple of the page size", async () => {

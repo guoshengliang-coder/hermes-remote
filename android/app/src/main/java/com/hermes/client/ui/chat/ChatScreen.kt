@@ -540,6 +540,7 @@ fun ChatScreen(
     var shareImageTooLarge by remember { mutableStateOf(false) }
     // Menu entry to the prompt list; the list itself lives in ChatMessageList, which owns the turns.
     var promptListTick by remember { mutableStateOf(0L) }
+    var artifactsTick by remember { mutableStateOf(0L) }
     var showAttachSheet by remember { mutableStateOf(false) }
     var showPhotoGallery by rememberSaveable { mutableStateOf(false) }
     var galleryPermissionDenied by rememberSaveable { mutableStateOf(false) }
@@ -1201,6 +1202,7 @@ fun ChatScreen(
                 onNewChat = startNewChat,
                 onSearch = { searchOpen = true },
                 onPrompts = { promptListTick = System.currentTimeMillis() },
+                onArtifacts = { artifactsTick = System.nanoTime() },
                 onRefresh = {
                     if (!state.isGenerating) viewportController.holdCurrent()
                     vm.refreshCurrentConversation()
@@ -1700,8 +1702,11 @@ fun ChatScreen(
                         onLoadOlder = { vm.loadOlderHistory() },
                         onRetryOlder = { vm.retryOlderHistory() },
                         onPromptListOpened = { vm.loadEntireHistoryInBackground() },
+                        onArtifactsOpened = { if (state.historyLoaded) vm.loadEntireHistoryInBackground() else vm.refreshCurrentConversation() },
                         scrollToBottomTick = sendToBottomTick,
                         openPromptListTick = promptListTick,
+                        openArtifactsTick = artifactsTick,
+                        artifactScope = vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId),
                         viewportController = viewportController,
                         isGenerating = state.isGenerating,
                         onEditResend = { editUnsent(it) },

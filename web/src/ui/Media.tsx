@@ -122,7 +122,7 @@ export function MacImage({ path, name, onOpen }: { path: string; name: string; o
   );
 }
 
-export function FileCard({ attachment }: { attachment: Attachment }) {
+export function FileCard({ attachment, onOpen }: { attachment: Attachment; onOpen?: () => void }) {
   const { client, device, language, t } = useApp();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
@@ -149,13 +149,13 @@ export function FileCard({ attachment }: { attachment: Attachment }) {
   }
   return (
     <div class="file-card-wrap">
-      <button type="button" class="file-card" onClick={() => void download()} disabled={busy}>
+      <button type="button" class="file-card" onClick={() => onOpen ? onOpen() : void download()} disabled={busy}>
         <span class="file-icon">
           <FileIcon />
         </span>
         <span class="file-text">
           <span class="file-name">{attachment.name}</span>
-          <span class="file-sub">{busy ? t("正在下载…", "Downloading…") : t("点按下载", "Tap to download")}</span>
+          <span class="file-sub">{busy ? t("正在下载…", "Downloading…") : onOpen ? t("点按查看", "Tap to view") : t("点按下载", "Tap to download")}</span>
         </span>
       </button>
       {error ? <ErrorNotice error={error} language={language} onRetry={() => void download()} variant="inline" /> : null}

@@ -74,6 +74,7 @@ internal fun ChatTopBar(
     onRefresh: () -> Unit,
     onShare: () -> Unit,
     onArchive: () -> Unit,
+    onArtifacts: () -> Unit = {},
     modifier: Modifier = Modifier,
     subtitle: @Composable () -> Unit = {},
 ) {
@@ -171,6 +172,11 @@ internal fun ChatTopBar(
                                 transcriptMenu = false
                                 onPrompts()
                             },
+                        )
+                        DropdownMenuItem(
+                            leadingIcon = { Icon(com.hermes.client.ui.components.DocumentStrokeIcon, contentDescription = null, Modifier.size(20.dp)) },
+                            text = { Text(localized(language, "产物", "Artifacts")) },
+                            onClick = { transcriptMenu = false; onArtifacts() },
                         )
                         DropdownMenuItem(
                             leadingIcon = {

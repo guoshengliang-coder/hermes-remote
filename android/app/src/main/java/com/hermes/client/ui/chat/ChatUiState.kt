@@ -326,6 +326,9 @@ private fun detachProcessNarration(text: String): Pair<String, String?> {
     return kept to label
 }
 
+/** Inspect delivery provenance before the media parser removes references from raw history. */
+internal fun assistantDeliveryText(raw: String): String = organizeAssistantContent(raw).text
+
 internal fun ChatMessage.organizedForDisplay(): ChatMessage {
     if (isError) return this
     if (role == Role.USER) {
@@ -354,8 +357,13 @@ internal fun ChatMessage.organizedForDisplay(): ChatMessage {
         val content = com.hermes.client.domain.parseMessageContent(tool.output)
         tool to content
     }
+    val hasProcessMedia = parsedTools.any { it.second.images.isNotEmpty() || it.second.files.isNotEmpty() }
     return copy(
         text = parsed.text,
+        deliveredImageIds = if (deliveredImageIds == null && !hasProcessMedia) null else
+            (deliveredImageIds ?: images.map { it.id }.toSet()) + parsed.images.map { it.id },
+        deliveredFileIds = if (deliveredFileIds == null && !hasProcessMedia) null else
+            (deliveredFileIds ?: files.map { it.id }.toSet()) + parsed.files.map { it.id },
         images = (images + parsed.images + parsedTools.flatMap { it.second.images }).distinctBy { it.id },
         files = (files + parsed.files + parsedTools.flatMap { it.second.files }).distinctBy { it.id },
         tools = parsedTools.map { (tool, content) -> tool.copy(output = content.text) },
@@ -597,6 +605,12 @@ internal fun mergeAssistantTurns(previous: ChatMessage, message: ChatMessage): C
         timestamp = previous.timestamp ?: message.timestamp,
         images = (previous.images + message.images).distinctBy { it.id },
         files = (previous.files + message.files).distinctBy { it.id },
+        deliveredImageIds = if (previous.deliveredImageIds == null && message.deliveredImageIds == null) null else
+            (previous.deliveredImageIds ?: previous.images.map { it.id }.toSet()) +
+            (message.deliveredImageIds ?: message.images.map { it.id }.toSet()),
+        deliveredFileIds = if (previous.deliveredFileIds == null && message.deliveredFileIds == null) null else
+            (previous.deliveredFileIds ?: previous.files.map { it.id }.toSet()) +
+            (message.deliveredFileIds ?: message.files.map { it.id }.toSet()),
         tools = toolsById.values.toList(),
         isError = previous.isError || message.isError,
         interrupted = previous.interrupted || message.interrupted,

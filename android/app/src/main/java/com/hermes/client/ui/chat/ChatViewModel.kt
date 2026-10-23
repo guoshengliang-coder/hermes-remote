@@ -1418,6 +1418,9 @@ class ChatViewModel @Inject constructor(
                 // added == 0 after the repository's bounded skips: nothing more will come.
                 if (page.reachedStart || !untilStart || page.added == 0) break
             }
+            if (untilStart && sessions.hasOlderHistory(id, profile, device) == true) {
+                throw com.hermes.client.data.error.HistoryPageChangedException()
+            }
             _olderHistory.value = OlderHistoryUiState()
             hydrateImages(key)
         } catch (cancelled: CancellationException) {

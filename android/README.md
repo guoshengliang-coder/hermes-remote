@@ -1,5 +1,12 @@
 # Hermes Remote Android
 
+HG-233 adds More → Artifacts to the open conversation. It collects settled assistant deliveries
+from the complete display history, excluding original uploads and process-only media. Duplicate
+names get display suffixes; one path represents its latest delivery and current file reference,
+without historical snapshots. Existing image/file/video viewers and durable downloads are reused.
+View context lands on the assistant turn; Back to artifacts and system Back restore the list.
+No version is allocated or release published by this source change.
+
 HG-232 negotiates up to four attachment ranges with both Gateway and Connector. Downloads grow
 from 256 KiB to at most 1 MiB ranges on fast batches and shrink on slow ones, retaining only fully
 verified, fsynced sequential checkpoints. Video prefetch starts after sequential reads, stays one
