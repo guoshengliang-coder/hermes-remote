@@ -4,6 +4,13 @@ import { classifyAttachment, MEDIA_DELIVERY_EXTENSIONS, type Attachment } from "
 
 const markdown = markdownIt({ html: false });
 markdown.validateLink = () => true; // Parse local file: links; they are never browser navigation.
+// Reducer items are immutable. Avoid reparsing every old answer on each live stream update.
+const linksByItem = new WeakMap<ChatItem, Attachment[]>();
+function linksOf(item: ChatItem): Attachment[] {
+  let links = linksByItem.get(item);
+  if (!links) { links = localLinks(item.text); linksByItem.set(item, links); }
+  return links;
+}
 function localLinks(text: string): Attachment[] {
   const out: Attachment[] = [];
   for (const token of markdown.parse(text, {})) for (const child of token.children ?? []) {
@@ -27,12 +34,12 @@ export interface ConversationArtifact {
 /** Whole-conversation input; only explicit, settled assistant deliveries are results. */
 export function conversationArtifacts(items: readonly ChatItem[]): ConversationArtifact[] {
   const uploads = new Set(items.filter((i) => i.role === "user").flatMap((i) =>
-    [...i.attachments.map((a) => a.path), ...localLinks(i.text).map((a) => a.path),
+    [...i.attachments.map((a) => a.path), ...linksOf(i).map((a) => a.path),
       ...i.images.flatMap((image) => image.path ? [image.path] : [])]));
   const byPath = new Map<string, ConversationArtifact>();
   for (const item of items) {
     if (item.role !== "assistant" || item.note || item.streaming) continue;
-    const direct = [...(item.deliveredAttachments ?? item.attachments), ...localLinks(item.text),
+    const direct = [...(item.deliveredAttachments ?? item.attachments), ...linksOf(item),
       ...item.images.flatMap((image) => image.path ? [classifyAttachment(image.path)] : [])];
     for (const attachment of direct) {
       if (uploads.has(attachment.path)) continue;

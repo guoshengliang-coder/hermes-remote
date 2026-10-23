@@ -396,10 +396,11 @@ export class ChatSession {
   }
 
   /** Every stored row of this conversation, oldest first (sharing the whole transcript). */
-  loadFullHistory(): Promise<MessageRow[]> {
+  loadFullHistory(preview = false): Promise<MessageRow[]> {
     const id = this.storedId;
     if (!id) return Promise.resolve([]);
-    return fetchFullHistory((page) => this.o.client.messages(this.o.deviceId, id, this.o.profile, page));
+    return fetchFullHistory((page) => this.o.client.messages(this.o.deviceId, id, this.o.profile, page, preview),
+      preview ? HISTORY_PAGE_SIZE : undefined);
   }
 
   // ---- resume / create ----

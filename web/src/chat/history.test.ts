@@ -78,6 +78,11 @@ describe("fetchFullHistory", () => {
       { order: "oldest", limit: 500, offset: 1000 },
     ]);
   });
+  it("collects artifacts with the reader's smaller bounded pages", async () => {
+    const { calls, fetchPage } = server(250);
+    expect(await fetchFullHistory(fetchPage, 100)).toHaveLength(250);
+    expect(calls.map((p) => [p.limit, p.offset])).toEqual([[100, 0], [100, 100], [100, 200]]);
+  });
 
   it("stops after an empty page when the total is a multiple of the page size", async () => {
     const { calls, fetchPage } = server(1000);

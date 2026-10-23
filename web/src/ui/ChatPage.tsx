@@ -405,7 +405,7 @@ export function ChatPage({ sessionId, profileHint }: { sessionId: string | null;
     setPromptsOpen(true);
   }
   const promptHistory = usePromptHistory(promptsOpen || artifactsOpen, Boolean(storedId), state,
-    () => sessionRef.current?.loadFullHistory() ?? Promise.resolve([]),
+    () => sessionRef.current?.loadFullHistory(artifactsOpen) ?? Promise.resolve([]),
     (rows, epoch) => dispatch({ type: "older-loaded", rows, hasMore: false, epoch }));
   const artifacts = useMemo(() => artifactsOpen ? conversationArtifacts(state.items) : [], [artifactsOpen, state.items]);
   function openArtifact(artifact: ConversationArtifact) {
