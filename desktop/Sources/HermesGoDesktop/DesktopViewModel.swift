@@ -817,8 +817,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }
         if previousAccountID != nextAccountID {
             accountCheckedAt = nil
-            onboardingRecord = nextAccountID.map { onboardingStore.load(accountID: $0) }
-                ?? DesktopOnboardingRecord()
+            if case .signedIn(let dashboard) = state {
+                let record = onboardingStore.load(accountID: dashboard.session.account.id)
+                saveOnboardingRecord(record.resuming(on: dashboard))
+            } else {
+                onboardingRecord = DesktopOnboardingRecord()
+            }
             bootstrapPlan = .checking
             if managedBootstrapPreparation == nil, !isManagedBootstrapBusy {
                 managedBootstrapOperation = .idle
@@ -881,34 +885,24 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         return nil
     }
 
-    /// Records the only two facts onboarding needs to remember: that this Mac entered it, and which
-    /// phones already existed at that moment. Called whenever the route changes.
+    /// Persist first-setup transitions without re-arming them during an existing-binding upgrade.
     func entryRouteDidChange(_ route: DesktopEntryRoute) {
-        guard case .onboarding(let step) = route,
-              step < .connectPhone,
-              let dashboard = currentDashboard,
-              !onboardingRecord.phoneStepPending
-        else { return }
+        guard let dashboard = currentDashboard else { return }
         var record = onboardingRecord
-        record.phoneStepPending = true
-        record.phoneBaseline = DesktopRemoteClients.baseline(dashboard.installations)
-        saveOnboardingRecord(record)
+        record.observe(route: route, dashboard: dashboard)
+        if record != onboardingRecord { saveOnboardingRecord(record) }
     }
 
-    /// Phones and Web App sign-ins that appeared after this Mac entered onboarding.
-    var newlyConnectedClients: [ManagedAccountInstallation] {
+    /// Active account records count even when the phone is offline or signed in before setup.
+    var connectedRemoteClients: [ManagedAccountInstallation] {
         guard let dashboard = currentDashboard else { return [] }
-        return DesktopRemoteClients.newlyConnected(
-            dashboard.installations,
-            baseline: onboardingRecord.phoneBaseline ?? []
-        )
+        return DesktopRemoteClients.active(dashboard.installations)
     }
 
     /// Step 4 finished — a phone signed in, or the owner chose "稍后再说".
     func finishPhoneStep() {
         var record = onboardingRecord
-        record.phoneStepPending = false
-        record.phoneBaseline = nil
+        record.finishPhoneStep()
         saveOnboardingRecord(record)
     }
 

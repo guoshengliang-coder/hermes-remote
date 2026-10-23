@@ -1,5 +1,12 @@
 # Hermes Go Desktop
 
+HG-234 fixes the phone onboarding page returning after an existing Mac upgrades or relaunches.
+Restoring this Desktop's valid binding retires stale onboarding flags, and component-upgrade
+intermediate checks cannot re-arm them. Existing active phone/Web sign-ins satisfy first setup
+without another login; offline clients still count. Local validation passed 578 tests, asset
+consistency and app packaging. This source change needs a later Desktop app release; the reported
+M4 upgrade/relaunch acceptance remains pending.
+
 HG-226 adds actual managed-setup stages, per-second elapsed time and per-run system/runtime
 telemetry to both installer confirmation sheets. Confirmed execution and rollback remain
 non-cancellable; success/failure closes the sheet, while a cleanup retry handle remains available

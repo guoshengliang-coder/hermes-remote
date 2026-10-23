@@ -244,7 +244,10 @@ most five rows the owner can read; internal plan step names stay behind 「查�
 only step with a secondary 「稍后再说」 exit, because a Mac that is already set up can wait for a
 phone. Its 「Android ｜ iPhone / iPad」 segmented control switches wording and QR only; both QR codes
 are rendered locally from the account Gateway's origin (`/` and `/app/`) and are never generated
-placeholders.
+placeholders. A Mac with a valid local binding and completed local install goes straight to main
+after relaunch or upgrade, even with phones offline; the optional phone step is reserved for first setup. Existing active phone/Web
+sign-in records satisfy it without another login. Another Mac's binding does not skip local setup
+(2026-10-23).
 
 Disabled primary actions are a defined state — a muted surface with a secondary-coloured label — not
 the prominent blue at reduced opacity, which was unreadable in dark mode. The overview can carry a

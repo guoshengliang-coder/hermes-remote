@@ -46,10 +46,10 @@ public enum DesktopNewMacChoice: String, Codable, Sendable {
 /// real state on every launch, so onboarding resumes where the Mac actually is.
 public struct DesktopOnboardingRecord: Codable, Equatable, Sendable {
     public var newMacChoice: DesktopNewMacChoice?
-    /// Set when this Mac entered onboarding. Only such a Mac is shown the phone step after its
-    /// install, so a Mac that was already set up before this flow existed goes straight to main.
+    /// Set when this unbound Mac enters first setup. Restoring an already-bound Mac retires it;
+    /// only a first install in the current session may continue to the optional phone step.
     public var phoneStepPending: Bool
-    /// Installation IDs that already existed when the phone step began; only others count as new.
+    /// Legacy baseline retained for decoding older records; existing clients now count too.
     public var phoneBaseline: [String]?
 
     public init(
@@ -60,6 +60,38 @@ public struct DesktopOnboardingRecord: Codable, Equatable, Sendable {
         self.newMacChoice = newMacChoice
         self.phoneStepPending = phoneStepPending
         self.phoneBaseline = phoneBaseline
+    }
+
+    /// Called once when restoring/switching the signed-in account, not when a first install binds
+    /// during this session. A durable binding outranks an old unfinished phone-page preference.
+    public func resuming(on dashboard: AccountDashboard) -> Self {
+        var record = self
+        if Self.hasLocalBinding(dashboard) { record.finishPhoneStep() }
+        return record
+    }
+
+    public mutating func observe(route: DesktopEntryRoute, dashboard: AccountDashboard) {
+        switch route {
+        case .onboarding(let step) where step < .connectPhone:
+            // An upgrade can temporarily report checking/not-installed while replacing components.
+            // It must never turn an already-bound Mac into a first-time phone setup.
+            guard !Self.hasLocalBinding(dashboard) else { return }
+            phoneStepPending = true
+            phoneBaseline = nil
+        case .main where !DesktopRemoteClients.active(dashboard.installations).isEmpty:
+            finishPhoneStep()
+        default:
+            break
+        }
+    }
+
+    public mutating func finishPhoneStep() {
+        phoneStepPending = false
+        phoneBaseline = nil
+    }
+
+    fileprivate static func hasLocalBinding(_ dashboard: AccountDashboard) -> Bool {
+        dashboard.binding.state == "bound" && dashboard.binding.binding != nil
     }
 }
 
@@ -115,12 +147,17 @@ public enum DesktopEntryRouter {
         let installed = inputs.readiness == .managedInstallActive || inputs.readiness == .managedUpgradeAvailable
         // A fresh install keeps onboarding on screen through every intermediate readiness. An
         // upgrade of an installed Mac is started from main and stays there.
-        if inputs.setupInProgress, !installed { return .onboarding(.connectMac) }
+        if inputs.setupInProgress, !installed {
+            if DesktopOnboardingRecord.hasLocalBinding(dashboard), !inputs.record.phoneStepPending { return .main }
+            return .onboarding(.connectMac)
+        }
         switch inputs.readiness {
         case .checking:
             return .launching
         case .managedInstallActive, .managedUpgradeAvailable:
-            return inputs.record.phoneStepPending ? .onboarding(.connectPhone) : .main
+            let needsPhone = inputs.record.phoneStepPending
+                && DesktopRemoteClients.active(dashboard.installations).isEmpty
+            return needsPhone ? .onboarding(.connectPhone) : .main
         case .existingServiceNeedsAttention, .existingServicePreserved:
             // Half-installed or inconsistent: the planner already forbids a second install, so
             // onboarding must not offer one. Main shows the problem instead.
@@ -162,18 +199,6 @@ public enum DesktopRemoteClients {
         installations.filter {
             ($0.kind == "phone" || $0.kind == "browser") && $0.status == "active" && !$0.current
         }
-    }
-
-    public static func baseline(_ installations: [ManagedAccountInstallation]) -> [String] {
-        active(installations).map(\.id)
-    }
-
-    public static func newlyConnected(
-        _ installations: [ManagedAccountInstallation],
-        baseline: [String]
-    ) -> [ManagedAccountInstallation] {
-        let known = Set(baseline)
-        return active(installations).filter { !known.contains($0.id) }
     }
 
     /// The Web App reports no device name (Gateway records "Web browser"), so it cannot be told

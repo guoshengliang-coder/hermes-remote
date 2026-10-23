@@ -1,5 +1,24 @@
 # Hermes Go Desktop phase 0
 
+## Existing-binding onboarding recovery (HG-234, 2026-10-23)
+
+A restored account session with this Desktop's `bound` snapshot and active binding clears the legacy
+pending-phone flag and baseline, even when Connector/Hermes or all phones are offline. Another Mac's
+owned/shared record, a pending binding, and a revoked binding cannot provide that evidence. A setup
+that began unbound in this session still reaches the phone page after its first successful install.
+An upgrade/recheck with an existing binding cannot arm the first-install flag or move main to setup.
+
+The phone page and overview sheet now accept any active non-current `phone` or `browser` installation
+in the current account, including one recorded before setup. `lastSeenAt` is not an online requirement;
+revoked clients never count. A fresh install with an existing client goes straight to main and clears
+the pending flag; otherwise the optional phone step can still be completed or skipped. Clearing it is
+persisted per account and preserves the new-Mac choice. These are presentation changes only. They do
+not start/stop services, modify bindings, publish an app or change any other client's API contract.
+Normal local-install checks and recovery routes still apply when services are missing or inconsistent.
+Local validation: the two initial regressions fail on the old source (five assertions); the final
+onboarding suite passes 34 tests and the full Desktop suite passes 578 tests, with no failures.
+Packaged upgrade/relaunch acceptance on the reported Mac remains pending.
+
 ## HG-226: observable managed setup
 
 The original six-hour-loading diagnosis was withdrawn by its reporter; no retained UI evidence
@@ -1415,15 +1434,16 @@ being configured, since step 3's `verifyEndToEnd` probes reachability, not the m
 machine-changing operations still stop at the existing confirmation sheet, now attached once at the
 window root so it presents wherever setup was started. Nothing about progress is written down: each
 launch re-derives the step from real state. The one remembered fact is per account — that this Mac
-entered onboarding, plus the phone IDs that already existed when step 4 began.
+entered onboarding. The legacy phone-ID baseline is decoded for compatibility but no longer gates
+completion; restoring a valid local binding retires the pending flag.
 
 Step 4 splits Android from iPhone/iPad because Desktop cannot know which phone the owner holds. Both
 targets are public, unauthenticated URLs derived from the account Gateway's origin and rendered as QR
 codes locally: `/` for the Android APK (the release server redirects it to the newest versioned file)
 and `/app/` for the Web App that is added to the home screen. A Web App sign-in arrives as a
 `browser`/`web` installation and counts as connected; the page never labels it an iPhone, because the
-Gateway records no device name for it. Only a `phone` or `browser` installation that appears after
-step 4 began counts, so a phone that was already connected does not tick it by itself. 「稍后再说」
+Gateway records no device name for it. An active `phone` or `browser` installation counts even if it
+existed before setup; a new login is not required. A valid local binding restored at sign-in skips this page altogether (2026-10-23). 「稍后再说」
 finishes the step and leaves a "还没有手机连接" card on the overview instead of a second prompt.
 
 An account that already owns a Mac but signs in on a new one is asked first — "把这台 Mac 也连上" or
