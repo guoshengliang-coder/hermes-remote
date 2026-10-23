@@ -1,8 +1,10 @@
 # Attachment inspection and downloads (HG-222)
 
 The approved independent-channel design and wire/HTTP details are in [ARTIFACT_CHANNEL.md](ARTIFACT_CHANNEL.md).
-Android completes a file before handing a content URI to an installed viewer/player. No in-app video
-streaming player is introduced. 100 MiB is the quick-open/share threshold, not the new transport cap.
+Android completes a file before handing a content URI to an installed viewer/player. The HG-222 video
+follow-up adds in-app Range playback; HG-232's negotiated concurrency, adaptive download batches and
+sequential playback prefetch are documented in [ATTACHMENT_PERFORMANCE.md](ATTACHMENT_PERFORMANCE.md).
+100 MiB is the quick-open/share threshold, not the new transport cap.
 
 ## Inspection
 

@@ -228,7 +228,7 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
     await this.options.httpTunnels.forward(request, response, url, connector,
       downloads && (url.pathname === ARTIFACT_DOWNLOADS_PATH || (url.pathname === "/api/files" && request.method === "HEAD"))
         ? (headers) => ({ ...headers, ...((url.pathname === ARTIFACT_DOWNLOADS_PATH || headers["x-hermes-max-download-bytes"])
-          ? { "x-hermes-file-channel": "1" } : {}) }) : undefined);
+          ? { "x-hermes-file-channel": "1", "x-hermes-file-concurrency": String(downloads.maxConcurrentRanges) } : {}) }) : undefined);
   }
 
   private async forwardBrowser(

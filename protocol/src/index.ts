@@ -766,6 +766,9 @@ export interface ArtifactDownloadDescriptor {
   contentType: string;
   maxBytes: number;
   quickOpenBytes: number;
+  /** Optional HG-232 limits. Missing values mean a legacy, serial 256 KiB reader. */
+  maxConcurrentRanges?: number;
+  maxRangeBytes?: number;
 }
 
 export class ArtifactRangeError extends Error {}

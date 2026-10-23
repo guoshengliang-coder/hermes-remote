@@ -572,10 +572,14 @@ class HermesRestApi(
                     val descriptor = json.decodeFromString<com.hermes.client.domain.ArtifactDownloadDescriptor>(response.body.string())
                     if (!descriptor.artifactId.matches(Regex("[a-f0-9]{64}")) ||
                         !descriptor.etag.matches(Regex("\"[a-f0-9]{64}\"")) || descriptor.sizeBytes < 0 ||
-                        descriptor.maxBytes < descriptor.sizeBytes || descriptor.contentType.length > 128) {
+                        descriptor.maxBytes < descriptor.sizeBytes || descriptor.contentType.length > 128 ||
+                        descriptor.maxConcurrentRanges <= 0 || descriptor.maxRangeBytes < 256 * 1024) {
                         throw HermesApiException(502, "invalid download descriptor")
                     }
-                    descriptor
+                    // Both peers must agree: a new Connector behind an old Gateway remains serial.
+                    descriptor.copy(maxConcurrentRanges = minOf(descriptor.maxConcurrentRanges,
+                        response.header("x-hermes-file-concurrency")?.toIntOrNull()?.coerceIn(1, 4) ?: 1),
+                        maxRangeBytes = descriptor.maxRangeBytes.coerceAtMost(1024 * 1024))
                 }
             } finally { cancellation.complete(); call.cancel() }
         }
@@ -589,7 +593,7 @@ class HermesRestApi(
         requireArtifactOwner(owner, deviceId)
         val start = destination.length()
         require(start in 0 until descriptor.sizeBytes)
-        val end = minOf(descriptor.sizeBytes - 1, start + 256L * 1024L - 1)
+        val end = minOf(descriptor.sizeBytes - 1, start + descriptor.maxRangeBytes.coerceIn(256 * 1024, 1024 * 1024) - 1)
         val request = builder("/api/files/downloads/${descriptor.artifactId}", deviceId)
             .header("If-Match", descriptor.etag).header("Range", "bytes=$start-$end").get().build()
         requireArtifactOwner(owner, deviceId)
@@ -633,8 +637,14 @@ class HermesRestApi(
     suspend fun readArtifactRange(
         descriptor: com.hermes.client.domain.ArtifactDownloadDescriptor,
         start: Long, count: Int, deviceId: String?, owner: String,
+    ): ByteArray = readArtifactRangeWithProgress(descriptor, start, count, deviceId, owner) {}
+
+    suspend fun readArtifactRangeWithProgress(
+        descriptor: com.hermes.client.domain.ArtifactDownloadDescriptor,
+        start: Long, count: Int, deviceId: String?, owner: String, onProgress: (Long) -> Unit,
     ): ByteArray = withContext(Dispatchers.IO) {
-        require(count in 1..(256 * 1024) && start >= 0 && start <= descriptor.sizeBytes - count)
+        require(count in 1..descriptor.maxRangeBytes.coerceIn(256 * 1024, 1024 * 1024) &&
+            start >= 0 && start <= descriptor.sizeBytes - count)
         requireArtifactOwner(owner, deviceId)
         val end = start + count - 1
         val request = builder("/api/files/downloads/${descriptor.artifactId}", deviceId)
@@ -660,6 +670,7 @@ class HermesRestApi(
                         val read = input.read(bytes, received, count - received)
                         if (read < 0) throw HermesApiException(502, "incomplete video range")
                         received += read
+                        onProgress(received.toLong())
                     }
                     if (input.read() != -1) throw HermesApiException(502, "video range exceeded")
                 }

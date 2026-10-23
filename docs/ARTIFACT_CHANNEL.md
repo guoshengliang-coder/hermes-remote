@@ -1,5 +1,10 @@
 # Independent attachment downloads (HG-222)
 
+HG-232 adds optional four-range negotiation, a shared per-Mac upload budget, pooled return
+connections and Android adaptive batches/playback prefetch. Its current contract and measured local
+baseline are in [ATTACHMENT_PERFORMANCE.md](ATTACHMENT_PERFORMANCE.md); the one-transfer and fixed
+256 KiB descriptions below record the original HG-222 baseline and are superseded for upgraded peers.
+
 Approved in the dispatch conversation on 2026-10-21. This supersedes the original HG-222
 100 MiB hard-block interaction in ARTIFACT_DOWNLOAD.md. No phone VPN or Mac inbound port is needed.
 

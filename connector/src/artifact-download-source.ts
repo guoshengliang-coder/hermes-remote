@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Stats } from "node:fs";
-import { request as httpRequest, type ClientRequest } from "node:http";
-import { request as httpsRequest } from "node:https";
+import { Agent as HttpAgent, request as httpRequest, type ClientRequest } from "node:http";
+import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -24,7 +24,10 @@ export class ArtifactDownloadSource {
   private readonly references = new Map<string, Reference>();
   private readonly origin: string;
   readonly enabled: boolean;
-  private activeId?: string;
+  private readonly active = new Map<string, string>();
+  private readonly httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 4, maxFreeSockets: 4, timeout: 30_000 });
+  private readonly httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 4, maxFreeSockets: 4, timeout: 30_000 });
+  private nextSendAt = 0;
 
   constructor(
     private readonly filesRoot: string,
@@ -41,7 +44,10 @@ export class ArtifactDownloadSource {
     this.origin = url.origin;
   }
 
-  clear(): void { this.references.clear(); }
+  clear(): void {
+    this.references.clear();
+    this.httpAgent.destroy(); this.httpsAgent.destroy();
+  }
 
   async prepare(path: string): Promise<ArtifactDownloadDescriptor> {
     if (!this.enabled) throw new ArtifactFileError(501, "HR-FILE-012");
@@ -57,7 +63,7 @@ export class ArtifactDownloadSource {
       this.references.set(artifactId, { path, etag, expires: this.now() + 10 * 60_000 });
       return { artifactId, etag, sizeBytes: opened.metadata.size,
         contentType: this.contentType(opened.canonicalPath), maxBytes: this.maxBytes,
-        quickOpenBytes: ARTIFACT_QUICK_OPEN_BYTES };
+        quickOpenBytes: ARTIFACT_QUICK_OPEN_BYTES, maxConcurrentRanges: 4, maxRangeBytes: 1024 * 1024 };
     } finally { await opened.handle.close(); }
   }
 
@@ -73,9 +79,13 @@ export class ArtifactDownloadSource {
         { "content-type": "application/json", "content-length": String(body.length), ...headers },
         (async function* () { yield body; })(), signal);
     };
-    if (this.activeId) { await sendFailure(503, "HR-FILE-013"); return; }
-    this.activeId = request.id;
-    const release = () => { if (this.activeId === request.id) this.activeId = undefined; };
+    // Several ranges of ONE opaque reference may overlap. Separate files/phones cannot
+    // multiply the Mac's transfer budget or displace an in-progress file.
+    if (this.active.size >= 4 || [...this.active.values()].some((value) => value !== id)) {
+      await sendFailure(503, "HR-FILE-013"); return;
+    }
+    this.active.set(request.id, id);
+    const release = () => { this.active.delete(request.id); };
     let streaming = false;
     try {
       const reference = this.references.get(id);
@@ -100,8 +110,12 @@ export class ArtifactDownloadSource {
         };
         if (request.headers.range) headers["content-range"] = `bytes ${range.start}-${range.end}/${metadata.size}`;
         const pace = this.bytesPerSecond;
+        const reserve = (bytes: number) => {
+          const now = performance.now();
+          this.nextSendAt = Math.max(now, this.nextSendAt) + bytes / pace * 1000;
+          return this.nextSendAt - now;
+        };
         async function* chunks() {
-          const started = performance.now();
           for (let offset = range.start; offset <= range.end;) {
             signal.throwIfAborted();
             const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, Math.max(1, Math.floor(pace / 4)), range.end - offset + 1));
@@ -113,7 +127,9 @@ export class ArtifactDownloadSource {
             if (offset > range.end && artifactVersion(await handle.stat()) !== reference!.etag) {
               throw new Error("source_changed");
             }
-            const wait = ((offset - range.start) / pace) * 1000 - (performance.now() - started);
+            // All concurrent ranges share this reservation clock. Four requests still
+            // send at the configured aggregate rate, including across range boundaries.
+            const wait = reserve(bytesRead);
             if (wait > 0) await delay(wait, undefined, { signal });
             yield buffer.subarray(0, bytesRead);
           }
@@ -139,7 +155,7 @@ export class ArtifactDownloadSource {
     let out: ClientRequest;
     const finished = new Promise<void>((resolve, reject) => {
       out = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, {
-        method: "PUT", agent: false, signal,
+        method: "PUT", agent: url.protocol === "https:" ? this.httpsAgent : this.httpAgent, signal,
         headers: { ...headers, authorization: `Bearer ${ticket}`, "x-hermes-file-status": String(status) },
       }, (response) => {
         response.resume();
