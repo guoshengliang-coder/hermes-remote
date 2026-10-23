@@ -21,6 +21,8 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.Collections
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * HG-223: the transfer must keep its bytes across interruptions, never splice two builds, and
@@ -107,9 +109,11 @@ class UpdateDownloadTransferTest {
         }
     }
 
-    private val bytesToReturn = mutableListOf<Pair<Int, Int>>()
+    // MockWebServer dispatches the four requests on different threads. An ArrayList loses
+    // concurrent additions, making the exact-range assertion fail even after a correct transfer.
+    private val bytesToReturn = ConcurrentLinkedQueue<Pair<Int, Int>>()
 
-    private suspend fun transfer(record: UpdateDownloadRecord, progress: MutableList<UpdateDownloadRecord> = mutableListOf()):
+    private suspend fun transfer(record: UpdateDownloadRecord, progress: MutableList<UpdateDownloadRecord> = Collections.synchronizedList(mutableListOf())):
         UpdateDownloadRecord {
         val committed = mutableListOf<UpdateDownloadRecord>()
         val client = OkHttpClient()
@@ -144,7 +148,7 @@ class UpdateDownloadTransferTest {
     @Test fun `downloads four ranges and refuses to publish the file before every byte`() = runTest {
         serve()
         val record = UpdateDownloadRecord(versionFor(), body.size.toLong(), planUpdateSegments(body.size.toLong()))
-        val progress = mutableListOf<UpdateDownloadRecord>()
+        val progress = Collections.synchronizedList(mutableListOf<UpdateDownloadRecord>())
         val done = transfer(record, progress)
 
         assertEquals(UpdateDownloadStatus.COMPLETE, done.status)

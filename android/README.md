@@ -369,6 +369,8 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.178 improves attachment download throughput with negotiated concurrency and adaptive
+  chunks, and reduces video cache I/O (HG-232).
 - Version 0.1.177 starts reasoning folded and shows full running status until visible answer prose
   begins, retaining manual disclosure and the latest-tool preview (HG-230).
 - Version 0.1.176 previews live reasoning, folds it at completion while preserving manual choices,
@@ -1102,7 +1104,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.177-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.178-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
@@ -1116,6 +1118,13 @@ cannot silently produce an APK with an incompatible signature.
 See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distributing the derivative app.
 
 ### JVM test safety (HG-160)
+
+The asynchronous image-layout and streaming-Markdown JVM tests use `createHermesComposeRule()`,
+which supplies a `StandardTestDispatcher` to the existing Compose rule. Composition and effect continuations are queued on the rule's scheduler;
+use `waitForIdle()` / `runOnIdle()` to synchronize. The v1 unconfined default could resume UI work
+on a real image-decoder or Markdown-parser worker and intermittently fail thread/layout checks.
+The shared rule retains real asynchronous work, UI assertions, and thread checks. This follows
+the [Compose 1.10 testing guidance](https://android-developers.googleblog.com/2025/12/whats-new-in-jetpack-compose-december.html).
 
 Every Gradle JVM test task loads the build-only `test-watchdog.jar`; it is never packaged in the
 APK. A separate, small JVM watches each test worker's PID and start time and forcibly stops that
