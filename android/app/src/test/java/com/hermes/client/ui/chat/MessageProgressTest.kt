@@ -13,6 +13,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performSemanticsAction
@@ -25,6 +26,7 @@ import com.hermes.client.domain.Role
 import com.hermes.client.ui.InChinese
 import com.hermes.client.ui.theme.HermesTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,25 +41,22 @@ class MessageProgressTest {
     @get:Rule val compose = createComposeRule()
     private val thought = (1..8).joinToString("\n") { "第 $it 步：核实文件和运行进度，保留完整的思考内容。" }
 
-    @Test fun live_preview_folds_at_completion_and_manual_expand_survives_deltas() {
-        val streaming = mutableStateOf(true)
+    @Test fun reasoning_starts_folded_and_manual_expansion_survives_deltas() {
         val text = mutableStateOf("初始思考")
-        compose.setContent { InChinese { HermesTheme { ThinkingCard("live", text.value, streaming = streaming.value) } } }
-        compose.onNodeWithText("初始思考").assertIsDisplayed()
-        compose.runOnIdle { streaming.value = false }
+        compose.setContent { InChinese { HermesTheme { ThinkingCard("live", text.value) } } }
         compose.onNodeWithText("初始思考").assertDoesNotExist()
-        compose.runOnIdle { streaming.value = true }
-        compose.onNodeWithText("展开思考过程").performClick()
-        compose.runOnIdle { text.value = "新的思考"; streaming.value = false }
+        compose.onNodeWithText("查看思考过程").performClick()
+        compose.runOnIdle { text.value = "新的思考" }
         compose.onNodeWithText("新的思考").assertIsDisplayed()
         compose.onNodeWithText("收起思考过程").performClick()
-        compose.runOnIdle { text.value = "后续思考"; streaming.value = true }
+        compose.runOnIdle { text.value = "后续思考" }
         compose.onNodeWithText("后续思考").assertDoesNotExist()
     }
 
-    @Test fun manually_hiding_preview_is_not_overridden_by_more_output() {
+    @Test fun manually_hiding_reasoning_is_not_overridden_by_more_output() {
         val text = mutableStateOf("初始思考")
-        compose.setContent { InChinese { HermesTheme { ThinkingCard("live", text.value, streaming = true) } } }
+        compose.setContent { InChinese { HermesTheme { ThinkingCard("live", text.value) } } }
+        compose.onNodeWithText("查看思考过程").performClick()
         compose.onNodeWithText("收起思考过程").performClick()
         compose.runOnIdle { text.value = "后续思考" }
         compose.onNodeWithText("后续思考").assertDoesNotExist()
@@ -70,7 +69,7 @@ class MessageProgressTest {
         compose.onNodeWithText("历史思考").assertIsDisplayed()
     }
 
-    @Test fun status_is_three_lines_and_full_view_keeps_the_clicked_snapshot() {
+    @Test fun status_shows_all_lines_and_full_view_keeps_the_clicked_snapshot() {
         val text = mutableStateOf(thought.replace("\n", ""))
         val snapshot = text.value
         compose.mainClock.autoAdvance = false
@@ -78,7 +77,8 @@ class MessageProgressTest {
         val node = compose.onNodeWithTag("running-status-text", useUnmergedTree = true)
         val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         node.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(3, layouts.single().lineCount)
+        assertTrue(layouts.single().lineCount > 3)
+        assertTrue(!layouts.single().hasVisualOverflow)
         compose.onNodeWithText(snapshot).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick) { it() }
         compose.mainClock.advanceTimeBy(32)
         compose.onNodeWithText("运行状态").assertIsDisplayed()
@@ -90,8 +90,8 @@ class MessageProgressTest {
         compose.onNodeWithText("新的状态").assertIsDisplayed()
     }
 
-    @Test fun three_line_footer_survives_replacement_by_actions_at_large_font() {
-        val message = mutableStateOf(ChatMessage("footer", Role.ASSISTANT, "answer", isStreaming = true,
+    @Test fun prose_hides_long_status_and_releases_its_height_while_still_streaming() {
+        val message = mutableStateOf(ChatMessage("footer", Role.ASSISTANT, "", thinking = "独立思考内容", isStreaming = true,
             tools = listOf(com.hermes.client.domain.ToolCall("tool", "terminal", com.hermes.client.domain.ToolStatus.RUNNING,
                 command = "检查所有来源文件和运行结果，再逐一核对详细信息。".repeat(8)))))
         compose.mainClock.autoAdvance = false
@@ -106,13 +106,24 @@ class MessageProgressTest {
                 }
             }
         } } }
+        compose.onNodeWithText("独立思考内容").assertDoesNotExist()
+        compose.onNodeWithText("查看思考过程").performClick()
+        compose.mainClock.advanceTimeBy(32)
         val footer = compose.onNodeWithTag("turn-footer-footer")
         footer.assertHeightIsAtLeast(64.dp)
         val bounds = footer.getUnclippedBoundsInRoot()
         val height = bounds.bottom - bounds.top
+        compose.runOnIdle { message.value = message.value.copy(text = "最终正文开始显示") }
+        compose.mainClock.advanceTimeBy(32)
+        compose.onNodeWithTag("running-status-text", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("正在生成").assertExists()
+        val proseBounds = footer.getUnclippedBoundsInRoot()
+        assertTrue(proseBounds.bottom - proseBounds.top < height)
         compose.runOnIdle { message.value = message.value.copy(isStreaming = false) }
+        compose.mainClock.advanceTimeBy(32)
+        compose.onNodeWithText("独立思考内容").assertExists()
         val completedBounds = footer.getUnclippedBoundsInRoot()
-        assertEquals(height, completedBounds.bottom - completedBounds.top)
+        assertEquals(proseBounds.bottom - proseBounds.top, completedBounds.bottom - completedBounds.top)
     }
 
     @Test fun progress_light() = screenshot("progress-light", false, 1f)
@@ -125,7 +136,7 @@ class MessageProgressTest {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, scale)) {
                 Surface { Column(Modifier.width(360.dp)) {
-                    ThinkingCard("live", thought, streaming = true)
+                    ThinkingCard("live", thought)
                     RunningStatusLine(ChatMessage("live", Role.ASSISTANT, "", thinking = thought.replace("\n", ""), isStreaming = true))
                 } }
             }

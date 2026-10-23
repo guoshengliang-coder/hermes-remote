@@ -87,7 +87,7 @@ class ScreenshotTest {
 
     @Test fun runningStatusTool() = snap("status-tool", manualClock = true) {
         com.hermes.client.ui.chat.RunningStatusLine(
-            msg(text = "x", tools = listOf(com.hermes.client.domain.ToolCall("t", "Bash", com.hermes.client.domain.ToolStatus.RUNNING, command = "npm test"))),
+            msg(tools = listOf(com.hermes.client.domain.ToolCall("t", "Bash", com.hermes.client.domain.ToolStatus.RUNNING, command = "npm test"))),
         )
     }
 

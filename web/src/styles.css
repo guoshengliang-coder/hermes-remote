@@ -2230,12 +2230,14 @@ html[data-theme="dark"] .group-header {
 /* Running status line (HG-56): dots + what the run is doing + elapsed. */
 .running-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   min-height: 1.75rem;
   color: var(--status-running);
   font-size: 0.8125rem;
 }
+
+.running-line > .loading-dots { flex: none; margin-top: 0.4375rem; }
 
 .running-text {
   min-width: 0;
@@ -2244,18 +2246,12 @@ html[data-theme="dark"] .group-header {
   font-size: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 .running-details { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .turn-footer { min-height: 3rem; }
-.reasoning-body.preview { max-height: 7.5em; overflow-y: auto; }
 .reasoning-body { line-height: 1.5; font-size: 0.8125rem; }
 .reasoning-body .reasoning-text { margin: 0; line-height: inherit; font-size: inherit; }
-.reasoning-hide { color: var(--on-surface-variant); font-size: 0.75rem; padding-block: 0.25rem; }
 
 .loading-dots {
   display: inline-flex;

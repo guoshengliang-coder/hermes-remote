@@ -33,40 +33,54 @@ import org.junit.runner.RunWith
 class MessageProgressDeviceTest {
     @get:Rule val activity = ActivityScenarioRule(ComponentActivity::class.java)
 
-    @Test fun preview_manual_choices_tool_window_and_status_dialog() {
-        val thought = (1..6).joinToString("\n") { "第 $it 步：核对来源文件与完整运行结果。" }
+    @Test fun folded_reasoning_full_status_prose_handoff_and_manual_choices() {
+        val thought = (1..3).joinToString("\n") { "第 $it 步：核对来源文件与完整运行结果。" } +
+            "\n" + "检查每项任务的详细运行状态并保留全部文字。".repeat(8)
         val streaming = mutableStateOf(true)
         val text = mutableStateOf(thought)
+        val prose = mutableStateOf("")
         val tools = (1..4).map { ToolCall("t$it", "工具$it", ToolStatus.DONE, output = "工具结果") }
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         activity.scenario.onActivity { host -> host.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ZH) { HermesTheme(darkTheme = false) {
                 Surface { Column(Modifier.systemBarsPadding().padding(16.dp)) {
-                    ThinkingCard("device", text.value, streaming = streaming.value)
-                    ToolTimelineCard(tools, completed = !streaming.value)
-                    RunningStatusLine(ChatMessage("device", Role.ASSISTANT, "", thinking = "检查每项任务的详细运行状态并保留全部文字。".repeat(8), isStreaming = true))
+                    AssistantTurn(
+                        msg = ChatMessage("device", Role.ASSISTANT, prose.value, thinking = text.value,
+                            tools = tools, isStreaming = streaming.value),
+                        canRegenerate = false, showActions = true,
+                        onRegenerate = {}, onRetryWithModel = {}, onOpenTableFullscreen = {},
+                        isSpeaking = false, onReadAloud = {}, onStopReading = {},
+                        onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
+                    )
                 } }
             } }
         } }
-        awaitText("展开思考过程")
-        capture("hg230-preview.png")
+        awaitText("查看思考过程")
+        assertNull(findText(automation.rootInActiveWindow, thought))
+        capture("hg230-folded-full-status.png")
         assertNull(findText(automation.rootInActiveWindow, "工具1"))
         assertNotNull(awaitText("工具4"))
-        tapText("收起思考过程")
-        activity.scenario.onActivity { text.value += "\n后续增量" }
-        awaitText("查看思考过程")
-        tapText("查看思考过程")
-        activity.scenario.onActivity { streaming.value = false }
-        awaitText("收起思考过程") // explicit expansion survives completion
-        tapText("收起思考过程")
-        tapText("查看思考过程")
-        tapText("收起思考过程")
-        val status = "检查每项任务的详细运行状态并保留全部文字。".repeat(8)
+        val status = thought.lines().last()
         tapText(status)
         awaitText("运行状态")
         capture("hg230-status-details.png")
         tapText("关闭")
         assertNull(findText(automation.rootInActiveWindow, "运行状态"))
+        tapText("查看思考过程")
+        awaitText(thought)
+        tapText("收起思考过程")
+        activity.scenario.onActivity { text.value += "\n后续增量" }
+        awaitText("查看思考过程")
+        tapText("查看思考过程")
+        activity.scenario.onActivity { prose.value = "最终正文已开始" }
+        awaitText("最终正文已开始")
+        assertNull(findText(automation.rootInActiveWindow, "后续增量"))
+        capture("hg230-prose-status-hidden.png")
+        activity.scenario.onActivity { streaming.value = false }
+        awaitText("收起思考过程") // explicit expansion survives completion
+        tapText("收起思考过程")
+        tapText("查看思考过程")
+        tapText("收起思考过程")
     }
 
     private fun awaitText(text: String): android.view.accessibility.AccessibilityNodeInfo {

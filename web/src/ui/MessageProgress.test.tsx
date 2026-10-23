@@ -23,30 +23,30 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => render(null, host)); host.remove(); resetOverlays(); vi.unstubAllGlobals(); });
 
-it("previews live reasoning through tool/prose output, then folds and reopens history folded", async () => {
+it("starts live reasoning folded through deltas, prose and completion; history reopens folded", async () => {
   await draw();
-  expect(host.querySelector(".reasoning-body.preview")?.textContent).toBe("first thought");
-  await draw({ text: "answer beginning" });
-  expect(host.querySelector(".reasoning-body.preview")).not.toBeNull();
+  expect(host.querySelector(".reasoning-body")).toBeNull();
+  await draw({ reasoning: "later thought", text: "answer beginning" });
+  expect(host.querySelector(".reasoning-body")).toBeNull();
   await draw({ streaming: false });
   expect(host.querySelector(".reasoning-body")).toBeNull();
   await click(".reasoning-head");
-  expect(host.querySelector(".reasoning-body")?.textContent).toBe("first thought");
+  expect(host.querySelector(".reasoning-body")?.textContent).toBe("later thought");
   act(() => render(null, host));
   await draw();
   expect(host.querySelector(".reasoning-body")).toBeNull();
 });
 it("manual full expansion survives deltas and completion; manual hide stays hidden", async () => {
   await draw(); await click(".reasoning-head");
-  expect(host.querySelector(".reasoning-body.preview")).toBeNull();
+  expect(host.querySelector(".reasoning-body")?.textContent).toBe("first thought");
   await draw({ reasoning: "updated thought", streaming: false });
   expect(host.querySelector(".reasoning-body")?.textContent).toBe("updated thought");
   await click(".reasoning-head");
   await draw({ reasoning: "next thought", streaming: true });
   expect(host.querySelector(".reasoning-body")).toBeNull();
 });
-it("can hide the automatic preview without later deltas reopening it", async () => {
-  await draw(); await click(".reasoning-hide");
+it("can expand and hide live reasoning without later deltas reopening it", async () => {
+  await draw(); await click(".reasoning-head"); await click(".reasoning-head");
   await draw({ reasoning: "later" });
   expect(host.querySelector(".reasoning-body")).toBeNull();
 });
@@ -74,6 +74,28 @@ it("shows the full recent status without character truncation and opens a stable
   await click('[aria-label="关闭"]');
   expect(host.querySelector('[role="dialog"]')).toBeNull();
   expect(host.querySelector(".running-text")?.textContent).toBe("new status");
+});
+it("hides status text as soon as visible prose starts while keeping the live indicator", async () => {
+  await draw({ reasoning: "latest reasoning", tools: [{ id: "t", name: "terminal", done: false, command: "run command", output: "" }] });
+  expect(host.querySelector(".running-text")?.textContent).toContain("run command");
+  await draw({ text: "final answer begins" });
+  expect(host.querySelector(".running-text")).toBeNull();
+  expect(host.querySelector(".running-line .loading-dots")).not.toBeNull();
+  expect(host.querySelector<HTMLElement>(".turn-footer")?.style.minHeight).toBe("");
+  await draw({ reasoning: "late reasoning", text: "final answer continues" });
+  expect(host.querySelector(".running-text")).toBeNull();
+  await draw({ streaming: false });
+  expect(host.querySelector(".running-line")).toBeNull();
+  expect(host.querySelector(".message-actions")).not.toBeNull();
+});
+it("does not treat whitespace or structured tool payload as visible final prose", async () => {
+  await draw({ text: "  \n  " });
+  expect(host.querySelector(".running-text")).not.toBeNull();
+  await draw({ text: '{"command":"pwd","exit_code":0,"output":"/workspace"}' });
+  expect(host.querySelector(".tool-card")).not.toBeNull();
+  expect(host.querySelector(".running-text")).not.toBeNull();
+  await draw({ text: '{"command":"unfinished' });
+  expect(host.querySelector(".running-text")).not.toBeNull();
 });
 it("loads historical reasoning only after manual expansion, without fetching it while folded", async () => {
   const source = { sessionId: "s", rowId: 7, offset: 0, profile: null };

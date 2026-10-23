@@ -1183,8 +1183,9 @@ header controls; localized actions wrap at narrow widths. Existing quick-open, l
 download-first, and video playback rules remain in place. See `docs/DESIGN.md` §5.4 and the
 HG-227 physical-device checks in `docs/ANDROID_SMOKE.md`.
 
-HG-230 (source change, no APK release): live reasoning uses a five-line preview until the run ends,
-then folds automatically; explicit expand/hide survives updates and completion. Tool timelines
-preview the newest call only. Running status uses up to three lines and opens the complete clicked
-snapshot in a selectable dialog. The measured footer retains its height when actions replace status.
+HG-230 follow-up (2026-10-23; source change, no new APK release): reasoning starts folded during
+the run and in history; explicit expand/hide survives updates and completion. Tool timelines
+preview the newest call only. Running status displays its complete current text without a line limit
+until visible prose starts, then keeps only the dots. Its extra height is released so no large blank
+remains below the answer. Tapping status still opens a selectable snapshot.
 Both Android and Web share these rules; see `docs/DESIGN.md` and `docs/SMOKE_TEST.md`.
