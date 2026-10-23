@@ -2213,6 +2213,8 @@ behavior is claimed. L2 was unavailable (no physical device attached).
   for a repeated path. A failed initial read or failed/stalled older-page read must show the actual
   structured failure and retry rather than claim no artifacts exist.
 - Preview Markdown/text, sandboxed static HTML, generated images and a browser-supported video.
+  Use the actual hosted shell CSP, including the Gateway's `media-src blob:` policy; a Vite page
+  without production headers is not evidence that video playback works after publication.
   HTML must have no script, parent-origin, network, form or navigation privilege; the original file
   remains downloadable. Unsupported formats and text above the preview bound offer download.
 - Scroll the list, open and close a preview, then navigate to the source assistant turn. Check the

@@ -133,5 +133,7 @@ repeated paths point to the latest delivery, without snapshots. Context navigati
 return preserve list scroll, and account/Mac/profile/conversation changes clear the panel.
 HTML gets a sanitized, opaque, network-disabled static preview; Markdown/text and supported videos
 get browser previews. Unsupported formats and oversized text remain downloadable. Image and
-download caching retain the existing client semantics. No Gateway/Connector protocol or deployment
-change is required. Physical Safari/PWA and Android browser acceptance remains in SMOKE_TEST.md.
+download caching retain the existing client semantics. No shared wire protocol changes are required.
+Web video preview additionally requires Gateway shell CSP `media-src blob:`;
+publish that Gateway policy before the Web bundle. Physical Safari/PWA and Android browser
+acceptance remains in SMOKE_TEST.md.
