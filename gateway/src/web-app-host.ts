@@ -55,6 +55,7 @@ export class WebAppHost {
         "script-src 'self'",
         "style-src 'self'",
         "img-src 'self' blob: data:",
+        "media-src blob:",
         `connect-src 'self'${websocketOrigin ? ` ${websocketOrigin}` : ""}`,
         "font-src 'self'",
         "worker-src 'self'",

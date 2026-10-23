@@ -77,13 +77,18 @@ class ArtifactRangeRepository @Inject constructor(
         var start = ((from + ArtifactRangeCache.BLOCK_BYTES - 1) / ArtifactRangeCache.BLOCK_BYTES) * ArtifactRangeCache.BLOCK_BYTES
         try {
             RandomAccessFile(file, "r").use { input ->
-                while (start < descriptor.sizeBytes) {
-                    val count = minOf(ArtifactRangeCache.BLOCK_BYTES.toLong(), descriptor.sizeBytes - start).toInt()
-                    if (start + count > file.length()) break
-                    val data = ByteArray(count); input.seek(start); input.readFully(data)
-                    cache.write(key, start, data)
-                    start += count
-                }
+                cache.writeBlocks(key, sequence {
+                    while (start < descriptor.sizeBytes) {
+                        val count = minOf(ArtifactRangeCache.BLOCK_BYTES.toLong(), descriptor.sizeBytes - start).toInt()
+                        if (start + count > file.length()) break
+                        // Cached playback blocks need no second write into the same cache.
+                        if (cache.read(key, start, count) == null) {
+                            val data = ByteArray(count); input.seek(start); input.readFully(data)
+                            yield(start to data)
+                        }
+                        start += count
+                    }
+                })
             }
         } catch (_: IOException) { /* Optional cache, durable download remains valid. */ }
     }

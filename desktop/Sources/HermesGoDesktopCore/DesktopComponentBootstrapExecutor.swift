@@ -112,6 +112,7 @@ public struct DesktopComponentBootstrapOutcome: Equatable, Sendable {
 public actor DesktopComponentBootstrapExecutor {
     private let installer: any DesktopComponentReleaseInstalling
     private let migration: any DesktopComponentBootstrapMigrating
+    private let progress: DesktopSetupProgress?
     private var state: State = .idle
 
     private enum State {
@@ -140,10 +141,12 @@ public actor DesktopComponentBootstrapExecutor {
 
     public init(
         installer: any DesktopComponentReleaseInstalling,
-        migration: any DesktopComponentBootstrapMigrating
+        migration: any DesktopComponentBootstrapMigrating,
+        progress: DesktopSetupProgress? = nil
     ) {
         self.installer = installer
         self.migration = migration
+        self.progress = progress
     }
 
     public func prepare(
@@ -252,6 +255,7 @@ public actor DesktopComponentBootstrapExecutor {
         guard confirmation == pending.publicValue.confirmationText else {
             throw DesktopComponentBootstrapExecutorError.confirmationRequired
         }
+        progress?.advance(.staging, runID: preparation.runID)
         state = .committing
 
         let installed: DesktopInstalledComponentRelease
@@ -313,6 +317,7 @@ public actor DesktopComponentBootstrapExecutor {
             throw error
         }
 
+        progress?.advance(.cleaning, runID: preparation.runID)
         let workspaceRemoved = cleanupInstalled(
             installed,
             publicValue: pending.publicValue

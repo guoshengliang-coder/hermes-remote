@@ -22,6 +22,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
@@ -517,6 +518,8 @@ fun ChatMessageList(
     viewportController: ChatViewportController? = null,
     onBlankAreaTap: () -> Unit = {},
     openPromptListTick: Long = 0L,
+    openArtifactsTick: Long = 0L,
+    artifactScope: String = sessionId,
     /** Active in-chat search (query + which mark the counter points at) for the text marks. */
     searchContext: ChatSearchContext? = null,
     /**
@@ -531,6 +534,7 @@ fun ChatMessageList(
     onRetryOlder: () -> Unit = {},
     /** 我的提问 opened; it lists the whole conversation, so the rest of it is paged in. */
     onPromptListOpened: () -> Unit = {},
+    onArtifactsOpened: () -> Unit = onPromptListOpened,
 ) {
     val language = LocalAppLanguage.current
     val enteredWithoutContent = remember(sessionId) { state.messages.isEmpty() }
@@ -724,7 +728,7 @@ fun ChatMessageList(
     val turnTopInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (2.dp - TURN_SPACING).roundToPx() }
     // One owner for programmatic turn jumps, mirroring bottomRequests: a user drag steals the
     // scroll mutex and surfaces as CancellationException, which is the user's call.
-    val jumpRequests = remember(sessionId) { Channel<TurnJumpRequest>(Channel.CONFLATED) }
+    val jumpRequests = remember(sessionId, artifactScope) { Channel<TurnJumpRequest>(Channel.CONFLATED) }
     // Landing feedback (docs/DESIGN.md §5.4, decision 2026-09-03): the prompt jumped to shows an
     // outline only — no fill, unlike the search highlight — that fades over TURN_JUMP_FLASH_MS.
     // It starts when the jump has LANDED, not when the row was tapped: closing the sheet and the
@@ -775,6 +779,33 @@ fun ChatMessageList(
         }
     }
     var promptListOpen by remember(sessionId) { mutableStateOf(false) }
+    var artifactsOpen by remember(artifactScope) { mutableStateOf(false) }
+    var artifactContext by remember(artifactScope) { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = artifactContext && !artifactsOpen && !searchOpen) {
+        artifactContext = false; artifactsOpen = true
+    }
+    val artifactsListState = androidx.compose.runtime.key(artifactScope) { rememberLazyListState() }
+    var artifacts by remember(artifactScope) { mutableStateOf(emptyList<ConversationArtifact>()) }
+    LaunchedEffect(artifactScope, artifactsOpen, displayMessages) {
+        if (artifactsOpen) artifacts = withContext(Dispatchers.Default) { conversationArtifacts(displayMessages) }
+    }
+    LaunchedEffect(openArtifactsTick) { if (openArtifactsTick > 0L) { artifactsOpen = true; artifactContext = false } }
+    val artifactsHistoryLoader by androidx.compose.runtime.rememberUpdatedState(onArtifactsOpened)
+    LaunchedEffect(artifactsOpen, state.historyLoaded) { if (artifactsOpen) artifactsHistoryLoader() }
+    if (artifactsOpen) {
+        ConversationArtifactsSheet(artifacts, olderHistory.copy(loading = olderHistory.loading || (!state.historyLoaded && state.historyError == null)), artifactsListState,
+            initialHistoryError = state.historyError,
+            onRetry = { artifactsHistoryLoader() }, onOpenImage = onOpenImage,
+            onOpenFile = onFileOpen, onShareFile = onFileShare,
+            onContext = { artifact ->
+                val index = displayMessages.indexOfFirst { it.id == artifact.messageId }
+                if (index >= 0) {
+                    artifactsOpen = false; artifactContext = true
+                    semanticViewport.cancelRestoreForUser()
+                    jumpRequests.trySend(TurnJumpRequest(messageListIndex(turnCount, index), index))
+                }
+            }, onDismiss = { artifactsOpen = false })
+    }
     LaunchedEffect(openPromptListTick) { if (openPromptListTick > 0L) promptListOpen = true }
     val latestPromptListOpened by androidx.compose.runtime.rememberUpdatedState(onPromptListOpened)
     LaunchedEffect(promptListOpen) { if (promptListOpen) latestPromptListOpened() }
@@ -1289,6 +1320,14 @@ fun ChatMessageList(
                 item(key = OLDER_HISTORY_ERROR_KEY) {
                     OlderHistoryFailedRow(error, onRetry = if (error.retryable) onRetryOlder else null)
                 }
+            }
+        }
+        if (artifactContext && !searchOpen) {
+            Surface(onClick = { artifactContext = false; artifactsOpen = true },
+                modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
+                color = MaterialTheme.colorScheme.surface, shape = CircleShape, shadowElevation = 4.dp) {
+                Text(localized(language, "返回产物", "Back to artifacts"), modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    style = MaterialTheme.typography.labelLarge)
             }
         }
         // Turn-jump pill: names the group under the viewport's top edge once its prompt has left
@@ -1908,6 +1947,7 @@ internal fun ChatFileList(
                 if (file.state == FileTransferState.READY) metadata?.load(file)
             }
             val info = metadata?.info(file) ?: FileCardInfo(file.sizeBytes)
+            val fileKind = com.hermes.client.ui.components.fileIconKind(file.name, file.mimeType)
             val downloads = LocalChatFileDownloads.current
             val task = downloads?.tasks?.firstOrNull { it.remotePath == file.remotePath }
             val complete = file.localPath != null || task?.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.COMPLETE
@@ -1928,7 +1968,7 @@ internal fun ChatFileList(
                 else localized(LocalAppLanguage.current, "打开文件", "Open file")
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
@@ -1939,99 +1979,111 @@ internal fun ChatFileList(
                         }
                     ),
             ) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        com.hermes.client.ui.components.attachmentIcon(com.hermes.client.ui.components.fileIconKind(file.name, file.mimeType)),
-                        contentDescription = null, modifier = Modifier.size(25.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                        Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
-                        val detail = listOfNotNull(
-                            file.name.substringAfterLast('.', "").uppercase(java.util.Locale.ROOT).ifBlank { file.mimeType?.substringAfter('/') },
-                            info.sizeBytes?.let(::artifactSizeLabel) ?: localized(LocalAppLanguage.current, "大小未知", "Size unknown"),
-                        ).joinToString(" · ")
-                        if (detail.isNotBlank()) {
-                            Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (info.tooLarge && !complete) {
-                            Text(
-                                artifactLimitMessage(info, LocalAppLanguage.current),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = 4.dp),
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top) {
+                        Box(Modifier.width(32.dp).height(48.dp), contentAlignment = Alignment.TopCenter) {
+                            Icon(
+                                com.hermes.client.ui.components.attachmentIcon(fileKind),
+                                contentDescription = null, modifier = Modifier.padding(top = 4.dp).size(24.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        if (complete) {
-                            Text(localized(LocalAppLanguage.current, "已下载", "Downloaded"),
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else if (video && !info.tooLarge && task == null) {
-                            Text(if (info.limitKnown && !info.independentDownloads)
-                                localized(LocalAppLanguage.current, "当前服务需先下载再播放", "This service downloads before playback")
-                                else localized(LocalAppLanguage.current, "可在线播放，也可下载", "Play online or download"),
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else if (needsDownload && !info.tooLarge && task == null) {
-                            Text(localized(LocalAppLanguage.current, "请先下载，再打开或分享", "Download before opening or sharing"),
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (task != null && !complete && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) {
-                            val received = if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) task.progressBytes ?: task.downloaded else task.downloaded
-                            val status = if (task.waitingForPlayback) localized(LocalAppLanguage.current, "为播放让路", "Waiting for playback") else when (task.status) {
-                                com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED -> localized(LocalAppLanguage.current, "已暂停", "Paused")
-                                com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "等待重试", "Waiting to retry")
-                                com.hermes.client.data.downloads.ArtifactDownloadStatus.QUEUED -> localized(LocalAppLanguage.current, "等待下载", "Queued")
-                                com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED -> localized(LocalAppLanguage.current, "下载未完成", "Download incomplete")
-                                else -> localized(LocalAppLanguage.current, "正在下载", "Downloading")
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(file.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                            val detail = listOfNotNull(
+                                if (fileKind == com.hermes.client.ui.components.FileIconKind.WEB) "HTML"
+                                else file.name.substringAfterLast('.', "").uppercase(java.util.Locale.ROOT).ifBlank { file.mimeType?.substringAfter('/') },
+                                info.sizeBytes?.let(::artifactSizeLabel) ?: localized(LocalAppLanguage.current, "大小未知", "Size unknown"),
+                            ).joinToString(" · ")
+                            if (detail.isNotBlank()) {
+                                Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            val progressLabel = listOf(status, "${artifactSizeLabel(received)} / ${task.sizeBytes?.let(::artifactSizeLabel) ?: "—"}").joinToString(" · ")
-                            Text(progressLabel,
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) {
-                                androidx.compose.material3.LinearProgressIndicator(
-                                    progress = { (received.toFloat() / (task.sizeBytes ?: 1).coerceAtLeast(1)).coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-                            }
-                            task.errorCode?.let { value -> com.hermes.client.data.error.AppErrorCode.fromValue(value)?.let { code ->
-                                Text(com.hermes.client.data.error.AppError(code, false).localizedMessage(LocalAppLanguage.current),
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                            } }
                         }
-                        if (downloads != null && file.state == FileTransferState.READY && file.remotePath != null && !complete) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (busy && task != null) {
-                                    TextButton(onClick = { downloads.pause(task.id) }) { Text(localized(LocalAppLanguage.current, "暂停", "Pause")) }
-                                    TextButton(onClick = { downloads.cancel(task.id) }) { Text(localized(LocalAppLanguage.current, "取消", "Cancel")) }
-                                } else if (!info.tooLarge && (info.independentDownloads || task != null || needsDownload)) {
-                                    TextButton(onClick = { downloads.download(file) }) {
-                                        Text(when (task?.status) {
-                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED,
-                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "继续", "Resume")
-                                            com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED ->
-                                                if (task.errorCode == "HR-FILE-011") localized(LocalAppLanguage.current, "重新下载", "Download again")
-                                                else if (task.downloaded > 0) localized(LocalAppLanguage.current, "继续", "Resume")
-                                                else localized(LocalAppLanguage.current, "重试", "Retry")
-                                            else -> localized(LocalAppLanguage.current, "下载", "Download")
-                                        })
-                                    }
-                                    if (task != null && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) TextButton(onClick = { downloads.cancel(task.id) }) {
-                                        Text(localized(LocalAppLanguage.current, "取消", "Cancel"))
+                        when (file.state) {
+                            FileTransferState.UPLOADING -> com.hermes.client.ui.components.LoadingDots(size = 22.dp)
+                            FileTransferState.FAILED -> Icon(com.hermes.client.ui.components.AlertTriangleIcon, contentDescription = localized(LocalAppLanguage.current, "文件不可用", "File unavailable"))
+                            // Only 分享 keeps a button: 打开 is the whole card now, and one action
+                            // does not get two entry points.
+                            FileTransferState.READY -> {
+                                if (file.remotePath != null || file.localPath != null) {
+                                    IconButton(onClick = { onShare(file) }, enabled = shareable, modifier = Modifier.size(48.dp)) {
+                                        Icon(com.hermes.client.ui.components.ShareStrokeIcon, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(22.dp))
                                     }
                                 }
                             }
                         }
                     }
-                    when (file.state) {
-                        FileTransferState.UPLOADING -> com.hermes.client.ui.components.LoadingDots(size = 22.dp)
-                        FileTransferState.FAILED -> Icon(Icons.Rounded.BrokenImage, contentDescription = localized(LocalAppLanguage.current, "文件不可用", "File unavailable"))
-                        // Only 分享 keeps a button: 打开 is the whole card now, and one action
-                        // does not get two entry points.
-                        FileTransferState.READY -> {
-                            if (file.remotePath != null || file.localPath != null) {
-                                IconButton(onClick = { onShare(file) }, enabled = shareable, modifier = Modifier.size(38.dp)) {
-                                    Icon(Icons.Rounded.Share, localized(LocalAppLanguage.current, "分享文件", "Share file"), modifier = Modifier.size(19.dp))
+                    // Download controls never participate in the header's vertical alignment (HG-227).
+                    val hasDownloadActions = downloads != null && file.state == FileTransferState.READY &&
+                        file.remotePath != null && !complete &&
+                        (busy || (!info.tooLarge && (info.independentDownloads || task != null || needsDownload)))
+                    if (complete || info.tooLarge || (video && task == null) || (needsDownload && task == null) ||
+                        (task != null && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) || hasDownloadActions) {
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (info.tooLarge && !complete) {
+                                Text(
+                                    artifactLimitMessage(info, LocalAppLanguage.current),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            if (complete) {
+                                Text(localized(LocalAppLanguage.current, "已下载", "Downloaded"),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else if (video && !info.tooLarge && task == null) {
+                                Text(if (info.limitKnown && !info.independentDownloads)
+                                    localized(LocalAppLanguage.current, "当前服务需先下载再播放", "This service downloads before playback")
+                                    else localized(LocalAppLanguage.current, "可在线播放，也可下载", "Play online or download"),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else if (needsDownload && !info.tooLarge && task == null) {
+                                Text(localized(LocalAppLanguage.current, "请先下载，再打开或分享", "Download before opening or sharing"),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (task != null && !complete && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) {
+                                val received = if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) task.progressBytes ?: task.downloaded else task.downloaded
+                                val status = if (task.waitingForPlayback) localized(LocalAppLanguage.current, "为播放让路", "Waiting for playback") else when (task.status) {
+                                    com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED -> localized(LocalAppLanguage.current, "已暂停", "Paused")
+                                    com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "等待重试", "Waiting to retry")
+                                    com.hermes.client.data.downloads.ArtifactDownloadStatus.QUEUED -> localized(LocalAppLanguage.current, "等待下载", "Queued")
+                                    com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED -> localized(LocalAppLanguage.current, "下载未完成", "Download incomplete")
+                                    else -> localized(LocalAppLanguage.current, "正在下载", "Downloading")
+                                }
+                                val progressLabel = listOf(status, "${artifactSizeLabel(received)} / ${task.sizeBytes?.let(::artifactSizeLabel) ?: "—"}").joinToString(" · ")
+                                Text(progressLabel,
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (task.status == com.hermes.client.data.downloads.ArtifactDownloadStatus.RUNNING) {
+                                    androidx.compose.material3.LinearProgressIndicator(
+                                        progress = { (received.toFloat() / (task.sizeBytes ?: 1).coerceAtLeast(1)).coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                                }
+                                task.errorCode?.let { value -> com.hermes.client.data.error.AppErrorCode.fromValue(value)?.let { code ->
+                                    Text(com.hermes.client.data.error.AppError(code, false).localizedMessage(LocalAppLanguage.current),
+                                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                } }
+                            }
+                            if (downloads != null && file.state == FileTransferState.READY && file.remotePath != null && !complete) {
+                                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    if (busy && task != null) {
+                                        TextButton(onClick = { downloads.pause(task.id) }) { Text(localized(LocalAppLanguage.current, "暂停", "Pause")) }
+                                        TextButton(onClick = { downloads.cancel(task.id) }) { Text(localized(LocalAppLanguage.current, "取消", "Cancel")) }
+                                    } else if (!info.tooLarge && (info.independentDownloads || task != null || needsDownload)) {
+                                        TextButton(onClick = { downloads.download(file) }) {
+                                            Text(when (task?.status) {
+                                                com.hermes.client.data.downloads.ArtifactDownloadStatus.PAUSED,
+                                                com.hermes.client.data.downloads.ArtifactDownloadStatus.WAITING -> localized(LocalAppLanguage.current, "继续", "Resume")
+                                                com.hermes.client.data.downloads.ArtifactDownloadStatus.FAILED ->
+                                                    if (task.errorCode == "HR-FILE-011") localized(LocalAppLanguage.current, "重新下载", "Download again")
+                                                    else if (task.downloaded > 0) localized(LocalAppLanguage.current, "继续", "Resume")
+                                                    else localized(LocalAppLanguage.current, "重试", "Retry")
+                                                else -> localized(LocalAppLanguage.current, "下载", "Download")
+                                            })
+                                        }
+                                        if (task != null && task.status != com.hermes.client.data.downloads.ArtifactDownloadStatus.CANCELLED) TextButton(onClick = { downloads.cancel(task.id) }) {
+                                            Text(localized(LocalAppLanguage.current, "取消", "Cancel"))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2317,11 +2369,10 @@ internal fun AssistantTurn(
             // An error turn gets the row too, trimmed to 复制 + ⋯: with the long-press menu gone,
             // the row is the only way left to its 重新生成 / 换个模型重试 (HG-95).
             val showCompletedActions = showActions && !msg.isStreaming && msg.text.isNotBlank()
-            if (msg.isStreaming || showCompletedActions) Box(Modifier.fillMaxWidth().height(48.dp)) {
+            if (msg.isStreaming || showCompletedActions) Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("turn-footer-${msg.id}")) {
                 if (msg.isStreaming) {
-                    // Reserve the same footer height during and after a run. Replacing a short
-                    // status row with the 48dp action row used to grow the last item exactly when
-                    // message.complete arrived, producing the final visible jump to the bottom.
+                    // Full status may be tall. Release that space when prose replaces it; only
+                    // the compact indicator/action-row minimum remains.
                     RunningStatusLine(msg)
                 } else {
                 Row(
@@ -3379,8 +3430,11 @@ internal fun sessionRunPlaceholder(sessionId: String, runStartedAt: Long? = null
 @Composable
 internal fun RunningStatusLine(msg: ChatMessage) {
     val language = LocalAppLanguage.current
+    val prose = msg.text.trim()
+    val placeholder = localized(language, "工具数据接收中…", "Receiving tool data…")
+    val showText = prose.isEmpty() || prose == placeholder || prose == "*$placeholder*"
     val hasOutput = msg.text.isNotBlank() || msg.tools.isNotEmpty() || msg.thinking.isNotBlank()
-    val status = runningStatusFor(msg)
+    val status = runningStatusFor(if (showText) msg.copy(text = "") else msg)
     // Live elapsed time, anchored on the turn's real timestamp (not a local counter), so a
     // process restart or reconnect still shows the true duration of the run.
     var nowTick by remember(msg.id) { mutableStateOf(System.currentTimeMillis()) }
@@ -3393,55 +3447,45 @@ internal fun RunningStatusLine(msg: ChatMessage) {
     val elapsedSuffix = msg.timestamp?.let { start ->
         " · " + formatElapsedTime(nowTick - start, zh = language == com.hermes.client.ui.localization.AppLanguage.ZH)
     }.orEmpty()
+    val waitLabel = if (hasOutput) null else runWaitElapsedLabel(
+        msg.timestamp, nowTick, zh = language == com.hermes.client.ui.localization.AppLanguage.ZH,
+    )
+    val label = if (!hasOutput) waitLabel ?: localized(language, "正在准备…", "Preparing…") else when (status) {
+        is RunningStatus.Tool -> localized(language, "正在运行 ", "Running ") + status.label + "…" + elapsedSuffix
+        is RunningStatus.Thinking -> status.preview + elapsedSuffix
+        RunningStatus.Generating -> localized(language, "生成中…", "Generating…") + elapsedSuffix
+    }
+    var details by androidx.compose.runtime.saveable.rememberSaveable(msg.id) { mutableStateOf<String?>(null) }
     Row(
-        Modifier.padding(top = 8.dp).fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+        Modifier.padding(top = 8.dp).fillMaxWidth().then(
+            if (showText) Modifier.clickable(onClickLabel = localized(language, "查看完整状态", "View full status")) { details = label }
+            else Modifier,
+        ),
+        verticalAlignment = Alignment.Top,
     ) {
         com.hermes.client.ui.components.LoadingDots(
             size = 14.dp,
-            modifier = Modifier.padding(end = 8.dp),
+            modifier = Modifier.padding(end = 8.dp, top = 2.dp),
             contentDescription = localized(language, "正在生成", "Generating"),
         )
-        val style = MaterialTheme.typography.bodySmall
-        val color = MaterialTheme.colorScheme.onSurfaceVariant
-        // ...but only for a few seconds. A wait long enough to be doubted has to be measured, or a
-        // working Mac and a message that never sent look identical (HG-56). The number is the whole
-        // content: it is the one thing we know to be true before any output arrives.
-        val waitLabel = if (hasOutput) null else runWaitElapsedLabel(
-            msg.timestamp,
-            nowTick,
-            zh = language == com.hermes.client.ui.localization.AppLanguage.ZH,
+        if (showText) Text(
+            label,
+            style = when (status) {
+                is RunningStatus.Tool -> MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                is RunningStatus.Thinking -> MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic)
+                else -> MaterialTheme.typography.bodySmall
+            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).testTag("running-status-text"),
         )
-        if (!hasOutput) {
-            Text(
-                waitLabel ?: localized(language, "正在准备…", "Preparing…"),
-                style = style,
-                color = color,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (hasOutput) when (status) {
-            is RunningStatus.Tool -> Text(
-                localized(language, "正在运行 ", "Running ") + status.label + "…" + elapsedSuffix,
-                style = style.copy(fontFamily = FontFamily.Monospace),
-                color = color,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            is RunningStatus.Thinking -> Text(
-                status.preview + elapsedSuffix,
-                style = style.copy(fontStyle = FontStyle.Italic),
-                color = color,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            RunningStatus.Generating -> Text(
-                localized(language, "生成中…", "Generating…") + elapsedSuffix,
-                style = style,
-                color = color,
-            )
-        }
+    }
+    details?.let { snapshot ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { details = null },
+            title = { Text(localized(language, "运行状态", "Run status")) },
+            text = { SelectionContainer(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) { Text(snapshot, modifier = Modifier.testTag("running-status-details")) } },
+            confirmButton = { TextButton(onClick = { details = null }) { Text(localized(language, "关闭", "Close")) } },
+        )
     }
 }
 
@@ -3480,11 +3524,13 @@ internal fun QuietFoldSummary(
 }
 
 @Composable
-private fun ThinkingCard(messageId: String, text: String, parts: List<com.hermes.client.domain.HistoryThinkingPart> = emptyList()) {
+internal fun ThinkingCard(messageId: String, text: String, parts: List<com.hermes.client.domain.HistoryThinkingPart> = emptyList()) {
     val language = LocalAppLanguage.current
     // rememberSaveable keyed by the message id: plain remember lost the expanded state whenever
     // the item scrolled out of the Lazy viewport and was recycled.
-    var expanded by androidx.compose.runtime.saveable.rememberSaveable(messageId) { mutableStateOf(false) }
+    // Keep the nullable saved-state shape from the previous release; its automatic choice now folds.
+    var userExpanded by androidx.compose.runtime.saveable.rememberSaveable(messageId) { mutableStateOf<Boolean?>(null) }
+    val expanded = userExpanded == true
     val loader = LocalHistoryFullRowLoader.current
     var fullText by remember(messageId, parts) { mutableStateOf<String?>(null) }
     var loading by remember(messageId, parts) { mutableStateOf(false) }
@@ -3515,14 +3561,13 @@ private fun ThinkingCard(messageId: String, text: String, parts: List<com.hermes
         }
     }
     val shown = fullText ?: text
-    // Quiet in BOTH states: unlike the tool timeline this toggle never shows progress (a live run's
-    // reasoning is voiced by RunningStatusLine), so restyling it at completion would only flash.
+    // Live and historical reasoning both start folded; only a reader action changes it.
     QuietFoldSummary(
         label = if (expanded) localized(language, "收起思考过程", "Hide reasoning")
         else localized(language, "查看思考过程", "View reasoning"),
         expanded = expanded,
         contentDescription = localized(language, "思考过程", "Reasoning"),
-        onClick = { expanded = !expanded },
+        onClick = { userExpanded = !expanded },
     )
     if (expanded) {
         SelectionContainer {

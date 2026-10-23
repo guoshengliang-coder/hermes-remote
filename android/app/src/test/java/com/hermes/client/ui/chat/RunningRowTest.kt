@@ -35,20 +35,27 @@ class RunningRowTest {
 
     @Test fun before_the_first_token_the_dots_have_an_explanatory_label() {
         show(streaming())
-        compose.onNodeWithTag("loading-dots").assertExists()
+        compose.onNodeWithTag("loading-dots", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("正在准备…", substring = true).assertExists()
     }
 
-    @Test fun the_same_mark_gains_a_label_once_output_arrives() {
+    @Test fun prose_keeps_the_mark_without_repeating_status_text() {
         show(streaming(text = "已经有一段输出"))
-        compose.onNodeWithTag("loading-dots").assertExists()
-        compose.onNodeWithText("生成中…", substring = true).assertExists()
+        compose.onNodeWithTag("loading-dots", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("running-status-text", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun a_running_tool_keeps_one_indicator_and_swaps_only_the_text() {
-        show(streaming(text = "x", tools = listOf(ToolCall("t", "Bash", ToolStatus.RUNNING, command = "npm test"))))
-        compose.onNodeWithTag("loading-dots").assertExists()
+        show(streaming(tools = listOf(ToolCall("t", "Bash", ToolStatus.RUNNING, command = "npm test"))))
+        compose.onNodeWithTag("loading-dots", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("npm test", substring = true).assertExists()
         compose.onNodeWithText("生成中…", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun receiving_tool_payload_placeholder_is_not_final_prose() {
+        show(streaming(text = "{\"command\":\"unfinished", thinking = "最新思考状态")
+            .stabilizedForStreaming("工具数据接收中…"))
+        compose.onNodeWithText("最新思考状态", substring = true).assertExists()
+        compose.onNodeWithTag("loading-dots", useUnmergedTree = true).assertExists()
     }
 }

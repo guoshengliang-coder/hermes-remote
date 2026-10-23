@@ -2,6 +2,10 @@ package com.hermes.client.domain
 
 import com.hermes.client.data.network.MessageDto
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import com.hermes.client.ui.chat.conversationArtifacts
+import com.hermes.client.ui.chat.organizedForDisplay
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -20,4 +24,23 @@ class CompactedHistoryMappingTest {
             """{"id":5,"role":"user","content":"raw","hr_display":{"schema":1,"kind":null,"body":"GO fallback"}}""",
         ).toDomain().text)
     }
+    @Test fun delivered_files_use_the_same_canonical_or_legacy_projection_as_the_visible_message() {
+        val json = Json { ignoreUnknownKeys = true }
+        val body = "<untrusted_tool_result source=\"run\">\nMEDIA:/tmp/process.pdf\n</untrusted_tool_result>\nMEDIA:/tmp/result.md"
+        for (canonical in listOf(false, true)) {
+            val row = buildJsonObject {
+                put("id", 91)
+                put("role", "assistant")
+                put("content", "MEDIA:/tmp/process.pdf")
+                if (canonical) put("display_content", body)
+                put("hr_display", buildJsonObject {
+                    put("schema", 1)
+                    put("body", if (canonical) "MEDIA:/tmp/stale.pdf" else body)
+                })
+            }
+            val message = json.decodeFromString<MessageDto>(row.toString()).toDomain().organizedForDisplay()
+            assertEquals(listOf("/tmp/result.md"), conversationArtifacts(listOf(message)).map { it.reference })
+        }
+    }
+
 }

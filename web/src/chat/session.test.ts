@@ -28,6 +28,15 @@ class FakeWebSocket implements WebSocketLike {
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("ChatSession", () => {
+  it("uses bounded preview history for artifacts and leaves full exports on their existing path", async () => {
+    const messages = vi.fn(async () => ({ messages: [] }));
+    const session = new ChatSession({ client: { messages } as unknown as GatewayClient, deviceId: "mac",
+      storedSessionId: "stored", profile: "personal", dispatch: () => {} });
+    await session.loadFullHistory(true);
+    expect(messages).toHaveBeenLastCalledWith("mac", "stored", "personal", { order: "oldest", limit: 100, offset: 0 }, true);
+    await session.loadFullHistory();
+    expect(messages).toHaveBeenLastCalledWith("mac", "stored", "personal", { order: "oldest", limit: 500, offset: 0 }, false);
+  });
   it("shows a pending approval again when the conversation is reopened (open_requests on resume)", async () => {
     let ws!: FakeWebSocket;
     const actions: ChatAction[] = [];
@@ -118,7 +127,7 @@ describe("ChatSession", () => {
         ["dev-mac", "photo.png", photo, "image/png"], ["dev-mac", "report.pdf", file, "application/pdf"],
       ]);
       expect(actions).toContainEqual(expect.objectContaining({ type: "user-failed", key: "voice-message", error: expect.objectContaining({ code: "HR-SESS-007" }) }));
-      expect(actions).toContainEqual({ type: "user-delivered", key: "voice-message" });
+      expect(actions).toContainEqual({ type: "user-delivered", key: "voice-message", startRun: false });
     } finally { session.dispose(); }
   });
 

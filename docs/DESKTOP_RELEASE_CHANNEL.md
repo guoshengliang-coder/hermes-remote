@@ -1,5 +1,40 @@
 # Desktop release channel
 
+## Internal app-update discovery (owner decision, 2026-10-22)
+
+After publishing 0.2.33, the owner reported that Desktop did not discover it and explicitly requested
+completing the update chain. This extends the earlier manual-install-only decision below: approved
+ad-hoc internal packages also populate `/desktop/apps/index.json`, consumed by already installed
+Desktop clients. Temporary signing does not require disabling their existing user-confirmed updater.
+The internal publisher retains the `-dev.dmg` artifact and creates an exact versioned `.dmg` HTTP
+alias to those same bytes because old clients require that filename. It generates the exact legacy
+app-index schema, preserves source/version/build/date/notes/hash, and serves the index with `no-store`.
+This alias and schema compatibility do not establish Developer ID signing or notarization.
+
+Use `website/scripts/publish-desktop-internal.mjs` with the completed 0.2.33 publication receipt,
+original DMG and notes to repair discovery without rebuilding, replacing bytes or allocating a new
+version. The unified publisher verifies both complete public download URLs before switching the
+website and app indexes under one lock; either failed index readback restores both old pointers.
+It refuses another channel, changed same-version metadata, downgrade and concurrent rollback.
+Both synchronization success markers and the receipt's `appUpdateSynchronized: true` are required.
+Signed managed-component pointers and official Apple signing/notarization workflows remain unchanged.
+Run the physical old-Mac check/confirm/install/relaunch acceptance separately; publication must not
+silently replace the owner's installed app.
+
+The sections below record earlier publication decisions and the separately protected Apple channel.
+
+## Explicitly approved internal test distribution: 0.2.33
+
+On 2026-10-22 the owner confirmed that the remaining Desktop artifact should continue to use
+temporary signing. **0.2.33/build 36** includes HG-226's managed-setup progress and completion
+behavior. Build its `Hermes-Go-Desktop-0.2.33-dev.dmg` from clean current `origin/main`, retain
+the installed public release trust/settings, and verify the strict ad-hoc signature, bundle
+identity/version/build, arm64 architecture and image integrity. Run the unified internal publisher
+described below to upload the immutable DMG, verify the full public bytes and automatically switch
+the website's internal-test index. Preserve the signed managed-component pointers and the official
+app-update index. This authorization is for manual-install internal distribution; it does not
+claim Developer ID signing, notarization or physical-device acceptance.
+
 ## Explicitly approved internal test distribution: 0.2.32
 
 On 2026-10-12 the owner explicitly approved distributing **0.2.32/build 35** as an internal

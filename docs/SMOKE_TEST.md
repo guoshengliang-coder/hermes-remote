@@ -1903,6 +1903,37 @@ attachment/draft ownership, reading/search restoration and navigation races. Des
 WebKit size/keyboard emulation is useful evidence, but does not count as physical Android/iOS,
 TalkBack/VoiceOver or an actual folding gesture.
 
+# HG-231 · Web recording release and interruption recovery
+
+Primary acceptance target: the **iPhone Home Screen installed Web App** reported by the owner.
+Record iPhone model, iOS version, Web build and entry mode; record Safari-tab and Android Chrome
+results separately. DOM tests in `VoiceComposer.test.tsx` and `Composer.test.tsx` prove event
+routing, terminal-action deduplication, partial-text/attachment retention and late-callback rejection.
+They do not prove WebKit's physical touch sequence or that the system microphone indicator clears.
+Physical iPhone acceptance has not been performed for this change.
+
+1. In a disposable chat, prepare draft text and an attachment. Hold to talk, speak, slide away from
+   the original button (including beyond the overlay's central card), then release. The microphone
+   must stop promptly. Ordinary release sends the draft, final speech and attachment exactly once;
+   release in the left cancel or right edit target follows the drawn action even on a fast slide
+   without pausing. Cancel discards only this speech; Edit appends the final text to the draft.
+2. Repeat while moving near the screen edge, using another finger to tap/release outside the
+   targets, and with rapid press/release (under 250ms). Another finger must not finish the original
+   hold; a short original press cancels. Repeated end/cancel signals must not send twice.
+3. While recording with partial text visible, open Control Center, switch apps, lock the phone or
+   otherwise interrupt the gesture. Capture and the connection must close immediately; on return,
+   partial text is appended once to the existing draft, attachments remain, and nothing is sent.
+   If the OS never reports an interruption until the page resumes, record that sequence and delay
+   explicitly rather than calling it verified. Check the OS microphone indicator as well as the UI.
+4. If the recording becomes stuck after a missed release, independently tap Cancel or Edit.
+   Cancel must stop/discard this recording; Edit must stop capture, wait for the bounded final
+   result and put it in the draft. Neither operation may require a fresh slide. Repeat with
+   VoiceOver activation. Keep partial/final text, attachments and submitted messages under review.
+5. Confirm normal keyboard Space/Enter holds, arrow target selection, Escape, Cancel waiting,
+   five-minute-to-draft completion, chat switching, sign-out and network/final-result errors still
+   work. On desktop also release beyond the button and outside the browser window, then re-enter;
+   no live microphone may remain after a detected window blur or a move reporting no pressed button.
+
 # HG-201 · Web session long-press release isolation
 
 Automated: `web/src/ui/useLongPress.test.tsx` exercises the real SessionRow/SessionActionSheet
@@ -2063,3 +2094,135 @@ separate merge gate. No APK distribution, version allocation or production deplo
 
 The synthetic decoder/Range device tests do not replace real HONOR/Xiaomi ROM, original user MP4,
 cellular/home-NAT and targetSdk-level checks. Record the actual available layers with the result.
+
+## HG-228 Web chat running state (2026-10-22)
+
+1. On iPhone Safari/Home Screen and Android Chrome, send a long task. While Hermes is accepting it
+   and before the first token, expect one three-dot status line and the Stop button, then the same
+   single status line under live reasoning/tools/text. Completing must clear both running controls.
+2. Leave a running conversation for the list and return; repeat a cold-open URL and reload.
+   `session.resume.running` must restore the chat status even without a `session.info` push.
+   Returning after the task finished must show its final transcript and idle composer.
+3. Disconnect/reconnect while running, including a completion during the gap. The resumed snapshot
+   must clear an ended run and refresh history, retaining one final answer. Stop during reconnect
+   must send `session.interrupt` after restoring the handle, not only hide the status locally.
+4. Delay inbox delivery and the `prompt.submit` reply. Old run.started/run.completed notifications
+   must trigger a current-state check rather than resurrect/stop a newer run; notifications during
+   submission must be checked afterwards. A reply arriving after completion must not revive Stop.
+5. Force a refused submit/upload failure, retry, then stop. Keep the localized existing HR error and
+   its recovery action; no empty assistant bubble or stuck dots. An already active run must survive
+   a refused extra submit. Approval/clarify cards must still restore and remain answerable.
+6. Switch conversations and Macs, and repeat both themes at phone and split-pane widths. Status
+   must stay with the selected conversation; no duplicate waiting/streaming status, misplaced scroll
+   anchor, empty-chat greeting during a run, or newly exposed raw diagnostic text.
+
+Automated: fake-WebSocket + real reducer cases cover silent resume, pre-ack state, failed/late submit,
+reader ordering, lifecycle invalidation/deferral/serialization, reconnect, real Stop RPC and older
+Hermes without a running field. DOM cases cover dots/Stop, completion, interrupt and selected-session
+invalidation. Three regression cases failed on the old implementation before the repair.
+Local Chrome/Playwright checks passed at 393×852 (light/dark) and 1100×800 (split): silent running
+resume, Stop, submit wait, streaming, completion and late acknowledgement, with no page errors.
+Screenshots after startup dismissal were visually inspected. These use mocked API/WebSocket traffic,
+not production or a physical phone. Safari/WebKit is unavailable in this host's Playwright installation;
+iPhone Safari/Home Screen, Android Chrome on a physical device and the original incident conversation
+still need verification. No production deployment or version allocation occurred.
+
+## HG-229 · iOS chat blank frame after keyboard dismissal
+
+Target: Hermes GO Web `/app/`, in physical iPhone Safari and its Home Screen WebApp. Record the
+phone, iOS, keyboard/provider and Web source commit. Use existing history and an unsent draft;
+layout verification must not send a real prompt.
+
+1. Read halfway through a long reply, focus the composer, type a multiline draft, and dismiss via
+   the system Done control, a tap outside, and text-to-voice switching. Repeat several times.
+   Expected: the chat header stays visible, no blank band replaces the top of the chat, and the
+   composer returns to the bottom without a keyboard-sized blank region underneath. Do not scroll
+   to repair the screen. The system keyboard assistant and safe-area inset remain system-owned.
+2. While reading, switch to another app and return, then use browser Back/Forward and reopen the
+   conversation. Rotate portrait/landscape and repeat both themes. The frame should recover by
+   itself; text, pending attachments and the reading point remain scoped to that conversation.
+3. In an iPad/split workspace, verify the keyboard adapts only the chat pane. Open search or a
+   text-entry sheet: moving focus there must not reset the document under an active keyboard.
+   Check Android Chrome and desktop retain their usual layout. In ordinary Safari, pinch zoom
+   and pan must remain under the reader's control.
+
+Local evidence (2026-10-23): an iPhone 17 / iOS 26.5 Simulator Safari fixture using the real Web CSS
+and viewport follower recorded layout height 714, keyboard visual height 377 and offsetTop 245.
+After blur, the document had already returned to scrollY=0 while the visual viewport still reported
+377/245: the old frame therefore occupied y=245..622, producing top and bottom blank bands until
+the later viewport update. A second fixture with the real Composer confirmed the repair: after
+blur the frame was y=0..714 even while visualViewport still reported 377/233. Keyboard-up,
+keyboard-down and landscape screenshots were inspected. These local fixtures contain synthetic
+history and do not prove the incident's production conversation, Home Screen mode or a physical
+keyboard provider; those checks remain required above.
+
+Automated regressions replay the measured stale-viewport interval, delayed resize after blur,
+refocus, root-document pan on scroll/pageshow/visibilitychange, cleanup, non-text/read-only controls,
+other text fields, zoom, and the real Composer's typing-to-voice transition. The stale-viewport and
+root-pan regressions failed before the fix. The helper leaves draft values and inner message scroll
+positions alone. No new user-visible failure or error code is introduced.
+
+Local Web baseline passed: `npm run typecheck`, `npm test` (96 files / 968 cases),
+`npm run build`, and `git diff --check`. No production deployment or version allocation occurred.
+Integration with `ef4d5d1b` preserved the HG-230/HG-231 behavior and documentation; the Web baseline
+passed again with 97 files / 994 cases. Only additive documentation conflicts required resolution.
+
+## HG-230 · live reasoning, tools and status (Android / Web)
+
+Use a scripted local run with long multiline reasoning, four sequential tools (including one failure),
+then prose and completion. Check both clients in light/dark, narrow widths and fontScale 1.3 / browser zoom:
+
+1. Reasoning starts folded during the run and when reopening settled history. Later reasoning,
+   tools and prose never open it automatically. An explicit Expand shows all reasoning and survives
+   completion; an explicit Hide
+   remains hidden through later tokens. Opening historical reasoning still loads its full content.
+2. A running tool group shows only its newest call with total/failure counts. Expand shows all calls;
+   new calls do not undo that choice. Collapse returns to one latest call. Completion folds only
+   groups that were not manually expanded; each call's output is still accessible.
+3. Before visible prose starts, running status has no line limit and retains the full latest nonblank reasoning line
+   or active tool command (including >64-character/multiline commands), and opens a selectable full
+   snapshot on tap. Updates do not change the snapshot being read; close/Escape/back returns to the
+   same transcript position. Text is plain text, never executed HTML/Markdown.
+4. Grow the status beyond three lines, then start the final prose while the run is still streaming:
+   status text must disappear immediately, the dots remain, and the footer releases the text's height
+   instead of leaving a large blank. Tool-only structured payloads and whitespace must not hide status.
+   Later reasoning does not bring status back over visible prose. Completion replaces dots with actions.
+   While browsing older content, tokens/completion must not steal the
+   reading position. Exercise entering/reentering a running conversation and interrupted/reconnected runs.
+
+JVM/DOM tests cover disclosure transitions, preview rows and status text/snapshots. Actual device,
+Safari/PWA, gesture, text-selection and scroll behavior requires the visual/manual pass above.
+
+Historical evidence for the superseded initial behavior (2026-10-22): Android L1 has disclosure/footer regressions and
+light / app-dark-on-light-system / fontScale 1.3 screenshots. The complete JVM suite passed
+(2645 tests) and `:app:assembleDebug` passed its canonical signing-key check. Web typecheck,
+959 tests and production build passed. Local Chrome component checks at 393px light/dark,
+393px with 1.3x text, and 1100px verified five-line preview tail-follow, three-line status,
+Escape dismissal, automatic completion folding and unchanged footer height. This is component
+verification; physical Android and Safari/PWA plus full-conversation reading/gesture acceptance
+remain manual. No version bump, distributed APK or production deployment is part of this change.
+L3: `MessageProgressDeviceTest` passed on Pixel_9_API_36_1 (Android 16 / SDK 36);
+its preview and full-status screenshots were pulled as nonempty PNGs and visually inspected.
+It covers native touch, manual disclosure through completion, newest-tool visibility and dialog
+open/close. This is an emulator result, not a physical-device result; no SDK-37-gated platform
+behavior is claimed. L2 was unavailable (no physical device attached).
+## HG-233 · Web conversation artifacts (physical browser acceptance pending)
+
+- In More → Artifacts, complete an old paged conversation, exclude original uploads and tool-only
+  outputs (including flattened envelopes), distinguish same-name files, and keep one latest source
+  for a repeated path. A failed initial read or failed/stalled older-page read must show the actual
+  structured failure and retry rather than claim no artifacts exist.
+- Preview Markdown/text, sandboxed static HTML, generated images and a browser-supported video.
+  Use the actual hosted shell CSP, including the Gateway's `media-src blob:` policy; a Vite page
+  without production headers is not evidence that video playback works after publication.
+  HTML must have no script, parent-origin, network, form or navigation privilege; the original file
+  remains downloadable. Unsupported formats and text above the preview bound offer download.
+- Scroll the list, open and close a preview, then navigate to the source assistant turn. Check the
+  landing outline and restore list scroll using Back to artifacts or browser/system Back. Opening
+  chat search from context must let Back close search first. Keep composer text and attachments.
+- Switch conversation, profile, account and Mac; reject late work from the old scope. Verify empty,
+  loading, unreadable/missing-file and offline states. Existing media/download caches retain their
+  prior semantics; this change creates no immutable history copies or global library.
+- Local DOM tests, build and real in-app-browser fixture inspection cover the implementable paths.
+  Physical Android Chrome and iPhone Safari/Home Screen, codec support, real download UI and offline
+  transitions still require acceptance on those browsers before publication.

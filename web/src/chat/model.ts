@@ -32,6 +32,8 @@ export interface ChatItem {
   /** Visible text with attachment grammar removed. */
   text: string;
   attachments: Attachment[];
+  /** Directly delivered files, before process/tool attachments join the displayed answer. */
+  deliveredAttachments?: Attachment[];
   images: DisplayImage[];
   reasoning: string;
   reasoningParts?: Array<{ text: string; source?: import("../hermes/types").HistoryLocator }>;
@@ -67,7 +69,11 @@ export interface OlderHistoryState {
 export interface ChatState {
   items: ChatItem[];
   generating: boolean;
+  /** Local observation of run start, retained while waiting for the first stream item. */
+  runStartedAtMs: number | null;
   historyLoaded: boolean;
+  /** A failed first read is not evidence that the conversation has no artifacts. */
+  historyError: AppError | null;
   /** Every stored row loaded so far, oldest first: the history part of `items` is built from it. */
   historyRows: MessageRow[];
   older: OlderHistoryState;
@@ -96,7 +102,9 @@ export interface ChatState {
 export const initialChatState: ChatState = {
   items: [],
   generating: false,
+  runStartedAtMs: null,
   historyLoaded: false,
+  historyError: null,
   historyRows: [],
   older: { hasMore: false, loading: false, error: null },
   historyEpoch: 0,
@@ -126,12 +134,13 @@ export type ChatAction =
   | { type: "older-loaded"; rows: MessageRow[]; hasMore: boolean; epoch: number }
   | { type: "older-failed"; error: AppError; epoch: number }
   | { type: "history-missing" }
+  | { type: "history-failed"; error: AppError }
   | { type: "event"; event: ServerEvent }
   | { type: "server-request"; request: ServerRequest }
   | { type: "open-requests"; snapshot: OpenRequestsSnapshot }
   | { type: "questions"; action: QuestionAction }
   | { type: "user-sent"; key: string; text: string; localImages?: string[]; localFiles?: string[]; nowMs: number }
-  | { type: "user-delivered"; key: string }
+  | { type: "user-delivered"; key: string; startRun?: boolean }
   /** Without an error the bubble is only marked failed: a page-level notice explains it. */
   | { type: "user-failed"; key: string; error?: AppError }
   | { type: "user-retry"; key: string }
@@ -174,7 +183,7 @@ function ensureStreaming(state: ChatState): ChatState {
     items[settled] = { ...prev, streaming: true, raw: kept, segmentStart: kept.length };
     return { ...state, items, generating: true };
   }
-  return { ...state, items: [...state.items, assistant(`a-${state.items.length}-${Date.now()}`, Date.now())], generating: true };
+  return { ...state, items: [...state.items, assistant(`a-${state.items.length}-${Date.now()}`, state.runStartedAtMs ?? Date.now())], generating: true };
 }
 
 function mutateStreaming(state: ChatState, block: (item: ChatItem) => ChatItem): ChatState {
@@ -195,7 +204,7 @@ function mutateLastAssistant(state: ChatState, block: (item: ChatItem) => ChatIt
 
 function withRaw(item: ChatItem, raw: string): ChatItem {
   const parsed = parseAttachments(raw);
-  return { ...item, raw, text: parsed.text, attachments: parsed.attachments };
+  return { ...item, raw, text: parsed.text, attachments: parsed.attachments, deliveredAttachments: parsed.attachments };
 }
 
 function dedupeAttachments(list: readonly Attachment[]): Attachment[] {
@@ -216,7 +225,8 @@ export function organizeAssistantItem(item: ChatItem): ChatItem {
     toolFiles.push(...parsed.attachments);
     return parsed.attachments.length ? { ...tool, output: parsed.text } : tool;
   });
-  return { ...item, text: organized.text, tools, attachments: dedupeAttachments([...item.attachments, ...toolFiles]) };
+  return { ...item, deliveredAttachments: item.raw !== undefined ? parseAttachments(organizeAssistant(item.raw).text).attachments : item.deliveredAttachments ?? item.attachments,
+    text: organized.text, tools, attachments: dedupeAttachments([...item.attachments, ...toolFiles]) };
 }
 
 function joinParts(first: string, second: string): string {
@@ -239,6 +249,7 @@ function mergeAssistant(previous: ChatItem, next: ChatItem): ChatItem {
     reasoningParts: [...(previous.reasoningParts ?? []), ...(next.reasoningParts ?? [])],
     timestampMs: previous.timestampMs ?? next.timestampMs,
     attachments: dedupeAttachments([...previous.attachments, ...next.attachments]),
+    deliveredAttachments: dedupeAttachments([...(previous.deliveredAttachments ?? previous.attachments), ...(next.deliveredAttachments ?? next.attachments)]),
     images,
     tools: [...tools.values()],
     interrupted: previous.interrupted || next.interrupted,
@@ -287,7 +298,7 @@ function applyEvent(state: ChatState, event: ServerEvent): ChatState {
       const withModel = model && model.trim() && model !== state.liveModel ? { ...state, liveModel: model.trim() } : state;
       const withWorkspace = cwd && cwd.trim() ? { ...withModel, workspace: { cwd: cwd.trim(), branch: str(p, "branch") } } : withModel;
       if (p.running === false) return finishStreaming(withWorkspace, false);
-      if (p.running === true && !withWorkspace.generating) return { ...withWorkspace, generating: true };
+      if (p.running === true && !withWorkspace.stopped) return startRunning(withWorkspace);
       return withWorkspace;
     }
     default:
@@ -311,7 +322,11 @@ function finishStreaming(state: ChatState, interrupted: boolean): ChatState {
       ? { ...i, streaming: false, ...(interrupted ? { interrupted: true } : {}), tools: i.tools.map((t) => ({ ...t, done: true })) }
       : i,
   );
-  return { ...state, items, generating: false };
+  return { ...state, items, generating: false, runStartedAtMs: null };
+}
+
+function startRunning(state: ChatState): ChatState {
+  return state.generating ? state : { ...state, generating: true, runStartedAtMs: Date.now() };
 }
 
 export function historyItems(rows: MessageRow[]): ChatItem[] {
@@ -324,6 +339,7 @@ export function historyItems(rows: MessageRow[]): ChatItem[] {
       role: m.role,
       text: m.role === "user" && !note ? organizeUserText(m.text) : m.text,
       attachments: m.attachments,
+      ...(m.deliveredAttachments ? { deliveredAttachments: m.deliveredAttachments } : {}),
       images: m.images,
       reasoning: m.reasoning,
       ...(m.reasoning ? { reasoningParts: [{ text: m.reasoning, ...(m.reasoningSource ? { source: m.reasoningSource } : {}) }] } : {}),
@@ -377,6 +393,8 @@ export function reduceChat(state: ChatState, action: ChatAction): ChatState {
         ...state,
         items: [...historyItems(merged.rows), ...failed, ...live],
         historyLoaded: true,
+        historyError: null,
+        notice: state.notice === state.historyError ? null : state.notice,
         historyRows: merged.rows,
         older: merged.reset ? { hasMore: hasOlder, loading: false, error: null } : state.older,
         historyEpoch: merged.reset ? state.historyEpoch + 1 : state.historyEpoch,
@@ -396,7 +414,9 @@ export function reduceChat(state: ChatState, action: ChatAction): ChatState {
       if (!state.older.hasMore) return { ...state, older: { ...state.older, loading: false, error: null } };
       return { ...state, older: { ...state.older, loading: false, error: action.error } };
     case "history-missing":
-      return { ...state, historyLoaded: true };
+      return { ...state, historyLoaded: true, historyError: null };
+    case "history-failed":
+      return { ...state, historyLoaded: true, historyError: action.error };
     case "event": {
       const questions = reduceQuestions(state.questions, { type: "event", event: action.event });
       if (state.stopped && STREAM_EVENTS.has(action.event.type)) {
@@ -434,7 +454,7 @@ export function reduceChat(state: ChatState, action: ChatAction): ChatState {
     case "user-delivered":
       return {
         ...state,
-        generating: true,
+        ...(action.startRun === false ? {} : { generating: true, runStartedAtMs: state.runStartedAtMs ?? Date.now() }),
         items: state.items.map((i) => {
           if (i.key !== action.key) return i;
           const { send: _s, error: _e, ...rest } = i;
@@ -455,7 +475,7 @@ export function reduceChat(state: ChatState, action: ChatAction): ChatState {
     case "interrupted":
       return { ...finishStreaming(state, true), stopped: true };
     case "running":
-      return action.running ? (state.generating ? state : { ...state, generating: true }) : finishStreaming(state, false);
+      return action.running ? (state.stopped ? state : startRunning(state)) : finishStreaming(state, false);
     case "connection":
       return state.connection === action.state ? state : { ...state, connection: action.state };
     case "notice":

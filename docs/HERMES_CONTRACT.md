@@ -1154,7 +1154,9 @@ message. Explicit upstream `display_kind` has priority; fallback recognizes both
 headers. Canonical upstream `display_content` (including an empty string) precedes GO's body and raw
 content on Android/Web; Connector derives its fallback from that same canonical content when present,
 so a stale raw compression carrier cannot resurrect an upstream-hidden row. Without it, GO schema 1
-body and legacy raw content remain the fallback. Mixed rows retain real user text and keep the raw
+body and legacy raw content remain the fallback. Android direct-delivery classification uses that
+same selected content, so tool-result files in an older GO projection stay out of conversation
+artifacts; it must not reparse stale raw content for delivery IDs. Mixed rows retain real user text and keep the raw
 content available. Schema 1 is consumed
 by Android/Web; unknown schemas fall back to the upstream row. Unknown non-image content blocks
 retain a JSON payload instead of disappearing. Existing inline-image handling is preserved.

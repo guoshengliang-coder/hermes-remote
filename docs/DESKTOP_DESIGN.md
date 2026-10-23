@@ -62,6 +62,24 @@ be rendered as all profiles stopped or permission to upgrade. Missing old-versio
 remain unknown. Session/job IDs and raw diagnostic responses are discarded; the product check never
 prepares or commits upstream retirement.
 
+## Managed setup progress (HG-226)
+
+Both schema-v1 and schema-v2 confirmation sheets show the actual execution stage and elapsed time
+after the owner confirms. Stages describe checking, staging, stopping the old services, waiting for
+shutdown, starting/verifying Hermes, starting Connector, waiting for Cloud health, committing,
+cleanup, and rollback. Show only stages the transaction actually reaches; there is no percentage
+or promised completion time. Elapsed time uses a monotonic clock and updates once per second even
+when a network callback has not arrived. The current stage is the primary line; elapsed time and
+the instruction to keep Desktop open are secondary, in the existing native 540 pt sheet style.
+
+Execution, including rollback, remains non-cancellable and non-dismissible. The lock begins with
+the confirmation's final preflight, so double confirmation cannot start overlapping preflights.
+A terminal success or failure closes the execution sheet before account/overview refreshes. Results
+and existing structured errors remain on the main surface. A committed install with pending cleanup
+keeps its retry handle and “重试清理”, but must not keep or reopen an installation confirmation.
+Closing a sheet never implies cancelling a committed transaction.
+
+
 ## PM runtime and connection recovery (HG-212 follow-up)
 
 Diagnostics' “重新诊断” and “再次尝试” refresh local evidence and the authenticated account snapshot
@@ -288,7 +306,10 @@ most five rows the owner can read; internal plan step names stay behind 「查�
 only step with a secondary 「稍后再说」 exit, because a Mac that is already set up can wait for a
 phone. Its 「Android ｜ iPhone / iPad」 segmented control switches wording and QR only; both QR codes
 are rendered locally from the account Gateway's origin (`/` and `/app/`) and are never generated
-placeholders.
+placeholders. A Mac with a valid local binding and completed local install goes straight to main
+after relaunch or upgrade, even with phones offline; the optional phone step is reserved for first setup. Existing active phone/Web
+sign-in records satisfy it without another login. Another Mac's binding does not skip local setup
+(2026-10-23).
 
 Disabled primary actions are a defined state — a muted surface with a secondary-coloured label — not
 the prominent blue at reduced opacity, which was unreadable in dark mode. The overview can carry a

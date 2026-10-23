@@ -364,8 +364,8 @@ private struct ConnectPhoneStep: View {
             Spacer()
             Button("进入 Hermes GO") { model.finishPhoneStep() }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(model.newlyConnectedClients.isEmpty)
-                .opacity(model.newlyConnectedClients.isEmpty ? 0.5 : 1)
+                .disabled(model.connectedRemoteClients.isEmpty)
+                .opacity(model.connectedRemoteClients.isEmpty ? 0.5 : 1)
                 .keyboardShortcut(.defaultAction)
         }
     }
@@ -406,7 +406,7 @@ struct PhoneConnectPanel: View {
         }
         .task {
             // Sign-ins on the phone show up through the account refresh; poll faster while waiting.
-            while !Task.isCancelled, model.newlyConnectedClients.isEmpty {
+            while !Task.isCancelled, model.connectedRemoteClients.isEmpty {
                 try? await Task.sleep(for: .seconds(5))
                 await model.refreshAccount()
             }
@@ -504,7 +504,7 @@ struct PhoneConnectPanel: View {
 
     @ViewBuilder
     private var status: some View {
-        if let client = model.newlyConnectedClients.first {
+        if let client = model.connectedRemoteClients.first {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text("已连接：\(DesktopRemoteClients.displayName(client))")

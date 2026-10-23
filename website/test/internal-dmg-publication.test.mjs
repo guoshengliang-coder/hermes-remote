@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createAppUpdateIndex, DESKTOP_APP_INDEX } from '../src/internal-publication.mjs';
 import { prepareInternalDmg, publishInternalDmg, remoteArtifactInstall } from '../src/internal-dmg-publication.mjs';
 
 const bytes = Buffer.from('verified test package');
@@ -37,11 +38,11 @@ test('publishing a DMG automatically synchronizes its website pointer before ret
     installArtifact: async () => events.push('artifact-installed'),
     fetcher: async url => {
       events.push(url === index.downloadURL ? 'public-DMG-readback' : 'public-pointer-readback');
-      return new Response(url === index.downloadURL ? bytes : `${JSON.stringify(index)}\n`);
+      return new Response(url.endsWith('.dmg') ? bytes : `${JSON.stringify(url === DESKTOP_APP_INDEX ? createAppUpdateIndex(index) : index)}\n`);
     }, executeRemote: async action => events.push(action),
   });
-  assert.deepEqual(events, ['artifact-installed', 'public-DMG-readback', 'publish', 'public-pointer-readback', 'finish']);
-  assert.equal(result.websiteSynchronized, true); assert.equal(result.version, '0.2.33'); assert.equal(result.sha256, receipt.sha256);
+  assert.deepEqual(events, ['artifact-installed', 'public-DMG-readback', 'public-pointer-readback', 'publish', 'public-pointer-readback', 'public-pointer-readback', 'finish']);
+  assert.equal(result.appUpdateSynchronized, true); assert.equal(result.websiteSynchronized, true); assert.equal(result.version, '0.2.33'); assert.equal(result.sha256, receipt.sha256);
 });
 
 test('failed artifact or public verification never advances the website; failed sync fails the whole publication', async t => {
@@ -53,7 +54,7 @@ test('failed artifact or public verification never advances the website; failed 
   await assert.rejects(publishInternalDmg(index, { installArtifact: async () => {}, fetcher: async () => new Response('bad DMG'), executeRemote }));
   assert.deepEqual(events, []);
   await assert.rejects(publishInternalDmg(index, { installArtifact: async () => {},
-    fetcher: async url => new Response(url === index.downloadURL ? bytes : 'bad pointer'), executeRemote }));
+    fetcher: async url => new Response(url.endsWith('.dmg') ? bytes : 'bad pointer'), executeRemote }));
   assert.deepEqual(events, ['publish', 'rollback']);
 });
 
@@ -61,7 +62,7 @@ test('actual artifact transaction creates only exact routes, refuses immutable o
   const { dir, index } = await fixture(t);
   const root = join(dir, 'store'), stage = join(dir, 'stage'), routes = join(dir, 'routes.conf'), bin = join(dir, 'bin');
   for (const path of [root, stage, bin]) await mkdir(path);
-  const originalRoutes = 'location = /desktop/apps/index.json { return 404; }\n';
+  const originalRoutes = '# Existing unrelated routes remain unchanged.\n';
   await writeFile(routes, originalRoutes);
   await writeFile(join(root, 'index.json'), 'official channel');
   await writeFile(join(stage, 'Hermes-Go-Desktop-0.2.33-dev.dmg'), bytes);
@@ -77,6 +78,10 @@ test('actual artifact transaction creates only exact routes, refuses immutable o
   run(index);
   const publishedRoutes = await readFile(routes, 'utf8');
   assert.ok(publishedRoutes.startsWith(originalRoutes)); assert.match(publishedRoutes, /location = \/desktop\/apps\/0\.2\.33\/Hermes-Go-Desktop-0\.2\.33-dev\.dmg/);
+  assert.match(publishedRoutes, /location = \/desktop\/apps\/index\.json/);
+  assert.match(publishedRoutes, /location = \/desktop\/apps\/0\.2\.33\/Hermes-Go-Desktop-0\.2\.33\.dmg/);
+  assert.equal((publishedRoutes.match(/alias .*0\.2\.33-dev\.dmg;/g) ?? []).length, 2);
+  assert.match(publishedRoutes, /Cache-Control "no-store"/);
   assert.match(publishedRoutes, /limit_except GET HEAD \{ deny all; \}/);
   run(index); assert.equal(await readFile(routes, 'utf8'), publishedRoutes);
   await writeFile(join(stage, 'Hermes-Go-Desktop-0.2.33-dev.dmg'), Buffer.from('different package'));

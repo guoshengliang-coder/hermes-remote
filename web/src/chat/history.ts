@@ -78,13 +78,15 @@ export function historySyncError(error: unknown, what: string): AppError {
  * The whole stored transcript, oldest first: pages of 500 with `order=oldest` until a short page
  * (new rows only ever append, so these offsets stay put). Rows are de-duplicated by id.
  */
-export async function fetchFullHistory(fetchPage: (page: MessagesPage) => Promise<MessagesResponse>): Promise<MessageRow[]> {
+export async function fetchFullHistory(fetchPage: (page: MessagesPage) => Promise<MessagesResponse>, pageSize = FULL_HISTORY_PAGE_SIZE): Promise<MessageRow[]> {
   const out: MessageRow[] = [];
   const seen = new Set<number>();
   let offset = 0;
-  for (let n = 0; n < FULL_HISTORY_MAX_PAGES; n++) {
-    const body = await fetchPage({ order: "oldest", limit: FULL_HISTORY_PAGE_SIZE, offset });
+  const maxPages = Math.ceil(FULL_HISTORY_MAX_PAGES * FULL_HISTORY_PAGE_SIZE / pageSize);
+  for (let n = 0; n < maxPages; n++) {
+    const body = await fetchPage({ order: "oldest", limit: pageSize, offset });
     const rows = rowsOf(body);
+    const before = out.length;
     for (const row of rows) {
       const id = idOf(row);
       if (id !== null) {
@@ -93,8 +95,9 @@ export async function fetchFullHistory(fetchPage: (page: MessagesPage) => Promis
       }
       out.push(row);
     }
-    if (!pageHasMore(body, FULL_HISTORY_PAGE_SIZE) || !rows.length) break;
+    if (!pageHasMore(body, pageSize) || !rows.length) return out;
+    if (out.length === before) throw new Error("Full history made no progress");
     offset += rows.length;
   }
-  return out;
+  throw new Error("Full history exceeded the bounded page limit");
 }

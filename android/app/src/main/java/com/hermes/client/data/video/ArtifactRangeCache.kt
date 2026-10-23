@@ -31,19 +31,34 @@ class ArtifactRangeCache(private val directory: File, private val maxBytes: Long
     }
 
     @Synchronized fun write(key: String, start: Long, data: ByteArray) {
+        writeBlocks(key, sequenceOf(start to data))
+    }
+
+    /** Evict once per download batch, not after every 256 KiB block. This is an evictable
+     * cache: atomic rename and read-time checksums suffice; durable downloads own fsync.
+     */
+    @Synchronized fun writeBlocks(key: String, blocks: Sequence<Pair<Long, ByteArray>>) {
+        try { for ((start, data) in blocks) writeBlock(key, start, data) }
+        finally { trim() }
+    }
+
+    private fun writeBlock(key: String, start: Long, data: ByteArray) {
         require(data.isNotEmpty() && data.size <= BLOCK_BYTES && start >= 0 && start % BLOCK_BYTES == 0L)
         if (data.size + 36 > maxBytes) return
         val temp = File(directory, "${UUID.randomUUID()}.part")
         try {
             FileOutputStream(temp).use { stream ->
                 val out = DataOutputStream(stream)
-                out.writeInt(data.size); out.write(hash(data)); out.write(data); out.flush(); stream.fd.sync()
+                out.writeInt(data.size); out.write(hash(data)); out.write(data); out.flush()
             }
             if (!temp.renameTo(block(key, start))) throw IOException("cache commit failed")
-            val files = directory.listFiles().orEmpty().filter { it.name.endsWith(".block") }.sortedBy { it.lastModified() }
-            var size = files.sumOf { it.length() }
-            for (file in files) { if (size <= maxBytes) break; val length = file.length(); if (file.delete()) size -= length }
         } finally { temp.delete() }
+    }
+
+    private fun trim() {
+        val files = directory.listFiles().orEmpty().filter { it.name.endsWith(".block") }.sortedBy { it.lastModified() }
+        var size = files.sumOf { it.length() }
+        for (file in files) { if (size <= maxBytes) break; val length = file.length(); if (file.delete()) size -= length }
     }
 
     private fun block(key: String, start: Long): File {

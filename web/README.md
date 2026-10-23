@@ -1,3 +1,13 @@
+HG-231 follows the initiating pointer outside the hold button and uses the final release position.
+Matching touch-end/cancel events provide a fallback when WebKit omits a pointer end; other fingers
+cannot finish the recording. Pointer cancellation, unexpected capture loss, window blur and missed
+mouse/pen releases stop capture immediately and preserve partial text in the existing draft without
+sending. Explicit Cancel/Edit buttons work even if gesture bookkeeping is missing. One terminal
+action owns each recording; duplicate/late events cannot send again. Existing send, deliberate
+cancel, final-result wait and five-minute rules remain. DOM regressions cover these paths; physical
+iPhone Home Screen Web App acceptance is still required in `../docs/SMOKE_TEST.md` (HG-231).
+No Gateway, Connector, Android, protocol, version or error-code changes are required.
+
 HG-216 P1c adds separately capability-gated account model favorites and remembered reasoning.
 Legacy stays local; existing local data requires explicit import confirmation. A durable IndexedDB
 outbox uses field CAS, signed leases and explicit conflict review. Cloud updates never switch a
@@ -87,3 +97,43 @@ with retryable HR-SYNC-001 if the window moved; retry refreshes the tail. Androi
 old active-only disk windows once. Old Hermes without display projections retains the existing
 content parser. No upstream code/schema, Gateway/Connector runtime, credentials or versions change.
 Real incident history and physical-device acceptance remain in `docs/SMOKE_TEST.md` (HG-224).
+
+HG-228 restores chat run state from `session.resume.running` (or `info.running`) without depending
+on a later `session.info` push. Snapshot application stays in WebSocket reader order, before newer
+stream frames. Lifecycle inbox changes invalidate the snapshot and re-check Hermes; delayed inbox
+entries never directly start or stop a run. Submissions wait for an in-flight snapshot, show the
+existing dots/Stop UI while awaiting Hermes, and cannot be restarted by a late submit acknowledgement.
+The pre-stream status is not a transcript item; real streaming replaces it without a duplicate.
+A reconnecting Stop resolves the live handle and sends the interrupt. No server, upstream, credential,
+version or error-code contract changes are required. Physical Safari/PWA and Android Chrome checks
+remain in `../docs/SMOKE_TEST.md`.
+
+HG-229 gates iOS chat keyboard geometry on editable focus. Blur/voice switching clears stale
+visualViewport height/top immediately, and document scroll/pageshow/visibility changes recover a
+leftover outer pan when no text field owns the keyboard and the page is not zoomed. Message scroll
+and draft data are untouched; search/sheet text fields retain keyboard ownership. Focused and
+Composer regressions replay the old failure; local iOS 26.5 Simulator Safari measurements and the
+remaining physical Safari/Home Screen checks are in `../docs/SMOKE_TEST.md` (HG-229). No server,
+credential, API, version or error-code changes are required.
+
+HG-230 follow-up (2026-10-23) aligns progress with Android: reasoning starts folded for live runs
+and settled history; manual expand/hide survives updates and completion. Tool timelines preview
+only the newest call with access to the full list. Status text is shown without a line limit or
+24/64-character pre-truncation until visible prose starts; only the live dots remain after that.
+The footer releases the text's height instead of leaving a large blank. Tapping status still opens
+a selectable snapshot in a sheet.
+No server, credential, error-code or protocol changes. See `../docs/SMOKE_TEST.md` for visual checks.
+HG-233 adds conversation More → Artifacts. Opening the list completes the display-history read
+through the existing bounded 100-row preview projection. Failed or stalled reads stay visibly
+incomplete with retry. This projection clips tool/reasoning text; an oversized upstream row still
+fails explicitly, and is not silently treated as an empty or complete artifact index.
+Uploads and tool-only media are excluded,
+including flattened tool envelopes. Duplicate names are labeled without renaming source files;
+repeated paths point to the latest delivery, without snapshots. Context navigation and preview
+return preserve list scroll, and account/Mac/profile/conversation changes clear the panel.
+HTML gets a sanitized, opaque, network-disabled static preview; Markdown/text and supported videos
+get browser previews. Unsupported formats and oversized text remain downloadable. Image and
+download caching retain the existing client semantics. No shared wire protocol changes are required.
+Web video preview additionally requires Gateway shell CSP `media-src blob:`;
+publish that Gateway policy before the Web bundle. Physical Safari/PWA and Android browser
+acceptance remains in SMOKE_TEST.md.

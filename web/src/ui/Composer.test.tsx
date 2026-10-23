@@ -2,6 +2,7 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
 import { Composer, type ComposerProps } from "./Composer";
+import { followChatVisualViewport } from "./chatViewport";
 import { AppContext, type AppContextValue } from "../app/store";
 import { overlayDepth, resetOverlays } from "../app/overlayHistory";
 import type { VoiceEvent } from "../chat/voiceSession";
@@ -372,6 +373,25 @@ it("partial results never submit, edit appends, and a callback from a previous c
   act(() => oldCallback({ kind: "final", text: "迟到" }));
   expect(h.host.querySelector("textarea")!.value).toBe(""); expect(h.props.onSend).not.toHaveBeenCalled();
 });
+it.each(["pointercancel", "lostpointercapture", "blur"])("HG-231: %s immediately stops capture, keeps partial text and rejects late finals", async (eventType) => {
+  const h = mount({ draftKey: "interrupted" }); type(h.host, "已有草稿");
+  await stageFiles(h, [new File(["file"], "notes.txt", { type: "text/plain" })]);
+  act(() => h.host.querySelector<HTMLButtonElement>('.composer-voice')!.click()); await settle();
+  act(() => { h.host.querySelector('.voice-hold')!.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 17, button: 0, bubbles: true })); });
+  const old = mocks.events!;
+  act(() => old({ kind: "partial", text: "半截语音" })); mocks.cancel.mockReturnValueOnce("半截语音");
+  act(() => {
+    if (eventType === "blur") window.dispatchEvent(new Event("blur"));
+    else document.body.dispatchEvent(new PointerEvent(eventType, { pointerId: 17, bubbles: true }));
+  });
+  expect(mocks.cancel).toHaveBeenCalledOnce(); expect(mocks.finish).not.toHaveBeenCalled();
+  expect(h.host.querySelector(".voice-overlay")).toBeNull();
+  expect(h.host.querySelector("textarea")!.value).toBe("已有草稿\n半截语音");
+  expect(h.host.querySelector(".attachment-strip")?.textContent).toContain("notes.txt");
+  act(() => old({ kind: "final", text: "迟到的完整文字" }));
+  expect(h.props.onSend).not.toHaveBeenCalled();
+  expect(h.host.querySelector("textarea")!.value).toBe("已有草稿\n半截语音");
+});
 it("a released voice message sends the draft, final speech and pending files together (HG-196)", async () => {
   const h = mount({ draftKey: "one" }); type(h.host, "已有草稿");
   const file = new File(["fixture"], "report.pdf", { type: "application/pdf" });
@@ -522,4 +542,30 @@ it.each(["完整语音", ""])("limit completion stays in the draft with attachme
   expect(h.host.textContent).toContain("keep.txt");
   expect(h.host.textContent).toContain(speech ? "文字已放入输入框" : "没有识别到文字");
   expect(h.host.querySelector(".error-notice")).toBeNull();
+});
+
+it("switching from typing to voice clears a stale iOS keyboard frame without sending (HG-229)", async () => {
+  const h = mount(); type(h.host, "保留的草稿");
+  const viewport = Object.assign(new EventTarget(), { height: 377, offsetTop: 245, scale: 1 });
+  vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(714);
+  let pending: FrameRequestCallback | undefined;
+  const win = Object.assign(new EventTarget(), {
+    document, visualViewport: viewport, scrollX: 0, scrollY: 0,
+    requestAnimationFrame: (callback: FrameRequestCallback) => { pending = callback; return 1; },
+    cancelAnimationFrame: () => { pending = undefined; },
+  });
+  const stop = followChatVisualViewport(h.host, win as unknown as Window);
+  try {
+    expect(h.host.classList.contains("keyboard-viewport")).toBe(true);
+    act(() => h.host.querySelector<HTMLButtonElement>(".composer-voice")!.click());
+    await settle();
+    pending?.(0);
+    expect(h.host.querySelector(".voice-hold")).not.toBeNull();
+    expect(h.host.classList.contains("keyboard-viewport")).toBe(false);
+    expect(h.host.style.getPropertyValue("--chat-viewport-top")).toBe("");
+    expect(h.props.onSend).not.toHaveBeenCalled();
+    act(() => h.host.querySelector<HTMLButtonElement>('[aria-label="切换键盘输入"]')!.click());
+    await settle();
+    expect(h.host.querySelector("textarea")!.value).toBe("保留的草稿");
+  } finally { stop(); }
 });

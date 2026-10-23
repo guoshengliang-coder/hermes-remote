@@ -365,6 +365,46 @@ full history/Q&A/stream/cancel/attachment/approval/clarify/cron acceptance and p
 The new condition rows also need light/dark review on that isolated Mac. Do not launch this app against
 the owner's production services merely to satisfy the visual check.
 
+## HG-226: progress and terminal sheet acceptance
+
+Automated coverage in `DesktopSetupProgressTests` and the real migration-coordinator fixtures:
+both schemas present confirmation only while awaiting confirmation/executing, including completed
+cleanup-pending and failed-with-retained-handle cases; elapsed time advances without callbacks,
+formats minutes, freezes at terminal state, and resets on the next run; old-run/invalid-ID and
+post-terminal events cannot overwrite progress or inject log text; real successful upgrade service
+order and journal transitions produce corresponding progress events; a failed candidate reports
+rollback while restoring exact old files/services. Existing executor tests retain cleanup-only retry,
+same-binding upgrade, preparation validation and rollback coverage.
+
+Run `npm run desktop:assets:test`, `npm run desktop:test`, `npm run desktop:app`, and
+`git diff --check`. Inspect the actual progress view locally in light/dark mode with an injected
+read-only preview; that does not validate real service mutation or a public release.
+
+Local evidence (2026-10-22): 569 Desktop tests passed, the canonical icon equality check passed,
+and `desktop:app` built and verified the ad-hoc app. Native `NSHostingView` previews of the actual
+progress view were visually inspected at 540 pt in light/dark appearance, including Cloud waiting,
+rollback and a 1 min 25 s elapsed label; no truncation was observed. This was an inert injected
+preview, not a real upgrade, terminal-sheet interaction test, signed distribution or device acceptance.
+
+Physical acceptance remains required on a disposable, already managed Mac with an approved package:
+
+1. Confirm a newer signed target on both schema-v1 and schema-v2. The action immediately disables
+   duplicate confirmation and dismissal during the final preflight. Do not kill the running app.
+2. Observe stopping, starting, local verification, and Cloud-health waiting as they occur. Elapsed
+   time must keep advancing during a delayed response; no fake percentage or completion estimate.
+3. On success the sheet closes without waiting for the overview/account refresh; the main card shows
+   the target version. Verify the same binding and expected service topology.
+4. Inject candidate health failure. The sheet says it is restoring the original connection and
+   stays locked until recovery finishes. Then it closes and the main surface shows the existing
+   structured error. Verify the prior services/version, or the existing manual-recovery guidance.
+5. Inject temporary-workspace cleanup failure after a successful commit. The sheet closes, the
+   connected result and `HR-MIGRATE-005` remain with “重试清理”, and no install confirmation reappears.
+   Cleanup retry must not reinstall or restart either service.
+6. Inspect unified logging and the private runtime log for run/stage/journal/UI transitions,
+   durations and terminal outcome. Check that no credential, email, private path or account response
+   is present. Network/proxy changes and a successful local preview are not evidence of this matrix.
+
+
 ## HG-212 PM runtime and recovery follow-up
 
 Automated coverage adds: PM plus stale legacy venv (the three detector cases failed on old code),
@@ -845,8 +885,11 @@ The current automated suite covers:
 - the new-Mac choice and its quota (§7): an account that already owns another Mac is asked first, a
   shared Mac or this Mac's own previous binding does not trigger it, manage-only is remembered, and
   "把这台 Mac 也连上" becomes unavailable only when the owned-Mac limit is reached;
-- the phone step (§6.4): a `phone` or `browser` installation that appears after the step began counts,
-  one that already existed does not, and a Web App sign-in is never labelled an iPhone;
+- the phone step (§6.4, revised 2026-10-23): existing active non-current `phone` and `browser`
+  installations count even with old last-seen times; revoked/current/Desktop entries do not. A
+  restored local active binding clears a stale pending flag, upgrade intermediate checks cannot
+  re-arm it, and another Mac's owned/shared binding cannot skip first setup. Fresh setup without
+  clients still reaches the phone step. Completion is persisted and a Web App is never labelled an iPhone;
 - removing an owned Mac through `DELETE /v2/devices/{id}`: request path, `connector.unbind` grant and
   idempotency key, grant reuse after a lost response, fail-closed behaviour without multi-device, and
   refusal of a shared or unknown device;
@@ -916,7 +959,8 @@ the project-wide `ERROR_HANDLING.md` contract.
 | Permanent account deletion | Typed `DELETE`, acknowledgement, and fresh email code precede immediate Cloud logout; success and recovered ambiguous completion land on “deletion submitted”; the explicit other-email exit reaches an empty sign-in flow, while local Hermes remains intact | Core/API/PostgreSQL automated; disposable packaged-account and privacy review pending |
 | Android account-mode cutover | Android signs in by email, selects the intended owned/shared Mac, proves REST and WebSocket traffic, then Desktop migrates; protected Connector status matches the exact binding/generation before and after Desktop/Mac restart | Primary single-phone 0.1.113 path accepted 2026-09-10; migrated-Mac reboot plus post-reboot account REST/WebSocket accepted 2026-09-11; activation-interruption and multi-phone/shared-Mac matrices remain pending |
 | Sign-in gate with a live phone (HG-129) | **Manual.** On a Mac that is set up and serving a phone, invalidate only the Desktop session (sign out from another client, or revoke the session). The window shows the full-window sign-in page with the `HR-AUTH-*` banner; `launchctl print gui/$UID/com.hermesgo.connector` and `com.hermesgo.hermes-server` keep their PIDs and states, and the phone keeps answering for the whole gated period. Sign back in: the window returns to the section it was on. Sign out from Settings instead: no reason banner appears | The gate is a `RootView` presentation switch and the monitoring loop is untouched by it, but `HermesGoDesktopCoreTests` cannot assert either — the loop and the window live in the executable target. **Not run** |
-| First run on a clean Mac (HG-129) | **Manual, on a clean macOS user account or VM with no managed install** (the same host as the "Install Hermes on a clean Mac" row). Launch: the checking page, then a full-window sign-in page carrying the four-step hint. After the email code: no install and no other Mac → onboarding step 2; another owned Mac exists → the "把这台 Mac 也连上 / 只在这台 Mac 上管理" choice first. Step 3 shows the plan's rows and stops at the confirmation sheet; committing ends on the step 4 QR page. Android: scanning `https://mrlgs.net/` downloads the current versioned APK; after signing in with the same email the step ticks, and the overview's "还没有手机连接" card disappears. iPhone/iPad: scanning `https://mrlgs.net/app/` opens the Web App in Safari; added to the home screen and signed in, step 4 ticks as 网页版 Hermes GO, never as an iPhone. Quit during step 3 and relaunch: onboarding resumes at the step the Mac is really on, not from the beginning. At a 3-Mac limit the connect option reads "先移除一台 Mac" and removing one through the email code frees the slot | Router, quota, phone-completion rule, and the removal API are automated. The two QR codes, real phone sign-ins, and the interrupted-install resume are **not run** |
+| Upgrade/relaunch with existing binding (2026-10-23) | **Manual.** On the reported Mac, retain a stale pending-phone record, disconnect the phone, upgrade components, then quit/reopen Desktop: main opens without the phone page and the pending flag stays cleared. Repeat with a signed-in phone/Web client recorded before setup, then revoke it: the guide must not return. On a clean user account with no binding/client, first setup must still offer the optional phone step. Another owned/shared Mac must still show the new-Mac choice/local setup as appropriate | Core routing/record regressions automated; packaged M4 UI acceptance **not run** |
+| First run on a clean Mac (HG-129) | **Manual, on a clean macOS user account or VM with no managed install** (the same host as the "Install Hermes on a clean Mac" row). Launch: the checking page, then a full-window sign-in page carrying the four-step hint. After the email code: no install and no other Mac → onboarding step 2; another owned Mac exists → the "把这台 Mac 也连上 / 只在这台 Mac 上管理" choice first. Step 3 shows the plan's rows and stops at the confirmation sheet; committing ends on the step 4 QR page when the account has no active remote client; an existing active phone/Web client goes to main (2026-10-23). Android: scanning `https://mrlgs.net/` downloads the current versioned APK; after signing in with the same email the step ticks, and the overview's "还没有手机连接" card disappears. iPhone/iPad: scanning `https://mrlgs.net/app/` opens the Web App in Safari; added to the home screen and signed in, step 4 ticks as 网页版 Hermes GO, never as an iPhone. Quit during step 3 and relaunch: onboarding resumes at the step the Mac is really on, not from the beginning. At a 3-Mac limit the connect option reads "先移除一台 Mac" and removing one through the email code frees the slot | Router, quota, phone-completion rule, and the removal API are automated. The two QR codes, real phone sign-ins, and the interrupted-install resume are **not run** |
 
 The first real-app check verified that the ad-hoc app launches and remains running. The target Mac run
 then verified the installed DMG against a live legacy Connector without changing its PID, launch count,
@@ -993,6 +1037,12 @@ Automated (JVM-free Swift unit tests, `npm run desktop:test`):
 3. `scripts/test/desktop-app-update-index.test.mjs` proves the generator writes an index matching the
    DMG bytes, refuses a misnamed DMG, rejects oversized/multi-line notes, and never overwrites an
    existing index.
+4. Internal publisher tests verify both complete public DMG URLs before either index changes,
+   reject cross-channel/downgrade/same-version conflicts, and restore both pointers after either
+   failed readback while refusing concurrent rollback. Real isolated-filesystem tests exercise the
+   exact remote Python transactions and Nginx route rollback. A shared publisher fixture is parsed
+   by `DesktopUpdateCheckerTests`: 0.2.31 discovers app 0.2.33 while unchanged components stay current;
+   installed 0.2.33 reports no app update. No client parser or installed app must be replaced first.
 
 Manual, on a real Mac (not reproducible in CI):
 

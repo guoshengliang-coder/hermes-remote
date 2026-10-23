@@ -592,6 +592,29 @@ class ChatViewModelTest {
         assertFalse(vm.olderHistory.value.error!!.retryable)
     }
 
+    @Test fun full_artifact_history_does_not_report_success_when_paging_stalls() = runTest {
+        every { sessionRepo.hasOlderHistory("full", null, null) } returns true
+        coEvery { sessionRepo.olderHistory("full", null, null) } returns
+            com.hermes.client.data.repository.OlderHistoryPage(emptyList(), reachedStart = false, added = 0)
+        val vm = buildVm()
+        vm.open("full")
+        advanceUntilIdle()
+        assertFalse(vm.loadEntireHistory())
+        assertEquals(com.hermes.client.data.error.AppErrorCode.HISTORY_INCOMPLETE, vm.olderHistory.value.error?.code)
+    }
+
+    @Test fun full_artifact_history_completes_after_reaching_the_first_page() = runTest {
+        every { sessionRepo.hasOlderHistory("full", null, null) } returnsMany listOf(true, false)
+        coEvery { sessionRepo.olderHistory("full", null, null) } returns
+            com.hermes.client.data.repository.OlderHistoryPage(listOf(ChatMessage("early", Role.ASSISTANT, "MEDIA:/tmp/early.md")), reachedStart = true, added = 1)
+        val vm = buildVm()
+        vm.open("full")
+        advanceUntilIdle()
+        assertTrue(vm.loadEntireHistory())
+        assertNull(vm.olderHistory.value.error)
+        coVerify(exactly = 1) { sessionRepo.olderHistory("full", null, null) }
+    }
+
     // The chat subtitle follows the gateway's session.info (cwd/branch) — the workspace the
     // chat's tools actually run in, not a stale list row.
     @Test fun session_info_updates_the_workspace_subtitle() = runTest {

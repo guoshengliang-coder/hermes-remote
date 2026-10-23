@@ -2812,3 +2812,205 @@ nginx validation and reload passed. The authenticated 128 MiB+7-byte public smok
 full hash, legacy cap and control responsiveness; see ARTIFACT_CHANNEL.md for versions, public
 hashes, receipt and the outstanding physical-device gates. Publication does not imply installation
 or acceptance. No Desktop App/DMG, upstream Hermes or release-server binary was published.
+
+### 2026-10-22 — Android/Web verification and HG-223 release-server deployment
+
+The owner authorized Android/Web publication, then the remaining required artifacts. Android
+**0.1.175 / code 176** and Web **0.1.1-3b53c527b8be** use source
+`3b53c527b8be965830b1777ebc4401e11a2dd4f8`. Version PR #613 passed the PR/main merge gate.
+Android preparation passed 2,633 unit tests and lint; the official
+[release run 39716222141](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/39716222141)
+passed the complete package gate, canonical signing, publication and public readback. The APK is
+36,867,987 bytes with SHA-256
+`ddc7b98afc6a76cf6efe048b06fb70ea808c8b742dd20063b5ef5e7d42d6cbb1`:
+https://mrlgs.net/releases/Hermes-Remote-0.1.175-debug.apk . Web passed typecheck, 938 tests and
+build; all 20 public files matched the reproducible manifest. Its archive SHA-256 is
+`34ac49acb86554dc5b2398f87a0f409a7d4c78112e131a2784c87d09136642cb`.
+The owner requested skipping Chrome rendering checks after browser automation timed out;
+no publication was repeated. HG-224 and HG-225 received verified-release comments and moved
+to pending verification, without claiming installation or acceptance. Batch receipt SHA-256:
+`c16828db92a029080f20effa1abd696e96e5d1e23f0a5f5ae1ad9415573c610e`.
+
+HG-223's APK was already published, but the running release server still lacked validators.
+The full release-server suite and Node syntax check passed. The inspected deployed-source diff
+contained only its ETag/Last-Modified/If-Match/If-Range changes. The existing installation was
+upgraded by atomically replacing only `/opt/hermes-release-server/release-server/src/server.mjs`
+and restarting only `hermes-release-server.service`, under a deployment lock and the existing
+APK publication fence. The first-install bootstrap was not rerun: it installs an environment
+template and is inappropriate for preserving the current production configuration during this
+code-only upgrade. Environment/unit metadata and the exact APK index hash were unchanged;
+the already identical schema module was retained. The old entrypoint and public verification
+record are retained in the root-only rollback directory
+`/opt/hermes-release-server/backups/hg223-20261022T071521Z-2218283`.
+
+Installed server SHA-256 is
+`38274f687b1a01abae4b7657e3c1275b7e5efba3ee48af46572e41cd5adb2b48`.
+Service PID changed from 1216990 to 2218337. Public health GET/HEAD passed; ETag equals the
+quoted APK SHA-256; Last-Modified equals its manifest publication time. A wrong If-Match now
+returns 412, matching conditional ranges return 206, and stale If-Range returns the full entity
+with 200. Four concurrent public ranges reassembled the complete APK with the size/hash above.
+Unversioned and unregistered APK paths still return 404. No new APK, Web bundle, Gateway,
+Connector or Desktop component was published during this server-only transaction. Deployment
+receipt SHA-256: `cfa6fa3bf7056aec2073c9375f1f91ed9f9f54b8b9b4dc20cadd8ffe13308b8e`.
+
+Release-candidate handover checked the complete one-page Hermes GO list. HG-223's recorded
+requirements still omit release-server, and the product declares no identifier for that service;
+this registration must be corrected before automatic verification handover. HG-148 still lacks
+its follow-up Gateway association. HG-134's official macOS channel remains unpublished: neither
+repository nor `desktop-release` environment has the required Apple signing/notarization inputs
+or the release-key continuity variables. No failing candidate was redispatched and no version
+was allocated for it. The existing ad-hoc 0.2.32 internal pointer remains unchanged; the official
+app index remains 404. Provision the protected inputs documented in
+`docs/DESKTOP_RELEASE_CHANNEL.md` before continuing the official candidate/publisher gates.
+Physical HONOR background/resume and old-Mac application-update acceptance remain unverified.
+
+### 2026-10-22 — Desktop 0.2.33 temporary-signing internal publication
+
+The owner clarified that the remaining Desktop package continues to use temporary signing.
+This supersedes treating the missing Apple credentials above as a blocker for internal distribution.
+Version PR #615 passed all PR and main checks (`MERGED_GREEN`); the isolated clean release source is
+`d2a900a0142e046a1c8cca74992fe4d147d04d2e`. Desktop **0.2.33 / build 36** includes HG-226's
+managed-setup stages, elapsed time and completion behavior. Assets, 569 Swift tests (zero failures),
+app/DMG builds, strict ad-hoc signing, arm64 bundle identity/version and image integrity passed.
+The app retains the installed client's public account/bootstrap/update settings and signing trust.
+
+The unified internal publisher uploaded the immutable DMG and completed full public readback and
+website index synchronization (`DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK`):
+https://mrlgs.net/desktop/apps/0.2.33/Hermes-Go-Desktop-0.2.33-dev.dmg .
+The file is **3,696,937 bytes**, SHA-256
+`4b4914042163599ce3c0f65d7b005a61bb8a5638ddf6885c9e03eba5a93c32cc`.
+The first invocation stopped after artifact installation; the old pointer stayed on 0.2.32.
+An independent complete download matched the original package, then an idempotent invocation with
+the same bytes, receipt time and notes completed publication. No versioned file was replaced.
+`/desktop/apps/internal-index.json` and `https://go.mrlgs.net/api/releases` both report 0.2.33
+and the same size/hash. Publication receipt SHA-256:
+`1cf9bd34465657d5d0179c7cb4a9e92f277d9054f2766fb2127057df32688fed`.
+
+The package is explicitly ad-hoc and not notarized, with manual-install instructions. The official
+`/desktop/apps/index.json` remains 404; this does not complete HG-134's official in-app-update gate.
+Signed release/component pointers remain 0.4.11 with unchanged manifest hashes
+`dc8e65b717f06391fd348e18311c87ff695dc3ccd4ec51d36585e4421c63c5e9` and
+`f41ad5226dbca9a6dbe72435e53f658bbfc7d9ab9862b16e5a588ec8ebbc68bc` respectively.
+No Android/Web/Gateway/Connector release was repeated, and no user Mac service was restarted.
+Chrome and physical-device installation/upgrade acceptance were not performed.
+
+### HG-232 attachment throughput — Gateway 0.4.35, Connector 0.1.17, Android 0.1.178, 2026-10-23
+
+The owner requested publication and separately approved reuse of the existing trusted M4 signing
+key **for this component publication only**. The key stayed on M4; signature verification, complete
+public readback and paired-index gates remained enabled. Implementation PR
+[#626](https://github.com/guoshengliang-coder/hermes-remote/pull/626) and version/preparation PR
+[#627](https://github.com/guoshengliang-coder/hermes-remote/pull/627) passed their PR and main gates.
+All three artifacts use clean source **`cea90e66e791de794113b61428b86a99b4308460`**, which contains #626.
+
+Gateway **0.4.35** completed the ordinary production candidate/switch/smoke/observation transaction,
+run `5b994c33-fe13-4389-9339-ecbb7b3c82db`, green→blue, committed. `current` points to
+`releases/0.4.35-cea90e66e791`; `previous` retains `releases/0.4.34-8fbb9ebdd59b`, a same-schema rollback
+point. Schema **20**, protocol versions and minimum clients are unchanged; no migration ran.
+The Gateway archive SHA-256 is
+`eebdac97cfe04aa22c9829cd3efe987743a72863fe36434d4e2c1d6b69d02522`.
+Independent protected identity confirmed the exact source, `sourceDirty=false` and schema20;
+readiness reports config/database/migrations `ok`, PostgreSQL `supported`. Public capabilities and
+health passed. A public-edge test using an isolated synthetic Connector transferred **16 MiB+7 bytes**
+in four concurrent 1 MiB ranges, verified the complete SHA-256, authentication and stale-entity rejection.
+Its 4.187 s and maximum 41 ms mock-control latency measure that HK test, not a user Mac uplink or phone.
+
+Connector **0.1.17**, managed pair **0.4.12**, was built/tested in the isolated M4 source checkout with
+Node 22.23.2. The v1 server archive reuses the pinned, unchanged Hermes Server 0.21.0 bundle
+from 0.4.3. Both layouts passed independent Ed25519 verification. Immutable files were staged as
+root-owned 0644 behind exact GET/HEAD routes under the deployment lock; Nginx validation/reload and
+POST=403 checks passed. The unchanged publisher completed full public byte comparison, switched and
+read back both indexes, retained the 0.4.11 rollback pair, pushed `desktop-managed-v0.4.12`, and returned
+`DESKTOP_RELEASE_OK`. An independent M5 download verified all six complete files, both signatures and
+both Connector build identities. Public file evidence under `https://mrlgs.net`:
+
+| Layout | File | Bytes | SHA-256 |
+|---|---|---|---|
+| release | `Hermes-Desktop-0.4.12-arm64.manifest.json` | 1324 | `45ad70aa65199a4853b68b699f916e23e0fe75887ca75515f021bf873ad62996` |
+| release | `Hermes-Server-0.21.0-arm64.tar.gz` | 285064472 | `06513b2a2d137d70541d2a7b190ea305365a421f8f90d6e21ebb9e814852dc1e` |
+| release | `Hermes-Connector-0.1.17-arm64.tar.gz` | 37087174 | `a8733c13302af73b793563f5c7a9d5898626efc8be4c53986dd94366e21e524a` |
+| components | `Hermes-Desktop-Components-0.4.12-arm64.manifest.json` | 2076 | `040f694383295bb34fe1fa7d8a127d5242538953d65c1e81f75d3f7497732540` |
+| components | `Hermes-Component-node_runtime-22.23.2-arm64.tar.gz` | 36999072 | `6ba9ff2a3cf04a5ec0fe906afb96b46bf4ed8143355c690bc02f6dbadaddba7c` |
+| components | `Hermes-Component-connector-0.1.17-arm64.tar.gz` | 88086 | `95db00fe236a35945a5ee713ed99bbfaeee1fa8a05a5e5be4ba11fbee5863475` |
+
+Android **0.1.178 / code179** passed the official
+[release run 39910558524](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/39910558524),
+including `APK_RELEASE_OK`, feedback configuration and canonical certificate checks. The independent
+full public [APK](https://mrlgs.net/releases/Hermes-Remote-0.1.178-debug.apk) is **36,884,375 bytes**,
+SHA-256 `c4706b25a3072ba8cd1ec2507dd34346405b611f895f31dd1f82c56a40419f3b`, matching the gate and index.
+Package `com.hermes.remote`, version/code, minSdk26 and the canonical v2 signer were rechecked.
+DEX contains the new `ArtifactDownloadBatch` and negotiated-range implementation. APK HEAD/validators
+passed; unversioned APK URLs return404. The source's queued-effect helper is test-only and scoped to
+two asynchronous rendering classes; the parallel APK test fixture uses thread-safe request/progress
+collectors. Existing assertions and thread checks remain enabled. Final PR/main/release CI passed;
+local Android full tests passed **2656**, targeted rendering/transfer suites **7+7**; the final M4 Node
+suites passed **869**, with **33** prerequisite skips and no failures. Final host/disk/fresh-off-host-
+backup monitoring and Gateway health passed.
+
+Equivalent `hermes-go-batch-release-receipt-v1` evidence, complete candidate snapshots and independent
+verification are retained outside Git under M4 `~/.hermes-go-releases/hg232-20261023/`; canonical receipt
+SHA-256 `e5bd3eae1af93c3d0aa0b21dce9fefb6e6d0592fddb03b7d52fbe955a384293a`.
+The final complete candidate snapshot contained HG-232 and HG-223. HG-232's three required artifacts
+matched; release comment `9e048156-3d6c-4b01-a573-674d81b55163` was written before moving it to
+**pending verification**. HG-223 remains unchanged: its full PR includes release-server, but its
+handover registers only Android and the product has no release-server artifact identifier. Its
+attachments were not reread and no new comment/transition was made for it.
+
+Install Android 0.1.178 and update the originating Mac's managed components to 0.4.12 before checking
+negotiated concurrency. The existing Desktop GUI and upstream Hermes were not published or restarted;
+this operation did not install to a user Mac/phone. Follow `ATTACHMENT_PERFORMANCE.md` for cold/hot
+attachment download/open, first frame/seek/cache reuse, resume/source changes, account switch,
+pause/cancel and background checks. Real HONOR, household/cellular/NAT and OEM acceptance remain
+outstanding. Publication and pending verification do not establish acceptance.
+
+### HG-233 conversation artifacts — Android 0.1.179, Gateway 0.4.36 and Web, 2026-10-23
+
+The owner explicitly requested publication after implementation PR
+[#629](https://github.com/guoshengliang-coder/hermes-remote/pull/629) merged. Release preparation PR
+[#630](https://github.com/guoshengliang-coder/hermes-remote/pull/630) allocated Android **0.1.179 / code180**
+and Gateway **0.4.36**, including the pinned version assertions. Its final PR and main checks passed.
+All three published artifacts use clean source **`ee6305a2abbd7582ee86a4fa93bc25277c818074`**.
+Credential-free Android preparation passed **2667 tests and lint**; no development APK was distributed.
+
+Gateway used the paired Gateway/operator artifacts from successful main
+[OCI run 39951923648](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/39951923648).
+Both archives were verified before and after transfer. Gateway archive SHA-256 is
+`ff031edf8d23752c52dd35f6c1f4f608b9dac8712d9cf684a7ae207e9d77db46`; operator archive SHA-256 is
+`1161d2901c9312c52beb581b03acba365833b2c99fe297c31d669cf5a9b7af64`.
+Routine production run **`c3353b69-d050-4e0e-be10-3c21986b68b4`** completed candidate verification,
+switch, public smoke and observation, **blue → green, committed**. Independent protected identity
+confirmed 0.4.36, the exact source and `sourceDirty=false`; readiness passed. Schema **20**, protocols,
+minimum clients and existing capabilities remained unchanged; no migration ran. The previous
+`releases/0.4.35-cea90e66e791` remains the rollback point. Public shell headers now include the
+local-only **`media-src blob:`** policy, verified before publishing Web.
+
+The standard Web publisher passed typecheck, **99 files / 1009 tests**, and build, then atomically
+installed **`0.1.1-ee6305a2abbd`**, retaining **`0.1.1-19fb249c92ec`** for rollback. Independent public
+readback verified all **20 files**, their complete sizes and SHA-256 values, against the reproducible
+manifest, plus the current release link and strict shell CSP. Web remains package version 0.1.1;
+its source commit identifies this release. Gateway was published first because video previews depend
+on its CSP. This operation did not publish Connector, Desktop or upstream Hermes.
+
+The official [Android release run 39952934835](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/39952934835)
+completed `APK_RELEASE_OK`, feedback configuration, signing and publication gates. The complete public
+[Hermes-Remote-0.1.179-debug.apk](https://mrlgs.net/releases/Hermes-Remote-0.1.179-debug.apk) was independently
+downloaded: **36,917,139 bytes**, SHA-256
+`908ca72c1d4fd487a6dc87027451e8ecf964d8cc3bc965fc018b068afb8dd8ac`, matching CI and the public index.
+Package `com.hermes.remote`, version/code, minSdk26, canonical v2 certificate and conversation-artifact
+DEX code were independently checked. Both unversioned APK URLs returned404. Post-release production
+host, disk, fresh encrypted/off-host backup and Gateway readiness checks passed.
+
+Equivalent `hermes-go-batch-release-receipt-v1` evidence, complete candidate snapshots and independent
+verification remain outside Git at `~/.hermes-go-releases/hg233-20261023/`; canonical receipt SHA-256 is
+`6406df9e3776b761a84fa9031846da2c8e6585d00c19d567eeea35c12ec932e9`.
+HG-233 was fully reread (11 timeline events, no attachments); its three required artifacts matched.
+Release comment **`f19f7b4b-7f6b-4ef2-b9ae-97de4674a786`** preceded its transition to **pending verification**.
+The other candidate, HG-223, remains unchanged: its full PR includes release-server but its handover
+registers only Android and the product declares no release-server artifact. No attachment reread,
+comment or transition was performed for it.
+
+Verify More → Artifacts on Android 0.1.179 and the updated Web app: complete-conversation results,
+upload/process exclusion, duplicate display names, current-file references, preview/download and
+source navigation with list-position restoration. No phone was attached; physical Chrome/Safari/PWA,
+system opening, gestures, offline behavior and video codecs remain in the HG-233 smoke plan.
+Publication and pending verification do not establish acceptance.

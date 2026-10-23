@@ -39,7 +39,32 @@ negative check before stopping services, around backups and before source moves.
 samples and extra/surviving processes block; empty samples never prove admission, task inactivity or
 recoverable dependencies. Full live evidence and end-to-end certification remain pending.
 
-Approved internal test version: **0.2.32** (build 35), containing HG-212's startup-failure
+HG-234 fixes the phone onboarding page returning after an existing Mac upgrades or relaunches.
+Restoring this Desktop's valid binding retires stale onboarding flags, and component-upgrade
+intermediate checks cannot re-arm them. Existing active phone/Web sign-ins satisfy first setup
+without another login; offline clients still count. Local validation passed 578 tests, asset
+consistency and app packaging. This source change needs a later Desktop app release; the reported
+M4 upgrade/relaunch acceptance remains pending.
+
+HG-226 adds actual managed-setup stages, per-second elapsed time and per-run system/runtime
+telemetry to both installer confirmation sheets. Confirmed execution and rollback remain
+non-cancellable; success/failure closes the sheet, while a cleanup retry handle remains available
+without reopening installation. The original permanent-loading hypothesis remains unproven.
+See the Desktop design and test plan for the behavior and pending physical upgrade acceptance.
+This change is included in the **0.2.33 / build 36** internal test release.
+
+Current published internal test version: **0.2.33** (build 36). On 2026-10-22 the owner
+confirmed that distribution continues with temporary ad-hoc signing. The versioned package is
+`https://mrlgs.net/desktop/apps/0.2.33/Hermes-Go-Desktop-0.2.33-dev.dmg`; publication must use
+the unified internal publisher, verify the full public file, and synchronize the website's
+internal download index. Publication and full public readback completed on 2026-10-22;
+the website now offers this version. It retains the existing managed-component trust configuration.
+The owner subsequently requested connecting this temporary-signing channel to Desktop's existing
+update checker. The unified internal publisher now synchronizes the compatible app index as well
+as the website, using the same verified DMG bytes. This does not imply Apple notarization;
+see the release-channel document for the repair command and physical-update acceptance gate.
+
+Previous internal test version: **0.2.32** (build 35), containing HG-212's startup-failure
 diagnostics and PM/runtime recovery follow-up (#582, #583). It selects the published PM launcher,
 verifies the actual command and authenticated local service, refreshes local/account evidence with
 their own times, and offers an identity-checked Connector-only reconnect. The candidate does not

@@ -46,6 +46,25 @@ final class DesktopOnboardingTests: XCTestCase {
         )
     }
 
+    func testExistingRemoteClientSkipsPendingPhoneStepEvenWhenLastSeenIsOld() {
+        for kind in ["phone", "browser"] {
+            for readiness in [DesktopBootstrapReadiness.managedInstallActive, .managedUpgradeAvailable] {
+                XCTAssertEqual(
+                    route(signedIn(installations: [installation("existing", kind: kind)]),
+                          readiness: readiness, record: .init(phoneStepPending: true, phoneBaseline: ["existing"])),
+                    .main
+                )
+            }
+        }
+    }
+
+    func testBoundMacStaysOnMainWhileUpgradeRechecksInstallation() {
+        XCTAssertEqual(
+            route(signedIn(bound: true), readiness: .checking, setupInProgress: true),
+            .main
+        )
+    }
+
     func testFreshAccountOnFreshMacStartsOnboarding() {
         XCTAssertEqual(route(signedIn(), readiness: .readyForManagedInstall), .onboarding(.connectMac))
         XCTAssertEqual(route(signedIn(), readiness: .waitingForSignedRelease), .onboarding(.connectMac))
@@ -174,13 +193,70 @@ final class DesktopOnboardingTests: XCTestCase {
         XCTAssertEqual(clients.map(\.id), ["a", "b"])
     }
 
-    func testOnlyClientsThatAppearAfterTheBaselineCountAsNew() {
-        let before = [installation("old-phone", kind: "phone")]
-        let baseline = DesktopRemoteClients.baseline(before)
-        XCTAssertTrue(DesktopRemoteClients.newlyConnected(before, baseline: baseline).isEmpty)
+    func testRestoringBoundMacClearsStalePhoneFlagWithoutAnyOnlineClient() {
+        let pending = DesktopOnboardingRecord(newMacChoice: .connect, phoneStepPending: true,
+                                              phoneBaseline: ["existing"])
+        let dashboard = dashboard(bound: true)
+        let restored = pending.resuming(on: dashboard)
+        XCTAssertEqual(restored, .init(newMacChoice: .connect))
+        XCTAssertEqual(route(.signedIn(dashboard), readiness: .managedInstallActive, record: restored), .main)
+    }
 
-        let after = before + [installation("iphone-web", kind: "browser")]
-        XCTAssertEqual(DesktopRemoteClients.newlyConnected(after, baseline: baseline).map(\.id), ["iphone-web"])
+    func testUpgradeCannotRearmPhoneStepDuringIntermediateSetupRoute() {
+        let dashboard = dashboard(bound: true)
+        var record = DesktopOnboardingRecord()
+        record.observe(route: .onboarding(.connectMac), dashboard: dashboard)
+        XCTAssertFalse(record.phoneStepPending)
+        XCTAssertEqual(route(.signedIn(dashboard), readiness: .managedInstallActive, record: record), .main)
+    }
+
+    func testFreshSetupStillShowsPhoneStepAfterBindingInTheSameSession() {
+        var record = DesktopOnboardingRecord()
+        record.observe(route: .onboarding(.connectMac), dashboard: dashboard())
+        XCTAssertTrue(record.phoneStepPending)
+        XCTAssertEqual(route(signedIn(bound: true), readiness: .managedInstallActive, record: record),
+                       .onboarding(.connectPhone))
+    }
+
+    func testOtherMacAndRevokedLocalBindingDoNotRetireFirstSetup() {
+        let pending = DesktopOnboardingRecord(phoneStepPending: true)
+        for dashboard in [dashboard(owned: [device("other")]),
+                          dashboard(owned: [device("shared", access: "operator")]),
+                          dashboard(localDeviceID: "revoked-local")] {
+            XCTAssertEqual(pending.resuming(on: dashboard), pending)
+            var record = DesktopOnboardingRecord()
+            record.observe(route: .onboarding(.connectMac), dashboard: dashboard)
+            XCTAssertTrue(record.phoneStepPending)
+        }
+    }
+
+    func testExistingClientCompletionPersistsEvenAfterClientIsRevoked() throws {
+        let suite = "hermes-onboarding-completion-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = UserDefaultsDesktopOnboardingStore(defaults: defaults)
+        let account = dashboard(installations: [installation("old-phone", kind: "phone")])
+        var record = DesktopOnboardingRecord(phoneStepPending: true, phoneBaseline: ["old-phone"])
+        store.save(record, accountID: account.session.account.id)
+        record.observe(route: .main, dashboard: account)
+        store.save(record, accountID: account.session.account.id)
+        let reopened = store.load(accountID: account.session.account.id)
+        XCTAssertEqual(reopened, DesktopOnboardingRecord())
+        XCTAssertEqual(route(signedIn(installations: [installation("old-phone", kind: "phone", status: "revoked")]),
+                             readiness: .managedInstallActive, record: reopened), .main)
+    }
+
+    func testPendingOrIncompleteBindingDoesNotClearPhoneStep() {
+        let pending = DesktopOnboardingRecord(phoneStepPending: true)
+        for state in ["binding_pending", "revoked", "bound"] {
+            XCTAssertEqual(pending.resuming(on: dashboard(bindingState: state)), pending)
+        }
+    }
+
+    func testRevokedRemoteClientDoesNotSkipFirstPhoneStep() {
+        XCTAssertEqual(route(signedIn(installations: [installation("revoked", kind: "phone", status: "revoked")]),
+                             readiness: .managedInstallActive, record: .init(phoneStepPending: true)),
+                       .onboarding(.connectPhone))
     }
 
     func testWebAppIsNeverLabelledAsAnIPhone() {
@@ -245,12 +321,18 @@ final class DesktopOnboardingTests: XCTestCase {
     private func dashboard(
         owned: [AccountDevice] = [],
         localDeviceID: String? = nil,
-        maxOwned: Int = 3
+        maxOwned: Int = 3,
+        bound: Bool = false,
+        bindingState: String? = nil,
+        installations: [ManagedAccountInstallation] = []
     ) -> AccountDashboard {
         guard case .signedIn(let dashboard) = signedIn(
             owned: owned,
             localDeviceID: localDeviceID,
-            maxOwned: maxOwned
+            maxOwned: maxOwned,
+            bound: bound,
+            bindingState: bindingState,
+            installations: installations
         ) else {
             preconditionFailure("the helper only builds signed-in states")
         }
@@ -260,7 +342,10 @@ final class DesktopOnboardingTests: XCTestCase {
     private func signedIn(
         owned: [AccountDevice] = [],
         localDeviceID: String? = nil,
-        maxOwned: Int = 3
+        maxOwned: Int = 3,
+        bound: Bool = false,
+        bindingState: String? = nil,
+        installations: [ManagedAccountInstallation] = []
     ) -> DesktopAccountState {
         let account = HermesAccount(
             id: "10000000-0000-4000-8000-000000000001",
@@ -281,7 +366,7 @@ final class DesktopOnboardingTests: XCTestCase {
             refreshExpiresAt: "2099-10-02T00:00:00Z"
         )
         let binding = AccountBindingSnapshot(
-            state: localDeviceID == nil ? "no_binding" : "revoked",
+            state: bindingState ?? (bound ? "bound" : (localDeviceID == nil ? "no_binding" : "revoked")),
             id: nil,
             generation: nil,
             deviceId: localDeviceID,
@@ -289,13 +374,19 @@ final class DesktopOnboardingTests: XCTestCase {
             expiresAt: nil,
             keyProved: nil,
             healthVerified: nil,
-            binding: nil,
+            binding: bound ? ActiveAccountBinding(
+                id: "binding-local", generation: 1, deviceId: "hermes-local",
+                desktopDisplayName: "This Mac", publicKeyFingerprint: String(repeating: "a", count: 64),
+                connector: .init(online: false, lastSeenAt: "2026-09-07T00:00:00Z"),
+                hermes: .init(reachable: false, version: nil), gateway: .init(latencyMs: nil),
+                endToEnd: .init(healthy: false, checkedAt: nil)
+            ) : nil,
             previousBinding: nil
         )
         return .signedIn(AccountDashboard(
             session: AccountSessionRecord(account: account, installation: desktop, session: tokens),
             binding: binding,
-            installations: [],
+            installations: installations,
             devices: owned,
             maxOwnedDevices: maxOwned
         ))

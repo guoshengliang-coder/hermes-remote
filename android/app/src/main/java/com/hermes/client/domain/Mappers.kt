@@ -609,7 +609,10 @@ internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
  */
 fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): ChatMessage {
     val display = displayProjection?.takeIf { it.schema == 1 }
-    val parsed = parseMessageContent((displayContent ?: display?.body ?: content).orEmpty(), userHistory = role.equals("user", ignoreCase = true))
+    val displayText = (displayContent ?: display?.body ?: content).orEmpty()
+    val parsed = parseMessageContent(displayText, userHistory = role.equals("user", ignoreCase = true))
+    val direct = if (role.equals("assistant", ignoreCase = true) && (parsed.images.isNotEmpty() || parsed.files.isNotEmpty()))
+        parseMessageContent(com.hermes.client.ui.chat.assistantDeliveryText(displayText)) else null
     // Compaction handoffs ride the user-role channel. Project them the way upstream projects a
     // transcript for display, keeping any real content merged into the carrier; a turn left with
     // nothing is dropped by [isRenderable].
@@ -630,6 +633,8 @@ fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): Chat
         // turn that [isRenderable] is about to drop.
         images = if (projected == null) emptyList() else parsed.images,
         files = if (projected == null) emptyList() else parsed.files,
+        deliveredImageIds = direct?.images?.map { it.id }?.toSet()?.takeIf { ids -> ids != parsed.images.map { it.id }.toSet() },
+        deliveredFileIds = direct?.files?.map { it.id }?.toSet()?.takeIf { ids -> ids != parsed.files.map { it.id }.toSet() },
         timestamp = messageTimestampMillis(timestamp, createdAt),
         // Hermes persists reasoning and tool calls on every assistant row and the gateway passes
         // them through; until 2026-09-05 the DTO simply did not model them, so every history

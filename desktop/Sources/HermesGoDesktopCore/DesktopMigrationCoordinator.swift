@@ -129,6 +129,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     private let serviceReloadAttempts: Int
     private let serviceReloadDelayNanoseconds: UInt64
     private let operationLog: DesktopServiceOperationLog?
+    private let progress: DesktopSetupProgress?
     private let localHermesForFreshInstall: @Sendable () -> DesktopLocalHermesInstallation?
 
     /// `localHermesForFreshInstall` names the Mac's own Hermes when a fresh install should run it
@@ -145,6 +146,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         serviceReloadAttempts: Int = 3,
         serviceReloadDelayNanoseconds: UInt64 = 2_000_000_000,
         operationLog: DesktopServiceOperationLog? = nil,
+        progress: DesktopSetupProgress? = nil,
         localHermesForFreshInstall: @escaping @Sendable () -> DesktopLocalHermesInstallation? = { nil }
     ) throws {
         guard (1...300).contains(maximumHealthPolls), (1...10).contains(serviceReloadAttempts) else {
@@ -163,7 +165,18 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         self.serviceReloadAttempts = serviceReloadAttempts
         self.serviceReloadDelayNanoseconds = serviceReloadDelayNanoseconds
         self.operationLog = operationLog
+        self.progress = progress
         self.localHermesForFreshInstall = localHermesForFreshInstall
+    }
+
+    private func transitionJournal(
+        runID: String, to next: DesktopMigrationState
+    ) throws -> DesktopMigrationJournal {
+        let saved = try journal.transition(runID: runID, to: next)
+        progress?.recordJournal(saved.state, runID: runID)
+        if next == .rollingBack { progress?.advance(.rollingBack, runID: runID) }
+        if next == .commitPending { progress?.advance(.committing, runID: runID) }
+        return saved
     }
 
     public static func confirmationText(releaseVersion: String) -> String {
@@ -335,8 +348,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     activationPlan: activationPlan
                 )
             }
-            _ = try journal.transition(runID: runID, to: .accountStaged)
-            _ = try journal.transition(runID: runID, to: .candidateStarting)
+            _ = try transitionJournal(runID: runID, to: .accountStaged)
+            _ = try transitionJournal(runID: runID, to: .candidateStarting)
             if case .bundled = candidate {
                 _ = try installer.activate(releaseVersion: candidate.releaseVersion, runID: runID)
             }
@@ -348,29 +361,35 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 bindingID: bindingID,
                 generation: bindingGeneration
             )
+            progress?.advance(.stoppingServices, runID: runID)
             try launchAgent.stopAccount()
             try launchAgent.stopHermes()
+            progress?.advance(.waitingForShutdown, runID: runID)
             guard try await hermesShutdown.waitUntilStopped(
                 contract: hermesLaunchAgentConfiguration.runtimeContract,
                 maximumAttempts: maximumHealthPolls,
                 delayNanoseconds: healthPollDelayNanoseconds
             ) else { throw DesktopMigrationCoordinatorError.hermesStopTimedOut }
+            progress?.advance(.startingHermes, runID: runID)
             try launchAgent.startHermes(plistURL: hermesLaunchAgentURL)
+            progress?.advance(.waitingForHermes, runID: runID)
             guard try await hermesReadiness.waitUntilReady(
                 checkpoint: checkpoint,
                 contract: hermesLaunchAgentConfiguration.runtimeContract,
                 maximumAttempts: maximumHealthPolls,
                 delayNanoseconds: healthPollDelayNanoseconds
             ) else { throw DesktopMigrationCoordinatorError.hermesHealthTimedOut }
+            progress?.advance(.startingConnector, runID: runID)
             try launchAgent.startAccount(plistURL: accountLaunchAgentURL)
+            progress?.advance(.waitingForConnection, runID: runID)
             try await waitForExistingCommittedBinding(
                 bindingID: bindingID,
                 generation: bindingGeneration,
                 healthNewerThan: cloudHealthCheckpoint
             )
-            _ = try journal.transition(runID: runID, to: .candidateAuthenticated)
-            _ = try journal.transition(runID: runID, to: .candidateHealthy)
-            _ = try journal.transition(runID: runID, to: .commitPending)
+            _ = try transitionJournal(runID: runID, to: .candidateAuthenticated)
+            _ = try transitionJournal(runID: runID, to: .candidateHealthy)
+            _ = try transitionJournal(runID: runID, to: .commitPending)
             switch candidate {
             case .bundled:
                 try installer.commitHermesSessionTokenFileMigration()
@@ -380,7 +399,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     protecting: candidate.releaseVersion
                 )
             }
-            _ = try journal.transition(runID: runID, to: .accountActive)
+            _ = try transitionJournal(runID: runID, to: .accountActive)
             try? installer.discardManagedUpgradeSnapshot(snapshot)
             return DesktopMigrationOutcome(
                 runID: snapshot.runID,
@@ -499,8 +518,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             // that Hermes from the start: the bundled agent just written becomes the kept fallback
             // and never runs against the owner's database.
             let localHermes = localHermesForFreshInstall()
-            _ = try journal.transition(runID: runID, to: .accountStaged)
-            _ = try journal.transition(runID: runID, to: .candidateStarting)
+            _ = try transitionJournal(runID: runID, to: .accountStaged)
+            _ = try transitionJournal(runID: runID, to: .candidateStarting)
             if case .bundled = candidate {
                 activation = try installer.activate(
                     releaseVersion: candidate.releaseVersion,
@@ -513,8 +532,13 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             let hermesCheckpoint = try hermesReadiness.checkpoint(
                 logURL: hermesLaunchAgentConfiguration.standardOutput
             )
-            if legacy.isRunning { try launchAgent.stopLegacy(snapshot: legacy) }
+            if legacy.isRunning {
+                progress?.advance(.stoppingServices, runID: runID)
+                try launchAgent.stopLegacy(snapshot: legacy)
+            }
+            progress?.advance(.startingHermes, runID: runID)
             try launchAgent.startHermes(plistURL: hermesLaunchAgentURL)
+            progress?.advance(.waitingForHermes, runID: runID)
             guard try await hermesReadiness.waitUntilReady(
                 checkpoint: hermesCheckpoint,
                 contract: hermesLaunchAgentConfiguration.runtimeContract,
@@ -527,7 +551,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     generation: target.generation
                 )
                 : nil
+            progress?.advance(.startingConnector, runID: runID)
             try launchAgent.startAccount(plistURL: accountLaunchAgentURL)
+            progress?.advance(.waitingForConnection, runID: runID)
 
             if target.isAlreadyBound {
                 try await waitForCommittedBinding(
@@ -543,7 +569,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     runID: runID
                 )
             }
-            _ = try journal.transition(runID: runID, to: .commitPending)
+            _ = try transitionJournal(runID: runID, to: .commitPending)
             if target.isAlreadyBound {
                 let reconciled = try await account.refresh()
                 guard isCommitted(reconciled, bindingID: target.id, generation: target.generation),
@@ -572,7 +598,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     }
                 }
             }
-            _ = try journal.transition(runID: runID, to: .accountActive)
+            _ = try transitionJournal(runID: runID, to: .accountActive)
             switch candidate {
             case .bundled:
                 try installer.commitHermesSessionTokenFileMigration()
@@ -601,7 +627,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 if (try? launchAgent.inspect().hermesLoaded) == true {
                     try? launchAgent.stopHermes()
                 }
-                _ = try? journal.transition(runID: runID, to: .rollbackAttentionRequired)
+                _ = try? transitionJournal(runID: runID, to: .rollbackAttentionRequired)
                 throw error
             }
             do {
@@ -671,7 +697,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             else { return try stopForManualRecovery(runID: runID) }
             let remote = try await account.refresh()
             if isCommitted(remote, bindingID: bindingID, generation: generation) {
-                return try journal.transition(runID: runID, to: .accountActive).state
+                return try transitionJournal(runID: runID, to: .accountActive).state
             }
             guard isPending(remote, bindingID: bindingID, generation: generation) else {
                 return try stopForManualRecovery(runID: runID)
@@ -681,7 +707,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
              .candidateAuthenticated, .candidateHealthy, .rollingBack:
             do {
                 if recorded.state != .rollingBack {
-                    _ = try journal.transition(runID: runID, to: .rollingBack)
+                    _ = try transitionJournal(runID: runID, to: .rollingBack)
                 }
                 let services = try launchAgent.inspect()
                 if services.accountLoaded { try launchAgent.stopAccount() }
@@ -692,9 +718,9 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 if recorded.lastKnownGoodMode == .legacy {
                     let current = try launchAgent.inspect()
                     if !current.legacyLoaded { try launchAgent.restoreLegacy(snapshot: legacy) }
-                    return try journal.transition(runID: runID, to: .legacyActive).state
+                    return try transitionJournal(runID: runID, to: .legacyActive).state
                 }
-                return try journal.transition(runID: runID, to: .cleanUninstalled).state
+                return try transitionJournal(runID: runID, to: .cleanUninstalled).state
             } catch {
                 _ = try? markRollbackAttention(runID: runID)
                 throw recoveryFailure(
@@ -1208,7 +1234,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     ) async throws {
         let current = try journal.load()
         if current?.state != .rollingBack {
-            _ = try journal.transition(runID: snapshot.runID, to: .rollingBack)
+            _ = try transitionJournal(runID: snapshot.runID, to: .rollingBack)
         }
         var services = try launchAgent.inspect()
         guard !services.legacyLoaded else {
@@ -1266,11 +1292,11 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                   dashboard.binding.state == "binding_pending"
             else { throw DesktopMigrationCoordinatorError.invalidBindingState }
             if dashboard.binding.keyProved == true, !authenticated {
-                _ = try journal.transition(runID: runID, to: .candidateAuthenticated)
+                _ = try transitionJournal(runID: runID, to: .candidateAuthenticated)
                 authenticated = true
             }
             if authenticated, dashboard.binding.healthVerified == true {
-                _ = try journal.transition(runID: runID, to: .candidateHealthy)
+                _ = try transitionJournal(runID: runID, to: .candidateHealthy)
                 return
             }
             if attempt + 1 < maximumHealthPolls, healthPollDelayNanoseconds > 0 {
@@ -1301,8 +1327,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                    generation: generation,
                    newerThan: checkpoint
                ) {
-                _ = try journal.transition(runID: runID, to: .candidateAuthenticated)
-                _ = try journal.transition(runID: runID, to: .candidateHealthy)
+                _ = try transitionJournal(runID: runID, to: .candidateAuthenticated)
+                _ = try transitionJournal(runID: runID, to: .candidateHealthy)
                 return
             }
             if attempt + 1 < maximumHealthPolls, healthPollDelayNanoseconds > 0 {
@@ -1378,7 +1404,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     ) throws {
         let current = try journal.load()
         if current?.state != .rollingBack {
-            _ = try journal.transition(runID: runID, to: .rollingBack)
+            _ = try transitionJournal(runID: runID, to: .rollingBack)
         }
         let services = try launchAgent.inspect()
         if services.accountLoaded { try launchAgent.stopAccount() }
@@ -1389,7 +1415,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             let afterStop = try launchAgent.inspect()
             if !afterStop.legacyLoaded { try launchAgent.restoreLegacy(snapshot: legacy) }
         }
-        _ = try journal.transition(
+        _ = try transitionJournal(
             runID: runID,
             to: lastKnownGood == .legacy ? .legacyActive : .cleanUninstalled
         )
@@ -1397,14 +1423,14 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
 
     private func markRollbackAttention(runID: String) throws {
         let state = try journal.load()?.state
-        if state != .rollingBack { _ = try journal.transition(runID: runID, to: .rollingBack) }
-        _ = try journal.transition(runID: runID, to: .rollbackAttentionRequired)
+        if state != .rollingBack { _ = try transitionJournal(runID: runID, to: .rollingBack) }
+        _ = try transitionJournal(runID: runID, to: .rollbackAttentionRequired)
     }
 
     private func stopForManualRecovery(runID: String) throws -> DesktopMigrationState {
         if (try? launchAgent.inspect().accountLoaded) == true { try launchAgent.stopAccount() }
         if (try? launchAgent.inspect().hermesLoaded) == true { try launchAgent.stopHermes() }
-        _ = try journal.transition(runID: runID, to: .rollbackAttentionRequired)
+        _ = try transitionJournal(runID: runID, to: .rollbackAttentionRequired)
         return .rollbackAttentionRequired
     }
 

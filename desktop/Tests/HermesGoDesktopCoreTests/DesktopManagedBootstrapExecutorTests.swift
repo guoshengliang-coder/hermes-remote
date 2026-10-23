@@ -193,7 +193,10 @@ final class DesktopManagedBootstrapExecutorTests: XCTestCase {
     }
 
     func testCommittedMigrationReportsCleanupRetryWithoutClaimingRollback() async throws {
-        let fixture = BootstrapExecutorFixture(cleanupFails: true)
+        let recorder = SetupTestTelemetry()
+        let progress = recorder.makeProgress()
+        let fixture = BootstrapExecutorFixture(cleanupFails: true, progress: progress)
+        progress.begin(runID: fixture.runID)
 
         let result = try await fixture.executor.execute(
             manifestURL: fixture.manifestURL,
@@ -211,6 +214,12 @@ final class DesktopManagedBootstrapExecutorTests: XCTestCase {
 
         try await fixture.executor.retryCleanup(cleanupRetry)
         XCTAssertEqual(fixture.acquisition.events, ["acquire", "discard", "discard"])
+        XCTAssertEqual(progress.snapshot?.stage, .cleaning)
+        XCTAssertEqual(recorder.lines.filter { $0.contains("stage-start stage=staging") }.count, 1)
+        XCTAssertFalse(DesktopManagedBootstrapOperation.completed(
+            releaseVersion: result.migration.releaseVersion, cleanupPending: true
+        ).presentsConfirmation)
+
     }
 
     func testMigrationFailureDiscardsWorkspaceAndPreservesTheOriginalFailure() async throws {
@@ -301,7 +310,8 @@ private final class BootstrapExecutorFixture {
     init(
         migrationFails: Bool = false,
         cleanupFails: Bool = false,
-        cancelAfterAcquire: Bool = false
+        cancelAfterAcquire: Bool = false,
+        progress: DesktopSetupProgress? = nil
     ) {
         let manifest = DesktopReleaseManifest(
             releaseVersion: "1.2.3",
@@ -355,7 +365,7 @@ private final class BootstrapExecutorFixture {
             outcome: outcome,
             failure: migrationFails ? ExpectedError.migrationFailed : nil
         )
-        executor = DesktopManagedBootstrapExecutor(acquisition: acquisition, migration: migration)
+        executor = DesktopManagedBootstrapExecutor(acquisition: acquisition, migration: migration, progress: progress)
     }
 
     func execute() async throws -> DesktopManagedBootstrapOutcome {

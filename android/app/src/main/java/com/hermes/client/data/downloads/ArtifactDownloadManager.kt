@@ -31,6 +31,7 @@ class ArtifactDownloadManager @Inject constructor(
     private val ready = CompletableDeferred<Unit>()
     private val lock = Any()
     private val runner = Mutex()
+    private val batches = ArtifactDownloadBatch(rest, videoRanges)
     private val jobs = mutableMapOf<String, Job>()
     private val _tasks = MutableStateFlow<List<ArtifactDownloadTask>>(emptyList())
     val tasks: StateFlow<List<ArtifactDownloadTask>> = _tasks.asStateFlow()
@@ -133,6 +134,7 @@ class ArtifactDownloadManager @Inject constructor(
                     if (directory.usableSpace < descriptor.sizeBytes - checkpoint + 16L * 1024 * 1024) {
                         throw HermesApiException(507, "insufficient space", errorCode = AppErrorCode.ARTIFACT_STORAGE_FULL.value)
                     }
+                    var rangeBytes = 256 * 1024
                     while (partial.length() < descriptor.sizeBytes) {
                         currentCoroutineContext().ensureActive()
                         if (owner(task.deviceId) != task.owner) throw HermesApiException(401, "download owner changed")
@@ -150,7 +152,23 @@ class ArtifactDownloadManager @Inject constructor(
                                 }) {
                                 videoRanges.checkOwner(task.owner, task.deviceId)
                                 val cached = videoRanges.cached(task.owner, task.remotePath, descriptor, partial.length())
-                                if (cached != null) {
+                                if (descriptor.maxConcurrentRanges > 1) {
+                                    val started = android.os.SystemClock.elapsedRealtime()
+                                    var lastProgress = 0L
+                                    batches.append(descriptor, partial, task.deviceId, task.owner, task.remotePath, rangeBytes) { received ->
+                                        val now = android.os.SystemClock.elapsedRealtime()
+                                        if (now - lastProgress >= 500) {
+                                            lastProgress = now
+                                            notify(task.copy(downloaded = received)); publishProgress(id, received)
+                                        }
+                                    }
+                                    val elapsed = android.os.SystemClock.elapsedRealtime() - started
+                                    rangeBytes = when {
+                                        elapsed < 1_500 -> (rangeBytes * 2).coerceAtMost(descriptor.maxRangeBytes.coerceAtMost(1024 * 1024))
+                                        elapsed > 3_000 -> (rangeBytes / 2).coerceAtLeast(256 * 1024)
+                                        else -> rangeBytes
+                                    }
+                                } else if (cached != null) {
                                     java.io.FileOutputStream(partial, true).use { it.write(cached); it.fd.sync() }
                                 } else {
                                     var lastProgress = 0L
@@ -175,7 +193,9 @@ class ArtifactDownloadManager @Inject constructor(
                             throw error
                         }
                         task = edit(id) { it.copy(downloaded = partial.length(), progressBytes = null) }!!
-                        videoRanges.publish(task.owner, task.remotePath, descriptor, partial, committed)
+                        if (descriptor.contentType.startsWith("video/")) {
+                            videoRanges.publish(task.owner, task.remotePath, descriptor, partial, committed)
+                        }
                         notify(task)
                     }
                     currentCoroutineContext().ensureActive()

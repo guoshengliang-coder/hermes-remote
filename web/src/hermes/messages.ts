@@ -1,4 +1,5 @@
 import { classifyAttachment, parseAttachments, type Attachment } from "./media";
+import { organizeAssistant } from "../chat/organize";
 import type { HistoryLocator, JsonObject, JsonValue, MessageContent, MessageRow, ToolCallWire } from "./types";
 
 // `/api/sessions/{id}/messages` rows → display model. Port of android data/network/Dtos.kt
@@ -40,6 +41,7 @@ export interface DisplayMessage {
   images: DisplayImage[];
   /** From MEDIA:/@image:/@file: grammar in the text. */
   attachments: Attachment[];
+  deliveredAttachments?: Attachment[];
   timestampMs: number | null;
   reasoning: string;
   reasoningSource?: HistoryLocator;
@@ -202,6 +204,7 @@ export function toDisplayMessage(row: MessageRow, index: number, toolResults: Ma
     text: parsed.text,
     images: flat.images,
     attachments: parsed.attachments,
+    ...(assistant && parsed.attachments.length ? { deliveredAttachments: parseAttachments(organizeAssistant(flat.text ?? "").text).attachments } : {}),
     timestampMs: messageTimestampMs(row.timestamp, row.created_at),
     reasoning: assistant ? nonBlank(row.reasoning_content) ?? nonBlank(row.reasoning) ?? "" : "",
     ...(assistant && row.hr_preview?.fields.some((field) => field === "reasoning" || field === "reasoning_content")

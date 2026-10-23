@@ -2230,18 +2230,28 @@ html[data-theme="dark"] .group-header {
 /* Running status line (HG-56): dots + what the run is doing + elapsed. */
 .running-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   min-height: 1.75rem;
   color: var(--status-running);
   font-size: 0.8125rem;
 }
 
+.running-line > .loading-dots { flex: none; margin-top: 0.4375rem; }
+
 .running-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  text-align: left;
+  color: inherit;
+  font-size: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+
+.running-details { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.turn-footer { min-height: 3rem; }
+.reasoning-body { line-height: 1.5; font-size: 0.8125rem; }
+.reasoning-body .reasoning-text { margin: 0; line-height: inherit; font-size: inherit; }
 
 .loading-dots {
   display: inline-flex;
@@ -4895,3 +4905,15 @@ button.chat-workspace:disabled {
 .table-fullscreen .table-card > .block-head { display: none; }
 .table-fullscreen .table-card { border: none; margin: 0; }
 .table-fullscreen .table-view-toggle:not([hidden]) { display: flex; padding: .5rem .75rem; gap: .5rem; }
+.artifacts-sheet .picker-list { overflow: hidden; display: flex; flex-direction: column; }
+.artifacts-list { overflow-y: auto; overscroll-behavior: contain; padding: 0 1.25rem 1rem; }
+.artifacts-note { color: var(--on-surface-variant); font-size: .8125rem; line-height: 1.6; margin: .5rem 0 1rem; }
+.artifact-entry { padding: .875rem 0; border-bottom: 1px solid var(--outline-variant); }
+.artifact-entry .media-open, .artifact-entry .media-image { max-height: 12rem; width: auto; max-width: 100%; }
+.artifact-name { margin-top: .5rem; overflow-wrap: anywhere; }
+.artifact-details { display: flex; align-items: center; flex-wrap: wrap; gap: .25rem .75rem; justify-content: space-between; color: var(--on-surface-variant); font-size: .75rem; }
+.artifact-preview iframe { width: 100%; height: min(60dvh, 40rem); border: 1px solid var(--outline-variant); background: white; }
+.artifact-preview video { width: 100%; max-height: 60dvh; background: black; }
+.artifact-preview .picker-list { padding: 0 1.25rem 1rem; }
+.artifact-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.return-artifacts { position: absolute; inset-inline-start: 1rem; bottom: calc(100% + .75rem); min-height: 2.75rem; padding: .5rem 1rem; border: 1px solid var(--outline-variant); border-radius: 2rem; background: var(--surface); color: var(--on-surface); box-shadow: 0 2px 8px #0002; }

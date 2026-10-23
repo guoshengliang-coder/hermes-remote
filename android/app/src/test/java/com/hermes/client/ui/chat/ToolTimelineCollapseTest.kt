@@ -56,15 +56,17 @@ class ToolTimelineCollapseTest {
         compose.onNodeWithText("mcp__bi_query__query_data").assertIsDisplayed()
     }
 
-    @Test fun a_running_timeline_shows_total_and_only_the_latest_three_rows() {
+    @Test fun a_running_timeline_shows_total_and_only_the_latest_row() {
         show(completed = false)
         compose.onNodeWithTag("tool-timeline-summary").assertIsDisplayed()
         compose.onNodeWithText("4 次工具调用", substring = true).assertIsDisplayed()
         compose.onNodeWithText("skill_view").assertDoesNotExist()
-        compose.onNodeWithText("terminal").assertIsDisplayed()
+        compose.onNodeWithText("terminal").assertDoesNotExist()
+        compose.onNodeWithText("mcp__bi_query__query_data").assertDoesNotExist()
+        compose.onNodeWithText("write_file").assertIsDisplayed()
     }
 
-    @Test fun a_running_timeline_can_expand_and_collapse_back_to_latest_three() {
+    @Test fun a_running_timeline_can_expand_and_collapse_back_to_latest_one() {
         show(completed = false)
         compose.onNodeWithTag("tool-timeline-summary").performClick()
         compose.onNodeWithText("skill_view").assertIsDisplayed()

@@ -11,7 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -37,7 +37,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-notnight-420dpi")
 class StreamingMarkdownPresentationTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createHermesComposeRule()
 
     private class ParseGate {
         val entered = CountDownLatch(1)

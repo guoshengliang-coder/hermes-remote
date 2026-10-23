@@ -1,5 +1,19 @@
 # Hermes Remote Android
 
+HG-233 adds More → Artifacts to the open conversation. It collects settled assistant deliveries
+from the complete display history, excluding original uploads and process-only media. Duplicate
+names get display suffixes; one path represents its latest delivery and current file reference,
+without historical snapshots. Existing image/file/video viewers and durable downloads are reused.
+View context lands on the assistant turn; Back to artifacts and system Back restore the list.
+No version is allocated or release published by this source change.
+
+HG-232 negotiates up to four attachment ranges with both Gateway and Connector. Downloads grow
+from 256 KiB to at most 1 MiB ranges on fast batches and shrink on slow ones, retaining only fully
+verified, fsynced sequential checkpoints. Video prefetch starts after sequential reads, stays one
+block ahead, and is cancelled on close/seek/background. Old peers keep their serial path; Web is
+unchanged. Source/testing scope and local measurements are in `../docs/ATTACHMENT_PERFORMANCE.md`.
+This source iteration does not allocate or publish a release.
+
 Attachments show size and distinct file-type icons before download (HG-222). With compatible
 Gateway and Mac components, downloads use an independent binary HTTP channel, durable task records
 and app-private files. The 100 MiB threshold controls non-video quick open and file sharing: larger files download first;
@@ -27,6 +41,10 @@ Chat image previews resolve from the same displayed conversation turn as the tra
 An assistant answer split across tool-call records opens all of that answer's cached images in order;
 history message-id replacement retains the viewer through the stable image id. User messages and
 pending attachments keep their own image scope.
+
+The image viewer accumulates continuous pinch and pan gestures from live transform state (HG-225).
+Zoom remains between 1–5x, persists after finger release and original-image hydration, and double-tap
+can reset it before paging. Pan follows viewport pixels at every zoom level.
 
 Sending recovers a reclaimed runtime by resuming the original durable conversation (HG-211).
 Live-handle preparation has a total deadline; leaving before submission preserves a retryable
@@ -358,6 +376,17 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.179 adds conversation artifacts with source navigation, current-file semantics and
+  recoverable full-history collection (HG-233).
+- Version 0.1.178 improves attachment download throughput with negotiated concurrency and adaptive
+  chunks, and reduces video cache I/O (HG-232).
+- Version 0.1.177 starts reasoning folded and shows full running status until visible answer prose
+  begins, retaining manual disclosure and the latest-tool preview (HG-230).
+- Version 0.1.176 previews live reasoning, folds it at completion while preserving manual choices,
+  previews the latest tool and opens full status text (HG-230); stabilizes attachment cards and
+  identifies HTML files (HG-227).
+- Version 0.1.175 restores compacted conversation history, continuous image zoom, resumable app
+  updates and in-app video playback (HG-224/HG-225/HG-223/HG-222).
 - Version 0.1.174 adds durable resumable attachment downloads over a separate file channel with
   size/type metadata, and includes the merged history/search and unsent-message improvements. Large
   files require Download before external Open/Share; Gateway and Connector must be updated first
@@ -1084,7 +1113,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.174-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.179-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
@@ -1098,6 +1127,13 @@ cannot silently produce an APK with an incompatible signature.
 See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distributing the derivative app.
 
 ### JVM test safety (HG-160)
+
+The asynchronous image-layout and streaming-Markdown JVM tests use `createHermesComposeRule()`,
+which supplies a `StandardTestDispatcher` to the existing Compose rule. Composition and effect continuations are queued on the rule's scheduler;
+use `waitForIdle()` / `runOnIdle()` to synchronize. The v1 unconfined default could resume UI work
+on a real image-decoder or Markdown-parser worker and intermittently fail thread/layout checks.
+The shared rule retains real asynchronous work, UI assertions, and thread checks. This follows
+the [Compose 1.10 testing guidance](https://android-developers.googleblog.com/2025/12/whats-new-in-jetpack-compose-december.html).
 
 Every Gradle JVM test task loads the build-only `test-watchdog.jar`; it is never packaged in the
 APK. A separate, small JVM watches each test worker's PID and start time and forcibly stops that
@@ -1166,3 +1202,17 @@ with retryable HR-SYNC-001 if the window moved; retry refreshes the tail. Androi
 old active-only disk windows once. Old Hermes without display projections retains the existing
 content parser. No upstream code/schema, Gateway/Connector runtime, credentials or versions change.
 Real incident history and physical-device acceptance remain in `docs/SMOKE_TEST.md` (HG-224).
+
+HG-227 gives all chat file cards a stable header (type icon, up to two filename lines, type/size,
+and Share) above a separate download status/progress/action area. HTML/HTM and HTML MIME types
+use a webpage outline with an explicit HTML label. Download-state changes no longer move the
+header controls; localized actions wrap at narrow widths. Existing quick-open, large-file
+download-first, and video playback rules remain in place. See `docs/DESIGN.md` §5.4 and the
+HG-227 physical-device checks in `docs/ANDROID_SMOKE.md`.
+
+HG-230 follow-up (2026-10-23; included in 0.1.177): reasoning starts folded during
+the run and in history; explicit expand/hide survives updates and completion. Tool timelines
+preview the newest call only. Running status displays its complete current text without a line limit
+until visible prose starts, then keeps only the dots. Its extra height is released so no large blank
+remains below the answer. Tapping status still opens a selectable snapshot.
+Both Android and Web share these rules; see `docs/DESIGN.md` and `docs/SMOKE_TEST.md`.

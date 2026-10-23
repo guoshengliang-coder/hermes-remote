@@ -10,6 +10,10 @@ CLI/cron/task idleness. This source is not yet published or enabled by the produ
 See `docs/HERMES_UPGRADE.md`; `hermes-maintenance*.test.ts` uses disposable files and actual loopback
 Connector processes. No Gateway/protocol version or production credentials are changed.
 
+HG-232 adds pooled HTTP(S) returns and up to four ranges of one opaque file reference, sharing the
+existing aggregate upload budget. Old Gateways/Android clients remain serial. See
+`../docs/ATTACHMENT_PERFORMANCE.md` for negotiation, compatibility and the local benchmark.
+
 ## Independent attachment downloads (HG-222)
 
 `HEAD /api/files` reads original metadata without a payload. Its legacy GET still uses

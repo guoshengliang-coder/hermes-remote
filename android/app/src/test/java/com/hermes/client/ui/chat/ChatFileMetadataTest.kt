@@ -67,13 +67,24 @@ class ChatFileMetadataTest {
 
     @Test fun file_types_are_distinct_and_case_insensitive_with_mime_and_unknown_fallback() {
         val cases = mapOf("MP4" to FileIconKind.VIDEO, "mp3" to FileIconKind.AUDIO,
-            "md" to FileIconKind.DOCUMENT, "html" to FileIconKind.CODE, "pdf" to FileIconKind.PDF,
+            "md" to FileIconKind.DOCUMENT, "json" to FileIconKind.CODE, "pdf" to FileIconKind.PDF,
             "xlsx" to FileIconKind.TABLE, "pptx" to FileIconKind.SLIDES, "zip" to FileIconKind.ARCHIVE,
             "unknown" to FileIconKind.OTHER)
         cases.forEach { (ext, expected) -> assertEquals(expected, fileIconKind("中文文件.$ext", null)) }
         assertEquals(FileIconKind.VIDEO, fileIconKind("video", "video/mp4"))
         assertEquals(FileIconKind.OTHER, fileIconKind("file", null))
         assertEquals(FileIconKind.VIDEO, fileIconKind("movie.mp4", "application/octet-stream"))
+    }
+    @Test fun html_has_a_webpage_identity_from_extension_or_mime_without_reclassifying_code() {
+        for ((name, mime) in listOf(
+            "报告.html" to null, "报告.HTM" to "application/octet-stream",
+            "report" to "Text/HTML; charset=utf-8", "report" to "application/xhtml+xml",
+        )) {
+            assertEquals("WEB", fileIconKind(name, mime).name)
+        }
+        assertEquals(FileIconKind.CODE, fileIconKind("app.js", "text/javascript"))
+        assertEquals(FileIconKind.CODE, fileIconKind("data.json", "application/json"))
+        assertEquals(FileIconKind.DOCUMENT, fileIconKind("notes.txt", "text/plain"))
     }
     @Test fun duplicate_inspections_are_coalesced_and_concurrency_is_bounded() = runTest {
         var active = 0

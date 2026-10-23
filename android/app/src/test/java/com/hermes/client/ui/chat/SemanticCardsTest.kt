@@ -177,21 +177,17 @@ class SemanticCardsTest {
         assertEquals(RunningStatus.Tool("npm test"), runningStatusFor(msg))
     }
 
-    @Test fun runningToolFallsBackToNameAndFirstLine() {
+    @Test fun runningToolKeepsFullCommandAndFallsBackToName() {
         val msg = streamingMsg(tools = listOf(ToolCall("t", "web_search", ToolStatus.RUNNING)))
         assertEquals(RunningStatus.Tool("web_search"), runningStatusFor(msg))
         val multi = streamingMsg(tools = listOf(ToolCall("t", "bash", ToolStatus.RUNNING, command = "line1\nline2")))
-        assertEquals(RunningStatus.Tool("line1"), runningStatusFor(multi))
+        assertEquals(RunningStatus.Tool("line1\nline2"), runningStatusFor(multi))
     }
 
-    @Test fun thinkingPreviewShowsTailOfLastLine() {
-        val msg = streamingMsg(thinking = "first line\n这是一段相当长的思考内容需要截断只保留最后二十四个字符用于单行预览显示")
-        val status = runningStatusFor(msg)
-        assertTrue(status is RunningStatus.Thinking)
-        val preview = (status as RunningStatus.Thinking).preview
-        assertTrue(preview.startsWith("…"))
-        assertTrue(preview.endsWith("预览显示"))
-        assertTrue(preview.length <= 25)
+    @Test fun thinkingStatusKeepsTheEntireLatestNonblankLine() {
+        val line = "这是一段超过二十四字的状态信息，需要完整展示内容与行动建议，而不是只剩一个看不懂的句尾😀"
+        val msg = streamingMsg(thinking = "first line\n$line\n\n")
+        assertEquals(RunningStatus.Thinking(line), runningStatusFor(msg))
     }
 
     @Test fun shortThinkingLineIsNotTruncated() {

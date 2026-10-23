@@ -880,6 +880,9 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testManagedUpgradePreservesBindingAndRestartsInSafeOrder() async throws {
+        let recorder = SetupTestTelemetry()
+        let progress = recorder.makeProgress()
+        progress.begin(runID: "10000000-0000-4000-8000-000000000009")
         let fixture = try Fixture(
             legacyRunning: false,
             resumeBoundBinding: true,
@@ -887,7 +890,8 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
                 "2026-09-07T00:00:00.000Z",
                 "2026-09-07T00:00:00.000Z",
                 "2026-09-07T00:00:01.000Z",
-            ]
+            ],
+            progress: progress
         )
         defer { fixture.cleanup() }
         try fixture.installCommittedManagedServices(inlineToken: nil, releaseVersion: "1.2.2")
@@ -916,9 +920,21 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             "bootstrap:com.hermesgo.connector",
         ])
         XCTAssertEqual(fixture.shutdown.waitCount(), 1)
+        let stages = recorder.lines.filter { $0.contains("stage-start") }.map {
+            String($0.split(separator: " ").first { $0.hasPrefix("stage=") }!.dropFirst(6))
+        }
+        XCTAssertEqual(stages, [
+            "stoppingServices", "waitingForShutdown", "startingHermes", "waitingForHermes",
+            "startingConnector", "waitingForConnection", "committing",
+        ])
+        XCTAssertTrue(recorder.lines.contains { $0.contains("journal=account_active") })
+        XCTAssertEqual(progress.snapshot?.stage, .committing)
     }
 
     func testFailedManagedUpgradeRestoresExactFilesOldReleaseAndServices() async throws {
+        let recorder = SetupTestTelemetry()
+        let progress = recorder.makeProgress()
+        progress.begin(runID: "10000000-0000-4000-8000-000000000009")
         let fixture = try Fixture(
             legacyRunning: false,
             resumeBoundBinding: true,
@@ -928,7 +944,8 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
                 "2026-09-07T00:00:00.000Z",
                 "2026-09-07T00:00:00.000Z",
                 "2026-09-07T00:00:01.000Z",
-            ]
+            ],
+            progress: progress
         )
         defer { fixture.cleanup() }
         try fixture.installCommittedManagedServices(inlineToken: nil, releaseVersion: "1.2.2")
@@ -960,6 +977,9 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertEqual(beginCount, 0)
         XCTAssertEqual(confirmCount, 0)
         XCTAssertEqual(fixture.shutdown.waitCount(), 2)
+        XCTAssertEqual(progress.snapshot?.stage, .rollingBack)
+        XCTAssertTrue(recorder.lines.contains { $0.contains("journal=rolling_back") })
+        XCTAssertFalse(recorder.lines.contains { $0.contains("stage=completed") })
     }
 
     /// HG-68 / 2026-09-21: before the ECONNREFUSED fix every stop wait timed out, so an in-app
@@ -1986,7 +2006,8 @@ private final class Fixture {
         healthCheckedAtSequence: [String?]? = nil,
         manifestVersion: String = "1.2.3",
         localHermesForFreshInstall: DesktopLocalHermesInstallation? = nil,
-        provideLocalHermes: Bool = false
+        provideLocalHermes: Bool = false,
+        progress: DesktopSetupProgress? = nil
     ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("hermes-migration-coordinator-\(UUID().uuidString)", isDirectory: true)
@@ -2051,6 +2072,7 @@ private final class Fixture {
             healthPollDelayNanoseconds: 0,
             serviceReloadDelayNanoseconds: 0,
             operationLog: operationLog,
+            progress: progress,
             localHermesForFreshInstall: { providedLocalHermes }
         )
         manifest = Self.manifest(releaseVersion: manifestVersion)
