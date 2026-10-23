@@ -2095,3 +2095,41 @@ Screenshots after startup dismissal were visually inspected. These use mocked AP
 not production or a physical phone. Safari/WebKit is unavailable in this host's Playwright installation;
 iPhone Safari/Home Screen, Android Chrome on a physical device and the original incident conversation
 still need verification. No production deployment or version allocation occurred.
+
+## HG-229 · iOS chat blank frame after keyboard dismissal
+
+Target: Hermes GO Web `/app/`, in physical iPhone Safari and its Home Screen WebApp. Record the
+phone, iOS, keyboard/provider and Web source commit. Use existing history and an unsent draft;
+layout verification must not send a real prompt.
+
+1. Read halfway through a long reply, focus the composer, type a multiline draft, and dismiss via
+   the system Done control, a tap outside, and text-to-voice switching. Repeat several times.
+   Expected: the chat header stays visible, no blank band replaces the top of the chat, and the
+   composer returns to the bottom without a keyboard-sized blank region underneath. Do not scroll
+   to repair the screen. The system keyboard assistant and safe-area inset remain system-owned.
+2. While reading, switch to another app and return, then use browser Back/Forward and reopen the
+   conversation. Rotate portrait/landscape and repeat both themes. The frame should recover by
+   itself; text, pending attachments and the reading point remain scoped to that conversation.
+3. In an iPad/split workspace, verify the keyboard adapts only the chat pane. Open search or a
+   text-entry sheet: moving focus there must not reset the document under an active keyboard.
+   Check Android Chrome and desktop retain their usual layout. In ordinary Safari, pinch zoom
+   and pan must remain under the reader's control.
+
+Local evidence (2026-10-23): an iPhone 17 / iOS 26.5 Simulator Safari fixture using the real Web CSS
+and viewport follower recorded layout height 714, keyboard visual height 377 and offsetTop 245.
+After blur, the document had already returned to scrollY=0 while the visual viewport still reported
+377/245: the old frame therefore occupied y=245..622, producing top and bottom blank bands until
+the later viewport update. A second fixture with the real Composer confirmed the repair: after
+blur the frame was y=0..714 even while visualViewport still reported 377/233. Keyboard-up,
+keyboard-down and landscape screenshots were inspected. These local fixtures contain synthetic
+history and do not prove the incident's production conversation, Home Screen mode or a physical
+keyboard provider; those checks remain required above.
+
+Automated regressions replay the measured stale-viewport interval, delayed resize after blur,
+refocus, root-document pan on scroll/pageshow/visibilitychange, cleanup, non-text/read-only controls,
+other text fields, zoom, and the real Composer's typing-to-voice transition. The stale-viewport and
+root-pan regressions failed before the fix. The helper leaves draft values and inner message scroll
+positions alone. No new user-visible failure or error code is introduced.
+
+Local Web baseline passed: `npm run typecheck`, `npm test` (96 files / 968 cases),
+`npm run build`, and `git diff --check`. No production deployment or version allocation occurred.

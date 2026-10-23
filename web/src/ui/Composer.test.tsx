@@ -2,6 +2,7 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
 import { Composer, type ComposerProps } from "./Composer";
+import { followChatVisualViewport } from "./chatViewport";
 import { AppContext, type AppContextValue } from "../app/store";
 import { overlayDepth, resetOverlays } from "../app/overlayHistory";
 import type { VoiceEvent } from "../chat/voiceSession";
@@ -522,4 +523,30 @@ it.each(["完整语音", ""])("limit completion stays in the draft with attachme
   expect(h.host.textContent).toContain("keep.txt");
   expect(h.host.textContent).toContain(speech ? "文字已放入输入框" : "没有识别到文字");
   expect(h.host.querySelector(".error-notice")).toBeNull();
+});
+
+it("switching from typing to voice clears a stale iOS keyboard frame without sending (HG-229)", async () => {
+  const h = mount(); type(h.host, "保留的草稿");
+  const viewport = Object.assign(new EventTarget(), { height: 377, offsetTop: 245, scale: 1 });
+  vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(714);
+  let pending: FrameRequestCallback | undefined;
+  const win = Object.assign(new EventTarget(), {
+    document, visualViewport: viewport, scrollX: 0, scrollY: 0,
+    requestAnimationFrame: (callback: FrameRequestCallback) => { pending = callback; return 1; },
+    cancelAnimationFrame: () => { pending = undefined; },
+  });
+  const stop = followChatVisualViewport(h.host, win as unknown as Window);
+  try {
+    expect(h.host.classList.contains("keyboard-viewport")).toBe(true);
+    act(() => h.host.querySelector<HTMLButtonElement>(".composer-voice")!.click());
+    await settle();
+    pending?.(0);
+    expect(h.host.querySelector(".voice-hold")).not.toBeNull();
+    expect(h.host.classList.contains("keyboard-viewport")).toBe(false);
+    expect(h.host.style.getPropertyValue("--chat-viewport-top")).toBe("");
+    expect(h.props.onSend).not.toHaveBeenCalled();
+    act(() => h.host.querySelector<HTMLButtonElement>('[aria-label="切换键盘输入"]')!.click());
+    await settle();
+    expect(h.host.querySelector("textarea")!.value).toBe("保留的草稿");
+  } finally { stop(); }
 });
