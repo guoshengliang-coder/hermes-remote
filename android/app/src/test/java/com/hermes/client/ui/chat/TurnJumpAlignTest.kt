@@ -12,7 +12,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
@@ -33,7 +33,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class TurnJumpAlignTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createHermesComposeRule()
 
     private class Run(var frames: Int = 0, var done: Boolean = false, var first: Int = -1, var offset: Int = -1, var overshoot: Int? = null)
 

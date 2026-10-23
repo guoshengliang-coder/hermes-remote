@@ -8,7 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -32,7 +32,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w360dp-h800dp-420dpi")
 class ChatFileScreenshotTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createHermesComposeRule()
 
     private fun snap(name: String, dark: Boolean, language: AppLanguage, scale: Float) {
         val files = listOf(

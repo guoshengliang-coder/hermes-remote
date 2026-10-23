@@ -4,7 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import com.hermes.client.data.network.ModelProviderDto
 import com.hermes.client.ui.localization.AppLanguage
@@ -33,7 +33,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class ModelSelectorLayoutTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createHermesComposeRule()
 
     private val providers = listOf(
         ModelProviderDto(slug = "copilot", name = "GitHub Copilot", isCurrent = false, models = List(17) { "c$it" }),

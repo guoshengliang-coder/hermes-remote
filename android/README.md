@@ -1119,6 +1119,13 @@ See `UPSTREAM.md` and `../docs/ANDROID_BASE_AUDIT.md` before importing or distri
 
 ### JVM test safety (HG-160)
 
+Compose JVM tests use `createHermesComposeRule()`, which supplies a `StandardTestDispatcher` to
+the existing Compose rule. Composition and effect continuations are queued on the rule's scheduler;
+use `waitForIdle()` / `runOnIdle()` to synchronize. The v1 unconfined default could resume UI work
+on a real image-decoder or Markdown-parser worker and intermittently fail thread/layout checks.
+The shared rule retains real asynchronous work, UI assertions, and thread checks. This follows
+the [Compose 1.10 testing guidance](https://android-developers.googleblog.com/2025/12/whats-new-in-jetpack-compose-december.html).
+
 Every Gradle JVM test task loads the build-only `test-watchdog.jar`; it is never packaged in the
 APK. A separate, small JVM watches each test worker's PID and start time and forcibly stops that
 worker after **600 seconds of real time** with `HR-TEST-001`. It does not stop other Gradle builds,

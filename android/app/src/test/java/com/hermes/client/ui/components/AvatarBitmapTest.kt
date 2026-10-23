@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -24,7 +24,7 @@ import java.io.File
 @Config(sdk = [34])
 class AvatarBitmapTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createHermesComposeRule()
 
     @get:Rule
     val temp = TemporaryFolder()

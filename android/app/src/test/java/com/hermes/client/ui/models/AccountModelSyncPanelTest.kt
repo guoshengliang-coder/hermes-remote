@@ -2,7 +2,7 @@ package com.hermes.client.ui.models
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import com.hermes.client.data.sync.*
 import com.hermes.client.ui.localization.AppLanguage
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[34],application=android.app.Application::class)
 class AccountModelSyncPanelTest {
-    @get:Rule val compose=createComposeRule()
+    @get:Rule val compose=createHermesComposeRule()
     private val state=MutableStateFlow(AccountModelPreferenceState(ownerKey="owner-a",accountLabel="a@example.test",useCloud=true,enabled=true,ready=true))
     private val sync=mockk<AccountModelPreferences>()
     private val imported=java.util.concurrent.CopyOnWriteArrayList<String>()

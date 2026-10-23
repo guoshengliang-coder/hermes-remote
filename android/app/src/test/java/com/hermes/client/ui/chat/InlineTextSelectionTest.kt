@@ -2,7 +2,7 @@ package com.hermes.client.ui.chat
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -35,7 +35,7 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w411dp-h2400dp-420dpi")
 class InlineTextSelectionTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createHermesComposeRule()
 
     private fun assistant(
         streaming: Boolean = false,

@@ -1,6 +1,6 @@
 package com.hermes.client.ui.screenshot
 
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -20,7 +20,7 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w411dp-h2400dp-420dpi")
 class MarkdownTypographyScreenshotTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createHermesComposeRule()
 
     private val general = """
 把主要问题分成三类，下面逐条说明。第一段正文用来观察段落之间的间距是否足够。

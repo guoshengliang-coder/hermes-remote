@@ -1,7 +1,7 @@
 package com.hermes.client.ui.sessions
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import com.hermes.client.ui.createHermesComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import com.hermes.client.domain.Session
@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 class SessionSublineTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createHermesComposeRule()
 
     private fun session(model: String? = "gpt-5.6-terra", repo: String? = null) = Session(
         id = "s1", title = "查看机器性能负荷", model = model, provider = null, messageCount = 1,
