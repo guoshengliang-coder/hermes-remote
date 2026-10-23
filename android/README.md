@@ -362,6 +362,8 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.177 starts reasoning folded and shows full running status until visible answer prose
+  begins, retaining manual disclosure and the latest-tool preview (HG-230).
 - Version 0.1.176 previews live reasoning, folds it at completion while preserving manual choices,
   previews the latest tool and opens full status text (HG-230); stabilizes attachment cards and
   identifies HTML files (HG-227).
@@ -1093,7 +1095,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.176-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.177-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
@@ -1183,7 +1185,7 @@ header controls; localized actions wrap at narrow widths. Existing quick-open, l
 download-first, and video playback rules remain in place. See `docs/DESIGN.md` §5.4 and the
 HG-227 physical-device checks in `docs/ANDROID_SMOKE.md`.
 
-HG-230 follow-up (2026-10-23; source change, no new APK release): reasoning starts folded during
+HG-230 follow-up (2026-10-23; included in 0.1.177): reasoning starts folded during
 the run and in history; explicit expand/hide survives updates and completion. Tool timelines
 preview the newest call only. Running status displays its complete current text without a line limit
 until visible prose starts, then keeps only the dots. Its extra height is released so no large blank
