@@ -46,13 +46,13 @@ final class DesktopOnboardingTests: XCTestCase {
         )
     }
 
-    func testExistingRemoteClientSkipsPendingPhoneStepEvenWhenLastSeenIsOld() {
+    func testAccountLoginDoesNotProvePhoneVisitedThisMac() {
         for kind in ["phone", "browser"] {
             for readiness in [DesktopBootstrapReadiness.managedInstallActive, .managedUpgradeAvailable] {
                 XCTAssertEqual(
                     route(signedIn(installations: [installation("existing", kind: kind)]),
                           readiness: readiness, record: .init(phoneStepPending: true, phoneBaseline: ["existing"])),
-                    .main
+                    .onboarding(.connectPhone)
                 )
             }
         }
@@ -65,14 +65,14 @@ final class DesktopOnboardingTests: XCTestCase {
         )
     }
 
-    func testFreshAccountOnFreshMacStartsOnboarding() {
-        XCTAssertEqual(route(signedIn(), readiness: .readyForManagedInstall), .onboarding(.connectMac))
-        XCTAssertEqual(route(signedIn(), readiness: .waitingForSignedRelease), .onboarding(.connectMac))
+    func testFreshAccountCanChooseManagementWithoutInstalling() {
+        XCTAssertEqual(route(signedIn(), readiness: .readyForManagedInstall), .newMacChoice)
+        XCTAssertEqual(route(signedIn(), readiness: .waitingForSignedRelease), .newMacChoice)
     }
 
     func testUndecidedHermesInstallStopsOnboardingAtPrepareHermes() {
         XCTAssertEqual(
-            route(signedIn(), readiness: .readyForManagedInstall, hermesDecisionPending: true),
+            route(signedIn(), readiness: .readyForManagedInstall, hermesDecisionPending: true, record: .init(newMacChoice: .connect)),
             .onboarding(.prepareHermes)
         )
     }
@@ -149,14 +149,14 @@ final class DesktopOnboardingTests: XCTestCase {
                 signedIn(owned: [device("hermes-local")], localDeviceID: "hermes-local"),
                 readiness: .readyForManagedInstall
             ),
-            .onboarding(.connectMac)
+            .newMacChoice
         )
     }
 
-    func testSharedMacsDoNotTriggerTheChoice() {
+    func testSharedOnlyAccountCanChooseManagementWithoutInstalling() {
         XCTAssertEqual(
             route(signedIn(owned: [device("hermes-shared", access: "operator")]), readiness: .readyForManagedInstall),
-            .onboarding(.connectMac)
+            .newMacChoice
         )
     }
 
@@ -230,7 +230,7 @@ final class DesktopOnboardingTests: XCTestCase {
         }
     }
 
-    func testExistingClientCompletionPersistsEvenAfterClientIsRevoked() throws {
+    func testExplicitPhoneStepCompletionPersistsEvenAfterClientIsRevoked() throws {
         let suite = "hermes-onboarding-completion-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -238,7 +238,7 @@ final class DesktopOnboardingTests: XCTestCase {
         let account = dashboard(installations: [installation("old-phone", kind: "phone")])
         var record = DesktopOnboardingRecord(phoneStepPending: true, phoneBaseline: ["old-phone"])
         store.save(record, accountID: account.session.account.id)
-        record.observe(route: .main, dashboard: account)
+        record.finishPhoneStep()
         store.save(record, accountID: account.session.account.id)
         let reopened = store.load(accountID: account.session.account.id)
         XCTAssertEqual(reopened, DesktopOnboardingRecord())

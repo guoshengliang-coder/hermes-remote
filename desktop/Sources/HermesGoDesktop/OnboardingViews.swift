@@ -90,9 +90,9 @@ private struct PrepareHermesStep: View {
                 ("clock.arrow.circlepath", "更新", "Hermes 的版本由你自己决定，Hermes GO 不会替你升级"),
             ])
         case .bundled:
-            Text("将使用 Hermes GO 内置的 Hermes")
+            Text("继续使用现有 Hermes")
                 .font(.system(size: 26, weight: .bold))
-            Text("你之前选择了内置 Hermes。下一步会把它和后台连接一起安装。")
+            Text("保留现有安装与数据，下一步检查后台连接。")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .padding(.top, 6)
@@ -146,7 +146,6 @@ private struct PrepareHermesStep: View {
 
 private struct ConnectMacStep: View {
     @EnvironmentObject private var model: DesktopViewModel
-    @State private var isBundledChoicePresented = false
 
     private enum RowState { case pending, running, done }
 
@@ -178,15 +177,7 @@ private struct ConnectMacStep: View {
             Spacer()
             footerAction
         }
-        .confirmationDialog(
-            "这台 Mac 改用 Hermes GO 内置的 Hermes？",
-            isPresented: $isBundledChoicePresented
-        ) {
-            Button("改用内置 Hermes") { model.useBundledHermes() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("之后的设置会安装并运行 Hermes GO 自带的 Hermes。Hermes GO 之前留下的文件不会被修改。")
-        }
+
     }
 
     private var phase: (download: RowState, install: RowState, verify: RowState) {
@@ -289,21 +280,12 @@ private struct ConnectMacStep: View {
             Text(guidance).font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true).padding(.top, 12)
         } else if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {
-            HStack(alignment: .top, spacing: 12) {
-                Text("这份 Hermes 是 Hermes GO 之前的安装留下的，没有安装完整。可以改用内置的 Hermes 完成设置；留下的文件保持不动。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Button("改用内置 Hermes") { isBundledChoicePresented = true }
-                    .buttonStyle(.bordered)
-            }
-            .padding(14)
-            .hermesCard()
-            .padding(.top, 12)
+            Text("上次 Hermes 安装尚未完成。请重新检查，继续官方安装；已有文件会保留。")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+            Button("重新检查安装") { Task { await model.refresh() } }
         } else if model.isFreshInstallBlockedByOwnersHermes {
             Label(
-                "这台 Mac 上的 Hermes 是你自己安装的，Hermes GO 不会再另装一份。请按“复制诊断”里的原因整理它，或将其移除后重试。",
+                "这台 Mac 上的 Hermes 是你自己安装的，Hermes GO 不会再另装一份。请在诊断中查看具体原因，使用原安装方式修复后重新检查；配置、profiles 和会话无需删除。",
                 systemImage: "info.circle"
             )
             .font(.system(size: 12))
@@ -362,10 +344,8 @@ private struct ConnectPhoneStep: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("进入 Hermes GO") { model.finishPhoneStep() }
+            Button("完成引导") { model.finishPhoneStep() }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(model.connectedRemoteClients.isEmpty)
-                .opacity(model.connectedRemoteClients.isEmpty ? 0.5 : 1)
                 .keyboardShortcut(.defaultAction)
         }
     }
@@ -477,6 +457,8 @@ struct PhoneConnectPanel: View {
             }
             status
                 .padding(.top, 6)
+            Text("登录记录只表示账号已登录。请在手机上选择这台 Mac 并打开会话，确认实际访问。")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -507,7 +489,7 @@ struct PhoneConnectPanel: View {
         if let client = model.connectedRemoteClients.first {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("已连接：\(DesktopRemoteClients.displayName(client))")
+                Text("账号已有登录：\(DesktopRemoteClients.displayName(client))")
             }
             .font(.system(size: 13, weight: .semibold))
             .padding(12)
@@ -568,7 +550,7 @@ struct NewMacChoiceGateView: View {
         let effectiveChoice = choice ?? (full ? .manageOnly : .connect)
         GateShell(step: nil) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("你的账号已连接 \(others.count) 台 Mac")
+                Text("如何使用这台 Mac")
                     .font(.system(size: 26, weight: .bold))
                 Text("这台\(Host.current().localizedName.map { " \($0) " } ?? " Mac ")还没有连接。你想怎么使用它？")
                     .font(.system(size: 14))
@@ -578,6 +560,7 @@ struct NewMacChoiceGateView: View {
                     GateIssueBanner(issue: DesktopIssue(code: .ownedDeviceLimitReached))
                         .padding(.top, 16)
                 }
+                if !others.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(Array(others.enumerated()), id: \.element.id) { index, device in
                         if index > 0 { Divider() }
@@ -608,13 +591,14 @@ struct NewMacChoiceGateView: View {
                 }
                 .hermesCard()
                 .padding(.top, 16)
+                }
                 HStack(alignment: .top, spacing: 16) {
                     option(
                         .connect,
                         selected: effectiveChoice == .connect,
                         enabled: !full,
                         symbol: "plus.rectangle.on.rectangle",
-                        title: "把这台 Mac 也连上",
+                        title: "连接这台 Mac",
                         detail: full
                             ? "需要先移除一台 Mac，名额空出后即可选择。"
                             : "在这台 Mac 上准备 Hermes 并连接账号。手机可以在几台 Mac 之间切换。",
@@ -625,8 +609,8 @@ struct NewMacChoiceGateView: View {
                         selected: effectiveChoice == .manageOnly,
                         enabled: true,
                         symbol: "eye",
-                        title: "只在这台 Mac 上管理",
-                        detail: "不在本机安装任何东西，用这台 Mac 查看和管理已连接的 Mac。以后可以随时改为连接。",
+                        title: "先管理设备",
+                        detail: "查看已有 Mac、接受他人的邀请。无需安装本机 Hermes，以后随时可以连接本机。",
                         foot: "本机不做任何改动"
                     )
                 }

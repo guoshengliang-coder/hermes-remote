@@ -5,7 +5,6 @@ import SwiftUI
 struct DesktopConnectionSetupView: View {
     @EnvironmentObject private var model: DesktopViewModel
     let close: () -> Void
-    @State private var isBundledHermesChoicePresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -176,30 +175,10 @@ struct DesktopConnectionSetupView: View {
     /// Shown with `HR-MIGRATE-008` on a fresh setup only when the blocking checkout is the one
     /// Hermes GO's own install left behind — never for a Hermes the owner installed.
     private var bundledHermesChoiceCard: some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("这份 Hermes 是 Hermes GO 之前的安装留下的")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("它没有安装完整，Hermes GO 无法直接使用。可以改用 Hermes GO 内置的 Hermes 完成设置；留下的文件保持不动，删除 ~/.hermes/hermes-agent 后可重新安装官方 Hermes。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Button("改用内置 Hermes") { isBundledHermesChoicePresented = true }
-                .buttonStyle(.bordered)
-        }
-        .padding(18)
-        .hermesCard()
-        .confirmationDialog(
-            "这台 Mac 改用 Hermes GO 内置的 Hermes？",
-            isPresented: $isBundledHermesChoicePresented
-        ) {
-            Button("改用内置 Hermes") { model.useBundledHermes() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("之后的设置会安装并运行 Hermes GO 自带的 Hermes。Hermes GO 之前留下的文件不会被修改。")
-        }
+        VStack(alignment: .leading, spacing: 10) {
+            Text("上次 Hermes 安装尚未完成，已有文件会保留。")
+            Button("重新检查并继续安装") { Task { await model.refresh() } }
+        }.padding(18).hermesCard()
     }
 
     /// Shown with `HR-MIGRATE-008` when the owner's own Hermes blocks a fresh setup. No alternative

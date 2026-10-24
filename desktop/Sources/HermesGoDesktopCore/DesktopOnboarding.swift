@@ -78,8 +78,8 @@ public struct DesktopOnboardingRecord: Codable, Equatable, Sendable {
             guard !Self.hasLocalBinding(dashboard) else { return }
             phoneStepPending = true
             phoneBaseline = nil
-        case .main where !DesktopRemoteClients.active(dashboard.installations).isEmpty:
-            finishPhoneStep()
+        case .main:
+            break
         default:
             break
         }
@@ -144,6 +144,7 @@ public enum DesktopEntryRouter {
         _ dashboard: AccountDashboard,
         inputs: DesktopEntryInputs
     ) -> DesktopEntryRoute {
+        if dashboard.sectionIssues[.devices] != nil { return .main }
         let installed = inputs.readiness == .managedInstallActive || inputs.readiness == .managedUpgradeAvailable
         // A fresh install keeps onboarding on screen through every intermediate readiness. An
         // upgrade of an installed Mac is started from main and stays there.
@@ -156,7 +157,6 @@ public enum DesktopEntryRouter {
             return .launching
         case .managedInstallActive, .managedUpgradeAvailable:
             let needsPhone = inputs.record.phoneStepPending
-                && DesktopRemoteClients.active(dashboard.installations).isEmpty
             return needsPhone ? .onboarding(.connectPhone) : .main
         case .existingServiceNeedsAttention:
             // Half-installed or inconsistent: the planner already forbids a second install, so
@@ -169,7 +169,7 @@ public enum DesktopEntryRouter {
             case .connect:
                 break
             case nil:
-                if !otherOwnedDevices(dashboard).isEmpty { return .newMacChoice }
+                return .newMacChoice
             }
             return .onboarding(inputs.hermesDecisionPending ? .prepareHermes : .connectMac)
         }
@@ -267,4 +267,9 @@ public enum DesktopPhonePlatform: String, CaseIterable, Sendable {
         components.password = nil
         return components.url
     }
+}
+
+/// Local inspection is independent of account connectivity. Mutations retain their own guards.
+public enum DesktopNavigationAccess {
+    public static func allowsLocalPages(operationLocked: Bool) -> Bool { !operationLocked }
 }

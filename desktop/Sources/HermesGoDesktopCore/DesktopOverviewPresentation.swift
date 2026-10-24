@@ -109,7 +109,7 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
         if let localHealth, !fresh(localHealth.checkedAt) {
             hermes = status(.checking, "等待重新检查", "上次本机验证结果已过期，请刷新状态。", localHealth.checkedAt)
         } else if localHermes.canOpen {
-            hermes = status(.healthy, "可以使用", localHermes.detail, localHealth?.checkedAt)
+            hermes = status(.healthy, "服务已就绪", localHermes.detail, localHealth?.checkedAt)
         } else {
             hermes = status(localHermes.level, localHermes.title, localHermes.detail, localHealth?.checkedAt)
         }
@@ -148,7 +148,7 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
             detail = cloud.level == .failed ? cloud.detail : desktop.detail
             level = .failed
         } else if cloud.level == .healthy && desktop.level == .healthy && hermes.level == .healthy && remoteVerified {
-            title = "本机与远程访问均正常"
+            title = "本机与远程连接均正常"
             detail = "云端、Desktop 和本机 Hermes 均已验证，手机可以访问这台 Mac。"
             level = .healthy
         } else {

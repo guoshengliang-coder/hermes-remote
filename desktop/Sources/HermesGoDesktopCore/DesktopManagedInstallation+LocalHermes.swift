@@ -25,20 +25,30 @@ extension DesktopManagedInstaller {
     /// enters a diagnostic payload. Unsafe files fail closed before any authenticated request.
     public func probeManagedHermes(prober: HTTPHealthProber = .loopbackDirect()) async -> ProbeResult {
         do {
-            var directory = stat()
-            guard layout.secretsRoot.resolvingSymlinksInPath() == layout.secretsRoot,
-                  Darwin.lstat(layout.secretsRoot.path, &directory) == 0,
-                  directory.st_mode & S_IFMT == S_IFDIR, directory.st_uid == Darwin.getuid(),
-                  directory.st_mode & 0o077 == 0,
-                  let token = try validatedSessionTokenIfPresent(required: true),
-                  let value = String(data: token, encoding: .utf8),
-                  try sessionTokenStorage(in: loadHermesLaunchAgentForTokenContract().object) == .file
-            else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+            let value = try localProbeToken()
             return await prober.probeAuthenticatedHermes(sessionToken: value)
         } catch {
             let issue = DesktopIssue(code: .managedInstallationRepairFailed, technicalCause: "stage=local-hermes-auth unsafe-token-contract")
             return ProbeResult(level: .failed, detail: issue.displayChinese, issue: issue)
         }
+    }
+
+    public func probeModelConfiguration(prober: HTTPHealthProber = .loopbackDirect()) async -> DesktopModelConfiguration {
+        guard let token = try? localProbeToken() else { return .unknown }
+        return await prober.probeModelConfiguration(sessionToken: token)
+    }
+
+    private func localProbeToken() throws -> String {
+        var directory = stat()
+        guard layout.secretsRoot.resolvingSymlinksInPath() == layout.secretsRoot,
+              Darwin.lstat(layout.secretsRoot.path, &directory) == 0,
+              directory.st_mode & S_IFMT == S_IFDIR, directory.st_uid == Darwin.getuid(),
+              directory.st_mode & 0o077 == 0,
+              let token = try validatedSessionTokenIfPresent(required: true),
+              let value = String(data: token, encoding: .utf8),
+              try sessionTokenStorage(in: loadHermesLaunchAgentForTokenContract().object) == .file
+        else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+        return value
     }
 
     private static var serveArguments: [String] { DesktopHermesRuntimeContract.serveV1.programArguments }
