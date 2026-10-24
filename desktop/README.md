@@ -1,6 +1,6 @@
 # Hermes Go Desktop
 
-Pending release: repair existing Hermes installations with named profiles without changing their data,
+Approved candidate **0.2.36 / build 39** (2026-10-24): repair existing Hermes installations with named profiles without changing their data,
 pin the managed backend to its original default home, show concrete repair blockers, and remove
 local setup/repair panels from Devices and the Overview headline. Diagnostics and device rows now
 expire old reports and keep local/remote identity separate. 592 Swift tests and asset checks passed;

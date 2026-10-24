@@ -1,5 +1,13 @@
 # Desktop release channel
 
+## Approved internal candidate: 0.2.36
+
+On 2026-10-24 the owner confirmed **0.2.36/build 39** for the existing-Hermes/profile repair
+and recovery UI iteration (#639). Continue temporary ad-hoc internal distribution, preserving
+public trust settings. Publish from clean current main through the unified internal publisher;
+verify the exact DMG and synchronize website/app-update discovery. Signed managed-component
+pointers stay unchanged. Live Mac repair/mobile acceptance is separate and remains pending.
+
 ## Published internal test distribution: 0.2.35
 
 On 2026-10-24 the owner authorized merge/publication and confirmed **0.2.35/build 38**.
