@@ -85,7 +85,7 @@ public enum DesktopManagedBootstrapInstallationStatus: Equatable, Sendable {
                 bindingID: bindingID,
                 bindingGeneration: bindingGeneration
             )
-        case .cleanUninstalled, .legacyActive:
+        case .cleanUninstalled:
             return services.accountLoaded || services.hermesLoaded ? .inconsistent : .absent
         case .rollbackAttentionRequired:
             return .attentionRequired
@@ -247,10 +247,9 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
 
     @discardableResult
     public func recoverInterrupted(
-        legacy: LegacyConnectorSnapshot,
         runID: String
     ) async throws -> DesktopMigrationState {
-        try await migration.recoverInterrupted(legacy: legacy, runID: runID)
+        try await migration.recoverInterrupted(runID: runID)
     }
 
     @discardableResult
@@ -348,10 +347,9 @@ public final class DesktopManagedBootstrapRuntime: @unchecked Sendable {
 
     @discardableResult
     public func recoverInterrupted(
-        legacy: LegacyConnectorSnapshot,
         runID: String
     ) async throws -> DesktopMigrationState {
-        try await migration.recoverInterrupted(legacy: legacy, runID: runID)
+        try await migration.recoverInterrupted(runID: runID)
     }
 
     @discardableResult

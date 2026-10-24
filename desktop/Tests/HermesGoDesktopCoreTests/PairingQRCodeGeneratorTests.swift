@@ -3,13 +3,9 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class PairingQRCodeGeneratorTests: XCTestCase {
-    func testGeneratedImageDecodesToExactAndroidPayload() throws {
-        let profile = try ConnectionProfile.validated(
-            name: "Mac mini",
-            gatewayAddress: "https://mrlgs.net",
-            appToken: "test-app-token"
-        )
-        let payload = try XCTUnwrap(profile.pairingPayloadData)
+    func testGeneratedImageDecodesToExactOnboardingLink() throws {
+        let link = "https://go.mrlgs.net/download"
+        let payload = Data(link.utf8)
         let image = try XCTUnwrap(PairingQRCodeGenerator.image(for: payload))
         let detector = try XCTUnwrap(
             CIDetector(
@@ -19,6 +15,6 @@ final class PairingQRCodeGeneratorTests: XCTestCase {
             )
         )
         let result = try XCTUnwrap(detector.features(in: image).first as? CIQRCodeFeature)
-        XCTAssertEqual(result.messageString, profile.pairingPayload)
+        XCTAssertEqual(result.messageString, link)
     }
 }

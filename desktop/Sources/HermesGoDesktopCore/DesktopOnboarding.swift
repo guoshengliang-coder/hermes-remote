@@ -158,7 +158,7 @@ public enum DesktopEntryRouter {
             let needsPhone = inputs.record.phoneStepPending
                 && DesktopRemoteClients.active(dashboard.installations).isEmpty
             return needsPhone ? .onboarding(.connectPhone) : .main
-        case .existingServiceNeedsAttention, .existingServicePreserved:
+        case .existingServiceNeedsAttention:
             // Half-installed or inconsistent: the planner already forbids a second install, so
             // onboarding must not offer one. Main shows the problem instead.
             return .main

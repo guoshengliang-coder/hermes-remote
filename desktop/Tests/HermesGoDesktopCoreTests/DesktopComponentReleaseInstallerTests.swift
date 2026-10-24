@@ -929,15 +929,10 @@ private final class ComponentInstallFixture {
         )
     }
 
-    var legacySnapshot: LegacyConnectorSnapshot {
-        LegacyConnectorSnapshot(
+    var legacySnapshot: RetiredConnectorSnapshot {
+        RetiredConnectorSnapshot(
             isInstalled: false,
-            isRunning: false,
-            config: LegacyConnectorConfig(gatewayURL: nil),
-            recentLogs: [],
-            installDirectory: base.appendingPathComponent("legacy", isDirectory: true),
-            launchAgentURL: base.appendingPathComponent("legacy.plist")
-        )
+            isRunning: false)
     }
 
     func makeArtifact(
@@ -1056,7 +1051,7 @@ private struct RecordedComponentBootstrapMigration: Sendable {
     let activationPlan: DesktopComponentReleaseActivationPlan
     let hermes: DesktopHermesServerLaunchAgent
     let connector: DesktopAccountConnectorLaunchAgent
-    let legacy: LegacyConnectorSnapshot
+    let legacy: RetiredConnectorSnapshot
     let runID: String
     let confirmation: String
 }
@@ -1075,7 +1070,7 @@ private actor RecordingComponentBootstrapMigration: DesktopComponentBootstrapMig
         activationPlan: DesktopComponentReleaseActivationPlan,
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {

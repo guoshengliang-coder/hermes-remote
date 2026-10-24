@@ -65,7 +65,7 @@ struct MenuBarContentView: View {
 
             Divider()
 
-            Text("账号客户端 · 不影响旧 Connector")
+            Text("关闭窗口后 Desktop 继续在后台运行")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .padding(14)
@@ -157,7 +157,7 @@ struct MenuBarContentView: View {
                 showsStatusDot: false
             )
             valueRow(
-                title: "Connector",
+                title: "Desktop 连接",
                 value: device.connector.online ? "在线" : "离线",
                 level: device.connector.online ? .healthy : .unavailable
             )
@@ -209,7 +209,7 @@ struct MenuBarContentView: View {
     private func statusRow(_ component: HealthComponent) -> some View {
         let item = model.health.component(component)
         return HStack {
-            Text(component.title)
+            Text(component == .gateway ? "账号连接" : "Hermes")
             Spacer()
             StatusDot(level: item.level, size: 8)
             Text(shortStatus(item.level))

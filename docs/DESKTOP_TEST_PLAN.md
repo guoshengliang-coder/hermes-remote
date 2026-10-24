@@ -1,5 +1,57 @@
 # Hermes Go Desktop test plan
 
+## HG-235: Desktop product integration
+
+Automated coverage: update sequencing (background before app, failure, cancellation, late completion,
+cleanup pending, duplicate action, app-only/background-only); local Hermes usability (files are not
+health, authenticated healthy probe required, unsupported vs absent, bundled runtime). Existing
+account/installation/rollback/secret-redaction tests remain required. Ordinary bootstrap copy no longer
+asserts internal versions, paths or journal-state names; behavior assertions remain intact.
+
+Local evidence: 573 Swift tests passed; asset equality passed. Native NSHostingView renders of the
+actual Overview, Local Hermes (missing and healthy), Settings and Diagnostics were inspected at a
+770 pt content width in light/dark appearance. The Local Hermes status card was adjusted to full width.
+The preview uses injected fixtures without monitoring, network, installers or service changes.
+Final `desktop:app`, ad-hoc `codesign --verify --deep --strict`, and `git diff --check` passed. The build retains the pre-existing Sendable warning in DesktopServiceOperationLog.
+
+Physical acceptance remains pending on an already managed Mac with an approved release:
+1. Visit all five sidebar destinations; no separate Logs or old URL/Token/QR/observer entry exists.
+2. Switch the selected remote Mac; Local Hermes must still describe this Mac. Missing/unsupported/
+   installed-but-unverified/healthy/failing states must show the correct action and effect.
+3. Trigger app-only, background-only and combined updates. Confirm interruption text; cancel before
+   commit and confirm no app restart. Fail background verification or cleanup and confirm the app
+   stage does not start. After background success/app failure, retry only the remaining app stage.
+4. Open diagnostics from a failure, expand redacted logs and copy the report; verify no credentials.
+5. Close/reopen the window and quit/reopen Desktop outside an operation; verify account binding and
+   local Hermes configuration/task history are preserved. Verify sleep/logout effects separately.
+
+## Retired Desktop connection mode — 2026-10-24
+
+Current regression coverage replaces the removed legacy config/profile/token-transport tests:
+
+- A retired startup item or loaded job blocks setup, including a running job with missing files and
+  a service that appears after preflight. No account binding or service mutation occurs.
+- An inert old data directory neither blocks account setup nor supplies endpoints; its bytes remain
+  unchanged. The Hermes status endpoint is always the fixed loopback contract.
+- Retired jobs never become a healthy fallback. Account-active installations still use their own
+  health and retain exact-label duplicate suppression after Migration Assistant.
+- Legacy-mode journals fail closed without rewriting their bytes. Clean install, interrupted clean
+  rollback, exact-binding retries, account upgrades and rollback keep their existing transaction tests.
+- Account capabilities decode with or without old token flags, and never encode/use those flags.
+- `HR-MIGRATE-022` has bilingual guidance, a stable serialized code and nonretryable Details recovery.
+- The QR generator round-trips an onboarding URL, without a credential-bearing v1 payload.
+
+Run `npm run desktop:assets:test`, `npm run desktop:test`, `npm run desktop:app`, and `git diff --check`.
+Local automated evidence: 562 Desktop tests passed; canonical icon equality and `git diff --check` passed. `npm run desktop:app` built the local ad-hoc app and `codesign --verify --deep --strict` passed. The default local package has managed-install/update publication gates disabled; this is build verification, not a release or live upgrade acceptance.
+
+Packaged interactive acceptance remains pending: verify Account & Devices and Settings have no legacy
+entry, empty managed logs show empty, account-disabled service offers no fallback, and an existing
+account-managed Mac can launch/upgrade without changing binding or losing task state.
+
+The historical matrix below records earlier releases. Rows concerning legacy profile/Token/QR,
+legacy migration or restoration are retired, not current acceptance requirements.
+
+
 ## HG-226: progress and terminal sheet acceptance
 
 Automated coverage in `DesktopSetupProgressTests` and the real migration-coordinator fixtures:
@@ -127,19 +179,14 @@ npm run desktop:app
 The current automated suite covers:
 
 - overall status reduction and optional-capability degradation;
-- legacy Connector config parsing with a strict non-secret allowlist;
-- current Gateway WSS to Relay health URL conversion;
-- legacy launchd/install/log discovery through injected command execution;
+- read-only retired startup-item/job conflict detection through injected command execution;
 - managed Connector and Desktop log discovery, bounded redaction, and symlink refusal;
 - log/header/query/known-secret redaction;
-- profile validation that rejects insecure remote HTTP, URL credentials, queries, and fragments;
 - that the staged Hermes component is importable by a **child** process with no `PYTHONPATH`
   (`scripts/test/desktop-managed-python-path.test.mjs`) — upstream strips the repo root out of every
   child environment, so a bundle that relies on `PYTHONPATH` alone cannot run slash commands;
-- exact Android v1 JSON payload compatibility;
-- Core Image QR output decoded back to the exact v1 payload with the native QR detector, including payload-size rejection;
-- authenticated `/api/status` request path and header behavior;
-- 401/403, offline Connector, and unmapped Relay error classification;
+- account onboarding QR output decoded back to the exact URL with the native QR detector;
+- authenticated local-Hermes probing and account-reported end-to-end failure classification;
 - bilingual error code, retryability, recovery-action, and diagnostic redaction contracts;
 - recent-log warning counting independent of current health;
 - full SwiftUI target compilation.

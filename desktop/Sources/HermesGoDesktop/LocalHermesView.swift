@@ -1,0 +1,55 @@
+import HermesGoDesktopCore
+import SwiftUI
+
+struct LocalHermesView: View {
+    @EnvironmentObject private var model: DesktopViewModel
+    @Binding var selection: DesktopSection
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                PageHeader(title: "本机 Hermes", subtitle: "查看这台 Mac 的 Hermes 安装与可用状态") {
+                    Button("刷新状态") { Task { await model.refreshDiagnostics() } }
+                        .buttonStyle(.bordered)
+                        .disabled(model.isRefreshing || model.isDiagnosing || model.isManagedBootstrapAccountLocked)
+                }
+                VStack(alignment: .leading, spacing: 14) {
+                    Label(model.localHermesPresentation.title,
+                          systemImage: model.localHermesPresentation.canOpen ? "checkmark.circle.fill" : "desktopcomputer")
+                        .font(.system(size: 20, weight: .bold))
+                    Text(model.localHermesPresentation.detail).foregroundStyle(.secondary)
+                    LabeledContent("Hermes 版本", value: model.localHermesPresentation.version)
+                    if let checkedAt = model.localManagedHermesHealth?.checkedAt {
+                        Text("本机检查于 \(checkedAt.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Button("打开 Hermes") { model.openHermes() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!model.localHermesPresentation.canOpen)
+                        Button("诊断与修复") { selection = .diagnostics }.buttonStyle(.bordered)
+                        if model.isManageOnly {
+                            Button("连接这台 Mac") { Task { await model.chooseNewMacUse(.connect) } }
+                                .buttonStyle(.bordered)
+                        } else if !model.localHermesPresentation.canOpen {
+                            Button("连接设置") { selection = .pairing }.buttonStyle(.bordered)
+                        }
+                    }
+                    if let issue = model.localHermesIssue { GateIssueBanner(issue: issue) }
+                }
+                .padding(22).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
+
+                if model.hermesInstallPhase != .hidden { HermesInstallCard() }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("版本与数据").font(.system(size: 16, weight: .bold))
+                    Text("Desktop 使用这台 Mac 已有的 Hermes。模型配置、任务和历史数据保留在本机。")
+                    Text("本机 Hermes 的升级管理将单独提供；目前请沿用原有的 Hermes 管理方式。Desktop 更新可在“设置”中检查。")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 13)).padding(22).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
+            }
+            .padding(34)
+        }
+    }
+}

@@ -100,28 +100,20 @@ public struct AccountCapabilities: Codable, Equatable, Sendable {
         }
     }
 
-    public struct Legacy: Codable, Equatable, Sendable {
-        public let appTokenAccepted: Bool
-        public let connectorTokenAccepted: Bool
-    }
-
     public let version: Int
     public let accountAuth: AccountAuthentication
     public let binding: Binding
-    public let legacy: Legacy
     public let desktopBootstrap: DesktopBootstrap?
 
     public init(
         version: Int,
         accountAuth: AccountAuthentication,
         binding: Binding,
-        legacy: Legacy,
         desktopBootstrap: DesktopBootstrap? = nil
     ) {
         self.version = version
         self.accountAuth = accountAuth
         self.binding = binding
-        self.legacy = legacy
         self.desktopBootstrap = desktopBootstrap
     }
 }

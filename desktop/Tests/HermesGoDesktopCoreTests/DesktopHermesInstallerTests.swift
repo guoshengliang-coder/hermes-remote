@@ -917,7 +917,7 @@ final class HermesInstallWiringTests: XCTestCase {
         let install = try XCTUnwrap(model.range(of: "installer.install("))
         XCTAssertTrue(start.upperBound < install.lowerBound && install.lowerBound < cancel.lowerBound, "the installer must run only inside startHermesInstall")
         XCTAssertTrue(model.contains("await refreshHermesInstallOffer(scopedManagedInstallation)"), "the refresh never offers an install")
-        XCTAssertTrue(model.contains("guard !isManagedBootstrapAccountLocked, !isHermesInstallDecisionPending else { return }"))
+        XCTAssertTrue(model.contains("guard !isServiceMutationLocked, (!isDesktopUpdateRunning || forDesktopUpdate), !isHermesInstallDecisionPending else { return }"))
         XCTAssertTrue(model.contains("!isHermesInstallDecisionPending,"), "component setup must wait for the owner's Hermes decision")
         // Finding 2: the re-evaluation before running reads the record as it is, writes nothing,
         // must match the shown offer, and aborts when there is no offer any more.

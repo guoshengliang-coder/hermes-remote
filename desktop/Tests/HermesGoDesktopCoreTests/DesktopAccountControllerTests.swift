@@ -1178,8 +1178,7 @@ private struct AccountFixtures {
                 macos: true,
                 identityManagement: true
             ),
-            binding: .init(enabled: true, replacement: true, maxActiveConnectorsPerAccount: 1),
-            legacy: .init(appTokenAccepted: true, connectorTokenAccepted: true)
+            binding: .init(enabled: true, replacement: true, maxActiveConnectorsPerAccount: 1)
         )
     }
 
@@ -1208,8 +1207,7 @@ private struct AccountFixtures {
                 supportsDeviceSharing: bindingEnabled && sharingEnabled ? true : nil,
                 maxSharedDevices: sharingEnabled ? 10 : nil,
                 maxGranteesPerDevice: sharingEnabled ? 5 : nil
-            ),
-            legacy: .init(appTokenAccepted: true, connectorTokenAccepted: true)
+            )
         )
     }
 
@@ -1426,8 +1424,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         return AccountCapabilities(
             version: 1,
             accountAuth: .init(enabled: false, providers: ["google"], android: true, macos: true),
-            binding: .init(enabled: false, replacement: false, maxActiveConnectorsPerAccount: 1),
-            legacy: .init(appTokenAccepted: true, connectorTokenAccepted: true)
+            binding: .init(enabled: false, replacement: false, maxActiveConnectorsPerAccount: 1)
         )
     }
 

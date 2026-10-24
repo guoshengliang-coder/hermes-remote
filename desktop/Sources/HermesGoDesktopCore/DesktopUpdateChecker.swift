@@ -27,6 +27,16 @@ public struct DesktopUpdateAvailability: Equatable, Sendable {
         managedReference = nil
     }
 
+    /// A configured manifest already inspected by the setup preflight. Installation still verifies
+    /// that manifest through the existing executor; this is only presentation/discovery metadata.
+    public init(managedVersion: String) {
+        kind = .managed
+        version = managedVersion
+        releaseNotes = []
+        appReference = nil
+        managedReference = nil
+    }
+
     public init(managed reference: DesktopReleaseIndexReference) {
         kind = .managed
         version = reference.releaseVersion
@@ -49,6 +59,13 @@ public struct DesktopUpdateReport: Equatable, Sendable {
         self.checkedAt = checkedAt
         self.appUpdate = appUpdate
         self.managedUpdate = managedUpdate
+    }
+
+    public func includingPreparedManagedVersion(_ target: String?, installed: String?) -> Self {
+        guard managedUpdate == nil, let target, let installed,
+              DesktopSemanticVersion.isNewer(target, than: installed) else { return self }
+        return Self(checkedAt: checkedAt, appUpdate: appUpdate,
+                    managedUpdate: DesktopUpdateAvailability(managedVersion: target))
     }
 
     public var hasUpdates: Bool { appUpdate != nil || managedUpdate != nil }

@@ -322,7 +322,7 @@ private struct ConnectMacStep: View {
             Button("重试清理") { Task { await model.retryComponentBootstrapCleanup() } }
                 .buttonStyle(PrimaryButtonStyle())
         } else if model.serviceRepairNeeded {
-            Button(model.isServiceRepairPreparing || model.isServiceRepairRunning ? "正在检查或修复…" : "检查并修复受管服务") {
+            Button(model.isServiceRepairPreparing || model.isServiceRepairRunning ? "正在检查或修复…" : "检查并修复Desktop") {
                 Task { await model.prepareServiceRepair() }
             }
             .buttonStyle(PrimaryButtonStyle())

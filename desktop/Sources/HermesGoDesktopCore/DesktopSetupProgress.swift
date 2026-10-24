@@ -62,7 +62,7 @@ public enum DesktopSetupStage: String, CaseIterable, Sendable {
         case .waitingForShutdown: "正在等待旧服务退出"
         case .startingHermes: "正在启动 Hermes"
         case .waitingForHermes: "正在验证本机 Hermes"
-        case .startingConnector: "正在启动 Connector"
+        case .startingConnector: "正在建立 Desktop 连接"
         case .waitingForConnection: "正在等待云端确认连接"
         case .committing: "正在保存已验证的连接"
         case .cleaning: "正在清理临时文件"

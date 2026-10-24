@@ -3,6 +3,28 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopMigrationJournalTests: XCTestCase {
+    func testRetiredModeJournalIsRejectedWithoutRewritingIt() throws {
+        for state in ["legacy_active", "preflight", "rolling_back"] {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            try writeRawJournal([
+                "schemaVersion": 1,
+                "runID": "50000000-0000-4000-8000-000000000005",
+                "state": state,
+                "lastKnownGoodMode": "legacy",
+                "releaseVersion": "1.2.3",
+                "updatedAt": "2026-09-14T00:00:00.000Z",
+            ], at: root)
+            let url = root.appendingPathComponent("migration-state.json")
+            let original = try Data(contentsOf: url)
+            let store = try DesktopMigrationJournalStore(root: root)
+            XCTAssertThrowsError(try store.loadReadOnly()) { error in
+                XCTAssertEqual(error as? DesktopMigrationJournalError, .invalidState)
+            }
+            XCTAssertEqual(try Data(contentsOf: url), original)
+        }
+    }
+
     func testReadOnlyLoadDoesNotCreateStateOrLockOnACleanMac() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -26,7 +48,7 @@ final class DesktopMigrationJournalTests: XCTestCase {
         )
         var journal = try store.begin(
             runID: runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: "1.2.3",
             bindingID: bindingID,
             bindingGeneration: 1
@@ -85,7 +107,7 @@ final class DesktopMigrationJournalTests: XCTestCase {
         let runID = "10000000-0000-4000-8000-000000000001"
         let original = try store.begin(
             runID: runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: "1.2.3",
             bindingID: "20000000-0000-4000-8000-000000000001",
             bindingGeneration: 1
@@ -93,7 +115,7 @@ final class DesktopMigrationJournalTests: XCTestCase {
 
         XCTAssertThrowsError(try store.begin(
             runID: runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: "1.2.4",
             bindingID: original.bindingID,
             bindingGeneration: original.bindingGeneration
@@ -102,7 +124,7 @@ final class DesktopMigrationJournalTests: XCTestCase {
         }
         XCTAssertThrowsError(try store.begin(
             runID: runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: original.releaseVersion,
             releaseLayout: .componentStore,
             bindingID: original.bindingID,
@@ -239,7 +261,7 @@ final class DesktopMigrationJournalTests: XCTestCase {
             "schemaVersion": 1,
             "runID": runID,
             "state": "preflight",
-            "lastKnownGoodMode": "legacy",
+            "lastKnownGoodMode": "none",
             "releaseVersion": "1.2.3",
             "bindingID": "60000000-0000-4000-8000-000000000006",
             "bindingGeneration": 1,
@@ -370,18 +392,18 @@ final class DesktopMigrationJournalTests: XCTestCase {
         let firstRunID = "10000000-0000-4000-8000-000000000001"
         _ = try store.begin(
             runID: firstRunID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: "1.2.3",
             bindingID: "20000000-0000-4000-8000-000000000001",
             bindingGeneration: 1
         )
         _ = try store.transition(runID: firstRunID, to: .accountStaged)
         _ = try store.transition(runID: firstRunID, to: .rollingBack)
-        _ = try store.transition(runID: firstRunID, to: .legacyActive)
+        _ = try store.transition(runID: firstRunID, to: .cleanUninstalled)
 
         let retry = try store.begin(
             runID: "10000000-0000-4000-8000-000000000002",
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: "1.2.4",
             bindingID: "20000000-0000-4000-8000-000000000002",
             bindingGeneration: 2
@@ -431,7 +453,7 @@ final class DesktopMigrationJournalTests: XCTestCase {
             let firstRunID = "10000000-0000-4000-8000-000000000001"
             _ = try store.begin(
                 runID: firstRunID,
-                lastKnownGoodMode: .legacy,
+                lastKnownGoodMode: .none,
                 releaseVersion: "1.2.3",
                 bindingID: "20000000-0000-4000-8000-000000000001",
                 bindingGeneration: 1
@@ -452,7 +474,7 @@ final class DesktopMigrationJournalTests: XCTestCase {
 
             XCTAssertThrowsError(try store.begin(
                 runID: "10000000-0000-4000-8000-000000000002",
-                lastKnownGoodMode: .legacy,
+                lastKnownGoodMode: .none,
                 releaseVersion: "1.2.3",
                 bindingID: "20000000-0000-4000-8000-000000000002",
                 bindingGeneration: 1
@@ -463,9 +485,9 @@ final class DesktopMigrationJournalTests: XCTestCase {
         }
     }
 
-    func testRollbackPathStopsAtKnownLegacyOrManualAttention() throws {
+    func testRollbackPathStopsAtCleanStateOrManualAttention() throws {
         for terminal: DesktopMigrationState in [
-            .cleanUninstalled, .legacyActive, .rollbackAttentionRequired,
+            .cleanUninstalled, .rollbackAttentionRequired,
         ] {
             let root = temporaryRoot()
             defer { try? FileManager.default.removeItem(at: root) }
@@ -473,7 +495,7 @@ final class DesktopMigrationJournalTests: XCTestCase {
             let runID = UUID().uuidString
             _ = try store.begin(
                 runID: runID,
-                lastKnownGoodMode: .legacy,
+                lastKnownGoodMode: .none,
                 releaseVersion: "1.2.3",
                 bindingID: nil,
                 bindingGeneration: nil

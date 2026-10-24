@@ -45,20 +45,12 @@ enum DesktopUpdateCheckState: Equatable {
 
 @MainActor
 final class DesktopViewModel: ObservableObject {    @Published private(set) var health: DesktopHealthSnapshot = .checking
-    @Published private(set) var legacy: LegacyConnectorSnapshot?
     @Published private(set) var managedRecentLogs: [String] = []
     var recentLogLines: [String] {
-        managedRecentLogs.isEmpty ? (legacy?.recentLogs ?? []) : managedRecentLogs
+        managedRecentLogs
     }
     var recentLogWarningCount: Int { RecentLogAnalyzer.summarize(recentLogLines).warningCount }
     @Published private(set) var isRefreshing = false
-    @Published private(set) var connectionProfile: ConnectionProfile?
-    @Published var profileName = "Mac mini"
-    @Published var gatewayAddress = "https://mrlgs.net"
-    @Published var appToken = ""
-    @Published var isPairingCodeRevealed = false
-    @Published private(set) var configurationIssue: DesktopIssue?
-    @Published private(set) var configurationMessage: String?
     @Published private(set) var accountState: DesktopAccountState = .checking
     @Published private(set) var accountIssue: DesktopIssue?
     @Published private(set) var accountCheckedAt: Date?
@@ -87,6 +79,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     /// Which Hermes the managed service runs is reconciled on every refresh (local runtime mode,
     /// `docs/DESKTOP_PHASE0.md`). Its own slot because it is orthogonal to the bootstrap state
     /// machine, which clears its issue on most transitions.
+    @Published private(set) var localHermesDetection: DesktopLocalHermesDetection?
     @Published private(set) var localHermesIssue: DesktopIssue?
     @Published private(set) var hermesInstallPhase: DesktopHermesInstallPhase = .hidden
     @Published var isHermesInstallConfirmationPresented = false
@@ -115,14 +108,17 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var onboardingRecord = DesktopOnboardingRecord()
     @Published private(set) var updateCheckState: DesktopUpdateCheckState = .idle
     @Published var isUpdateSheetPresented = false
+    @Published private(set) var diagnosticFocusIssue: DesktopIssue?
+    @Published private(set) var diagnosticRequestID: UUID?
     @Published private(set) var isAppUpdateInstalling = false
+    @Published private(set) var desktopUpdateSequence = DesktopUpdateSequence()
+    private var desktopUpdateReport: DesktopUpdateReport?
     @Published private(set) var appUpdateIssue: DesktopIssue?
     @Published private(set) var appUpdateStatusMessage: String?
     @Published private(set) var isAutomaticUpdateEnabled = DesktopAutomaticUpdateSetting.isEnabled()
 
-    private let inspector = LegacyConnectorInspector(runner: SystemCommandRunner())
+    private let inspector = RetiredConnectorInspector(runner: SystemCommandRunner())
     private let prober = HTTPHealthProber()
-    private let profileStore: any ConnectionProfileStoring
     private let accountController: DesktopAccountController
     private let managedBootstrapConfiguration: DesktopManagedBootstrapConfigurationState
     private let componentPreflightConfiguration: DesktopComponentPreflightConfigurationState
@@ -158,10 +154,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     let accountGatewayURL: URL
 
     init(
-        profileStore: any ConnectionProfileStoring = KeychainConnectionProfileStore(),
         onboardingStore: any DesktopOnboardingStoring = UserDefaultsDesktopOnboardingStore()
     ) {
-        self.profileStore = profileStore
         self.onboardingStore = onboardingStore
         let configuration = DesktopAccountConfiguration.load()
         accountGatewayURL = configuration.gatewayURL
@@ -224,19 +218,6 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         } else {
             componentBootstrapRuntime = nil
         }
-        do {
-            if let profile = try profileStore.load() {
-                connectionProfile = profile
-                profileName = profile.name
-                gatewayAddress = profile.gatewayURL.absoluteString
-                appToken = profile.appToken
-            }
-        } catch {
-            configurationIssue = DesktopIssue(
-                code: .configurationLoadFailed,
-                technicalCause: String(describing: error)
-            )
-        }
     }
 
     var statusTitle: String {
@@ -250,10 +231,15 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
 
     var statusDetail: String {
         switch presentedHealth.overall {
-        case .checking: "正在确认旧 Connector 与连接链路"
-        case .healthy: "这台 Mac 正在安全连接 Hermes GO"
-        case .degraded: "主链路可用，但有一项能力需要确认"
-        case .needsAttention: "连接链路中有一项关键检查未通过"
+        case .checking: "正在确认 Desktop 与账号连接状态"
+        case .healthy: "当前设备可以通过 Desktop 使用 Hermes"
+        case .degraded: "部分功能可能受影响，请打开诊断查看原因与恢复操作"
+        case .needsAttention:
+            if presentedHealth.component(.hermes).level == .failed {
+                "Hermes 暂时无法使用，任务可能无法开始或继续。请打开诊断。"
+            } else {
+                "远程访问暂时不可用；本机 Hermes 的状态可在独立版块查看。请打开诊断恢复连接。"
+            }
         }
     }
 
@@ -277,7 +263,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         if let device = selectedAccountDevice {
             return AccountDeviceHealth.snapshot(for: device, checkedAt: accountCheckedAt ?? .distantPast)
         }
-        return health.presented(accountModeActive: isAccountModeActive)
+        return health
     }
 
     var selectedAccountDevice: AccountDevice? {
@@ -287,28 +273,23 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
 
     var overviewDeviceName: String {
         selectedAccountDevice?.desktopDisplayName
-            ?? legacy?.config.deviceID
+            ?? Host.current().localizedName
             ?? "Mac"
     }
 
     var overviewGatewaySummary: String {
         guard let device = selectedAccountDevice else {
-            return legacy?.config.gatewayURL?.host ?? "未配置"
+            return accountGatewayURL.host ?? "未配置"
         }
         return device.gateway.latencyMs.map { "账号连接 · \($0) ms" } ?? "账号连接"
     }
 
     var overviewHermesSummary: String {
         guard let device = selectedAccountDevice else {
-            return legacy?.config.hermesBaseURL.host ?? "127.0.0.1"
+            return DesktopHermesRuntimeContract.serveV1.baseURL.host ?? "127.0.0.1"
         }
         return device.hermes.version
             ?? (device.hermes.reachable == true ? "可访问" : "不可访问")
-    }
-
-    private var isAccountModeActive: Bool {
-        if case .signedIn = accountState { return true }
-        return false
     }
 
     func startMonitoring() {
@@ -370,8 +351,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         case .idle: isUpdateConfigured ? "尚未检查" : "此版本未配置更新检查"
         case .checking: "正在检查更新…"
         case .upToDate: "已是最新版本（\(appVersion)）"
-        case .available(let report):
-            report.appUpdate != nil ? "发现新版本" : "发现可升级的组件版本"
+        case .available: "Desktop 有可用更新"
         case .failed(let issue): issue.summaryChinese
         }
     }
@@ -385,13 +365,23 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func checkForUpdates(manual: Bool) async {
+        guard !desktopUpdateSequence.isRunning, !isManagedBootstrapAccountLocked, !isAppUpdateInstalling else { return }
+        if case .checking = updateCheckState { return }
+        let preparedTarget = selectedTargetReleaseVersion
         guard isUpdateConfigured else {
+            let report = DesktopUpdateReport(checkedAt: Date(), appUpdate: nil, managedUpdate: nil)
+                .includingPreparedManagedVersion(preparedTarget, installed: installedManagedVersion)
+            if report.hasUpdates {
+                updateCheckState = .available(report)
+                isUpdateSheetPresented = true
+                return
+            }
             let issue = DesktopIssue(code: .updateNotConfigured)
             updateCheckState = .failed(issue)
             if manual { appUpdateIssue = issue }
             return
         }
-        if case .checking = updateCheckState, !manual { return }
+        updateCheckState = .checking
         let sources = updateSources
         let checker = updateChecker
         // Inspect the actual scoped install before discovery. At startup the monitor may not have
@@ -410,7 +400,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 sources: sources,
                 installedAppVersion: appVersion,
                 installedManagedVersion: installedManagedVersion
-            )
+            ).includingPreparedManagedVersion(preparedTarget, installed: installedManagedVersion)
             lastUpdateCheckAt = report.checkedAt
             updateCheckState = report.hasUpdates ? .available(report) : .upToDate(report)
             // The Account & Devices card reads this discovered version as a preflight hint.
@@ -439,9 +429,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         await checkForUpdates(manual: false)
     }
 
-    func installAppUpdate() async {
-        guard case .available(let report) = updateCheckState,
-              let reference = report.appUpdate?.appReference
+    private func installAppUpdate() async {
+        guard let reference = desktopUpdateReport?.appUpdate?.appReference
         else { return }
         guard !isAppUpdateInstalling else { return }
         isAppUpdateInstalling = true
@@ -459,15 +448,72 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             try? await Task.sleep(for: .seconds(1))
             NSApplication.shared.terminate(nil)
         } catch {
+            desktopUpdateSequence.stop()
             appUpdateIssue = DesktopIssue.appUpdateInstall(error)
         }
     }
 
-    /// The managed-release upgrade reuses the existing signed prepare → confirm → commit path; the
-    /// index check only decided that a newer release exists.
-    func installManagedUpdate() {
-        isUpdateSheetPresented = false
-        Task { await prepareManagedBootstrap() }
+    var isDesktopUpdateRunning: Bool { desktopUpdateSequence.isRunning }
+
+    var localHermesPresentation: DesktopLocalHermesPresentation {
+        DesktopLocalHermesPresentation(detection: localHermesDetection,
+            health: localManagedHermesHealth, hasManagedInstallation: installedManagedVersion != nil)
+    }
+
+    /// Freeze the discovered release for this run; automatic checks cannot replace it mid-install.
+    func installDesktopUpdate() async {
+        guard !isDesktopUpdateRunning, !isManagedBootstrapAccountLocked,
+              case .available(let report) = updateCheckState else { return }
+        desktopUpdateReport = report
+        appUpdateIssue = nil
+        desktopUpdateSequence.begin(background: report.managedUpdate != nil, app: report.appUpdate != nil)
+        if desktopUpdateSequence.stage == .background {
+            appUpdateStatusMessage = "正在准备 Desktop 更新，验证后将确认重启影响。"
+            isUpdateSheetPresented = false
+            if isComponentBootstrapPathSelected {
+                await prepareComponentBootstrap(forDesktopUpdate: true)
+                if componentBootstrapOperation != .awaitingConfirmation {
+                    desktopUpdateSequence.stop()
+                    appUpdateIssue = componentBootstrapIssue ?? DesktopIssue(code: .migrationPreflightFailed)
+                    appUpdateStatusMessage = "Desktop 更新准备未完成，请处理诊断中的问题后重试。"
+                    isUpdateSheetPresented = true
+                }
+            } else {
+                await prepareManagedBootstrap(forDesktopUpdate: true)
+                if managedBootstrapOperation != .awaitingConfirmation {
+                    desktopUpdateSequence.stop()
+                    appUpdateIssue = managedBootstrapIssue ?? DesktopIssue(code: .migrationPreflightFailed)
+                    appUpdateStatusMessage = "Desktop 更新准备未完成，请处理诊断中的问题后重试。"
+                    isUpdateSheetPresented = true
+                }
+            }
+        } else {
+            await installAppUpdate()
+        }
+    }
+
+    private func finishDesktopBackgroundUpdate(succeeded: Bool, cleanupPending: Bool, issue: DesktopIssue?) async {
+        guard desktopUpdateSequence.stage == .background else { return }
+        desktopUpdateSequence.backgroundFinished(succeeded: succeeded, cleanupPending: cleanupPending)
+        if succeeded, let report = desktopUpdateReport {
+            let remaining = DesktopUpdateReport(checkedAt: report.checkedAt, appUpdate: report.appUpdate, managedUpdate: nil)
+            desktopUpdateReport = remaining
+            updateCheckState = remaining.hasUpdates ? .available(remaining) : .upToDate(remaining)
+        }
+        if desktopUpdateSequence.stage == .app {
+            // The service confirmation has closed before presenting the final app stage.
+            isUpdateSheetPresented = true
+            appUpdateStatusMessage = "Desktop 后台更新已完成，正在准备应用重启。"
+            await installAppUpdate()
+        } else {
+            appUpdateIssue = issue
+            appUpdateStatusMessage = desktopUpdateSequence.stage == .completed
+                ? "Desktop 更新已完成。" : "Desktop 更新未全部完成；请先处理诊断中的问题，再重试更新。"
+            isUpdateSheetPresented = true
+            if desktopUpdateSequence.stage == .completed {
+                updateCheckState = .upToDate(DesktopUpdateReport(checkedAt: Date(), appUpdate: nil, managedUpdate: nil))
+            }
+        }
     }
 
     private static func updateWorkspaceRoot() -> URL {
@@ -1005,8 +1051,10 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let (observation, managedLines) = await Task.detached(priority: .utility) {
             (inspector.inspect(), managedLogDirectory.map { ManagedLogInspector(logsDirectory: $0).inspect() } ?? [])
         }.value
-        legacy = observation
         managedRecentLogs = managedLines
+        if let detector = localHermesDetector {
+            localHermesDetection = await Task.detached(priority: .utility) { detector.detect() }.value
+        }
 
         let checkedAt = Date()
         let rawManagedInstallation = await inspectRawManagedBootstrapInstallation()
@@ -1025,29 +1073,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             checkedAt: checkedAt
         )
 
-        let relayResult: ProbeResult
-        if let relayURL = observation.config.relayHealthURL {
-            relayResult = await prober.probeRelay(relayURL)
-        } else {
-            relayResult = ProbeResult(level: .unavailable, detail: "缺少可观察的 Gateway 地址")
-        }
-
-        let hermesResult: ProbeResult
-        if let hermesURL = observation.config.hermesStatusURL {
-            hermesResult = await prober.probeHermes(hermesURL)
-        } else {
-            hermesResult = ProbeResult(level: .unavailable, detail: "Hermes 地址无效")
-        }
-
-        let endToEndResult: ProbeResult
-        if let connectionProfile {
-            endToEndResult = await prober.probeEndToEnd(connectionProfile)
-        } else {
-            endToEndResult = ProbeResult(
-                level: .unavailable,
-                detail: "尚未保存 App Token，未执行"
-            )
-        }
+        let relayResult = await prober.probeRelay(
+            URL(string: "/health", relativeTo: accountGatewayURL)!.absoluteURL
+        )
+        let hermesResult = await HTTPHealthProber.loopbackDirect().probeHermes(
+            DesktopBootstrapPlanner.hermesStatusURL
+        )
 
         let relayDetail = relayResult.latencyMilliseconds.map {
             "\(relayResult.detail) · \($0) ms"
@@ -1070,16 +1101,6 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                     level: hermesResult.level,
                     detail: hermesDetail,
                     checkedAt: checkedAt
-                ),
-                observerHealth(observation, checkedAt: checkedAt),
-                ComponentHealth(
-                    component: .endToEnd,
-                    level: endToEndResult.level,
-                    detail: endToEndResult.latencyMilliseconds.map {
-                        "\(endToEndResult.detail) · \($0) ms"
-                    } ?? endToEndResult.detail,
-                    checkedAt: checkedAt,
-                    issue: endToEndResult.issue
                 ),
             ],
             checkedAt: checkedAt
@@ -1398,8 +1419,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         )
     }
 
-    func prepareManagedBootstrap() async {
-        guard !isManagedBootstrapAccountLocked, !isHermesInstallDecisionPending else { return }
+    func prepareManagedBootstrap(forDesktopUpdate: Bool = false) async {
+        guard !isServiceMutationLocked, (!isDesktopUpdateRunning || forDesktopUpdate), !isHermesInstallDecisionPending else { return }
         managedBootstrapIssue = nil
         clearFreshInstallBlock()
         managedBootstrapOperation = .preparing
@@ -1434,6 +1455,10 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func cancelManagedBootstrapConfirmation() async {
+        if desktopUpdateSequence.stage == .background {
+            desktopUpdateSequence.stop()
+            appUpdateStatusMessage = "已取消 Desktop 更新。"
+        }
         guard managedBootstrapOperation == .awaitingConfirmation,
               let preparation = managedBootstrapPreparation,
               let runtime = managedBootstrapRuntime
@@ -1457,6 +1482,17 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
               let runtime = managedBootstrapRuntime
         else { return }
 
+        defer {
+            let operation = managedBootstrapOperation
+            let issue = managedBootstrapIssue
+            Task {
+                if case .completed(_, let pending) = operation {
+                    await finishDesktopBackgroundUpdate(succeeded: true, cleanupPending: pending, issue: issue)
+                } else {
+                    await finishDesktopBackgroundUpdate(succeeded: false, cleanupPending: false, issue: issue)
+                }
+            }
+        }
         runtime.progress.begin(runID: preparation.runID)
         managedBootstrapIssue = nil
         managedBootstrapOperation = .committing
@@ -1524,10 +1560,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }
     }
 
-    func prepareComponentBootstrap() async {
-        guard !isManagedBootstrapAccountLocked,
+    func prepareComponentBootstrap(forDesktopUpdate: Bool = false) async {
+        guard !isServiceMutationLocked, (!isDesktopUpdateRunning || forDesktopUpdate),
               !isHermesInstallDecisionPending,
-              componentBootstrapOperation == .idle || componentBootstrapOperation == .failed,
               let runtime = componentBootstrapRuntime,
               let trustedPreflight = trustedComponentPreflight
         else { return }
@@ -1585,6 +1620,10 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func cancelComponentBootstrapConfirmation() async {
+        if desktopUpdateSequence.stage == .background {
+            desktopUpdateSequence.stop()
+            appUpdateStatusMessage = "已取消 Desktop 更新。"
+        }
         guard componentBootstrapOperation == .awaitingConfirmation,
               let preparation = componentBootstrapPreparation,
               let runtime = componentBootstrapRuntime
@@ -1606,6 +1645,17 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
               let runtime = componentBootstrapRuntime
         else { return }
 
+        defer {
+            let operation = componentBootstrapOperation
+            let issue = componentBootstrapIssue
+            Task {
+                if case .completed(_, let pending) = operation {
+                    await finishDesktopBackgroundUpdate(succeeded: true, cleanupPending: pending, issue: issue)
+                } else {
+                    await finishDesktopBackgroundUpdate(succeeded: false, cleanupPending: false, issue: issue)
+                }
+            }
+        }
         runtime.progress.begin(runID: preparation.runID)
         componentBootstrapIssue = nil
         componentBootstrapOperation = .committing
@@ -1615,7 +1665,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             }
         }
         let machine: (
-            legacy: LegacyConnectorSnapshot,
+            legacy: RetiredConnectorSnapshot,
             plan: DesktopBootstrapPlan,
             installation: DesktopManagedBootstrapInstallationStatus
         )
@@ -1721,13 +1771,15 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }
     }
 
-    var isManagedBootstrapAccountLocked: Bool {
+    var isManagedBootstrapAccountLocked: Bool { isDesktopUpdateRunning || isServiceMutationLocked }
+
+    private var isServiceMutationLocked: Bool {
         let managedLocked = switch managedBootstrapOperation {
         case .preparing, .awaitingConfirmation, .committing, .recovering: true
         case .completed(_, cleanupPending: true): true
         default: false
         }
-        return managedLocked || isComponentBootstrapAccountLocked
+        return isAppUpdateInstalling || managedLocked || isComponentBootstrapAccountLocked
             || isServiceRepairPreparing || isServiceRepairRunning || serviceRepairPreparation != nil
     }
 
@@ -1799,14 +1851,14 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     private func refreshManagedBootstrapPreflight() async -> (
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         plan: DesktopBootstrapPlan
     ) {
         let inspector = self.inspector
         let observation = await Task.detached(priority: .userInitiated) {
             inspector.inspect()
         }.value
-        let statusURL = DesktopBootstrapPlanner.hermesStatusURL(for: observation)
+        let statusURL = DesktopBootstrapPlanner.hermesStatusURL
         let hermes = await prober.probeHermes(statusURL)
         let managedInstallation = await inspectScopedManagedBootstrapInstallation()
         let plan = DesktopBootstrapPlanner.plan(
@@ -1820,7 +1872,6 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             targetReleaseVersion: managedTargetReleaseVersion,
             localHermes: await detectLocalHermesInstallation()
         )
-        legacy = observation
         bootstrapPlan = plan
         applyManagedBootstrapInstallation(managedInstallation)
         return (observation, plan)
@@ -1853,7 +1904,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     private func componentMachinePreflight() async -> (
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         plan: DesktopBootstrapPlan,
         installation: DesktopManagedBootstrapInstallationStatus
     ) {
@@ -1861,7 +1912,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let observation = await Task.detached(priority: .userInitiated) {
             inspector.inspect()
         }.value
-        let statusURL = DesktopBootstrapPlanner.hermesStatusURL(for: observation)
+        let statusURL = DesktopBootstrapPlanner.hermesStatusURL
         let hermes = await prober.probeHermes(statusURL)
         let installation = await inspectScopedManagedBootstrapInstallation()
         let plan = DesktopBootstrapPlanner.plan(
@@ -2006,10 +2057,6 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 }
             }
         }
-        let inspector = self.inspector
-        let observation = await Task.detached(priority: .utility) {
-            inspector.inspect()
-        }.value
         let installation = await inspectScopedManagedBootstrapInstallation()
         guard case .interrupted(let runID, _) = installation else {
             applyManagedBootstrapInstallation(installation)
@@ -2025,12 +2072,11 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         managedBootstrapIssue = nil
         do {
             let recovered = try await runtime.recoverInterrupted(
-                legacy: observation,
                 runID: runID
             )
             let refreshed = await inspectScopedManagedBootstrapInstallation()
             applyManagedBootstrapInstallation(refreshed)
-            if recovered == .legacyActive || recovered == .cleanUninstalled {
+            if recovered == .cleanUninstalled {
                 managedBootstrapOperation = .idle
             } else if refreshed == .attentionRequired || refreshed == .inconsistent {
                 managedBootstrapOperation = .failed
@@ -2125,49 +2171,25 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         managedBootstrapIssue = migrationIssue(error, terminalState: nil)
     }
 
-    func saveConnectionProfile() async {
-        configurationIssue = nil
-        configurationMessage = nil
-        let profile: ConnectionProfile
-        do {
-            profile = try ConnectionProfile.validated(
-                name: profileName,
-                gatewayAddress: gatewayAddress,
-                appToken: appToken
-            )
-        } catch ConnectionProfileValidationError.invalidGatewayURL {
-            configurationIssue = DesktopIssue(code: .invalidRelayURL)
-            return
-        } catch ConnectionProfileValidationError.pairingPayloadTooLarge {
-            configurationIssue = DesktopIssue(code: .pairingPayloadTooLarge)
-            return
-        } catch {
-            configurationIssue = DesktopIssue(code: .incompletePairingConfiguration)
-            return
-        }
+    func showDiagnostics(_ issue: DesktopIssue) {
+        diagnosticFocusIssue = issue
+        diagnosticRequestID = UUID()
+    }
 
-        do {
-            try profileStore.save(profile)
-            connectionProfile = profile
-            profileName = profile.name
-            gatewayAddress = profile.gatewayURL.absoluteString
-            appToken = profile.appToken
-            isPairingCodeRevealed = false
-            configurationMessage = "已安全保存到这台 Mac 的 Keychain，正在执行端到端检查。"
-            await refresh()
-            let endToEnd = health.component(.endToEnd)
-            if let issue = endToEnd.issue {
-                configurationMessage = nil
-                configurationIssue = issue
-            } else if endToEnd.level == .healthy {
-                configurationMessage = "已保存到 Keychain，端到端连接检查通过。"
-            }
-        } catch {
-            configurationIssue = DesktopIssue(
-                code: .configurationSaveFailed,
-                technicalCause: String(describing: error)
-            )
+    func copyDiagnosticReport() {
+        var lines = ["Desktop \(appVersion)", "Managed: \(installedManagedVersion ?? "unknown")",
+                     "Local Hermes: \(localHermesPresentation.version)"]
+        for item in presentedHealth.components {
+            lines.append("\(item.component.rawValue): \(item.level.rawValue) — \(item.detail) — \(String(describing: item.checkedAt))")
         }
+        if let local = localManagedHermesHealth { lines.append("Local authenticated check: \(local.level.rawValue) — \(local.detail)") }
+        if case .unsupported(let reason, let detail) = localHermesDetection { lines.append("\(reason.rawValue): \(detail)") }
+        for issue in [localHermesIssue, managedBootstrapIssue, componentBootstrapIssue, serviceRepairIssue, appUpdateIssue, accountIssue].compactMap({ $0 }) {
+            lines.append(issue.sanitizedDiagnostic)
+        }
+        lines.append(contentsOf: recentLogLines)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(SecretRedactor.redact(lines.joined(separator: "\n")), forType: .string)
     }
 
     func copyDiagnostics(_ issue: DesktopIssue) {
@@ -2175,44 +2197,14 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         NSPasteboard.general.setString(issue.sanitizedDiagnostic, forType: .string)
     }
 
-    private func observerHealth(
-        _ observation: LegacyConnectorSnapshot,
-        checkedAt: Date
-    ) -> ComponentHealth {
-        guard observation.isInstalled else {
-            return ComponentHealth(
-                component: .observer,
-                level: .unavailable,
-                detail: "未检测到旧 Connector",
-                checkedAt: checkedAt
-            )
-        }
-        return ComponentHealth(
-            component: .observer,
-            level: observation.config.observerEnabled ? .checking : .unavailable,
-            detail: observation.config.observerEnabled
-                ? "按现有配置启用，阶段 0 尚未独立上报"
-                : "现有配置已关闭",
-            checkedAt: checkedAt
-        )
-    }
-
     func openHermes() {
-        guard let url = legacy?.config.hermesBaseURL else { return }
-        NSWorkspace.shared.open(url)
-    }
-
-    func openLegacyLogDirectory() {
-        guard let directory = legacy?.installDirectory else { return }
-        NSWorkspace.shared.open(directory)
+        NSWorkspace.shared.open(DesktopHermesRuntimeContract.serveV1.baseURL)
     }
 
     func openLogDirectory() {
         if let directory = managedPaths?.managedRoot.appendingPathComponent("logs", isDirectory: true),
            FileManager.default.fileExists(atPath: directory.path) {
             NSWorkspace.shared.open(directory)
-        } else {
-            openLegacyLogDirectory()
         }
     }
 }

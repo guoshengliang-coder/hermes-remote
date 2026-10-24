@@ -10,7 +10,6 @@ public enum DesktopAgentMode: Equatable, Sendable {
     case checking
     case managedVerified(releaseVersion: String)
     case managedUnverified(releaseVersion: String)
-    case legacy
     case unavailable
     case attentionRequired
 }
@@ -34,7 +33,7 @@ public struct DesktopAgentPresentation: Equatable, Sendable {
     )
 
     public static func reduce(
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         managed: DesktopManagedBootstrapInstallationStatus,
         accountVerification: DesktopManagedAccountVerification,
         checkedAt: Date
@@ -91,24 +90,15 @@ public struct DesktopAgentPresentation: Equatable, Sendable {
             preconditionFailure("active managed installation handled above")
         }
 
-        if legacy.isRunning {
-            return DesktopAgentPresentation(
-                mode: .legacy,
-                health: ComponentHealth(
-                    component: .desktopAgent,
-                    level: .healthy,
-                    detail: "旧 Connector 正在运行（兼容观察模式）",
-                    checkedAt: checkedAt
-                )
-            )
-        }
+        let hasConflict = legacy.isInstalled || legacy.isRunning
         return DesktopAgentPresentation(
-            mode: legacy.isInstalled ? .attentionRequired : .unavailable,
+            mode: hasConflict ? .attentionRequired : .unavailable,
             health: ComponentHealth(
                 component: .desktopAgent,
-                level: legacy.isInstalled ? .failed : .unavailable,
-                detail: legacy.isInstalled ? "已安装但当前未运行" : "未检测到 Connector",
-                checkedAt: checkedAt
+                level: hasConflict ? .failed : .unavailable,
+                detail: hasConflict ? DesktopIssue(code: .retiredConnectionUnsupported).displayChinese : "Desktop 尚未完成设置",
+                checkedAt: checkedAt,
+                issue: hasConflict ? DesktopIssue(code: .retiredConnectionUnsupported) : nil
             )
         )
     }

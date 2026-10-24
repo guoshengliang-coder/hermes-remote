@@ -233,6 +233,7 @@ logs only a route category, phase, elapsed time, and allowlisted transport error
 | `HR-MIGRATE-019` | A committed managed installation has missing LaunchAgent files or unloaded jobs; explicit service repair is available after identity and installation preflight | 受管启动项缺失或尚未载入，请修复受管服务以恢复连接。 | Managed startup items are missing or unloaded. Repair the managed services to restore the connection. | Yes (explicit repair confirmation) |
 | `HR-MIGRATE-020` | Managed service repair cannot prove the original account, machine credential, installation, runtime, or unique service topology | 暂时无法安全修复受管服务。请查看详情，恢复原账号或缺失的安装资料后重新检查。 | Managed services cannot be repaired safely yet. Review the details and restore the original account or missing installation records, then check again. | No (resolve the reported preflight condition) |
 | `HR-MIGRATE-021` | Confirmed managed service repair or its rollback did not finish; the durable repair snapshot remains available when restoration cannot be proved | 受管服务修复未完成，请重新检查后重试；恢复未完成时请查看详情。 | Managed service repair did not finish. Check again before retrying; review the details if restoration is incomplete. | Yes (recheck and explicitly retry repair/recovery) |
+| `HR-MIGRATE-022` | Desktop detects a retired Connector startup item or running job before account setup; old-mode migration and restoration are no longer supported | Desktop 已停止支持旧连接模式。请先停用并移除旧 Connector 启动项，再通过账号设置这台 Mac；无需删除 Hermes 数据。 | Desktop no longer supports the old connection mode. Disable and remove the old Connector startup item, then set up this Mac with your account. Keep your Hermes data. | No (resolve the startup-item conflict; view diagnostics) |
 | `HR-RPC-001` | Gateway RPC returned an unmapped remote error | Relay 请求失败，请查看详情后重试。 | The Relay request failed. Review the details and retry. | Depends |
 | `HR-RPC-002` | Gateway RPC response timed out | Relay 响应超时，请稍后重试。 | The Relay response timed out. Try again shortly. | Yes |
 | `HR-RPC-003` | Model catalog could not be loaded | 无法加载模型列表，请重试。 | Couldn't load the model list. Retry. | Yes |
@@ -500,3 +501,11 @@ its held boundary after bounded reads. The shown transcript remains; retry resyn
 latest page before paging again. Diagnostics contain only the fixed boundary-failure explanation,
 not message text, row IDs, profile/device identifiers or credentials. The registered Chinese/English
 summary and meaning are unchanged; no new error code is allocated.
+
+## Desktop account-only recovery (2026-10-24)
+
+Desktop no longer offers a legacy-connection recovery action. For disabled email/account/binding
+capabilities and missing account configuration, its localized recovery points to settings or an
+updated, correctly configured Desktop. The underlying registered error meanings and other clients
+are unchanged. Desktop no longer emits the removed App Token and v1 pairing validation errors;
+those published IDs remain reserved and must not be reassigned.

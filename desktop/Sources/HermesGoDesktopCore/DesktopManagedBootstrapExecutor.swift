@@ -18,7 +18,7 @@ public protocol DesktopReleaseMigrating: Sendable {
         sources: [DesktopManagedReleaseSource],
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome
@@ -325,7 +325,7 @@ public actor DesktopManagedBootstrapExecutor {
     public func commit(
         _ preparation: DesktopManagedBootstrapPreparation,
         configuration: DesktopManagedBootstrapCommitConfiguration,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         confirmation: String
     ) async throws -> DesktopManagedBootstrapOutcome {
         guard case .prepared(let pending) = state else {
@@ -444,7 +444,7 @@ public actor DesktopManagedBootstrapExecutor {
         manifestURL: URL,
         workspaceRoot: URL,
         configuration: DesktopManagedBootstrapCommitConfiguration,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String,
         installation: DesktopManagedBootstrapInstallationStatus = .absent

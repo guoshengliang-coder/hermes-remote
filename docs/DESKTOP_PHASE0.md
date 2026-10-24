@@ -1,5 +1,21 @@
 # Hermes Go Desktop phase 0
 
+## Current retirement boundary — 2026-10-24
+
+The original phase-0 compatibility observer is retired in the current source. Desktop supports
+account connections only. Removed: old URL/Token editor and credential storage, token-bearing v1 QR,
+legacy endpoint/log/config parsing, optional observer health, migration from a running legacy
+Connector, and legacy rollback/restart restoration. Only a retired-job/startup-item conflict check
+and suppression of a duplicate on a proven account-active installation remain. Conflict reports
+`HR-MIGRATE-022`; old-mode journals are rejected without mutation. Clean-install failure returns to
+`clean_uninstalled`; account upgrade failure restores the prior account installation.
+
+The dated phase and rollout sections below are historical implementation records. References to
+legacy compatibility, takeover, `legacy_active`, and legacy Token probes no longer describe supported
+Desktop behavior. This retirement does not remove Hermes upstream API checks, signed release
+compatibility, existing account-installation format support, or Android/Gateway routes.
+
+
 ## Existing-binding onboarding recovery (HG-234, 2026-10-23)
 
 A restored account session with this Desktop's `bound` snapshot and active binding clears the legacy
