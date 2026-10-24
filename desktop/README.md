@@ -1,14 +1,12 @@
 # Hermes Go Desktop
 
-Unreleased UI polish: diagnostics now presents seven sourced checks, contextual recovery, a searchable
-redacted log viewer and collapsed technical details. Overview shows direct cloud latency and names
-the local Desktop; duplicate window/page branding and the Local Hermes placeholder card are removed.
-The sidebar and Hermes section share a monochrome portrait outline. No service/data or version changes.
-
-Unreleased: managed reconnect/repair and both upgrade layouts support a validated per-Mac
-`FILE_DOWNLOAD_BYTES_PER_SECOND` override. The Connector default remains 4 MiB/s; the measured
-M4 trial target is 8 MiB/s after installing this support. See
-[`CONNECTOR_TRANSFER_TUNING.md`](../docs/CONNECTOR_TRANSFER_TUNING.md) for rollout and rollback.
+Release candidate **0.2.37 / build 40** (owner confirmed 2026-10-24): overview now emphasizes
+semantic icons, direct cloud latency, Hermes version and independently checked background/cloud/mobile
+status. Healthy explanations and check times expand on demand; recovery remains visible for failures.
+Includes the diagnostics/log viewer, native title cleanup, Mac naming, shared Hermes portrait icon and
+Local Hermes placeholder removal previously merged in #642. Also includes #641's validated per-Mac
+transfer-budget override; its default remains unchanged. See `CONNECTOR_TRANSFER_TUNING.md`.
+606 Swift tests and assets passed. Publication evidence will be recorded after public readback.
 
 Published **0.2.36 / build 39** (2026-10-24): repair existing Hermes installations with named profiles without changing their data,
 pin the managed backend to its original default home, show concrete repair blockers, and remove

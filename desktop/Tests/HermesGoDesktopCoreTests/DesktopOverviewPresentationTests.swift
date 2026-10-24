@@ -103,6 +103,35 @@ final class DesktopOverviewPresentationTests: XCTestCase {
         }
     }
 
+    func testIndicatorLevelsKeepEachEvidenceBoundaryIndependent() {
+        let offline = make(online: false)
+        XCTAssertEqual(offline.backgroundLevel, .healthy)
+        XCTAssertEqual(offline.remoteConnectionLevel, .failed)
+        let failedAccess = make(remoteHealthy: false)
+        XCTAssertEqual(failedAccess.remoteConnectionLevel, .healthy)
+        XCTAssertEqual(failedAccess.remoteAccessLevel, .failed)
+        XCTAssertEqual(make(reportAge: 181).remoteAccessLevel, .checking)
+        XCTAssertEqual(make(accountIssue: true).accountServiceLevel, .degraded)
+        XCTAssertEqual(make(accountIssue: true).remoteConnectionLevel, .checking)
+    }
+
+    func testIndicatorLevelsCannotPaintMissingOrStaleEvidenceGreen() {
+        for age in [181.0, -20.0] {
+            XCTAssertEqual(make(age: age).backgroundLevel, .checking)
+            XCTAssertEqual(make(accountAge: age).remoteConnectionLevel, .checking)
+            XCTAssertEqual(make(reportAge: age).remoteAccessLevel, .checking)
+        }
+        let signedOut = make(state: .signedOut)
+        XCTAssertEqual(signedOut.accountServiceLevel, .unavailable)
+        XCTAssertEqual(signedOut.remoteConnectionLevel, .checking)
+        XCTAssertEqual(signedOut.remoteAccessLevel, .checking)
+        XCTAssertEqual(make(manageOnly: true).backgroundLevel, .unavailable)
+        XCTAssertEqual(make(busy: true).backgroundLevel, .checking)
+        // Running but identity-unverified is distinct from a stopped background process.
+        XCTAssertEqual(make(unverified: true).backgroundLevel, .healthy)
+        XCTAssertEqual(make(unverified: true).desktop.level, .degraded)
+    }
+
     private func make(online: Bool = true, selectedRemote: Bool = false,
                       cloudLevel: HealthLevel = .healthy, localLevel: HealthLevel? = .healthy,
                       age: TimeInterval = 0, accountAge: TimeInterval = 0, reportAge: TimeInterval = 0,
