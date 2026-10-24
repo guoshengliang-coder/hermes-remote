@@ -1,5 +1,24 @@
 # Hermes Go Desktop
 
+Published **0.2.40 / build 43** (owner confirmed 2026-10-24): structured Hermes/model status,
+account/sidebar/settings polish, installation guidance and bounded download recovery (#654/#656).
+
+Publication completed on 2026-10-24 after PRs #656/#657 and their main checks passed,
+from clean main `935f42a901b5e254fe7186354d9d4461979f7a76`. Both unified-publisher success markers and independent
+complete public downloads passed. The internal `-dev.dmg` and compatible `.dmg` alias match
+**3,899,546 bytes**, SHA-256 `896f068982a096ff5bea7b4d1439298c086aaef149f72f3cac95ba76683febc1`.
+Website and app-update indexes both report 0.2.40/build 43; signed managed-component indexes remain
+byte-identical at 0.4.12. Assets, 629 Swift tests, 15 publication/update tooling tests, release app/DMG
+build, strict ad-hoc signature, mounted identity/version/build/arm64 and image integrity passed.
+Native fixtures cover light/dark/compact layout, long email, model states and installation guidance.
+No user-installed app, service, Hermes profile or data was replaced. Real clean-machine installation,
+upstream dependency outage recovery, upgrade/relaunch and phone/model tasks remain separate acceptance.
+This is temporary-signed internal distribution, not Apple notarization.
+
+Download: `https://mrlgs.net/desktop/apps/0.2.40/Hermes-Go-Desktop-0.2.40-dev.dmg`.
+
+## Previous distribution: 0.2.39
+
 Published **0.2.39 / build 42** (owner confirmed 2026-10-24): first-run recovery,
 local inspection without login, unified device invitations and model setup guidance.
 
