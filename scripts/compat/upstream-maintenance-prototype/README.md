@@ -789,3 +789,42 @@ dies. No unknown-sync retry, full PM/updater recovery, terminal maintenance or p
 is added. `realPMWorkerOperationExecuted`, `allPMDescendantsCovered`, `pmInFlightRecoveryVerified`,
 `updaterRecoveryVerified`, `productionCompletionVerified`, `globalAdmissionProven`, `certifiesUpgrade`
 remain false. The next step is real downstream-mutator custody and recovery-policy validation.
+
+### Native uv build descendant probe (2026-10-24, independent narrow experiment)
+
+`hermes-maintenance-pm-native.py` executes the fixed target's actual `PythonEnvironment` API,
+the existing disposable preparation's read-only uv 0.12.3/Python 3.14.7, and a new private local
+PEP 517 project with no external build requirements. Tool bytes are independently reread in the
+child and actual versions checked; this is not a toolchain provenance/closure certificate. The
+original prepared root, source and tools are not modified. All cache, venv, build and temporary
+outputs go to a new `hg199-pm-descendant-*` root; network and writes outside it are denied.
+
+The narrowly reviewed proposed spawn keeps close_fds and passes only the enrolled, drained home/
+checkout descriptions for the exact offline requirements command and fixture environment. The raw
+control uses the original Popen options. The actual native uv process launches our stdlib local
+backend, which reports descriptor identities and bounded heartbeat sequences. The test caller kills
+its exact uv Popen and closes its own custody; the supervisor then SIGKILLs that caller. Only a NEW
+heartbeat after both parents were reaped proves backend liveness. Raw mode observed free locks;
+proposed mode kept both domains locked until the backend was released. Both actual Mac modes pass.
+The local backend intentionally aborts; no wheel, sync success or upgrade completion is certified.
+
+Unlike passive gates, this caller needs to interrupt its own uv. Its dedicated sandbox profile
+permits signals while retaining file/network/service-exec restrictions; there is no external PID
+input, broad kill or service action. Other passive experiment profiles keep their signal denial.
+
+```bash
+python -I -S -B scripts/compat/hermes-maintenance-pm-native.py --provision --mode raw \
+  --source-root <clean-fixed-target-git> --prepared-root <prior-disposable-source-pm-root>
+python -I -S -B scripts/compat/hermes-maintenance-pm-native.py --provision --mode proposed \
+  --source-root <clean-fixed-target-git> --prepared-root <prior-disposable-source-pm-root>
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_pm_native_descendant.py'
+```
+
+Five portable tests cover custody/context refusals, temporary dup lifetime, escaped requirements,
+strict opt-in/bilingual redaction and stale-versus-post-death heartbeat evidence. The CLI redaction
+case failed before reusing the strict argument parser. Native uv/backend execution is opt-in only,
+not represented by those tests. This independent probe publishes NO durable intent and tests NO
+official update lock; it is not the original pm.client worker or full sync chain. Separate passing
+worker/native boundaries cannot be composed into a full-tree proof. No arbitrary hooks, other
+platforms, unknown-sync recovery, global writers or production authority are certified. GO/default
+sync do not import this proposal; fullPMTreeCovered, pmSyncExecuted and certifiesUpgrade stay false.

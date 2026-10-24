@@ -110,6 +110,7 @@ jobs:
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_source.py'
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_source_pm.py'
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_pm_worker_custody.py'
+          python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_pm_native_descendant.py'
           python -I -S -B scripts/compat/hermes-maintenance-source.py --old-root .upstream/current --candidate-root .upstream/candidate
           python -I -S -B scripts/compat/hermes-maintenance-pm.py --selector-matrix .upstream/candidate
   upstream-main-warning:

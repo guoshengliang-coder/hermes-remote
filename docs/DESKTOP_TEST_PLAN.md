@@ -1,5 +1,19 @@
 # Hermes Go Desktop test plan
 
+## 原生 PM 构建后代回归（2026-10-24，独立兼容夹具）
+
+五项portable测试覆盖真实enrolled双域FD/验证临时dup不解锁、未知命令/options/环境/越界需求文件
+拒绝、无marker/关闭custody拒绝、CLI opt-in/双语HR-HERMESUPDATE-002/不可重试/脱敏，以及必须
+在两父方回收后继续推进的心跳。参数回显回归先复现stderr泄漏非法输入，再复用严格解析器修复。
+
+实际Mac raw/proposed分别新建目录，固定上游PythonEnvironment API+uv0.12.3/Python3.14.7离线
+创建venv/运行本地PEP517 backend。uv被其Popen拥有方中止、调用方关闭FD并被监督方SIGKILL后，
+新backend心跳证明仍活跃；raw双域锁可进入，proposed仍持锁直至backend退出。不是完整PM sync、
+官方锁/耐久意图/升级恢复或全进程树认证。未改产品代码/UI，本地不重复Desktop/Node/Web/Android/
+device基线；此前本机记录的771 Swift/本地app属于产品阶段，当前完整head由CI另核验。
+本地完整Python兼容162项通过；两模式的最终实测包含独立版本检查及严格的父方死亡后心跳，
+均通过。原始工作区与已准备工具只读，所有新venv/cache/build输出留在各自新夹具中。
+
 ## HG-199 local upgrade records / journal reader (2026-10-24)
 
 Test-impact review: journal bytes may drive recovery exclusion and now feed a read-only card. Add

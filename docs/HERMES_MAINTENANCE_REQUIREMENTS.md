@@ -1,5 +1,20 @@
 # HG-199：跨进程维护的上游协作需求与隔离原型
 
+## 原生 uv → 本地构建 backend 边界（2026-10-24）
+
+独立新夹具使用固定818c13be的实际PythonEnvironment API、已准备夹具只读工具、uv0.12.3/
+Python3.14.7，离线创建venv并尝试构建无外部依赖的本地PEP517包。默认Popen在这层丢失维护
+描述符；窄proposal保持close_fds，仅传核验的双域FD。backend实际执行后，调用方杀死自己的uv
+Popen、关闭自身custody，再由监督方SIGKILL自建调用方。两父进程回收后必须出现新的backend
+心跳，不能用死亡前已推进的文件证明存活。raw此时双域可进入，proposed仍被backend持锁；
+释放backend才恢复。两模式实际Mac均通过，构建有意中止，不产生升级完成结论。
+
+此实验使用独立已登记的空闲双域，没有发布durable intent、没有测试实际官方更新锁，也不是
+pm.client worker/完整sync链。它只验证此原生uv/本地backend路径，不覆盖任意build hook、平台
+或PM所有分支。不能与前一worker边界结果拼接成全树/恢复认证；产品与默认同步均未接入。
+保留文件写入、网络和服务工具sandbox边界；本夹具调用方需中止自己的uv，因此其专用profile
+允许信号，代码只接受自建Popen，无外部PID接口。其他被动实验仍禁信号。
+
 ## PM 独立 worker 的 custody 边界（2026-10-24）
 
 已用固定真实PM的_request启动参数复核：原Popen不显式传维护FD，最后调用方死亡后，尚在闸门内的
