@@ -25,8 +25,10 @@ final class DesktopLocalHermesUsabilityTests: XCTestCase {
         let unsupported = DesktopLocalHermesPresentation(detection: .unsupported(.multipleProfiles, detail: "private details"), health: nil, hasManagedInstallation: false)
         let absent = DesktopLocalHermesPresentation(detection: .absent(hermesDataPresent: true), health: nil, hasManagedInstallation: false)
         XCTAssertEqual(unsupported.title, "安装需要处理")
+        XCTAssertEqual(unsupported.level, .failed)
         XCTAssertFalse(unsupported.detail.contains("private details"))
         XCTAssertEqual(absent.title, "尚未安装")
+        XCTAssertEqual(absent.level, .unavailable)
         XCTAssertFalse(absent.canOpen)
     }
     func testBundledRuntimeCanBeUsableWithoutStandardCheckout() {

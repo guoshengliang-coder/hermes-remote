@@ -1,5 +1,9 @@
 # Hermes Go Desktop
 
+Overview/global-account update (0.2.35 / build 38, publication pending): three independently checked local status sections and
+an impact headline replace mixed connection tables. The sidebar footer owns login, identity and
+account management throughout the app; Devices and Settings keep their own responsibilities.
+
 Current published internal test version: **0.2.34 / build 37**, published on 2026-10-24.
 It includes HG-234 and HG-235 below. The unified publisher verified the full public DMG and
 synchronized both the website and Desktop app-update indexes. Download:

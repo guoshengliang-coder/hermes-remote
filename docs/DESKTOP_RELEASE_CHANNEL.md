@@ -1,5 +1,15 @@
 # Desktop release channel
 
+## Approved internal test distribution: 0.2.35
+
+On 2026-10-24 the owner authorized merge/publication and confirmed **0.2.35/build 38**.
+The overview separates cloud connectivity, this Mac's Desktop and authenticated local Hermes
+usability, with a concrete impact summary. Account login and management move to the global sidebar
+footer. Retain the existing public trust settings and temporary-signing internal channel; build from
+clean current main and use the unified publisher to verify the exact DMG and synchronize website
+and app-update discovery. Managed-component pointers remain unchanged. Publication and physical
+upgrade acceptance must be recorded separately after verification.
+
 ## Published internal test distribution: 0.2.34
 
 On 2026-10-24 the owner authorized publication and confirmed **0.2.34/build 37** on the

@@ -1,5 +1,22 @@
 # Hermes Go Desktop design contract
 
+## Overview and global account — 2026-10-24
+
+Overview always describes this Mac. Show an impact headline beside three compact, clickable status
+labels, then three vertical sections: Hermes GO Cloud, this Mac’s Desktop, and local Hermes. Each
+section owns its evidence, actual check time and relevant actions. Unknown/stale evidence is neutral,
+not healthy or a proven outage; public Cloud reachability is separate from account API availability.
+Remote usability additionally needs a fresh local-binding end-to-end report. Never borrow the
+selected remote Mac’s health. Installation/version presence is not authenticated Hermes usability.
+
+The fixed sidebar footer is the global account entry on every route. Signed-out/expired users can
+read the overview and open the existing email-code login from this entry or the overview action.
+Other management sections remain gated until setup is complete; existing onboarding and mutation
+locks remain in force. Signed-in users see their name/email and account menu. Account management
+opens separately; the Devices section owns bindings/devices/sharing, and Settings owns preferences
+and updates. Remove duplicate overview login badges and Settings account summaries. Preserve the
+explicit deletion receipt, installation confirmations, rollback and sign-out background-service rule.
+
 ## Account-only connection flow — 2026-10-24
 
 Remove the Advanced legacy URL/Token/QR card, compatibility-observer settings, old-mode banner and

@@ -356,7 +356,7 @@ private struct ConnectPhoneStep: View {
     var body: some View {
         GateShell(step: .connectPhone) {
             PhoneConnectPanel()
-                .frame(width: 800, alignment: .leading)
+                .frame(maxWidth: 800, alignment: .leading)
         } footer: {
             Button("稍后再说") { model.finishPhoneStep() }
                 .buttonStyle(.plain)
@@ -635,7 +635,7 @@ struct NewMacChoiceGateView: View {
                     GateIssueBanner(issue: issue).padding(.top, 12)
                 }
             }
-            .frame(width: 760, alignment: .leading)
+            .frame(maxWidth: 760, alignment: .leading)
         } footer: {
             CopyDiagnosticsButton(issue: model.accountIssue)
             Button("退出登录") { Task { await model.signOutAccount() } }

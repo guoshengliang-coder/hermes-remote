@@ -1,5 +1,24 @@
 # Hermes Go Desktop test plan
 
+## Overview/global account acceptance — 2026-10-24
+
+Automated reducer coverage: healthy requires fresh Cloud/local background/authenticated Hermes and
+local-binding end-to-end evidence; selected remote healthy devices cannot hide local failure; stale
+or future timestamps, failed account refresh, unverified identity, signed-out/expired, manage-only,
+active operations and local Hermes failure never produce a false overall healthy state.
+
+Native view fixture checks cover light/dark, 980 pt window width, signed-out/expired login, local
+repair, account management, and phone/new-Mac onboarding in the 769 pt content area beside the
+sidebar. These do not run monitoring, install services or constitute physical device acceptance.
+
+Manual: check the three summary links scroll to corresponding sections; verify each source’s timestamp,
+refresh, repair confirmation, update, local-Hermes and phone-setup actions. Switch selected remote Mac:
+overview must stay on this Mac. From every section open the footer account menu, manage account and
+sign out; existing services keep running. Signed-out overview must show login actions; footer/primary
+login open the same email-code form. Complete/reject/expire login, verify setup routing and retained
+section. Account deletion must still land on its explicit receipt. During install/repair/deletion,
+account actions and sheet dismissal remain locked. Check long email truncation/help and narrow/dark layouts.
+
 ## HG-235: Desktop product integration
 
 Automated coverage: update sequencing (background before app, failure, cancellation, late completion,

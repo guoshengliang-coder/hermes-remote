@@ -3,280 +3,251 @@ import SwiftUI
 
 struct OverviewView: View {
     @EnvironmentObject private var model: DesktopViewModel
-    @Environment(\.colorScheme) private var colorScheme
     @Binding var selection: DesktopSection
     @State private var isPhoneSheetPresented = false
+    private var state: DesktopOverviewPresentation { model.overviewPresentation }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    Text(model.overviewDeviceName.uppercased())
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .tracking(0.8)
-                    Spacer()
-                    Label(accountSummary, systemImage: "person.crop.circle")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                PageHeader(title: model.statusTitle, subtitle: model.statusDetail) {
-                    HStack(spacing: 10) {
-                        Button("运行诊断") { selection = .diagnostics }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
-                        Button("账号与设备") { selection = .pairing }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack {
+                        Text("这台 Mac · \(model.localDeviceName)")
+                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                        Spacer()
+                        Button { Task { await model.refreshDiagnostics() } } label: {
+                            Label(model.isRefreshing || model.isDiagnosing ? "检查中" : "刷新状态", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered).disabled(refreshDisabled)
                     }
+                    VStack(alignment: .leading, spacing: 14) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: 22) {
+                                headline
+                                Spacer(minLength: 8)
+                                statusLinks(proxy)
+                            }
+                            VStack(alignment: .leading, spacing: 14) {
+                                headline
+                                statusLinks(proxy)
+                            }
+                        }
+                        Text(state.detail).font(.system(size: 13)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        primaryAction
+                    }
+                    .padding(.vertical, 8)
+
+                    section("Hermes GO 云端", symbol: "cloud", status: state.cloud) {
+                        HStack(spacing: 24) {
+                            fact("服务地址", model.accountGatewayURL.host ?? "未配置")
+                            fact("账号服务", state.accountService)
+                        }
+                        if state.cloud.level == .failed {
+                            issueLink(DesktopIssue(code: .connectionFailed))
+                        } else if let issue = model.accountIssue, !state.needsLogin {
+                            issueLink(issue)
+                        }
+                        HStack {
+                            Button("重新检查") { Task { await model.refreshDiagnostics() } }
+                                .disabled(refreshDisabled)
+                            if state.needsLogin { Button("登录账号") { model.requestAccountSignIn() } }
+                        }.buttonStyle(.bordered)
+                    }.id("cloud")
+
+                    section("这台 Mac 的 Desktop", symbol: "laptopcomputer", status: state.desktop) {
+                        HStack(alignment: .top, spacing: 24) {
+                            fact("后台运行", state.background)
+                            fact("远程连接", state.remoteConnection)
+                            fact("应用版本", model.appVersion)
+                        }
+                        HStack {
+                            Text("手机访问验证：\(state.remoteAccess)")
+                            Spacer()
+                            Text(checkTime("验证时间", state.remoteAccessCheckedAt))
+                        }.font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(checkTime("云端连接检查", state.connectionCheckedAt))
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                        if model.bootstrapPlan.readiness == .existingServiceNeedsAttention {
+                            Text(model.bootstrapPlan.detailChinese)
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let issue = model.serviceRepairIssue ?? model.managedBootstrapIssue ?? model.agentPresentation.health.issue {
+                            issueLink(issue)
+                        } else if state.desktop.level == .failed {
+                            issueLink(DesktopIssue(code: model.agentPresentation.mode == .attentionRequired
+                                ? .migrationConnectorMismatch
+                                : state.remoteAccess == "未通过" && state.remoteConnection == "已连接云端"
+                                    ? .relayFailure : .connectorOffline))
+                        }
+                        HStack {
+                            desktopAction
+                            if model.entryRoute == .main {
+                                Button("检查更新") { Task { await model.checkForUpdates(manual: true) } }
+                                    .disabled(model.isManagedBootstrapAccountLocked || model.isDesktopUpdateRunning)
+                                Button("查看诊断") { selection = .diagnostics }
+                            }
+                        }.buttonStyle(.bordered)
+                        if showsNoPhoneHint {
+                            Divider()
+                            HStack {
+                                Text("手机登录同一账号后，即可访问这台 Mac。")
+                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                                Spacer()
+                                Button("连上手机") { isPhoneSheetPresented = true }.buttonStyle(.bordered)
+                            }
+                        }
+                    }.id("desktop")
+
+                    section("本机 Hermes", symbol: "terminal", status: state.hermes) {
+                        fact("Hermes 版本", model.localHermesPresentation.version)
+                        if let issue = model.localHermesIssue ?? model.localManagedHermesHealth?.issue {
+                            issueLink(issue)
+                        }
+                        if model.entryRoute == .main {
+                            HStack {
+                                if state.hermes.level == .healthy {
+                                    Button("打开 Hermes") { model.openHermes() }
+                                }
+                                Button("查看本机 Hermes") { selection = .localHermes }
+                                if state.hermes.level != .healthy {
+                                    Button("诊断与修复") { selection = .diagnostics }
+                                }
+                            }.buttonStyle(.bordered)
+                        }
+                    }.id("hermes")
                 }
-
-                if showsSetupProblem {
-                    setupProblemCard
-                } else if model.isManageOnly {
-                    manageOnlyBanner
-                } else if showsNoPhoneHint {
-                    noPhoneBanner
-                }
-                agentStatusBanner
-
-                HStack(alignment: .top, spacing: 18) {
-                    informationCard
-                    activityCard
-                }
-
-                Text("上次完整检查：\(model.presentedHealth.checkedAt.formatted(date: .omitted, time: .shortened))")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
+                .padding(28)
             }
-            .padding(34)
+            .refreshable { await model.refreshDiagnostics() }
         }
-        .refreshable { await model.refresh() }
-    }
-
-    /// §8: a half-installed or inconsistent Mac stays on main, so the reason belongs at the top of
-    /// the overview instead of behind the sidebar.
-    private var showsSetupProblem: Bool {
-        model.bootstrapPlan.readiness == .existingServiceNeedsAttention
-    }
-
-    private var setupProblemCard: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 18))
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(model.bootstrapPlan.titleChinese)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(model.bootstrapPlan.detailChinese)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            VStack(alignment: .trailing, spacing: 6) {
-                if model.serviceRepairNeeded {
-                    Button("修复 Desktop") { Task { await model.prepareServiceRepair() } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.isManagedBootstrapAccountLocked)
-                }
-                Button("查看详情") { selection = .pairing }
-                    .buttonStyle(.bordered)
-                CopyDiagnosticsButton(
-                    issue: model.serviceRepairIssue ?? model.managedBootstrapIssue ?? model.componentBootstrapIssue
-                )
-            }
-        }
-        .padding(14)
-        .background(Color.orange.opacity(colorScheme == .dark ? 0.16 : 0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    /// Chosen "只在这台 Mac 上管理" (§7.1): the way back into onboarding stays one click away.
-    private var manageOnlyBanner: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "laptopcomputer")
-                .font(.system(size: 20))
-                .foregroundStyle(Color.hermesBlue)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("这台 Mac 只用于管理")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("本机没有安装后台服务。想让手机也能使用这台 Mac 上的 Hermes，可以把它连上。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("把这台 Mac 也连上") { Task { await model.chooseNewMacUse(.connect) } }
-                .buttonStyle(.bordered)
-        }
-        .padding(14)
-        .background(Color.hermesBlue.opacity(colorScheme == .dark ? 0.16 : 0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    /// After "稍后再说" in onboarding step 4, the reminder lives here rather than in a second prompt.
-    private var showsNoPhoneHint: Bool {
-        guard let dashboard = model.currentDashboard,
-              model.bootstrapPlan.readiness == .managedInstallActive
-                || model.bootstrapPlan.readiness == .managedUpgradeAvailable
-        else { return false }
-        return DesktopRemoteClients.active(dashboard.installations).isEmpty
-    }
-
-    private var noPhoneBanner: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "iphone")
-                .font(.system(size: 20))
-                .foregroundStyle(Color.hermesBlue)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("还没有手机连接")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("在 Android 手机上安装 App，或在 iPhone / iPad 上把网页版添加到主屏幕，用同一个邮箱登录。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("连上手机") { isPhoneSheetPresented = true }
-                .buttonStyle(.bordered)
-        }
-        .padding(14)
-        .background(Color.hermesBlue.opacity(colorScheme == .dark ? 0.16 : 0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .sheet(isPresented: $isPhoneSheetPresented) {
             VStack(alignment: .leading, spacing: 16) {
-                Text("连上手机")
-                    .font(.system(size: 22, weight: .bold))
+                Text("连上手机").font(.system(size: 22, weight: .bold))
                 PhoneConnectPanel(showsHeader: false)
-                HStack {
-                    Spacer()
-                    Button("完成") { isPhoneSheetPresented = false }
-                        .keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(26)
-            .frame(width: 860)
+                HStack { Spacer(); Button("完成") { isPhoneSheetPresented = false } }
+            }.padding(26).frame(width: 860)
         }
     }
 
-    private var accountSummary: String {
-        switch model.accountState {
-        case .signedIn(let dashboard):
-            dashboard.session.account.displayName ?? "账号已登录"
-        case .needsSignIn:
-            "账号需要重新登录"
-        case .checking, .signingIn:
-            model.accountIssue == nil ? "正在检查账号" : "账号状态需确认"
-        case .unavailable:
-            "账号模式未开放"
-        case .signedOut:
-            "未登录账号"
-        case .accountDeletionSubmitted:
-            "云端账号删除已提交"
+    private var headline: some View {
+        Text(state.title).font(.system(size: 24, weight: .bold))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func statusLinks(_ proxy: ScrollViewProxy) -> some View {
+        HStack(spacing: 10) {
+            statusLink("云端", state.cloud, "cloud", proxy)
+            statusLink("Desktop", state.desktop, "desktop", proxy)
+            statusLink("Hermes", state.hermes, "hermes", proxy)
         }
     }
 
-    private var agentStatusBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "eye")
-                .foregroundStyle(Color.hermesBlue)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(agentBannerTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(agentStatusDetail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+    private func statusLink(_ label: String, _ status: DesktopOverviewStatus, _ id: String,
+                            _ proxy: ScrollViewProxy) -> some View {
+        Button { withAnimation { proxy.scrollTo(id, anchor: .top) } } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
+                OverviewStatusLabel(status: status)
+            }.padding(10).background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        }.buttonStyle(.plain).accessibilityLabel("\(label)，\(status.title)，查看详情")
+    }
+
+    private func section<Content: View>(_ title: String, symbol: String, status: DesktopOverviewStatus,
+                                        @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(title, systemImage: symbol).font(.system(size: 16, weight: .semibold))
+                Spacer()
+                OverviewStatusLabel(status: status)
             }
+            Text(status.detail).font(.system(size: 13)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            content()
+            Text(checkTime("检查时间", status.checkedAt)).font(.system(size: 11)).foregroundStyle(.secondary)
+        }.padding(18).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
+    }
+
+    private func fact(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 13)).textSelection(.enabled)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func checkTime(_ label: String, _ date: Date?) -> String {
+        guard let date, date != .distantPast else { return "\(label)：尚未检查" }
+        return "\(label)：\(date.formatted(date: .abbreviated, time: .standard))"
+    }
+
+    private func issueLink(_ issue: DesktopIssue) -> some View {
+        HStack {
+            Text(issue.displayChinese).font(.system(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer()
-        }
-        .padding(14)
-        .background(Color.hermesBlue.opacity(colorScheme == .dark ? 0.16 : 0.07))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private var agentStatusDetail: String {
-        if let device = model.selectedAccountDevice {
-            return device.connector.online
-                ? "\(device.desktopDisplayName) 已通过账号安全连接；状态来自该设备最近一次健康上报。"
-                : "\(device.desktopDisplayName) 当前离线；现有本机服务不会因查看其他设备而改变。"
-        }
-        switch model.agentPresentation.mode {
-        case .managedVerified:
-            return "Desktop 后台连接正在运行；关闭窗口后仍可从手机使用。"
-        case .managedUnverified:
-            return "后台服务已保留；若刚完成迁移助理，请重新登录以核验这台 Mac，现有账号绑定会保留。"
-        case .attentionRequired:
-            return "Desktop 连接暂时无法确认，远程访问可能受影响；请打开诊断查看恢复状态。"
-        case .checking:
-            return "正在检查 Desktop 后台连接，不会在检查期间修改后台服务。"
-        case .unavailable:
-            return "请通过账号完成这台 Mac 的设置。"
+            if model.entryRoute == .main {
+                Button("查看原因") { model.showDiagnostics(issue) }.buttonStyle(.bordered)
+            } else { CopyDiagnosticsButton(issue: issue) }
         }
     }
 
-    private var agentBannerTitle: String {
-        if let device = model.selectedAccountDevice {
-            return device.connector.online ? "Desktop 连接正常" : "Desktop 当前离线"
-        }
-        return switch model.agentPresentation.mode {
-        case .managedVerified:
-            "Desktop 后台连接正在运行"
-        case .managedUnverified:
-            "检测到Desktop 后台连接"
-        case .attentionRequired:
-            "后台连接状态需要核验"
-        case .checking:
-            "正在检查后台连接"
-        case .unavailable:
-            "Desktop 尚未完成设置"
+    @ViewBuilder private var primaryAction: some View {
+        if state.needsLogin {
+            Button("登录账号") { model.requestAccountSignIn() }.buttonStyle(.borderedProminent)
+        } else if state.cloud.level == .failed {
+            Button("重新检查连接") { Task { await model.refreshDiagnostics() } }
+                .buttonStyle(.borderedProminent).disabled(refreshDisabled)
+        } else if model.serviceRepairNeeded {
+            repairButton.buttonStyle(.borderedProminent)
+        } else if state.hermes.level == .failed {
+            Button("检查本机 Hermes") { selection = .localHermes }.buttonStyle(.borderedProminent)
         }
     }
 
-    private var informationCard: some View {
-        infoCard(title: "连接信息", rows: [
-            ("设备", model.overviewDeviceName),
-            ("账号连接", model.overviewGatewaySummary),
-            ("Hermes", model.presentedHealth.component(.hermes).level == .healthy ? "可以使用" : "待确认"),
-        ])
-    }
-
-    private var activityCard: some View {
-        infoCard(title: "运行状态", rows: [
-            ("后台模式", backgroundModeSummary),
-            ("Desktop", model.appVersion),
-            ("问题排查", "请打开诊断"),
-        ])
-    }
-
-    private var backgroundModeSummary: String {
-        if model.selectedAccountDevice != nil { return "账号连接" }
-        return switch model.agentPresentation.mode {
-        case .managedVerified: "正在运行"
-        case .managedUnverified: "待核验"
-        case .attentionRequired: "需要核验"
-        case .checking: "检查中"
-        case .unavailable: "未检测"
+    @ViewBuilder private var desktopAction: some View {
+        if state.needsLogin {
+            Button("登录并继续") { model.requestAccountSignIn() }
+        } else if model.serviceRepairNeeded {
+            repairButton
+        } else if model.isManageOnly {
+            Button("连接这台 Mac") { Task { await model.chooseNewMacUse(.connect) } }
+                .disabled(model.isManagedBootstrapAccountLocked)
+        } else if model.canReconnectManagedConnector {
+            Button("重新连接") { Task { await model.prepareConnectorReconnect() } }
+        } else {
+            Button("连接设置") { selection = .pairing }.disabled(model.entryRoute != .main)
         }
     }
+    private var repairButton: some View {
+        Button("修复 Desktop") { Task { await model.prepareServiceRepair() } }
+            .disabled(model.isManagedBootstrapAccountLocked)
+    }
+    private var refreshDisabled: Bool {
+        model.isRefreshing || model.isDiagnosing || model.isManagedBootstrapAccountLocked
+    }
+    private var showsNoPhoneHint: Bool {
+        guard let dashboard = model.currentDashboard,
+              state.desktop.level == .healthy else { return false }
+        return DesktopRemoteClients.active(dashboard.installations).isEmpty
+    }
+}
 
-    private func infoCard(title: String, rows: [(String, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: 15, weight: .bold))
-                .padding(.bottom, 13)
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                if index > 0 { Divider() }
-                HStack {
-                    Text(row.0).foregroundStyle(.secondary)
-                    Spacer()
-                    Text(row.1).lineLimit(1)
-                }
-                .font(.system(size: 13))
-                .frame(height: 36)
-            }
+struct OverviewStatusLabel: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let status: DesktopOverviewStatus
+    var body: some View {
+        Label(status.title, systemImage: symbol)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color.status(status.level, scheme: colorScheme))
+            .fixedSize(horizontal: true, vertical: false)
+    }
+    private var symbol: String {
+        switch status.level {
+        case .healthy: "checkmark.circle.fill"
+        case .failed, .degraded: "exclamationmark.circle.fill"
+        case .checking: "clock"
+        case .unavailable: "minus.circle"
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .hermesCard()
     }
 }

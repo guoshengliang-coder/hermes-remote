@@ -2,6 +2,7 @@ import HermesGoDesktopCore
 import SwiftUI
 
 struct AccountDevicesView: View {
+    var accountOnly = false
     @EnvironmentObject private var model: DesktopViewModel
     @State private var phoneToRemove: ManagedAccountInstallation?
     @State private var phoneVerificationCode = ""
@@ -30,8 +31,8 @@ struct AccountDevicesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 PageHeader(
-                    title: "账号与设备",
-                    subtitle: "一个账号可管理多台 Mac；当前选择只影响接下来打开的新内容。"
+                    title: accountOnly ? "我的账号" : "设备",
+                    subtitle: accountOnly ? "管理当前账号与登录" : "一个账号可管理多台 Mac；当前选择只影响接下来打开的新内容。"
                 ) {
                     Button {
                         Task {
@@ -166,56 +167,57 @@ struct AccountDevicesView: View {
 
     @ViewBuilder
     private func signedInContent(_ dashboard: AccountDashboard) -> some View {
-        HStack(alignment: .top, spacing: 18) {
+        if accountOnly {
             accountCard(dashboard)
-            bindingCard(dashboard.binding)
-        }
-        if model.hermesInstallPhase != .hidden {
-            HermesInstallCard()
-        }
-        if let presentation = model.componentPreflightPresentation {
-            ComponentPreflightCard(
-                presentation: presentation,
-                canBegin: model.componentBootstrapCanBegin && !model.isHermesInstallDecisionPending,
-                isUpgrade: model.bootstrapPlan.readiness == .managedUpgradeAvailable,
-                operation: model.componentBootstrapOperation,
-                cleanupRetryAvailable: model.componentCleanupRetryAvailable,
-                prepare: { Task {
-                    if model.bootstrapPlan.readiness == .managedUpgradeAvailable { await model.checkForUpdates(manual: true) }
-                    else { await model.prepareComponentBootstrap() }
-                } },
-                retryCleanup: { Task { await model.retryComponentBootstrapCleanup() } }
-            )
-        } else if model.componentCleanupRetryAvailable,
-                  model.componentBootstrapOperation == .failed {
-            componentCleanupRecoveryCard
-        }
-        if let issue = model.componentBootstrapIssue {
-            accountIssueCard(issue)
-        }
-        if model.serviceRepairNeeded {
-            ManagedServiceRepairCard()
         } else {
-            bootstrapPlanCard(model.bootstrapPlan)
+            bindingCard(dashboard.binding)
+            if model.hermesInstallPhase != .hidden {
+                HermesInstallCard()
+            }
+            if let presentation = model.componentPreflightPresentation {
+                ComponentPreflightCard(
+                    presentation: presentation,
+                    canBegin: model.componentBootstrapCanBegin && !model.isHermesInstallDecisionPending,
+                    isUpgrade: model.bootstrapPlan.readiness == .managedUpgradeAvailable,
+                    operation: model.componentBootstrapOperation,
+                    cleanupRetryAvailable: model.componentCleanupRetryAvailable,
+                    prepare: { Task {
+                        if model.bootstrapPlan.readiness == .managedUpgradeAvailable { await model.checkForUpdates(manual: true) }
+                        else { await model.prepareComponentBootstrap() }
+                    } },
+                    retryCleanup: { Task { await model.retryComponentBootstrapCleanup() } }
+                )
+            } else if model.componentCleanupRetryAvailable,
+                      model.componentBootstrapOperation == .failed {
+                componentCleanupRecoveryCard
+            }
+            if let issue = model.componentBootstrapIssue {
+                accountIssueCard(issue)
+            }
+            if model.serviceRepairNeeded {
+                ManagedServiceRepairCard()
+            } else {
+                bootstrapPlanCard(model.bootstrapPlan)
+            }
+            if let issue = model.managedBootstrapIssue {
+                accountIssueCard(issue)
+            }
+            if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {
+                bundledHermesChoiceCard
+            } else if model.isFreshInstallBlockedByOwnersHermes {
+                ownersHermesGuidanceCard
+            }
+            if let issue = model.localHermesIssue {
+                accountIssueCard(issue)
+            }
+            if !dashboard.devices.isEmpty {
+                devicesCard(dashboard)
+            }
+            if dashboard.supportsDeviceSharing {
+                sharingCard(dashboard)
+            }
+            phonesCard(dashboard.phones)
         }
-        if let issue = model.managedBootstrapIssue {
-            accountIssueCard(issue)
-        }
-        if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {
-            bundledHermesChoiceCard
-        } else if model.isFreshInstallBlockedByOwnersHermes {
-            ownersHermesGuidanceCard
-        }
-        if let issue = model.localHermesIssue {
-            accountIssueCard(issue)
-        }
-        if !dashboard.devices.isEmpty {
-            devicesCard(dashboard)
-        }
-        if dashboard.supportsDeviceSharing {
-            sharingCard(dashboard)
-        }
-        phonesCard(dashboard.phones)
     }
 
     private func bootstrapPlanCard(_ plan: DesktopBootstrapPlan) -> some View {
@@ -1065,29 +1067,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 22) {
                 PageHeader(
                     title: "设置",
-                    subtitle: "管理 Desktop 偏好与账号"
+                    subtitle: "管理 Desktop 偏好与更新"
                 ) {
                     EmptyView()
                 }
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Hermes GO 账号")
-                        .font(.system(size: 16, weight: .bold))
-                        .padding(.bottom, 12)
-                    settingRow("账号状态", accountStatus)
-                    if case .signedIn(let dashboard) = model.accountState {
-                        Divider()
-                        settingRow("账号", dashboard.session.account.email ?? dashboard.session.account.displayName ?? "已登录")
-                        Divider()
-                        settingRow("Desktop", dashboard.session.installation.displayName)
-                    }
-                    Text("账号与远程设备管理集中在侧边栏“账号与设备”；设置页不重复展示连接拓扑。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 12)
-                }
-                .padding(20)
-                .hermesCard()
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Desktop 更新")
@@ -1155,17 +1138,6 @@ struct SettingsView: View {
     private var isCheckingUpdates: Bool {
         if case .checking = model.updateCheckState { return true }
         return false
-    }
-
-    private var accountStatus: String {
-        switch model.accountState {
-        case .signedIn: "已登录"
-        case .signedOut: "未登录"
-        case .accountDeletionSubmitted: "删除已提交"
-        case .needsSignIn: "需要重新登录"
-        case .checking, .signingIn: "正在检查"
-        case .unavailable: "账号模式未开放"
-        }
     }
 
     private func settingRow(_ label: String, _ value: String) -> some View {
