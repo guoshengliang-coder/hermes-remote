@@ -87,7 +87,7 @@ final class DesktopHermesUpgradeRecordTests: XCTestCase {
 
     func testReadOnlyConditionsStayBlockedEvenForCleanSource() throws {
         let fixture = ReadOnlyUpgradeFixture(); defer { fixture.remove() }
-        for state in [DesktopHermesUpgradeWorkingTree.clean, .dirty, .unknown] {
+        for state in [DesktopHermesUpgradeWorkingTree.clean, .dirty, .unsupportedConfiguration, .unknown] {
             let result = DesktopHermesUpgradeReadinessChecker(git: FixedGit(state: state)).check(
                 detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
                 officialUpdateInProgress: false)
@@ -95,6 +95,15 @@ final class DesktopHermesUpgradeRecordTests: XCTestCase {
             XCTAssertFalse(result.executionAvailable)
             XCTAssertEqual(result.issue?.code, .hermesUpdateBlocked)
             XCTAssertFalse(result.workingTreeSummaryEnglish.isEmpty)
+            if state == .unsupportedConfiguration {
+                XCTAssertEqual(result.workingTreeSummaryChinese, "自定义 Git 配置阻止安全检查，暂不能升级")
+                XCTAssertEqual(result.workingTreeSummaryEnglish,
+                               "Custom Git configuration prevents safe inspection; upgrading is blocked")
+                let issue = try XCTUnwrap(result.issue)
+                XCTAssertEqual(issue.technicalCause, "stage=git-preflight reason=unsupported-configuration")
+                XCTAssertFalse(issue.retryable)
+                XCTAssertFalse(issue.sanitizedDiagnostic.contains(fixture.installation.checkoutRoot.path))
+            }
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.root.path))
     }
