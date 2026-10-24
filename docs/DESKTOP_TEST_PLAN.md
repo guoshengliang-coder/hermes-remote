@@ -26,6 +26,9 @@ all listed states including cancel intent/cancelled history, and invoke zero cal
 compact, unsafe light and completed-history dark compact layouts were inspected: stage/target/date,
 wrapping explanation and diagnosis controls remain visible. No full-app clicks, installed-app run,
 live upgrade, signing/notarization acceptance or service verification was performed.
+The first CI run exposed older-Swift type-checker exhaustion in the synthesized invalid-JSON test
+array; separately typed sample variables retain every case. The two focused tests pass locally;
+the corrected head must pass the remote compiler before this iteration's CI gate is satisfied.
 
 ## PM worker custody 回归（2026-10-24）
 
