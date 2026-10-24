@@ -1,5 +1,26 @@
 # HG-199：跨进程维护的上游协作需求与隔离原型
 
+## 0.22.5 的真实 SessionDB 非参与写入反例（2026-10-24）
+
+完整固定bf0203a7源码在传输禁止的Git/全部tip对象/Python blob核验后，真实SessionDB独立进程
+在同一个新临时home中创建/写入三条合成消息。期间原型home/checkout四个EX描述符始终由监督方
+持有，另一个合作进程在写入前后均被拒绝；释放无intent夹具后合作进程才可进入。数据库quick_check
+及三条实际内容通过，源码前后重验。没有原始数据、服务、官方更新锁、耐久intent或生产授权。
+
+这比单独退休模块反例更直接：当前候选的数据库API尚不参与此原型协议。它不证明所有CLI/服务
+路径都缺少其他保护，也不把这套外部registry当成上游已支持的机制。新版retirement模块与818c13be
+字节相同，单独prepare/commit后新进程仍能acquire；该模块反例同样只说明其自身范围。
+
+子进程用私有HOME/HERMES_HOME/cache/tmp与无凭据环境。Python审计钩子拒绝越界写、网络、信号
+和其他进程操作；仅为真实导入期版本查询放行七种精确只读Git参数/cwd，禁系统/全局配置、懒传输、
+替换对象、hooks/fsmonitor/可选索引写入。没有改写数据库类或注入模型/鉴权/退休响应。审计钩子是
+固定代码的tripwire，并非抵御恶意native扩展的OS沙箱；带其他tag查询的来源需要重新审查而非自动放行。
+
+前两次真实试跑在版本Git查询处被保护拒绝，不计为成功。七项便携合成测试分别覆盖独立合作控制、
+实际SQL内容、验证先于import/enroll、数据库拒绝不能变成全局证明、越界写、Git变更命令拒绝和双语CLI。
+独立候选history CI重复真实反例，Linux/macOS便携测试与真实上游API结果分开。globalAdmissionProven/
+certifiesUpgrade始终false；GO仍需可信全部writer准入以及首次旧版切换，不能从外部持锁推断停写。
+
 ## PM runtime 准备阶段的三类锁（2026-10-24，仅本地替代依赖）
 
 固定源码的真实 prepare_runtime/stage_runtime/PythonEnvironment API 会在 .prepare.lock 下启动

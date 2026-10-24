@@ -930,3 +930,35 @@ joint sync verifier refuses this history. `localRuntimePreparationDeathVerified=
 wholeRuntimeBootstrapVerified, allPMDescendantsCovered, updaterRecoveryVerified,
 globalAdmissionProven and certifiesUpgrade remain false. No terminal intent or automatic retry
 is added, and Desktop upgrade/recovery execution remains disabled.
+
+### Actual candidate SessionDB nonparticipant (2026-10-24)
+
+`hermes-maintenance-database-writers.py --candidate-root <fixed-bf0203a7-snapshot>` verifies the
+complete source before any enrollment/import and again afterwards. A new private registry binds
+the supplied checkout and a NEW synthetic home. The supervisor retains all four drained EX roles;
+an independent cooperating child refuses admission before AND after another process runs the
+actual unmodified SessionDB create/write API. Three sample message contents and SQLite quick_check
+confirm real writes. After parent close, the cooperating process may enter again. No intent is
+published; there is no official checkout lock, live data, service or updater in this probe.
+
+The actual Mac fixed-source run observes the expected nonparticipant write. This is a counterexample
+to treating our external locks as global exclusion, not evidence that all other upstream entry
+points lack protection. The separate retirement-module experiment on the same candidate still
+observes process-local retirement, but is not used to infer the database result. No GO production
+component imports this harness or treats a passing counterexample as upgrade certification.
+
+The DB child inherits no maintenance descriptions or owner configuration. It has private HOME/data/
+cache/tmp and Python audit tripwires for outside writes, process/signalling and network operations.
+The reviewed version_info import needs seven exact read-only Git command shapes in the fixed source
+cwd; only these are allowed, with transport/global/system config/replace refs/hooks/fsmonitor and
+optional index writes disabled. Other commands, explicit environment overrides and other cwd refuse.
+The first two real attempts refused incomplete version-query allowances and do not count as success.
+No database guard, model/auth response or retirement result is patched. These hooks are not an OS
+sandbox for malicious native modules; this probe accepts only verified fixed upstream bytes.
+
+Seven portable tests use SYNTHETIC SQLite/API code and real kernel/cooperating processes: locked
+control plus writes, drift before import/enrollment, refused API fails rather than certifies, outside
+write and Git mutator tripwires, missing cooperative control and bilingual CLI redaction. The real
+upstream API is executed separately by the fixed candidate history job, with isolated pinned test
+dependencies. Both globalAdmissionProven and certifiesUpgrade always remain false. The upstream
+integration and first nonparticipating-version transition are still required before execution.

@@ -34,6 +34,13 @@ CLI argument/input/stage failures use bilingual HR-HERMESUPDATE-002 and retain o
 categories/stage/exit code in diagnostics, with no raw argument/path/child exception in the primary
 message. A missing/failed check never emits a success verdict.
 Known source-contract failure refuses before any synthetic database import/write, in either mode.
+The independent history job also checks a fixed-code maintenance counterexample: actual candidate
+SessionDB in a fresh temporary home writes three sample messages while prototype home/checkout EX
+locks are held; a separate cooperating process is refused before and after. This proves that this
+database API is not integrated with our proposed registry, not absence of every other upstream
+protection. Only exact import-time read-only Git version commands are allowed by the child tripwire;
+no services, real history, updater or durable authorization is exercised. See the maintenance
+requirements and prototype README for limits. globalAdmissionProven/certifiesUpgrade remain false.
 The entire adoption checklist below still applies before any adoption.
 
 

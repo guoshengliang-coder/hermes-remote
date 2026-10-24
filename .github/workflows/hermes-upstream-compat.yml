@@ -70,6 +70,8 @@ jobs:
         run: >-
           python -I -B scripts/compat/hermes-matrix.py
           --old-root .upstream/current --candidate-root .upstream/unadopted
+      - name: Observe actual candidate SessionDB nonparticipation under prototype maintenance
+        run: python -I -B scripts/compat/hermes-maintenance-database-writers.py --candidate-root .upstream/unadopted
   verified-source-matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -169,6 +171,7 @@ jobs:
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_pm_native_descendant.py'
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_pm_chain_custody.py'
           python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_pm_bootstrap_custody.py'
+          python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_database_writers.py'
           python -I -S -B scripts/compat/hermes-maintenance-source.py --old-root .upstream/current --candidate-root .upstream/candidate
           python -I -S -B scripts/compat/hermes-maintenance-pm.py --selector-matrix .upstream/candidate
   upstream-main-warning:

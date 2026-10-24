@@ -1,5 +1,26 @@
 # Hermes Go Desktop test plan
 
+## HG-199 actual 0.22.5 database writer scope (isolated)
+
+Test-impact review: the retirement-module counterexample cannot establish whether the database API
+participates in proposed maintenance. Verify full fixed bf0203a7 source, enroll only a new registry/
+synthetic home, hold home/checkout EX and require a different cooperating process to refuse before
+and after actual unmodified SessionDB imports/create/write. Check all three sample contents and
+SQLite integrity, then reverify source. No inherited custody, real history, services, official lock
+or durable intent. This is a nonparticipant counterexample, never production authorization.
+
+The real Mac run observes writes despite the prototype lock, while the cooperating control refuses.
+Initial attempts blocked import-time version Git probes; only seven exact read-only command/cwd
+shapes are now allowed under no-transport/global/system/helper/index protections. Other subprocesses,
+signals/network and outside writes are tripwire-denied. These Python hooks are not an OS sandbox.
+Seven synthetic portable cases cover SQL/control, fail-before-import, refused API, outside write,
+Git mutator, missing control and bilingual redaction. Independent candidate history CI exercises the
+real API; Linux full/macOS explicit tests exercise the synthetic cases. globalAdmissionProven and
+certifiesUpgrade remain false. Final local 7 focused/189 full Python tests and actual fixed-source
+API probe pass with null stdin, no terminal prompt, exact read-only Git allowances and private data.
+Desktop code/visuals are unchanged; reuse the 801 Swift/2 skips,
+assets/ad-hoc package and actual Core-only Git baseline, with no live app/service/device operations.
+
 ## HG-199 Git condition checks cannot execute checkout filters (2026-10-24)
 
 Test-impact/error-code review: ordinary git status can execute a local clean filter, contradicting
