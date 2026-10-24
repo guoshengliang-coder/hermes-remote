@@ -17,6 +17,10 @@ stay blocked after locks release. Initial attempts refused declared PowerShell C
 the revised exact attribute rule permits only that material conversion, with regression coverage.
 Python/native artifacts always require exact Git bytes. CLI failures use existing bilingual
 HR-HERMESUPDATE-002, retryable=false, with no argument/exception/path echo.
+The initial af14e972 CI SAST blocked three handwritten SHA-1 Git-object calculations. The revised
+implementation delegates object-format comparison to Git hash-object --no-filters (bounded batched
+C-quoted paths, including LF/quotes/non-ASCII), while independent material/plan bindings use SHA-256.
+The failure is retained; no rule suppression or weakening of byte verification is introduced.
 
 Both source copies and the sample cache are prepared before the measured transaction. Neither copy
 is installed or launched, and no Hermes runtime, PM, DB or service is started. There is no UI/app

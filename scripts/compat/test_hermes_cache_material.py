@@ -34,6 +34,8 @@ class CacheMaterialTest(unittest.TestCase):
         (self.seed / "hermes_constants.py").write_text("# Synthetic source, never imported\nVALUE = 1\n")
         (self.seed / ".gitattributes").write_text("*.ps1 text eol=crlf\n")
         (self.seed / "fixture.ps1").write_bytes(b"# Synthetic PowerShell, never executed\n")
+        (self.seed / 'quoted " path\n中文.txt').write_text("Synthetic Git path quoting\n")
+        (self.seed / "alias.txt").symlink_to('quoted " path\n中文.txt')
         material.worker.git(self.seed, "add", ".")
         material.worker.git(self.seed, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                             "commit", "--quiet", "-m", "Synthetic cache source")

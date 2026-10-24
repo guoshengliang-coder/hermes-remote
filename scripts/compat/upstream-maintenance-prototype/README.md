@@ -43,6 +43,10 @@ budget). Every tracked regular file is compared against its Git blob. Declared t
 PowerShell material alone allows Git's CRLF worktree conversion; Python/native bytes remain exact,
 and no clean/smudge filter is invoked. Both actual byte digests still enter the plan. The first
 real attempts refused ordinary PowerShell CRLF differences, and are not successful evidence.
+Git object IDs are calculated by Git hash-object --no-filters; batched stdin paths use bounded
+Git C-style quoting even for LF/quotes/non-ASCII. Independent material/plan bindings use SHA-256.
+The first af14e972 CI SAST rejected three handwritten SHA-1 calls; the revised implementation
+delegates that compatibility format to Git, without suppressing the rule or changing verification.
 
 Original pre-enrolled intent slots are appended/fsynced, never replaced. A distinct
 cache-material-started row binds the plan. Cache copies go into a new private directory, with

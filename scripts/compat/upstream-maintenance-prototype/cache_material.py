@@ -48,6 +48,18 @@ def record_file(path, budget=None):
     return value
 
 
+def git_material_ids(base, names):
+    # Delegate Git's object format to Git; SHA-256 separately binds security-sensitive material.
+    # Quote every byte with Git's C-style octal syntax, including LF/quotes/non-ASCII path bytes.
+    records = b"".join(b'"' + b"".join(b"\\%03o" % byte for byte in os.fsencode(name)) + b'"\n' for name in names)
+    if len(records) > 16 * 1024**2:
+        raise ValueError("bounded Git material names required")
+    values = worker.git(base, "hash-object", "--no-filters", "--stdin-paths", input=records).splitlines()
+    if len(values) != len(names) or any(re.fullmatch(b"[0-9a-f]{40}", value) is None for value in values):
+        raise ValueError("Git material observation differs")
+    return dict(zip(names, (value.decode() for value in values)))
+
+
 def source_inventory(root, commit):
     """Data-only verification against Git, allowing only explicitly recognized warm caches.
 
@@ -62,7 +74,7 @@ def source_inventory(root, commit):
             or worker.git(warm, "status", "--porcelain=v1", "--untracked-files=normal")
             or any(row and row[:1] != b"H" for row in worker.git(warm, "ls-files", "-v", "-z").split(b"\0"))):
         raise ValueError("warm tracked source differs")
-    tracked, observations, budget = {}, {}, [0, 0]
+    tracked, observations, regular, budget = {}, {}, [], [0, 0]
     for row in worker.local_source_tree(cold, commit):
         if not row:
             continue
@@ -74,6 +86,8 @@ def source_inventory(root, commit):
             raise ValueError("reviewed Git material required")
         name = raw_name.decode()
         tracked[name] = oid.decode()
+        if mode != b"120000":
+            regular.append(name)
         values = []
         for base in (warm, cold):
             path = base / name
@@ -84,31 +98,30 @@ def source_inventory(root, commit):
                 data = os.readlink(path).encode("utf-8", "surrogateescape")
                 if pm.stamp(path.lstat()) != pm.stamp(before):
                     raise ValueError("tracked link changed")
-                digest = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+                digest = worker.git(base, "hash-object", "--no-filters", "--stdin", input=data).decode().strip()
+                if digest != oid.decode():
+                    raise ValueError("tracked link differs from fixed Git")
                 values.append({"identity": pm.stamp(before), "sha256": hashlib.sha256(data).hexdigest()})
             else:
-                value = record_file(path, budget)
-                before = path.stat()
-                h = hashlib.sha1(b"blob " + str(before.st_size).encode() + b"\0")
-                with path.open("rb") as source:
-                    while data := source.read(65_536):
-                        h.update(data)
-                if pm.stamp(path.stat()) != value["identity"]:
-                    raise ValueError("tracked bytes changed")
-                digest = h.hexdigest()
-                values.append(value)
-            if digest != oid.decode():
+                values.append(record_file(path, budget))
+        observations[name] = values
+    for index, base in enumerate((warm, cold)):
+        actual = git_material_ids(base, regular)
+        for name in regular:
+            path = base / name
+            if actual[name] != tracked[name]:
                 # Git's committed *.ps1 text eol=crlf deliberately changes worktree bytes.
                 # Never invoke a clean/smudge filter or normalize importable source artifacts.
                 attributes = worker.git(base, "check-attr", "--cached", "-z", "text", "eol", "--", name)
                 expected_attributes = (name.encode() + b"\0text\0set\0" + name.encode() + b"\0eol\0crlf\0")
-                if mode == b"120000" or not name.endswith(".ps1") or attributes != expected_attributes or path.stat().st_size > 16 * 1024**2:
+                if not name.endswith(".ps1") or attributes != expected_attributes or path.stat().st_size > 16 * 1024**2:
                     raise ValueError("tracked material bytes differ from fixed Git")
                 normalized = path.read_bytes().replace(b"\r\n", b"\n")
-                if (hashlib.sha1(b"blob " + str(len(normalized)).encode() + b"\0" + normalized).hexdigest() != oid.decode()
-                        or pm.stamp(path.stat()) != values[-1]["identity"]):
+                if worker.git(base, "hash-object", "--no-filters", "--stdin", input=normalized).decode().strip() != tracked[name]:
                     raise ValueError("declared CRLF material differs from fixed Git")
-        observations[name] = values
+        for name, values in observations.items():
+            if pm.stamp((base / name).lstat()) != values[index]["identity"]:
+                raise ValueError("tracked bytes changed during Git observation")
     caches, count = {}, 0
     for directory, children, files in os.walk(warm, followlinks=False):
         relative = Path(directory).relative_to(warm)
