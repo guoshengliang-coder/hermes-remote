@@ -168,7 +168,8 @@ def main():
     for root in roots:
         if root == protected or protected in root.parents:
             parser.error("use downloaded source snapshots outside the live Hermes home")
-    result = {"schema": 1, "current": source_check(roots[0]), "candidate": source_check(roots[1])}
+    result = {"schema": 1, "sourceOnly": args.source_only, "certifiesUpgrade": False,
+              "current": source_check(roots[0]), "candidate": source_check(roots[1])}
     if not args.source_only:
         result["database"] = db_roundtrip(*roots)
     print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -10,6 +10,10 @@ HR-HERMESUPDATE-003且不改写记录。上游检查使用无继承凭据/cookie
 2026-10-24独立实际Core fetcher只访问公共GitHub，已解析官方v0.22.5到固定
 bf0203a794a07aac3ff764972ab9087baa4e4f4e；没有读取/修改现用安装或认证此目标。既有0.21.3→
 0.21.6矩阵是固定历史实验，不会因检测到新发布而自动扩展适用范围。
+独立CI新增固定0.22.5的source-only候选诊断：只解析AST，不导入新版运行时或执行updater，
+输出显式sourceOnly/certifiesUpgrade=false。它与原0.21.3/0.21.6运行时/维护实验分离，不更新
+推荐、最低版本或certified path。本地75个API源码blob逐项验证后的29RPC键/必填形状、42个
+REST字面method/path与2个显示头通过；尚未执行完整采用清单，见HERMES_CONTRACT.md。
 
 新增独立原生uv/本地PEP517实验用实际固定PM PythonEnvironment、uv0.12.3/Python3.14.7：
 调用方中止自建uv并关闭FD、监督方再中止调用方后，backend新心跳与真实双域锁验证raw丢锁/

@@ -1,5 +1,21 @@
 # Hermes upstream contract
 
+## Unadopted candidate source diagnostic — 2026-10-24
+
+Public release v0.22.5 resolves to `bf0203a794a07aac3ff764972ab9087baa4e4f4e`. It is **not an
+adopted version or a certified upgrade target**. A separate pinned CI job runs only the AST source
+matrix, while the 0.21.3/0.21.6 runtime/prototype matrix keeps its original inputs. No recommendation,
+minimum version or execution adapter changes from this result. Every matrix JSON explicitly sets
+`certifiesUpgrade=false`; `sourceOnly` distinguishes the AST path from synthetic database checks.
+
+Locally, a partial API snapshot verifies all 75 selected file contents against their Git blob IDs
+under that fixed commit. The matrix passes the 29 consumed RPC parameter key/required-field shapes,
+42 literal REST method/path presences, and two exact display headers. It does not check enum/value
+semantics, real OpenAPI, database migration, auth, streaming, approvals, runtime or any updater.
+This snapshot is not a whole Git checkout: direct Git timed out and the archive download remained
+incomplete, so neither is used as evidence. CI independently checks out the full fixed source.
+The entire adoption checklist below still applies before any adoption.
+
 Hermes Remote is a **client of upstream Hermes' private API**. Nothing in this repository modifies
 Hermes, and there is no version negotiation on the wire: the Android app speaks Hermes' own REST and
 WebSocket RPC. The Gateway and Connector relay WebSocket frames without parsing them

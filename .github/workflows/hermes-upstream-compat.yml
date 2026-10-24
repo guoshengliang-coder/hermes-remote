@@ -14,6 +14,33 @@ on:
 permissions:
   contents: read
 jobs:
+  unadopted-candidate-source-audit:
+    # Source diagnostics only. Never extend Desktop verifiedTargets/certifiedPaths from this job.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 17b5df02f2a729d8f46fbbf78cfc1f5a8cf0f121
+          path: .upstream/current
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: NousResearch/hermes-agent
+          ref: bf0203a794a07aac3ff764972ab9087baa4e4f4e # v0.22.5, unadopted source diagnostic
+          path: .upstream/unadopted
+          persist-credentials: false
+      - name: Audit fixed unadopted source without runtime imports or an updater
+        run: >-
+          python -I -S -B scripts/compat/hermes-matrix.py --source-only
+          --old-root .upstream/current --candidate-root .upstream/unadopted
   verified-source-matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,5 +1,21 @@
 # Hermes Go Desktop test plan
 
+## Unadopted upstream source audit (2026-10-24)
+
+Test-impact review: a passing AST/synthetic-database matrix must never become upgrade permission.
+The CLI regression first fails in both modes because certification/source-only scope is absent;
+both now explicitly retain certifiesUpgrade=false. A separate Linux CI job pins public v0.22.5
+bf0203a7, runs only --source-only and leaves existing candidate/prototype/certified target inputs
+alone. Local 75-file API blob verification passes 29 RPC key/required-field shapes, 42 REST literal
+method/path presences and two exact headers. No upstream Python, database, service or updater runs.
+Partial Git/archive attempts are not used as full-source evidence. No new product code/UI in this
+iteration, so no repeat local app/Node/Web/Android/device baseline; exact-head CI is checked later.
+Local complete Python suite: 163 pass; the actual fixed-source AST result includes sourceOnly=true,
+certifiesUpgrade=false and empty failures for both inputs. Workflow YAML parses locally. The latest
+product baseline remains dcf728df: 13 successful checks, one conditional skip, six same-head successful
+workflows; its remote Desktop log confirms 781 tests (2 skips) and app packaging. This new audit
+iteration still needs its own CI result before handoff.
+
 ## Hermes official release request bounds (2026-10-24)
 
 Test-impact review: the version card's upstream request must reject oversized bodies while receiving,
