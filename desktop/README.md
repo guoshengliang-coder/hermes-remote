@@ -1,6 +1,11 @@
 # Hermes Go Desktop
 
-## HG-235: one Desktop product (unreleased)
+Release candidate: **0.2.34 / build 37**, approved on 2026-10-24 for the existing internal
+ad-hoc channel. It includes HG-234 and HG-235 below. Publication must verify the full DMG
+and synchronize both website and Desktop app-update indexes through the unified publisher.
+This is not an Apple-notarized release; physical upgrade and data-preservation acceptance remain pending.
+
+## HG-235: one Desktop product (0.2.34 candidate)
 
 Navigation now contains Overview, Local Hermes, Account & Devices, Diagnostics and Settings.
 Local Hermes distinguishes installation from authenticated usability on this Mac. Diagnostics owns
@@ -10,9 +15,9 @@ context. Settings explains login startup, closing the window, quitting and task 
 A single Desktop update action coordinates background updates before app replacement. Existing
 signed prepare/confirm/commit and rollback remain in use. Failure, cancellation or pending cleanup
 stops the sequence; an app-only retry cannot repeat a successful background update. Upstream Hermes
-version management remains future scope. No version, release index or production setting is changed.
+version management remains future scope. This behavior is included in the 0.2.34 candidate.
 
-## Account-only Desktop (2026-10-24, unreleased)
+## Account-only Desktop (0.2.34 candidate)
 
 Desktop no longer supports compatibility-observation mode or the URL/App Token/v1 pairing flow.
 The editor, credential store, token probe, config/log parser, observer health and legacy service
@@ -33,7 +38,7 @@ HG-234 fixes the phone onboarding page returning after an existing Mac upgrades 
 Restoring this Desktop's valid binding retires stale onboarding flags, and component-upgrade
 intermediate checks cannot re-arm them. Existing active phone/Web sign-ins satisfy first setup
 without another login; offline clients still count. Local validation passed 578 tests, asset
-consistency and app packaging. This source change needs a later Desktop app release; the reported
+consistency and app packaging. This change is included in the 0.2.34 candidate; the reported
 M4 upgrade/relaunch acceptance remains pending.
 
 HG-226 adds actual managed-setup stages, per-second elapsed time and per-run system/runtime
