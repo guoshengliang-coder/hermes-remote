@@ -7,8 +7,9 @@ local-binding end-to-end evidence; selected remote healthy devices cannot hide l
 or future timestamps, failed account refresh, unverified identity, signed-out/expired, manage-only,
 active operations and local Hermes failure never produce a false overall healthy state.
 
-Native view fixture checks cover light/dark, 980 pt window width, signed-out/expired login and local
-repair. These do not run monitoring, install services or constitute physical device acceptance.
+Native view fixture checks cover light/dark, 980 pt window width, signed-out/expired login, local
+repair, account management, and phone/new-Mac onboarding in the 769 pt content area beside the
+sidebar. These do not run monitoring, install services or constitute physical device acceptance.
 
 Manual: check the three summary links scroll to corresponding sections; verify each source’s timestamp,
 refresh, repair confirmation, update, local-Hermes and phone-setup actions. Switch selected remote Mac:
