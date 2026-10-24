@@ -3,35 +3,33 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopBootstrapTests: XCTestCase {
-    func testHealthyRunningLegacyConnectorCanBeginConfirmedManagedMigration() {
+    func testRunningRetiredConnectorCannotBeginSetup() {
         let plan = DesktopBootstrapPlanner.plan(
             legacy: snapshot(installed: true, running: true),
             hermesReachable: true,
             managedInstallAvailability: .ready
         )
 
-        XCTAssertEqual(plan.readiness, .readyForManagedInstall)
-        XCTAssertTrue(plan.canBegin)
-        XCTAssertTrue(plan.requiresConfirmation)
-        XCTAssertTrue(plan.steps.contains { $0.kind == .preserveExisting })
-        XCTAssertTrue(plan.steps.contains { $0.kind == .bindAccount })
-        XCTAssertTrue(plan.detailChinese.contains("失败时自动恢复原连接"))
+        XCTAssertEqual(plan.readiness, .existingServiceNeedsAttention)
+        XCTAssertFalse(plan.canBegin)
+        XCTAssertFalse(plan.requiresConfirmation)
+        XCTAssertTrue(plan.detailChinese.contains("停止支持旧连接模式"))
     }
 
-    func testRunningLegacyConnectorRemainsReadOnlyUntilSignedMigrationIsAvailable() {
+    func testRetiredConnectorRemainsBlockedWhenChannelIsDisabled() {
         let plan = DesktopBootstrapPlanner.plan(
             legacy: snapshot(installed: true, running: true),
             hermesReachable: true,
             managedInstallAvailability: .disabled
         )
 
-        XCTAssertEqual(plan.readiness, .existingServicePreserved)
+        XCTAssertEqual(plan.readiness, .existingServiceNeedsAttention)
         XCTAssertFalse(plan.canBegin)
-        XCTAssertTrue(plan.steps.contains { $0.kind == .preserveExisting })
-        XCTAssertTrue(plan.detailChinese.contains("保持它们不变"))
+        XCTAssertEqual(plan.steps.map(\.kind), [.inspectExisting])
+        XCTAssertTrue(plan.detailChinese.contains("停止支持旧连接模式"))
     }
 
-    func testRunningLegacyConnectorCannotMigrateWhenItsConfiguredHermesIsUnhealthy() {
+    func testRetiredConnectorIsBlockedRegardlessOfHermesHealth() {
         let plan = DesktopBootstrapPlanner.plan(
             legacy: snapshot(installed: true, running: true),
             hermesReachable: false,
@@ -40,7 +38,7 @@ final class DesktopBootstrapTests: XCTestCase {
 
         XCTAssertEqual(plan.readiness, .existingServiceNeedsAttention)
         XCTAssertFalse(plan.canBegin)
-        XCTAssertTrue(plan.detailChinese.contains("Hermes 未通过健康检查"))
+        XCTAssertTrue(plan.detailChinese.contains("停止支持旧连接模式"))
     }
 
     func testStoppedExistingConnectorFailsClosedWithoutOfferingSecondInstance() {
@@ -52,7 +50,7 @@ final class DesktopBootstrapTests: XCTestCase {
 
         XCTAssertEqual(plan.readiness, .existingServiceNeedsAttention)
         XCTAssertFalse(plan.canBegin)
-        XCTAssertTrue(plan.detailChinese.contains("不会覆盖或另起一个实例"))
+        XCTAssertTrue(plan.detailChinese.contains("停止支持旧连接模式"))
     }
 
     func testCleanMacWaitsForSignedReleaseInsteadOfInstallingUnverifiedPayload() {
@@ -78,7 +76,7 @@ final class DesktopBootstrapTests: XCTestCase {
 
         XCTAssertEqual(plan.readiness, .waitingForSignedRelease)
         XCTAssertFalse(plan.canBegin)
-        XCTAssertTrue(plan.detailChinese.contains("Gateway 尚未声明"))
+        XCTAssertTrue(plan.detailChinese.contains("账号服务暂不支持"))
     }
 
     func testUnmanagedHermesOnTheReservedPortBlocksManagedInstall() {
@@ -91,7 +89,7 @@ final class DesktopBootstrapTests: XCTestCase {
         XCTAssertEqual(plan.readiness, .existingServiceNeedsAttention)
         XCTAssertFalse(plan.canBegin)
         XCTAssertEqual(plan.steps.map(\.kind), [.inspectExisting, .preserveExisting])
-        XCTAssertTrue(plan.detailChinese.contains("不会覆盖或停止"))
+        XCTAssertTrue(plan.detailChinese.contains("暂时无法确认其安装来源"))
     }
 
     func testCleanMacPlanListsEveryMutationAndRequiresConfirmation() {
@@ -116,30 +114,9 @@ final class DesktopBootstrapTests: XCTestCase {
         ])
     }
 
-    func testLegacyMigrationPreflightUsesTheConnectorsConfiguredHermesStatusURL() {
-        let legacy = LegacyConnectorSnapshot(
-            isInstalled: true,
-            isRunning: true,
-            config: LegacyConnectorConfig(
-                gatewayURL: nil,
-                hermesBaseURL: URL(string: "http://100.64.0.8:9119")!
-            ),
-            recentLogs: [],
-            installDirectory: URL(fileURLWithPath: "/tmp/hermes-test"),
-            launchAgentURL: URL(fileURLWithPath: "/tmp/com.hermesremote.connector.plist")
-        )
-
-        XCTAssertEqual(
-            DesktopBootstrapPlanner.hermesStatusURL(for: legacy).absoluteString,
-            "http://100.64.0.8:9119/api/status"
-        )
-    }
-
     func testCleanInstallPreflightUsesTheManagedLoopbackContract() {
         XCTAssertEqual(
-            DesktopBootstrapPlanner.hermesStatusURL(
-                for: snapshot(installed: false, running: false)
-            ).absoluteString,
+            DesktopBootstrapPlanner.hermesStatusURL.absoluteString,
             "http://127.0.0.1:9119/api/status"
         )
     }
@@ -158,7 +135,7 @@ final class DesktopBootstrapTests: XCTestCase {
 
         XCTAssertEqual(plan.readiness, .managedInstallActive)
         XCTAssertFalse(plan.canBegin)
-        XCTAssertTrue(plan.detailChinese.contains("1.2.3"))
+        XCTAssertTrue(plan.detailChinese.contains("Desktop 已完成设置"))
     }
 
     func testManagedActiveReleaseOffersUpgradeWithoutRebinding() {
@@ -178,8 +155,8 @@ final class DesktopBootstrapTests: XCTestCase {
         XCTAssertTrue(plan.canBegin)
         XCTAssertTrue(plan.requiresConfirmation)
         XCTAssertFalse(plan.steps.contains { $0.kind == .bindAccount })
-        XCTAssertTrue(plan.detailChinese.contains("保留当前账号、设备绑定"))
-        XCTAssertTrue(plan.detailChinese.contains("恢复 0.3.4"))
+        XCTAssertTrue(plan.detailChinese.contains("保留账号、设备绑定"))
+        XCTAssertTrue(plan.detailChinese.contains("连接和任务可能短暂中断"))
     }
 
     func testManagedActiveReleaseDoesNotOfferSameVersionOrDowngrade() {
@@ -213,7 +190,7 @@ final class DesktopBootstrapTests: XCTestCase {
 
         XCTAssertEqual(plan.readiness, .existingServiceNeedsAttention)
         XCTAssertFalse(plan.canBegin)
-        XCTAssertTrue(plan.detailChinese.contains("candidate_starting"))
+        XCTAssertTrue(plan.detailChinese.contains("恢复上次未完成的设置"))
     }
 
     /// The shape that made the new Mac mini unusable: 9119 answers, so the planner used to stop at
@@ -232,8 +209,8 @@ final class DesktopBootstrapTests: XCTestCase {
         XCTAssertTrue(plan.requiresConfirmation)
         XCTAssertTrue(plan.steps.contains { $0.kind == .adoptLocalHermes })
         XCTAssertFalse(plan.steps.contains { $0.kind == .installHermes })
-        XCTAssertTrue(plan.detailChinese.contains("不会安装第二份代码"))
-        XCTAssertTrue(plan.detailChinese.contains("/Users/owner/.hermes/hermes-agent"))
+        XCTAssertTrue(plan.detailChinese.contains("使用"))
+        XCTAssertFalse(plan.detailChinese.contains("/Users/owner/.hermes/hermes-agent"))
     }
 
     func testAdoptionWaitsForTheSignedChannelInsteadOfInstallingOnItsOwn() {
@@ -248,12 +225,11 @@ final class DesktopBootstrapTests: XCTestCase {
         XCTAssertFalse(plan.canBegin)
         XCTAssertTrue(plan.steps.contains { $0.kind == .preserveExisting })
         XCTAssertFalse(plan.steps.contains { $0.kind == .adoptLocalHermes })
-        XCTAssertTrue(plan.detailChinese.contains("不会安装第二份代码"))
+        XCTAssertTrue(plan.detailChinese.contains("使用"))
     }
 
-    /// A running Connector of the owner's own is still the migration, not an adoption: it has a
-    /// binding and a configuration to keep, so the earlier branch must keep winning.
-    func testARunningLegacyConnectorIsStillMigratedEvenWithAnAdoptableCheckout() {
+    /// A usable Hermes does not make a retired Connector safe to adopt.
+    func testRetiredConnectorBlocksEvenAnAdoptableCheckout() {
         let plan = DesktopBootstrapPlanner.plan(
             legacy: snapshot(installed: true, running: true),
             hermesReachable: true,
@@ -261,8 +237,8 @@ final class DesktopBootstrapTests: XCTestCase {
             localHermes: localHermes()
         )
 
-        XCTAssertEqual(plan.readiness, .readyForManagedInstall)
-        XCTAssertTrue(plan.steps.contains { $0.kind == .installHermes })
+        XCTAssertEqual(plan.readiness, .existingServiceNeedsAttention)
+        XCTAssertFalse(plan.canBegin)
         XCTAssertFalse(plan.steps.contains { $0.kind == .adoptLocalHermes })
     }
 
@@ -277,14 +253,9 @@ final class DesktopBootstrapTests: XCTestCase {
         )
     }
 
-    private func snapshot(installed: Bool, running: Bool) -> LegacyConnectorSnapshot {
-        LegacyConnectorSnapshot(
+    private func snapshot(installed: Bool, running: Bool) -> RetiredConnectorSnapshot {
+        RetiredConnectorSnapshot(
             isInstalled: installed,
-            isRunning: running,
-            config: LegacyConnectorConfig(gatewayURL: nil),
-            recentLogs: [],
-            installDirectory: URL(fileURLWithPath: "/tmp/hermes-test"),
-            launchAgentURL: URL(fileURLWithPath: "/tmp/com.hermesremote.connector.plist")
-        )
+            isRunning: running)
     }
 }

@@ -89,9 +89,9 @@ final class DesktopOnboardingTests: XCTestCase {
     /// the managed channel is unavailable. It is not the "needs attention" problem case (§8), but it
     /// must stay on main for the same reason: onboarding would offer a second install.
     func testPreservedExistingConnectionStaysOnMain() {
-        XCTAssertEqual(route(signedIn(), readiness: .existingServicePreserved), .main)
+        XCTAssertEqual(route(signedIn(), readiness: .existingServiceNeedsAttention), .main)
         XCTAssertEqual(
-            route(signedIn(owned: [device("hermes-mini")]), readiness: .existingServicePreserved),
+            route(signedIn(owned: [device("hermes-mini")]), readiness: .existingServiceNeedsAttention),
             .main
         )
     }

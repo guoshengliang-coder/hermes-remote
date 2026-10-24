@@ -13,7 +13,7 @@ The repository contains the first relay MVP:
 - `android/` — Kotlin/Compose client derived from the pinned `adebnar/hermes-android` GPLv3 base
 - `gateway/` — public HK relay with app/connector authentication, a Hermes-compatible facade, and a durable mobile event inbox
 - `connector/` — outbound-only macOS agent with Basic Auth, Cookie, WS Ticket, REST/WebSocket forwarding, read-only task lifecycle observation, and a startup check of the local Hermes against the app's REST contract (`docs/HERMES_CONTRACT.md` §2)
-- `desktop/` — native macOS menu-bar GUI plus a default-off signed bootstrap/migration core; the current packaged UI still safely observes the existing Connector and retains legacy pairing
+- `desktop/` — native macOS menu-bar GUI with account sign-in, managed setup/upgrade and diagnostics; current source removes legacy Token pairing and observation mode (release pending)
 - `website/` — mobile-first official site for `https://go.mrlgs.net`, with server-verified download invitations, release discovery and onboarding; publication is a separate authorized gate (`docs/WEBSITE.md`)
 - `protocol/` — shared wire-message types and validation
 - `deploy/` — Docker and macOS launchd templates

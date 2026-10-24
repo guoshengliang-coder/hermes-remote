@@ -55,7 +55,7 @@ final class DesktopAgentPresentationTests: XCTestCase {
         XCTAssertEqual(result.health.level, .failed)
     }
 
-    func testLegacyStatusRemainsFallbackWithoutManagedInstallation() {
+    func testRetiredServiceIsAConflictNotAHealthyFallback() {
         let result = DesktopAgentPresentation.reduce(
             legacy: legacy(installed: true, running: true),
             managed: .absent,
@@ -63,18 +63,13 @@ final class DesktopAgentPresentationTests: XCTestCase {
             checkedAt: checkedAt
         )
 
-        XCTAssertEqual(result.mode, .legacy)
-        XCTAssertEqual(result.health.level, .healthy)
+        XCTAssertEqual(result.mode, .attentionRequired)
+        XCTAssertEqual(result.health.level, .failed)
     }
 
-    private func legacy(installed: Bool, running: Bool) -> LegacyConnectorSnapshot {
-        LegacyConnectorSnapshot(
+    private func legacy(installed: Bool, running: Bool) -> RetiredConnectorSnapshot {
+        RetiredConnectorSnapshot(
             isInstalled: installed,
-            isRunning: running,
-            config: LegacyConnectorConfig(gatewayURL: nil),
-            recentLogs: [],
-            installDirectory: URL(fileURLWithPath: "/tmp/legacy"),
-            launchAgentURL: URL(fileURLWithPath: "/tmp/com.hermesremote.connector.plist")
-        )
+            isRunning: running)
     }
 }

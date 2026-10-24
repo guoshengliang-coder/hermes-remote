@@ -4,6 +4,7 @@ import SwiftUI
 struct DiagnosticsView: View {
     @EnvironmentObject private var model: DesktopViewModel
     @Binding var selection: DesktopSection
+    @State private var showsAllLogs = false
 
     var body: some View {
         ScrollView {
@@ -21,14 +22,26 @@ struct DiagnosticsView: View {
                     .disabled(model.isDiagnosing || model.isRefreshing || model.isManagedBootstrapAccountLocked)
                 }
 
+                if let issue = model.diagnosticFocusIssue {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(issue.summaryChinese).font(.system(size: 17, weight: .bold))
+                        Text(issue.sanitizedDiagnostic).font(.system(size: 12, design: .monospaced))
+                            .textSelection(.enabled)
+                        Button("复制此问题") { model.copyDiagnostics(issue) }
+                    }.padding(20).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
+                }
+                componentDetails
+
                 HStack(alignment: .top, spacing: 18) {
                     checksCard
                     VStack(spacing: 18) {
                         issueCard
                         if let local = model.localManagedHermesHealth { localCheckCard(local) }
-                        logPreview
+
                     }
                 }
+
+                logPreview
 
                 Label(
                     "诊断来自本机检查与账号设备上报；检查时间可能不同。",
@@ -41,7 +54,36 @@ struct DiagnosticsView: View {
         }
     }
 
+    private var componentDetails: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("组件与版本").font(.system(size: 17, weight: .bold))
+                Spacer()
+                Button("复制诊断报告") { model.copyDiagnosticReport() }.buttonStyle(.bordered)
+            }
+            LabeledContent("Desktop", value: model.appVersion)
+            LabeledContent("后台运行包（Hermes Server / Connector）", value: model.installedManagedVersion ?? "未确认受管安装")
+            LabeledContent("后台 Agent", value: model.agentPresentation.health.detail)
+            LabeledContent("本机 Hermes", value: model.localHermesPresentation.version)
+            if case .unsupported(let reason, let detail) = model.localHermesDetection {
+                Text(SecretRedactor.redact("\(reason.rawValue): \(detail)"))
+                    .font(.system(size: 12)).textSelection(.enabled)
+            }
+            if let presentation = model.componentPreflightPresentation {
+                ForEach(presentation.rows) { row in
+                    LabeledContent(row.titleChinese, value: row.detailChinese)
+                }
+            }
+            ForEach(Array([model.localHermesIssue, model.managedBootstrapIssue,
+                           model.componentBootstrapIssue, model.appUpdateIssue].compactMap { $0 }.enumerated()), id: \.offset) { _, issue in
+                GateIssueBanner(issue: issue)
+            }
+        }
+        .font(.system(size: 13)).padding(20).hermesCard()
+    }
+
     private var diagnosticSummary: String {
+        if model.presentedHealth.overall == .checking { return "正在检查，结果尚未齐全" }
         let problems = model.presentedHealth.components.filter {
             $0.level == .failed || $0.level == .degraded || ($0.component.isRequired && $0.level == .unavailable)
         }.count
@@ -111,6 +153,10 @@ struct DiagnosticsView: View {
                     }
                 }
             }
+            if model.serviceRepairNeeded {
+                Button("检查并修复 Desktop") { Task { await model.prepareServiceRepair() } }
+                    .buttonStyle(.bordered).disabled(model.isManagedBootstrapAccountLocked)
+            }
             if model.canReconnectManagedConnector {
                 Button("重新连接这台 Mac") { Task { await model.prepareConnectorReconnect() } }
                     .buttonStyle(.bordered)
@@ -156,7 +202,7 @@ struct DiagnosticsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(model.recentLogWarningCount == 0 ? Color.secondary : Color.orange)
             }
-            Text(model.recentLogLines.isEmpty ? "暂无可显示的日志" : model.recentLogLines.suffix(5).joined(separator: "\n"))
+            Text(model.recentLogLines.isEmpty ? "暂无可显示的日志" : (showsAllLogs ? model.recentLogLines : Array(model.recentLogLines.suffix(5))).joined(separator: "\n"))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -164,8 +210,11 @@ struct DiagnosticsView: View {
                 .padding(12)
                 .background(.primary.opacity(0.035))
                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            Button("打开日志目录") { model.openLogDirectory() }
-                .buttonStyle(.link)
+            HStack {
+                Button(showsAllLogs ? "收起日志" : "展开运行日志") { showsAllLogs.toggle() }
+                Button("复制诊断报告") { model.copyDiagnosticReport() }
+                Button("打开日志目录") { model.openLogDirectory() }
+            }.buttonStyle(.link)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)

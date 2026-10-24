@@ -288,14 +288,9 @@ private final class BootstrapExecutorFixture {
             runtimeContract: .serveV1
         )
     }
-    let legacy = LegacyConnectorSnapshot(
+    let legacy = RetiredConnectorSnapshot(
         isInstalled: false,
-        isRunning: false,
-        config: LegacyConnectorConfig(gatewayURL: nil),
-        recentLogs: [],
-        installDirectory: URL(fileURLWithPath: "/tmp/legacy"),
-        launchAgentURL: URL(fileURLWithPath: "/tmp/agents/com.hermesremote.connector.plist")
-    )
+        isRunning: false)
     let outcome = DesktopMigrationOutcome(
         runID: "60000000-0000-4000-8000-000000000006",
         releaseVersion: "1.2.3",
@@ -445,7 +440,7 @@ private final class BootstrapMigrationFake: DesktopReleaseMigrating, @unchecked 
         sources: [DesktopManagedReleaseSource],
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {

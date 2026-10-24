@@ -7,11 +7,6 @@ struct OverviewView: View {
     @Binding var selection: DesktopSection
     @State private var isPhoneSheetPresented = false
 
-    private var topology: [HealthComponent] {
-        let visible = Set(model.presentedHealth.components.map(\.component))
-        return [.desktopAgent, .gateway, .hermes, .endToEnd].filter(visible.contains)
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -44,8 +39,7 @@ struct OverviewView: View {
                 } else if showsNoPhoneHint {
                     noPhoneBanner
                 }
-                compatibilityBanner
-                topologyCard
+                agentStatusBanner
 
                 HStack(alignment: .top, spacing: 18) {
                     informationCard
@@ -62,8 +56,7 @@ struct OverviewView: View {
     }
 
     /// §8: a half-installed or inconsistent Mac stays on main, so the reason belongs at the top of
-    /// the overview instead of behind the sidebar. `existingServicePreserved` is deliberately not
-    /// this case — that is a working connection, not a problem.
+    /// the overview instead of behind the sidebar.
     private var showsSetupProblem: Bool {
         model.bootstrapPlan.readiness == .existingServiceNeedsAttention
     }
@@ -84,7 +77,7 @@ struct OverviewView: View {
             Spacer(minLength: 12)
             VStack(alignment: .trailing, spacing: 6) {
                 if model.serviceRepairNeeded {
-                    Button("修复受管服务") { Task { await model.prepareServiceRepair() } }
+                    Button("修复 Desktop") { Task { await model.prepareServiceRepair() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isManagedBootstrapAccountLocked)
                 }
@@ -183,14 +176,14 @@ struct OverviewView: View {
         }
     }
 
-    private var compatibilityBanner: some View {
+    private var agentStatusBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: "eye")
                 .foregroundStyle(Color.hermesBlue)
             VStack(alignment: .leading, spacing: 2) {
                 Text(agentBannerTitle)
                     .font(.system(size: 13, weight: .semibold))
-                Text(compatibilityDetail)
+                Text(agentStatusDetail)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -201,133 +194,65 @@ struct OverviewView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private var compatibilityDetail: String {
+    private var agentStatusDetail: String {
         if let device = model.selectedAccountDevice {
             return device.connector.online
-                ? "\(device.desktopDisplayName) 已通过账号连接到 Gateway；状态来自该设备最近一次健康上报。"
+                ? "\(device.desktopDisplayName) 已通过账号安全连接；状态来自该设备最近一次健康上报。"
                 : "\(device.desktopDisplayName) 当前离线；现有本机服务不会因查看其他设备而改变。"
         }
         switch model.agentPresentation.mode {
-        case .managedVerified(let releaseVersion):
-            return "托管版本 \(releaseVersion) 已接管后台连接；旧 Connector 不会同时启动。"
+        case .managedVerified:
+            return "Desktop 后台连接正在运行；关闭窗口后仍可从手机使用。"
         case .managedUnverified:
-            return "后台服务已保留；若刚完成迁移助理，请重新登录以核验这台 Mac，不会自动创建第二个 Connector。"
+            return "后台服务已保留；若刚完成迁移助理，请重新登录以核验这台 Mac，现有账号绑定会保留。"
         case .attentionRequired:
-            return "Desktop 保持现状且不会启动第二个 Connector；请到“账号与设备”查看恢复状态。"
-        case .legacy:
-            return "Desktop 尚未接管后台连接，不会中断现有手机和 Hermes 会话。"
+            return "Desktop 连接暂时无法确认，远程访问可能受影响；请打开诊断查看恢复状态。"
         case .checking:
-            return "正在识别旧版或托管 Connector，不会在检查期间修改后台服务。"
+            return "正在检查 Desktop 后台连接，不会在检查期间修改后台服务。"
         case .unavailable:
-            return "未检测到旧 Connector；Desktop 不会自动启动第二个后台实例。"
+            return "请通过账号完成这台 Mac 的设置。"
         }
     }
 
     private var agentBannerTitle: String {
         if let device = model.selectedAccountDevice {
-            return device.connector.online ? "账号 Connector 正在运行" : "账号 Connector 当前离线"
+            return device.connector.online ? "Desktop 连接正常" : "Desktop 当前离线"
         }
         return switch model.agentPresentation.mode {
         case .managedVerified:
-            "托管后台连接正在运行"
+            "Desktop 后台连接正在运行"
         case .managedUnverified:
-            "检测到托管后台连接"
+            "检测到Desktop 后台连接"
         case .attentionRequired:
             "后台连接状态需要核验"
-        case .legacy:
-            "正在观察现有 Connector"
         case .checking:
             "正在检查后台连接"
         case .unavailable:
-            "兼容观察模式已启用"
-        }
-    }
-
-    private var topologyCard: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(topology.enumerated()), id: \.element) { index, component in
-                topologyNode(component)
-                if index < topology.count - 1 {
-                    Rectangle()
-                        .fill(Color.hermesHairline(colorScheme))
-                        .frame(height: 1)
-                        .frame(maxWidth: 66)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 22)
-        .padding(.vertical, 25)
-        .hermesCard()
-    }
-
-    private func topologyNode(_ component: HealthComponent) -> some View {
-        let item = model.presentedHealth.component(component)
-        return VStack(spacing: 8) {
-            ZStack {
-                Circle()
-                    .stroke(Color.hermesBlue, lineWidth: 1.4)
-                    .frame(width: 48, height: 48)
-                Image(systemName: topologySymbol(component))
-                    .font(.system(size: 19, weight: .regular))
-                    .foregroundStyle(Color.hermesBlue)
-            }
-            Text(component == .hermes && model.selectedAccountDevice != nil ? "Hermes" : component.title)
-                .font(.system(size: 13, weight: .semibold))
-            HStack(spacing: 6) {
-                StatusDot(level: item.level, size: 8)
-                Text(item.detail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func topologySymbol(_ component: HealthComponent) -> String {
-        switch component {
-        case .desktopAgent: "shippingbox"
-        case .gateway: "globe.asia.australia"
-        case .hermes: "desktopcomputer"
-        case .observer: "eye"
-        case .endToEnd: "checkmark.shield"
+            "Desktop 尚未完成设置"
         }
     }
 
     private var informationCard: some View {
         infoCard(title: "连接信息", rows: [
             ("设备", model.overviewDeviceName),
-            ("Gateway", model.overviewGatewaySummary),
-            ("Hermes", model.overviewHermesSummary),
+            ("账号连接", model.overviewGatewaySummary),
+            ("Hermes", model.presentedHealth.component(.hermes).level == .healthy ? "可以使用" : "待确认"),
         ])
     }
 
     private var activityCard: some View {
-        infoCard(title: "观察状态", rows: [
+        infoCard(title: "运行状态", rows: [
             ("后台模式", backgroundModeSummary),
-            ("只读观察", observerSummary),
-            ("近期异常", recentWarningSummary),
-            ("日志数量", "\(model.recentLogLines.count) 条"),
+            ("Desktop", model.appVersion),
+            ("问题排查", "请打开诊断"),
         ])
-    }
-
-    private var recentWarningSummary: String {
-        let count = model.recentLogWarningCount
-        return count == 0 ? "未发现疑似异常" : "\(count) 条历史记录"
-    }
-
-    private var observerSummary: String {
-        guard model.legacy?.isInstalled == true else { return "未检测" }
-        return model.legacy?.config.observerEnabled == true ? "已配置" : "已关闭"
     }
 
     private var backgroundModeSummary: String {
         if model.selectedAccountDevice != nil { return "账号连接" }
         return switch model.agentPresentation.mode {
-        case .managedVerified(let releaseVersion): "托管 \(releaseVersion)"
-        case .managedUnverified(let releaseVersion): "托管 \(releaseVersion) · 待核验"
-        case .legacy: "旧 Connector"
+        case .managedVerified: "正在运行"
+        case .managedUnverified: "待核验"
         case .attentionRequired: "需要核验"
         case .checking: "检查中"
         case .unavailable: "未检测"

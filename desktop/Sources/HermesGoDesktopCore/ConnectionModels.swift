@@ -12,7 +12,6 @@ public enum HealthComponent: String, Codable, CaseIterable, Identifiable, Sendab
     case desktopAgent
     case gateway
     case hermes
-    case observer
     case endToEnd
 
     public var id: String { rawValue }
@@ -22,7 +21,6 @@ public enum HealthComponent: String, Codable, CaseIterable, Identifiable, Sendab
         case .desktopAgent: "后台 Agent"
         case .gateway: "Gateway"
         case .hermes: "本机 Hermes"
-        case .observer: "只读观察"
         case .endToEnd: "端到端"
         }
     }
@@ -30,7 +28,7 @@ public enum HealthComponent: String, Codable, CaseIterable, Identifiable, Sendab
     public var isRequired: Bool {
         switch self {
         case .desktopAgent, .gateway, .hermes: true
-        case .observer, .endToEnd: false
+        case .endToEnd: false
         }
     }
 }
@@ -93,14 +91,6 @@ public struct DesktopHealthSnapshot: Equatable, Sendable {
     public func component(_ component: HealthComponent) -> ComponentHealth {
         components.first(where: { $0.component == component })
             ?? ComponentHealth(component: component, level: .checking, detail: "正在检查")
-    }
-
-    public func presented(accountModeActive: Bool) -> DesktopHealthSnapshot {
-        guard accountModeActive else { return self }
-        return DesktopHealthSnapshot(
-            components: components.filter { $0.component != .endToEnd },
-            checkedAt: checkedAt
-        )
     }
 
     public static let checking = DesktopHealthSnapshot(

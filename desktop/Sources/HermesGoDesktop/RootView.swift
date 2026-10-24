@@ -2,9 +2,9 @@ import SwiftUI
 
 enum DesktopSection: String, CaseIterable, Identifiable {
     case overview
-    case diagnostics
-    case logs
+    case localHermes
     case pairing
+    case diagnostics
     case settings
 
     var id: String { rawValue }
@@ -13,7 +13,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         switch self {
         case .overview: "概览"
         case .diagnostics: "诊断"
-        case .logs: "日志"
+        case .localHermes: "本机 Hermes"
         case .pairing: "账号与设备"
         case .settings: "设置"
         }
@@ -23,7 +23,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         switch self {
         case .overview: "square.grid.2x2"
         case .diagnostics: "waveform.path.ecg"
-        case .logs: "doc.text"
+        case .localHermes: "desktopcomputer"
         case .pairing: "iphone"
         case .settings: "gearshape"
         }
@@ -64,6 +64,7 @@ struct RootView: View {
 /// The signed-in, set-up app: sidebar plus sections. The section survives a re-sign-in, so an
 /// unexpected expiry returns to where the owner was (§4.3).
 private struct MainShellView: View {
+    @EnvironmentObject private var model: DesktopViewModel
     @Environment(\.colorScheme) private var colorScheme
     @SceneStorage("desktop.selectedSection") private var selection: DesktopSection = .overview
 
@@ -80,7 +81,7 @@ private struct MainShellView: View {
                 switch selection {
                 case .overview: OverviewView(selection: $selection)
                 case .diagnostics: DiagnosticsView(selection: $selection)
-                case .logs: LogsView()
+                case .localHermes: LocalHermesView(selection: $selection)
                 case .pairing: AccountDevicesView()
                 case .settings: SettingsView()
                 }
@@ -88,6 +89,7 @@ private struct MainShellView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color.hermesCanvas(colorScheme))
+        .onChange(of: model.diagnosticRequestID) { _, _ in selection = .diagnostics }
     }
 }
 
@@ -137,7 +139,7 @@ private struct SidebarView: View {
 
             Spacer()
 
-            Text("账号客户端 · 兼容观察")
+            Text("Hermes Go Desktop")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 18)

@@ -400,7 +400,7 @@ public actor DesktopAccountController {
                 code: "HR-BIND-008",
                 message: "Device selection is disabled.",
                 retryable: false,
-                recoveryAction: "continue_legacy",
+                recoveryAction: "settings",
                 correlationId: nil
             ))
         }
@@ -702,7 +702,7 @@ public actor DesktopAccountController {
                 code: "HR-BIND-008",
                 message: "Binding is disabled.",
                 retryable: false,
-                recoveryAction: "continue_legacy",
+                recoveryAction: "settings",
                 correlationId: nil
             ))
         }
@@ -1353,7 +1353,7 @@ public actor DesktopAccountController {
                 code: "HR-ACCOUNT-003",
                 message: "Email sign-in is disabled.",
                 retryable: false,
-                recoveryAction: "continue_legacy",
+                recoveryAction: "settings",
                 correlationId: nil
             ))
         }

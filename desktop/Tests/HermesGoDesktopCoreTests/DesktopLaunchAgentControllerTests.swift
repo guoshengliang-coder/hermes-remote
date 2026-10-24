@@ -3,28 +3,6 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopLaunchAgentControllerTests: XCTestCase {
-    func testLegacyStopsBeforeAccountStartsAndEveryMutationUsesExactUserLabel() throws {
-        let runner = ScriptedCommandRunner(statuses: [
-            1, 0, // stopLegacy: account absent, legacy present
-            0, 0, 1, // disable and bootout succeed, legacy absent
-            1, 1, // startAccount: legacy absent, account absent
-            0, 0, 1, // bootstrap succeeds, account present, legacy absent
-        ])
-        let root = URL(fileURLWithPath: "/tmp/test-agents")
-        let controller = try DesktopLaunchAgentController(userID: 501, launchAgentsRoot: root, runner: runner)
-        let legacy = snapshot(root: root, running: true)
-
-        try controller.stopLegacy(snapshot: legacy)
-        try controller.startAccount(
-            plistURL: root.appendingPathComponent("com.hermesgo.connector.plist")
-        )
-
-        XCTAssertEqual(runner.mutations(), [
-            ["disable", "gui/501/com.hermesremote.connector"],
-            ["bootout", "gui/501/com.hermesremote.connector"],
-            ["bootstrap", "gui/501", "/tmp/test-agents/com.hermesgo.connector.plist"],
-        ])
-    }
 
     func testDuplicateStateFailsBeforeAnyMutation() throws {
         let runner = ScriptedCommandRunner(statuses: [0, 0, 1])
@@ -38,54 +16,6 @@ final class DesktopLaunchAgentControllerTests: XCTestCase {
             XCTAssertEqual(error as? DesktopLaunchAgentControllerError, .duplicateConnector)
         }
         XCTAssertTrue(runner.mutations().isEmpty)
-    }
-
-    func testStopWaitsForLaunchdToConvergeBeforeStartingManagedServices() throws {
-        let runner = ScriptedCommandRunner(statuses: [
-            1, 0, // stopLegacy: account absent, legacy present
-            0, 0, 0, 1, // disable/bootout succeed; legacy remains visible once, then disappears
-            1, 1, // startAccount: legacy absent, account absent
-            0, 0, 1, // bootstrap succeeds, account present, legacy absent
-        ])
-        let root = URL(fileURLWithPath: "/tmp/test-agents")
-        let controller = try DesktopLaunchAgentController(
-            userID: 501,
-            launchAgentsRoot: root,
-            runner: runner,
-            convergenceAttempts: 3,
-            convergenceDelay: 0
-        )
-
-        try controller.stopLegacy(snapshot: snapshot(root: root, running: true))
-        try controller.startAccount(
-            plistURL: root.appendingPathComponent("com.hermesgo.connector.plist")
-        )
-
-        XCTAssertEqual(runner.mutations(), [
-            ["disable", "gui/501/com.hermesremote.connector"],
-            ["bootout", "gui/501/com.hermesremote.connector"],
-            ["bootstrap", "gui/501", "/tmp/test-agents/com.hermesgo.connector.plist"],
-        ])
-    }
-
-    func testRollbackStopsOnlyAccountThenRestoresExactLegacyPlist() throws {
-        let runner = ScriptedCommandRunner(statuses: [
-            1, 0, // stopAccount: legacy absent, account present
-            0, 1, // bootout succeeds, account absent
-            1, 1, // restoreLegacy: account absent, legacy absent
-            0, 0, 0, 1, // enable/bootstrap succeed, legacy present, account absent
-        ])
-        let root = URL(fileURLWithPath: "/tmp/test-agents")
-        let controller = try DesktopLaunchAgentController(userID: 502, launchAgentsRoot: root, runner: runner)
-
-        try controller.stopAccount()
-        try controller.restoreLegacy(snapshot: snapshot(root: root, running: false))
-
-        XCTAssertEqual(runner.mutations(), [
-            ["bootout", "gui/502/com.hermesgo.connector"],
-            ["enable", "gui/502/com.hermesremote.connector"],
-            ["bootstrap", "gui/502", "/tmp/test-agents/com.hermesremote.connector.plist"],
-        ])
     }
 
     func testTransferredAccountActiveStateDisablesAndStopsOnlyLegacy() throws {
@@ -124,29 +54,6 @@ final class DesktopLaunchAgentControllerTests: XCTestCase {
 
         XCTAssertEqual(runner.mutations(), [
             ["disable", "gui/501/com.hermesremote.connector"],
-        ])
-    }
-
-    func testLegacyStopFailureRestoresItsPersistentEnablement() throws {
-        let runner = ScriptedCommandRunner(statuses: [
-            1, 0, // account absent, legacy present
-            0, 1, // disable succeeds, bootout fails
-            0, // enable rollback succeeds
-        ])
-        let root = URL(fileURLWithPath: "/tmp/test-agents")
-        let controller = try DesktopLaunchAgentController(
-            userID: 501,
-            launchAgentsRoot: root,
-            runner: runner
-        )
-
-        XCTAssertThrowsError(try controller.stopLegacy(snapshot: snapshot(root: root, running: true))) {
-            XCTAssertEqual($0 as? DesktopLaunchAgentControllerError, .legacyStopFailed)
-        }
-        XCTAssertEqual(runner.mutations(), [
-            ["disable", "gui/501/com.hermesremote.connector"],
-            ["bootout", "gui/501/com.hermesremote.connector"],
-            ["enable", "gui/501/com.hermesremote.connector"],
         ])
     }
 
@@ -222,16 +129,6 @@ final class DesktopLaunchAgentControllerTests: XCTestCase {
         XCTAssertFalse(text.contains("launchctl print"), "reads are summarised, not logged one by one")
     }
 
-    private func snapshot(root: URL, running: Bool) -> LegacyConnectorSnapshot {
-        LegacyConnectorSnapshot(
-            isInstalled: true,
-            isRunning: running,
-            config: LegacyConnectorConfig(gatewayURL: nil),
-            recentLogs: [],
-            installDirectory: URL(fileURLWithPath: "/tmp/legacy"),
-            launchAgentURL: root.appendingPathComponent("com.hermesremote.connector.plist")
-        )
-    }
 }
 
 private final class ScriptedCommandRunner: CommandRunning, @unchecked Sendable {

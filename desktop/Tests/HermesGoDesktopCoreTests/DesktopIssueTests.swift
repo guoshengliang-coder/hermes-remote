@@ -2,16 +2,16 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopIssueTests: XCTestCase {
-    func testIssueHasStableBilingualContractAndRecovery() {
-        let issue = DesktopIssue(code: .appTokenRejected)
-
-        XCTAssertEqual(issue.code.rawValue, "HR-AUTH-001")
-        XCTAssertEqual(issue.summaryChinese, "App Token 无效")
-        XCTAssertEqual(issue.summaryEnglish, "Invalid App Token")
+    func testRetiredModeConflictHasBilingualNonRetryableDiagnostics() throws {
+        let issue = DesktopIssue.migration(DesktopMigrationCoordinatorError.retiredConnectionUnsupported,
+            terminalState: nil)
+        XCTAssertEqual(issue.code.rawValue, "HR-MIGRATE-022")
+        XCTAssertEqual(issue.recoveryAction, .details)
         XCTAssertFalse(issue.retryable)
-        XCTAssertEqual(issue.recoveryAction, .settings)
-        XCTAssertTrue(issue.displayChinese.contains("HR-AUTH-001"))
-        XCTAssertTrue(issue.displayEnglish.contains("HR-AUTH-001"))
+        XCTAssertTrue(issue.displayChinese.contains("无需删除 Hermes 数据"))
+        XCTAssertTrue(issue.displayEnglish.contains("Keep your Hermes data"))
+        let restored = try JSONDecoder().decode(DesktopIssueCode.self, from: JSONEncoder().encode(issue.code))
+        XCTAssertEqual(restored, issue.code)
     }
 
     func testTechnicalCauseIsRedacted() {
@@ -39,24 +39,6 @@ final class DesktopIssueTests: XCTestCase {
         XCTAssertTrue(issue.displayChinese.contains("HR-CONN-006"))
         XCTAssertTrue(issue.displayEnglish.contains("HR-CONN-006"))
         XCTAssertFalse(issue.sanitizedDiagnostic.contains("secret-token"))
-    }
-
-    func testIncompletePairingConfigurationHasBilingualRecoveryContract() {
-        let issue = DesktopIssue(code: .incompletePairingConfiguration)
-
-        XCTAssertEqual(issue.code.rawValue, "HR-CONFIG-004")
-        XCTAssertTrue(issue.detailChinese.contains("配置名称"))
-        XCTAssertTrue(issue.detailEnglish.contains("configuration name"))
-        XCTAssertTrue(issue.retryable)
-        XCTAssertEqual(issue.recoveryAction, .settings)
-    }
-
-    func testOversizedPairingPayloadUsesRegisteredConfigurationError() {
-        let issue = DesktopIssue(code: .pairingPayloadTooLarge)
-
-        XCTAssertEqual(issue.code.rawValue, "HR-CONFIG-005")
-        XCTAssertTrue(issue.detailChinese.contains("二维码"))
-        XCTAssertTrue(issue.detailEnglish.contains("QR code"))
     }
 
     func testAccountAndOAuthIssuesUseRegisteredBilingualRecoveryContracts() {
@@ -114,7 +96,7 @@ final class DesktopIssueTests: XCTestCase {
         let expected: [(String, DesktopIssueCode, DesktopRecoveryAction, Bool)] = [
             ("HR-AUTH-009", .invalidEmailCode, .requestCode, false),
             ("HR-AUTH-010", .emailDeliveryFailed, .retry, true),
-            ("HR-AUTH-011", .emailSignInDisabled, .continueLegacy, false),
+            ("HR-AUTH-011", .emailSignInDisabled, .settings, false),
         ]
 
         for (remoteCode, expectedCode, recovery, retryable) in expected {
@@ -182,7 +164,7 @@ final class DesktopIssueTests: XCTestCase {
     func testMigrationIssuesReflectSafeTerminalStateAndRemainBilingual() {
         let restored = DesktopIssue.migration(
             DesktopMigrationCoordinatorError.healthTimedOut,
-            terminalState: .legacyActive
+            terminalState: .cleanUninstalled
         )
         XCTAssertEqual(restored.code, .migrationCandidateFailed)
         XCTAssertTrue(restored.retryable)
@@ -204,7 +186,7 @@ final class DesktopIssueTests: XCTestCase {
                 recoveryAction: "verify_and_replace",
                 correlationId: nil
             )),
-            terminalState: .legacyActive
+            terminalState: .cleanUninstalled
         )
         XCTAssertEqual(revoked.code, .bindingRevoked)
         XCTAssertTrue(revoked.displayChinese.contains("HR-BIND-006"))

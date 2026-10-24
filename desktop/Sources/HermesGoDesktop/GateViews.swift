@@ -110,6 +110,10 @@ struct GateIssueBanner: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
+            if model.entryRoute == .main {
+                Button("查看诊断") { model.showDiagnostics(issue) }
+                    .buttonStyle(.bordered).controlSize(.small)
+            }
             Button("复制诊断") { model.copyDiagnostics(issue) }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
