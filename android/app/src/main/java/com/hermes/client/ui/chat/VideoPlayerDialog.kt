@@ -167,7 +167,11 @@ fun VideoPlayerDialog(
             },
         ) {
             if (controller != null) AndroidView(
-                factory = { android.view.LayoutInflater.from(it).inflate(R.layout.video_preview_player, null) as PlayerView },
+                factory = {
+                    android.view.LayoutInflater.from(it).inflate(
+                        R.layout.video_preview_player, android.widget.FrameLayout(it), false,
+                    ) as PlayerView
+                },
                 update = { videoView = it; it.player = controller.player; it.keepScreenOn = controller.state.wantsPlay },
                 onRelease = { it.player = null; videoView = null }, modifier = Modifier.fillMaxSize(),
             )
