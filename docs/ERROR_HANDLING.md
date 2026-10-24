@@ -141,6 +141,9 @@ logs only a route category, phase, elapsed time, and allowlisted transport error
 
 | Code | Condition | Default Chinese explanation | Default English explanation | Retryable |
 |---|---|---|---|---|
+| `HR-HERMESUPDATE-001` | Official release or running-version check failed or returned an unknown shape; no current-version verdict is issued | 无法核实 Hermes 更新信息，请重新检查。 | Hermes update information could not be verified. Check again. | Yes |
+| `HR-HERMESUPDATE-002` | Upgrade preflight refuses dirty source, active work, unknown ownership/layout, a concurrent operation, changed target or an unverified updater adapter | 暂时无法安全升级 Hermes，请查看升级条件后重新检查。 | Hermes cannot be upgraded safely yet. Review the upgrade conditions and check again. | No |
+| `HR-HERMESUPDATE-003` | An interrupted or failed maintenance operation requires recovery; automatic mutation stays paused and the private backup/journal is retained | Hermes 升级未完成，需要恢复上次操作。请查看详情。 | Hermes upgrade did not finish. Recover the previous operation and review the details. | No |
 | `HR-TEST-001` | JVM unit-test worker exceeds its wall-clock safety limit; independent watchdog forcibly stops only that worker | 测试进程超时，已强制终止。修复卡住的测试后重试。 | Test worker timed out and was forcibly stopped. Fix the hanging test, then retry. | No (fix test first) |
 | `HR-CONN-001` | Device has no usable network **and the gateway probe also failed** (a capability read alone never decides — see docs/DESIGN.md). Failing link: **the phone's own network** | 手机当前没有可用网络，请检查 Wi-Fi 或移动网络，恢复后会自动重连。 | Your phone has no network. Check Wi-Fi or mobile data; the app reconnects once it's back. | Yes |
 | `HR-CONN-002` | WebSocket connection failed and the bounded diagnosis reached no stronger verdict, so **no single failing link can be named**. The copy says so rather than blaming the network or the server | 连不上服务，自动检测也没能确定原因，请重试。 | Couldn't reach the service, and automatic checks couldn't find the cause. Retry. | Yes |

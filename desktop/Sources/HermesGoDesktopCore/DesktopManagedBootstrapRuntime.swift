@@ -209,6 +209,8 @@ public final class DesktopManagedRecoveryRuntime: @unchecked Sendable {
         detector: DesktopLocalHermesDetector,
         checkRunningAgent: Bool
     ) async throws -> DesktopHermesRuntimeReconciliation? {
+        do { try journal.hermesUpgradeJournal.requireNoPendingUpgrade() }
+        catch { return .unchanged(.surface(.upgradeRecoveryRequired)) }
         let failures = installer.readHermesRuntimeFailures()
         if failures.switchFailures > 0 { try? installer.writeHermesRuntimeFailures(failures.clearingSwitch) }
         guard let observation = try? observeHermesRuntime(detector: detector, enabled: false, probeService: true),

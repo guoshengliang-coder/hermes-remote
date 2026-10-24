@@ -6,6 +6,20 @@ import XCTest
 // MARK: - Detection
 
 final class DesktopLocalHermesDetectorTests: XCTestCase {
+    func testV2UpdateLockOutlivesLegacyExpiryAndHonoursDelegates() throws {
+        let home = try LocalHermesHome()
+        let start = try XCTUnwrap(DesktopLaunchdHermesServiceProcessInspector<SystemOutputCommandRunner>.startDate(pid: getpid()))
+        let created = start.timeIntervalSince1970
+        let marker = ".hermes/.hermes-update-in-progress"
+        try home.write(marker, "\(getpid())\n1\nct:\(created)\n")
+        try home.touch(marker, Date().addingTimeInterval(-24 * 60 * 60))
+        XCTAssertTrue(home.detector().updateInProgress())
+        try home.write(marker, "2147483647\n1\nct:1\ndelegate:\(getpid()) ct:\(created)\n")
+        XCTAssertTrue(home.detector().updateInProgress())
+        // A recycled PID with another creation time does not own the old update.
+        try home.write(marker, "\(getpid())\n1\nct:\(created - 60)\n")
+        XCTAssertFalse(home.detector().updateInProgress())
+    }
     func testSymlinkedPMLauncherParentCannotSelectAnotherInstallation() throws {
         let home = try LocalHermesHome()
         try home.write("foreign/bin/hermes", "#!/bin/sh\nexit 0\n", mode: 0o755)

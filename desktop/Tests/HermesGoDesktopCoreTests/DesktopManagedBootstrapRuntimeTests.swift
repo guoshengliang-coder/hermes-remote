@@ -3,6 +3,20 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedBootstrapRuntimeTests: XCTestCase {
+    func testDisabledRuntimeRecoveryStopsBeforeAnyServiceProbeWhenUpgradeIsPending() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = try DesktopManagedBootstrapPaths(homeDirectory: root)
+        try FileManager.default.createDirectory(at: paths.migrationJournalRoot, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let runtime = try DesktopManagedRecoveryRuntime(account: RuntimeAccountFake(), paths: paths, userID: 501)
+        try Data("{}".utf8).write(to: runtime.journal.hermesUpgradeJournal.journalURL)
+        let detector = DesktopLocalHermesDetector(paths: try DesktopLocalHermesPaths(homeDirectory: root, systemEntrypoints: []))
+        let result = try await runtime.reconcileWhileDisabled(detector: detector, checkRunningAgent: true)
+        XCTAssertEqual(result, .unchanged(.surface(.upgradeRecoveryRequired)))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.launchAgentsRoot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.hermesHome.path))
+    }
+
     func testCurrentUserPathsAreDeterministicAndSeparatedByPurpose() throws {
         let paths = try DesktopManagedBootstrapPaths(
             homeDirectory: URL(fileURLWithPath: "/Users/tester")

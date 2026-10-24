@@ -921,6 +921,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     public func reconcileHermesRuntime(
         observe: () throws -> DesktopHermesRuntimeObservation
     ) async throws -> DesktopHermesRuntimeReconciliation {
+        do { try journal.hermesUpgradeJournal.requireNoPendingUpgrade() }
+        catch { return .unchanged(.surface(.upgradeRecoveryRequired)) }
         guard let preview = try journal.loadReadOnly(),
               preview.state == .accountActive,
               let previewBindingID = preview.bindingID,

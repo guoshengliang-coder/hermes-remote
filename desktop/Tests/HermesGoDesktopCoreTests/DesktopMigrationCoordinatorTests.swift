@@ -1122,6 +1122,26 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
 /// `reconcileHermesRuntime` through the same in-memory launchctl and readiness fakes as the other
 /// reconcilers, with the observation supplied directly so every branch is reachable.
 final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
+    func testInterruptedHermesUpgradePreventsBundledReloadAndTokenOrPathRepair() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        fixture.runner.replaceLoaded(with: [DesktopManagedInstallLayout.connectorLabel])
+        let pending = fixture.journal.hermesUpgradeJournal.journalURL
+        try Data("{}".utf8).write(to: pending)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: pending.path)
+        let previous = fixture.serviceMutations().count
+        let result = try await fixture.coordinator.reconcileHermesRuntime {
+            XCTFail("pending journal must be checked before runtime detection")
+            return try fixture.runtimeObservation(.usable(fixture.localInstallation()))
+        }
+        XCTAssertEqual(result, .unchanged(.surface(.upgradeRecoveryRequired)))
+        XCTAssertEqual(DesktopIssue.hermesRuntime(result)?.code, .hermesUpdateRecoveryRequired)
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileCommittedHermesSessionTokenStorage())
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.reconcileCommittedHermesSearchPath())
+        XCTAssertEqual(fixture.serviceMutations().count, previous)
+    }
+
     func testAUsableLocalHermesReplacesTheBundledCopyAndOnlyHermesRestarts() async throws {
         let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
         defer { fixture.cleanup() }
