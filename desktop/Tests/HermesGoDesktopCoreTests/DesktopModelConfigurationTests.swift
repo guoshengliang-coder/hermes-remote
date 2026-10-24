@@ -3,6 +3,13 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopModelConfigurationTests: XCTestCase {
+    func testSetupCommandUsesTheManagedProfileAndQuotesTheExecutable() {
+        XCTAssertEqual(DesktopModelConfiguration.setupCommand(executable: "/Users/test name/hermes"),
+                       "'/Users/test name/hermes' --profile default setup")
+        XCTAssertEqual(DesktopModelConfiguration.setupCommand(executable: "/test'path/hermes"),
+                       "'/test'\"'\"'path/hermes' --profile default setup")
+    }
+
     func testFreshSetupIgnoresRetiredBundledChoiceButExistingRuntimeDoesNotChange() {
         XCTAssertTrue(DesktopLocalHermesRuntimeSetting.enabledForSetup(freshInstall: true, configuredEnabled: false))
         XCTAssertFalse(DesktopLocalHermesRuntimeSetting.enabledForSetup(freshInstall: false, configuredEnabled: false))

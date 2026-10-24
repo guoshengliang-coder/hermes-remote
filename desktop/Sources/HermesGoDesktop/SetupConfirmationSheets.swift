@@ -194,7 +194,7 @@ struct ModelSetupSheet: View {
     @State private var copied = false
     private var command: String {
         let path = model.localHermesDetection?.installation?.executable.path ?? "hermes"
-        return "'" + path.replacingOccurrences(of: "'", with: "'\"'\"'") + "' setup"
+        return DesktopModelConfiguration.setupCommand(executable: path)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {

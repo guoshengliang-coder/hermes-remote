@@ -15,6 +15,11 @@ public enum DesktopModelConfiguration: Equatable, Sendable {
         guard name.count <= 256, !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return .unknown }
         return name.isEmpty ? .missing : .selected(SecretRedactor.redact(name))
     }
+    /// Match the managed serve profile even when the interactive CLI has a sticky selection.
+    public static func setupCommand(executable: String) -> String {
+        "'" + executable.replacingOccurrences(of: "'", with: "'\"'\"'") + "' --profile default setup"
+    }
+
     public var title: String {
         switch self {
         case .unknown: "模型配置待确认"
