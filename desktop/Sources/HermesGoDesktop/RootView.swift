@@ -189,33 +189,26 @@ private struct SidebarView: View {
 
     @ViewBuilder private var accountEntry: some View {
         if case .signedIn(let dashboard) = model.accountState {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 4) {
-                    Button(action: showAccount) { accountNameRow }.buttonStyle(.plain)
-                    Menu {
-                        Text(dashboard.session.account.email ?? "Hermes GO 账号")
-                        Button("管理账号与登录设备", action: showAccount)
-                        if let email = dashboard.session.account.email {
-                            Button("复制邮箱") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(email, forType: .string)
-                            }
+            HStack(spacing: 4) {
+                Button(action: showAccount) { accountNameRow }.buttonStyle(.plain)
+                Menu {
+                    Text(dashboard.session.account.email ?? "Hermes GO 账号")
+                    Button("管理账号与登录设备", action: showAccount)
+                    if let email = dashboard.session.account.email {
+                        Button("复制邮箱") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(email, forType: .string)
                         }
-                        Button("设备管理") { selection = .pairing }
-                        Divider()
-                        Button("退出这台 Desktop 的账号") { Task { await model.signOutAccount() } }
-                    } label: {
-                        Text("⋮").font(.system(size: 20, weight: .semibold))
-                            .frame(width: 28, height: 30).contentShape(Rectangle())
-                            .accessibilityLabel("账号操作")
                     }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    Button("设备管理") { selection = .pairing }
+                    Divider()
+                    Button("退出这台 Desktop 的账号") { Task { await model.signOutAccount() } }
+                } label: {
+                    Text("⋮").font(.system(size: 20, weight: .semibold))
+                        .frame(width: 28, height: 30).contentShape(Rectangle())
+                        .accessibilityLabel("账号操作")
                 }
-                Text(accountSubtitle)
-                    .font(.system(size: 11)).foregroundStyle(Color.hermesSecondaryText(colorScheme))
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .help(accountSubtitle).textSelection(.enabled)
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             }
             .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
         } else {

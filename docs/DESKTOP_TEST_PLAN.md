@@ -1,5 +1,11 @@
 # Hermes Go Desktop test plan
 
+## Compact signed-in account footer (2026-10-24)
+
+- Signed-in footer: avatar, nickname (or email prefix) and a single vertical-ellipsis menu; no persistent email row. Long names truncate on one line and retain their full-name tooltip.
+- Account details and menu retain the full email and existing copy/manage actions. Signed-out and expired-login guidance remain visible.
+- Test impact: presentation-only removal; existing account-name tests remain applicable. Verify light/dark and long-name native fixtures, account detail access, assets, Swift suite and app packaging. No new state-machine tests for removing a text row.
+
 ## HG-199：只读版本管理拆分验收
 
 测试影响：从 #560 提取只读网络检查、沙箱 Git 条件检查、严格 journal 读器与展示；
