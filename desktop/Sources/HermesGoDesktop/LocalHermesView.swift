@@ -33,8 +33,6 @@ struct LocalHermesView: View {
                             .buttonStyle(.borderedProminent)
                             .disabled(!model.localHermesPresentation.canOpen)
                         Button("诊断与修复") { selection = .diagnostics }.buttonStyle(.bordered)
-                        Button("配置模型") { model.showsModelSetup = true }
-                            .disabled(model.localHermesDetection?.installation == nil)
                         if model.currentDashboard == nil {
                             Button("登录后连接本机") { model.requestAccountSignIn() }
                         } else if model.isManageOnly {
@@ -45,8 +43,13 @@ struct LocalHermesView: View {
                         }
                     }
                     if model.localHermesDetection?.installation != nil {
-                        LabeledContent("模型配置", value: model.modelConfiguration.title)
-                        Text(model.modelConfiguration.detail).font(.system(size: 12)).foregroundStyle(.secondary)
+                        ModelConfigurationPrompt()
+                        DisclosureGroup("模型配置详情") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(model.modelConfiguration.title)
+                                Text(model.modelConfiguration.detail)
+                            }.font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
                     }
                     if let issue = model.localHermesIssue { GateIssueBanner(issue: issue) }
                 }
@@ -59,5 +62,33 @@ struct LocalHermesView: View {
             }
             .padding(34)
         }
+    }
+}
+
+/// An actionable setup hint only when the authenticated model metadata explicitly reports no model.
+struct ModelConfigurationPrompt: View {
+    @EnvironmentObject private var model: DesktopViewModel
+
+    var body: some View {
+        if model.modelConfiguration == .missing {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { message; Spacer(minLength: 8); configureButton }
+                VStack(alignment: .leading, spacing: 10) { message; configureButton }
+            }
+            .padding(12)
+            .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private var message: some View {
+        Label("尚未配置模型，请先配置模型再开始 AI 任务。", systemImage: "info.circle")
+            .font(.system(size: 13))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var configureButton: some View {
+        Button("配置模型") { model.showsModelSetup = true }
+            .buttonStyle(.bordered)
+            .disabled(model.isManagedBootstrapAccountLocked)
     }
 }
