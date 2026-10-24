@@ -109,6 +109,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var hermesUpgradeReport: DesktopHermesUpgradeReport?
     @Published private(set) var hermesUpgradeIssue: DesktopIssue?
     @Published private(set) var hermesUpgradeReadiness: DesktopHermesUpgradeReadiness?
+    @Published private(set) var hermesUpgradeRecord: DesktopHermesUpgradeRecord = .unchecked
+    @Published private(set) var isRefreshingHermesUpgradeRecord = false
     @Published private(set) var isCheckingHermesUpgrade = false
     private let hermesUpgradeChecker = DesktopHermesUpgradeChecker()
 
@@ -469,10 +471,19 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             hermesUpgradeReport = nil
             hermesUpgradeIssue = (error as? DesktopHermesUpgradeError ?? .checkFailed).issue
         }
-        if let managedPaths {
-            do { try DesktopHermesUpgradeJournalStore(root: managedPaths.migrationJournalRoot).requireNoPendingUpgrade() }
-            catch { hermesUpgradeIssue = DesktopHermesUpgradeError.recoveryRequired.issue }
-        }
+        await refreshHermesUpgradeRecord()
+        if let issue = hermesUpgradeRecord.issue { hermesUpgradeIssue = issue }
+    }
+
+    /// Independent of upstream availability; no journal creation, recovery or service calls.
+    func refreshHermesUpgradeRecord() async {
+        guard !isRefreshingHermesUpgradeRecord else { return }
+        isRefreshingHermesUpgradeRecord = true
+        defer { isRefreshingHermesUpgradeRecord = false }
+        guard let paths = managedPaths else { hermesUpgradeRecord = .unreadable; return }
+        hermesUpgradeRecord = await Task.detached(priority: .utility) {
+            DesktopHermesUpgradeRecord.read(from: .init(root: paths.migrationJournalRoot))
+        }.value
     }
 
     func checkHermesUpgradeConditions() async {
@@ -503,6 +514,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }.value
         hermesUpgradeReadiness = result
         hermesUpgradeIssue = result.issue
+        await refreshHermesUpgradeRecord()
+        if let issue = hermesUpgradeRecord.issue { hermesUpgradeIssue = issue }
     }
 
     /// Runs from the monitoring loop; a no-op until the 12-hour interval has passed. A build with no
@@ -1218,6 +1231,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         await refreshServiceRepairOffer()
         await refreshHermesInstallOffer(scopedManagedInstallation)
         await refreshHermesRuntime()
+        await refreshHermesUpgradeRecord()
     }
 
     /// One user action refreshes both evidence sources. Reading Cloud does not make its older

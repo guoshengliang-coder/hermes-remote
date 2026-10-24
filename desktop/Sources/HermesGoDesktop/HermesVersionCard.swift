@@ -10,6 +10,9 @@ struct HermesVersionCard: View {
     let isBusy: Bool
     let checkVersions: () -> Void
     let checkConditions: () -> Void
+    var record: DesktopHermesUpgradeRecord = .unchecked
+    var isRefreshingRecord = false
+    var refreshRecord: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -51,7 +54,22 @@ struct HermesVersionCard: View {
                 Text("条件检查不会停止服务或修改数据；执行升级还需完成任务空闲、备份和服务恢复验证。")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            if let issue { GateIssueBanner(issue: issue) }
+            Divider().padding(.vertical, 4)
+            Text(record.titleChinese).font(.system(size: 13, weight: .semibold))
+            if case .recorded(let target, let phase, let updatedAt) = record {
+                versionRow("记录目标", "\(target.version) · \(target.commit.prefix(12))")
+                versionRow("最后记录阶段", phase.recordedLabelChinese)
+                versionRow("记录时间", updatedAt.formatted(date: .abbreviated, time: .shortened))
+            }
+            Text(record.explanationChinese).font(.system(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(isRefreshingRecord ? "正在读取…" : "刷新升级记录") { refreshRecord() }
+                .buttonStyle(.bordered).controlSize(.small)
+                .disabled(isRefreshingRecord || isChecking || isBusy)
+            if let recordIssue = record.issue {
+                GateIssueBanner(issue: recordIssue)
+            }
+            if let issue, issue.code != record.issue?.code { GateIssueBanner(issue: issue) }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)

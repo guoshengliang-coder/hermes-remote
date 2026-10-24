@@ -109,14 +109,37 @@ public final class DesktopHermesUpgradeJournalStore: @unchecked Sendable {
               info.st_mode & S_IFMT == S_IFREG, info.st_mode & 0o077 == 0,
               info.st_size > 0, info.st_size <= 64 * 1024
         else { throw DesktopHermesUpgradeError.recoveryRequired }
+        let snapshot = info
         guard let data = try? FileHandle(fileDescriptor: fd, closeOnDealloc: false).read(upToCount: 64 * 1024 + 1),
-              data.count <= 64 * 1024,
+              data.count == Int(snapshot.st_size), data.count <= 64 * 1024,
+              DesktopHermesUpgradeJSON.isUnambiguous(data),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               Set(object.keys).isSubset(of: ["schemaVersion", "runID", "upstreamUpdateID", "target", "sourceCommit", "sourceIdentity", "checkout", "hermesHome", "services", "originalChannel", "phase", "backup", "updatedAt"]),
+              let target = object["target"] as? [String: Any], Set(target.keys) == ["version", "commit", "channel"],
+              let services = object["services"] as? [[String: Any]],
+              services.allSatisfy({ Set($0.keys).isSubset(of: ["label", "wasLoaded", "configurationDigest", "processID", "processStartedAt"]) }),
+              object["backup"] == nil || object["backup"] is NSNull
+                || (object["backup"] as? [String: Any]).map({ Set($0.keys) == ["runID", "manifestSHA256"] }) == true,
               let journal = try? JSONDecoder().decode(DesktopHermesUpgradeJournal.self, from: data)
         else { throw DesktopHermesUpgradeError.recoveryRequired }
+        guard unchanged(snapshot, descriptor: fd) else { throw DesktopHermesUpgradeError.recoveryRequired }
         try journal.validate()
         return journal
+    }
+
+    private func unchanged(_ expected: stat, descriptor: Int32) -> Bool {
+        var descriptorInfo = stat(), pathInfo = stat()
+        guard fstat(descriptor, &descriptorInfo) == 0, lstat(journalURL.path, &pathInfo) == 0 else { return false }
+        func matches(_ value: stat) -> Bool {
+            value.st_dev == expected.st_dev && value.st_ino == expected.st_ino
+                && value.st_mode == expected.st_mode && value.st_uid == expected.st_uid
+                && value.st_nlink == expected.st_nlink && value.st_size == expected.st_size
+                && value.st_mtimespec.tv_sec == expected.st_mtimespec.tv_sec
+                && value.st_mtimespec.tv_nsec == expected.st_mtimespec.tv_nsec
+                && value.st_ctimespec.tv_sec == expected.st_ctimespec.tv_sec
+                && value.st_ctimespec.tv_nsec == expected.st_ctimespec.tv_nsec
+        }
+        return matches(descriptorInfo) && matches(pathInfo)
     }
 
     public func requireNoPendingUpgrade() throws {

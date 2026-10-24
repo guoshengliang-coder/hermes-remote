@@ -2,6 +2,17 @@
 
 ## HG-199: separate Hermes version card
 
+The card also reads the local upgrade journal without network or filesystem writes. It presents
+“待恢复的升级记录” for every nonterminal phase, “历史升级记录” for terminal records, and the fixed
+target, last recorded stage and timestamp. A persisted phase is intent: it never means a process is
+currently running or that its effect succeeded. Completed/cancelled history does not certify the
+currently booted runtime. Missing records read “没有本机升级记录”; unsafe, ambiguous or future records
+show no retained target/stage and use HR-HERMESUPDATE-003. “刷新升级记录” works without a successful
+network/version check, is disabled during install/update, and never clears, repairs or resumes a run.
+Monitoring and either check refresh this snapshot; no execution/cancel/resume controls are added.
+Duplicate JSON keys (including escaped equivalents), unknown nested fields and changing file
+identities must fail closed. Paths, run IDs, receipts and raw parser failures stay off the card.
+
 The explicit-root external dependency material store is backend-only. Saving/exporting selected bytes
 must never appear as “dependencies recoverable” or completed upgrade; full root/ABI/OS proof and
 transaction custody are separate. Export creates a new directory, never overwrites the live home/tool

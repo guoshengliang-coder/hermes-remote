@@ -51,7 +51,10 @@ struct LocalHermesView: View {
                     isChecking: model.isCheckingHermesUpgrade,
                     isBusy: model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked,
                     checkVersions: { Task { await model.checkHermesUpdates() } },
-                    checkConditions: { Task { await model.checkHermesUpgradeConditions() } }
+                    checkConditions: { Task { await model.checkHermesUpgradeConditions() } },
+                    record: model.hermesUpgradeRecord,
+                    isRefreshingRecord: model.isRefreshingHermesUpgradeRecord,
+                    refreshRecord: { Task { await model.refreshHermesUpgradeRecord() } }
                 )
 
                 if showsConnectionSetup {

@@ -172,6 +172,58 @@ final class DesktopHermesUpgradeTransactionTests: XCTestCase {
         XCTAssertThrowsError(try fixture.migration.acquireOperationLease())
     }
 
+    func testAmbiguousDuplicateJournalKeysAreRejectedAtEveryObjectDepthWithoutRewriting() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let store = fixture.migration.hermesUpgradeJournal
+        do { let lease = try fixture.migration.acquireOperationLease(); withExtendedLifetime(lease) {} }
+        let journal = DesktopHermesUpgradeJournal(target: fixture.target, installation: fixture.installation,
+            services: [], originalChannel: nil)
+        try store.begin(journal)
+        let encoded = try JSONEncoder().encode(journal)
+        let text = String(decoding: encoded, as: UTF8.self)
+        let duplicateTop = String(text.dropLast()) + #", "phase":"completed"}"#
+        let escapedDuplicate = String(text.dropLast()) + #", "ph\u0061se":"quiescing"}"#
+        let duplicateTarget = text.replacingOccurrences(of: #""channel":"stable""#,
+                                                       with: #""channel":"stable","channel":"stable""#)
+        XCTAssertNotEqual(text, duplicateTarget)
+        for value in [duplicateTop, escapedDuplicate, duplicateTarget] {
+            let data = Data(value.utf8)
+            try data.write(to: store.journalURL)
+            XCTAssertThrowsError(try store.loadReadOnly()) { error in
+                XCTAssertEqual(error as? DesktopHermesUpgradeError, .recoveryRequired)
+            }
+            XCTAssertThrowsError(try fixture.migration.acquireOperationLease())
+            XCTAssertEqual(try Data(contentsOf: store.journalURL), data)
+        }
+    }
+
+    func testFutureNestedJournalFieldsAreNotSilentlyDiscarded() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let store = fixture.migration.hermesUpgradeJournal
+        do { let lease = try fixture.migration.acquireOperationLease(); withExtendedLifetime(lease) {} }
+        let journal = DesktopHermesUpgradeJournal(target: fixture.target, installation: fixture.installation,
+            services: [.init(label: "com.hermes.test", wasLoaded: false, configurationDigest: String(repeating: "a", count: 64))],
+            originalChannel: nil)
+        try store.begin(journal)
+        let baseline = try JSONSerialization.jsonObject(with: JSONEncoder().encode(journal)) as! [String: Any]
+        for field in ["target", "services"] {
+            var object = baseline
+            if field == "target" {
+                var target = object["target"] as! [String: Any]
+                target["futureAuthority"] = true
+                object["target"] = target
+            } else {
+                var services = object["services"] as! [[String: Any]]
+                services[0]["futureAuthority"] = true
+                object["services"] = services
+            }
+            let data = try JSONSerialization.data(withJSONObject: object)
+            try data.write(to: store.journalURL)
+            XCTAssertThrowsError(try store.loadReadOnly())
+            XCTAssertEqual(try Data(contentsOf: store.journalURL), data)
+        }
+    }
+
     func testCancellingAwaitingUITaskCannotInterruptCommittedTail() async throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let coordinator = fixture.coordinator

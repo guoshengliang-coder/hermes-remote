@@ -1,5 +1,20 @@
 # Hermes Go Desktop phase 0
 
+## HG-199 local upgrade records — unreleased, 2026-10-24
+
+The Local Hermes version card independently refreshes the private upgrade journal on monitoring,
+version/condition checks or an explicit read-only action. It distinguishes unchecked, absent,
+unverifiable, pending recovery and historical terminal records. A fixed target, persisted intent
+stage and timestamp do not imply a running process, successful effect or current runtime health.
+No private paths/receipt/run identities enter the presentation model. Unsafe records clear the old
+snapshot and retain HR-HERMESUPDATE-003; no record is rewritten or cleared by checking.
+
+Journal reads now reject duplicate/escaped-equivalent JSON keys, unknown nested schema fields,
+malformed or over-budget JSON and file identity/metadata changes during reading. The original
+duplicate/nested-field regressions failed five assertions before the stricter reader was added.
+This adds management visibility only: certified targets remain empty, and the app still creates no
+upgrade/recovery execution adapter. No live installation, service or release is changed.
+
 ## HG-199 Local Hermes integration — unreleased, 2026-10-24
 
 The working branch integrates main 0db655ed (Desktop 0.2.38/build 41) without allocating a version.

@@ -1,5 +1,32 @@
 # Hermes Go Desktop test plan
 
+## HG-199 local upgrade records / journal reader (2026-10-24)
+
+Test-impact review: journal bytes may drive recovery exclusion and now feed a read-only card. Add
+regressions for duplicate top-level, escaped-equivalent and nested keys plus unknown nested fields;
+the old reader accepted five cases. Test valid escapes/Unicode/numbers, distinct-object repeated
+keys, malformed syntax, UTF-8/depth/node/byte budgets. Keep private owner/mode/link and descriptor/
+path identity checks; an unstable read must never yield a trusted record.
+
+Presentation tests cover absent state without filesystem creation, unchecked versus checked-empty,
+every persisted phase, cancellation, terminal history, invalid-record replacement without rewrite,
+bilingual text/HR-HERMESUPDATE-003/nonretryability and private data exclusion. Pending stages are
+intent, never live progress; terminal history is not current health. Reading a record neither calls
+an updater nor authorizes execution. Monitoring and either existing check refresh the same snapshot.
+
+Native review needs unchecked/absent/unverifiable/pending/history/reading/busy in light and compact
+dark. Long phase labels and fixed target commit must fit; the error remains in GateIssueBanner and
+diagnostics. Record refresh remains available when upstream is offline and disabled while busy.
+Use an isolated stub model, no actual monitor/network/service callbacks. Full-app clicks and live
+upgrade/recovery acceptance remain separate from image fixtures and Swift tests.
+
+Local result: all 23 focused tests, assets check, 771 Swift tests (2 existing skips), and ad-hoc app
+packaging pass. Eighteen native fixtures use the actual card/design/banner with a stub model, cover
+all listed states including cancel intent/cancelled history, and invoke zero callbacks. Pending dark
+compact, unsafe light and completed-history dark compact layouts were inspected: stage/target/date,
+wrapping explanation and diagnosis controls remain visible. No full-app clicks, installed-app run,
+live upgrade, signing/notarization acceptance or service verification was performed.
+
 ## PM worker custody 回归（2026-10-24）
 
 测试影响：新增窄spawn proposal，限定joint source/PM scope、精确mutable-worker命令、私有解释器/
