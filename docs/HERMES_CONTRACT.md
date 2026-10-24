@@ -4,20 +4,36 @@
 
 Desktop may read authenticated `GET /api/model/info` on fixed loopback serve-v1 after local authentication succeeds. Source checked: upstream `hermes_cli/web_routers/models.py`. Only the `model` string is consumed; empty means no selected model, malformed/missing/non-200/transport failure means unknown. This is informational and must never gate existing connectivity or claim credentials/inference were tested. Tokens remain on the Mac and use the existing proxy-disabled, redirect-restricted session. No writes, model requests, profile changes or provider secrets are consumed. Android, Web, Gateway and Connector contracts remain unchanged.
 
-## Unadopted candidate source diagnostic — 2026-10-24
+## Unadopted candidate source and synthetic history diagnostics — 2026-10-24
 
 Public release v0.22.5 resolves to `bf0203a794a07aac3ff764972ab9087baa4e4f4e`. It is **not an
-adopted version or a certified upgrade target**. A separate pinned CI job runs only the AST source
-matrix, while the 0.21.3/0.21.6 runtime/prototype matrix keeps its original inputs. No recommendation,
+adopted version or a certified upgrade target**. Separate pinned CI jobs run the AST source matrix
+and an isolated synthetic database roundtrip; the 0.21.3/0.21.6 runtime/prototype matrix keeps its
+original inputs. No recommendation,
 minimum version or execution adapter changes from this result. Every matrix JSON explicitly sets
 `certifiesUpgrade=false`; `sourceOnly` distinguishes the AST path from synthetic database checks.
 
-Locally, a partial API snapshot verifies all 75 selected file contents against their Git blob IDs
+The initial local partial API snapshot verified all 75 selected file contents against their Git blob IDs
 under that fixed commit. The matrix passes the 29 consumed RPC parameter key/required-field shapes,
-42 literal REST method/path presences, and two exact display headers. It does not check enum/value
+42 literal REST method/path presences, and two exact display headers. That AST-only path does not check enum/value
 semantics, real OpenAPI, database migration, auth, streaming, approvals, runtime or any updater.
-This snapshot is not a whole Git checkout: direct Git timed out and the archive download remained
-incomplete, so neither is used as evidence. CI independently checks out the full fixed source.
+That first snapshot is not a whole Git checkout: direct Git timed out and the archive download
+remained incomplete, so neither attempt was used as evidence. A later credential-free existing
+loopback route completed the pinned checkout in the task's private source cache. Independent
+offline verification passed HEAD/all tip objects, clean index/worktree and actual Python blob bytes
+under the existing source verifier; no lazy transport or updater was allowed during verification.
+
+With the repository's pinned test dependencies in a NEW disposable Python 3.11 venv, local real
+SessionDB imports passed old-create → candidate-read/write → old-reopen, SQLite quick_check and
+backup recovery to a SEPARATE destination. The first attempt lacked PyYAML in the test environment
+and failed before creating the sample; it is not candidate failure/success evidence. No real history
+was used. This small sample does not validate all schema/feature states, rollback, runtime services,
+auth, streaming or an official updater. The new CI history job repeats the sample independently
+against full fixed checkouts; sourceOnly=false still explicitly keeps certifiesUpgrade=false.
+CLI argument/input/stage failures use bilingual HR-HERMESUPDATE-002 and retain only safe exception
+categories/stage/exit code in diagnostics, with no raw argument/path/child exception in the primary
+message. A missing/failed check never emits a success verdict.
+Known source-contract failure refuses before any synthetic database import/write, in either mode.
 The entire adoption checklist below still applies before any adoption.
 
 

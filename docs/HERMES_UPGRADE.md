@@ -15,6 +15,14 @@ bf0203a794a07aac3ff764972ab9087baa4e4f4e；没有读取/修改现用安装或认
 推荐、最低版本或certified path。本地75个API源码blob逐项验证后的29RPC键/必填形状、42个
 REST字面method/path与2个显示头通过；尚未执行完整采用清单，见HERMES_CONTRACT.md。
 
+后续在任务私有缓存完成同一固定0.22.5完整checkout，独立离线检查HEAD、全部tip对象、干净索引/
+工作区及Python blob字节通过。新隔离测试依赖venv中，实际SessionDB完成旧版建样本→候选读写→
+旧版重新打开、quick_check与备份恢复到另一目录。最初缺PyYAML的试跑在建样本前失败，补齐既定
+测试依赖后的实测才计为通过。独立候选history CI复跑同一样本；不覆盖所有历史/特性、回滚、
+服务或updater。所有输出certifiesUpgrade仍false，推荐/最低版本/执行策略均不改变。
+兼容CLI的无参数/非法参数/路径/子阶段失败统一沿用双语非重试HR-HERMESUPDATE-002；技术诊断只
+保留异常类别及固定样本阶段/退出码，不回显私有参数、路径或子进程异常。契约失败也有本地化主消息。
+
 新增独立原生uv/本地PEP517实验用实际固定PM PythonEnvironment、uv0.12.3/Python3.14.7：
 调用方中止自建uv并关闭FD、监督方再中止调用方后，backend新心跳与真实双域锁验证raw丢锁/
 proposal持锁直到backend退出。该构建有意中止，没有durable intent/实际官方锁或完整sync，不能

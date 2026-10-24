@@ -1,5 +1,26 @@
 # Hermes Go Desktop test plan
 
+## Unadopted 0.22.5 synthetic history diagnostic (2026-10-24)
+
+Test-impact/error-code review: the prior candidate job was AST-only. Complete the private fixed
+bf0203a7 checkout and independent transport-denied source verification before local SessionDB imports.
+Use a new disposable dependency venv and synthetic home/data only; no real installation or history.
+Old 17b5df02 create → candidate read/write → old reopen, quick_check and backup recovery to a separate
+destination pass. The initial missing-PyYAML environment failure is not counted as candidate evidence.
+An independent fixed-checkout Linux history job repeats this narrow test; the source-only job and
+original 818c13be maintenance matrix remain separate. This never fills verifiedTargets/certifiedPaths.
+
+Local focused 5 tests and full 182 Python tests pass; the final real fixed-source database matrix
+also passes after the CLI change. New CLI regression first fails on legacy argparse exit/output; fixed argument/input/DB-stage handling
+returns bilingual HR-HERMESUPDATE-002, nonretryable, certifiesUpgrade=false, no argument/path/traceback
+echo. Technical diagnostics retain only known exception category and fixed DB stage/exit code.
+Contract mismatches preserve diagnostic method categories with a localized primary failure and
+refuse before database imports/writes. That no-import regression failed first, then passed. Focused
+tests also retain successful sourceOnly and synthetic mode semantics. No Desktop baseline rerun is
+needed for this Python/workflow change; prior 798 Swift/2 skips, assets and ad-hoc package remain the
+product baseline. Full schema/features, auth/streaming, official updater/services and physical/cross-
+client acceptance remain unverified; no live upgrade or rollback is certified.
+
 ## HG-199 runtime preparation custody (isolated; no product execution)
 
 Test-impact review: actual PM bootstrap precedes the earlier same-run death boundary. The new

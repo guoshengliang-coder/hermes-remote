@@ -16,6 +16,27 @@ import tempfile
 REPO = Path(__file__).resolve().parents[2]
 
 
+class ContractArguments(argparse.ArgumentParser):
+    def error(self, message):
+        # argparse normally echoes arbitrary argument values, which may be private.
+        raise ValueError("invalid compatibility-check arguments")
+
+
+def failure():
+    return {"schema": 1, "ok": False, "certifiesUpgrade": False,
+            "code": "HR-HERMESUPDATE-002", "retryable": False,
+            "summaryChinese": "无法验证 Hermes 兼容检查的输入或结果，请查看升级条件。",
+            "summaryEnglish": "Hermes compatibility inputs or results could not be verified. Review the upgrade conditions."}
+
+
+class FixtureFailure(RuntimeError):
+    def __init__(self, stage, exit_code):
+        if stage not in {"create", "after_upgrade", "old_reopen"} or type(exit_code) is not int:
+            raise ValueError("unknown synthetic database failure")
+        super().__init__("isolated synthetic database stage failed")
+        self.stage, self.exit_code = stage, exit_code
+
+
 def tree_contract(root):
     classes, methods, routes = {}, {}, set()
     for file in sorted((root / "tui_gateway/contracts").glob("*.py")):
@@ -134,8 +155,8 @@ def db_roundtrip(old, candidate):
             result = subprocess.run([sys.executable, "-I", "-B", "-c", CHILD, str(root), str(home), mode],
                                     env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
             if result.returncode:
-                # Fixtures have no credentials; report exception type, never arbitrary module output.
-                raise RuntimeError(f"isolated DB stage {mode} exited {result.returncode}")
+                # Preserve fixed stage/exit diagnostics, never arbitrary module output.
+                raise FixtureFailure(mode, result.returncode)
         child(old, "create")
         database = home / "data/state.db"
         backup = home / "before.db"
@@ -158,7 +179,7 @@ def db_roundtrip(old, candidate):
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = ContractArguments()
     parser.add_argument("--old-root", type=Path, required=True)
     parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--source-only", action="store_true")
@@ -170,11 +191,27 @@ def main():
             parser.error("use downloaded source snapshots outside the live Hermes home")
     result = {"schema": 1, "sourceOnly": args.source_only, "certifiesUpgrade": False,
               "current": source_check(roots[0]), "candidate": source_check(roots[1])}
-    if not args.source_only:
+    refused = bool(result["current"]["failures"] or result["candidate"]["failures"])
+    if not args.source_only and not refused:
         result["database"] = db_roundtrip(*roots)
+    if refused:
+        result.update(failure())
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return int(bool(result["current"]["failures"] or result["candidate"]["failures"]))
+    return int(refused)
+
+
+def cli():
+    try:
+        return main()
+    except (ValueError, TypeError, KeyError, OSError, RuntimeError, SyntaxError, subprocess.SubprocessError) as exc:
+        # Keep paths, argument values and child exceptions out of the primary failure.
+        result = failure()
+        result["diagnostics"] = {"category": type(exc).__name__}
+        if isinstance(exc, FixtureFailure):
+            result["diagnostics"].update(stage=exc.stage, exitCode=exc.exit_code)
+        print(json.dumps(result, ensure_ascii=False))
+        return 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(cli())

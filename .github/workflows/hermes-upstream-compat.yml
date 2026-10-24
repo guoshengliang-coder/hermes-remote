@@ -41,6 +41,35 @@ jobs:
         run: >-
           python -I -S -B scripts/compat/hermes-matrix.py --source-only
           --old-root .upstream/current --candidate-root .upstream/unadopted
+  unadopted-candidate-history-audit:
+    # Synthetic data only; this does not adopt v0.22.5 or certify its updater/runtime.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 17b5df02f2a729d8f46fbbf78cfc1f5a8cf0f121
+          path: .upstream/current
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: NousResearch/hermes-agent
+          ref: bf0203a794a07aac3ff764972ab9087baa4e4f4e # v0.22.5, still unadopted
+          path: .upstream/unadopted
+          persist-credentials: false
+      - name: Install isolated synthetic database dependencies
+        run: python -m pip install -r scripts/compat/requirements.txt
+      - name: Check fixed candidate contracts and synthetic history without services or updater
+        run: >-
+          python -I -B scripts/compat/hermes-matrix.py
+          --old-root .upstream/current --candidate-root .upstream/unadopted
   verified-source-matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 15
