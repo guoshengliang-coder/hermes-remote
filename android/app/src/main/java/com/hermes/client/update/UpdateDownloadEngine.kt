@@ -12,10 +12,8 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +44,6 @@ class UpdateDownloadEngine @Inject constructor(
     private val directory: File =
         File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, "")
     private val prefs = context.getSharedPreferences("app_update", Context.MODE_PRIVATE)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val runner = Mutex()
     private val calls: MutableSet<Call> = Collections.newSetFromMap(ConcurrentHashMap())
     private var job: Job? = null
@@ -57,7 +54,7 @@ class UpdateDownloadEngine @Inject constructor(
      * Bytes written but not yet committed by a fsynced chunk. Kept apart from [_record] so a
      * failure never persists an optimistic offset: the journal only ever holds durable bytes.
      */
-    private val liveBytes = MutableStateFlow(0L)
+    private val displayProgress = UpdateDownloadProgress(android.os.SystemClock::elapsedRealtime)
 
     /** A dedicated client: same no-cookie/no-redirect policy as the index client, slower reads. */
     private val downloadClient: OkHttpClient = client.newBuilder()
@@ -68,7 +65,7 @@ class UpdateDownloadEngine @Inject constructor(
         .build()
 
     /** Restore the persisted record, discarding the half-written one of the old downloader. */
-    fun restore(): UpdateDownloadRecord? {
+    @Synchronized fun restore(): UpdateDownloadRecord? {
         _record.value?.let { return it }
         discardLegacyDownloadManagerJob()
         val raw = prefs.getString(KEY_RECORD, null) ?: return null
@@ -85,13 +82,13 @@ class UpdateDownloadEngine @Inject constructor(
             else -> record
         }
         _record.value = healed
-        liveBytes.value = healed.downloadedBytes
+        displayProgress.reset(healed.downloadedBytes)
         save(healed)
         return healed
     }
 
     /** Start a fresh task, or reuse the compatible partial one already on disk. */
-    fun prepare(version: UpdateVersion): UpdateDownloadRecord {
+    @Synchronized fun prepare(version: UpdateVersion): UpdateDownloadRecord {
         val existing = _record.value ?: restore()
         val reusable = existing != null &&
             existing.version.versionCode == version.versionCode &&
@@ -105,7 +102,7 @@ class UpdateDownloadEngine @Inject constructor(
                 errorCode = null,
             )
             _record.value = resumed
-            liveBytes.value = resumed.downloadedBytes
+            displayProgress.reset(resumed.downloadedBytes)
             save(resumed)
             return resumed
         }
@@ -117,7 +114,7 @@ class UpdateDownloadEngine @Inject constructor(
             status = UpdateDownloadStatus.WAITING,
         )
         _record.value = record
-        liveBytes.value = 0
+        displayProgress.reset(0)
         save(record)
         return record
     }
@@ -141,26 +138,26 @@ class UpdateDownloadEngine @Inject constructor(
         job = currentCoroutineContext()[Job]
         val running = initial.copy(status = UpdateDownloadStatus.RUNNING, errorCode = null)
         _record.value = running
-        liveBytes.value = running.downloadedBytes
+        displayProgress.reset(running.downloadedBytes)
         save(running)
         notify(running)
         val transfer = UpdateDownloadTransfer(
             callFactory = ::call,
             directory = directory,
-            commit = { record ->
-                _record.value = record
-                liveBytes.value = record.downloadedBytes
-                save(record)
-            },
+            commit = ::checkpoint,
             progress = { record ->
-                liveBytes.value = record.downloadedBytes
-                notify(record)
+                synchronized(this@UpdateDownloadEngine) {
+                    if (_record.value?.status == UpdateDownloadStatus.RUNNING) {
+                        displayProgress.advance(record.downloadedBytes)
+                        notify(record)
+                    }
+                }
             },
         )
         try {
             val done = transfer.run(running)
             _record.value = done
-            liveBytes.value = done.downloadedBytes
+            displayProgress.reset(done.downloadedBytes)
             save(done)
             notify(done)
             false
@@ -169,28 +166,32 @@ class UpdateDownloadEngine @Inject constructor(
             if (current.status != UpdateDownloadStatus.PAUSED && current.status != UpdateDownloadStatus.FAILED) {
                 val stopped = current.copy(status = UpdateDownloadStatus.WAITING)
                 _record.value = stopped
+                displayProgress.reset(stopped.downloadedBytes)
                 save(stopped)
             }
             throw cancelled
         } catch (failure: UpdateDownloadFailure) {
             val current = _record.value ?: running
+            if (current.status == UpdateDownloadStatus.PAUSED) return@withLock false
             val status = if (failure.retryable) UpdateDownloadStatus.WAITING else UpdateDownloadStatus.FAILED
             val failed = current.copy(status = status, errorCode = failure.code.value)
             _record.value = failed
+            displayProgress.reset(failed.downloadedBytes)
             save(failed)
             notify(failed)
             failure.retryable
         } finally {
             job = null
+            calls.clear()
         }
     }
 
-    fun pause() {
+    @Synchronized fun pause() {
         val current = _record.value ?: return
         if (current.status == UpdateDownloadStatus.COMPLETE || current.status == UpdateDownloadStatus.PAUSED) return
         val paused = current.copy(status = UpdateDownloadStatus.PAUSED)
         _record.value = paused
-        liveBytes.value = paused.downloadedBytes
+        displayProgress.reset(paused.downloadedBytes)
         save(paused)
         cancelActiveCalls()
         job?.cancel()
@@ -208,25 +209,29 @@ class UpdateDownloadEngine @Inject constructor(
         }
         prefs.edit().remove(KEY_RECORD).commit()
         _record.value = null
-        liveBytes.value = 0
+        displayProgress.reset(0)
     }
 
     /** Live view for the page: durable bytes plus the chunk currently being written. */
-    fun snapshot(): UpdateDownloadSnapshot? = _record.value?.let { record ->
-        UpdateDownloadSnapshot(
-            status = record.status,
-            downloaded = maxOf(liveBytes.value, record.downloadedBytes),
-            total = record.totalBytes,
-            errorCode = record.errorCode,
-        )
+    @Synchronized fun snapshot(): UpdateDownloadSnapshot? = _record.value?.let(displayProgress::snapshot)
+
+    /** Serialize only durable offsets, while keeping other workers' live bytes on screen. */
+    private fun checkpoint(record: UpdateDownloadRecord) = synchronized(this) {
+        val next = if (_record.value?.status == UpdateDownloadStatus.PAUSED) {
+            record.copy(status = UpdateDownloadStatus.PAUSED)
+        } else record
+        save(next)
+        _record.value = next
+        if (next.status == UpdateDownloadStatus.RUNNING) displayProgress.advance(next.downloadedBytes)
+        else displayProgress.reset(next.downloadedBytes)
     }
 
     /** Mark a retryable failure as ready to run again. */
-    fun retry(): UpdateDownloadRecord? = _record.value?.let { current ->
+    @Synchronized fun retry(): UpdateDownloadRecord? = _record.value?.let { current ->
         if (current.status == UpdateDownloadStatus.FAILED || current.status == UpdateDownloadStatus.PAUSED) {
             current.copy(status = UpdateDownloadStatus.WAITING, errorCode = null).also {
                 _record.value = it
-                liveBytes.value = it.downloadedBytes
+                displayProgress.reset(it.downloadedBytes)
                 save(it)
             }
         } else current
@@ -266,4 +271,5 @@ data class UpdateDownloadSnapshot(
     val downloaded: Long,
     val total: Long,
     val errorCode: String?,
+    val bytesPerSecond: Long? = null,
 )

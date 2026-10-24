@@ -376,7 +376,8 @@ private fun TaskSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 // Announce phase changes, not percentages: per-percent TalkBack is pure noise.
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                modifier = if (task.phase == DownloadPhase.DOWNLOADING) Modifier
+                    else Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
             task.percent?.takeIf { task.phase == DownloadPhase.DOWNLOADING }?.let {
                 Text(
@@ -391,6 +392,15 @@ private fun TaskSection(
             LinearProgressIndicator(Modifier.fillMaxWidth())
         } else {
             LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
+        }
+        if (task.phase == DownloadPhase.DOWNLOADING) {
+            Text(
+                task.bytesPerSecond?.let { rate ->
+                    localized(language, "下载速度：${formatBytes(rate)}/s", "Speed: ${formatBytes(rate)}/s")
+                } ?: localized(language, "正在测速…", "Measuring speed…"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Text(
             localized(

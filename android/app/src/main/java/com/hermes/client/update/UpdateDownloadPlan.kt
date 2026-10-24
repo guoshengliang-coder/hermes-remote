@@ -24,7 +24,7 @@ import java.io.File
 const val UPDATE_DOWNLOAD_CONNECTIONS = 4
 
 /** Bytes requested per HTTP call. Bounds how much work a single dropped connection can waste. */
-const val UPDATE_DOWNLOAD_CHUNK_BYTES = 1L * 1024 * 1024
+const val UPDATE_DOWNLOAD_CHUNK_BYTES = 4L * 1024 * 1024
 
 @Serializable
 data class UpdateDownloadSegment(

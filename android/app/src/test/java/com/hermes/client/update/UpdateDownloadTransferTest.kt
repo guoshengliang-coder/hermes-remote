@@ -145,6 +145,13 @@ class UpdateDownloadTransferTest {
         assertThrows(IllegalArgumentException::class.java) { segment.advance(101L..150L, 10) }
     }
 
+    @Test fun `legacy one MiB checkpoints resume exactly without rounding up or restarting`() {
+        val mib = 1024L * 1024
+        val old = UpdateDownloadSegment(0, 10 * mib - 1, downloaded = mib)
+        assertEquals(mib..(5 * mib - 1), old.nextRange())
+        assertEquals(5 * mib, old.advance(old.nextRange()!!, 4 * mib).downloaded)
+    }
+
     @Test fun `downloads four ranges and refuses to publish the file before every byte`() = runTest {
         serve()
         val record = UpdateDownloadRecord(versionFor(), body.size.toLong(), planUpdateSegments(body.size.toLong()))
@@ -182,6 +189,26 @@ class UpdateDownloadTransferTest {
         // Services usually deliver descending requests; compare as a set instead of by arrival.
         assertTrue(bytesToReturn.toString(), bytesToReturn.contains(2 to 2))
         assertFalse(bytesToReturn.any { it.first == 0 })
+    }
+
+    @Test fun `four MiB chunks reduce request and checkpoint count without changing the APK`() = runTest {
+        val bytes = ByteArray(20 * 1024 * 1024) { (it % 251).toByte() }
+        val latest = versionFor(bytes)
+        serve(bytes, "\"${latest.sha256}\"")
+        val checkpoints = mutableListOf<UpdateDownloadRecord>()
+        val updates = Collections.synchronizedList(mutableListOf<UpdateDownloadRecord>())
+        val client = OkHttpClient()
+        var tick = 0L
+        val done = UpdateDownloadTransfer(client::newCall, directory, checkpoints::add, updates::add,
+            now = { tick += 301; tick }).run(UpdateDownloadRecord(latest, latest.sizeBytes, planUpdateSegments(latest.sizeBytes)))
+        assertEquals(8, bytesToReturn.size)
+        assertEquals(4, bytesToReturn.count { (start, end) -> end - start + 1 == 4 * 1024 * 1024 })
+        assertEquals(10, checkpoints.size) // pinned HEAD + eight fsynced chunks + COMPLETE
+        assertTrue(checkpoints.all { it.segments.all { segment -> segment.downloaded in 0..segment.length } })
+        assertTrue(updates.zipWithNext().all { (a, b) -> a.downloadedBytes <= b.downloadedBytes })
+        assertTrue(updates.any { it.downloadedBytes in 1 until UPDATE_DOWNLOAD_CHUNK_BYTES })
+        assertArrayEquals(bytes, updateDownloadTarget(directory, latest).readBytes())
+        assertTrue(done.complete)
     }
 
     @Test fun `a changed validator restarts once instead of splicing builds`() = runTest {
