@@ -685,3 +685,61 @@ are retained for diagnosis, including the deliberately tampered target and incom
 This is a source observation policy, not authenticated production consent or a before-PM runtime
 plan. `pmExecuted`, `runtimeVerified`, `updaterRecoveryVerified`, `productionCompletionVerified`,
 `durableHandoffVerified` and `certifiesUpgrade` stay false. Product execution remains disabled.
+
+### Joint source and PM preparation (2026-10-24, isolated only)
+
+`hermes-maintenance-source-pm.py --provision` creates a NEW marked source-transition fixture from
+fixed old 17b5df02 and target 818c13be Git inputs. An external plan fixes the original source plan,
+the six distinct PM selector/lock inputs and the exact Python version declared by the target lock
+before any movement or PM work. Future expectations must match actual target Git blobs, even if a
+caller recomputes the JSON digest. The lock order is drained home/checkout EX, then the actual
+upstream checkout/marker lock, then plan append, source move and PM synchronization. Unknown or
+partial history remains pending; the original intent/inodes are never replaced or cleared.
+
+The joint policy requires the real official checkout descriptor in addition to the prototype lease.
+The source is moved locally under both locks. A `pm-sync-started` event is synchronized to both
+original slots BEFORE spawning official `pm.client.sync_venv([], explicit=True)`. Parent custody
+remains held throughout. Its top Python child receives the maintenance and official descriptors;
+this does NOT prove every PM grandchild inherits them. A nonzero exit, timeout, process death or
+failed checkpoint leaves started/partial history and cannot automatically replay synchronization.
+There is no unknown-sync recovery or maintenance terminal API yet.
+
+After a zero exit, the selected interpreter/packaging and actual environment are observed twice,
+using the existing bounded read-only engine. The public PM observer retains its original fixture/
+lease guard; the joint layer independently validates its stricter marked scope before using that
+shared private engine. The prepared event binds actual environment/base directory identities,
+content digests, exact runtime/packaging versions, activation status and the full pins digest
+(including facts and activation inputs). The facts-byte regression first failed without pinsDigest;
+merely restoring bytes/mtime does not undo the recorded ctime drift.
+
+A new process must have the same external run/from/to/plan SHA AND a separate generation digest.
+It acquires fresh locks, requires complete identical canonical prepared histories before running
+any interpreter probe, then re-reads actual source/PM inputs twice and synchronizes/rechecks slots.
+Saved JSON is comparison data; it cannot authorize completion. Wrong generation, facts/dependency
+content drift, wrong stage/source, missing/foreign/readonly official descriptors, partial writes,
+failed PM exits and plan mismatch refuse. CLI refusal retains bilingual nonretryable
+`HR-HERMESUPDATE-002`, with no raw private path, child output or exception.
+
+Mac real validation completed a fresh old-to-target Git movement plus official-lock-held PM sync:
+selected Python 3.14.7 and packaging 26.0 ran, then fresh-process recheck passed. One self-owned
+recheck coordinator was SIGKILLed only AFTER its actual observer children had exited; another
+process still matched the same prepared generation. Wrong external generation and changed actual
+facts were refused, the original history stayed identical and ordinary writers remained blocked.
+The deliberately drifted fixture is retained for diagnosis; its checkpoint remains stale.
+
+Portable unit cases use synthetic Git commits and PM/runtime reports, with real Git/locks/files/
+subprocess execution; they are distinct from this real Mac run. Linux full discovery and macOS's
+explicit suite cover them. They do not provision network dependencies in CI.
+
+```bash
+python -I -S -B scripts/compat/hermes-maintenance-source-pm.py --provision --fault-matrix \
+  --old-root <clean-fixed-0.21.3-git-source> --candidate-root <clean-fixed-0.21.6-git-source>
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_maintenance_source_pm.py'
+```
+
+This is preparation observation, not a complete official updater run. Activation inputs remain
+false in the real bottom-level-sync fixture; no stamps are fabricated. Supervisor death, PM-in-flight
+child custody/recovery, source-move interruption, full CLI/services/business, dependency closure,
+whole-writer coverage and production authority remain unverified. `updaterRecoveryVerified`,
+`productionCompletionVerified`, `durableHandoffVerified`, `globalAdmissionProven`, `certifiesUpgrade`
+remain false. The app does not import this prototype or enable execution.

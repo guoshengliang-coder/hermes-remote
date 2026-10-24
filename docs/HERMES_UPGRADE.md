@@ -1,5 +1,17 @@
 # Hermes 持续升级（HG-199）
 
+## 同事务的源码与 PM 准备（隔离原型，2026-10-24）
+
+新增source_pm策略将原源码计划、目标PM输入/Python版本与真实同步的准备检查点连接起来，
+不再把两个独立实验拼成联合证据。实际上游更新锁覆盖源码移动和PM；started事件早于真实同步。
+新进程需要外部原计划及generation SHA，必须重新读取实际源码/依赖与facts，部分或未知同步状态
+不能被保存的成功布尔值放行。只发布准备观察，不结束维护或宣称升级完成。
+
+本机新夹具已完成真实源码移动、Python3.14.7/packaging26.0同步/重查、完整重查后的自建协调方死亡，
+以及错误generation/facts漂移拒绝；原intent/history持续禁入writer。底层sync没有完整激活输入，
+未补造戳。PM执行中子孙进程custody与恢复、监督方死亡授权及完整启动/业务仍未认证，继续实现。
+具体复现和限制见upstream-maintenance-prototype/README.md；生产GO尚不导入此模块。
+
 ## Desktop entry point — 2026-10-24
 
 HG-199's read-only “检查 Hermes 版本” and “检查升级条件” now live in the dedicated “本机 Hermes”

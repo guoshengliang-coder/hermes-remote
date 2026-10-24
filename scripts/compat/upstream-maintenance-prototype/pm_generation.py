@@ -217,6 +217,13 @@ def selection(root, command_prefix):
 
 def observe(held, command_prefix=()):
     root = scope(held)
+    observed = _observe_root(root, command_prefix)
+    scope(held)
+    return observed
+
+
+def _observe_root(root, command_prefix=()):
+    """Shared observation engine; callers must independently validate their fixture/lease scope."""
     source(root / "checkout")
     selected = selection(root, command_prefix)
     budget = [0, 0]
@@ -245,7 +252,6 @@ def observe(held, command_prefix=()):
             or file(Path(selected["python"]).resolve(strict=True), [0, 0]) != binary):
         raise ValueError("PM inputs changed during observation")
     source(root / "checkout")
-    scope(held)
     return {"schema": 1, "root": str(root), "rootIdentity": binding.directory(root), "selected": selected,
             "pins": before, "cfg": cfg, "binary": binary, "runtime": runtime,
             "activationInputsCurrent": before["activationInputsCurrent"],

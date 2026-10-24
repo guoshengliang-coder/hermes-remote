@@ -1,5 +1,18 @@
 # Hermes Go Desktop test plan
 
+## 联合源码与 PM 准备回归（2026-10-24）
+
+测试影响：保持原PM观察器公共scope guard，抽出私有只读引擎供独立严格joint scope复用。
+新增合成Git/真实文件、锁与子进程回归：原意图/inode保留、独立计划/目标blob/Python锁约束、
+错误阶段/实际源码漂移、部分追加/未知同步阻断、失败子进程不重跑、错误generation/依赖/facts漂移、
+官方FD缺失/外来/只读以及双语HR-HERMESUPDATE-002/不可重试/脱敏。facts遗漏摘要用例先复现接受。
+
+单独Mac新夹具真实跑固定旧→新源码、官方锁下PM同步及新进程观察，Python3.14.7/packaging26.0；
+完整复核之后SIGKILL自建协调方（无在途观察子进程），新进程重查仍通过。错误generation与实际facts
+漂移拒绝，意图不变且普通writer禁入。不是同步进行中死亡，也不是完整官方updater/服务/业务认证。
+activationInputsCurrent=false，完整升级认证/耐久授权/全writer证明仍false，产品执行关闭。
+本轮不新增Desktop UI或产品源码，不重复本地app/Node/Web/Android/device基线；后续CI核对当前head。
+
 ## HG-199 Local Hermes integration — 2026-10-24
 
 Test-impact review: move the existing upstream checks to Local Hermes without changing the check
