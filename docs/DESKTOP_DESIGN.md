@@ -1,5 +1,21 @@
 # Hermes Go Desktop design contract
 
+## Recovery and page responsibilities — 2026-10-24 follow-up
+
+Overview's headline and three status links are information/navigation only. Actions belong to their
+Cloud/Desktop/Hermes section. Devices contains only device selection, sharing, removal and authorized
+phones; no local status, install-preflight or repair panels. Connection setup expands contextually
+from Overview/Local Hermes so the existing root confirmation sheets still work (no nested setup modal).
+Diagnostics retains repair, component/preflight details and logs. Blocked repair shows its concrete
+reason next to “重新检查修复条件”, rather than inviting the same ineffective repair again.
+
+Existing named profiles and the sticky active profile do not make Hermes unusable. GO continues the
+original default data home, explicitly pinned in its private launcher; the confirmation explains this.
+It never rewrites profiles, config, databases or sticky selection. Custom/ambiguous installation paths
+remain an explained block; this iteration does not add arbitrary-home selection or version management.
+Account-derived health expires after 180 seconds (future skew over 5 seconds is unknown). Diagnostics
+uses the active local binding, never the selected remote Mac. Devices keeps each Mac's own freshness.
+
 ## Overview and global account — 2026-10-24
 
 Overview always describes this Mac. Show an impact headline beside three compact, clickable status
@@ -10,7 +26,7 @@ Remote usability additionally needs a fresh local-binding end-to-end report. Nev
 selected remote Mac’s health. Installation/version presence is not authenticated Hermes usability.
 
 The fixed sidebar footer is the global account entry on every route. Signed-out/expired users can
-read the overview and open the existing email-code login from this entry or the overview action.
+read the overview and open the existing email-code login from this entry or the Cloud section action.
 Other management sections remain gated until setup is complete; existing onboarding and mutation
 locks remain in force. Signed-in users see their name/email and account menu. Account management
 opens separately; the Devices section owns bindings/devices/sharing, and Settings owns preferences
@@ -100,7 +116,7 @@ HTTP health, then Cloud binding health; installing files alone does not mean pho
 ## Repairing a committed installation (HG-175)
 
 A committed `account_active` install with either managed LaunchAgent file missing or job unloaded
-shows “检查并修复受管服务” in Account & Devices and the setup/overview recovery surface. It replaces
+shows “修复 Desktop” in the Overview Desktop section and Diagnostics. It replaces
 that path's generic ownership alarm with `HR-MIGRATE-019`. Checking is read-only and cancellation
 changes nothing. The 540 pt native confirmation names the original release and file scope, whether
 Hermes uses the Mac's standard installation or the original bundled runtime, and any brief Connector

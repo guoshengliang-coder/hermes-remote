@@ -17,10 +17,22 @@ final class DesktopLocalHermesUsabilityTests: XCTestCase {
     func testOnlyHealthyAuthenticatedProbeEnablesOpen() {
         for level in HealthLevel.allCases {
             let result = DesktopLocalHermesPresentation(detection: .usable(installation),
-                health: ComponentHealth(component: .hermes, level: level, detail: "test"), hasManagedInstallation: true)
+                health: ComponentHealth(component: .hermes, level: level, detail: "test", checkedAt: Date()), hasManagedInstallation: true)
             XCTAssertEqual(result.canOpen, level == .healthy)
         }
     }
+    func testExpiredLocalHealthCannotEnableOpen() {
+        let now = Date()
+        for age in [181.0, -6.0] {
+            let result = DesktopLocalHermesPresentation(detection: .usable(installation),
+                health: ComponentHealth(component: .hermes, level: .healthy, detail: "old",
+                                        checkedAt: now.addingTimeInterval(-age)),
+                hasManagedInstallation: true, now: now)
+            XCTAssertFalse(result.canOpen)
+            XCTAssertEqual(result.level, .checking)
+        }
+    }
+
     func testUnsupportedAndAbsentRemainDistinct() {
         let unsupported = DesktopLocalHermesPresentation(detection: .unsupported(.multipleProfiles, detail: "private details"), health: nil, hasManagedInstallation: false)
         let absent = DesktopLocalHermesPresentation(detection: .absent(hermesDataPresent: true), health: nil, hasManagedInstallation: false)
@@ -33,7 +45,7 @@ final class DesktopLocalHermesUsabilityTests: XCTestCase {
     }
     func testBundledRuntimeCanBeUsableWithoutStandardCheckout() {
         let result = DesktopLocalHermesPresentation(detection: .absent(hermesDataPresent: false),
-            health: ComponentHealth(component: .hermes, level: .healthy, detail: "authenticated"), hasManagedInstallation: true)
+            health: ComponentHealth(component: .hermes, level: .healthy, detail: "authenticated", checkedAt: Date()), hasManagedInstallation: true)
         XCTAssertTrue(result.canOpen)
         XCTAssertEqual(result.version, "由 Desktop 管理")
     }

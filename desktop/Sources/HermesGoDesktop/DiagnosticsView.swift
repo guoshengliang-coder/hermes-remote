@@ -30,6 +30,7 @@ struct DiagnosticsView: View {
                         Button("复制此问题") { model.copyDiagnostics(issue) }
                     }.padding(20).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
                 }
+                if model.serviceRepairNeeded { ManagedServiceRepairCard() }
                 componentDetails
 
                 HStack(alignment: .top, spacing: 18) {
@@ -94,7 +95,7 @@ struct DiagnosticsView: View {
 
     private var checksCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(model.selectedAccountDevice == nil ? "连接检查" : "账号设备上报")
+            Text("这台 Mac 的连接检查")
                 .font(.system(size: 17, weight: .bold))
                 .padding(.bottom, 14)
             ForEach(model.presentedHealth.components) { item in
@@ -128,16 +129,17 @@ struct DiagnosticsView: View {
         let issue = model.presentedHealth.components.first {
             $0.level == .failed || $0.level == .degraded || ($0.component.isRequired && $0.level == .unavailable)
         }
+        let complete = model.presentedHealth.overall == .healthy && !model.serviceRepairNeeded
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 7) {
-                StatusDot(level: issue?.level ?? .healthy)
-                Text(issue == nil ? "无需处理" : "需要确认")
+                StatusDot(level: issue?.level ?? (complete ? .healthy : .checking))
+                Text(complete ? "无需处理" : "需要确认")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(issue == nil ? Color.primary : Color.orange)
+                    .foregroundStyle(complete ? Color.primary : Color.orange)
             }
-            Text(issue.map { componentTitle($0.component) } ?? "连接链路正常")
+            Text(issue.map { componentTitle($0.component) } ?? (complete ? "连接链路正常" : "检查尚未完成"))
                 .font(.system(size: 19, weight: .bold))
-            Text(issue?.detail ?? "当前没有发现需要处理的问题。")
+            Text(issue?.detail ?? (complete ? "当前没有发现需要处理的问题。" : "请完成上方修复或重新诊断，以确认当前连接状态。"))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             if issue != nil {
@@ -153,16 +155,12 @@ struct DiagnosticsView: View {
                     }
                 }
             }
-            if model.serviceRepairNeeded {
-                Button("检查并修复 Desktop") { Task { await model.prepareServiceRepair() } }
-                    .buttonStyle(.bordered).disabled(model.isManagedBootstrapAccountLocked)
-            }
             if model.canReconnectManagedConnector {
                 Button("重新连接这台 Mac") { Task { await model.prepareConnectorReconnect() } }
                     .buttonStyle(.bordered)
             }
             if let accountIssue = model.accountIssue { GateIssueBanner(issue: accountIssue) }
-            if let repairIssue = model.serviceRepairIssue { GateIssueBanner(issue: repairIssue) }
+            if !model.serviceRepairNeeded, let repairIssue = model.serviceRepairIssue { GateIssueBanner(issue: repairIssue) }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -170,11 +168,12 @@ struct DiagnosticsView: View {
     }
 
     private func localCheckCard(_ local: ComponentHealth) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("这台 Mac 的 Hermes", systemImage: statusSymbol(local.level))
+        let fresh = AccountDeviceHealth.isFresh(local.checkedAt)
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("这台 Mac 的 Hermes", systemImage: statusSymbol(fresh ? local.level : .unavailable))
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(statusColor(local.level))
-            Text(local.detail).font(.system(size: 12)).foregroundStyle(.secondary)
+                .foregroundStyle(statusColor(fresh ? local.level : .unavailable))
+            Text(fresh ? local.detail : "本机检查已过期，请重新诊断").font(.system(size: 12)).foregroundStyle(.secondary)
             Text(checkTime(local.checkedAt)).font(.system(size: 10)).foregroundStyle(.secondary)
             Text("本机认证接口检查；账号设备的连接状态以上方上报为准。")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -222,9 +221,9 @@ struct DiagnosticsView: View {
     }
 
     private func componentTitle(_ component: HealthComponent) -> String {
-        guard model.selectedAccountDevice != nil else { return component.title }
+        guard model.currentDashboard?.localDevice != nil else { return component.title }
         return switch component {
-        case .hermes: "账号设备的 Hermes"
+        case .hermes: "本机 Hermes 的云端上报"
         case .endToEnd: "账号端到端"
         default: component.title
         }

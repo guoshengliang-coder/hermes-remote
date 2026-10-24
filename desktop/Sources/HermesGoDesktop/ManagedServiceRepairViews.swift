@@ -24,7 +24,7 @@ struct ManagedServiceRepairCard: View {
                         .font(.system(size: 12))
                 }
                 Spacer()
-                Button("检查并修复Desktop") { Task { await model.prepareServiceRepair() } }
+                Button(model.serviceRepairGuidance == nil ? "检查并修复 Desktop" : "重新检查修复条件") { Task { await model.prepareServiceRepair() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.isManagedBootstrapAccountLocked || model.isAccountOperationInProgress)
             }
@@ -75,7 +75,7 @@ struct ServiceRepairConfirmationContent: View {
                     : "会恢复缺失的启动项、载入未启动的服务，并在必要时短暂重启 Desktop 后台连接，验证这台 Mac 的连接。"))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(usesLocalHermes ? "Hermes 使用这台 Mac 已有的标准安装。" : "Hermes 使用Desktop 管理的运行程序。")
+            Text(usesLocalHermes ? "Hermes 使用这台 Mac 已有的安装与默认数据目录（~/.hermes）；已有 profiles 和会话保留，后台连接不会跟随终端的 profile 切换。" : "Hermes 使用Desktop 管理的运行程序。")
                 .font(.system(size: 12))
             Text("当前账号、设备绑定、机器凭据和 Hermes 数据会保留。")
                 .font(.system(size: 12, weight: .semibold))

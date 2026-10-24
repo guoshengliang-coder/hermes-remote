@@ -277,7 +277,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     var presentedHealth: DesktopHealthSnapshot {
-        if let device = selectedAccountDevice {
+        if let device = currentDashboard?.localDevice {
             return AccountDeviceHealth.snapshot(for: device, checkedAt: accountCheckedAt ?? .distantPast)
         }
         return health
@@ -2177,8 +2177,14 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             serviceRepairGuidance = "端口 9119 已被其他进程占用或无法确认空闲。请关闭占用该端口的程序后重新检查；Hermes GO 不会停止未知进程。"
         case .unknownService:
             serviceRepairGuidance = "启动任务的身份无法确认或存在旧 Connector。请在诊断中检查启动方式，解决重复或未知任务后重新检查。"
-        case .unsafeInstallation, .installationRecordMissing:
-            serviceRepairGuidance = "原安装资料缺失、权限不安全或运行方式无法确认。请从备份恢复原 Managed 安装目录及机器凭据后重新检查；保留 Hermes 数据和云端绑定。"
+        case .localHermesUnavailable(let reason):
+            serviceRepairGuidance = reason.repairGuidanceChinese
+        case .localHermesDependenciesIncomplete:
+            serviceRepairGuidance = "已找到本机 Hermes，但运行依赖与代码版本不一致。请先完成 Hermes 自身的更新或修复，再重新检查；无需删除配置、profiles 或会话。"
+        case .installationRecordMissing:
+            serviceRepairGuidance = "找不到这台 Mac 原来的 Desktop 安装记录。请恢复原安装记录后重新检查；不会重新绑定设备，也无需删除 Hermes 数据。"
+        case .unsafeInstallation:
+            serviceRepairGuidance = "Desktop 安装文件的完整性、所属用户或权限未通过检查。请在诊断中查看失败阶段，检查原安装目录；重新安装 Hermes 或删除 profiles 无法解决此问题。"
         case .restorationFailed:
             serviceRepairGuidance = "上次修复的恢复快照已保留。请恢复原账号及安装资料，再点修复入口检查并恢复上次操作；恢复完成后才能再次修复。"
         case .stalePreparation:

@@ -3,18 +3,40 @@ import Foundation
 public enum AccountDeviceHealth {
     public static func snapshot(
         for device: AccountDevice,
-        checkedAt: Date = Date()
+        checkedAt: Date = Date(),
+        now: Date = Date()
     ) -> DesktopHealthSnapshot {
         let reportedAt = device.endToEnd.checkedAt.flatMap(parseCanonicalTimestamp) ?? .distantPast
+        let accountFresh = isFresh(checkedAt, now: now)
+        let reportFresh = accountFresh && isFresh(reportedAt, now: now)
+        func pending(_ component: HealthComponent, _ date: Date) -> ComponentHealth {
+            ComponentHealth(component: component, level: .unavailable,
+                detail: "状态尚未确认，请重新检查", checkedAt: date)
+        }
         return DesktopHealthSnapshot(
             components: [
-                connectorHealth(device, checkedAt: checkedAt),
-                gatewayHealth(device, checkedAt: checkedAt),
-                hermesHealth(device, checkedAt: reportedAt),
-                endToEndHealth(device, checkedAt: reportedAt),
+                accountFresh ? connectorHealth(device, checkedAt: checkedAt) : pending(.desktopAgent, checkedAt),
+                accountFresh ? gatewayHealth(device, checkedAt: checkedAt) : pending(.gateway, checkedAt),
+                reportFresh ? hermesHealth(device, checkedAt: reportedAt) : pending(.hermes, reportedAt),
+                reportFresh ? endToEndHealth(device, checkedAt: reportedAt) : pending(.endToEnd, reportedAt),
             ],
             checkedAt: checkedAt
         )
+    }
+
+    public static func isFresh(_ date: Date?, now: Date = Date()) -> Bool {
+        guard let date else { return false }
+        return (-5...180).contains(now.timeIntervalSince(date))
+    }
+
+    public static func deviceSummary(_ device: AccountDevice, checkedAt: Date?, now: Date = Date()) -> String {
+        guard isFresh(checkedAt, now: now) else { return "设备状态待刷新" }
+        let connector = device.connector.online ? "Desktop 在线" : "Desktop 离线"
+        guard isFresh(device.endToEnd.checkedAt.flatMap(parseCanonicalTimestamp), now: now) else {
+            return "\(connector) · Hermes 状态待更新"
+        }
+        let hermes = device.hermes.reachable.map { $0 ? "Hermes 可访问" : "Hermes 不可访问" } ?? "Hermes 未确认"
+        return "\(connector) · \(hermes)"
     }
 
     private static func connectorHealth(

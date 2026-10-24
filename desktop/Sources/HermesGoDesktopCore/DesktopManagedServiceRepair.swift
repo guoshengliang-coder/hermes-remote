@@ -6,6 +6,8 @@ public enum DesktopManagedServiceRepairError: Error, Equatable, Sendable {
     case installationRecordMissing
     case accountOrMachineMismatch
     case unsafeInstallation
+    case localHermesUnavailable(DesktopLocalHermesUnsupportedReason)
+    case localHermesDependenciesIncomplete
     case unknownService
     case portOccupied
     case stalePreparation
@@ -150,7 +152,7 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         let plan = DesktopManagedServiceRepairPreparation(
             id: UUID(), releaseVersion: record.releaseVersion,
             filePaths: [installer.layout.hermesLaunchAgent.path, installer.layout.connectorLaunchAgent.path]
-                + (image.launcher != nil && image.originalLauncher == nil ? [installer.layout.localHermesLauncher.path] : []),
+                + (image.launcher != nil && image.originalLauncher != image.launcher ? [installer.layout.localHermesLauncher.path] : []),
             usesLocalHermes: image.localExecutable != nil,
             resumesInterruptedRepair: recovering, reconnectsConnectorOnly: reconnectOnly, image: image
         )
@@ -214,7 +216,7 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         do {
             // Missing files alone do not justify stopping a still-running Hermes. Preserve both
             // existing files byte-for-byte, including its optional environment and original runtime.
-            if let launcher = image.launcher, image.originalLauncher == nil {
+            if let launcher = image.launcher, image.originalLauncher != image.launcher {
                 try installer.ensurePrivateDirectory(installer.layout.localHermesLauncher.deletingLastPathComponent())
                 try installer.atomicWrite(launcher, to: installer.layout.localHermesLauncher, permissions: 0o700)
             }
@@ -275,21 +277,29 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
             }
             if case .localHermes(let executable) = try installer.currentHermesRuntimeMode() {
                 guard localDetector().installation?.executable == executable,
-                      installer.localHermesLauncherIsCurrent(executable: executable)
+                      let launcher = try optionalFile(layout.localHermesLauncher),
+                      try DesktopLocalHermesLauncher.recognizes(launcher, executable: executable)
                 else { throw DesktopManagedServiceRepairError.unsafeInstallation }
                 localExecutable = executable.path
             }
             hermes = originalHermes
         } else {
             let detection = localDetector()
+            if case .unsupported(let reason, _) = detection {
+                throw DesktopManagedServiceRepairError.localHermesUnavailable(reason)
+            }
             if let local = detection.installation {
+                guard local.dependenciesConsistent else {
+                    throw DesktopManagedServiceRepairError.localHermesDependenciesIncomplete
+                }
                 if try optionalFile(layout.localHermesRuntimeRecord) != nil {
                     guard installer.readLocalHermesRuntimeRecord()?.executable == local.executable.path else {
                         throw DesktopManagedServiceRepairError.unsafeInstallation
                     }
                 }
                 // The owner already has Hermes: never start a second bundled copy on its database.
-                if exists(layout.localHermesLauncher), !installer.localHermesLauncherIsCurrent(executable: local.executable) {
+                if let launcher = try optionalFile(layout.localHermesLauncher),
+                   try !DesktopLocalHermesLauncher.recognizes(launcher, executable: local.executable) {
                     throw DesktopManagedServiceRepairError.unsafeInstallation
                 }
                 localExecutable = local.executable.path
@@ -308,14 +318,19 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
             }
         }
         let connector = originalConnector ?? reconstructedConnector
+        let originalLauncher = try optionalFile(layout.localHermesLauncher)
+        let launcher = try localExecutable.map { executable in
+            // A Connector-only recovery must not change a still-running Hermes's launch contract.
+            if services.hermesLoaded, let originalLauncher { return originalLauncher }
+            return try DesktopLocalHermesLauncher.script(executable: URL(fileURLWithPath: executable))
+        }
         let image = RepairImage(
             schemaVersion: 1, record: record, services: services,
             originalHermes: originalHermes, originalConnector: originalConnector,
             hermes: hermes, connector: connector,
             credentialDigest: digest(credential), tokenDigest: digest(try installer.readOwnedPrivateFile(layout.hermesSessionToken)),
             components: components, localExecutable: localExecutable,
-            originalLauncher: try optionalFile(layout.localHermesLauncher),
-            launcher: try localExecutable.map { try DesktopLocalHermesLauncher.script(executable: URL(fileURLWithPath: $0)) }
+            originalLauncher: originalLauncher, launcher: launcher
         )
         try validateImage(image)
         try requireLoadedArguments(image)
@@ -406,7 +421,7 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         guard image.schemaVersion == 1, image.record.state == .accountActive, !image.services.legacyLoaded,
               image.originalHermes == nil || image.originalHermes == image.hermes,
               image.originalConnector == nil || image.originalConnector == image.connector,
-              image.originalLauncher == nil || image.launcher == nil || image.originalLauncher == image.launcher,
+              !image.services.hermesLoaded || image.originalLauncher == nil || image.launcher == nil || image.originalLauncher == image.launcher,
               image.components == (try trustedComponents(image.record)) else {
             throw DesktopManagedServiceRepairError.unsafeInstallation
         }
@@ -459,9 +474,15 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         if let executable = image.localExecutable {
             let currentLauncher = try optionalFile(layout.localHermesLauncher)
             guard let local = localDetector().installation, local.executable.path == executable,
-                  image.launcher == (try DesktopLocalHermesLauncher.script(executable: local.executable)),
+                  local.hermesHome.standardizedFileURL.path == hermesHome.standardizedFileURL.path, local.dependenciesConsistent,
+                  let launcher = image.launcher,
+                  try DesktopLocalHermesLauncher.recognizes(launcher, executable: local.executable),
                   currentLauncher == image.originalLauncher || currentLauncher == image.launcher
             else { throw DesktopManagedServiceRepairError.unsafeInstallation }
+            if let original = image.originalLauncher,
+               try !DesktopLocalHermesLauncher.recognizes(original, executable: local.executable) {
+                throw DesktopManagedServiceRepairError.unsafeInstallation
+            }
         }
     }
 

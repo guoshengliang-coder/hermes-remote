@@ -120,7 +120,7 @@ final class DesktopOverviewPresentationTests: XCTestCase {
             gateway: ComponentHealth(component: .gateway, level: cloudLevel, detail: "fixture", checkedAt: checked),
             agent: DesktopAgentPresentation(mode: unverified ? .managedUnverified(releaseVersion: "1") : .managedVerified(releaseVersion: "1"),
                 health: ComponentHealth(component: .desktopAgent, level: .healthy, detail: "fixture", checkedAt: checked)),
-            localHermes: DesktopLocalHermesPresentation(detection: .absent(hermesDataPresent: false), health: localHealth, hasManagedInstallation: true),
+            localHermes: DesktopLocalHermesPresentation(detection: .absent(hermesDataPresent: false), health: localHealth, hasManagedInstallation: true, now: now),
             localHealth: localHealth, accountState: state ?? .signedIn(dashboard), accountCheckedAt: now.addingTimeInterval(-accountAge),
             hasAccountIssue: accountIssue, manageOnly: manageOnly, operationInProgress: busy, now: now)
     }

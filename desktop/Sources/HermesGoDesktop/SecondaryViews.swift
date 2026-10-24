@@ -20,7 +20,6 @@ struct AccountDevicesView: View {
     @State private var grantToRevoke: DeviceAccessGrant?
     @State private var sharedDeviceToLeave: AccountDevice?
     @State private var macToRemove: AccountDevice?
-    @State private var isBundledHermesChoicePresented = false
     @State private var isAccountDeletionPresented = false
     @State private var accountDeletionConfirmation = ""
     @State private var accountDeletionAcknowledged = false
@@ -37,7 +36,6 @@ struct AccountDevicesView: View {
                     Button {
                         Task {
                             await model.refreshAccount()
-                            await model.refreshComponentPreflight()
                         }
                     } label: {
                         Label("刷新", systemImage: "arrow.clockwise")
@@ -170,46 +168,6 @@ struct AccountDevicesView: View {
         if accountOnly {
             accountCard(dashboard)
         } else {
-            bindingCard(dashboard.binding)
-            if model.hermesInstallPhase != .hidden {
-                HermesInstallCard()
-            }
-            if let presentation = model.componentPreflightPresentation {
-                ComponentPreflightCard(
-                    presentation: presentation,
-                    canBegin: model.componentBootstrapCanBegin && !model.isHermesInstallDecisionPending,
-                    isUpgrade: model.bootstrapPlan.readiness == .managedUpgradeAvailable,
-                    operation: model.componentBootstrapOperation,
-                    cleanupRetryAvailable: model.componentCleanupRetryAvailable,
-                    prepare: { Task {
-                        if model.bootstrapPlan.readiness == .managedUpgradeAvailable { await model.checkForUpdates(manual: true) }
-                        else { await model.prepareComponentBootstrap() }
-                    } },
-                    retryCleanup: { Task { await model.retryComponentBootstrapCleanup() } }
-                )
-            } else if model.componentCleanupRetryAvailable,
-                      model.componentBootstrapOperation == .failed {
-                componentCleanupRecoveryCard
-            }
-            if let issue = model.componentBootstrapIssue {
-                accountIssueCard(issue)
-            }
-            if model.serviceRepairNeeded {
-                ManagedServiceRepairCard()
-            } else {
-                bootstrapPlanCard(model.bootstrapPlan)
-            }
-            if let issue = model.managedBootstrapIssue {
-                accountIssueCard(issue)
-            }
-            if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {
-                bundledHermesChoiceCard
-            } else if model.isFreshInstallBlockedByOwnersHermes {
-                ownersHermesGuidanceCard
-            }
-            if let issue = model.localHermesIssue {
-                accountIssueCard(issue)
-            }
             if !dashboard.devices.isEmpty {
                 devicesCard(dashboard)
             }
@@ -217,192 +175,6 @@ struct AccountDevicesView: View {
                 sharingCard(dashboard)
             }
             phonesCard(dashboard.phones)
-        }
-    }
-
-    private func bootstrapPlanCard(_ plan: DesktopBootstrapPlan) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack {
-                Label("本机安装预检", systemImage: bootstrapSymbol(plan.readiness))
-                    .font(.system(size: 16, weight: .bold))
-                Spacer()
-                Text(plan.canBegin ? "可开始" : "只读预检")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(plan.canBegin ? Color.hermesBlue : .secondary)
-            }
-            Text(plan.titleChinese)
-                .font(.system(size: 15, weight: .semibold))
-            Text(plan.detailChinese)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if !plan.steps.isEmpty {
-                Divider()
-                ForEach(plan.steps) { step in
-                    HStack(spacing: 9) {
-                        Image(systemName: step.changesMachine ? "circle" : "checkmark.circle")
-                            .foregroundStyle(step.changesMachine ? .secondary : Color.hermesBlue)
-                            .frame(width: 16)
-                        Text(step.titleChinese)
-                            .font(.system(size: 11))
-                        Spacer()
-                        if step.changesMachine {
-                            Text("执行前确认")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            managedBootstrapAction(plan)
-        }
-        .padding(20)
-        .hermesCard()
-    }
-
-    @ViewBuilder
-    private func managedBootstrapAction(_ plan: DesktopBootstrapPlan) -> some View {
-        switch model.managedBootstrapOperation {
-        case .preparing:
-            Divider()
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text("正在下载并验证签名安装包；尚未修改安装或服务")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        case .awaitingConfirmation:
-            Divider()
-            Label("安装包已验证，等待你的明确确认", systemImage: "checkmark.shield")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.hermesBlue)
-        case .committing:
-            Divider()
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text("正在安装、启动并验证；请保持 Desktop 打开")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        case .recovering:
-            Divider()
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text("正在恢复上次中断的操作，不会开始第二次安装")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        case .completed(_, let cleanupPending):
-            Divider()
-            HStack {
-                Label("Desktop 已连接", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.hermesBlue)
-                Spacer()
-                if cleanupPending {
-                    Button("重试清理") {
-                        Task { await model.retryManagedBootstrapCleanup() }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-        case .idle, .failed:
-            if plan.canBegin, !model.isComponentBootstrapPathSelected, model.isHermesInstallDecisionPending {
-                Divider()
-                Text("先在上方决定如何获取 Hermes：安装官方 Hermes，或改用内置 Hermes。")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            } else if plan.canBegin, !model.isComponentBootstrapPathSelected {
-                Divider()
-                HStack {
-                    Text("第一步只写入私有临时缓存，不会停止或启动任何服务。")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button(plan.readiness == .managedUpgradeAvailable
-                        ? "查看 Desktop 更新"
-                        : "下载并验证安装包") {
-                        Task {
-                            if plan.readiness == .managedUpgradeAvailable { await model.checkForUpdates(manual: true) }
-                            else { await model.prepareManagedBootstrap() }
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(model.isManagedBootstrapAccountLocked)
-                }
-            }
-        }
-    }
-
-    /// Shown with `HR-MIGRATE-008` on a fresh setup only when the blocking checkout is the one
-    /// Hermes GO's own install left behind — never for a Hermes the owner installed.
-    private var bundledHermesChoiceCard: some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("这份 Hermes 是 Hermes GO 之前的安装留下的")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("它没有安装完整，Hermes GO 无法直接使用。可以改用 Hermes GO 内置的 Hermes 完成设置；留下的文件保持不动，删除 ~/.hermes/hermes-agent 后可重新安装官方 Hermes。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Button("改用内置 Hermes") { isBundledHermesChoicePresented = true }
-                .buttonStyle(.bordered)
-        }
-        .padding(18)
-        .hermesCard()
-        .confirmationDialog(
-            "这台 Mac 改用 Hermes GO 内置的 Hermes？",
-            isPresented: $isBundledHermesChoicePresented
-        ) {
-            Button("改用内置 Hermes") { model.useBundledHermes() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("之后的设置会安装并运行 Hermes GO 自带的 Hermes。Hermes GO 之前留下的文件不会被修改。")
-        }
-    }
-
-    /// Shown with `HR-MIGRATE-008` when the owner's own Hermes blocks a fresh setup. No alternative
-    /// is offered: the owner's rule is never a second copy next to a Hermes they installed.
-    private var ownersHermesGuidanceCard: some View {
-        Label(
-            "这台 Mac 上的 Hermes 是你自己安装的，Hermes GO 不会再另装一份。请按“复制诊断”里的原因整理它（例如改为默认的 ~/.hermes、单一 profile、升级到 \(DesktopLocalHermesDetector.minimumVersion) 或更新），或将其移除后刷新。",
-            systemImage: "info.circle"
-        )
-        .font(.system(size: 11))
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .hermesCard()
-    }
-
-    private var componentCleanupRecoveryCard: some View {
-        HStack(spacing: 14) {
-            Label("Desktop 更新临时文件待清理", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
-                .font(.system(size: 13, weight: .semibold))
-            Spacer()
-            Button("重试清理") {
-                Task { await model.retryComponentBootstrapCleanup() }
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(18)
-        .hermesCard()
-    }
-
-    private func bootstrapSymbol(_ readiness: DesktopBootstrapReadiness) -> String {
-        switch readiness {
-        case .checking: "ellipsis.circle"
-        case .existingServiceNeedsAttention: "exclamationmark.shield"
-        case .waitingForSignedRelease: "signature"
-        case .readyForManagedInstall: "shippingbox.and.arrow.backward"
-        case .readyToAdoptLocalHermes: "desktopcomputer"
-        case .managedUpgradeAvailable: "arrow.triangle.2.circlepath.circle"
-        case .managedInstallActive: "checkmark.circle.fill"
         }
     }
 
@@ -785,13 +557,7 @@ struct AccountDevicesView: View {
     }
 
     private func deviceStatus(_ device: AccountDevice) -> String {
-        let connector = device.connector.online ? "Desktop 在线" : "Desktop 离线"
-        let hermes = switch device.hermes.reachable {
-        case .some(true): "Hermes 可访问"
-        case .some(false): "Hermes 不可访问"
-        case .none: "Hermes 未确认"
-        }
-        return "\(connector) · \(hermes)"
+        AccountDeviceHealth.deviceSummary(device, checkedAt: model.accountCheckedAt)
     }
 
     private func accountCard(_ dashboard: AccountDashboard) -> some View {
@@ -911,34 +677,6 @@ struct AccountDevicesView: View {
         value.count == 6 && value.allSatisfy { $0.isASCII && $0.isNumber }
     }
 
-    private func bindingCard(_ binding: AccountBindingSnapshot) -> some View {
-        let presentation = bindingPresentation(binding)
-        return VStack(alignment: .leading, spacing: 14) {
-            Label("Desktop 与 Hermes", systemImage: presentation.symbol)
-                .font(.system(size: 16, weight: .bold))
-            Text(presentation.title)
-                .font(.system(size: 20, weight: .bold))
-            Text(presentation.detail)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let active = binding.binding ?? binding.previousBinding {
-                Divider()
-                settingRow("Mac", value: active.desktopDisplayName)
-                settingRow("Desktop 连接", value: active.connector.online ? "在线" : "离线")
-                settingRow("Hermes", value: active.hermes.reachable == true ? "可访问" : "未确认")
-            }
-            if binding.state == "no_binding" {
-                Label("先检查这台 Mac 的连接条件；需要修改安装时会显示影响并请你确认。", systemImage: "info.circle")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .hermesCard()
-    }
-
     private func phonesCard(_ phones: [ManagedAccountInstallation]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -1026,26 +764,6 @@ struct AccountDevicesView: View {
         Label(text, systemImage: symbol)
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
-    }
-
-    private func bindingPresentation(_ binding: AccountBindingSnapshot) -> (symbol: String, title: String, detail: String) {
-        switch binding.state {
-        case "bound":
-            let online = binding.binding?.connector.online == true
-            return (
-                online ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
-                online ? "连接正常" : "Desktop 当前离线",
-                online ? "账号已绑定这台 Desktop，手机可以共享访问同一个 Hermes。" : "账号绑定仍保留；请在对应 Mac 上打开 Desktop，检查连接状态。"
-            )
-        case "binding_pending":
-            return ("clock", "正在验证 Desktop 连接", "候选绑定尚未完成密钥与健康检查，现有连接不会被替换。")
-        case "replacement_pending":
-            return ("arrow.triangle.2.circlepath", "等待确认更换 Mac", "原来的 Desktop 在更换提交前仍保持工作。")
-        case "revoked":
-            return ("xmark.shield", "这台 Mac 的绑定已撤销", "若上次迁移已安全回滚，可重新下载并确认；其他撤销需要重新验证账号。")
-        default:
-            return ("desktopcomputer", "尚未建立账号绑定", "完成本机设置后，即可使用账号连接这台 Mac。")
-        }
     }
 
     private func settingRow(_ label: String, value: String) -> some View {
