@@ -878,3 +878,55 @@ sync_venv API was not called; private runtime/local-build sync primitives DO run
 unknown-sync retry, arbitrary branch/full-tree/global-writer proof or durable production authority.
 Bootstrap-death, allPMDescendantsCovered, updaterRecoveryVerified, globalAdmissionProven and
 certifiesUpgrade remain false. GO/default joint sync do not import this audit.
+
+### Actual runtime preparation death boundary (2026-10-24, local project only)
+
+`hermes-maintenance-pm-bootstrap.py` exercises the fixed target's actual
+`pm.runtime.prepare_runtime` / `stage_runtime` / `PythonEnvironment` APIs, in a NEW marked
+source-transition fixture with its original two-slot intent and actual official update lock.
+It copies uv 0.12.3 and the complete private Python 3.14.7 tool directory from an existing
+marked disposable preparation; it never reads an installed Hermes. File bytes are checked,
+but this copy is not a signed toolchain provenance or complete interpreter-closure certificate.
+
+The API's explicit project parameter selects a private local dependency graph instead of PM's
+real runtime dependencies. A preliminary offline lock and metadata generation are fixture setup,
+outside the measured death boundary. The bounded plan binds project/backend/lock bytes, tools,
+original joint identity and stable private `.prepare.lock` inode. A distinct
+`pm-runtime-audit-started` row is synced BEFORE runtime preparation; it is not a sync checkpoint.
+The unchanged upstream API acquires its actual preparation lock. The isolated actor captures
+that exact descriptor after successful upstream lock_fd, and rechecks it with the exact reviewed
+streamed native venv/sync command, private generation, temporary project bytes and environment.
+Other commands/output branches are refused. No GO/default PM path imports this proposal.
+
+Original options retain close_fds without passing custody; the proposal explicitly passes only
+the four maintenance roles, actual official lock and actual preparation lock. The local PEP 517
+backend scans their inode identities. After its exact UV Popen is killed, the actor waits for
+upstream preparation/cleanup to stop BEFORE closing custody; its exact caller Popen is then
+SIGKILLed. A new heartbeat after BOTH parents are reaped proves backend liveness. Actual Mac
+raw/proposed runs pass: raw loses all three kinds of exclusion; proposed retains all six lock
+descriptions until backend exit. Fresh locks become available afterwards, no selected generation
+is published, history is unchanged, and the original intent still blocks cooperating writers.
+
+```bash
+python -I -S -B scripts/compat/hermes-maintenance-pm-bootstrap.py --provision --mode proposed \
+  --old-root <clean-fixed-old-git> --candidate-root <clean-fixed-target-git> \
+  --prepared-root <marked-disposable-source-pm-tools>
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_pm_bootstrap_custody.py'
+```
+
+Eight portable tests use synthetic inputs and real POSIX locks: strict plan/tool/project/context,
+actual preparation fd, copied scratch content, partial history/default sync refusal before an
+observer, all-six-description retention versus the raw negative control after parent close,
+metadata without an early build, and strict bilingual CLI refusal. CI runs those on Linux/macOS;
+the actual native API experiment is separate, opt-in and macOS-only. The sandbox forbids network,
+outside writes and service tools; its signal exception exists only for exact owned Popen handles.
+Error cleanup also joins business threads before explicitly closing descriptors; an unjoinable
+fixture thread ends its own process atomically rather than releasing custody under live writes.
+
+This deliberately failed local graph does NOT install real PM dependencies, publish a successful
+runtime, test downloads/tool realization, validation/GC/worker launch, arbitrary native branches,
+full runtime bootstrap, in-flight replay/recovery, all writers or production authority. The normal
+joint sync verifier refuses this history. `localRuntimePreparationDeathVerified=true` is narrow;
+wholeRuntimeBootstrapVerified, allPMDescendantsCovered, updaterRecoveryVerified,
+globalAdmissionProven and certifiesUpgrade remain false. No terminal intent or automatic retry
+is added, and Desktop upgrade/recovery execution remains disabled.

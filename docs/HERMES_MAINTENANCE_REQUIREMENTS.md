@@ -1,5 +1,23 @@
 # HG-199：跨进程维护的上游协作需求与隔离原型
 
+## PM runtime 准备阶段的三类锁（2026-10-24，仅本地替代依赖）
+
+固定源码的真实 prepare_runtime/stage_runtime/PythonEnvironment API 会在 .prepare.lock 下启动
+native UV。新隔离提案除双域维护和实际官方 checkout 锁外，还捕获 upstream lock_fd 成功后的
+实际准备 FD，仅在固定项目/工具/参数/环境与耐久 pm-runtime-audit-started 历史下传给原生子进程。
+调用前的本地离线 lock/metadata 是夹具准备；项目参数显式替代真实 PM 依赖，并非完整 bootstrap。
+
+真实 Mac raw/proposed 各一新 source-transition 夹具通过：UV 被精确拥有方中止，实际准备/清理
+线程停止后调用方关闭 FD，再由监督方回收；新 backend 心跳证明两父方退出后仍存活。raw 三类锁
+均空，proposed 六个描述符保持到 backend 退出。没有 selected generation 发布，原历史不变，
+锁释放后普通合作 writer 仍被意图阻断。工具来自先前标记夹具，复制完整解释器目录而非单个 Mach-O；
+字节核验不等于工具来源/ABI/完整依赖闭包认证。
+
+新增八项合成输入/真实内核锁测试，包含准备 FD 身份、scratch 实际字节、未知/部分历史先于观察器
+拒绝、原始选项反例及双语错误。wholeRuntimeBootstrapVerified/allPMDescendantsCovered/
+updaterRecoveryVerified/globalAdmissionProven/certifiesUpgrade 仍 false。下载、工具实现、完整 PM
+真实依赖、验证/GC/worker 启动、其他分支与未知同步恢复仍需单独落实；GO 和默认 joint sync 不导入。
+
 ## 同一 run 的真实 PM worker/native 构建链（2026-10-24）
 
 新实验将固定源码17b5df02→818c13be、原双槽意图、真实官方锁与实际PM worker/native UV/本地

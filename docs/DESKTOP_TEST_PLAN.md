@@ -1,5 +1,27 @@
 # Hermes Go Desktop test plan
 
+## HG-199 runtime preparation custody (isolated; no product execution)
+
+Test-impact review: actual PM bootstrap precedes the earlier same-run death boundary. The new
+experiment therefore audits the fixed prepare_runtime/stage_runtime native path, including its
+actual .prepare.lock in addition to home/checkout and official custody. Preserve unknown intent
+exclusion; never turn a local build into an ordinary sync checkpoint or upgrade authorization.
+
+Combined local Python baseline: 179 tests pass (including eight new portable cases).
+The focused new suite also passed independently. Coverage: strict plan/project/tool/fd/command/environment, actual scratch
+bytes, partial/default-sync refusal before observer, inherited six-description custody versus raw
+after parent close, metadata-only setup and bilingual CLI redaction. Linux full discovery/macOS
+explicit suite include them; native execution is opt-in. The actual Mac raw/proposed new fixtures
+both pass after real source movement: local backend remains alive after UV and caller are reaped;
+raw loses maintenance/official/prepare locks, proposed retains them until backend exit. Original
+history remains, no selected runtime is published, ordinary cooperating writers remain blocked.
+
+The explicit local project replaces PM dependencies; pre-lock/setup and copied private tools are
+outside the measured death boundary. The whole default runtime bootstrap, downloads/validation/GC,
+all native branches, unknown in-flight recovery, dependency closure and full writer admission remain
+unverified. No app, installed Hermes, services or device were operated. Reuse unchanged product
+baselines (798 Swift/2 existing skips, assets/ad-hoc package); this adds no Desktop execution control.
+
 ## HG-199 integration with Desktop 0.2.39 (unreleased)
 
 Test-impact review: preserve main's first-run/account/device/default-profile model behavior while
