@@ -1,5 +1,12 @@
 # Hermes Remote Android
 
+HG-236 expands sequential video read-ahead to a negotiated, bounded window: start with up to two
+256 KiB ranges, grow to at most four 1 MiB requests on fast reads, and shrink on slow reads.
+Initial/index and seek reads stay small; close, pause and background cancel the window. Legacy peers
+stay single-range readers. Original quality, generation/owner checks, download priority and the
+shared 256 MiB block cache are preserved. See `../docs/ATTACHMENT_PERFORMANCE.md` for evidence and limits.
+This source change does not allocate or publish an APK.
+
 HG-233 adds More → Artifacts to the open conversation. It collects settled assistant deliveries
 from the complete display history, excluding original uploads and process-only media. Duplicate
 names get display suffixes; one path represents its latest delivery and current file reference,

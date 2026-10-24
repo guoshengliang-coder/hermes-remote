@@ -22,14 +22,15 @@ class ArtifactVideoDataSource(
     @Volatile private var request: Job? = null
     @Volatile private var closed = true
     @Volatile private var loader = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var aheadStart = -1L
-    private var ahead: Deferred<ByteArray>? = null
+    private var ahead: VideoReadAhead? = null
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
         loader.cancel()
         loader = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        ahead = null; aheadStart = -1L
+        buffered = null; bufferedStart = -1L
+        ahead = VideoReadAhead(loader, source.descriptor.maxConcurrentRanges, source.descriptor.maxRangeBytes,
+            { start, blocks -> repository.read(source, start, blocks) })
         closed = false
         io { repository.checkOwner(source.owner, source.deviceId) }
         if (dataSpec.position > source.size) throw IOException("video position outside source")
@@ -47,31 +48,14 @@ class ArtifactVideoDataSource(
         val start = position / ArtifactRangeCache.BLOCK_BYTES * ArtifactRangeCache.BLOCK_BYTES
         val block = io {
             repository.checkOwner(source.owner, source.deviceId)
-            if (bufferedStart == start && buffered != null) buffered!!
+            if (buffered != null && position >= bufferedStart && position < bufferedStart + buffered!!.size) buffered!!
             else {
-                val sequential = bufferedStart >= 0 && start == bufferedStart + ArtifactRangeCache.BLOCK_BYTES
-                val pending = ahead.takeIf { aheadStart == start }
-                ahead = null; aheadStart = -1L
-                val bytes = if (pending != null) {
-                    try { pending.await() }
-                    catch (error: Exception) {
-                        currentCoroutineContext().ensureActive()
-                        // Speculation is optional. The authoritative foreground read owns retry/error UI.
-                        repository.read(source, position)
-                    }
-                } else repository.read(source, position)
+                val bytes = requireNotNull(ahead).load(start, position + remaining)
                 buffered = bytes; bufferedStart = start
-                // Wait for sequential reads: speculative bytes must not precede MP4 index
-                // discovery or a fresh seek. Only one next block; close/seek cancels it.
-                val next = start + ArtifactRangeCache.BLOCK_BYTES
-                if (sequential && !closed && next < position + remaining) {
-                    aheadStart = next
-                    ahead = loader.async { repository.read(source, next) }
-                }
                 bytes
             }
         }
-        val blockOffset = (position % ArtifactRangeCache.BLOCK_BYTES).toInt()
+        val blockOffset = (position - bufferedStart).toInt()
         val count = minOf(length.toLong(), remaining, (block.size - blockOffset).toLong()).toInt()
         block.copyInto(buffer, offset, blockOffset, blockOffset + count)
         position += count; remaining -= count
@@ -92,7 +76,7 @@ class ArtifactVideoDataSource(
     override fun close() {
         closed = true
         request?.cancel()
-        loader.cancel(); ahead = null; aheadStart = -1L
+        loader.cancel(); ahead = null
         uri = null
         buffered = null; bufferedStart = -1L
         if (opened) { opened = false; transferEnded() }

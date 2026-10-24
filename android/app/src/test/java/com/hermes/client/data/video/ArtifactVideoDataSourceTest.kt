@@ -62,6 +62,34 @@ class ArtifactVideoDataSourceTest {
         data.close()
     }
 
+    @Test fun reopen_cancels_the_old_window_and_first_seek_read_stays_small() = runBlocking {
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        val desc = source.descriptor.copy(sizeBytes = 30L * block, maxConcurrentRanges = 4, maxRangeBytes = 4 * block)
+        val streaming = ArtifactRangeRepository.Source("owner", "mac", "/seek.mp4", desc)
+        coEvery { repository.checkOwner(any(), any()) } returns Unit
+        coEvery { repository.read(streaming, 0) } returns ByteArray(block)
+        coEvery { repository.read(streaming, block.toLong()) } returns ByteArray(block)
+        val started = kotlinx.coroutines.channels.Channel<Unit>(2)
+        val stopped = kotlinx.coroutines.channels.Channel<Unit>(2)
+        coEvery { repository.read(streaming, match { it in 2L * block..3L * block }, 1) } coAnswers {
+            started.send(Unit)
+            try { awaitCancellation() } finally { stopped.trySend(Unit) }
+        }
+        coEvery { repository.read(streaming, 20L * block) } returns ByteArray(block) { 20 }
+        val data = ArtifactVideoDataSource(repository, streaming)
+        data.open(DataSpec.Builder().setUri(uri).build())
+        repeat(2) { data.read(ByteArray(block), 0, block) }
+        withTimeout(5_000) { repeat(2) { started.receive() } }
+        data.close()
+        withTimeout(5_000) { repeat(2) { stopped.receive() } }
+        data.open(DataSpec.Builder().setUri(uri).setPosition(20L * block).build())
+        val buffer = ByteArray(1); data.read(buffer, 0, 1)
+        assertEquals(20.toByte(), buffer[0])
+        coVerify(exactly = 1) { repository.read(streaming, 20L * block, 1) }
+        coVerify(exactly = 0) { repository.read(streaming, match { it > 20L * block }, any()) }
+        data.close()
+    }
+
     @Test fun unknown_length_seek_and_eof_respect_the_requested_window() {
         coEvery { repository.checkOwner(any(), any()) } returns Unit
         coEvery { repository.read(source, any()) } answers { ByteArray(8) { (it + 1).toByte() } }
