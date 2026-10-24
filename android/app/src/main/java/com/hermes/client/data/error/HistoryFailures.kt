@@ -1,6 +1,7 @@
 package com.hermes.client.data.error
 
 import com.hermes.client.data.network.HermesApiException
+import com.hermes.client.data.network.GatewayRpcException
 import kotlinx.serialization.SerializationException
 import java.io.IOException
 
@@ -21,6 +22,14 @@ class HistoryPageChangedException : Exception("History page no longer overlaps t
  * them: check the Mac, wait and retry, or update the app.
  */
 fun historyFailure(error: Throwable): AppError = when {
+    error is GatewayRpcException && error.code in setOf(0, -32002) && error.message == AppErrorCode.HERMES_MAINTENANCE.value -> AppError(
+        code = AppErrorCode.HERMES_MAINTENANCE, retryable = false,
+        technicalCause = "RPC ${error.code}", stage = "history",
+    )
+    error is HermesApiException && error.errorCode == AppErrorCode.HERMES_MAINTENANCE.value -> AppError(
+        code = AppErrorCode.HERMES_MAINTENANCE, retryable = false,
+        technicalCause = "HTTP ${error.code}", stage = "history",
+    )
     error is HistoryPageChangedException -> AppError(
         code = AppErrorCode.HISTORY_INCOMPLETE,
         retryable = true,

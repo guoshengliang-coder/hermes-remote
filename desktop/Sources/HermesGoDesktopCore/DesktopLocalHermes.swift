@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CryptoKit
 
 /// Where a standard upstream Hermes install lives for one macOS user.
 ///
@@ -43,6 +44,12 @@ public struct DesktopLocalHermesPaths: Equatable, Sendable {
     public var profilesRoot: URL { hermesHome.appendingPathComponent("profiles", isDirectory: true) }
     public var activeProfileFile: URL { hermesHome.appendingPathComponent("active_profile") }
     public var stateDatabase: URL { hermesHome.appendingPathComponent("state.db") }
+    public var packageManagerExecutable: URL { checkoutRoot.appendingPathComponent(".hermes/bin/hermes") }
+    public var packageManagerState: URL {
+        let key = SHA256.hash(data: Data(checkoutRoot.resolvingSymlinksInPath().path.utf8))
+            .map { String(format: "%02x", $0) }.joined().prefix(16)
+        return hermesHome.appendingPathComponent("installs/\(key)", isDirectory: true)
+    }
     /// Installation-bound upstream command; unlike ~/.local/bin/hermes it cannot select another
     /// checkout. PM owns interpreter/generation selection behind this stable entrypoint.
     public var publishedExecutable: URL { checkoutRoot.appendingPathComponent(".hermes/bin/hermes") }
@@ -80,6 +87,8 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
     public let identityChangedAt: Date
     /// What the checkout's venv says is installed (`hermes_agent-*.dist-info`).
     public let installedDistribution: DesktopLocalHermesInstalledDistribution
+    /// Changes when PM selects a different generation or activation inputs, even at the same commit.
+    public let environmentIdentity: String?
 
     public init(
         executable: URL,
@@ -88,7 +97,8 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
         commit: String,
         version: String,
         identityChangedAt: Date,
-        installedDistribution: DesktopLocalHermesInstalledDistribution? = nil
+        installedDistribution: DesktopLocalHermesInstalledDistribution? = nil,
+        environmentIdentity: String? = nil
     ) {
         self.executable = executable
         self.checkoutRoot = checkoutRoot
@@ -97,20 +107,27 @@ public struct DesktopLocalHermesInstallation: Equatable, Sendable {
         self.version = version
         self.identityChangedAt = identityChangedAt
         self.installedDistribution = installedDistribution ?? .version(version)
+        self.environmentIdentity = environmentIdentity
     }
 
-    /// Whether this installation is eligible for a bounded start. PM owns dependency selection
-    /// through its published command; this property never interprets PM facts as health. For a
-    /// legacy venv, as far as files can tell: the installed
-    /// distribution's version equals the checkout's `__version__`. A `git pull` that bumps the
-    /// version before dependencies are reinstalled fails this. A pull that changes dependencies
-    /// without a version bump does not — that is the limit of a check that runs no Hermes code.
+    /// Runtime eligibility preserves the published PM launcher's bounded activation behavior.
+    /// Neither this flag nor a private PM stamp is runtime-health or upgrade authorization.
     public var dependenciesConsistent: Bool {
-        installedDistribution == .packageManaged || installedDistribution == .version(version)
+        if usesPackageManager { return true }
+        return installedDistribution == .version(version)
     }
-
     public var usesPackageManager: Bool {
         executable.standardizedFileURL == checkoutRoot.appendingPathComponent(".hermes/bin/hermes").standardizedFileURL
+    }
+    /// Upgrading requires independently verified current dependency metadata, not start eligibility.
+    public var upgradeDependenciesVerified: Bool {
+        if case .managedGeneration(_, let current) = installedDistribution { return current }
+        return !usesPackageManager && installedDistribution == .version(version)
+    }
+    public var runtimeIdentity: String {
+        let parts = [commit, executable.path, hermesHome.path, environmentIdentity ?? (usesPackageManager ? "pm-unverified" : "legacy")]
+        return SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))
+            .map { String(format: "%02x", $0) }.joined()
     }
 
     public var shortCommit: String { String(commit.prefix(8)) }
@@ -125,6 +142,7 @@ public enum DesktopLocalHermesInstalledDistribution: Equatable, Sendable {
     case version(String)
     case missing
     case multiple([String])
+    case managedGeneration(String, inputsCurrent: Bool)
 
     public var summary: String {
         switch self {
@@ -132,6 +150,8 @@ public enum DesktopLocalHermesInstalledDistribution: Equatable, Sendable {
         case .version(let version): "installed \(version)"
         case .missing: "no hermes_agent dist-info in the venv"
         case .multiple(let versions): "several hermes_agent dist-info in the venv: \(versions.joined(separator: ", "))"
+        case .managedGeneration(let generation, let current):
+            "PM generation \(generation); activation inputs \(current ? "current" : "stale")"
         }
     }
 }
@@ -233,8 +253,10 @@ public struct DesktopLocalHermesDetector: Sendable {
         guard isOwnedDirectory(paths.checkoutRoot) else {
             return .unsupported(.unsafeInstallation, detail: "checkout is not a private directory of this user")
         }
+        let usesPM = entryExists(paths.publishedExecutable)
+            || entryExists(paths.checkoutRoot.appendingPathComponent("pm/environments.py"))
         // Never fall back to a stale venv when PM's published command exists but is unsafe.
-        let executable = entryExists(paths.publishedExecutable) ? paths.publishedExecutable : paths.executable
+        let executable = usesPM ? paths.publishedExecutable : paths.executable
         guard entryExists(executable) else {
             return .unsupported(.incompleteInstallation, detail: "no published PM or legacy Hermes entrypoint")
         }
@@ -250,7 +272,8 @@ public struct DesktopLocalHermesDetector: Sendable {
         guard let identity = readGitIdentity() else {
             return .unsupported(.unreadableIdentity, detail: "HEAD could not be resolved")
         }
-        guard let version = readVersion() else {
+        let pmVersion = usesPM ? readPackageManagerVersion(commit: identity.commit) : nil
+        guard let version = pmVersion ?? readVersion() else {
             return .unsupported(.unreadableIdentity, detail: "hermes_cli.__version__ could not be read")
         }
         guard !Self.version(version, isOlderThan: Self.minimumVersion) else {
@@ -259,22 +282,53 @@ public struct DesktopLocalHermesDetector: Sendable {
                 detail: "version \(version) is older than \(Self.minimumVersion)"
             )
         }
+        let pm = usesPM ? readPackageManagerSelection() : nil
+        let metadata = pmVersion != nil ? pm : nil
         return .usable(DesktopLocalHermesInstallation(
             executable: executable,
             checkoutRoot: paths.checkoutRoot,
             hermesHome: paths.hermesHome,
             commit: identity.commit,
             version: version,
-            identityChangedAt: identity.changedAt,
-            installedDistribution: executable == paths.publishedExecutable ? .packageManaged : readInstalledDistribution()
+            identityChangedAt: max(identity.changedAt, metadata?.changedAt ?? identity.changedAt),
+            installedDistribution: usesPM ? (metadata.map { .managedGeneration($0.generation, inputsCurrent: $0.current) } ?? .packageManaged) : readInstalledDistribution(),
+            environmentIdentity: metadata?.fingerprint
         ))
     }
 
-    /// Whether an upstream update currently holds its lock. A marker older than upstream's own
-    /// ceiling (`UPDATE_MARKER_MAX_AGE_SECONDS`, 20 minutes) is stale by upstream's definition and
-    /// does not count — otherwise a crashed update would freeze Desktop's restart logic forever.
+    /// Legacy v1 markers expire after 20 minutes. v2 markers remain live while their exact
+    /// owner or delegate process survives, regardless of age (PID reuse does not retain a lock).
     public func updateInProgress(now: Date = Date()) -> Bool {
         guard let modified = modificationDate(paths.updateMarker) else { return false }
+        if let data = readSmallFile(paths.updateMarker),
+           let text = String(data: data, encoding: .utf8) {
+            let lines = text.split(separator: "\n").map(String.init)
+            if lines.count >= 3, let pid = Int32(lines[0]), pid > 0,
+               lines[2].hasPrefix("ct:"), let created = Double(lines[2].dropFirst(3)), created.isFinite {
+                var owners: [(Int32, Double)] = [(pid, created)]
+                for line in lines.dropFirst(3) {
+                    let parts = line.split(separator: " ")
+                    if parts.count == 2, parts[0].hasPrefix("delegate:"), parts[1].hasPrefix("ct:"),
+                       let delegate = Int32(parts[0].dropFirst(9)), delegate > 0,
+                       let ct = Double(parts[1].dropFirst(3)), ct.isFinite {
+                        owners.append((delegate, ct))
+                    }
+                }
+                return owners.contains { pid, created in
+                    var info = kinfo_proc()
+                    var size = MemoryLayout<kinfo_proc>.stride
+                    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+                    if sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0,
+                       size > 0, info.kp_proc.p_pid == pid {
+                        let start = info.kp_proc.p_starttime
+                        let actual = Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000
+                        return abs(actual - created) <= 2
+                    }
+                    // An alive process whose creation time is unreadable stays exclusive.
+                    return kill(pid, 0) == 0 || errno == EPERM
+                }
+            }
+        }
         return now.timeIntervalSince(modified) < 20 * 60
     }
 
@@ -377,6 +431,92 @@ public struct DesktopLocalHermesDetector: Sendable {
               let range = Range(match.range(at: 1), in: text)
         else { return nil }
         return String(text[range])
+    }
+
+    /// Mirrors version_info.py without importing the CLI. A source stamp must describe live HEAD.
+    /// Unstamped source installs may use an exact release tag; ahead-of-release code is unverified.
+    private func readPackageManagerVersion(commit: String) -> String? {
+        let stamp = paths.checkoutRoot.appendingPathComponent("install-stamp.json")
+        if entryExists(stamp) {
+            guard let data = readSmallFile(stamp),
+                  let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  value["commit"] as? String == commit,
+                  let mechanism = value["updateMechanism"] as? String,
+                  ["self", "app-installer", "electron-updater", "external", "microsoft-store"].contains(mechanism),
+                  value["payload"] as? String != "light",
+                  let version = value["baseVersion"] as? String, Self.isReleaseVersion(version)
+            else { return nil }
+            return version
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.currentDirectoryURL = paths.checkoutRoot
+        process.arguments = ["--no-optional-locks", "describe", "--tags", "--exact-match", "--match", "v[0-9]*", "HEAD"]
+        process.environment = [
+            "PATH": "/usr/bin:/bin", "HOME": paths.homeDirectory.path, "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"
+        ]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let deadline = Date().addingTimeInterval(2)
+        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        if process.isRunning { process.terminate(); return nil }
+        guard process.terminationStatus == 0 else { return nil }
+        let tag = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard tag.hasPrefix("v"), Self.isReleaseVersion(String(tag.dropFirst())) else { return nil }
+        return String(tag.dropFirst())
+    }
+
+    private static func isReleaseVersion(_ value: String) -> Bool {
+        value.range(of: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", options: .regularExpression) != nil
+    }
+
+    private func readPackageManagerSelection() -> (generation: String, fingerprint: String, current: Bool, changedAt: Date)? {
+        let state = paths.packageManagerState
+        let facts = state.appendingPathComponent("facts.json")
+        guard isOwnedDirectory(paths.hermesHome),
+              isOwnedDirectory(paths.hermesHome.appendingPathComponent("installs")),
+              isOwnedDirectory(state),
+              isOwnedRegularFile(facts),
+              let data = readSmallFile(facts),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let packages = object["packages"] as? [String: Any],
+              let venv = packages["venv"] as? [String: Any],
+              let selected = venv["environment"] as? String, Self.isScriptSafePath(selected)
+        else { return nil }
+        let environment = URL(fileURLWithPath: selected).resolvingSymlinksInPath().standardizedFileURL
+        let generations = state.appendingPathComponent("environments")
+        guard isOwnedDirectory(generations), isOwnedDirectory(environment),
+              environment.path.hasPrefix(generations.resolvingSymlinksInPath().path + "/"),
+              readSmallFile(environment.appendingPathComponent("pyvenv.cfg")) != nil
+        else { return nil }
+        let inputs = state.appendingPathComponent("inputs")
+        var current = readSmallFile(inputs.appendingPathComponent(".project-root"))
+            .flatMap { String(data: $0, encoding: .utf8) } == paths.checkoutRoot.path
+        var fingerprint = data
+        var changedAt = modificationDate(facts) ?? .distantPast
+        for name in ["uv.lock", "pyproject.toml", "pm/lock.json"] {
+            let input = paths.checkoutRoot.appendingPathComponent(name)
+            if !entryExists(input) { current = false }
+            else {
+                guard let bytes = readFile(input, maximumBytes: Self.maximumPackedRefsBytes),
+                      let modified = modificationDate(input) else { return nil }
+                fingerprint.append(Data(name.utf8))
+                fingerprint.append(bytes)
+                fingerprint.append(Data(modificationIdentity(input).utf8))
+                changedAt = max(changedAt, modified)
+                if modificationIdentity(inputs.appendingPathComponent(name)) != modificationIdentity(input) { current = false }
+            }
+        }
+        fingerprint.append(Data(environment.path.utf8))
+        return (
+            environment.lastPathComponent,
+            SHA256.hash(data: fingerprint).map { String(format: "%02x", $0) }.joined(),
+            current, changedAt
+        )
     }
 
     /// Every `hermes_agent-*.dist-info` in every `venv/lib/python*/site-packages`, sorted, so the
@@ -504,6 +644,18 @@ public struct DesktopLocalHermesDetector: Sendable {
         guard Darwin.lstat(url.path, &metadata) == 0 else { return nil }
         let time = metadata.st_mtimespec
         return Date(timeIntervalSince1970: TimeInterval(time.tv_sec) + TimeInterval(time.tv_nsec) / 1_000_000_000)
+    }
+
+    private func modificationIdentity(_ url: URL) -> String {
+        var metadata = stat()
+        guard Darwin.lstat(url.path, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else { return "missing" }
+        return "\(metadata.st_mtimespec.tv_sec):\(metadata.st_mtimespec.tv_nsec)"
+    }
+
+    private func isOwnedRegularFile(_ url: URL) -> Bool {
+        var metadata = stat()
+        return Darwin.lstat(url.path, &metadata) == 0 && metadata.st_mode & S_IFMT == S_IFREG
+            && metadata.st_uid == getuid() && metadata.st_mode & 0o022 == 0
     }
 
     private func readSmallFile(_ url: URL) -> Data? {

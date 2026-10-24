@@ -1244,6 +1244,19 @@ class ChatViewModelTest {
     // up on stayed on screen indefinitely — and the record on disk put it back after a restart.
     // The failure row now carries 撤回, and withdrawing has to be real: the turn goes AND the
     // record goes, or the next cold start quietly undoes it.
+    @Test fun maintenance_preserves_unsent_text_and_withholds_the_retry() = runTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        coEvery { chatRepo.submit("s1-live", "hello") } throws
+            com.hermes.client.data.network.GatewayRpcException(-32002, "HR-HERMESUPDATE-005")
+        val vm = buildVm()
+        vm.open("s1"); runCurrent(); vm.send("hello"); runCurrent()
+        val failed = vm.state.value.messages.last { it.role == com.hermes.client.domain.Role.USER }
+        assertEquals(com.hermes.client.data.error.AppErrorCode.HERMES_MAINTENANCE, vm.sendErrorCode(failed.id))
+        vm.retrySend(failed.id); runCurrent()
+        coVerify(exactly = 1) { chatRepo.submit("s1-live", "hello") }
+        assertTrue(vm.state.value.messages.any { it.id == failed.id && it.text == "hello" })
+    }
+
     @Test fun a_withdrawn_failed_send_leaves_the_transcript_and_the_disk_record() = runTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.submit("s1-live", "hello") } throws

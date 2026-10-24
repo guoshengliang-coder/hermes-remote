@@ -158,6 +158,7 @@ android {
 
     // Let stubbed android.* calls (e.g. android.util.Log) return defaults instead of throwing
     // in local JVM unit tests, so pure logic that mirrors to logcat stays unit-testable.
+    sourceSets.getByName("test").resources.srcDir("../../protocol/fixtures")
     testOptions {
         unitTests.isReturnDefaultValues = true
         // Robolectric-based screenshot tests render real resources.

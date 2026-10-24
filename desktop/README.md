@@ -17,6 +17,54 @@ separate acceptance. This remains temporary-signed internal distribution, not Ap
 
 Download: `https://mrlgs.net/desktop/apps/0.2.39/Hermes-Go-Desktop-0.2.39-dev.dmg`.
 
+## HG-199 integration with Local Hermes (unreleased)
+
+The dedicated “本机 Hermes” page now owns upstream version and upgrade-condition checks in
+“版本与升级”, after its local installation/usability card. Settings and the unified Desktop update
+sheet retain GO app/background updates; they no longer trigger an upstream check. Checks remain
+read-only, account/local scoped and unavailable during installation/update operations. Upstream
+upgrade/recovery execution remains gated. This branch retains main's default-profile launcher and
+recognizes only the exact prior GO launcher revisions, including those before environment cleanup.
+
+External dependency recovery now has an explicit-root archive/export backend. It binds private
+manifests to run/source/home, records OS build/architecture, checks every file's bytes and permissions,
+and rejects external/absolute/dangling/cyclic links and source changes. Export publishes only a new
+private directory and never rewrites a live venv or starts a runtime. This preserves selected material;
+automatic root discovery, complete dependency/ABI proof and Machine evidence integration remain
+pending. The real standalone-Python rehearsal is opt-in; see the test plan.
+
+The existing upgrade-condition check now reads the private serve idle diagnostic with bounded,
+proxy-free loopback GETs. Host PID and kernel birth/argv must agree across the snapshot; boot
+version/full commit must match the installation. It keeps only idle-observed/busy/unknown and sanitized ledger categories;
+missing old-version identity endpoints, changing processes, malformed/oversized responses and
+timeouts stay unknown. This diagnoses one process, never all-profile inactivity or writer admission.
+No retirement POSTs, service commands or execution controls are added.
+
+HG-199's backend worker now supports a narrow interrupted PM handoff recovery: a durable ready
+checkpoint permits the same official finish to continue without redoing PM or replacing the original
+context. Advanced/terminal receipts remain blocked, and the product upgrade/recovery controls remain
+disabled until the live evidence collector and end-to-end certification are complete. See
+[`../docs/HERMES_UPGRADE.md`](../docs/HERMES_UPGRADE.md).
+Live standard origin/blob:none checkouts are now checked offline against every pinned tip object;
+missing objects remain blocked and frozen source assets still require no partial metadata. The
+worker retains upstream's Git flags rather than removing them to pass recovery checks.
+
+The backend Machine Operating adapter now composes the official worker, private home backups,
+admission mailbox and original-service restoration. The coordinator owns the worker lease and a
+resumed run reloads its original private configuration/IDs. Independent live writer, external
+interpreter closure, boot, completion and business evidence is mandatory; there is no safe default
+collector and the app does not instantiate this adapter. Business-check failures re-pause the same
+run and preserve later history. Cancellation verifies the original installation and business path
+before recording cancelled. Fixture coverage does not certify real service operations.
+
+A native read-only inspection now accompanies the existing upgrade-condition check. It samples
+current real/effective-user kernel PIDs/births twice, discards raw argv/environment, tracks potential
+checkout/Hermes processes and descendants, lists bounded profile directories without reading their
+contents, and observes the legacy Python link. The production Machine adapter uses it as an extra
+negative check before stopping services, around backups and before source moves. Unreadable/changing
+samples and extra/surviving processes block; empty samples never prove admission, task inactivity or
+recoverable dependencies. Full live evidence and end-to-end certification remain pending.
+
 ## Previous distribution: 0.2.38
 
 

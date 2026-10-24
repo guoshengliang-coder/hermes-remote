@@ -71,6 +71,17 @@ test("a moved row that is absent from the bounded lookup returns the same retrya
 });
 
 
+test("GO display projection retains raw mixed content on preview and full reads", async () => {
+  const content = "真实问题\n\n[Skills pruned during compression — reload before acting on these tasks]\nreload";
+  const upstream = async () => Response.json({ messages: [{ id: 42, role: "user", content }] });
+  for (const selector of ["hr_preview=1", "hr_full_message_id=42&hr_full_offset=0"]) {
+    const response = await historyProjection("GET", `${path}&${selector}`, upstream);
+    const row = (await response!.json() as any).messages[0];
+    assert.equal(row.content, content);
+    assert.deepEqual(row.hr_display, { schema: 1, kind: null, body: "真实问题" });
+  }
+});
+
 test("compacted display history keeps its query, server ordering and full-row view", async () => {
   const requested: string[] = [];
   const upstream = async (p: string) => {

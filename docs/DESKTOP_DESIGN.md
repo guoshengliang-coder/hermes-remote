@@ -1,5 +1,22 @@
 # Hermes Go Desktop design contract
 
+HG-199 source-cache/native-overlay refusal uses the existing HR-HERMESUPDATE-002 explanation and
+diagnostics. Do not label ordinary caches malicious, offer automatic deletion, or equate a clean
+Git worktree with verified executable contents. Upgrade/recovery actions remain gated; this worker
+change adds no visual controls or layout change.
+
+HG-199's “条件检查不会停止服务或修改数据” also applies to Git status: local executable/include
+configuration is refused, and an OS read-only/no-network/no-fork boundary covers a config race.
+Unsupported sandbox, unsafe/changed config, a different repository root, output budget or timeout
+maps to the existing unknown working-tree explanation and HR-HERMESUPDATE-002. Never display raw
+local Git config/status paths or turn this diagnostic into upgrade permission. The card/actions
+and visual layout remain the same.
+
+HG-199 integrates the 0.2.39 Local Hermes surface: preserve its separate model metadata and conditional missing-model
+configuration prompt, signed-out local inspection and account-gated connection/install. “版本与升级” follows the
+usability/model card and remains read-only without an account. Its recovery record cannot replace
+the model/service presentation or authorize a service, installation or upgrade action. The existing
+page-level “诊断与修复” destination remains available under the main navigation-access policy.
 ## 2026-10-24：状态、账号与首次安装细化
 
 保留三块概览和现有导航。打开 Hermes 使用普通按钮；本机验证、模型配置并列为独立状态，模型仅有“已配置 / 未配置 / 待确认”，已配置表示检测到选择，详情保留凭据及实际调用尚未验证的边界。未配置时才出现提示与配置操作。本机 Hermes 页采用状态标题、并列事实、条件提示、底部操作及折叠详情，正常状态使用“查看诊断”。
@@ -21,6 +38,87 @@
 设置页移除纯说明的后台运行、安全边界大卡片。更新完成或已是最新版时按钮为“确定”，不再显示升级前说明、重复状态；有可用更新时保留“稍后”和更新操作。
 
 本机 Hermes 的绿色状态表示“服务已就绪”；模型选择单独显示，不能以服务认证通过代替模型凭据验证。签出不屏蔽本机信息与诊断，云端相关操作就地引导登录。
+
+## HG-199: separate Hermes version card
+
+The card also reads the local upgrade journal without network or filesystem writes. It presents
+“待恢复的升级记录” for every nonterminal phase, “历史升级记录” for terminal records, and the fixed
+target, last recorded stage and timestamp. A persisted phase is intent: it never means a process is
+currently running or that its effect succeeded. Completed/cancelled history does not certify the
+currently booted runtime. Missing records read “没有本机升级记录”; unsafe, ambiguous or future records
+show no retained target/stage and use HR-HERMESUPDATE-003. “刷新升级记录” works without a successful
+network/version check, is disabled during install/update, and never clears, repairs or resumes a run.
+Monitoring and either check refresh this snapshot; no execution/cancel/resume controls are added.
+Duplicate JSON keys (including escaped equivalents), unknown nested fields and changing file
+identities must fail closed. Paths, run IDs, receipts and raw parser failures stay off the card.
+
+The explicit-root external dependency material store is backend-only. Saving/exporting selected bytes
+must never appear as “dependencies recoverable” or completed upgrade; full root/ABI/OS proof and
+transaction custody are separate. Export creates a new directory, never overwrites the live home/tool
+root or later files, rewrites a venv reference or launches a program. Failures retain existing
+`HR-HERMESUPDATE-002/003` mapping without raw paths/errors. No new controls or positive status are added.
+
+The “本机 Hermes” page owns the “版本与升级” card below its authenticated usability card, using
+existing setting rows, card spacing and native bordered small controls. Settings owns Desktop
+app/background updates only; its unified update action does not also check upstream Hermes.
+The two Hermes read-only checks remain separate and are disabled during Desktop installation/update
+operations. No upgrade/recovery execution button is introduced by this relocation. “安装版本” and “代码提交” describe disk evidence;
+they must not imply a checked boot version. “上游稳定版本” and “GO 验证推荐” are separate rows. Unknown
+recommendation reads “尚无验证结果”; unverified latest explains that execution is unavailable.
+“检查 Hermes 版本” remains available without configured GO update indexes. During a request it reads
+“正在检查…” and is disabled. Failed checks clear earlier success and show `HR-HERMESUPDATE-001`
+through GateIssueBanner, keeping raw technical causes behind details. No upgrade confirmation or
+execution button is exposed until the official adapter/recovery certification in stage two.
+Official release discovery uses an ephemeral public session without inherited credentials, cookies
+or default headers. It refuses redirects and mismatched endpoint URLs, checks declared size before
+consuming the response, and caps received JSON at 512 KiB with unambiguous keys. One monotonic
+30-second budget covers the release and annotated-tag chain, each request capped at 20 seconds.
+These checks retain HR-HERMESUPDATE-001 and never convert upstream availability into certification.
+
+After a successful version check, “检查升级条件” uses the same small bordered control. It adds
+“本地修改”, “升级恢复”, and “其他更新” rows; dirty files are explained without printing filenames or
+private content. This check does not stop services or modify data and does not certify execution.
+An unfinished/unsafe upgrade journal keeps `HR-HERMESUPDATE-003` visible after another version check
+and pauses automatic recovery, including when the local-runtime setting is off. Execution/confirmation
+and actual recovery controls still require a certified concrete adapter; they are not exposed yet.
+The packaged execution worker adds no visible action until that certification. A target already moved
+on disk requires reconciliation of its retained official receipt/tail; the product must not label a
+fresh retry or an exit-zero receipt with owed work as a completed upgrade.
+The backend-only finish resume accepts a successful PM handoff with a durable ready checkpoint and
+an unfinished original receipt; any existing official archive must agree and have no finish effects.
+Missing/unsafe checkpoints, advanced/terminal receipts and service
+debts keep the registered recovery-required error (`HR-HERMESUPDATE-003`); no new recovery action
+or automatic retry is exposed until the full machine adapter is certified.
+Standard blob:none metadata alone is not an error when the fixed current source is locally whole.
+Missing source objects keep recovery-required guidance; checking must not trigger background Git
+downloads. This backend change adds no recovery control and does not relabel service debt as success.
+Displayed completion requires the receipt's version and fixed commit to agree; a tagless checkout
+whose official version stamp says unknown must remain pending even if its dependency sync succeeded.
+Maintenance admission/service restoration remains backend-only until full certification. It adds no
+execution control. A maintenance refusal uses bilingual `HR-HERMESUPDATE-005` in the existing error
+surface and directs the owner to Mac progress/recovery, with no immediate Retry. Private mailbox,
+process and plist details stay behind diagnostics. Existing admitted work is allowed to finish.
+
+The backend Machine Operating composition adds no UI controls or certified paths. Both target
+verification and pre-source-change cancellation reopen admission only after independent local
+source/dependency/boot/original-load-set proof, then require fresh business checks before a terminal
+label. A failed business check re-pauses the same run with `HR-HERMESUPDATE-003`; later history is
+retained. “Cancelled” is not displayed before original-installation business verification succeeds.
+Live evidence collection and real-machine acceptance remain required before any execution control.
+
+The existing “检查升级条件” action now collects native read-only process/profile/interpreter
+observations on its background task, with no extra rows or controls. Raw command lines, environment
+values and private interpreter paths are not retained in its report. Incomplete observations use
+existing bilingual `HR-HERMESUPDATE-002`; pending transaction failures retain `003`. An empty process
+sample must never become “tasks stopped”, “safe to upgrade” or “backup recoverable”. Execution and
+recovery controls stay disabled until independently fenced live evidence is certified.
+
+The same action now includes a bounded authenticated serve activity diagnostic without new rows or
+controls. Busy/unknown, stale or mismatched PID/kernel birth/boot source uses `HR-HERMESUPDATE-002`;
+pending recovery keeps `003`. “Idle observed” describes a moment in one serve process; it must never
+be rendered as all profiles stopped or permission to upgrade. Missing old-version identity fields
+remain unknown. Session/job IDs and raw diagnostic responses are discarded; the product check never
+prepares or commits upstream retirement.
 
 
 ## Overview visual hierarchy — 2026-10-24
@@ -119,7 +217,8 @@ rollback, runtime ownership, and release gates. Task activity remains in Hermes,
 Local Hermes reads this Mac's installation and authenticated probe, never the selected remote device.
 Installed files alone show “已安装，待验证”; only authenticated healthy status enables Open Hermes.
 Unsupported layouts remain distinct from missing installs. Existing install/setup/repair entry points
-are reused. Upstream Hermes upgrade, switch and rollback management remain future scope.
+are reused. Upstream Hermes execution, switch and rollback management remain gated. HG-199 read-only version
+and upgrade-condition checks live on Local Hermes, separate from Desktop product updates.
 
 All update discovery leads to one Desktop update sheet and one action. Background changes run through
 the existing verified prepare/confirm/commit transaction first; only success without pending cleanup
@@ -490,3 +589,7 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
 
 These are direction references, not pixel specifications. Generated placeholder QR codes are not
 functional, and generated approximations of the H mark must be replaced by the canonical app icon.
+
+HG-199 upgrade qualification remains distinct from normal PM start eligibility: private dependency
+metadata that GO cannot verify must block upgrading, without replacing HG-212's bounded published
+launcher startup with a dependency-stamp alarm. No new execution control or confirmed target results.

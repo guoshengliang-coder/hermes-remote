@@ -1,5 +1,15 @@
 # Connector control connection recovery
 
+HG-199 adds opt-in local maintenance admission via `HERMES_GO_MAINTENANCE_DIRECTORY`. Desktop
+explicitly prepares an owner-only 0700 mailbox; 0600 `request.json` pauses new HTTP/uploads/WS/chat,
+while admitted operations finish and retain cancellation/ACK handling. A private `ack.json` reports
+run/source identity, exact request hash, PID/instance, freshness and active count. Deletion/expiry is
+never a release; unsafe configured records fail closed. `HR-HERMESUPDATE-005` is bilingual and
+non-retryable. No env configured preserves existing installations. ACK is not proof of Hermes
+CLI/cron/task idleness. This source is not yet published or enabled by the production Desktop adapter.
+See `docs/HERMES_UPGRADE.md`; `hermes-maintenance*.test.ts` uses disposable files and actual loopback
+Connector processes. No Gateway/protocol version or production credentials are changed.
+
 HG-232 adds pooled HTTP(S) returns and up to four ranges of one opaque file reference, sharing the
 existing aggregate upload budget. Old Gateways/Android clients remain serial. See
 `../docs/ATTACHMENT_PERFORMANCE.md` for negotiation, compatibility and the local benchmark.
@@ -205,3 +215,8 @@ After a separately authorized Connector release, verify with a disposable test b
 
 Production packet loss, actual Mac sleep/wake and the 24-hour route comparison require runtime
 observation; loopback and fake-clock tests do not replace those checks.
+
+维护期间，已连接的 JSON-RPC 通道也拒绝新任务（Connector `-32002` / `HR-HERMESUPDATE-005`）。
+既有任务的回答、审批和中断仍可继续；整个通道到实际关闭前一直计入 busy，不会因“当前没有请求”就
+宣称已排空。不能解析或关联的帧不转发，保留通道以接收既有任务事件；正式升级适配器仍需让客户端
+结束连接并独立确认全部 Hermes 写入者已经退出。

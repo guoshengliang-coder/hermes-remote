@@ -82,7 +82,7 @@ export interface FlattenedContent {
   images: DisplayImage[];
 }
 
-/** Accepts string, null, a block list or a single block; unknown block types are skipped. */
+/** Accepts string, null, a block list or a single block; unknown non-image blocks retain a readable JSON payload. */
 export function flattenContent(content: MessageContent | JsonValue | undefined): FlattenedContent {
   if (content === null || content === undefined) return { text: null, images: [] };
   if (typeof content === "string") return { text: content, images: [] };
@@ -103,6 +103,9 @@ export function flattenContent(content: MessageContent | JsonValue | undefined):
     }
     const image = blockImage(block);
     if (image) images.push(image);
+    else if (!["image", "image_url", "input_image", "text", "input_text"].includes(String(block.type))) {
+      texts.push("\n```json\n" + JSON.stringify(block) + "\n```");
+    }
   }
   const joined = texts.join("\n");
   return { text: joined.trim() ? joined : null, images };
@@ -189,7 +192,8 @@ export function isRenderable(m: DisplayMessage): boolean {
 }
 
 export function toDisplayMessage(row: MessageRow, index: number, toolResults: Map<string, MessageRow> = new Map()): DisplayMessage {
-  const flat = flattenContent(row.display_content ?? row.content);
+  const display = row.hr_display?.schema === 1 ? row.hr_display : null;
+  const flat = flattenContent(row.display_content ?? display?.body ?? row.content);
   const parsed = parseAttachments(flat.text ?? "");
   const assistant = row.role.toLowerCase() === "assistant";
   const rowId = typeof row.id === "number" ? row.id : null;
@@ -206,7 +210,7 @@ export function toDisplayMessage(row: MessageRow, index: number, toolResults: Ma
     ...(assistant && row.hr_preview?.fields.some((field) => field === "reasoning" || field === "reasoning_content")
       ? { reasoningSource: locator(row) } : {}),
     tools: assistant ? historyToolCalls(row, toolResults) : [],
-    displayKind: nonBlank(row.display_kind),
+    displayKind: nonBlank(row.display_kind) ?? nonBlank(display?.kind),
     displayMetadata: isObject(row.display_metadata) ? (row.display_metadata as JsonObject) : null,
   };
 }

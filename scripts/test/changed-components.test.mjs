@@ -91,3 +91,10 @@ test('offline table-chart assets select both consumers', () => {
     });
   }
 });
+
+
+test('shared Hermes display samples run every parser consumer', () => {
+  assert.deepEqual(classifyChangedPaths(['protocol/fixtures/hermes-display-v1.json']), {
+    node: true, android: true, desktop: false, assets: false, web: true,
+  });
+});

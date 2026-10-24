@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import displaySamples from "../../../protocol/fixtures/hermes-display-v1.json";
+import { toDisplayMessage } from "../hermes/messages";
 import {
   COMPRESSION_SNAPSHOT_HEADER,
   completeTool,
@@ -103,6 +105,19 @@ describe("assistant organisation (ChatUiState.kt)", () => {
 });
 
 describe("user scaffolding and timeline notes (TimelineNote.kt)", () => {
+  it.each(displaySamples)("shared Hermes display contract: $name", (sample) => {
+    const row = toDisplayMessage(sample.row, 0);
+    const body = row.role === "user" ? organizeUserText(row.text) : row.text;
+    expect(body).toBe(sample.body);
+    expect(timelineNoteFor(row)?.zh ?? null).toBe(sample.note);
+  });
+  it("handles the standalone skill-reload notice without losing the user's prompt", () => {
+    const notice = "[Skills pruned during compression — reload before acting on these tasks]\nReload the skill.";
+    expect(timelineNoteFor({ role: "user", text: notice })?.zh).toBe("上下文已压缩");
+    expect(organizeUserText(notice)).toBe(notice);
+    expect(organizeUserText("继续分析\n\n" + notice)).toBe("继续分析");
+    expect(timelineNoteFor({ role: "user", text: "继续分析\n\n" + notice })).toBeNull();
+  });
   it("cuts the compression snapshot but keeps what the user typed", () => {
     expect(organizeUserText(`real question\n${COMPRESSION_SNAPSHOT_HEADER}\n- task`)).toBe("real question");
     const alone = `${COMPRESSION_SNAPSHOT_HEADER}\n- task`;

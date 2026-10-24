@@ -103,6 +103,13 @@ import kotlinx.serialization.json.contentOrNull
     @SerialName("tool_call_id") val toolCallId: String? = null,
     @SerialName("tool_name") val toolName: String? = null,
     @SerialName("hr_preview") val historyPreview: HistoryPreviewDto? = null,
+    @SerialName("hr_display") val displayProjection: HermesDisplayProjectionDto? = null,
+)
+
+@Serializable data class HermesDisplayProjectionDto(
+    val schema: Int = 0,
+    val kind: String? = null,
+    val body: String? = null,
 )
 
 @Serializable data class HistoryPreviewDto(
@@ -161,7 +168,12 @@ object MessageContentSerializer : KSerializer<String?> {
         if (element is JsonPrimitive) return element.contentOrNull?.takeIf { it.isNotBlank() }
         val block = element as? JsonObject ?: return null
         (block["text"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }?.let { return it }
-        return attachmentReference(block)
+        attachmentReference(block)?.let { return it }
+        // Preserve future block content visibly instead of silently deleting the turn.
+        // Known inline-image placeholders remain handled by the existing media path.
+        val type = (block["type"] as? JsonPrimitive)?.contentOrNull
+        if (type in setOf("image", "image_url", "input_image", "text", "input_text")) return null
+        return "\n```json\n" + block.toString() + "\n```"
     }
 
     /**

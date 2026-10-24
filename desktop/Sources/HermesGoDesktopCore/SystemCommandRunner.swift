@@ -54,4 +54,3 @@ public struct SystemCommandRunner: CommandRunning {
         return CommandResult(status: process.terminationStatus, standardError: standardError)
     }
 }
-

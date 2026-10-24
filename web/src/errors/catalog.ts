@@ -21,6 +21,7 @@ export interface CatalogEntry {
 }
 
 export const CATALOG = {
+  "HR-HERMESUPDATE-005": { zh: "这台 Mac 的 Hermes 正在维护，暂不接受新操作。请在 Mac 上查看进度或恢复操作。", en: "Hermes on this Mac is undergoing maintenance and cannot accept new operations. Check progress or recovery on the Mac.", retryable: false, action: "open-mac" },
   "HR-CONN-001": { zh: "手机当前没有可用网络，请检查 Wi-Fi 或移动网络，恢复后会自动重连。", en: "Your phone has no network. Check Wi-Fi or mobile data; the app reconnects once it's back.", retryable: true, action: "retry" },
   "HR-CONN-002": { zh: "连不上服务，自动检测也没能确定原因，请重试。", en: "Couldn't reach the service, and automatic checks couldn't find the cause. Retry.", retryable: true, action: "reconnect" },
   "HR-CONN-003": { zh: "Relay 已连上，但会话握手超时，请重试。", en: "The Relay connected, but the session handshake timed out. Retry.", retryable: true, action: "reconnect" },

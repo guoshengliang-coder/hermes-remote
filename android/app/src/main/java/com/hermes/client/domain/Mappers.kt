@@ -608,9 +608,11 @@ internal fun parseIsoTimestampMillis(raw: String): Long? = runCatching {
  * comes back with the same output, exit code and duration the live tool.complete event carried.
  */
 fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): ChatMessage {
-    val parsed = parseMessageContent((displayContent ?: content).orEmpty(), userHistory = role.equals("user", ignoreCase = true))
+    val display = displayProjection?.takeIf { it.schema == 1 }
+    val displayText = (displayContent ?: display?.body ?: content).orEmpty()
+    val parsed = parseMessageContent(displayText, userHistory = role.equals("user", ignoreCase = true))
     val direct = if (role.equals("assistant", ignoreCase = true) && (parsed.images.isNotEmpty() || parsed.files.isNotEmpty()))
-        parseMessageContent(com.hermes.client.ui.chat.assistantDeliveryText((displayContent ?: content).orEmpty())) else null
+        parseMessageContent(com.hermes.client.ui.chat.assistantDeliveryText(displayText)) else null
     // Compaction handoffs ride the user-role channel. Project them the way upstream projects a
     // transcript for display, keeping any real content merged into the carrier; a turn left with
     // nothing is dropped by [isRenderable].
@@ -641,7 +643,7 @@ fun MessageDto.toDomain(toolResults: Map<String, MessageDto> = emptyMap()): Chat
         thinkingSource = thinkingSource,
         thinkingParts = if (thinkingText.isNotBlank()) listOf(HistoryThinkingPart(thinkingText, thinkingSource)) else emptyList(),
         tools = if (role.equals("assistant", ignoreCase = true)) historyToolCalls(toolResults) else emptyList(),
-        displayKind = displayKind?.ifBlank { null },
+        displayKind = displayKind?.ifBlank { null } ?: display?.kind?.ifBlank { null },
         displayTaskCount = displayMetadata?.intOrNull("task_count"),
         displayFailedCount = displayMetadata?.intOrNull("failed_count"),
         serverId = id?.toLong(),

@@ -20,12 +20,16 @@ export interface HermesContractMonitorOptions {
   now?: () => Date;
   /** How long an `unknown` result is trusted before the next caller triggers another look. */
   unknownRetryMs?: number;
+  /** Successful reports also expire: same version can carry a different commit or environment. */
+  maximumAgeMs?: number;
+  fetchRuntimeIdentity?: () => Promise<string | undefined>;
+  onIdentityChanged?: () => void;
   /** One line per *change* of result; an unchanged result is not re-logged. */
   log?: (level: "info" | "error", kind: string, fields: Record<string, unknown>) => void;
 }
 
 /**
- * Runs the contract check at most once per Hermes process and version.
+ * Runs bounded, cached checks per installation identity and observed Hermes version.
  *
  * `openapi.json` is ~250 KB on 0.21.3 and Hermes regenerates nothing between restarts, so the
  * result is cached and a check runs only when something can have changed it:
@@ -46,6 +50,8 @@ export class HermesContractMonitor {
   private lastFingerprint?: string;
   private readonly now: () => Date;
   private readonly unknownRetryMs: number;
+  private readonly maximumAgeMs: number;
+  private runtimeIdentity?: string;
 
   constructor(
     private readonly probe: HermesContractProbe,
@@ -53,6 +59,7 @@ export class HermesContractMonitor {
   ) {
     this.now = options.now ?? (() => new Date());
     this.unknownRetryMs = options.unknownRetryMs ?? 60_000;
+    this.maximumAgeMs = options.maximumAgeMs ?? 5 * 60_000;
   }
 
   current(): HermesContractReport | undefined {
@@ -83,21 +90,25 @@ export class HermesContractMonitor {
   }
 
   /**
-   * The report to serve now. Reads the health probe and re-checks only when the
-   * version moved, nothing is cached yet, or a cached `unknown` has gone stale.
+   * The report to serve now. Reads the health probe and re-checks when the
+   * version/installation changed or the finite cache lifetime elapsed.
    */
   async ensureFresh(trigger: string): Promise<HermesContractReport> {
     if (this.followUp) return this.followUp;
     if (this.inFlight) return this.inFlight;
     const cached = this.report;
     if (!cached) return this.refresh(trigger);
+    if (this.options.fetchRuntimeIdentity) {
+      const identity = await this.options.fetchRuntimeIdentity().catch(() => undefined);
+      if (identity !== this.runtimeIdentity) return this.refresh(trigger);
+    }
     let version: string | undefined;
     try {
       version = await this.probe.fetchStatusVersion();
     } catch {
       // Hermes is not answering at all. That is HR-CONN-006's to report, not a contract finding;
-      // keep serving the last result rather than replacing it with a guess.
-      return cached;
+      // serve an unknown verdict while unreachable; retain the cache only for a later successful probe.
+      return evaluateHermesContract({ openapi: { kind: "unreachable" }, checkedAt: this.now() });
     }
     if (this.isStale(cached, version)) return this.refresh(trigger);
     return cached;
@@ -112,11 +123,14 @@ export class HermesContractMonitor {
 
   private isStale(cached: HermesContractReport, version: string | undefined): boolean {
     if (version !== undefined && version !== cached.hermesVersion) return true;
-    if (cached.status !== "unknown") return false;
-    return this.now().getTime() - Date.parse(cached.checkedAt) >= this.unknownRetryMs;
+    const lifetime = cached.status === "unknown" ? this.unknownRetryMs : this.maximumAgeMs;
+    return this.now().getTime() - Date.parse(cached.checkedAt) >= lifetime;
   }
 
   private async check(trigger: string): Promise<HermesContractReport> {
+    const identity = await this.options.fetchRuntimeIdentity?.().catch(() => undefined);
+    if (this.report && identity !== this.runtimeIdentity) this.options.onIdentityChanged?.();
+    this.runtimeIdentity = identity;
     let hermesVersion: string | undefined;
     try {
       hermesVersion = await this.probe.fetchStatusVersion();

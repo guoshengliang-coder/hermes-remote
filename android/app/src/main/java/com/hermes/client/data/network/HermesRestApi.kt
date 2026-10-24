@@ -805,10 +805,13 @@ class HermesRestApi(
                 val elapsed = System.currentTimeMillis() - startedAt
                 val text = resp.body.string()
                 if (!resp.isSuccessful) {
+                    val structured = runCatching { json.decodeFromString<AccountErrorEnvelopeDto>(text).error }.getOrNull()
+                    val diagnosticCode = structured?.code?.takeIf { it.matches(Regex("HR-[A-Z]+-[0-9]{3}")) }
                     com.hermes.client.data.diagnostics.DebugLog.log("rest") {
-                        "POST $target ← ${resp.code} (${elapsed}ms) ${expectedSize}b ${text.take(200)}"
+                        "POST $target ← ${resp.code} (${elapsed}ms) ${expectedSize}b code=${diagnosticCode ?: "unknown"}"
                     }
-                    throw HermesApiException(resp.code, text.ifBlank { "HTTP ${resp.code}" })
+                    throw HermesApiException(resp.code, structured?.code ?: text.ifBlank { "HTTP ${resp.code}" },
+                        errorCode = structured?.code)
                 }
                 val obj = json.parseToJsonElement(text).jsonObject
                 val path = obj["path"]?.jsonPrimitive?.content

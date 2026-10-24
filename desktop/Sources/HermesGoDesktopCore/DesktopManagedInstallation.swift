@@ -1354,6 +1354,7 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
     public let standardOutput: URL
     public let standardError: URL
     public let nodeRuntimeRoot: URL?
+    public let maintenanceDirectory: URL?
 
     public init(
         connectorExecutable: URL,
@@ -1363,7 +1364,8 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         sessionTokenFile: URL,
         standardOutput: URL,
         standardError: URL,
-        nodeRuntimeRoot: URL? = nil
+        nodeRuntimeRoot: URL? = nil,
+        maintenanceDirectory: URL? = nil
     ) {
         self.connectorExecutable = connectorExecutable
         self.credentialFile = credentialFile
@@ -1373,13 +1375,14 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         self.standardOutput = standardOutput
         self.standardError = standardError
         self.nodeRuntimeRoot = nodeRuntimeRoot
+        self.maintenanceDirectory = maintenanceDirectory
     }
 
     public func encodedPropertyList() throws -> Data {
         guard [connectorExecutable, credentialFile, sessionTokenFile, standardOutput, standardError].allSatisfy({
             $0.isFileURL && $0.path.hasPrefix("/") && $0.path != "/"
         }), Self.validGateway(gatewayURL), Self.validHermes(hermesBaseURL),
-            Self.validOptionalRoot(nodeRuntimeRoot) else {
+            Self.validOptionalRoot(nodeRuntimeRoot), Self.validOptionalRoot(maintenanceDirectory) else {
             throw DesktopLaunchAgentError.invalidConfiguration
         }
         var environment = [
@@ -1394,6 +1397,9 @@ public struct DesktopAccountConnectorLaunchAgent: Sendable {
         ]
         if let nodeRuntimeRoot {
             environment["HERMES_NODE_RUNTIME_ROOT"] = nodeRuntimeRoot.standardizedFileURL.path
+        }
+        if let maintenanceDirectory {
+            environment["HERMES_GO_MAINTENANCE_DIRECTORY"] = maintenanceDirectory.standardizedFileURL.path
         }
         let object: [String: Any] = [
             "Label": DesktopManagedInstallLayout.connectorLabel,

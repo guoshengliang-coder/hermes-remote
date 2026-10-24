@@ -1,5 +1,39 @@
 # Hermes Go Desktop phase 0
 
+## HG-199 source import artifacts — unreleased
+
+The official worker validates committed Python bytecode/native import artifacts as well as .py,
+and refuses extra ignored importable files, including __pycache__, in both frozen and live source.
+The controlled regression demonstrates that -B can execute a timestamp cache inconsistent with
+the verified .py bytes. Tracked native bytes are independently hashed; existing live dependency
+root exclusions remain. Ordinary source caches may be legitimate: retain them and refuse rather
+than automatically delete or repair. Safe cache custody/materialization and runtime/native closure
+remain execution requirements. No target is certified or product execution enabled by this check.
+
+## HG-199 read-only Git condition inspection — unreleased
+
+The Local Hermes condition check refuses local filters/includes and other executable or redirected
+Git configuration before status. Every probe also runs inside a read-only, no-network/no-fork macOS
+sandbox, protecting the read-only promise if config changes between checks. Global/system config,
+lazy transports, hooks, replace refs and optional index/cache writes are disabled. The local config
+must match again afterwards; the requested directory must be the actual repository top level.
+Four probes share a three-second monotonic budget, with bounded output and owned-process cleanup.
+Missing sandbox support, unsafe/changed/oversized input, timeout or Git failure stays unknown under
+HR-HERMESUPDATE-002. No source, config, index or service is repaired and no execution is authorized.
+
+## HG-199 / Desktop 0.2.39 integration — unreleased
+
+The task branch integrates main 9b659400 (after 2b1f8b64), including the already published Desktop 0.2.39/build 42.
+No version is allocated or distributed here. Root orchestration reviewed the shared ViewModel,
+Local Hermes, runtime-setting and documentation paths before combining them. Main's first-run
+recovery, signed-out local navigation, account-gated install/connect, device management, model setup
+and managed default-profile configuration remain. The version/record card stays after the local
+usability/model information and before account-gated connection/install setup. An observed model
+name, service readiness or a fresh-install preference never certifies an upgrade or clears a journal.
+Main’s status/account layout, bounded install-stage retry and conditional model prompt are retained.
+The incoming Android 0.1.181/code 182 allocation stays unchanged; no Android artifact is built or
+distributed here. Error-table additions concern Android cache behavior, not Hermes upgrade policy.
+Both branches’ requirements and test records are retained; fresh combined baselines are required.
 ## 2026-10-24：状态与安装体验细化
 
 概览和本机 Hermes 并列展示版本、本机验证、模型配置；正常打开按钮为普通样式，模型未知/过期保持中性。账号显示昵称或邮箱前缀、完整宽度邮箱与单一菜单入口；我的设备改电脑图标；深色侧栏辅助文字有独立颜色；设置版本及更新状态同行。
@@ -24,6 +58,144 @@
 - 模型配置与服务连通分开展示。可选认证接口 `/api/model/info` 只提取模型名称；接口不兼容时显示待确认，不推断密钥有效或任务成功。提供 Hermes 配置入口和 `hermes --profile default setup` 命令复制，与后台服务使用同一 profile。
 - 登录设备与共享详情接口局部失败只影响对应区域；会话失效仍重新登录。设备列表失败不推断空列表/名额，不启动本机安装，不清除已选设备。
 - 手机登录记录不再自动完成引导或证明访问了这台 Mac，由用户完成引导后实际在手机打开会话验证。
+
+## HG-199 bounded public version discovery — unreleased, 2026-10-24
+
+Release/tag requests now create credential-free/cookie-free/cache-free ephemeral sessions, retain
+only injectable test protocol classes from an optional caller, refuse redirects and require the
+exact requested official URL. Header size is checked before application body consumption and the
+stream stops above 512 KiB; duplicate JSON fields are rejected. A shared monotonic 30-second deadline
+and per-resource/request 20-second cap bound the complete tag resolution. Cancellation invalidates
+the current session. Previous target/check semantics and error HR-HERMESUPDATE-001 remain.
+The old transport regressions reproduced ten failed assertions across five cases; successful
+lightweight/annotated tags, exact budget and cancellation remain covered without real network.
+Draft/prerelease fields must be actual JSON Booleans; Foundation's conversion of numeric zero to
+false previously accepted two malformed responses, now rejected by exact CFBoolean type checks.
+
+## HG-199 local upgrade records — unreleased, 2026-10-24
+
+The Local Hermes version card independently refreshes the private upgrade journal on monitoring,
+version/condition checks or an explicit read-only action. It distinguishes unchecked, absent,
+unverifiable, pending recovery and historical terminal records. A fixed target, persisted intent
+stage and timestamp do not imply a running process, successful effect or current runtime health.
+No private paths/receipt/run identities enter the presentation model. Unsafe records clear the old
+snapshot and retain HR-HERMESUPDATE-003; no record is rewritten or cleared by checking.
+
+Journal reads now reject duplicate/escaped-equivalent JSON keys, unknown nested schema fields,
+malformed or over-budget JSON and file identity/metadata changes during reading. The original
+duplicate/nested-field regressions failed five assertions before the stricter reader was added.
+This adds management visibility only: certified targets remain empty, and the app still creates no
+upgrade/recovery execution adapter. No live installation, service or release is changed.
+
+## HG-199 Local Hermes integration — unreleased, 2026-10-24
+
+The working branch now integrates main 2b1f8b64 (Desktop 0.2.39/build 42) without allocating a version.
+The read-only upstream version/condition card moves from Settings to Local Hermes. The installation
+and authenticated-health card stays first; Settings keeps the unified GO app/background update
+transaction and its layout-aware discovery. This action no longer launches an upstream check.
+Both Hermes checks are disabled during Desktop update/install operations and use the same model
+methods, source identity, pending-journal priority and HR error mapping as before. No updater,
+recovery executor or recommended target is enabled by this relocation.
+
+Main's account-only retirement, default-profile launcher, repair and diagnostics remain intact.
+Known pre/post-profile launcher revisions are accepted by exact bytes with/without explicit
+VIRTUAL_ENV cleanup; arbitrary edits remain rejected. Newly generated scripts retain both safeguards.
+The regression first fails on the combined script with the old recognizer. No user installation,
+profiles, services or data are touched by this source integration.
+
+HG-199 adds a private external-dependency material store with explicit roots, run/source/home binding,
+OS build/architecture context, SHA-256 manifests and exact byte/permission verification. Capture
+requires independent stopped-writer checks before/after copying and rejects concurrent source changes.
+FD-relative no-follow reads, owner/mode/link checks and entry/byte/depth budgets bound traversal;
+relative links must close within each selected root. Export only publishes a new private directory
+with exclusive rename, leaves live roots/venv references untouched and never launches a tool.
+Neither receipt nor successful export proves complete dependency discovery or runnable ABI. There is
+no production collector or Machine wiring for this receipt yet, and no new UI/action/certified path.
+
+HG-199's existing condition-check action now additionally collects a single-process serve activity
+diagnostic: private token/recognized local launcher, direct `127.0.0.1:9119` GETs, token-gated host
+identity, boot health version/full SHA, idle ledgers, repeated host identity and kernel birth/argv.
+Requests refuse proxies, redirects, cookies and cache; bodies are bounded to 4 KiB during reading,
+each resource to one second and the complete snapshot to five seconds. Private token/launcher and
+installation identity are rechecked after collection; update/recovery takes precedence. Reports retain
+only sanitized categories, never raw reasons/session or job IDs/credentials. Missing routes/fields,
+incomplete or contradictory responses and identity changes remain unknown. Readiness requires fresh
+matching native and activity identities; it is still not execution authorization. The 0.21.3 snapshot
+lacks host identity and health commit, so its idle endpoint alone cannot supply this observation.
+No retirement prepare/commit/cancel request or service operation is issued.
+
+HG-199 now includes an opt-in private local Connector admission mailbox and exact GO service
+snapshots/launchd driver. Pause precedes writer retirement; a run/source/request/PID/instance-bound
+fresh ACK proves only Connector drainage. Independent full-profile/cron/background/kernel writer
+admission and retirement evidence remains required. Configuring the mailbox is explicit and default
+nil; this increment does not rewrite or restart installed agents. Restore preserves original
+loaded/unloaded jobs, checks the actual Hermes boot commit before Connector, and resumes already
+restored jobs. The worker can now resume an exact, completed-PM handoff before finish effects,
+using the original context and ready checkpoint (any existing official archive must agree). The composed
+Machine Operating adapter now connects those modules. Independent live evidence collection, external
+interpreter closure discovery/proof/integration and advanced/terminal-tail reconciliation remain pending;
+execution stays disabled.
+Standard origin/blob:none live checkouts are now admitted only when the pinned tip's commit, trees
+and all blobs are local; GO validation denies lazy fetching and all transports. Frozen candidate
+assets still reject partial metadata. This does not enable execution or broaden tail replay.
+See `HERMES_UPGRADE.md` for the boundaries.
+
+The composed adapter requires independently supplied inventory/official plan, kernel-bound Connector
+identity, full writer admission/retirement, external dependency closure, actual disk commit, completion
+and business evidence. It rechecks inventory/plan under the worker lock, captures private service
+images, pauses/drains, retires writers, creates/verifies the real home backup and chooses normal
+update versus the worker's guarded ready-only finish resume. Existing private configuration is read
+strictly without replacing the two IDs. Local receipt/debt/boot/service checks precede admission
+release; fresh business verification and completion evidence precede completed. Cancellation similarly
+proves the original source/load set, releases for business verification, then records cancelled.
+Either business failure pauses the same run, leaves the recovery cursor and keeps new history.
+The coordinator owns the worker lease; the adapter's weak reference cannot keep an abandoned run
+alive. Lease teardown requests release without signalling committed children. Tests replace worker,
+service, kernel, receipt and business evidence, so this is backend composition, not live certification.
+
+The real read-only inspector now samples kernel process identities for the current real/effective
+user twice. It parses only argc argv fields, discards command/environment buffers, and reports
+checkout-associated or unscoped Hermes candidates plus observed descendants. Source identity, PID
+and exact kernel birth bind the report; changed samples, unreadable commands, stale reports and
+unowned/surviving candidates cannot pass the additional Machine checks. Independent admission and
+retirement evidence is still required BEFORE the inspector's negative retirement check. Production
+Machine construction supplies the native inspector by default; tests may replace it through the
+internal constructor. The existing upgrade-condition check collects the report on its background
+task, skips it during update/recovery, and refuses incomplete observation even for a certified target.
+No UI layout/control changes or current service commands accompany this change.
+
+Profile scanning is non-recursive and bounded to 128 entries, rejects links/unsafe ownership/write
+permissions/invalid names and checks directory identity/mtime. It lists potential directories,
+including deleted/markerless shells, not the official live fleet. No .env/config/cron/database bodies
+are read. Legacy Python link metadata only indicates inside/outside home; PM generations remain
+uninspected here. Observations cannot prove full activity, future launch exclusion, custom-home or
+other-user writers, orphan/background/file-descriptor coverage or dependency recovery. All three
+admission/task-inactivity/dependency-recovery proof flags remain false. There is no enabled upgrade
+or certified path based on this inspection.
+
+## HG-199 stage one: upstream identity and discovery
+
+Desktop now recognizes the owner's legacy venv and committed PM-generation installations with
+one detector. A PM launcher is used without an inherited VIRTUAL_ENV; a broken PM layout cannot
+silently fall back to an old venv. Runtime records track commit, entry, home and dependency identity,
+including same-commit environment changes. Activation input timestamps are compared exactly.
+Version comes from a matching source stamp or exact release tag; unknown identity stays unsupported.
+Upstream v2 live/delegate update markers never age out while their process identity survives.
+
+The separate Settings Hermes card fetches official stable release metadata and resolves the tag's
+actual commit. It displays the local installation, upstream latest, GO-verified recommendation and
+check time. GO and Hermes checks run independently; a build without GO indexes can still manually
+check Hermes. There are currently no certified upgrade targets and no execution action. This is
+stage one of HG-199, not a completed one-stop updater. The stage-two transaction foundation now
+adds durable write-ahead phases, a shared operation lease, cancellation/resume boundaries, private
+WAL-safe full-home backups, database export to a new directory and exact-run completion evaluation.
+Pending/unsafe upgrade journals block startup repair even with local runtime disabled or bundled
+Hermes unloaded, and block new Hermes installation. Settings offers an inert local-condition check.
+The bundled fixed-source worker now owns the real official lock and invokes historical takeover/PM/
+finish, with immutable launcher/upstream IDs, pinned commit/tag/version and private IPC configuration. Actual macOS process tests
+prove cross-home exclusion and surviving-child lock custody. Retired sidecar-free WAL snapshots use
+immutable reads only when there are no pending WAL/rollback bytes. The composed adapter is not
+instantiated by the app; live idle/retirement/closure/boot/business collectors and full committed-tail recovery remain unenabled; see `HERMES_UPGRADE.md` for evidence and gates.
 
 
 ## Overview visual hierarchy (2026-10-24)
@@ -151,7 +323,11 @@ file/parent never falls back to the old venv. Both entrypoints retain the same c
 default data-home pinning, private token, GO label, loopback address/9119 and stdout/stderr. The PM agent
 puts its published bin directory on PATH and omits VIRTUAL_ENV. Runtime-switch snapshots restore the
 prior launcher and plist exactly. Update waits, settle interval and crash backoff remain unchanged.
-PM owns interpreter/dependency facts; Desktop neither parses generation paths nor edits PM state.
+PM owns interpreter/dependency activation; normal startup does not require GO to understand its
+private facts. HG-199 reads bounded metadata only for upgrade evidence and never edits PM state.
+Published-start eligibility (`dependenciesConsistent`) and strict `upgradeDependenciesVerified` are
+separate: unknown/stale metadata may still use bounded PM startup, but cannot authorize an upgrade.
+Unknown code identity and unsafe/missing published commands remain blocked.
 
 Installation completion additionally runs the selected `serve --help` with a clean, noninteractive
 environment and a five-minute cancellation bound. Only fixed exit/timeout/spawn reasons reach

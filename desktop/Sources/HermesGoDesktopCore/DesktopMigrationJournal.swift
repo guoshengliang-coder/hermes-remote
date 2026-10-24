@@ -178,6 +178,17 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
     }
 
     public func acquireOperationLease() throws -> DesktopMigrationOperationLease {
+        let lease = try acquireHermesUpgradeOperationLease()
+        try hermesUpgradeJournal.requireNoPendingUpgrade()
+        return lease
+    }
+
+    public var hermesUpgradeJournal: DesktopHermesUpgradeJournalStore {
+        DesktopHermesUpgradeJournalStore(root: root)
+    }
+
+    /// Only the Hermes upgrade coordinator may bypass its own unfinished-journal guard.
+    func acquireHermesUpgradeOperationLease() throws -> DesktopMigrationOperationLease {
         do { try ensureRoot() }
         catch let error as DesktopMigrationJournalError { throw error }
         catch { throw DesktopMigrationJournalError.persistenceFailed }

@@ -1,0 +1,232 @@
+import Foundation
+import XCTest
+@testable import HermesGoDesktopCore
+
+final class DesktopHermesUpgradeReadinessTests: XCTestCase {
+    func testCompleteNativeObservationWithoutActivityCannotPassConditions() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean), inspector: CompleteInspection()).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+        XCTAssertNil(report.activity)
+    }
+    func testBusyUnknownStaleAndForeignActivityBlockEvenCertifiedLocalConditions() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean), inspector: CompleteInspection()).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        let source = fixture.installation.runtimeIdentity
+        let cases: [(DesktopHermesUpgradeActivity.State, Date, String)] = [(.busy, Date(), source), (.unknown, Date(), source),
+            (.idleObserved, Date().addingTimeInterval(-6), source), (.idleObserved, Date().addingTimeInterval(1), source),
+            (.idleObserved, Date(), String(repeating: "b", count: 64))]
+        for (state, date, identity) in cases {
+            let activity = DesktopHermesUpgradeActivity(sourceIdentity: identity, checkedAt: date, process: nil, state: state, ledger: nil)
+            XCTAssertEqual(report.recordingActivity(activity).issue?.code, .hermesUpdateBlocked)
+        }
+        let idle = DesktopHermesUpgradeActivity(sourceIdentity: source, checkedAt: Date(), process: CompleteInspection.process, state: .idleObserved, ledger: nil)
+        XCTAssertNil(report.recordingActivity(idle).issue)
+        let extra = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean), inspector: CompleteInspection(extraCandidate: true)).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        XCTAssertEqual(extra.recordingActivity(idle).issue?.code, .hermesUpdateBlocked)
+        XCTAssertFalse(idle.writerAdmissionProven)
+        XCTAssertFalse(idle.allProfileInactivityProven)
+        XCTAssertEqual(report.recordingActivity(idle).recordingActivity(nil).issue?.code, .hermesUpdateBlocked)
+    }
+    func testPMStartEligibilityIsNotAnUpgradeConditionVerdict() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let installation = DesktopLocalHermesInstallation(executable: fixture.installation.checkoutRoot.appendingPathComponent(".hermes/bin/hermes"),
+            checkoutRoot: fixture.installation.checkoutRoot, hermesHome: fixture.installation.hermesHome,
+            commit: fixture.installation.commit, version: fixture.installation.version, identityChangedAt: .distantPast,
+            installedDistribution: .packageManaged)
+        XCTAssertTrue(installation.dependenciesConsistent)
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean)).check(
+            detection: .usable(installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        XCTAssertFalse(report.dependenciesVerified)
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+    }
+    func testCertifiedTargetCannotHideUnavailableProfileInspection() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean)).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false, certifiedTargets: [fixture.target])
+        XCTAssertTrue(report.targetCertified)
+        XCTAssertFalse(try XCTUnwrap(report.inspection).profileDirectoryScanComplete)
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+    }
+    func testReadinessCollectsObservationWithoutCreatingJournalOrGivingAdmissionAuthority() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .clean)).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false)
+        let observation = try XCTUnwrap(report.inspection)
+        XCTAssertEqual(observation.sourceIdentity, fixture.installation.runtimeIdentity)
+        XCTAssertFalse(observation.writerAdmissionProven)
+        XCTAssertFalse(observation.taskInactivityProven)
+        XCTAssertFalse(observation.profileDirectoryScanComplete)
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.root.path))
+    }
+    func testRealGitInspectorSeesTrackedAndUntrackedChangesWithoutWritingIndex() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try git(["init", "-q", root.path])
+        let file = root.appendingPathComponent("fixture.txt")
+        try Data("before".utf8).write(to: file)
+        let inspector = DesktopHermesUpgradeGitInspector()
+        XCTAssertEqual(inspector.workingTree(checkout: root), .dirty)
+        try git(["-C", root.path, "add", "fixture.txt"])
+        try git(["-C", root.path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"])
+        let index = root.appendingPathComponent(".git/index")
+        let before = try FileManager.default.attributesOfItem(atPath: index.path)[.modificationDate] as? Date
+        XCTAssertEqual(inspector.workingTree(checkout: root), .clean)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: index.path)[.modificationDate] as? Date, before)
+        try Data("after".utf8).write(to: file)
+        XCTAssertEqual(inspector.workingTree(checkout: root), .dirty)
+        XCTAssertEqual(inspector.workingTree(checkout: root.appendingPathComponent("missing")), .unknown)
+    }
+
+    func testReadOnlyConditionsDoNotCertifyLatestAndExplainLocalChanges() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let report = DesktopHermesUpgradeReadinessChecker(git: GitFixture(state: .dirty)).check(
+            detection: .usable(fixture.installation), target: fixture.target, journal: fixture.store,
+            officialUpdateInProgress: false)
+        XCTAssertFalse(report.targetCertified)
+        XCTAssertEqual(report.workingTree, .dirty)
+        XCTAssertEqual(report.issue?.code, .hermesUpdateBlocked)
+        XCTAssertTrue(report.workingTreeSummaryChinese.contains("本地改动"))
+        XCTAssertFalse(report.workingTreeSummaryEnglish.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.root.path))
+    }
+
+    func testGitConditionCheckRefusesLocalAndIncludedFiltersWithoutRunningThem() throws {
+        for included in [false, true] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try git(["init", "-q", root.path])
+            let file = root.appendingPathComponent("fixture.txt")
+            let marker = root.appendingPathComponent("filter-ran")
+            let script = root.appendingPathComponent("filter.sh")
+            try Data("before\n".utf8).write(to: file)
+            try Data("*.txt filter=hg199\n".utf8).write(to: root.appendingPathComponent(".gitattributes"))
+            try git(["-C", root.path, "add", ".gitattributes", "fixture.txt"])
+            try git(["-C", root.path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"])
+            try Data("#!/bin/sh\n: > \"$1\"\ncat\n".utf8).write(to: script)
+            let command = "/bin/sh '\(script.path)' '\(marker.path)'"
+            if included {
+                let config = root.appendingPathComponent("extra-config")
+                try Data("[filter \"hg199\"]\n clean = \(command)\n".utf8).write(to: config)
+                try git(["-C", root.path, "config", "include.path", config.path])
+            } else {
+                try git(["-C", root.path, "config", "filter.hg199.clean", command])
+            }
+            try Data("change\n".utf8).write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(3)], ofItemAtPath: file.path)
+            XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .unknown)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "A read-only condition check must not run local filters")
+            try git(["-C", root.path, "config", "filter.hg199.required", "true"])
+            let bypassedPreflight = DesktopHermesUpgradeGitInspector.readOnlyOutput(checkout: root,
+                arguments: ["status", "--porcelain=v1"], deadline: ProcessInfo.processInfo.systemUptime + 3)
+            XCTAssertNil(bypassedPreflight, "The OS boundary must also reject a filter introduced after preflight")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        }
+    }
+
+    func testGitConditionCheckRejectsUnsafeConfigurationClassesAndOversizeOutput() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try git(["init", "-q", root.path])
+        let config = root.appendingPathComponent(".git/config")
+        let original = try Data(contentsOf: config)
+        let entries = [("filter.fixture.process", "/bin/false"), ("include.path", root.appendingPathComponent("missing").path),
+            ("includeIf.gitdir:/tmp/.path", "/tmp/missing"), ("url.fixture.insteadOf", "https://example.invalid"),
+            ("protocol.file.allow", "always"), ("alias.fixture", "!false"), ("submodule.fixture.url", "/tmp/missing"),
+            ("core.attributesFile", "/tmp/missing"), ("core.sshCommand", "/bin/false"),
+            ("core.gitProxy", "/bin/false"), ("extensions.worktreeConfig", "true"), ("remote.fixture.vcs", "ext")]
+        for (key, value) in entries {
+            try original.write(to: config)
+            try git(["-C", root.path, "config", key, value])
+            XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .unknown, key)
+        }
+        try (original + Data(("\n[extra]\n value = " + String(repeating: "x", count: 70_000) + "\n").utf8)).write(to: config)
+        XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .unknown)
+        try original.write(to: config)
+        XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .clean)
+    }
+
+    func testGitConditionCheckRefusesAnAncestorRepositoryAndExpiredBudget() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let child = root.appendingPathComponent("child")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        try git(["init", "-q", root.path])
+        XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: child), .unknown)
+        XCTAssertNil(DesktopHermesUpgradeGitInspector.readOnlyOutput(checkout: root, arguments: ["status"],
+            deadline: ProcessInfo.processInfo.systemUptime - 1))
+    }
+
+    func testPendingJournalAndOfficialUpdatePreventReadingHalfWrittenCheckout() throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        try FileManager.default.createDirectory(at: fixture.root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try Data("{}".utf8).write(to: fixture.store.journalURL)
+        let checker = DesktopHermesUpgradeReadinessChecker(git: NoGitReads(), inspector: NoInspectionReads())
+        let recovery = checker.check(detection: .usable(fixture.installation), target: fixture.target,
+            journal: fixture.store, officialUpdateInProgress: false)
+        XCTAssertTrue(recovery.recoveryRequired)
+        XCTAssertEqual(recovery.issue?.code, .hermesUpdateRecoveryRequired)
+        try FileManager.default.removeItem(at: fixture.store.journalURL)
+        let updating = checker.check(detection: .usable(fixture.installation), target: fixture.target,
+            journal: fixture.store, officialUpdateInProgress: true)
+        XCTAssertTrue(updating.officialUpdateInProgress)
+        XCTAssertEqual(updating.workingTree, .unknown)
+        XCTAssertEqual(updating.issue?.code, .hermesUpdateBlocked)
+    }
+    private func git(_ arguments: [String]) throws {
+        let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"] + arguments
+        process.environment = ["PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"]
+        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        try process.run(); process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+    }
+}
+private struct GitFixture: DesktopHermesUpgradeGitInspecting {
+    let state: DesktopHermesUpgradeWorkingTree
+    func workingTree(checkout: URL) -> DesktopHermesUpgradeWorkingTree { state }
+}
+private struct NoGitReads: DesktopHermesUpgradeGitInspecting {
+    func workingTree(checkout: URL) -> DesktopHermesUpgradeWorkingTree { XCTFail("unsafe git inspection"); return .clean }
+}
+private struct NoInspectionReads: DesktopHermesUpgradeInspecting {
+    func inspect(installation: DesktopLocalHermesInstallation) -> DesktopHermesUpgradeInspection { fatalError("unsafe inspection") }
+    func inspect(journal: DesktopHermesUpgradeJournal) -> DesktopHermesUpgradeInspection { fatalError("unsafe inspection") }
+}
+private struct CompleteInspection: DesktopHermesUpgradeInspecting {
+    static let process = DesktopHermesUpgradeInspection.ProcessIdentity(pid: 42, parentPID: 1, startedAt: Date(timeIntervalSince1970: 1000))
+    var extraCandidate = false
+    func inspect(installation: DesktopLocalHermesInstallation) -> DesktopHermesUpgradeInspection {
+        .init(sourceIdentity: installation.runtimeIdentity, checkedAt: Date(),
+            candidates: [.init(identity: Self.process, association: .checkout, profile: nil)] + (extraCandidate ? [
+                .init(identity: .init(pid: 43, parentPID: 1, startedAt: Date(timeIntervalSince1970: 1000)), association: .unscopedHermes, profile: nil)] : []),
+            unreadableOwnedProcesses: 0,
+            processSampleStable: true, profileDirectories: ["default"], profileDirectoryScanComplete: true, interpreter: .insideHome)
+    }
+    func inspect(journal: DesktopHermesUpgradeJournal) -> DesktopHermesUpgradeInspection { fatalError("unexpected inspection") }
+}
+private struct Fixture {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+    var store: DesktopHermesUpgradeJournalStore { .init(root: root) }
+    var target: DesktopHermesUpgradeTarget { try! .init(version: "0.21.6", commit: String(repeating: "b", count: 40)) }
+    var installation: DesktopLocalHermesInstallation {
+        .init(executable: root.appendingPathComponent(".hermes/hermes-agent/venv/bin/hermes"),
+              checkoutRoot: root.appendingPathComponent(".hermes/hermes-agent"), hermesHome: root.appendingPathComponent(".hermes"),
+              commit: String(repeating: "a", count: 40), version: "0.21.3", identityChangedAt: .distantPast)
+    }
+    init() throws {}
+    func remove() { try? FileManager.default.removeItem(at: root) }
+}

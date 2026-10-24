@@ -1,11 +1,84 @@
 import Darwin
 import Foundation
+import CryptoKit
 import XCTest
 @testable import HermesGoDesktopCore
 
 // MARK: - Detection
 
 final class DesktopLocalHermesDetectorTests: XCTestCase {
+    func testPackageManagerInstallUsesCommittedGenerationWithoutLegacyVenv() throws {
+        let home = try LocalHermesHome()
+        try home.installPackageManager()
+        let installation = try XCTUnwrap(home.detect().installation)
+        XCTAssertEqual(installation.version, "0.21.6")
+        XCTAssertEqual(installation.executable.path, home.path(".hermes/hermes-agent/.hermes/bin/hermes"))
+        XCTAssertTrue(installation.dependenciesConsistent)
+    }
+
+    func testUnknownPackageManagerMetadataAllowsPublishedStartButBlocksUpgrade() throws {
+        let home = try LocalHermesHome()
+        try home.installPackageManager(removeLegacy: false, environment: "/tmp/foreign-generation")
+        let installation = try XCTUnwrap(home.detect().installation)
+        XCTAssertTrue(installation.dependenciesConsistent)
+        XCTAssertFalse(installation.upgradeDependenciesVerified)
+    }
+
+    func testStalePackageManagerStampIsNotUsedAsTheVersion() throws {
+        let home = try LocalHermesHome()
+        try home.installPackageManager(stampCommit: String(repeating: "e", count: 40))
+        XCTAssertEqual(home.reason(), .unreadableIdentity)
+    }
+
+    func testPackageManagerGenerationSwitchInvalidatesLoadedIdentityAtSameCommit() throws {
+        let home = try LocalHermesHome()
+        try home.installPackageManager()
+        let first = try XCTUnwrap(home.detect().installation)
+        let started = Date().addingTimeInterval(1)
+        let record = DesktopLocalHermesRuntimeRecord(
+            executable: first.executable.path, commit: first.commit, version: first.version,
+            launchedAt: started, processStartedAt: started, runtimeIdentity: first.runtimeIdentity
+        )
+        XCTAssertEqual(DesktopHermesRuntimePlanner.loadedCommit(started: started, installation: first, record: record), .current(adopt: nil))
+        let paths = try DesktopLocalHermesPaths(homeDirectory: home.root, systemEntrypoints: [])
+        let next = paths.packageManagerState.appendingPathComponent("environments/g2")
+        try FileManager.default.createDirectory(at: next, withIntermediateDirectories: true)
+        try Data("home = /python\n".utf8).write(to: next.appendingPathComponent("pyvenv.cfg"))
+        let facts = try JSONSerialization.data(withJSONObject: ["packages": ["venv": ["environment": next.path]]])
+        try facts.write(to: paths.packageManagerState.appendingPathComponent("facts.json"))
+        let second = try XCTUnwrap(home.detect().installation)
+        XCTAssertEqual(first.commit, second.commit)
+        XCTAssertNotEqual(first.runtimeIdentity, second.runtimeIdentity)
+        XCTAssertEqual(DesktopHermesRuntimePlanner.loadedCommit(started: started, installation: second, record: record), .stale)
+    }
+
+    func testPackageManagerInputsMustMatchActivationStamps() throws {
+        let home = try LocalHermesHome()
+        try home.installPackageManager()
+        try home.write(".hermes/hermes-agent/pm/lock.json", "{}")
+        XCTAssertFalse(try XCTUnwrap(home.detect().installation).upgradeDependenciesVerified)
+        let paths = try DesktopLocalHermesPaths(homeDirectory: home.root, systemEntrypoints: [])
+        let source = paths.checkoutRoot.appendingPathComponent("pm/lock.json")
+        let stamp = paths.packageManagerState.appendingPathComponent("inputs/pm/lock.json")
+        try FileManager.default.createDirectory(at: stamp.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.removeItem(at: stamp)
+        try FileManager.default.copyItem(at: source, to: stamp)
+        XCTAssertTrue(try XCTUnwrap(home.detect().installation).upgradeDependenciesVerified)
+    }
+
+    func testPackageManagerLaunchDoesNotInheritAVirtualenv() throws {
+        let home = try LocalHermesHome()
+        try home.installPackageManager()
+        let installation = try XCTUnwrap(home.detect().installation)
+        let agent = DesktopLocalHermesLaunchAgent(
+            launcher: home.root.appendingPathComponent("launcher"), installation: installation,
+            sessionTokenFile: home.root.appendingPathComponent("token"),
+            standardOutput: home.root.appendingPathComponent("out"), standardError: home.root.appendingPathComponent("err")
+        )
+        XCTAssertNil(try agent.environmentVariables()["VIRTUAL_ENV"])
+        XCTAssertEqual(agent.programArguments[1], installation.executable.path)
+    }
+
     func testSymlinkedPMLauncherParentCannotSelectAnotherInstallation() throws {
         let home = try LocalHermesHome()
         try home.write("foreign/bin/hermes", "#!/bin/sh\nexit 0\n", mode: 0o755)
@@ -253,6 +326,21 @@ final class DesktopLocalHermesDetectorTests: XCTestCase {
 
         try home.touch(".hermes/.hermes-update-in-progress", Date().addingTimeInterval(-21 * 60))
         XCTAssertFalse(detector.updateInProgress())
+    }
+
+    func testV2UpdateLockOutlivesLegacyExpiryAndHonoursDelegates() throws {
+        let home = try LocalHermesHome()
+        let start = try XCTUnwrap(DesktopLaunchdHermesServiceProcessInspector<SystemOutputCommandRunner>.startDate(pid: getpid()))
+        let created = start.timeIntervalSince1970
+        let marker = ".hermes/.hermes-update-in-progress"
+        try home.write(marker, "\(getpid())\n1\nct:\(created)\n")
+        try home.touch(marker, Date().addingTimeInterval(-24 * 60 * 60))
+        XCTAssertTrue(home.detector().updateInProgress())
+        try home.write(marker, "2147483647\n1\nct:1\ndelegate:\(getpid()) ct:\(created)\n")
+        XCTAssertTrue(home.detector().updateInProgress())
+        // A recycled PID with another creation time does not own the old update.
+        try home.write(marker, "\(getpid())\n1\nct:\(created - 60)\n")
+        XCTAssertFalse(home.detector().updateInProgress())
     }
 
     func testVersionOrdering() {
@@ -664,6 +752,22 @@ final class DesktopLocalHermesLaunchTests: XCTestCase {
 
     private static let token = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123456"
 
+    func testKnownLaunchersRemainRecognizableAcrossDefaultProfileAndEnvironmentCleanup() throws {
+        let executable = URL(fileURLWithPath: "/tmp/hermes-fixture/venv/bin/hermes")
+        for base in [try DesktopLocalHermesLauncher.script(executable: executable),
+                     try DesktopLocalHermesLauncher.previousScript(executable: executable)] {
+            let text = String(decoding: base, as: UTF8.self)
+            for variant in [text, text.replacingOccurrences(of: "unset token PYTHONPATH PYTHONHOME VIRTUAL_ENV",
+                                                           with: "unset token PYTHONPATH PYTHONHOME")] {
+                XCTAssertTrue(try DesktopLocalHermesLauncher.recognizes(Data(variant.utf8), executable: executable))
+                XCTAssertFalse(try DesktopLocalHermesLauncher.recognizes(Data((variant + "\necho unexpected\n").utf8), executable: executable))
+            }
+        }
+        let current = String(decoding: try DesktopLocalHermesLauncher.script(executable: executable), as: UTF8.self)
+        XCTAssertTrue(current.contains("unset token PYTHONPATH PYTHONHOME VIRTUAL_ENV"))
+        XCTAssertTrue(current.contains("exec \"$@\" --profile default"))
+    }
+
     func testTheLauncherHandsTheTokenFromTheFileToHermesAndExecsIt() throws {
         let sandbox = try LauncherSandbox()
         let result = try sandbox.run(arguments: sandbox.expectedArguments)
@@ -1034,6 +1138,34 @@ private final class LocalHermesHome {
     deinit { try? FileManager.default.removeItem(at: root) }
 
     func path(_ relative: String) -> String { root.appendingPathComponent(relative).path }
+
+    func installPackageManager(
+        removeLegacy: Bool = true, environment: String? = nil, stampCommit: String = LocalHermesHome.commit
+    ) throws {
+        if removeLegacy { try FileManager.default.removeItem(atPath: path(".hermes/hermes-agent/venv")) }
+        try write(".hermes/hermes-agent/hermes_cli/__init__.py", "def __getattr__(name): return version_info().base_version\n")
+        try write(".hermes/hermes-agent/pm/environments.py", "# package manager\n")
+        try write(".hermes/hermes-agent/.hermes/bin/hermes", "#!/bin/sh\n", mode: 0o755)
+        let key = SHA256.hash(data: Data(path(".hermes/hermes-agent").utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)
+        let state = ".hermes/installs/\(key)"
+        try write("\(state)/environments/g1/pyvenv.cfg", "home = /python\n")
+        try write("\(state)/inputs/.project-root", path(".hermes/hermes-agent"))
+        for name in ["uv.lock", "pyproject.toml", "pm/lock.json"] {
+            try write(".hermes/hermes-agent/\(name)", "input")
+            try write("\(state)/inputs/\(name)", "input")
+            let date = Date(timeIntervalSince1970: 1_700_000_000)
+            try touch(".hermes/hermes-agent/\(name)", date)
+            try touch("\(state)/inputs/\(name)", date)
+        }
+        let selected = environment ?? path("\(state)/environments/g1")
+        let facts = try JSONSerialization.data(withJSONObject: ["packages": ["venv": ["environment": selected]]])
+        try write("\(state)/facts.json", String(decoding: facts, as: UTF8.self))
+        let stamp = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": 2, "commit": stampCommit, "baseVersion": "0.21.6",
+            "updateMechanism": "self", "payload": "bootstrap", "source": "git"
+        ])
+        try write(".hermes/hermes-agent/install-stamp.json", String(decoding: stamp, as: UTF8.self))
+    }
 
     func write(_ relative: String, _ text: String, mode: Int = 0o644) throws {
         let url = root.appendingPathComponent(relative)

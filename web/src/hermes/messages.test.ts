@@ -20,7 +20,10 @@ describe("flattenContent", () => {
       { type: "text", text: "  " },
       { type: "text", text: "twice" },
     ]);
-    expect(flat).toEqual({ text: "look\ntwice", images: [{ url: "https://cdn.example/a.png" }, { path: "/Users/me/a.jpg" }] });
+    expect(flat.text).toContain('"type":"mystery","foo":1');
+    expect(flat.text).toMatch(/^look/);
+    expect(flat.text).toMatch(/twice$/);
+    expect(flat.images).toEqual([{ url: "https://cdn.example/a.png" }, { path: "/Users/me/a.jpg" }]);
   });
 
   it("accepts a single block object and blank-only lists", () => {
@@ -117,10 +120,11 @@ describe("toolLabel", () => {
 
 it("prefers upstream compaction display_content and keeps raw-content legacy fallback", () => {
   const messages = parseHistory([
-    { id: 90, role: "user", content: "old context and machine summary", display_content: "real live ask" },
+    { id: 90, role: "user", content: "old context and machine summary", display_content: "real live ask", hr_display: { schema: 1, kind: null, body: "legacy GO projection" } },
     { id: 3, role: "assistant", content: "answer" },
     { id: 4, role: "user", content: "legacy" },
   ]);
   expect(messages.map((m) => m.text)).toEqual(["real live ask", "answer", "legacy"]);
-  expect(parseHistory([{ id: 5, role: "user", content: "machine", display_content: "" }])).toEqual([]);
+  expect(parseHistory([{ id: 5, role: "user", content: "machine", display_content: "", hr_display: { schema: 1, kind: null, body: "legacy GO projection" } }])).toEqual([]);
+  expect(parseHistory([{ id: 6, role: "user", content: "raw", hr_display: { schema: 1, kind: null, body: "GO fallback" } }])[0]?.text).toBe("GO fallback");
 });

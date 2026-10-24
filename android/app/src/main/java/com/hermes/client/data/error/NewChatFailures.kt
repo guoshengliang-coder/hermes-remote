@@ -26,6 +26,10 @@ private const val UNSTABLE_CONNECTION_THRESHOLD = 3
  * themselves, which is what lets this distinguish "retry now" from "this will keep happening".
  */
 fun newChatFailure(error: Throwable, droppedConnections: Int): AppError = when {
+    error is GatewayRpcException && error.code in setOf(0, -32002) && error.message == AppErrorCode.HERMES_MAINTENANCE.value -> AppError(
+        code = AppErrorCode.HERMES_MAINTENANCE, retryable = false,
+        technicalCause = error.message, stage = "session.create",
+    )
     error is GatewayResponseTimeoutException -> AppError(
         code = AppErrorCode.SESSION_CREATE_UNCONFIRMED,
         retryable = true,
