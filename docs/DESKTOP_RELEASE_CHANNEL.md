@@ -23,8 +23,10 @@ On 2026-10-25 the actual installed 0.2.39/build 42 client discovered the update,
 0.21.3/commit `17b5df02f2a7`, upstream stable 0.22.5, empty GO recommendation and absent upgrade record.
 Condition checking conservatively returned unknown local changes with `HR-HERMESUPDATE-002`;
 execution stayed unavailable. Hermes/Connector PIDs, source commit, config and absent upgrade record
-were unchanged. Account restoration remains checking; a possible Keychain prompt needs the owner,
-and system security UI is unavailable to computer control. Full acceptance remains incomplete.
+were unchanged. Account restoration initially remained checking. After the owner reported handling the system
+confirmation, the client restored its signed-in account and Overview showed local Hermes ready,
+Cloud connected and phone access passed. This is the client health display, not a physical phone
+business test. Local-change inspection still returned unknown, with execution blocked.
 Live database/WAL metadata changed during the observation interval while Hermes was running, so this
 is not evidence of database immutability or a completed account/phone/business test. See the actual
 client record in `DESKTOP_TEST_PLAN.md`. No Hermes upgrade or service restart was performed.
