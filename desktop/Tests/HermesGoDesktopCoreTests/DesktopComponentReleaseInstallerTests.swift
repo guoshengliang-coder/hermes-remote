@@ -5,6 +5,33 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopComponentReleaseInstallerTests: XCTestCase {
+    func testComponentUpgradeRetainsFileBudgetWithoutImportingOtherEnvironment() async throws {
+        let fixture = try ComponentInstallFixture(); defer { fixture.remove() }
+        let componentInstaller = try fixture.installer(downloader: FixtureComponentDownloader())
+        let installed = try await componentInstaller.install(
+            verifiedManifest: fixture.verifiedManifest, workspaceRoot: fixture.workspace,
+            runID: "01000000-0000-4000-8000-000000000008", healthProbe: executableProbe)
+        let layout = try DesktopManagedInstallLayout(root: fixture.store,
+                                                   launchAgentsRoot: fixture.base.appendingPathComponent("agents"))
+        let installer = DesktopManagedInstaller(layout: layout)
+        let configuration = try fixture.commitConfiguration().componentLaunchAgents(for: installed.activationPlan).connector
+        let url = try installer.writeLaunchAgent(configuration, activationPlan: installed.activationPlan)
+        var object = try PropertyListSerialization.propertyList(from: Data(contentsOf: url), options: [], format: nil) as! [String: Any]
+        var environment = object["EnvironmentVariables"] as! [String: String]
+        environment["FILE_DOWNLOAD_BYTES_PER_SECOND"] = "8388608"
+        environment["NODE_OPTIONS"] = "--inspect"
+        object["EnvironmentVariables"] = environment
+        try installer.atomicWrite(PropertyListSerialization.data(fromPropertyList: object, format: .xml, options: 0),
+                                  to: url, permissions: 0o600)
+        _ = try installer.writeLaunchAgent(configuration, activationPlan: installed.activationPlan)
+        let actual = try PropertyListSerialization.propertyList(from: Data(contentsOf: url), options: [], format: nil) as! [String: Any]
+        let actualEnvironment = actual["EnvironmentVariables"] as! [String: String]
+        XCTAssertEqual(actualEnvironment["FILE_DOWNLOAD_BYTES_PER_SECOND"], "8388608")
+        XCTAssertEqual(actualEnvironment["HERMES_NODE_RUNTIME_ROOT"], installed.activationPlan.component(.nodeRuntime)?.root.path)
+        XCTAssertNil(actualEnvironment["NODE_OPTIONS"])
+        try componentInstaller.discard(installed)
+    }
+
     func testPrepareUsesOnlyPrivateWorkspaceUntilMatchingInstallerCommits() async throws {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }
@@ -550,6 +577,29 @@ extension DesktopComponentReleaseInstallerTests {
         try await second.cancel(secondPreparation)
     }
 
+    func testBootstrapExecutorRejectsBundledLayoutWithoutMisreportingVersion() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let migration = RecordingComponentBootstrapMigration()
+        let downloader = FixtureComponentDownloader()
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: downloader), migration: migration
+        )
+        await XCTAssertThrowsErrorAsync(try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(), workspaceRoot: fixture.workspace,
+            runID: "c0000000-0000-4000-8000-000000000011",
+            installation: .active(releaseVersion: "0.3.4", releaseLayout: .bundledRelease,
+                                  bindingID: "test-binding", bindingGeneration: 1),
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .invalidStartingState)
+        }
+        let requested = await downloader.requestedKinds()
+        let calls = await migration.recordedCalls()
+        XCTAssertTrue(requested.isEmpty)
+        XCTAssertTrue(calls.isEmpty)
+    }
+
     func testBootstrapExecutorCancelRemovesPrivatePreparationWithoutMigration() async throws {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }
@@ -929,15 +979,10 @@ private final class ComponentInstallFixture {
         )
     }
 
-    var legacySnapshot: LegacyConnectorSnapshot {
-        LegacyConnectorSnapshot(
+    var legacySnapshot: RetiredConnectorSnapshot {
+        RetiredConnectorSnapshot(
             isInstalled: false,
-            isRunning: false,
-            config: LegacyConnectorConfig(gatewayURL: nil),
-            recentLogs: [],
-            installDirectory: base.appendingPathComponent("legacy", isDirectory: true),
-            launchAgentURL: base.appendingPathComponent("legacy.plist")
-        )
+            isRunning: false)
     }
 
     func makeArtifact(
@@ -1056,7 +1101,7 @@ private struct RecordedComponentBootstrapMigration: Sendable {
     let activationPlan: DesktopComponentReleaseActivationPlan
     let hermes: DesktopHermesServerLaunchAgent
     let connector: DesktopAccountConnectorLaunchAgent
-    let legacy: LegacyConnectorSnapshot
+    let legacy: RetiredConnectorSnapshot
     let runID: String
     let confirmation: String
 }
@@ -1075,7 +1120,7 @@ private actor RecordingComponentBootstrapMigration: DesktopComponentBootstrapMig
         activationPlan: DesktopComponentReleaseActivationPlan,
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {

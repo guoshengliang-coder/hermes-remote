@@ -8,8 +8,11 @@ transaction custody are separate. Export creates a new directory, never overwrit
 root or later files, rewrites a venv reference or launches a program. Failures retain existing
 `HR-HERMESUPDATE-002/003` mapping without raw paths/errors. No new controls or positive status are added.
 
-Settings adds a “本机 Hermes” card after the GO app/component update card, using existing setting
-rows, card spacing and native bordered small controls. “安装版本” and “代码提交” describe disk evidence;
+The “本机 Hermes” page owns the “版本与升级” card below its authenticated usability card, using
+existing setting rows, card spacing and native bordered small controls. Settings owns Desktop
+app/background updates only; its unified update action does not also check upstream Hermes.
+The two Hermes read-only checks remain separate and are disabled during Desktop installation/update
+operations. No upgrade/recovery execution button is introduced by this relocation. “安装版本” and “代码提交” describe disk evidence;
 they must not imply a checked boot version. “上游稳定版本” and “GO 验证推荐” are separate rows. Unknown
 recommendation reads “尚无验证结果”; unverified latest explains that execution is unavailable.
 “检查 Hermes 版本” remains available without configured GO update indexes. During a request it reads
@@ -62,6 +65,120 @@ be rendered as all profiles stopped or permission to upgrade. Missing old-versio
 remain unknown. Session/job IDs and raw diagnostic responses are discarded; the product check never
 prepares or commits upstream retirement.
 
+## Overview visual hierarchy — 2026-10-24
+
+Keep the three vertical Cloud / local Desktop / local Hermes sections. The headline is one impact
+statement with a semantic status icon; remove the duplicate status-link boxes. Every section follows
+icon + name + state, key evidence, divider + actions, and a collapsed evidence detail. Cloud emphasizes
+only the fresh direct-probe latency; Desktop uses three independently colored marks for background,
+cloud connection and mobile verification. Unknown, stale, future, signed-out and busy evidence stays
+neutral. A healthy card cannot paint an unverified individual check green.
+
+Normal-state explanation and actual check times move into expandable details; failures and specific
+repair guidance remain visible. Healthy reconnect moves inside connection details and retains the
+existing preparation/confirmation flow. Keep refresh, updates, diagnostics, Hermes open and mobile
+onboarding reachable. Adaptive columns and native fitting layouts wrap long Mac names and actions at
+compact widths. Use existing semantic colors and Hermes artwork, with no fabricated charts or scores.
+
+
+## Status hierarchy and actionable diagnostics — 2026-10-24
+
+Hide only native window title text, preserving traffic lights, drag behavior and semantic window identity.
+Overview puts the Mac name in its Desktop section title with a quiet local badge; remove the redundant
+page eyebrow. Cloud shows this Mac's direct HTTP probe latency, never a Connector-reported RTT; failed,
+stale, missing and future samples have no numeric latency. Use the same small monochrome Hermes portrait
+outline in sidebar and Overview, keeping upstream bob/headband/profile features distinct from GO branding.
+Local Hermes has no placeholder version/data card or roadmap/update prose; an existing-install note
+belongs beside its version, only when an existing installation was actually found.
+
+Diagnostics reads top-to-bottom: one summary, seven check rows, a usable log viewer, collapsed technical
+details. Each check has result, detail, evidence source and actual time. Include local authenticated
+Hermes and cloud-reported Hermes separately in the same list. Missing/stale evidence is pending; all
+seven must pass for an all-passed conclusion. A cloud refresh failure invalidates remote evidence.
+Show repair beneath the failed background check; reconnect only alongside a failed/degraded remote
+check and through the existing confirmation. No healthy-state repair card. Technical details separate
+installed versions from the last installation preflight plan, which is not current runtime evidence.
+
+Logs show bounded redacted records with source, text and warning-keyword filters, scrolling, refresh,
+copy filtered results and open-directory actions. Explicitly state 20 lines/source and historic dates;
+keyword matches are not current incidents. Preserve log source/security restrictions and do not read
+Hermes conversation stdout. A carried-in issue is labeled historical and dismissible; it cannot turn
+current healthy checks into a false alarm. No new error codes, runtime, account or service mutations.
+
+## Recovery and page responsibilities — 2026-10-24 follow-up
+
+Overview's headline is information only; the duplicate status links were removed by the visual-hierarchy follow-up. Actions belong to their
+Cloud/Desktop/Hermes section. Devices contains only device selection, sharing, removal and authorized
+phones; no local status, install-preflight or repair panels. Connection setup expands contextually
+from Overview/Local Hermes so the existing root confirmation sheets still work (no nested setup modal).
+Diagnostics retains repair, component/preflight details and logs. Blocked repair shows its concrete
+reason next to “重新检查修复条件”, rather than inviting the same ineffective repair again.
+
+Existing named profiles and the sticky active profile do not make Hermes unusable. GO continues the
+original default data home, explicitly pinned in its private launcher; the confirmation explains this.
+It never rewrites profiles, config, databases or sticky selection. Custom/ambiguous installation paths
+remain an explained block; this iteration does not add arbitrary-home selection or version management.
+Account-derived health expires after 180 seconds (future skew over 5 seconds is unknown). Diagnostics
+uses the active local binding, never the selected remote Mac. Devices keeps each Mac's own freshness.
+
+## Overview and global account — 2026-10-24
+
+Overview always describes this Mac. Show an impact headline, then three vertical sections: Hermes GO Cloud, this Mac’s Desktop, and local Hermes. Each
+section owns its evidence, actual check time and relevant actions. Unknown/stale evidence is neutral,
+not healthy or a proven outage; public Cloud reachability is separate from account API availability.
+Remote usability additionally needs a fresh local-binding end-to-end report. Never borrow the
+selected remote Mac’s health. Installation/version presence is not authenticated Hermes usability.
+
+The fixed sidebar footer is the global account entry on every route. Signed-out/expired users can
+read the overview and open the existing email-code login from this entry or the Cloud section action.
+Other management sections remain gated until setup is complete; existing onboarding and mutation
+locks remain in force. Signed-in users see their name/email and account menu. Account management
+opens separately; the Devices section owns bindings/devices/sharing, and Settings owns preferences
+and updates. Remove duplicate overview login badges and Settings account summaries. Preserve the
+explicit deletion receipt, installation confirmations, rollback and sign-out background-service rule.
+
+## Account-only connection flow — 2026-10-24
+
+Remove the Advanced legacy URL/Token/QR card, compatibility-observer settings, old-mode banner and
+observer health row. Account unavailability points to settings/retry, never a legacy connection.
+Keep download/onboarding QR links for account clients. Logs read only the bounded, redacted managed
+log set; an empty set does not fall back to another installation's logs. Retired startup-item/job
+conflicts show `HR-MIGRATE-022` and instructions to remove the old startup item while keeping Hermes
+data. No automatic takeover or old-service restoration is offered.
+
+This section supersedes historical legacy-observation/migration descriptions below.
+
+
+## Desktop as one product (HG-235)
+
+KEEP: native SwiftUI surfaces, existing type scale, cards, 34 pt page inset, sidebar width and dark-mode colors.
+CHANGE: navigation is Overview / Local Hermes / Account & Devices / Diagnostics / Settings. Logs are
+an expandable bounded, redacted section inside Diagnostics. Component names, versions and preflight
+breakdowns belong there, with a copyable redacted diagnostic report. Overview describes user impact.
+DO NOT CHANGE: account binding, Hermes configuration/data, remote task history, signed installers,
+rollback, runtime ownership, and release gates. Task activity remains in Hermes, not diagnostic logs.
+
+Local Hermes reads this Mac's installation and authenticated probe, never the selected remote device.
+Installed files alone show “已安装，待验证”; only authenticated healthy status enables Open Hermes.
+Unsupported layouts remain distinct from missing installs. Existing install/setup/repair entry points
+are reused. Upstream Hermes execution, switch and rollback management remain gated. HG-199 read-only version
+and upgrade-condition checks live on Local Hermes, separate from Desktop product updates.
+
+All update discovery leads to one Desktop update sheet and one action. Background changes run through
+the existing verified prepare/confirm/commit transaction first; only success without pending cleanup
+allows app replacement. Cancellation/failure stops the sequence. Successful background work is removed
+from the remaining plan, so retrying an app failure does not repeat it. Explain phone interruption,
+possible task interruption and app restart before confirmation. Automatic discovery cannot replace a
+running plan. Component versions remain diagnostic facts, not competing product update buttons.
+
+Settings explains login startup, close-window and quit behavior; quitting does not unload committed
+launchd services, but installation/repair must finish with Desktop open. Sleep/logout/shutdown can
+interrupt access and tasks. There is no new toggle that bypasses the existing service transactions.
+
+Acceptance: ordinary pages use Desktop language; five navigation destinations; local/remote evidence
+cannot be confused; failed/cancelled/pending-cleanup updates cannot trigger app restart; logs/report are
+redacted; repair remains reachable from Diagnostics; compact and dark layouts remain readable.
+
 ## Managed setup progress (HG-226)
 
 Both schema-v1 and schema-v2 confirmation sheets show the actual execution stage and elapsed time
@@ -104,7 +221,7 @@ HTTP health, then Cloud binding health; installing files alone does not mean pho
 ## Repairing a committed installation (HG-175)
 
 A committed `account_active` install with either managed LaunchAgent file missing or job unloaded
-shows “检查并修复受管服务” in Account & Devices and the setup/overview recovery surface. It replaces
+shows “修复 Desktop” in the Overview Desktop section and Diagnostics. It replaces
 that path's generic ownership alarm with `HR-MIGRATE-019`. Checking is read-only and cancellation
 changes nothing. The 540 pt native confirmation names the original release and file scope, whether
 Hermes uses the Mac's standard installation or the original bundled runtime, and any brief Connector
@@ -128,19 +245,8 @@ conventions.
 - Users can choose Dock's native “Keep in Dock” option if they want the app to remain there after it
   quits; the app does not change personal Dock preferences automatically.
 - The main window uses a fixed desktop sidebar: Overview, Diagnostics, Logs, Account & Devices,
-  Settings. Legacy pairing is nested inside Account & Devices.
-- Phase 0 is visibly labeled **compatibility observation mode** so it cannot be mistaken for Agent
-  takeover.
-- Pairing uses a two-column layout: an explicitly revealed QR card and a manual connection editor.
-- A saved long-lived App Token is masked in fields and the QR stays hidden by default. Revealing it
-  always keeps the nearby-person warning visible.
-
-The historical I3-A alpha implements the account-first navigation: **Phone Pairing** is now **Account & Devices**,
-Google login is available only when both build configuration and Gateway capabilities allow it,
-and QR/manual Token configuration lives in a collapsed **Advanced: Legacy connection** card. The
-legacy editor and QR remain fully functional. Account binding takeover, replacement, and unbind are
-not active in I3-A, so the current Connector remains authoritative until the later migration gate.
-See `ACCOUNT_MODE_DESIGN.md`.
+  Settings. Account & Devices contains only account-managed connections.
+- QR links in onboarding open download/sign-in destinations without embedded credentials.
 
 The default-off E4-D managed setup surface sits directly beneath the account/binding summary. Existing
 Connector installs and unknown Hermes responders remain read-only. A Hermes that answers on 9119 and
@@ -403,19 +509,15 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
   a preview or copy-diagnostics payload; old errors and nonfatal update warnings cannot override fresh
   health. No new UI controls or service-takeover action are introduced.
 - Diagnostics and Logs prefer bounded, redacted managed Connector and Desktop service-operation
-  tails when present; only legacy installations use the old Connector log directory. Hermes stdout
+  tails only; the old Connector log directory is never read. Hermes stdout
   is not previewed because it may contain conversation content.
 - Current reachability and historical log warnings are separate. Old warning lines may be counted and
   shown as history, but cannot by themselves mark a currently healthy connection offline.
 - End-to-end failures show a registered `HR-*` code and recovery action; raw HTTP bodies and tokens
   never become primary UI text.
-- While a Hermes GO account session is signed in, Overview, Diagnostics, and aggregate health omit
-  the legacy App-Token end-to-end probe. The probe remains scoped to the collapsed legacy editor and
-  must not make a healthy account-mode connection appear degraded or unconfigured.
-- In account mode, Overview names the Desktop-selected Mac and projects its Connector, Gateway,
-  Hermes, and end-to-end state from the authenticated device snapshot. A saved legacy profile must
-  not rename that device or turn a healthy account Gateway into an unconfigured failure. Switching
-  devices changes only this presentation and future content; it never changes a local service.
+- Overview names the Desktop-selected Mac and projects its Connector, Gateway, Hermes and
+  end-to-end health from the authenticated account snapshot. Local checks use the fixed loopback
+  contract. Switching selected devices never changes a local service.
 - A managed local Hermes WebSocket is authenticated with one private installation token shared by
   file path between Hermes and Connector. The value is never rendered, copied into diagnostics, or
   sent to Gateway; a missing or unsafe file leaves the path offline rather than weakening auth.

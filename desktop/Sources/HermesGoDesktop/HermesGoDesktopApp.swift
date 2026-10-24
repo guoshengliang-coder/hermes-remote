@@ -19,6 +19,7 @@ struct HermesGoDesktopApp: App {
     var body: some Scene {
         WindowGroup("Hermes Go Desktop", id: "main") {
             RootView()
+                .background(HiddenWindowTitle())
                 .environmentObject(model)
                 .frame(minWidth: 980, minHeight: 650)
                 .task { model.startMonitoring() }
@@ -38,4 +39,16 @@ struct HermesGoDesktopApp: App {
         }
         .menuBarExtraStyle(.window)
     }
+}
+
+/// Keep the native title bar, traffic lights and semantic window title, hiding only duplicate text.
+struct HiddenWindowTitle: NSViewRepresentable {
+    final class TitleView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.titleVisibility = .hidden
+        }
+    }
+    func makeNSView(context: Context) -> TitleView { TitleView() }
+    func updateNSView(_ view: TitleView, context: Context) { view.window?.titleVisibility = .hidden }
 }

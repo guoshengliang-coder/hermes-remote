@@ -1,5 +1,14 @@
 # Hermes 持续升级（HG-199）
 
+## Desktop entry point — 2026-10-24
+
+HG-199's read-only “检查 Hermes 版本” and “检查升级条件” now live in the dedicated “本机 Hermes”
+page's “版本与升级” card, beneath local installation/usability. Settings and unified Desktop updates
+manage GO app/background components only. Future confirmed upstream upgrade/progress/recovery
+belongs to this same Local Hermes surface, using the existing journal/error/evidence boundaries.
+This relocation does not enable execution or certify an upstream target. Main's account-only
+navigation, original default home/profile and installed-layout update routing remain in use.
+
 HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界与剩余验收，不能用来宣称
 0.21.6 已获得 GO 自动升级推荐。Hermes 核心、Desktop app 和 Node/Connector 组件有各自的更新来源。
 
@@ -17,7 +26,7 @@ HG-199 保持进行中，按三个阶段交付。本文记录已实现的边界�
   多接口功能只有在所有相关路径均被证实不存在时才为 unsupported。跨端按功能禁用仍属阶段三。
 - GO 的 history display schema 1 增量附着在现有可选预览接口，保留 legacy 行。Android、Web、
   Connector 共用显示样本；0.21.6 独立技能压缩提示、混合真实输入与未知内容块不会悄悄丢失。
-- Desktop 设置的“本机 Hermes”卡片显示安装版本、提交、上游稳定版本、GO 验证推荐和检查时间。
+- Desktop “本机 Hermes”页面的“版本与升级”卡片显示安装版本、提交、上游稳定版本、GO 验证推荐和检查时间。
   官方 release tag 解引用到固定 commit，不能用 `target_commitish: main` 当升级目标。
   检查失败清除成功报告；GO 索引没有配置仍可单独检查 Hermes。没有完整验证结果时不提供执行升级。
 

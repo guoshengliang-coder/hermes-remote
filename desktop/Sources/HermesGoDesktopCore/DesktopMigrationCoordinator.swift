@@ -14,6 +14,7 @@ extension DesktopAccountController: DesktopBindingCoordinating {}
 public enum DesktopMigrationCoordinatorError: Error, Equatable, Sendable {
     case confirmationRequired
     case invalidStartingState
+    case retiredConnectionUnsupported
     case invalidBindingState
     case releaseNotNewer
     case hermesStopTimedOut
@@ -188,7 +189,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         sources: [DesktopManagedReleaseSource],
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {
@@ -207,7 +208,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         activationPlan: DesktopComponentReleaseActivationPlan,
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {
@@ -428,7 +429,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         candidate: ReleaseCandidate,
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {
@@ -438,12 +439,13 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         let operationLease = try journal.acquireOperationLease()
         defer { withExtendedLifetime(operationLease) {} }
         let serviceState = try launchAgent.inspect()
-        guard (legacy.isInstalled && legacy.isRunning) || (!legacy.isInstalled && !legacy.isRunning),
-              serviceState.accountLoaded == false,
+        guard !legacy.isInstalled, !legacy.isRunning, !serviceState.legacyLoaded else {
+            throw DesktopMigrationCoordinatorError.retiredConnectionUnsupported
+        }
+        guard serviceState.accountLoaded == false,
               serviceState.hermesLoaded == false,
               launchAgentConfiguration.hermesBaseURL
-                == hermesLaunchAgentConfiguration.runtimeContract.baseURL,
-              serviceState.legacyLoaded == legacy.isRunning
+                == hermesLaunchAgentConfiguration.runtimeContract.baseURL
         else { throw DesktopMigrationCoordinatorError.invalidStartingState }
 
         // A fresh install must not start Hermes on a port somebody else already holds. The managed
@@ -464,7 +466,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             throw DesktopMigrationCoordinatorError.hermesPortInUse
         }
 
-        let lastKnownGood: DesktopLastKnownGoodMode = legacy.isRunning ? .legacy : .none
+        let lastKnownGood: DesktopLastKnownGoodMode = .none
         let retryingTerminalBinding = try terminalRetryBinding(lastKnownGood: lastKnownGood)
         let preparation = try await account.beginBinding(
             retryingTerminalBindingID: retryingTerminalBinding?.id,
@@ -532,10 +534,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             let hermesCheckpoint = try hermesReadiness.checkpoint(
                 logURL: hermesLaunchAgentConfiguration.standardOutput
             )
-            if legacy.isRunning {
-                progress?.advance(.stoppingServices, runID: runID)
-                try launchAgent.stopLegacy(snapshot: legacy)
-            }
+
             progress?.advance(.startingHermes, runID: runID)
             try launchAgent.startHermes(plistURL: hermesLaunchAgentURL)
             progress?.advance(.waitingForHermes, runID: runID)
@@ -633,9 +632,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             do {
                 try rollback(
                     activation: activation,
-                    legacy: legacy,
-                    runID: runID,
-                    lastKnownGood: lastKnownGood
+                    runID: runID
                 )
             } catch let rollbackError {
                 try? markRollbackAttention(runID: runID)
@@ -646,7 +643,6 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
     }
 
     public func recoverInterrupted(
-        legacy: LegacyConnectorSnapshot,
         runID: String
     ) async throws -> DesktopMigrationState {
         let operationLease = try journal.acquireOperationLease()
@@ -689,7 +685,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
             }
         }
         switch recorded.state {
-        case .cleanUninstalled, .legacyActive, .accountActive, .rollbackAttentionRequired:
+        case .cleanUninstalled, .accountActive, .rollbackAttentionRequired:
             return recorded.state
         case .commitPending:
             guard let bindingID = recorded.bindingID,
@@ -715,11 +711,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 if recorded.releaseLayout == .bundledRelease {
                     try installer.deactivateExpectedRelease(recorded.releaseVersion)
                 }
-                if recorded.lastKnownGoodMode == .legacy {
-                    let current = try launchAgent.inspect()
-                    if !current.legacyLoaded { try launchAgent.restoreLegacy(snapshot: legacy) }
-                    return try transitionJournal(runID: runID, to: .legacyActive).state
-                }
+
                 return try transitionJournal(runID: runID, to: .cleanUninstalled).state
             } catch {
                 _ = try? markRollbackAttention(runID: runID)
@@ -1398,9 +1390,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
 
     private func rollback(
         activation: DesktopReleaseActivation?,
-        legacy: LegacyConnectorSnapshot,
-        runID: String,
-        lastKnownGood: DesktopLastKnownGoodMode
+        runID: String
     ) throws {
         let current = try journal.load()
         if current?.state != .rollingBack {
@@ -1411,13 +1401,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         let afterConnectorStop = try launchAgent.inspect()
         if afterConnectorStop.hermesLoaded { try launchAgent.stopHermes() }
         if let activation { try installer.rollback(activation, runID: runID) }
-        if legacy.isRunning {
-            let afterStop = try launchAgent.inspect()
-            if !afterStop.legacyLoaded { try launchAgent.restoreLegacy(snapshot: legacy) }
-        }
+
         _ = try transitionJournal(
             runID: runID,
-            to: lastKnownGood == .legacy ? .legacyActive : .cleanUninstalled
+            to: .cleanUninstalled
         )
     }
 
@@ -1466,8 +1453,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         else { return nil }
 
         switch (recorded.state, recorded.lastKnownGoodMode, lastKnownGood) {
-        case (.legacyActive, .legacy, .legacy),
-             (.cleanUninstalled, .none, .none):
+        case (.cleanUninstalled, .none, .none):
             return (bindingID, generation)
         default:
             return nil

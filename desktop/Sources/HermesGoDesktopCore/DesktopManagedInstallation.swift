@@ -667,7 +667,7 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
                 == layout.logsRoot.appendingPathComponent("connector.error.log").path
         else { throw DesktopManagedInstallError.invalidInput }
         let data: Data
-        do { data = try configuration.encodedPropertyList() }
+        do { data = try connectorAgentDataPreservingFileRate(configuration) }
         catch { throw DesktopManagedInstallError.invalidInput }
         guard data.count <= 64 * 1024 else { throw DesktopManagedInstallError.invalidInput }
         try ensureOwnedDirectory(layout.launchAgentsRoot)
@@ -731,13 +731,38 @@ public final class DesktopManagedInstaller: @unchecked Sendable {
                 == layout.logsRoot.appendingPathComponent("connector.error.log").path
         else { throw DesktopManagedInstallError.invalidInput }
         let data: Data
-        do { data = try configuration.encodedPropertyList() }
+        do { data = try connectorAgentDataPreservingFileRate(configuration) }
         catch { throw DesktopManagedInstallError.invalidInput }
         guard data.count <= 64 * 1024 else { throw DesktopManagedInstallError.invalidInput }
         try ensureOwnedDirectory(layout.launchAgentsRoot)
         try ensurePrivateDirectory(layout.logsRoot)
         try atomicWrite(data, to: layout.connectorLaunchAgent, permissions: 0o600)
         return layout.connectorLaunchAgent
+    }
+
+    /// Upgrades replace the signed executable and generated configuration, but retain the one
+    /// supported local transfer override. Read only an owner-private regular file; never import
+    /// arbitrary environment (notably NODE_OPTIONS) from the previous agent.
+    private func connectorAgentDataPreservingFileRate(_ configuration: DesktopAccountConnectorLaunchAgent) throws -> Data {
+        let generated = try configuration.encodedPropertyList()
+        var metadata = stat()
+        guard Darwin.lstat(layout.connectorLaunchAgent.path, &metadata) == 0 else {
+            guard errno == ENOENT else { throw DesktopManagedInstallError.unsafeFilesystemObject }
+            return generated
+        }
+        let original = try readOwnedPrivateFile(layout.connectorLaunchAgent)
+        guard let object = try PropertyListSerialization.propertyList(from: original, options: [], format: nil) as? [String: Any],
+              let environment = object["EnvironmentVariables"] as? [String: String] else {
+            throw DesktopManagedInstallError.invalidInput
+        }
+        guard let rate = try DesktopConnectorFileRate.read(from: environment) else { return generated }
+        guard var replacement = try PropertyListSerialization.propertyList(from: generated, options: [], format: nil) as? [String: Any],
+              var replacementEnvironment = replacement["EnvironmentVariables"] as? [String: String] else {
+            throw DesktopManagedInstallError.invalidInput
+        }
+        replacementEnvironment[DesktopConnectorFileRate.environmentKey] = rate
+        replacement["EnvironmentVariables"] = replacementEnvironment
+        return try PropertyListSerialization.data(fromPropertyList: replacement, format: .xml, options: 0)
     }
 
     func readOwnedPrivateFile(_ url: URL) throws -> Data {

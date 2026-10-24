@@ -13,6 +13,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 @Singleton
 class ArtifactRangeRepository @Inject constructor(
@@ -23,9 +27,12 @@ class ArtifactRangeRepository @Inject constructor(
     private val cache = ArtifactRangeCache(File(context.cacheDir, "video-ranges"))
 
     class Source internal constructor(val owner: String, val deviceId: String?, val path: String,
-        internal var descriptor: ArtifactDownloadDescriptor) {
+        @Volatile internal var descriptor: ArtifactDownloadDescriptor) {
         val size get() = descriptor.sizeBytes
         val key = ArtifactRangeCache.identity(owner, path, descriptor.etag, descriptor.sizeBytes)
+        internal val parallel = descriptor.maxConcurrentRanges.coerceIn(1, 4)
+        internal val slots = Semaphore(parallel)
+        internal val renewal = Mutex()
     }
 
     suspend fun prepare(file: ChatFile, deviceId: String?): Source {
@@ -39,29 +46,81 @@ class ArtifactRangeRepository @Inject constructor(
     }
 
     /** Random reads including the tail index of MP4 files. Reference renewal cannot change generation. */
-    suspend fun read(source: Source, position: Long): ByteArray {
+    suspend fun read(source: Source, position: Long, blocks: Int = 1): ByteArray {
         checkOwner(source.owner, source.deviceId)
         require(position in 0 until source.size)
         val start = position / ArtifactRangeCache.BLOCK_BYTES * ArtifactRangeCache.BLOCK_BYTES
-        val count = minOf(ArtifactRangeCache.BLOCK_BYTES.toLong(), source.size - start).toInt()
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        require(blocks in 1..(source.descriptor.maxRangeBytes / block).coerceIn(1, 4))
+        val count = minOf(blocks.toLong() * block, source.size - start).toInt()
         return arbiter.playback(source.owner) {
             checkOwner(source.owner, source.deviceId)
-            cache.read(source.key, start, count)?.let { return@playback it }
-            val bytes = try { rest.readArtifactRange(source.descriptor, start, count, source.deviceId, source.owner) }
-            catch (error: Exception) {
+            val result = ByteArray(count)
+            var offset = 0
+            while (offset < count) {
                 currentCoroutineContext().ensureActive()
-                if (!(error is IOException || error is HermesApiException && error.errorCode == "HR-FILE-015")) throw error
-                val renewed = rest.prepareArtifactDownload(source.path, source.deviceId, source.owner)
-                if (renewed.etag != source.descriptor.etag || renewed.sizeBytes != source.size) {
-                    throw HermesApiException(412, "video source changed", errorCode = "HR-FILE-011")
+                val at = start + offset
+                val cached = cache.read(source.key, at, minOf(block, count - offset))
+                if (cached != null) {
+                    cached.copyInto(result, offset); offset += cached.size
+                    continue
                 }
-                source.descriptor = renewed
-                rest.readArtifactRange(renewed, start, count, source.deviceId, source.owner)
+                var missing = minOf(block, count - offset)
+                // Stop at cached blocks instead of re-downloading bytes from a previous preview.
+                while (offset + missing < count && cache.read(source.key, at + missing,
+                        minOf(block, count - offset - missing)) == null) {
+                    missing += minOf(block, count - offset - missing)
+                }
+                val bytes = fetch(source, at, missing)
+                check(bytes.size == missing) { "incomplete video range" }
+                currentCoroutineContext().ensureActive()
+                checkOwner(source.owner, source.deviceId)
+                // Publish only complete, validated blocks. Cache pressure is non-fatal.
+                try {
+                    cache.writeBlocks(source.key, sequence {
+                        var cursor = 0
+                        while (cursor < bytes.size) {
+                            val end = minOf(bytes.size, cursor + block)
+                            yield(at + cursor to bytes.copyOfRange(cursor, end)); cursor = end
+                        }
+                    })
+                } catch (_: IOException) { }
+                bytes.copyInto(result, offset); offset += bytes.size
             }
+            currentCoroutineContext().ensureActive()
             checkOwner(source.owner, source.deviceId)
-            // Cache pressure must not make otherwise playable remote video fail.
-            try { cache.write(source.key, start, bytes) } catch (_: IOException) { }
-            bytes
+            result
+        }
+    }
+
+    private suspend fun fetch(source: Source, start: Long, count: Int): ByteArray {
+        var attempted = source.descriptor
+        suspend fun request(): ByteArray = source.slots.withPermit {
+            checkOwner(source.owner, source.deviceId)
+            attempted = source.descriptor
+            rest.readArtifactRange(attempted, start, count, source.deviceId, source.owner)
+        }
+        return try { request() }
+        catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            if (!(error is IOException || error is HermesApiException && error.errorCode == "HR-FILE-015")) throw error
+            source.renewal.withLock {
+                // Drain old-reference requests before replacing it: the server permits only one
+                // opaque reference per Mac. Concurrent failures share one generation-checked renewal.
+                var acquired = 0
+                try {
+                    repeat(source.parallel) { source.slots.acquire(); acquired++ }
+                    checkOwner(source.owner, source.deviceId)
+                    if (source.descriptor === attempted) {
+                        val renewed = rest.prepareArtifactDownload(source.path, source.deviceId, source.owner)
+                        if (renewed.etag != attempted.etag || renewed.sizeBytes != attempted.sizeBytes) {
+                            throw HermesApiException(412, "video source changed", errorCode = "HR-FILE-011")
+                        }
+                        source.descriptor = renewed
+                    }
+                } finally { repeat(acquired) { source.slots.release() } }
+            }
+            request()
         }
     }
 

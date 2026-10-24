@@ -4,8 +4,33 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopMigrationCoordinatorTests: XCTestCase {
+    func testRetiredServiceCannotMigrateOrStartAccountEvenWithStalePreflight() async throws {
+        for reportedInstalled in [false, true] {
+            let fixture = try Fixture(legacyRunning: true)
+            defer { fixture.cleanup() }
+            await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrate(
+                manifest: fixture.manifest,
+                sources: fixture.sources,
+                hermesLaunchAgentConfiguration: fixture.hermesLaunchAgentConfiguration,
+                launchAgentConfiguration: fixture.launchAgentConfiguration,
+                legacy: RetiredConnectorSnapshot(isInstalled: reportedInstalled, isRunning: reportedInstalled),
+                runID: fixture.runID,
+                confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(
+                    releaseVersion: fixture.manifest.releaseVersion
+                )
+            )) { error in
+                XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .retiredConnectionUnsupported)
+            }
+            XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+            XCTAssertTrue(fixture.runner.events().allSatisfy { $0.first == "print" })
+            let references = await fixture.account.retryReferences()
+            XCTAssertTrue(references.isEmpty)
+            XCTAssertNil(try fixture.journal.load())
+        }
+    }
+
     func testDefaultHealthWindowCoversASeventyFivePollColdStart() async throws {
-        let fixture = try Fixture(legacyRunning: true)
+        let fixture = try Fixture(legacyRunning: false)
         defer { fixture.cleanup() }
         let readiness = MigrationHermesReadiness(healthy: true)
         let controller = try DesktopLaunchAgentController(
@@ -39,7 +64,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testHealthyCandidateCommitsOnlyAfterProofAndHealth() async throws {
-        let fixture = try Fixture(legacyRunning: true)
+        let fixture = try Fixture(legacyRunning: false)
         defer { fixture.cleanup() }
         let outcome: DesktopMigrationOutcome
         do {
@@ -68,7 +93,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             DesktopManagedInstallLayout.connectorLabel,
             DesktopManagedInstallLayout.hermesLabel,
         ])
-        XCTAssertEqual(fixture.runner.disabledLabels(), ["com.hermesremote.connector"])
+        XCTAssertTrue(fixture.runner.disabledLabels().isEmpty)
         XCTAssertEqual(
             fixture.runner.events().compactMap { command -> String? in
                 guard command.first == "bootstrap" else { return nil }
@@ -91,7 +116,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testComponentCandidateCommitsWithoutBundledReleaseActivation() async throws {
-        let fixture = try Fixture(legacyRunning: true, provideLocalHermes: true)
+        let fixture = try Fixture(legacyRunning: false, provideLocalHermes: true)
         defer { fixture.cleanup() }
         let component = try fixture.componentRelease()
 
@@ -146,9 +171,9 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         )
     }
 
-    func testComponentCandidateFailureRestoresLegacyWithoutChangingCurrentRelease() async throws {
+    func testComponentCandidateFailureRestoresCleanStateWithoutChangingCurrentRelease() async throws {
         let fixture = try Fixture(
-            legacyRunning: true,
+            legacyRunning: false,
             failAccountStart: true,
             provideLocalHermes: true
         )
@@ -173,9 +198,9 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             XCTAssertEqual(error as? DesktopLaunchAgentControllerError, .accountStartFailed)
         }
 
-        XCTAssertEqual(try fixture.journal.load()?.state, .legacyActive)
+        XCTAssertEqual(try fixture.journal.load()?.state, .cleanUninstalled)
         XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .componentStore)
-        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertTrue(fixture.runner.loadedLabels().isEmpty)
         XCTAssertEqual(
             try FileManager.default.destinationOfSymbolicLink(
                 atPath: fixture.layout.currentRelease.path
@@ -185,7 +210,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testInterruptedComponentRecoveryDoesNotDeactivateBundledCurrentRelease() async throws {
-        let fixture = try Fixture(legacyRunning: true)
+        let fixture = try Fixture(legacyRunning: false)
         defer { fixture.cleanup() }
         let bundledVersion = fixture.manifest.releaseVersion
         let bundledRelease = try fixture.layout.release(bundledVersion)
@@ -193,7 +218,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         _ = try fixture.installer.activate(releaseVersion: bundledVersion, runID: fixture.runID)
         _ = try fixture.journal.begin(
             runID: fixture.runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: bundledVersion,
             releaseLayout: .componentStore,
             bindingID: fixture.bindingID,
@@ -207,12 +232,11 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         ])
 
         let recovered = try await fixture.coordinator.recoverInterrupted(
-            legacy: fixture.legacy,
             runID: fixture.runID
         )
 
-        XCTAssertEqual(recovered, .legacyActive)
-        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertEqual(recovered, .cleanUninstalled)
+        XCTAssertTrue(fixture.runner.loadedLabels().isEmpty)
         XCTAssertEqual(
             try FileManager.default.destinationOfSymbolicLink(
                 atPath: fixture.layout.currentRelease.path
@@ -251,8 +275,8 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
     }
 
-    func testCandidateStartFailureAutomaticallyRestoresLegacyAndCurrentPointer() async throws {
-        let fixture = try Fixture(legacyRunning: true, failAccountStart: true)
+    func testCandidateStartFailureAutomaticallyRestoresCleanStateAndCurrentPointer() async throws {
+        let fixture = try Fixture(legacyRunning: false, failAccountStart: true)
         defer { fixture.cleanup() }
 
         do {
@@ -276,26 +300,26 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(try fixture.journal.load()?.state, .legacyActive)
-        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertEqual(try fixture.journal.load()?.state, .cleanUninstalled)
+        XCTAssertTrue(fixture.runner.loadedLabels().isEmpty)
         XCTAssertTrue(fixture.runner.disabledLabels().isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
     }
 
-    func testRetryAfterLegacyRollbackCarriesTheRevokedBindingGeneration() async throws {
-        let fixture = try Fixture(legacyRunning: true)
+    func testRetryAfterCleanRollbackCarriesTheRevokedBindingGeneration() async throws {
+        let fixture = try Fixture(legacyRunning: false)
         defer { fixture.cleanup() }
         let previousRunID = "10000000-0000-4000-8000-000000000009"
         _ = try fixture.journal.begin(
             runID: previousRunID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: fixture.manifest.releaseVersion,
             bindingID: fixture.bindingID,
             bindingGeneration: 1
         )
         _ = try fixture.journal.transition(runID: previousRunID, to: .accountStaged)
         _ = try fixture.journal.transition(runID: previousRunID, to: .rollingBack)
-        _ = try fixture.journal.transition(runID: previousRunID, to: .legacyActive)
+        _ = try fixture.journal.transition(runID: previousRunID, to: .cleanUninstalled)
 
         _ = try await fixture.coordinator.migrate(
             manifest: fixture.manifest,
@@ -316,19 +340,19 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testMatchingBoundBindingResumesAfterLocalRollbackWithoutRemoteConfirmation() async throws {
-        let fixture = try Fixture(legacyRunning: true, resumeBoundBinding: true)
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
         defer { fixture.cleanup() }
         let previousRunID = "10000000-0000-4000-8000-000000000009"
         _ = try fixture.journal.begin(
             runID: previousRunID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: fixture.manifest.releaseVersion,
             bindingID: fixture.bindingID,
             bindingGeneration: 1
         )
         _ = try fixture.journal.transition(runID: previousRunID, to: .accountStaged)
         _ = try fixture.journal.transition(runID: previousRunID, to: .rollingBack)
-        _ = try fixture.journal.transition(runID: previousRunID, to: .legacyActive)
+        _ = try fixture.journal.transition(runID: previousRunID, to: .cleanUninstalled)
 
         let outcome = try await fixture.coordinator.migrate(
             manifest: fixture.manifest,
@@ -377,8 +401,8 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
     }
 
-    func testHermesHealthTimeoutStopsServerBeforeLegacyRestoreAndNeverStartsConnector() async throws {
-        let fixture = try Fixture(legacyRunning: true, hermesHealthy: false)
+    func testHermesHealthTimeoutStopsServerBeforeRollbackAndNeverStartsConnector() async throws {
+        let fixture = try Fixture(legacyRunning: false, hermesHealthy: false)
         defer { fixture.cleanup() }
 
         await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrate(
@@ -395,8 +419,8 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
             XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .hermesHealthTimedOut)
         }
 
-        XCTAssertEqual(try fixture.journal.load()?.state, .legacyActive)
-        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertEqual(try fixture.journal.load()?.state, .cleanUninstalled)
+        XCTAssertTrue(fixture.runner.loadedLabels().isEmpty)
         XCTAssertTrue(fixture.runner.disabledLabels().isEmpty)
         let bootstrappedLabels = fixture.runner.events().compactMap { command -> String? in
             guard command.first == "bootstrap" else { return nil }
@@ -432,7 +456,7 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testAmbiguousRemoteCommitStopsWithoutRevivingLegacy() async throws {
-        let fixture = try Fixture(legacyRunning: true, ambiguousCommit: true)
+        let fixture = try Fixture(legacyRunning: false, ambiguousCommit: true)
         defer { fixture.cleanup() }
 
         do {
@@ -456,12 +480,12 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertTrue(fixture.runner.loadedLabels().isEmpty)
     }
 
-    func testRestartRecoveryStopsCandidateAndRestoresRecordedLegacyMode() async throws {
-        let fixture = try Fixture(legacyRunning: true)
+    func testRestartRecoveryStopsCandidateAndRestoresRecordedCleanState() async throws {
+        let fixture = try Fixture(legacyRunning: false)
         defer { fixture.cleanup() }
         _ = try fixture.journal.begin(
             runID: fixture.runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: fixture.manifest.releaseVersion,
             bindingID: fixture.bindingID,
             bindingGeneration: 1
@@ -480,21 +504,20 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         ])
 
         let recovered = try await fixture.coordinator.recoverInterrupted(
-            legacy: fixture.legacy,
             runID: fixture.runID
         )
 
-        XCTAssertEqual(recovered, .legacyActive)
-        XCTAssertEqual(fixture.runner.loadedLabels(), ["com.hermesremote.connector"])
+        XCTAssertEqual(recovered, .cleanUninstalled)
+        XCTAssertTrue(fixture.runner.loadedLabels().isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.currentRelease.path))
     }
 
     func testMigrationAssistantDuplicateIsSuppressedOnlyForCommittedAccountActiveJournal() throws {
-        let fixture = try Fixture(legacyRunning: true)
+        let fixture = try Fixture(legacyRunning: false)
         defer { fixture.cleanup() }
         _ = try fixture.journal.begin(
             runID: fixture.runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: fixture.manifest.releaseVersion,
             bindingID: fixture.bindingID,
             bindingGeneration: 1
@@ -525,11 +548,11 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
     }
 
     func testTransferReconciliationIsInertBeforeAccountCommit() throws {
-        let fixture = try Fixture(legacyRunning: true)
+        let fixture = try Fixture(legacyRunning: false)
         defer { fixture.cleanup() }
         _ = try fixture.journal.begin(
             runID: fixture.runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: fixture.manifest.releaseVersion,
             bindingID: fixture.bindingID,
             bindingGeneration: 1
@@ -1084,7 +1107,6 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         }
 
         let recovered = try await fixture.coordinator.recoverInterrupted(
-            legacy: fixture.legacy,
             runID: recoveryRun
         )
 
@@ -1732,7 +1754,7 @@ final class DesktopHermesRuntimeCoordinatorTests: XCTestCase {
             version: "0.21.3",
             identityChangedAt: Date().addingTimeInterval(-3_600)
         )
-        let fixture = try Fixture(legacyRunning: true, localHermesForFreshInstall: local)
+        let fixture = try Fixture(legacyRunning: false, localHermesForFreshInstall: local)
         defer { fixture.cleanup() }
 
         _ = try await fixture.coordinator.migrate(
@@ -1992,7 +2014,7 @@ private final class Fixture {
     let sources: [DesktopManagedReleaseSource]
     let hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent
     let launchAgentConfiguration: DesktopAccountConnectorLaunchAgent
-    let legacy: LegacyConnectorSnapshot
+    let legacy: RetiredConnectorSnapshot
     let runID = "10000000-0000-4000-8000-000000000001"
     let bindingID = "50000000-0000-4000-8000-000000000001"
 
@@ -2102,14 +2124,9 @@ private final class Fixture {
         )
         let legacyPlist = layout.launchAgentsRoot.appendingPathComponent("com.hermesremote.connector.plist")
         try Data("legacy".utf8).write(to: legacyPlist)
-        legacy = LegacyConnectorSnapshot(
+        legacy = RetiredConnectorSnapshot(
             isInstalled: legacyRunning,
-            isRunning: legacyRunning,
-            config: LegacyConnectorConfig(gatewayURL: nil),
-            recentLogs: [],
-            installDirectory: root.appendingPathComponent("legacy"),
-            launchAgentURL: legacyPlist
-        )
+            isRunning: legacyRunning)
     }
 
     func cleanup() { try? FileManager.default.removeItem(at: root) }
@@ -2137,7 +2154,7 @@ private final class Fixture {
         }
         _ = try journal.begin(
             runID: runID,
-            lastKnownGoodMode: .legacy,
+            lastKnownGoodMode: .none,
             releaseVersion: releaseVersion ?? manifest.releaseVersion,
             bindingID: bindingID,
             bindingGeneration: bindingGeneration

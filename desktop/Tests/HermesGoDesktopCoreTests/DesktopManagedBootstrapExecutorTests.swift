@@ -85,6 +85,19 @@ final class DesktopManagedBootstrapExecutorTests: XCTestCase {
         XCTAssertEqual(fixture.migration.events, ["upgrade"])
     }
 
+    func testBundledExecutorRejectsComponentLayoutAndDiscardsPreparation() async throws {
+        let fixture = BootstrapExecutorFixture()
+        await XCTAssertThrowsErrorAsync(try await fixture.executor.prepare(
+            manifestURL: fixture.manifestURL, workspaceRoot: fixture.workspaceRoot, runID: fixture.runID,
+            installation: .active(releaseVersion: "0.3.4", releaseLayout: .componentStore,
+                                  bindingID: "test-binding", bindingGeneration: 1)
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .invalidStartingState)
+        }
+        XCTAssertEqual(fixture.migration.events, [])
+        XCTAssertEqual(fixture.acquisition.events, ["acquire", "discard"])
+    }
+
     func testActiveInstallationRejectsSameVersionBeforeMigration() async throws {
         let fixture = BootstrapExecutorFixture()
         await XCTAssertThrowsErrorAsync(try await fixture.executor.prepare(
@@ -288,14 +301,9 @@ private final class BootstrapExecutorFixture {
             runtimeContract: .serveV1
         )
     }
-    let legacy = LegacyConnectorSnapshot(
+    let legacy = RetiredConnectorSnapshot(
         isInstalled: false,
-        isRunning: false,
-        config: LegacyConnectorConfig(gatewayURL: nil),
-        recentLogs: [],
-        installDirectory: URL(fileURLWithPath: "/tmp/legacy"),
-        launchAgentURL: URL(fileURLWithPath: "/tmp/agents/com.hermesremote.connector.plist")
-    )
+        isRunning: false)
     let outcome = DesktopMigrationOutcome(
         runID: "60000000-0000-4000-8000-000000000006",
         releaseVersion: "1.2.3",
@@ -445,7 +453,7 @@ private final class BootstrapMigrationFake: DesktopReleaseMigrating, @unchecked 
         sources: [DesktopManagedReleaseSource],
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {

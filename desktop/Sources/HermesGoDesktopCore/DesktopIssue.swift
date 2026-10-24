@@ -7,7 +7,6 @@ public enum DesktopRecoveryAction: String, Codable, Equatable, Sendable {
     case details
     case signIn
     case requestCode
-    case continueLegacy
     case verifyAndReplace
     case selectDevice
     case openSharing
@@ -23,7 +22,6 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     case connectionFailed = "HR-CONN-002"
     case connectorOffline = "HR-CONN-005"
     case hermesUnavailable = "HR-CONN-006"
-    case appTokenRejected = "HR-AUTH-001"
     case googleSignInFailed = "HR-AUTH-002"
     case accountSessionExpired = "HR-AUTH-003"
     case accountSessionRevoked = "HR-AUTH-004"
@@ -64,9 +62,6 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     case relayFailure = "HR-RPC-001"
     case configurationLoadFailed = "HR-CONFIG-001"
     case configurationSaveFailed = "HR-CONFIG-002"
-    case invalidRelayURL = "HR-CONFIG-003"
-    case incompletePairingConfiguration = "HR-CONFIG-004"
-    case pairingPayloadTooLarge = "HR-CONFIG-005"
     case accountConfigurationMissing = "HR-CONFIG-006"
     case migrationPreflightFailed = "HR-MIGRATE-001"
     case migrationConnectorMismatch = "HR-MIGRATE-002"
@@ -113,6 +108,7 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     case managedServicesNeedRepair = "HR-MIGRATE-019"
     case managedServiceRepairBlocked = "HR-MIGRATE-020"
     case managedServiceRepairFailed = "HR-MIGRATE-021"
+    case retiredConnectionUnsupported = "HR-MIGRATE-022"
     /// A Desktop update check could not fetch or validate the stable index.
     case updateCheckFailed = "HR-DESKUPDATE-001"
     /// This build has no update source configured; checking is unavailable, not failed.
@@ -200,8 +196,6 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("Mac 端离线", "The Mac is offline", "Mac 端当前离线，请启动 Hermes Go Desktop。", "The Mac is offline. Start Hermes Go Desktop.", true, .startDesktop)
         case .hermesUnavailable:
             ("Hermes 当前不可访问", "Hermes is unavailable", "Hermes 当前不可访问，请检查这台 Mac 上的 Hermes 服务。", "Hermes is unavailable. Check the Hermes service on this Mac.", true, .details)
-        case .appTokenRejected:
-            ("App Token 无效", "Invalid App Token", "App Token 无效或已失效，请重新配置。", "The App Token is invalid or expired. Configure it again.", false, .settings)
         case .googleSignInFailed:
             ("无法验证 Google 登录", "Couldn't verify Google sign-in", "无法验证 Google 登录，请重新登录。", "Couldn't verify Google sign-in. Sign in again.", false, .signIn)
         case .accountSessionExpired:
@@ -221,13 +215,13 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         case .emailDeliveryFailed:
             ("登录邮件发送失败", "Sign-in email wasn't sent", "登录邮件发送失败，请稍后重试。", "The sign-in email couldn't be sent. Try again shortly.", true, .retry)
         case .emailSignInDisabled:
-            ("邮箱登录尚未开放", "Email sign-in isn't enabled", "此 Relay 尚未启用邮箱登录，可继续使用原有连接方式。", "Email sign-in isn't enabled on this Gateway yet. Continue with the legacy connection.", false, .continueLegacy)
+            ("邮箱登录尚未开放", "Email sign-in isn't enabled", "此 Relay 尚未启用邮箱登录，请检查账号服务配置后重试。", "Email sign-in isn't enabled on this Gateway yet. Check the account service configuration and try again.", false, .settings)
         case .accountDisabled:
             ("账号当前不可用", "Account unavailable", "此 Hermes GO 账号当前不可用，请联系支持。", "This Hermes GO account is currently unavailable. Contact support.", false, .none)
         case .accountServiceUnavailable:
             ("账号服务暂时不可用", "Account service unavailable", "账号服务暂时不可用，请稍后重试。", "The account service is temporarily unavailable. Try again shortly.", true, .retry)
         case .accountFeatureDisabled:
-            ("账号登录尚未开放", "Account sign-in isn't enabled", "此 Relay 尚未启用账号登录，可继续使用原有连接方式。", "Account sign-in is not enabled on this Gateway yet. Continue with the legacy connection.", false, .continueLegacy)
+            ("账号登录尚未开放", "Account sign-in isn't enabled", "此 Relay 尚未启用账号登录，请检查账号服务配置后重试。", "Account sign-in is not enabled on this Gateway yet. Check the account service configuration and try again.", false, .settings)
         case .accountRequestInvalid:
             ("账号请求无效", "Invalid account request", "账号请求格式无效，请更新客户端或重试。", "The account request is invalid. Update the client or try again.", false, .details)
         case .accountIdempotencyConflict:
@@ -247,13 +241,13 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         case .bindingExpired:
             ("绑定确认已失效", "Binding confirmation expired", "Desktop 绑定确认已失效，请重新开始。", "The Desktop binding confirmation expired. Start again.", true, .retry)
         case .bindingProofFailed:
-            ("Connector 身份验证失败", "Connector verification failed", "Desktop Connector 身份验证失败，请检查账号与设备。", "Desktop Connector verification failed. Check Account & Devices.", true, .retry)
+            ("Desktop 连接验证失败", "Desktop connection verification failed", "Desktop 连接验证失败，请检查账号与设备。", "Desktop connection verification failed. Check Account & Devices.", true, .retry)
         case .bindingRevoked:
             ("这台 Mac 的绑定已撤销", "This Mac binding was revoked", "这台 Mac 已不再绑定当前账号，请重新绑定或使用现有 Mac。", "This Mac is no longer bound to the account. Bind it again or use the current Mac.", false, .verifyAndReplace)
         case .bindingReplacementFailed:
             ("未能更换 Mac", "Couldn't replace the Mac", "未能更换 Mac，原来的连接仍在工作。", "Couldn't replace the Mac. The original connection is still working.", true, .retry)
         case .bindingFeatureDisabled:
-            ("Desktop 绑定尚未开放", "Desktop binding isn't enabled", "此 Relay 尚未启用 Desktop 绑定，可继续使用原有连接。", "Desktop binding isn't enabled on this Gateway yet. Continue with the legacy connection.", false, .continueLegacy)
+            ("Desktop 绑定尚未开放", "Desktop binding isn't enabled", "此 Relay 尚未启用 Desktop 绑定，请检查账号服务配置后重试。", "Desktop binding isn't enabled on this Gateway yet. Check the account service configuration and try again.", false, .settings)
         case .deviceSelectionRequired:
             ("请选择一台 Mac", "Choose a Mac", "账号连接了多台 Mac，请先选择要使用的一台。", "This account has multiple Macs. Choose one to continue.", false, .selectDevice)
         case .ownedDeviceLimitReached:
@@ -282,22 +276,16 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("无法加载配置", "Couldn't load configuration", "无法加载配置，请重试。", "Couldn't load the configuration. Retry.", true, .retry)
         case .configurationSaveFailed:
             ("无法保存配置", "Couldn't save configuration", "无法保存配置，请重试。", "Couldn't save the configuration. Retry.", true, .settings)
-        case .invalidRelayURL:
-            ("Relay 地址无效", "Invalid Relay URL", "Relay 地址格式无效，请检查后重试。", "The Relay URL is invalid. Check it and retry.", true, .settings)
-        case .incompletePairingConfiguration:
-            ("配对配置不完整", "Incomplete pairing configuration", "请填写配置名称、Relay 地址和 App Token。", "Enter a configuration name, Relay URL, and App Token.", true, .settings)
-        case .pairingPayloadTooLarge:
-            ("配对信息过长", "Pairing data is too long", "Relay 地址和 App Token 过长，无法生成可扫描的二维码。", "The Relay URL and App Token are too long to fit in a scannable QR code.", true, .settings)
         case .accountConfigurationMissing:
-            ("账号服务尚未配置", "Account service isn't configured", "此版本尚未正确配置账号服务，请继续使用原有连接。", "Account service isn't configured correctly in this build. Continue with the legacy connection.", false, .continueLegacy)
+            ("账号服务尚未配置", "Account service isn't configured", "此版本尚未正确配置账号服务，请安装配置完整的 Desktop 版本。", "Account service isn't configured correctly in this build. Check the account service configuration and try again.", false, .settings)
         case .migrationPreflightFailed:
-            ("暂时无法升级连接", "Connection upgrade isn't ready", "暂时无法升级连接，现有连接未被修改。", "The connection can't be upgraded yet. The existing connection was not changed.", true, .continueLegacy)
+            ("暂时无法升级连接", "Connection upgrade isn't ready", "暂时无法升级连接，现有连接未被修改。", "The connection can't be upgraded yet. The existing connection was not changed.", true, .settings)
         case .migrationConnectorMismatch:
-            ("Connector 状态异常", "Unexpected Connector state", "检测到异常的 Connector 运行状态，已停止升级以避免重复连接。", "An unexpected Connector state was found. Upgrade was stopped to prevent duplicate connections.", false, .details)
+            ("Desktop 连接状态异常", "Unexpected Desktop connection state", "检测到异常的 Desktop 连接状态，已停止升级以避免重复连接。", "An unexpected Desktop connection state was found. Upgrade was stopped to prevent duplicate connections.", false, .details)
         case .migrationCandidateFailed:
             ("新连接验证失败", "New connection validation failed", "新连接验证失败，已恢复原来的连接。", "The new connection failed validation, so the original connection was restored.", true, .retry)
         case .migrationRollbackFailed:
-            ("自动恢复未完成", "Automatic recovery didn't finish", "自动恢复未完成，系统已停止继续变更。请按诊断步骤检查 Hermes 与 Connector。", "Automatic recovery did not finish, so further changes were stopped. Follow the diagnostic steps to inspect Hermes and Connector.", false, .details)
+            ("自动恢复未完成", "Automatic recovery didn't finish", "自动恢复未完成，系统已停止继续变更。请打开诊断检查 Desktop 与 Hermes。", "Automatic recovery did not finish, so further changes were stopped. Follow the diagnostic steps to inspect Desktop and Hermes.", false, .details)
         case .migrationCleanupPending:
             ("升级完成，临时文件待清理", "Upgrade finished; cleanup is pending", "新连接已生效，但下载临时文件尚未清理。请重试清理；不要重复安装。", "The new connection is active, but temporary download files still need cleanup. Retry cleanup; do not install again.", true, .retry)
         case .managedInstallationRepairFailed:
@@ -324,11 +312,13 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             // Not retryable: the same download or the same process would fail the same way.
             ("无法使用 Hermes 安装程序", "Can't use the Hermes installer", "Hermes 官方安装程序与 Hermes GO 支持的方式不一致，未做任何安装。请改用 Hermes GO 内置的 Hermes，或更新 Hermes GO。", "The official Hermes installer isn't in a form Hermes GO supports, so nothing was installed. Use the Hermes built into Hermes GO, or update Hermes GO.", false, .details)
         case .managedServicesNeedRepair:
-            ("受管服务需要修复", "Managed services need repair", "受管启动项缺失或尚未载入，请修复受管服务以恢复连接。", "Managed startup items are missing or unloaded. Repair the managed services to restore the connection.", true, .details)
+            ("Desktop 需要修复", "Managed services need repair", "受管启动项缺失或尚未载入，请修复 Desktop 以恢复连接。", "Managed startup items are missing or unloaded. Repair the managed services to restore the connection.", true, .details)
         case .managedServiceRepairBlocked:
-            ("暂时无法安全修复", "Service repair is blocked", "暂时无法安全修复受管服务。请查看详情，恢复原账号或缺失的安装资料后重新检查。", "Managed services cannot be repaired safely yet. Review the details and restore the original account or missing installation records, then check again.", false, .details)
+            ("暂时无法安全修复", "Service repair is blocked", "修复前检查未通过。请按下方具体原因处理后重新检查；现有设备绑定与 Hermes 数据会保留。", "Repair preflight did not pass. Resolve the specific condition shown below and check again; device binding and Hermes data are preserved.", false, .details)
+        case .retiredConnectionUnsupported:
+            ("旧连接服务需要移除", "Remove the old connection service", "Desktop 已停止支持旧连接模式。请先停用并移除旧 Connector 启动项，再通过账号设置这台 Mac；无需删除 Hermes 数据。", "Desktop no longer supports the old connection mode. Disable and remove the old Connector startup item, then set up this Mac with your account. Keep your Hermes data.", false, .details)
         case .managedServiceRepairFailed:
-            ("受管服务修复未完成", "Service repair did not finish", "受管服务修复未完成，请重新检查后重试；恢复未完成时请查看详情。", "Managed service repair did not finish. Check again before retrying; review the details if restoration is incomplete.", true, .details)
+            ("Desktop 修复未完成", "Service repair did not finish", "Desktop 修复未完成，请重新检查后重试；恢复未完成时请查看详情。", "Managed service repair did not finish. Check again before retrying; review the details if restoration is incomplete.", true, .details)
         case .hermesInstallNotUsable:
             ("安装后的 Hermes 无法直接使用", "The installed Hermes can't be used", "Hermes 安装已结束，但这台 Mac 上的 Hermes 不是 Hermes GO 能直接使用的标准形式，未做任何切换。请查看详情，或改用 Hermes GO 内置的 Hermes。", "Hermes finished installing, but it isn't in the standard form Hermes GO can use, so nothing was switched. Review the details, or use the Hermes built into Hermes GO.", false, .details)
         case .updateCheckFailed:
@@ -428,6 +418,9 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         if let accountError = error as? AccountClientError {
             return account(accountError)
         }
+        if classification == .retiredConnectionUnsupported {
+            return DesktopIssue(code: .retiredConnectionUnsupported, technicalCause: String(describing: error))
+        }
         if classification == .hermesPortInUse {
             return DesktopIssue(
                 code: .managedHermesPortInUse,
@@ -443,7 +436,6 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         let code: DesktopIssueCode = if error as? DesktopLaunchAgentControllerError == .duplicateConnector {
             .migrationConnectorMismatch
         } else if candidateFailed
-            || terminalState == .legacyActive
             || terminalState == .cleanUninstalled {
             .migrationCandidateFailed
         } else {

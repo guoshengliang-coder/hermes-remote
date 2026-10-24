@@ -6,11 +6,27 @@ final class ConnectionModelsTests: XCTestCase {
     func testAccountHermesHealthRetainsTheReportTimeAfterARefresh() throws {
         let report = try XCTUnwrap(parseCanonicalTimestamp("2026-09-14T12:00:00Z"))
         let fetched = report.addingTimeInterval(600)
-        let snapshot = AccountDeviceHealth.snapshot(for: accountDevice(hermesReachable: false), checkedAt: fetched)
+        let snapshot = AccountDeviceHealth.snapshot(for: accountDevice(hermesReachable: false), checkedAt: fetched, now: fetched)
         XCTAssertEqual(snapshot.component(.hermes).checkedAt, report)
         XCTAssertEqual(snapshot.component(.endToEnd).checkedAt, report)
         XCTAssertEqual(snapshot.component(.gateway).checkedAt, fetched)
-        XCTAssertEqual(snapshot.component(.hermes).level, .failed, "a fresh read cannot clear an older negative report")
+        XCTAssertEqual(snapshot.component(.hermes).level, .unavailable, "a fresh read cannot make an expired report current")
+    }
+
+    func testOldFutureAndMissingReportsCannotShowHealthyAfterRefresh() throws {
+        let report = try XCTUnwrap(parseCanonicalTimestamp("2026-09-14T12:00:00Z"))
+        for now in [report.addingTimeInterval(181), report.addingTimeInterval(-6)] {
+            let snapshot = AccountDeviceHealth.snapshot(for: accountDevice(), checkedAt: now, now: now)
+            XCTAssertEqual(snapshot.component(.hermes).level, .unavailable)
+            XCTAssertEqual(snapshot.component(.endToEnd).level, .unavailable)
+            XCTAssertEqual(AccountDeviceHealth.deviceSummary(accountDevice(), checkedAt: now, now: now),
+                           "Desktop 在线 · Hermes 状态待更新")
+        }
+        XCTAssertFalse(AccountDeviceHealth.isFresh(nil, now: report))
+        let expiredRead = AccountDeviceHealth.snapshot(for: accountDevice(), checkedAt: report,
+                                                       now: report.addingTimeInterval(181))
+        XCTAssertEqual(expiredRead.component(.desktopAgent).level, .unavailable)
+        XCTAssertEqual(expiredRead.component(.gateway).level, .unavailable)
     }
 
     func testReconnectOnlyMatchesTheExactOwnedLocalBinding() {
@@ -22,10 +38,10 @@ final class ConnectionModelsTests: XCTestCase {
         XCTAssertFalse(DesktopConnectorReconnectEligibility.matches(.active(releaseVersion: "0.4.7", releaseLayout: .bundledRelease, bindingID: device.id, bindingGeneration: 1), device: accountDevice(access: "shared")))
     }
     func testSelectedAccountDeviceReplacesLegacyHealthWithAccountTopology() {
-        let checkedAt = Date(timeIntervalSince1970: 1_725_000_000)
+        let checkedAt = parseCanonicalTimestamp("2026-09-14T12:00:00Z")!
         let snapshot = AccountDeviceHealth.snapshot(
             for: accountDevice(),
-            checkedAt: checkedAt
+            checkedAt: checkedAt, now: checkedAt
         )
 
         XCTAssertEqual(snapshot.components.map(\.component), [
@@ -41,7 +57,7 @@ final class ConnectionModelsTests: XCTestCase {
 
     func testSelectedAccountDeviceFailuresCarryRegisteredIssues() {
         let device = accountDevice(connectorOnline: false, hermesReachable: false, endToEndHealthy: false)
-        let snapshot = AccountDeviceHealth.snapshot(for: device)
+        let snapshot = AccountDeviceHealth.snapshot(for: device, checkedAt: parseCanonicalTimestamp("2026-09-14T12:00:00Z")!, now: parseCanonicalTimestamp("2026-09-14T12:00:00Z")!)
 
         XCTAssertEqual(snapshot.overall, .needsAttention)
         XCTAssertEqual(snapshot.component(.desktopAgent).issue?.code, .connectorOffline)
@@ -50,48 +66,15 @@ final class ConnectionModelsTests: XCTestCase {
         XCTAssertTrue(snapshot.component(.hermes).detail.contains("HR-CONN-006"))
     }
 
-    func testAccountPresentationRemovesLegacyEndToEndFromOverallHealth() {
-        let checkedAt = Date(timeIntervalSince1970: 1_725_000_000)
-        let snapshot = DesktopHealthSnapshot(components: [
-            ComponentHealth(component: .desktopAgent, level: .healthy, detail: "ok"),
-            ComponentHealth(component: .gateway, level: .healthy, detail: "ok"),
-            ComponentHealth(component: .hermes, level: .healthy, detail: "ok"),
-            ComponentHealth(component: .observer, level: .healthy, detail: "ok"),
-            ComponentHealth(component: .endToEnd, level: .failed, detail: "invalid legacy token"),
-        ], checkedAt: checkedAt)
-
-        let accountPresentation = snapshot.presented(accountModeActive: true)
-
-        XCTAssertEqual(accountPresentation.components.map(\.component), [
-            .desktopAgent, .gateway, .hermes, .observer,
-        ])
-        XCTAssertEqual(accountPresentation.checkedAt, checkedAt)
-        XCTAssertEqual(accountPresentation.overall, .healthy)
-        XCTAssertEqual(snapshot.presented(accountModeActive: false), snapshot)
-    }
-
     func testHealthyRequiresAgentGatewayAndHermes() {
         let snapshot = DesktopHealthSnapshot(components: [
             ComponentHealth(component: .desktopAgent, level: .healthy, detail: "ok"),
             ComponentHealth(component: .gateway, level: .healthy, detail: "ok"),
             ComponentHealth(component: .hermes, level: .healthy, detail: "ok"),
-            ComponentHealth(component: .observer, level: .healthy, detail: "ok"),
             ComponentHealth(component: .endToEnd, level: .healthy, detail: "ok"),
         ])
 
         XCTAssertEqual(snapshot.overall, .healthy)
-    }
-
-    func testOptionalObserverFailureOnlyDegradesMainConnection() {
-        let snapshot = DesktopHealthSnapshot(components: [
-            ComponentHealth(component: .desktopAgent, level: .healthy, detail: "ok"),
-            ComponentHealth(component: .gateway, level: .healthy, detail: "ok"),
-            ComponentHealth(component: .hermes, level: .healthy, detail: "ok"),
-            ComponentHealth(component: .observer, level: .failed, detail: "unsupported"),
-            ComponentHealth(component: .endToEnd, level: .healthy, detail: "ok"),
-        ])
-
-        XCTAssertEqual(snapshot.overall, .degraded)
     }
 
     func testRequiredFailureNeedsAttention() {

@@ -1,8 +1,8 @@
 import HermesGoDesktopCore
 import SwiftUI
 
-/// Full-window pages shown instead of the sidebar while the account or this Mac is not ready
-/// (`docs/DESKTOP_ONBOARDING_REQUIREMENTS.md` §5). None of them offers a way around sign-in.
+/// Gated content shown alongside the global sidebar while the account or this Mac is not ready
+/// (`docs/DESKTOP_ONBOARDING_REQUIREMENTS.md`). Management still requires sign-in.
 struct GateShell<Content: View, Footer: View>: View {
     @Environment(\.colorScheme) private var colorScheme
     var step: DesktopOnboardingStep?
@@ -110,6 +110,10 @@ struct GateIssueBanner: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
+            if model.entryRoute == .main {
+                Button("查看诊断") { model.showDiagnostics(issue) }
+                    .buttonStyle(.bordered).controlSize(.small)
+            }
             Button("复制诊断") { model.copyDiagnostics(issue) }
                 .buttonStyle(.bordered)
                 .controlSize(.small)

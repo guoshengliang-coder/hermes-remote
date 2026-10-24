@@ -6,7 +6,7 @@ struct ManagedServiceRepairCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("修复这台 Mac 的受管服务", systemImage: "wrench.and.screwdriver")
+            Label("修复这台 Mac 的Desktop", systemImage: "wrench.and.screwdriver")
                 .font(.system(size: 16, weight: .bold))
             Text("启动项缺失或尚未载入。先检查原安装和账号，确认后恢复连接；设备绑定和 Hermes 数据会保留。")
                 .font(.system(size: 12))
@@ -24,7 +24,7 @@ struct ManagedServiceRepairCard: View {
                         .font(.system(size: 12))
                 }
                 Spacer()
-                Button("检查并修复受管服务") { Task { await model.prepareServiceRepair() } }
+                Button(model.serviceRepairGuidance == nil ? "检查并修复 Desktop" : "重新检查修复条件") { Task { await model.prepareServiceRepair() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.isManagedBootstrapAccountLocked || model.isAccountOperationInProgress)
             }
@@ -65,17 +65,17 @@ struct ServiceRepairConfirmationContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label(recovering ? "恢复上次未完成的修复" : (reconnectOnly ? "重新连接这台 Mac" : "修复受管服务"), systemImage: "wrench.and.screwdriver")
+            Label(recovering ? "恢复上次未完成的修复" : (reconnectOnly ? "重新连接这台 Mac" : "修复Desktop"), systemImage: "wrench.and.screwdriver")
                 .font(.system(size: 19, weight: .bold))
                 .foregroundStyle(Color.hermesBlue)
-            Text("原受管安装 · \(releaseVersion)").font(.system(size: 14, weight: .semibold))
+            Text("Desktop 修复").font(.system(size: 14, weight: .semibold))
             Text(recovering
                  ? "会恢复上次修复前的启动项和服务状态。完成后请重新检查，再确认新的修复。"
-                 : (reconnectOnly ? "会短暂重启这台 Mac 的 Hermes GO Connector，并等待新的账号健康上报。Hermes 服务保持运行，手机连接会短暂中断。"
-                    : "会恢复缺失的启动项、载入未启动的服务，并在必要时短暂重启 Connector，验证这台 Mac 的连接。"))
+                 : (reconnectOnly ? "会短暂重启这台 Mac 的 Desktop 后台连接，并等待新的账号健康上报。Hermes 服务保持运行，手机连接会短暂中断。"
+                    : "会恢复缺失的启动项、载入未启动的服务，并在必要时短暂重启 Desktop 后台连接，验证这台 Mac 的连接。"))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(usesLocalHermes ? "Hermes 使用这台 Mac 已有的标准安装。" : "Hermes 使用原受管安装中的运行程序。")
+            Text(usesLocalHermes ? "Hermes 使用这台 Mac 已有的安装与默认数据目录（~/.hermes）；已有 profiles 和会话保留，后台连接不会跟随终端的 profile 切换。" : "Hermes 使用Desktop 管理的运行程序。")
                 .font(.system(size: 12))
             Text("当前账号、设备绑定、机器凭据和 Hermes 数据会保留。")
                 .font(.system(size: 12, weight: .semibold))

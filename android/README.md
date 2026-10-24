@@ -1,5 +1,12 @@
 # Hermes Remote Android
 
+HG-236 expands sequential video read-ahead to a negotiated, bounded window: start with up to two
+256 KiB ranges, grow to at most four 1 MiB requests on fast reads, and shrink on slow reads.
+Initial/index and seek reads stay small; close, pause and background cancel the window. Legacy peers
+stay single-range readers. Original quality, generation/owner checks, download priority and the
+shared 256 MiB block cache are preserved. See `../docs/ATTACHMENT_PERFORMANCE.md` for evidence and limits.
+This source change does not allocate or publish an APK.
+
 HG-233 adds More → Artifacts to the open conversation. It collects settled assistant deliveries
 from the complete display history, excluding original uploads and process-only media. Duplicate
 names get display suffixes; one path represents its latest delivery and current file reference,
@@ -376,6 +383,10 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.180 HG-236: adaptive parallel video read-ahead on compatible file channels, with
+  bounded memory, cache reuse, coordinated renewal and cancellation on pause/seek/background.
+  Original quality and legacy single-range compatibility are preserved. No Gateway, Connector,
+  Desktop release or server rate change is included.
 - Version 0.1.179 adds conversation artifacts with source navigation, current-file semantics and
   recoverable full-history collection (HG-233).
 - Version 0.1.178 improves attachment download throughput with negotiated concurrency and adaptive
@@ -1113,7 +1124,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.179-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.180-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

@@ -17,13 +17,11 @@ public struct DesktopLaunchAgentServiceState: Codable, Equatable, Sendable {
 public enum DesktopLaunchAgentControllerError: Error, Equatable, Sendable {
     case invalidConfiguration
     case duplicateConnector
-    case legacyStopFailed
     case legacySuppressionFailed
     case accountStartFailed
     case accountStopFailed
     case hermesStartFailed
     case hermesStopFailed
-    case legacyRestoreFailed
 }
 
 /// Exact-label launchd operations for a user domain. Callers must first obtain the migration journal
@@ -80,24 +78,6 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
             accountLoaded: isLoaded(Self.accountLabel),
             hermesLoaded: isLoaded(Self.hermesLabel)
         )
-    }
-
-    public func stopLegacy(snapshot: LegacyConnectorSnapshot) throws {
-        guard snapshot.isInstalled,
-              snapshot.isRunning,
-              validPlist(snapshot.launchAgentURL, label: Self.legacyLabel),
-              !isLoaded(Self.accountLabel),
-              isLoaded(Self.legacyLabel)
-        else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
-        guard run(["disable", serviceTarget(Self.legacyLabel)]).status == 0 else {
-            throw DesktopLaunchAgentControllerError.legacyStopFailed
-        }
-        guard run(["bootout", serviceTarget(Self.legacyLabel)]).status == 0,
-              waitUntilLoaded(Self.legacyLabel, expected: false)
-        else {
-            _ = run(["enable", serviceTarget(Self.legacyLabel)])
-            throw DesktopLaunchAgentControllerError.legacyStopFailed
-        }
     }
 
     /// Migration Assistant can restore both user LaunchAgents even when the committed managed
@@ -164,19 +144,6 @@ public struct DesktopLaunchAgentController<Runner: CommandRunning> {
         guard run(["bootout", serviceTarget(Self.hermesLabel)]).status == 0,
               waitUntilLoaded(Self.hermesLabel, expected: false)
         else { throw DesktopLaunchAgentControllerError.hermesStopFailed }
-    }
-
-    public func restoreLegacy(snapshot: LegacyConnectorSnapshot) throws {
-        guard snapshot.isInstalled,
-              validPlist(snapshot.launchAgentURL, label: Self.legacyLabel),
-              !isLoaded(Self.accountLabel),
-              !isLoaded(Self.legacyLabel)
-        else { throw DesktopLaunchAgentControllerError.invalidConfiguration }
-        guard run(["enable", serviceTarget(Self.legacyLabel)]).status == 0,
-              run(["bootstrap", domainTarget, snapshot.launchAgentURL.path]).status == 0,
-              waitUntilLoaded(Self.legacyLabel, expected: true),
-              !isLoaded(Self.accountLabel)
-        else { throw DesktopLaunchAgentControllerError.legacyRestoreFailed }
     }
 
     private var domainTarget: String { "gui/\(userID)" }

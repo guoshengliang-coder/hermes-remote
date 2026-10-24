@@ -63,15 +63,15 @@ final class DesktopHermesInstalledRuntimeCheckerTests: XCTestCase {
 final class DesktopDiagnosticRefreshWiringTests: XCTestCase {
     /// The SwiftUI executable cannot be imported into this core test target. Assert the critical
     /// call sites so a correct core projection cannot mask a button that never refreshes Cloud.
-    func testBothDiagnosticActionsRefreshAccountAndLocalEvidence() throws {
+    func testDiagnosticRefreshUpdatesAccountAndLocalEvidence() throws {
         let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/HermesGoDesktop")
         let view = try String(contentsOf: app.appendingPathComponent("DiagnosticsView.swift"), encoding: .utf8)
-        XCTAssertEqual(view.components(separatedBy: "await model.refreshDiagnostics()").count - 1, 2)
+        XCTAssertEqual(view.components(separatedBy: "await model.refreshDiagnostics()").count - 1, 1)
         XCTAssertFalse(view.contains("await model.refresh()"))
-        XCTAssertTrue(view.contains("账号设备上报"))
-        XCTAssertTrue(view.contains("账号设备的 Hermes"))
+        XCTAssertTrue(view.contains("model.diagnosticPresentation"))
         let model = try String(contentsOf: app.appendingPathComponent("DesktopViewModel.swift"), encoding: .utf8)
+        XCTAssertTrue(model.contains("currentDashboard?.localDevice"), "diagnostics must use this installation's active binding")
         let start = try XCTUnwrap(model.range(of: "func refreshDiagnostics()"))
         let end = try XCTUnwrap(model.range(of: "var canReconnectManagedConnector", range: start.upperBound..<model.endIndex))
         let body = model[start.lowerBound..<end.lowerBound]

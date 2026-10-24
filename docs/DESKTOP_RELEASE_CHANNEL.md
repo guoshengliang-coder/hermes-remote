@@ -1,5 +1,92 @@
 # Desktop release channel
 
+## Approved internal test candidate: 0.2.38
+
+On 2026-10-24 the owner confirmed **0.2.38/build 41** for the updater routing fix (#646).
+Continue the existing temporary ad-hoc internal channel with unchanged public trust settings.
+Build from clean current main, publish with the unified internal publisher, verify the full public
+DMG, and synchronize website/app-update discovery. Preserve the signed managed-component pointers.
+Old clients blocked by this updater defect require one direct DMG replacement of the GUI app;
+this does not reset or reinstall the owner's Hermes or change account bindings. Physical background
+commit/relaunch and mobile/data-preservation acceptance remain separate from publication checks.
+
+
+## Published internal test distribution: 0.2.37
+
+On 2026-10-24 the owner authorized merge/publication and confirmed **0.2.37/build 40**.
+This includes the overview visual hierarchy, the previously merged diagnostics/log viewer and
+interface cleanup (#642), and the existing per-Mac transfer-budget override support (#641; default
+unchanged). Continue temporary ad-hoc internal distribution with the existing public trust settings.
+Publish from clean current main through the unified internal publisher, verify the complete public
+DMG and synchronize website/app-update discovery. Preserve signed managed-component pointers.
+Physical upgrade and mobile/data-preservation acceptance remain separate from package/publication
+verification. This is not an Apple-notarized release.
+
+
+Publication completed on 2026-10-24 after PR #643 and main checks passed, from clean main
+`a9a812198cf4913fc2e7c86731f7a062731cb7ed`. Both unified-publisher success markers and independent full public downloads
+passed. The `-dev.dmg` and compatible `.dmg` alias match **3,794,849 bytes**, SHA-256
+`79ae595664f76ccb38c9a74f664ef33b88d4c1c86af59aed7b60f5ec61a26a44`. Website and app-update discovery report 0.2.37/build 40; signed managed-component
+indexes remain byte-identical at 0.4.12. Assets, 606 Swift tests, 41 Desktop packaging/tooling tests,
+app/DMG packaging, strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image
+integrity passed. Native light/dark/compact, long-name, expanded, signed-out, stale and failed-state
+fixtures were reviewed. No installed user app or local service was replaced. Physical upgrade and
+mobile/data-preservation acceptance remain pending; this does not establish Apple notarization.
+
+## Published internal test distribution: 0.2.36
+
+On 2026-10-24 the owner confirmed **0.2.36/build 39** for the existing-Hermes/profile repair
+and recovery UI iteration (#639). Continue temporary ad-hoc internal distribution, preserving
+public trust settings. Publish from clean current main through the unified internal publisher;
+verify the exact DMG and synchronize website/app-update discovery. Signed managed-component
+pointers stay unchanged. Live Mac repair/mobile acceptance is separate and remains pending.
+
+Publication completed on 2026-10-24 from clean main `4ee653e488dd96a8d6d9ea0b6efba3d0746a2227`
+after PR #639 and main checks passed. Both unified-publisher success markers and independent
+public verification passed. The `-dev.dmg` and compatible `.dmg` alias both match **3,681,884 bytes**,
+SHA-256 `fd3add77b6524cd5507160ef00d778d7935232c3229ec7ca9bb0244193dfac8d`.
+Website and app-update discovery report 0.2.36/build 39; signed managed-component indexes remain
+byte-identical at 0.4.12. Assets, 592 Swift tests, strict ad-hoc signature, mounted bundle
+identity/version/build/arm64 and image integrity passed. No installed user app or local service was
+replaced. Physical upgrade, live repair and mobile/data-preservation acceptance remain pending;
+this does not establish Apple notarization.
+
+## Published internal test distribution: 0.2.35
+
+On 2026-10-24 the owner authorized merge/publication and confirmed **0.2.35/build 38**.
+The overview separates cloud connectivity, this Mac's Desktop and authenticated local Hermes
+usability, with a concrete impact summary. Account login and management move to the global sidebar
+footer. Retain the existing public trust settings and temporary-signing internal channel; build from
+clean current main and use the unified publisher to verify the exact DMG and synchronize website
+and app-update discovery. Managed-component pointers remain unchanged. Publication and physical
+upgrade acceptance are separate gates; publication evidence follows.
+
+Publication completed on 2026-10-24 from clean main `6de547e1071b343a307fb0d79756b53dafcbcab0` after PR #636 and
+main checks passed. Both unified-publisher success markers and independent public verification
+passed. The `-dev.dmg` and compatible `.dmg` alias both match **3,694,300 bytes**, SHA-256
+`ccb22051b8b333c1e0fff901344fb6dc7b83221aedaf60bd56df0951cab8cf1e`. Website and app-update discovery report 0.2.35/build 38;
+signed managed-component indexes remain byte-identical at 0.4.12. Assets, 586 Swift tests,
+strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image integrity passed.
+No installed user app or local service was replaced. Physical upgrade/login/data-preservation
+acceptance remains pending; this does not establish Apple notarization.
+
+## Published internal test distribution: 0.2.34
+
+On 2026-10-24 the owner authorized publication and confirmed **0.2.34/build 37** on the
+existing temporary-signing internal channel. This release includes HG-234 onboarding recovery
+and HG-235 Desktop product/navigation/update/diagnostic integration and retirement of the old
+Desktop connection mode. Build from clean current main with the existing public trust settings.
+Use the unified internal publisher for the exact immutable `-dev.dmg`, full public size/hash
+readback and both website and app-update indexes. This does not change the signed managed-component
+pointers, claim Apple notarization, or replace physical upgrade acceptance.
+
+Publication completed with both unified-publisher success markers on 2026-10-24. Source commit:
+`5c83ce9ae446a1fd3bf2c16bc34b716894693646`. The public `-dev.dmg` and compatible `.dmg` alias
+both match **3,611,681 bytes**, SHA-256
+`ffb29645613c6c235d824317690986fbb18174c6a3bd97ba64aad857fb6be6c9`.
+The website and app-update indexes report 0.2.34/build 37; signed managed-component indexes
+remain unchanged at 0.4.12. Physical old-Mac update and task/data-preservation acceptance are pending.
+
 ## Internal app-update discovery (owner decision, 2026-10-22)
 
 After publishing 0.2.33, the owner reported that Desktop did not discover it and explicitly requested

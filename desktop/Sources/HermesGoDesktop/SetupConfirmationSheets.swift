@@ -54,86 +54,41 @@ struct SetupConfirmationSheets: ViewModifier {
 
     private func updateAvailableSheet() -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("发现新版本", systemImage: "arrow.down.circle.fill")
-                .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(Color.hermesBlue)
-
+            Label("Desktop 更新", systemImage: "arrow.down.circle.fill")
+                .font(.system(size: 19, weight: .bold)).foregroundStyle(Color.hermesBlue)
+            Text(model.updateStatusText).font(.system(size: 15, weight: .semibold))
             if let report = model.updateCheckState.report {
-                if let app = report.appUpdate {
-                    updateSection(title: "应用更新", update: app, installsApp: true)
-                }
-                if let managed = report.managedUpdate {
-                    updateSection(title: "组件更新", update: managed, installsApp: false)
-                }
-            }
-
-            if let issue = model.appUpdateIssue {
-                GateIssueBanner(issue: issue)
-            }
-            if let message = model.appUpdateStatusMessage {
-                Text(message)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack {
-                Spacer()
-                Button("稍后") { model.isUpdateSheetPresented = false }
-                    .keyboardShortcut(.cancelAction)
-            }
-        }
-        .padding(26)
-        .frame(width: 560)
-        .interactiveDismissDisabled(model.isAppUpdateInstalling)
-    }
-
-    private func updateSection(
-        title: String,
-        update: DesktopUpdateAvailability,
-        installsApp: Bool
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                Spacer()
-                Text("v\(update.version)")
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-            if update.releaseNotes.isEmpty {
-                Text("本次更新未提供说明。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(update.releaseNotes.enumerated()), id: \.offset) { _, note in
-                        HStack(alignment: .top, spacing: 7) {
-                            Text("•")
-                            Text(note)
-                                .fixedSize(horizontal: false, vertical: true)
+                let notes = (report.appUpdate?.releaseNotes ?? []) + (report.managedUpdate?.releaseNotes ?? [])
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
+                            Text(note).font(.system(size: 13)).foregroundStyle(.secondary)
                         }
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                    }
-                }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 200)
+                Text(report.managedUpdate != nil
+                    ? "更新会短暂中断手机连接，也可能中断正在运行的任务。请等任务完成后继续。后台更新验证成功后，Desktop 会按需退出并自动重启。"
+                    : "更新会退出并自动重启 Desktop。已经设置的后台连接会继续运行；请勿在安装或修复过程中退出。")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
+            if let issue = model.appUpdateIssue { GateIssueBanner(issue: issue) }
+            if let message = model.appUpdateStatusMessage {
+                Text(message).font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            if model.isDesktopUpdateRunning { ProgressView("正在更新 Desktop…") }
             HStack {
+                Button("稍后") { model.isUpdateSheetPresented = false }
+                    .disabled(model.isDesktopUpdateRunning).keyboardShortcut(.cancelAction)
                 Spacer()
-                if installsApp {
-                    Button(model.isAppUpdateInstalling ? "正在准备…" : "立即更新") {
-                        Task { await model.installAppUpdate() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.isAppUpdateInstalling)
-                } else {
-                    Button("立即更新") { model.installManagedUpdate() }
+                if model.updateCheckState.report?.hasUpdates == true {
+                    Button("更新 Desktop") { Task { await model.installDesktopUpdate() } }
                         .buttonStyle(.borderedProminent)
+                        .disabled(model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked)
                 }
             }
         }
-        .padding(16)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(26).frame(width: 560)
+        .interactiveDismissDisabled(model.isDesktopUpdateRunning)
     }
 
     /// The adopt path installs no Hermes — it takes over the copy already on this Mac — so it must
@@ -143,12 +98,12 @@ struct SetupConfirmationSheets: ViewModifier {
         _ preparation: DesktopManagedBootstrapPreparation
     ) -> String {
         if preparation.intent.isUpgrade {
-            return "继续后会保留当前账号、设备绑定和本机数据，更新两个用户级自动启动项，并短暂重启 Hermes Server 与 Connector。新版本未通过健康检查时会自动恢复旧版本。"
+            return "继续后会更新 Desktop 的后台运行能力，保留账号、设备绑定和本机数据。手机连接会短暂中断，运行中的任务也可能中断，请等任务完成后继续。健康检查未通过时会尝试恢复旧版本，结果可在诊断中查看。"
         }
         if model.bootstrapPlan.readiness == .readyToAdoptLocalHermes {
-            return "继续后会接管这台 Mac 上已有的 Hermes：不安装第二份代码，也不改动它的 .env 与数据，只新增 Connector 与两个用户级自动启动项，绑定当前账号，并短暂重启这两个服务。开始前请先停掉当前占用 9119 的启动项。"
+            return "继续后会接管这台 Mac 上已有的 Hermes：不安装第二份代码，也不改动它的 .env 与数据，为 Desktop 启用登录后自动运行和账号连接。现有本机服务会短暂重启，请等任务完成后继续；如有冲突，请按诊断指引处理。"
         }
-        return "继续后会安装受管 Hermes Server 与 Connector、写入两个用户级自动启动项、绑定当前账号，并短暂重启这两个服务。模型服务凭据和 Hermes 数据仍只保存在这台 Mac。"
+        return "继续后会完成 Desktop 后台设置，启用登录后自动运行并连接当前账号。模型服务凭据和 Hermes 数据仍只保存在这台 Mac。"
     }
 
     private func managedBootstrapConfirmLabel(
@@ -165,18 +120,12 @@ struct SetupConfirmationSheets: ViewModifier {
             Label("安装包签名已验证", systemImage: "checkmark.shield.fill")
                 .font(.system(size: 19, weight: .bold))
                 .foregroundStyle(Color.hermesBlue)
-            Text("Hermes Go \(preparation.releaseVersion)")
+            Text("Desktop 安装内容已验证")
                 .font(.system(size: 15, weight: .semibold))
             Text(managedBootstrapConfirmationDetail(preparation))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(preparation.confirmationText)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
 
             if model.managedBootstrapOperation == .committing {
                 SetupExecutionProgress(progress: model.managedSetupProgress)
@@ -204,23 +153,17 @@ struct SetupConfirmationSheets: ViewModifier {
         _ preparation: DesktopComponentBootstrapPreparation
     ) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Label("组件签名与内容已验证", systemImage: "checkmark.shield.fill")
+            Label("Desktop 更新内容已验证", systemImage: "checkmark.shield.fill")
                 .font(.system(size: 19, weight: .bold))
                 .foregroundStyle(Color.hermesBlue)
-            Text("Hermes Go \(preparation.releaseVersion)")
+            Text("Desktop 安装内容已验证")
                 .font(.system(size: 15, weight: .semibold))
             Text(preparation.intent.isUpgrade
-                ? "继续后会保留当前账号、设备绑定和本机数据，提交已验证的基础组件，并短暂重启 Hermes Server 与 Connector。新版本未通过健康检查时会自动恢复旧版本。不会修改 Homebrew。"
-                : "继续后会把已验证的基础组件提交到受管目录，写入两个用户级自动启动项、绑定当前账号，并短暂启动或切换 Hermes Server 与 Connector。不会修改 Homebrew；模型服务凭据和 Hermes 数据仍只保存在这台 Mac。")
+                ? "继续后会更新 Desktop 的后台运行能力，保留账号、设备绑定和本机数据。手机连接会短暂中断，任务也可能中断，请等任务完成后继续。健康检查未通过时会尝试恢复旧版本，结果可在诊断中查看。"
+                : "继续后会完成 Desktop 设置，启用登录后自动运行并连接当前账号。手机连接会短暂中断，请等任务完成后继续。模型凭据和 Hermes 数据保留在这台 Mac。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(preparation.confirmationText)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
 
             if model.componentBootstrapOperation == .committing {
                 SetupExecutionProgress(progress: model.componentSetupProgress)

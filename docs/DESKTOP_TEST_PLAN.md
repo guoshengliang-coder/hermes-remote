@@ -1,5 +1,31 @@
 # Hermes Go Desktop test plan
 
+## HG-199 Local Hermes integration — 2026-10-24
+
+Test-impact review: move the existing upstream checks to Local Hermes without changing the check
+or error contracts. Keep the main Settings/unified update transaction, account-only routing and
+installation/usability presentation. No new code or execution permission is added to HR errors.
+A launcher integration regression covers all exact known profile/unprofiled, pre/post-VIRTUAL_ENV
+cleanup scripts and rejects edited scripts. Generated scripts must keep default profile and cleanup.
+Existing journal tests must cover both pending-upgrade exclusion and retired-mode rejection.
+
+Native acceptance: Local Hermes owns a functional “版本与升级” card below its usability card, with
+unqueried/loading/unverified/failed/recovery states, compact and light/dark layouts. A detected disk
+version is not boot or health proof. No upgrade/resume/rollback button is present. Checking failure
+clears the prior recommendation. Both checks are unavailable during install/update operations.
+Settings has no second Hermes management card; its action and automatic interval check Desktop only.
+Navigation/setup/diagnostics retain their current destinations and root confirmation sheets.
+Isolated fixture review must not start monitoring, run network checks or alter the owner's services.
+Physical navigation/click/upgrade acceptance remains separate from native image fixtures.
+
+Local validation: assets, 762 Swift tests (2 skips), local app packaging and 141 compatibility Python
+tests pass. The exact prior-launcher regression failed with two assertions before recognition was
+updated, then passed. Fourteen native card fixtures use the real card/design/banner sources with a
+stub diagnostic model and synthetic report/readiness: unqueried, unverified, checking, dirty, recovery,
+failed and busy in light/compact dark. Key normal/error/recovery/disabled layouts were inspected;
+rendering invoked no check callbacks, monitoring or service actions. This is not full-app navigation
+or live upgrade acceptance. The local package is ad-hoc only and is not handed out or installed.
+
 The independent PM observer adds fourteen synthetic Python tests. It requires a private marked
 fixture and actual drained exclusive descriptors, binds facts/activation inputs/config/binary plus
 bounded full environment/base-Python content observations, and rejects same-generation drift on
@@ -365,6 +391,159 @@ full history/Q&A/stream/cancel/attachment/approval/clarify/cron acceptance and p
 The new condition rows also need light/dark review on that isolated Mac. Do not launch this app against
 the owner's production services merely to satisfy the visual check.
 
+## Overview visual hierarchy acceptance (2026-10-24)
+
+Local validation: 606 Swift tests, 41 Desktop packaging/tooling tests and asset consistency passed.
+Native SwiftUI fixtures reviewed: healthy light/dark/compact, expanded evidence, long device name,
+signed-out, stale account evidence and failed repair. Native title hiding was asserted. These fixture
+runs did not start monitoring, repair services or replace the installed app. The packaged release is
+built again from clean merged main before publication.
+
+- Automated: each indicator preserves its own evidence boundary. A running background can coexist
+  with a disconnected cloud, a failed mobile check or an unverified account; stale/future/signed-out,
+  manage-only and busy states cannot become green through aggregate card color.
+- Native fixtures: healthy light/dark, compact, long Mac name, signed-out, failed/blocked repair,
+  and stale evidence. Check three sections, wrapping controls, semantic contrast and Hermes artwork.
+- Expand each details control and verify original evidence times remain visible. Healthy reconnect
+  is reachable there; failed Desktop still shows repair outside. Refresh, update and navigation retain
+  their handlers. Do not activate service-changing actions in fixture verification.
+- Physical app upgrade and phone access remain separate acceptance; image rendering is not proof
+  of installed-client behavior.
+
+
+## Status and diagnostics polish acceptance — 2026-10-24
+
+Test impact: add regression coverage for mixed local/cloud failures, stale/future timestamps, failed
+account refresh, missing local binding with selected remote device, and direct cloud latency rather
+than reported RTT. Log filtering must combine source/query/keyword predicates and preserve redaction.
+Existing service/repair tests remain unchanged; this is presentation plus bounded read-only log access.
+
+Native acceptance: inspect healthy and failed checks, compact/dark layouts, long Mac names and selected
+Hermes icon. Header title text must be hidden while traffic lights/window dragging still work. Verify
+all seven checks pass before a green summary, repair appears beside a failing background check, no
+reconnect is suggested for healthy results, and preflight downloads are clearly historical plans.
+Exercise log source/search/warnings filters, empty result, scroll, refresh, copy matching text and
+open directory. Old log errors cannot change the current health conclusion. Verify Local Hermes has
+one state card without roadmap prose; missing installations must not claim an existing install.
+
+Local validation: 604 Swift tests and asset consistency passed after integrating #641. Native fixtures
+covered healthy/failed diagnostics, the log viewer, Local Hermes and overview in light/dark/compact
+layouts; a native window assertion verified hidden title text. App packaging passed. These fixtures
+do not execute live repair/reconnect, replace the installed app, or establish physical interaction
+acceptance. Interactive scrolling/filter/copy/open-directory and packaged window dragging remain
+manual acceptance checks.
+
+## Per-Mac transfer budget — unreleased
+
+Test-impact review: reproduce old repair/reconnect refusing an otherwise-valid 8 MiB/s override.
+Exercise repair and reconnect under bundled and component-store layouts; preserve exact plist
+bytes and keep Hermes running. Both upgrade writers must retain only the bounded rate, not arbitrary
+Node environment. Cover lower/upper boundaries, malformed/over-limit rates, rejection before mutation,
+private permissions and exact upgrade snapshot rollback. Existing bilingual repair-error contracts
+remain in force; no new UI/errors are added.
+
+Local validation on 2026-10-24: **596 Swift tests**, asset consistency and `desktop:app` passed.
+The new repair regression failed on the prior implementation. The cold-start health-window test
+now injects the fixture shutdown checker, so the owner's running service on 9119 cannot determine
+its outcome. This changes test isolation only; no live service was stopped.
+
+Live acceptance remains pending: install this support before applying the M4-only 8388608 override,
+reload only Connector, prove loaded rate and fresh exact-binding health, then verify actual file
+bytes/hash/throughput, interactive latency and Android preview/seek. See
+[`CONNECTOR_TRANSFER_TUNING.md`](CONNECTOR_TRANSFER_TUNING.md). Unit fixtures and raw TCP measurements
+do not establish these live outcomes.
+
+## Existing profiles and repair regression — 2026-10-24 follow-up
+
+Test-impact review: exercise real file-only detector + missing-both-startup-items repair with default,
+writer and researcher data, including sticky writer selection; assert all data/config/identity bytes
+survive both success and injected Connector startup failure. Pin launcher argv to default. Cover old
+launcher replacement when stopped, retention when running and exact rollback. Keep account mismatch,
+unknown services, occupied port, tampering, stale preparation and stale cloud-health refusal tests.
+Freshness tests cover expired/future/missing report time and expired account reads.
+
+Native fixtures: Overview light/dark compact (one repair action, within Desktop); blocked-repair reason;
+Devices only management; Diagnostics reason + stale reports; expanded setup retains confirmation flow.
+Local validation: 592 Swift tests and asset consistency passed. Native fixtures cover light/dark,
+compact Overview, blocked repair, device management and Diagnostics. A file-only check of the reported
+Mac recognizes Hermes 0.21.3 with consistent dependencies; no live service/data changes were made.
+
+Physical acceptance: on the reported Mac, inspect a repair preparation, confirm existing default home
+and retained binding/token, execute via app, require authenticated Hermes + fresh cloud health, then
+verify mobile access and default/named profile histories. Do not claim this from fixture tests. Repeat
+failed-start rollback in disposable homes, never by injecting failure into the owner's services.
+
+## Overview/global account acceptance — 2026-10-24
+
+Automated reducer coverage: healthy requires fresh Cloud/local background/authenticated Hermes and
+local-binding end-to-end evidence; selected remote healthy devices cannot hide local failure; stale
+or future timestamps, failed account refresh, unverified identity, signed-out/expired, manage-only,
+active operations and local Hermes failure never produce a false overall healthy state.
+
+Native view fixture checks cover light/dark, 980 pt window width, signed-out/expired login, local
+repair, account management, and phone/new-Mac onboarding in the 769 pt content area beside the
+sidebar. These do not run monitoring, install services or constitute physical device acceptance.
+
+Manual: check the three summary links scroll to corresponding sections; verify each source’s timestamp,
+refresh, repair confirmation, update, local-Hermes and phone-setup actions. Switch selected remote Mac:
+overview must stay on this Mac. From every section open the footer account menu, manage account and
+sign out; existing services keep running. Signed-out overview must show login actions; footer/Cloud-section
+login open the same email-code form. Complete/reject/expire login, verify setup routing and retained
+section. Account deletion must still land on its explicit receipt. During install/repair/deletion,
+account actions and sheet dismissal remain locked. Check long email truncation/help and narrow/dark layouts.
+
+## HG-235: Desktop product integration
+
+Automated coverage: update sequencing (background before app, failure, cancellation, late completion,
+cleanup pending, duplicate action, app-only/background-only); local Hermes usability (files are not
+health, authenticated healthy probe required, unsupported vs absent, bundled runtime). Existing
+account/installation/rollback/secret-redaction tests remain required. Ordinary bootstrap copy no longer
+asserts internal versions, paths or journal-state names; behavior assertions remain intact.
+
+Local evidence: 573 Swift tests passed; asset equality passed. Native NSHostingView renders of the
+actual Overview, Local Hermes (missing and healthy), Settings and Diagnostics were inspected at a
+770 pt content width in light/dark appearance. The Local Hermes status card was adjusted to full width.
+The preview uses injected fixtures without monitoring, network, installers or service changes.
+Final `desktop:app`, ad-hoc `codesign --verify --deep --strict`, and `git diff --check` passed. The build retains the pre-existing Sendable warning in DesktopServiceOperationLog.
+
+Physical acceptance remains pending on an already managed Mac with an approved release:
+1. Visit all five sidebar destinations; no separate Logs or old URL/Token/QR/observer entry exists.
+2. Switch the selected remote Mac; Local Hermes must still describe this Mac. Missing/unsupported/
+   installed-but-unverified/healthy/failing states must show the correct action and effect.
+3. Trigger app-only, background-only and combined updates. Confirm interruption text; cancel before
+   commit and confirm no app restart. Fail background verification or cleanup and confirm the app
+   stage does not start. After background success/app failure, retry only the remaining app stage.
+4. Open diagnostics from a failure, expand redacted logs and copy the report; verify no credentials.
+5. Close/reopen the window and quit/reopen Desktop outside an operation; verify account binding and
+   local Hermes configuration/task history are preserved. Verify sleep/logout effects separately.
+
+## Retired Desktop connection mode — 2026-10-24
+
+Current regression coverage replaces the removed legacy config/profile/token-transport tests:
+
+- A retired startup item or loaded job blocks setup, including a running job with missing files and
+  a service that appears after preflight. No account binding or service mutation occurs.
+- An inert old data directory neither blocks account setup nor supplies endpoints; its bytes remain
+  unchanged. The Hermes status endpoint is always the fixed loopback contract.
+- Retired jobs never become a healthy fallback. Account-active installations still use their own
+  health and retain exact-label duplicate suppression after Migration Assistant.
+- Legacy-mode journals fail closed without rewriting their bytes. Clean install, interrupted clean
+  rollback, exact-binding retries, account upgrades and rollback keep their existing transaction tests.
+- Account capabilities decode with or without old token flags, and never encode/use those flags.
+- `HR-MIGRATE-022` has bilingual guidance, a stable serialized code and nonretryable Details recovery.
+- The QR generator round-trips an onboarding URL, without a credential-bearing v1 payload.
+
+Run `npm run desktop:assets:test`, `npm run desktop:test`, `npm run desktop:app`, and `git diff --check`.
+Local automated evidence: 562 Desktop tests passed; canonical icon equality and `git diff --check` passed. `npm run desktop:app` built the local ad-hoc app and `codesign --verify --deep --strict` passed. The default local package has managed-install/update publication gates disabled; this is build verification, not a release or live upgrade acceptance.
+
+Packaged interactive acceptance remains pending: verify Account & Devices and Settings have no legacy
+entry, empty managed logs show empty, account-disabled service offers no fallback, and an existing
+account-managed Mac can launch/upgrade without changing binding or losing task state.
+
+The historical matrix below records earlier releases. Rows concerning legacy profile/Token/QR,
+legacy migration or restoration are retired, not current acceptance requirements.
+
+
 ## HG-226: progress and terminal sheet acceptance
 
 Automated coverage in `DesktopSetupProgressTests` and the real migration-coordinator fixtures:
@@ -492,19 +671,14 @@ npm run desktop:app
 The current automated suite covers:
 
 - overall status reduction and optional-capability degradation;
-- legacy Connector config parsing with a strict non-secret allowlist;
-- current Gateway WSS to Relay health URL conversion;
-- legacy launchd/install/log discovery through injected command execution;
+- read-only retired startup-item/job conflict detection through injected command execution;
 - managed Connector and Desktop log discovery, bounded redaction, and symlink refusal;
 - log/header/query/known-secret redaction;
-- profile validation that rejects insecure remote HTTP, URL credentials, queries, and fragments;
 - that the staged Hermes component is importable by a **child** process with no `PYTHONPATH`
   (`scripts/test/desktop-managed-python-path.test.mjs`) — upstream strips the repo root out of every
   child environment, so a bundle that relies on `PYTHONPATH` alone cannot run slash commands;
-- exact Android v1 JSON payload compatibility;
-- Core Image QR output decoded back to the exact v1 payload with the native QR detector, including payload-size rejection;
-- authenticated `/api/status` request path and header behavior;
-- 401/403, offline Connector, and unmapped Relay error classification;
+- account onboarding QR output decoded back to the exact URL with the native QR detector;
+- authenticated local-Hermes probing and account-reported end-to-end failure classification;
 - bilingual error code, retryability, recovery-action, and diagnostic redaction contracts;
 - recent-log warning counting independent of current health;
 - full SwiftUI target compilation.
@@ -1137,3 +1311,27 @@ A5DN9X4708H02629 is unauthorized; available L3 Pixel_API_37 was not run. No new 
 behavior, app delivery or version allocation. The actual fixed-source Mac matrix passes 3 deaths/
 6 refusals without upstream code execution. New independent-download maintenance coverage is not
 claimed by these integration checks; whole-writer certification stays false.
+
+### Update source/layout regression (2026-10-24)
+
+Test impact: the defect is at discovery/executor routing, not semantic-version ordering. Automated
+coverage selects the source for bundled 0.3.4 with both configurations available, discovers app
+0.2.37 and backend 0.4.12, and asserts the bundled executor identity. The mirrored component-store
+case accepts only the component index; requesting the other namespace fails. Missing matching
+configuration and absent/inconsistent/attention-required installs cannot cross-fallback. Prepared
+component hints retain their layout and cannot overwrite an existing offer. Both executors reject
+the opposite layout without misreporting a non-newer version or mutating live services. Existing
+same-version refusal and unified update failure/cancel/cleanup tests remain required.
+
+Physical acceptance: on a bundled-layout Mac with server component capability enabled, check and
+prepare the update; confirm the signed bundled-release confirmation appears, then complete the
+explicitly confirmed upgrade and app relaunch. Repeat on a component-store Mac, including a newer
+index published after startup preflight. Verify original Hermes home/profiles/data and account
+binding, no duplicate background services, and mobile access afterwards. These service-changing
+physical steps remain pending; unit/build gates alone do not establish successful on-device upgrade.
+
+Read-only physical evidence on 2026-10-24: the installed 0.2.36/build 39 public configuration and
+schema-1 active 0.3.4 journal resolve to the bundled index/executor with this fix. Public discovery
+finds app 0.2.37 and backend 0.4.12; the backend envelope passes size/hash and Ed25519 verification
+using the installed app's trusted public key. No credentials were printed and no app, service,
+installation journal or Hermes data was changed. Commit/relaunch acceptance remains pending.

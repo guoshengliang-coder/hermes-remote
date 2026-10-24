@@ -158,8 +158,9 @@ Desktop indexes/signatures/files, and the official Android workflow/package/publ
 Android uses Media3 1.11.1 with an authenticated custom DataSource. The player uses opaque local
 media URIs; bearer credentials, original paths and Gateway URLs are never passed to a media intent.
 Legacy peers retain full-download-then-play for small videos; large videos report HR-FILE-012.
-Both playback and download request closed 256 KiB ranges, verify strong If-Match/ETag, exact
-Content-Range and body length, and reject 200 responses. Seeking may fetch any aligned range,
+Initial playback reads request closed 256 KiB ranges; HG-236 sequential video prefetch and HG-232
+downloads can grow to negotiated 1 MiB ranges with at most four concurrent requests. Both verify strong
+If-Match/ETag, exact Content-Range and body length, and reject 200 responses. Seeking may fetch any aligned range,
 including the MP4 tail index. No whole-file staging, transcoding or HLS service is introduced.
 
 A separate app-private 256 MiB LRU block cache stores only complete validated blocks using atomic
@@ -213,3 +214,22 @@ and seeking through the production DataSource and real decoder. No new APK publi
 - Local development APK signing certificate matches SIGNING.md:
   `06c18dfc4a852330654c2da040a578bccab13b71dde4ac962bb9bc2271dd32c5`.
   No version bump, distributed APK, production deployment or release is part of this follow-up.
+
+## HG-236 · bounded parallel video read-ahead
+
+Android consumes the existing negotiated `maxConcurrentRanges` / `maxRangeBytes` without changing
+wire or REST contracts. Initial reads and seeks request one 256 KiB block. After sequential reads,
+two speculative ranges (or one for legacy peers) overlap decoding; fast consumed ranges (<1.5s)
+double the range size to at most 1 MiB and grow the window to at most four. Slow ranges (>3s) halve
+range size and reduce read-ahead to one, cancelling distant pending requests. At most 4 MiB of
+speculative payload plus the current <=1 MiB range are retained; the evictable cache stays 256 MiB.
+Responses are consumed in address order without waiting for later ranges. Cache hits split missing
+network spans so previously played/downloaded blocks are reused. Only verified responses are split
+into atomic, checksummed 256 KiB cache blocks. Old peers remain serial at their negotiated size.
+
+The per-owner arbiter allows up to four playback reads but gives downloads exclusive access to all
+four slots. Playback leases still cancel only the originating Mac's download; resumption waits for
+all playback requests to drain. Per-source slots enforce negotiated limits. Expired references and
+transport errors share one renewal after old-reference HTTP requests drain, and renewed ETag/size
+must match. Cancellation and owner/generation checks apply before network dispatch and publication.
+No new error code, server release, server rate change, UI controls or cross-side contract is added.

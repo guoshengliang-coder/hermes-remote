@@ -29,7 +29,7 @@ public protocol DesktopComponentBootstrapMigrating: Sendable {
         activationPlan: DesktopComponentReleaseActivationPlan,
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome
@@ -168,7 +168,7 @@ public actor DesktopComponentBootstrapExecutor {
             intent = .install
         case .active(let installed, let layout, _, _):
             guard layout == .componentStore else {
-                throw DesktopComponentBootstrapExecutorError.releaseNotNewer
+                throw DesktopMigrationCoordinatorError.invalidStartingState
             }
             guard Self.version(
                 trustedPreflight.result.manifest.releaseVersion,
@@ -236,7 +236,7 @@ public actor DesktopComponentBootstrapExecutor {
     public func commit(
         _ preparation: DesktopComponentBootstrapPreparation,
         configuration: DesktopManagedBootstrapCommitConfiguration,
-        legacy: LegacyConnectorSnapshot,
+        legacy: RetiredConnectorSnapshot,
         confirmation: String
     ) async throws -> DesktopComponentBootstrapOutcome {
         guard case .prepared(let pending) = state else {

@@ -917,7 +917,7 @@ final class HermesInstallWiringTests: XCTestCase {
         let install = try XCTUnwrap(model.range(of: "installer.install("))
         XCTAssertTrue(start.upperBound < install.lowerBound && install.lowerBound < cancel.lowerBound, "the installer must run only inside startHermesInstall")
         XCTAssertTrue(model.contains("await refreshHermesInstallOffer(scopedManagedInstallation)"), "the refresh never offers an install")
-        XCTAssertTrue(model.contains("guard !isManagedBootstrapAccountLocked, !isHermesInstallDecisionPending else { return }"))
+        XCTAssertTrue(model.contains("guard !isServiceMutationLocked, (!isDesktopUpdateRunning || forDesktopUpdate), !isHermesInstallDecisionPending else { return }"))
         XCTAssertTrue(model.contains("!isHermesInstallDecisionPending,"), "component setup must wait for the owner's Hermes decision")
         // Finding 2: the re-evaluation before running reads the record as it is, writes nothing,
         // must match the shown offer, and aborts when there is no offer any more.
@@ -932,7 +932,7 @@ final class HermesInstallWiringTests: XCTestCase {
         XCTAssertEqual(model.components(separatedBy: "noteFreshInstallBlock()").count - 1, 3, "both refusals must classify the block")
         XCTAssertTrue(model.contains("DesktopHermesInstallResume.desktopOwnsCheckout(hermesInstallAttempts, paths: $0.paths)"))
         XCTAssertTrue(model.contains("isFreshInstallBlockedByOwnersHermes = !owned"))
-        let views = try appSource("SecondaryViews.swift")
+        let views = try appSource("DesktopConnectionSetupView.swift")
         XCTAssertTrue(views.contains("if model.isFreshInstallBlockedByDesktopsOwnCheckout, model.hermesInstallPhase == .hidden {"))
         let guidance = try XCTUnwrap(views.range(of: "private var ownersHermesGuidanceCard"))
         let guidanceBody = views[guidance.lowerBound...].prefix(900)
@@ -944,7 +944,7 @@ final class HermesInstallWiringTests: XCTestCase {
         let sheet = try XCTUnwrap(card.range(of: "private func confirmationSheet"))
         let lastStart = try XCTUnwrap(card.range(of: "model.startHermesInstall()", options: .backwards))
         XCTAssertTrue(sheet.lowerBound < lastStart.lowerBound, "the first start must come from the confirmation sheet")
-        XCTAssertTrue(try appSource("SecondaryViews.swift").contains("HermesInstallCard()"))
+        XCTAssertTrue(try appSource("DesktopConnectionSetupView.swift").contains("HermesInstallCard()"))
     }
 
     private func appSource(_ name: String) throws -> String {

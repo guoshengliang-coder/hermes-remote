@@ -203,20 +203,20 @@ final class DesktopLocalHermesDetectorTests: XCTestCase {
         XCTAssertEqual(home.reason(), .nonStandardLocation)
     }
 
-    func testProfilesAreSurfaced() throws {
+    func testExistingProfilesDoNotBlockTheOriginalDefaultHome() throws {
         let home = try LocalHermesHome()
         try FileManager.default.createDirectory(atPath: home.path(".hermes/profiles/work"), withIntermediateDirectories: true)
 
-        XCTAssertEqual(home.reason(), .multipleProfiles)
+        XCTAssertEqual(home.detect().installation?.hermesHome.path, home.path(".hermes"))
     }
 
-    func testANonDefaultActiveProfileIsSurfacedButDefaultIsNot() throws {
+    func testStickyProfileDoesNotChangeTheManagedDataHome() throws {
         let home = try LocalHermesHome()
         try home.write(".hermes/active_profile", "default\n")
         XCTAssertNotNil(home.detect().installation)
 
         try home.write(".hermes/active_profile", "work\n")
-        XCTAssertEqual(home.reason(), .multipleProfiles)
+        XCTAssertEqual(home.detect().installation?.hermesHome.path, home.path(".hermes"))
     }
 
     func testACustomHermesHomeInTheEnvironmentIsSurfaced() throws {
@@ -752,12 +752,28 @@ final class DesktopLocalHermesLaunchTests: XCTestCase {
 
     private static let token = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123456"
 
+    func testKnownLaunchersRemainRecognizableAcrossDefaultProfileAndEnvironmentCleanup() throws {
+        let executable = URL(fileURLWithPath: "/tmp/hermes-fixture/venv/bin/hermes")
+        for base in [try DesktopLocalHermesLauncher.script(executable: executable),
+                     try DesktopLocalHermesLauncher.previousScript(executable: executable)] {
+            let text = String(decoding: base, as: UTF8.self)
+            for variant in [text, text.replacingOccurrences(of: "unset token PYTHONPATH PYTHONHOME VIRTUAL_ENV",
+                                                           with: "unset token PYTHONPATH PYTHONHOME")] {
+                XCTAssertTrue(try DesktopLocalHermesLauncher.recognizes(Data(variant.utf8), executable: executable))
+                XCTAssertFalse(try DesktopLocalHermesLauncher.recognizes(Data((variant + "\necho unexpected\n").utf8), executable: executable))
+            }
+        }
+        let current = String(decoding: try DesktopLocalHermesLauncher.script(executable: executable), as: UTF8.self)
+        XCTAssertTrue(current.contains("unset token PYTHONPATH PYTHONHOME VIRTUAL_ENV"))
+        XCTAssertTrue(current.contains("exec \"$@\" --profile default"))
+    }
+
     func testTheLauncherHandsTheTokenFromTheFileToHermesAndExecsIt() throws {
         let sandbox = try LauncherSandbox()
         let result = try sandbox.run(arguments: sandbox.expectedArguments)
 
         XCTAssertEqual(result.status, 0, result.error)
-        XCTAssertEqual(result.output, "\(Self.token)|serve --host 127.0.0.1 --port 9119|unset")
+        XCTAssertEqual(result.output, "\(Self.token)|serve --host 127.0.0.1 --port 9119 --profile default|unset")
     }
 
     func testTheLauncherRefusesATokenFileOthersCanRead() throws {
@@ -1086,7 +1102,7 @@ final class LocalHermesWiringTests: XCTestCase {
         XCTAssertTrue(model.contains("runtime.reconcileHermesRuntime(detector: detector, enabled: enabled)"))
         XCTAssertTrue(model.contains("localHermesInstallBlock(for: installation)"), "fresh managed install is not gated")
         XCTAssertTrue(model.contains("localHermesInstallBlock(for: machine.installation)"), "fresh component install is not gated")
-        XCTAssertTrue(try appSource("SecondaryViews.swift").contains("model.localHermesIssue"))
+        XCTAssertTrue(try appSource("DesktopConnectionSetupView.swift").contains("model.localHermesIssue"))
     }
 
     private func appSource(_ name: String) throws -> String {

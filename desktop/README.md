@@ -1,5 +1,14 @@
 # Hermes Go Desktop
 
+## HG-199 integration with Local Hermes (unreleased)
+
+The dedicated “本机 Hermes” page now owns upstream version and upgrade-condition checks in
+“版本与升级”, after its local installation/usability card. Settings and the unified Desktop update
+sheet retain GO app/background updates; they no longer trigger an upstream check. Checks remain
+read-only, account/local scoped and unavailable during installation/update operations. Upstream
+upgrade/recovery execution remains gated. This branch retains main's default-profile launcher and
+recognizes only the exact prior GO launcher revisions, including those before environment cleanup.
+
 External dependency recovery now has an explicit-root archive/export backend. It binds private
 manifests to run/source/home, records OS build/architecture, checks every file's bytes and permissions,
 and rejects external/absolute/dangling/cyclic links and source changes. Export publishes only a new
@@ -39,11 +48,104 @@ negative check before stopping services, around backups and before source moves.
 samples and extra/surviving processes block; empty samples never prove admission, task inactivity or
 recoverable dependencies. Full live evidence and end-to-end certification remain pending.
 
+Release candidate **0.2.38 / build 41** (owner confirmed 2026-10-24): fixes updates blocked
+on existing bundled installations (#646). Discovery and execution now follow the installed layout;
+component updates refresh signed preflight, while stale hints cannot override index discovery.
+Existing signing, confirmation, rollback and background-before-app sequencing remain unchanged.
+Affected 0.2.36/0.2.37 clients may need one direct DMG app replacement to acquire this updater fix.
+Do not reset Hermes, profiles, account binding or installation records. Continue temporary ad-hoc
+internal distribution and preserve the signed backend pointers. Publication evidence follows.
+
+
+Published **0.2.37 / build 40** (owner confirmed 2026-10-24): overview now emphasizes
+semantic icons, direct cloud latency, Hermes version and independently checked background/cloud/mobile
+status. Healthy explanations and check times expand on demand; recovery remains visible for failures.
+Includes the diagnostics/log viewer, native title cleanup, Mac naming, shared Hermes portrait icon and
+Local Hermes placeholder removal previously merged in #642. Also includes #641's validated per-Mac
+transfer-budget override; its default remains unchanged. See `CONNECTOR_TRANSFER_TUNING.md`.
+Publication completed on 2026-10-24 after PR #643 and main checks passed, from clean main
+`a9a812198cf4913fc2e7c86731f7a062731cb7ed`. Both unified-publisher success markers and independent full public downloads
+passed. The `-dev.dmg` and compatible `.dmg` alias match **3,794,849 bytes**, SHA-256
+`79ae595664f76ccb38c9a74f664ef33b88d4c1c86af59aed7b60f5ec61a26a44`. Website and app-update discovery report 0.2.37/build 40; signed managed-component
+indexes remain byte-identical at 0.4.12. Assets, 606 Swift tests, 41 Desktop packaging/tooling tests,
+app/DMG packaging, strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image
+integrity passed. Native light/dark/compact, long-name, expanded, signed-out, stale and failed-state
+fixtures were reviewed. No installed user app or local service was replaced. Physical upgrade and
+mobile/data-preservation acceptance remain pending; this does not establish Apple notarization.
+
+Download: `https://mrlgs.net/desktop/apps/0.2.37/Hermes-Go-Desktop-0.2.37-dev.dmg`.
+
+Published **0.2.36 / build 39** (2026-10-24): repair existing Hermes installations with named profiles without changing their data,
+pin the managed backend to its original default home, show concrete repair blockers, and remove
+local setup/repair panels from Devices and the Overview headline. Diagnostics and device rows now
+expire old reports and keep local/remote identity separate. 592 Swift tests and asset checks passed;
+native light/dark/compact fixtures were reviewed. Live repair and mobile acceptance remain pending.
+
+Overview/global-account update (0.2.35 / build 38): three independently checked local status sections and
+an impact headline replace mixed connection tables. The sidebar footer owns login, identity and
+account management throughout the app; Devices and Settings keep their own responsibilities.
+
+Previous published internal test version: **0.2.36 / build 39**, published on 2026-10-24.
+PR #639 and its main checks passed. Assets, 592 Swift tests, app/DMG packaging, strict ad-hoc
+signature, mounted bundle identity/version/build/arm64 and image integrity passed. The unified
+publisher synchronized website and app-update discovery; independent full public downloads match
+3,681,884 bytes and SHA-256 `fd3add77b6524cd5507160ef00d778d7935232c3229ec7ca9bb0244193dfac8d`.
+Source: `4ee653e488dd96a8d6d9ea0b6efba3d0746a2227`.
+Download: `https://mrlgs.net/desktop/apps/0.2.36/Hermes-Go-Desktop-0.2.36-dev.dmg`.
+Temporary ad-hoc signing continues. No installed user app, local service or Hermes data was changed;
+live repair and mobile acceptance remain pending. Public trust/settings are retained, and signed
+managed-component indexes remain byte-identical at 0.4.12.
+
+Previous published internal test version: **0.2.35 / build 38**, published on 2026-10-24.
+PR #636 adds the overview/global-account redesign and adapts onboarding to the persistent sidebar.
+Assets, 586 Swift tests, app/DMG packaging and native light/dark fixture checks passed. The unified
+publisher synchronized website and app-update discovery; both full public downloads match
+3,694,300 bytes and SHA-256 `ccb22051b8b333c1e0fff901344fb6dc7b83221aedaf60bd56df0951cab8cf1e`.
+Download: `https://mrlgs.net/desktop/apps/0.2.35/Hermes-Go-Desktop-0.2.35-dev.dmg`.
+Temporary ad-hoc signing continues; physical upgrade, live login and task/data-preservation
+acceptance remain pending. Public trust/settings and signed managed-component indexes are retained.
+
+Previous published internal test version: **0.2.34 / build 37**, published on 2026-10-24.
+It includes HG-234 and HG-235 below. The unified publisher verified the full public DMG and
+synchronized both the website and Desktop app-update indexes. Download:
+`https://mrlgs.net/desktop/apps/0.2.34/Hermes-Go-Desktop-0.2.34-dev.dmg`.
+This uses temporary ad-hoc signing; Apple notarization and physical upgrade/data-preservation
+acceptance remain pending. Existing public managed-component trust/settings are retained.
+
+## HG-235: one Desktop product (0.2.34)
+
+Navigation now contains Overview, Local Hermes, Account & Devices, Diagnostics and Settings.
+Local Hermes distinguishes installation from authenticated usability on this Mac. Diagnostics owns
+component details, bounded redacted logs and the copyable report; errors can open their diagnostic
+context. Settings explains login startup, closing the window, quitting and task interruption.
+
+A single Desktop update action coordinates background updates before app replacement. Existing
+signed prepare/confirm/commit and rollback remain in use. Failure, cancellation or pending cleanup
+stops the sequence; an app-only retry cannot repeat a successful background update. Upstream Hermes
+version management remains future scope. This behavior is included in 0.2.34.
+
+## Account-only Desktop (0.2.34)
+
+Desktop no longer supports compatibility-observation mode or the URL/App Token/v1 pairing flow.
+The editor, credential store, token probe, config/log parser, observer health and legacy service
+migration/restore paths have been removed. Account sign-in is the only connection entry.
+Account capabilities no longer require the server's legacy-token flags. Phone download/onboarding
+QR links remain available; they contain no App Token.
+
+Only conflict detection for `com.hermesremote.connector` remains: an installed startup item or loaded
+job blocks new setup with `HR-MIGRATE-022`. An inert old data directory does not. The app never reads
+its config/logs, starts that job, or restores it after rollback. Existing, proven account-active
+installations retain exact-label suppression of a duplicate restored by Migration Assistant.
+Historical `legacy_active` / `lastKnownGoodMode=legacy` journals fail closed without being rewritten.
+Account installation, upgrade rollback and recovery remain supported. Old Keychain items and user
+files are not deleted. The historical release notes below describe prior versions, not current support.
+
+
 HG-234 fixes the phone onboarding page returning after an existing Mac upgrades or relaunches.
 Restoring this Desktop's valid binding retires stale onboarding flags, and component-upgrade
 intermediate checks cannot re-arm them. Existing active phone/Web sign-ins satisfy first setup
 without another login; offline clients still count. Local validation passed 578 tests, asset
-consistency and app packaging. This source change needs a later Desktop app release; the reported
+consistency and app packaging. This change is included in 0.2.34; the reported
 M4 upgrade/relaunch acceptance remains pending.
 
 HG-226 adds actual managed-setup stages, per-second elapsed time and per-run system/runtime
@@ -53,7 +155,7 @@ without reopening installation. The original permanent-loading hypothesis remain
 See the Desktop design and test plan for the behavior and pending physical upgrade acceptance.
 This change is included in the **0.2.33 / build 36** internal test release.
 
-Current published internal test version: **0.2.33** (build 36). On 2026-10-22 the owner
+Previous internal test version: **0.2.33** (build 36). On 2026-10-22 the owner
 confirmed that distribution continues with temporary ad-hoc signing. The versioned package is
 `https://mrlgs.net/desktop/apps/0.2.33/Hermes-Go-Desktop-0.2.33-dev.dmg`; publication must use
 the unified internal publisher, verify the full public file, and synchronize the website's
@@ -327,11 +429,7 @@ closed with the existing migration diagnostic. The corrective implementation fir
 release 0.3.1 or newer, the immutable release boundary at which both packaged components support the
 file contract; an older committed release remains untouched.
 
-Hermes Go Desktop is the native macOS companion for the existing Hermes Remote Connector. The local
-I3-A alpha still runs in **compatibility observation mode**: it reads the current user-level launchd status,
-non-secret Connector settings, public Relay health, local Hermes reachability, and sanitized logs.
-It can additionally save an App Token in Keychain, generate the existing Android v1 pairing QR, and
-run an authenticated end-to-end status check. When the Gateway advertises macOS `email_otp` account
+Hermes Go Desktop is the native macOS companion for Hermes GO account connections. When the Gateway advertises macOS `email_otp` account
 support, it can send a six-digit code to the user's email, exchange it for a management session,
 persist/refresh that session, show the binding and phone installations, remove one phone only after
 re-verifying the current account email, and sign out only this Desktop management session. When the
@@ -345,10 +443,10 @@ artifact/archive validation, account binding, atomic managed install, user Launc
 control, health-gated commit, rollback, and restart recovery path. The packaged UI exposes a
 two-stage “download and verify → exact release confirmation” action only when complete pinned release
 configuration and the frozen `hermes-serve-v1` contract match a separate Gateway capability. Default
-builds have neither enablement, so the action remains absent and read-only compatibility continues.
+builds without enablement keep installation unavailable.
 The migration core now owns separate exact-label Hermes Server and Connector LaunchAgents. It starts
 Hermes first and requires a new process-specific ready marker plus healthy loopback probe before the
-Connector may start; pre-commit rollback stops both managed services before restoring legacy state.
+Connector may start; failed new setup stops both managed services and returns to the uninstalled state.
 Each launchd mutation waits for the exact label to converge, so a successful `bootout` whose removal
 finishes asynchronously cannot be mistaken for a failed migration or a completed rollback.
 
@@ -371,18 +469,15 @@ login and scoped email recent reauthentication for device invitations and manage
 Google is not shown on the
 first-release account surface; its existing implementation remains dormant compatibility code.
 Production account mode remains default-off until the live transactional-mail and packaged-Mac gates
-pass, and the legacy connection remains available. Local evidence and remaining release gates are in
+pass (historical rollout record; legacy Desktop connections are now retired). Local evidence and remaining release gates are in
 `../docs/ACCOUNT_MODE_E7_DESKTOP_TEST_RECORD.md`.
 
 ## Current boundaries
 
-- Hermes source, configuration, data, and processes are not modified.
+- Managed service operations preserve Hermes data and require the existing explicit setup/repair confirmation.
 - The existing Gateway protocol and Android configuration remain unchanged.
-- The App Token is accepted only through explicit user configuration, stored in this-device-only
-  Keychain storage, masked in the UI, and never written to logs.
-- The v1 QR contains the long-lived App Token and is therefore hidden by default.
 - The GUI never starts a second Connector with the same device ID.
-- Existing legacy installs and any unknown service on loopback port 9119 remain read-only. A clean
+- Retired startup items block new setup with `HR-MIGRATE-022`; unknown services on loopback port 9119 remain read-only. A clean
   Mac can reach managed Bootstrap only in an explicitly configured build against a matching Gateway;
   the default packaged app cannot download or install anything.
 - The app declares macOS local-network ATS access so its `URLSession` health probes can reach the
@@ -393,11 +488,9 @@ pass, and the legacy connection remains available. Local evidence and remaining 
   the normal system networking configuration.
 - Candidate Hermes and Connector health each receive up to 75 one-second polls. This covers a measured
   35-second cold start on the physical Mac mini without weakening the exact marker and HTTP proof.
-- Managed takeover requires exact user confirmation and never runs the legacy and account Connector
-  labels together. The legacy label is persistently disabled before managed startup and re-enabled
-  before rollback restore. On Desktop startup, an exact `account_active` journal plus both loaded
-  managed services may suppress a transferred legacy label; no intermediate or mismatched state may
-  use that repair.
+- Managed setup requires exact user confirmation. Retired startup items must be removed first;
+  failed new setup returns to `clean_uninstalled`. A proven account-active installation may suppress
+  a duplicate retired job restored by Migration Assistant, but cannot start or restore it.
 - An exact committed installation without the session-token contract marker is reconciled once at
   Desktop startup. Both managed LaunchAgents must be owner-only, point to the current managed
   executables and exact log paths, and either agree on the same valid inline token or already agree on
@@ -415,7 +508,7 @@ pass, and the legacy connection remains available. Local evidence and remaining 
 - On a later Desktop launch, an `account_active` journal plus both exact managed LaunchAgents is shown
   as the active installation. An intermediate journal is recovered before any new install is allowed;
   mismatched journal/service state fails closed with a registered migration issue. A completed rollback
-  to `legacy_active` or `clean_uninstalled` admits a newly confirmed migration run and atomically replaces
+  to `clean_uninstalled` admits a newly confirmed migration run and atomically replaces
   the terminal journal; when that run's pending cloud binding has since expired, only its recorded
   generation may be recreated. Active, intermediate, unrelated revoked, and manual-attention states
   remain non-replaceable.
@@ -458,9 +551,9 @@ npm run desktop:app
 The app opens Google's account chooser in the system browser with PKCE S256, state, nonce, and a
 temporary `127.0.0.1` callback. It never reads Chrome/Safari profiles or stores a Google access token.
 
-When an account session is signed in, Overview, Diagnostics, and the menu-bar aggregate status omit
-the legacy App-Token end-to-end probe. That compatibility probe remains available only through the
-collapsed legacy configuration path and cannot degrade a healthy account-mode presentation.
+Overview and Diagnostics use the selected account device's authenticated health. Local probes use
+only the configured account Gateway and the fixed loopback Hermes contract. No saved App Token,
+retired config, or retired log can influence the displayed health.
 
 `desktop:app` and `desktop:dmg` use ad-hoc signing when `SIGNING_IDENTITY` is unset. A public build
 requires a Developer ID Application identity and Apple notarization credentials; see
@@ -472,10 +565,10 @@ source changes. Packaging fails if the two files differ.
 
 ## Structure
 
-- `Sources/HermesGoDesktopCore/` — status, compatibility inspection, OAuth/account transport,
+- `Sources/HermesGoDesktopCore/` — status, retired-service conflict detection, OAuth/account transport,
   multi-device selection, signed release acquisition, managed installation/migration, Bootstrap
   planning, Keychain session/machine identity, probing, and redaction.
-- `Sources/HermesGoDesktop/` — SwiftUI window, menu bar, account/devices, and compatibility screens.
-- `Tests/` — compatibility, state-reduction, and security tests.
+- `Sources/HermesGoDesktop/` — SwiftUI window, menu bar, account/devices, and diagnostics.
+- `Tests/` — account setup/recovery, state-reduction, and security tests.
 - `Packaging/` — static bundle metadata and the synchronized app icon.
 - `scripts/` — local `.app` and `.dmg` packaging.

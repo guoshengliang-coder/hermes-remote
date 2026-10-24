@@ -50,6 +50,58 @@ class VideoStreamingDeviceTest {
     @Test fun small_video_renders_before_full_transfer_and_download_reuses_playback() = verify(2 * 1024 * 1024, true)
     @Test fun video_above_100_MiB_renders_and_seeks_without_downloading_the_whole_file() = verify(126 * 1024 * 1024, false)
 
+    @Test fun continuous_reads_compare_equal_bytes_under_one_shared_bandwidth_budget(): Unit = runBlocking {
+        val mp4 = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
+        var expected: String? = null
+        repeat(3) { attempt ->
+            for (parallel in if (attempt % 2 == 0) listOf(1, 4) else listOf(4, 1)) {
+                val source = VideoFixtureSource(mp4, 2 * 1024 * 1024, parallel, 120)
+                val previous = credentials.load()
+                credentials.save(GatewayConfig("http://127.0.0.1:${source.port}", "local-video-test"))
+                var data: com.hermes.client.data.video.ArtifactVideoDataSource? = null
+                var lease: AutoCloseable? = null
+                try {
+                    val file = ChatFile("pipeline", "pipeline.mp4", "video/mp4", source.size,
+                        remotePath = "/fixture/pipeline-$attempt-$parallel-${System.nanoTime()}.mp4")
+                    val remote = ranges.prepare(file, null)
+                    lease = ranges.arbiter.playbackLease(remote.owner)
+                    data = com.hermes.client.data.video.ArtifactVideoDataSource(ranges, remote)
+                    data.open(androidx.media3.datasource.DataSpec.Builder()
+                        .setUri(android.net.Uri.parse("hermes-video://attachment/pipeline")).build())
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    val buffer = ByteArray(64 * 1024)
+                    val started = android.os.SystemClock.elapsedRealtime()
+                    var total = 0L
+                    while (true) {
+                        val count = data.read(buffer, 0, buffer.size)
+                        if (count == androidx.media3.common.C.RESULT_END_OF_INPUT) break
+                        digest.update(buffer, 0, count); total += count
+                    }
+                    val elapsed = android.os.SystemClock.elapsedRealtime() - started
+                    val hash = digest.digest().joinToString("") { "%02x".format(it) }
+                    if (expected == null) expected = hash else assertEquals(expected, hash)
+                    assertEquals(source.size, total); assertEquals(source.size, source.sent.get())
+                    assertTrue(source.peak.get() <= parallel)
+                    android.util.Log.i("HG236_PIPELINE", "attempt=$attempt parallel=$parallel elapsedMs=$elapsed bytes=$total requests=${source.offsets.size} peak=${source.peak.get()} sha256=$hash")
+                } finally {
+                    data?.close(); lease?.close()
+                    if (previous == null) credentials.clear() else credentials.save(previous)
+                    source.close()
+                }
+            }
+        }
+    }
+
+    @Test fun delayed_loopback_records_serial_and_parallel_first_frame_and_seek() {
+        for (latency in listOf(120L, 900L)) {
+            repeat(if (latency == 120L) 3 else 1) { attempt ->
+                for (parallel in if (attempt % 2 == 0) listOf(1, 4) else listOf(4, 1)) {
+                    verify(2 * 1024 * 1024, false, parallel, latency, "$latency-$attempt-$parallel")
+                }
+            }
+        }
+    }
+
     @Test fun actual_dialog_pauses_network_in_background_and_keeps_explicit_download_action(): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
@@ -125,28 +177,52 @@ class VideoStreamingDeviceTest {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
     }
 
-    private fun verify(padding: Int, finishDownload: Boolean) = runBlocking {
+    private fun verify(padding: Int, finishDownload: Boolean, parallel: Int = 4,
+        latency: Long = 0, sample: String = "default"): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val mp4 = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
-        val source = VideoFixtureSource(mp4, padding)
+        val source = VideoFixtureSource(mp4, padding, parallel, latency)
         val previous = credentials.load()
         credentials.save(GatewayConfig("http://127.0.0.1:${source.port}", "local-video-test"))
         var player: ExoPlayer? = null
         var lease: AutoCloseable? = null
         try {
-            val file = ChatFile("v", "stream-$padding.mp4", "video/mp4", source.size, remotePath = "/fixture/stream-$padding.mp4")
+            val file = ChatFile("v", "stream-$padding.mp4", "video/mp4", source.size, remotePath = "/fixture/stream-$padding-$sample-${System.nanoTime()}.mp4")
             val remote = ranges.prepare(file, null)
             val video = VideoPlayback(repository = ranges, source = remote)
             lease = video.lease()
             val rendered = CountDownLatch(1)
             val bytesAtFrame = AtomicLong(Long.MAX_VALUE)
+            val firstFrameMs = AtomicLong()
+            val playbackStarted = android.os.SystemClock.elapsedRealtime()
+            val seekFrame = CountDownLatch(1)
+            val seekStarted = AtomicLong()
+            val seekMs = AtomicLong(-1)
+            val rebuffers = java.util.concurrent.atomic.AtomicInteger()
+            val bufferedAt = AtomicLong()
+            val rebufferMs = AtomicLong()
             val failure = java.util.concurrent.atomic.AtomicReference<String>()
             activity.scenario.onActivity { host ->
                 val surface = SurfaceView(host); host.setContentView(surface)
                 player = ExoPlayer.Builder(host).build().also { p ->
                     p.setVideoSurfaceView(surface)
                     p.addListener(object : Player.Listener {
-                        override fun onRenderedFirstFrame() { bytesAtFrame.set(source.sent.get()); rendered.countDown() }
+                        override fun onRenderedFirstFrame() {
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (rendered.count > 0) {
+                                bytesAtFrame.set(source.sent.get()); firstFrameMs.set(now - playbackStarted); rendered.countDown()
+                            } else if (seekStarted.get() > 0) {
+                                seekMs.set(now - seekStarted.get()); seekFrame.countDown()
+                            }
+                        }
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (rendered.count == 0L && state == Player.STATE_BUFFERING) {
+                                rebuffers.incrementAndGet(); bufferedAt.compareAndSet(0, android.os.SystemClock.elapsedRealtime())
+                            } else if (state == Player.STATE_READY) {
+                                val at = bufferedAt.getAndSet(0)
+                                if (at > 0) rebufferMs.addAndGet(android.os.SystemClock.elapsedRealtime() - at)
+                            }
+                        }
                         override fun onPlayerError(error: androidx.media3.common.PlaybackException) { failure.set(error.toString()); rendered.countDown() }
                     })
                     p.setMediaSource(video.mediaSource(host)); p.prepare(); p.play()
@@ -158,10 +234,12 @@ class VideoStreamingDeviceTest {
             assertTrue("startup buffered the entire MP4 media payload", bytesAtFrame.get() < mp4.size)
             assertTrue("tail MP4 index was not sought", source.offsets.any { it > source.size - 512 * 1024 })
             assertTrue(source.validatedHeaders)
+            seekStarted.set(android.os.SystemClock.elapsedRealtime())
             activity.scenario.onActivity { player!!.seekTo(12_000); player!!.play() }
-            Thread.sleep(1500)
+            assertTrue("seek did not render", seekFrame.await(30, TimeUnit.SECONDS))
+            Thread.sleep(250)
             activity.scenario.onActivity { assertTrue(player!!.currentPosition >= 11_000); assertNull(player!!.playerError) }
-            android.util.Log.i("HG222_STREAM_PROOF", "size=${source.size} firstFrameBytes=${bytesAtFrame.get()} requests=${source.offsets.size}")
+            android.util.Log.i("HG222_STREAM_PROOF", "sample=$sample parallel=$parallel latencyMs=$latency size=${source.size} firstFrameMs=${firstFrameMs.get()} firstFrameBytes=${bytesAtFrame.get()} seekMs=${seekMs.get()} rebuffers=${rebuffers.get()} rebufferMs=${rebufferMs.get()} sentBytes=${source.sent.get()} requests=${source.offsets.size} peak=${source.peak.get()}")
             activity.scenario.onActivity { player!!.release(); player = null }
             lease?.close(); lease = null
             if (finishDownload) {
@@ -181,11 +259,16 @@ class VideoStreamingDeviceTest {
     }
 }
 
-private class VideoFixtureSource(mp4: ByteArray, private val padding: Int) : AutoCloseable {
+private class VideoFixtureSource(mp4: ByteArray, private val padding: Int,
+    private val parallel: Int = 4, private val latency: Long = 0) : AutoCloseable {
     private val prefix: ByteArray
     private val moov: ByteArray
     val size: Long
     val sent = AtomicLong()
+    val peak = java.util.concurrent.atomic.AtomicInteger()
+    private val active = java.util.concurrent.atomic.AtomicInteger()
+    private val paceLock = Any()
+    private var nextSendNanos = 0L
     val offsets = CopyOnWriteArrayList<Long>()
     @Volatile var validatedHeaders = true
     // nosemgrep: kotlin.lang.security.unencrypted-socket.unencrypted-socket -- androidTest synthetic MP4 source on loopback only; production uses authenticated HTTPS.
@@ -202,6 +285,7 @@ private class VideoFixtureSource(mp4: ByteArray, private val padding: Int) : Aut
             while (!server.isClosed) {
                 val socket = try { server.accept() } catch (_: Exception) { break }
                 workers.execute {
+                    var rangeActive = false
                     socket.use {
                         try {
                             val input = it.getInputStream().bufferedReader()
@@ -214,13 +298,16 @@ private class VideoFixtureSource(mp4: ByteArray, private val padding: Int) : Aut
                             if (request.startsWith("POST /api/files/downloads ")) {
                                 val body = org.json.JSONObject().put("artifactId", "a".repeat(64)).put("sizeBytes", size)
                                     .put("etag", etag).put("contentType", "video/mp4").put("maxBytes", 8L * 1024 * 1024 * 1024)
-                                    .put("maxConcurrentRanges", 4).put("maxRangeBytes", 1024 * 1024).toString()
-                                output.write(("HTTP/1.1 200 OK\r\nContent-Length: ${body.toByteArray().size}\r\nx-hermes-file-channel: 1\r\nx-hermes-file-concurrency: 4\r\nConnection: close\r\n\r\n$body").toByteArray())
+                                    .put("maxConcurrentRanges", parallel).put("maxRangeBytes", if (parallel == 1) 256 * 1024 else 1024 * 1024).toString()
+                                output.write(("HTTP/1.1 200 OK\r\nContent-Length: ${body.toByteArray().size}\r\nx-hermes-file-channel: 1\r\nx-hermes-file-concurrency: $parallel\r\nConnection: close\r\n\r\n$body").toByteArray())
                             } else {
                                 if (headers["if-match"] != etag) validatedHeaders = false
                                 val range = Regex("bytes=(\\d+)-(\\d+)").matchEntire(headers["range"].orEmpty())!!
                                 val start = range.groupValues[1].toLong(); val end = range.groupValues[2].toLong()
                                 offsets.add(start)
+                                rangeActive = true
+                                peak.accumulateAndGet(active.incrementAndGet(), ::maxOf)
+                                Thread.sleep(latency)
                                 output.write(("HTTP/1.1 206 Partial Content\r\nContent-Length: ${end - start + 1}\r\nContent-Range: bytes $start-$end/$size\r\nETag: $etag\r\nConnection: close\r\n\r\n").toByteArray())
                                 var atByte = start
                                 val header = ByteBuffer.allocate(8).putInt(padding).put("free".toByteArray()).array()
@@ -235,12 +322,19 @@ private class VideoFixtureSource(mp4: ByteArray, private val padding: Int) : Aut
                                             else -> 0
                                         }
                                     }
+                                    // All responses share 4 MiB/s; concurrency must not multiply fixture bandwidth.
+                                    val wait = synchronized(paceLock) {
+                                        val now = System.nanoTime()
+                                        nextSendNanos = maxOf(now, nextSendNanos) + count * 1_000_000_000L / (4 * 1024 * 1024)
+                                        nextSendNanos - now
+                                    }
+                                    TimeUnit.NANOSECONDS.sleep(wait)
                                     output.write(data); output.flush(); sent.addAndGet(count.toLong()); atByte += count
-                                    Thread.sleep(2)
                                 }
                             }
                             output.flush()
                         } catch (_: Exception) { /* Fixture cancellation closes its socket. */ }
+                        finally { if (rangeActive) active.decrementAndGet() }
                     }
                 }
             }

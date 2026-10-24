@@ -157,8 +157,8 @@ public enum DesktopLocalHermesInstalledDistribution: Equatable, Sendable {
 }
 
 public enum DesktopLocalHermesUnsupportedReason: String, Equatable, Sendable {
-    /// `~/.hermes/profiles/` holds a profile, or `active_profile` names one. Desktop's serve would
-    /// tick every profile's cron store while the phone only reaches the default one.
+    /// Historical diagnostic value. Profiles alone no longer make an installation unsupported;
+    /// the managed launcher pins the existing default data home explicitly.
     case multipleProfiles
     /// Hermes on this Mac is configured with a `HERMES_HOME` other than `~/.hermes`.
     case customHermesHome
@@ -172,6 +172,25 @@ public enum DesktopLocalHermesUnsupportedReason: String, Equatable, Sendable {
     case unreadableIdentity
     /// Older than `DesktopLocalHermesDetector.minimumVersion`.
     case versionTooOld
+}
+
+extension DesktopLocalHermesUnsupportedReason {
+    public var repairGuidanceChinese: String {
+        switch self {
+        case .multipleProfiles:
+            "已有 profiles 会保留。请更新 Desktop 后重新检查，无需整理或删除 Hermes 数据。"
+        case .customHermesHome, .nonStandardLocation:
+            "已找到 Hermes，但暂时无法确认原连接使用的安装或数据目录。请在诊断中核对安装路径与 HERMES_HOME；不会自动切换到另一个目录，也无需删除现有数据。"
+        case .unsafeInstallation:
+            "本机 Hermes 的启动文件或目录权限未通过检查。请检查文件所属用户、权限和链接目标后重新检查；Desktop 不会修改 Hermes 文件。"
+        case .incompleteInstallation:
+            "本机 Hermes 的启动程序缺失。请用 Hermes 原有的安装方式修复启动程序，再重新检查；配置、profiles 和会话应保留。"
+        case .unreadableIdentity:
+            "无法读取本机 Hermes 的版本或代码记录。请先修复 Hermes 安装，再重新检查；无需删除数据目录。"
+        case .versionTooOld:
+            "本机 Hermes 版本较旧，无法使用当前连接方式。请通过 Hermes 自身的更新方式升级后重新检查；保留配置与会话。"
+        }
+    }
 }
 
 public enum DesktopLocalHermesDetection: Equatable, Sendable {
@@ -249,9 +268,6 @@ public struct DesktopLocalHermesDetector: Sendable {
         }
         if let detail = foreignInstall(checkoutPresent: true) {
             return .unsupported(.nonStandardLocation, detail: detail)
-        }
-        if let detail = profilesInUse() {
-            return .unsupported(.multipleProfiles, detail: detail)
         }
         guard let identity = readGitIdentity() else {
             return .unsupported(.unreadableIdentity, detail: "HEAD could not be resolved")
@@ -360,27 +376,6 @@ public struct DesktopLocalHermesDetector: Sendable {
                     return "\(plist.name) runs Hermes from outside the standard checkout"
                 }
             }
-        }
-        return nil
-    }
-
-    private func profilesInUse() -> String? {
-        if let entries = try? FileManager.default.contentsOfDirectory(atPath: paths.profilesRoot.path) {
-            let profiles = entries.filter { name in
-                guard !name.hasPrefix(".") else { return false }
-                var isDirectory: ObjCBool = false
-                return FileManager.default.fileExists(
-                    atPath: paths.profilesRoot.appendingPathComponent(name).path,
-                    isDirectory: &isDirectory
-                ) && isDirectory.boolValue
-            }
-            if !profiles.isEmpty { return "\(profiles.count) profile(s) under ~/.hermes/profiles" }
-        }
-        if let data = readSmallFile(paths.activeProfileFile),
-           let value = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !value.isEmpty, value != "default" {
-            return "active_profile names a non-default profile"
         }
         return nil
     }

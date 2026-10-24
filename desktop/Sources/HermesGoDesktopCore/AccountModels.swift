@@ -100,28 +100,20 @@ public struct AccountCapabilities: Codable, Equatable, Sendable {
         }
     }
 
-    public struct Legacy: Codable, Equatable, Sendable {
-        public let appTokenAccepted: Bool
-        public let connectorTokenAccepted: Bool
-    }
-
     public let version: Int
     public let accountAuth: AccountAuthentication
     public let binding: Binding
-    public let legacy: Legacy
     public let desktopBootstrap: DesktopBootstrap?
 
     public init(
         version: Int,
         accountAuth: AccountAuthentication,
         binding: Binding,
-        legacy: Legacy,
         desktopBootstrap: DesktopBootstrap? = nil
     ) {
         self.version = version
         self.accountAuth = accountAuth
         self.binding = binding
-        self.legacy = legacy
         self.desktopBootstrap = desktopBootstrap
     }
 }
@@ -402,6 +394,12 @@ public struct AccountDashboard: Equatable, Sendable {
 
     public var selectedDevice: AccountDevice? {
         devices.first { $0.deviceId == selectedDeviceID }
+    }
+
+    /// Only the active binding of this installation may supply local diagnostics.
+    public var localDevice: AccountDevice? {
+        guard binding.state == "bound", let local = binding.binding else { return nil }
+        return devices.first { $0.id == local.id && $0.generation == local.generation && $0.deviceId == local.deviceId }
     }
 
     public var localDeviceID: String? {

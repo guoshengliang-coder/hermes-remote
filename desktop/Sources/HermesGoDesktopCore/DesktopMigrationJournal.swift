@@ -3,7 +3,6 @@ import Foundation
 
 public enum DesktopMigrationState: String, Codable, Equatable, Sendable {
     case cleanUninstalled = "clean_uninstalled"
-    case legacyActive = "legacy_active"
     case preflight
     case accountStaged = "account_staged"
     case candidateStarting = "candidate_starting"
@@ -17,7 +16,6 @@ public enum DesktopMigrationState: String, Codable, Equatable, Sendable {
 
 public enum DesktopLastKnownGoodMode: String, Codable, Equatable, Sendable {
     case none
-    case legacy
     case account
 }
 
@@ -241,10 +239,6 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
                 }
 
                 switch existing.state {
-                case .legacyActive:
-                    guard existing.lastKnownGoodMode == .legacy,
-                          requested.lastKnownGoodMode == .legacy
-                    else { throw DesktopMigrationJournalError.invalidState }
                 case .cleanUninstalled:
                     guard existing.lastKnownGoodMode == .none,
                           requested.lastKnownGoodMode == .none
@@ -508,14 +502,13 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
 
     private static let allowedTransitions: [DesktopMigrationState: Set<DesktopMigrationState>] = [
         .cleanUninstalled: [.preflight],
-        .legacyActive: [.preflight],
         .preflight: [.accountStaged, .rollingBack],
         .accountStaged: [.candidateStarting, .rollingBack],
         .candidateStarting: [.candidateAuthenticated, .rollingBack],
         .candidateAuthenticated: [.candidateHealthy, .rollingBack],
         .candidateHealthy: [.commitPending, .rollingBack],
         .commitPending: [.accountActive, .rollingBack, .rollbackAttentionRequired],
-        .rollingBack: [.cleanUninstalled, .legacyActive, .rollbackAttentionRequired],
+        .rollingBack: [.cleanUninstalled, .rollbackAttentionRequired],
         .accountActive: [],
         .rollbackAttentionRequired: [],
     ]

@@ -2226,3 +2226,19 @@ behavior is claimed. L2 was unavailable (no physical device attached).
 - Local DOM tests, build and real in-app-browser fixture inspection cover the implementable paths.
   Physical Android Chrome and iPhone Safari/Home Screen, codec support, real download UI and offline
   transitions still require acceptance on those browsers before publication.
+
+### HG-236 video read-ahead regression (Android)
+
+- On compatible peers, cold-open an original video and confirm a first frame before full download;
+  tail-index MP4 must still fetch its index on demand. Then play continuously and seek rapidly in
+  both directions; delivered frames must match the target and no superseded range may keep running.
+- Compare cold-cache first frame, seek recovery p50/p95, rebuffer count/time and transferred bytes
+  with the same video/network. Include a slow link and fast/slow transitions. Max four requests of
+  <=1 MiB, bounded prefetch and server aggregate rate must hold; legacy peers must remain serial.
+- Pause, background and close during an active window; network traffic stops. Resume preserves
+  position; a user-paused download stays paused and playing priority drains before download resumes.
+- Repeat playback/download to verify cached block reuse. Reconnect/expire references during parallel
+  reads; renew one generation only. Account/Mac or source-generation changes must not deliver/cache
+  bytes from the previous identity. Preserve HR-FILE/HR-AUTH recovery messages.
+- Physical Wi-Fi/cellular/NAT, original HONOR codec and OEM background behavior still require device
+  verification; L1 and synthetic L3 results do not establish those outcomes.

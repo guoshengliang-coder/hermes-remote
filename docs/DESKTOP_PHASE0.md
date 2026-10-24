@@ -1,5 +1,21 @@
 # Hermes Go Desktop phase 0
 
+## HG-199 Local Hermes integration — unreleased, 2026-10-24
+
+The working branch integrates main 0db655ed (Desktop 0.2.38/build 41) without allocating a version.
+The read-only upstream version/condition card moves from Settings to Local Hermes. The installation
+and authenticated-health card stays first; Settings keeps the unified GO app/background update
+transaction and its layout-aware discovery. This action no longer launches an upstream check.
+Both Hermes checks are disabled during Desktop update/install operations and use the same model
+methods, source identity, pending-journal priority and HR error mapping as before. No updater,
+recovery executor or recommended target is enabled by this relocation.
+
+Main's account-only retirement, default-profile launcher, repair and diagnostics remain intact.
+Known pre/post-profile launcher revisions are accepted by exact bytes with/without explicit
+VIRTUAL_ENV cleanup; arbitrary edits remain rejected. Newly generated scripts retain both safeguards.
+The regression first fails on the combined script with the old recognizer. No user installation,
+profiles, services or data are touched by this source integration.
+
 HG-199 adds a private external-dependency material store with explicit roots, run/source/home binding,
 OS build/architecture context, SHA-256 manifests and exact byte/permission verification. Capture
 requires independent stopped-writer checks before/after copying and rejects concurrent source changes.
@@ -94,6 +110,79 @@ prove cross-home exclusion and surviving-child lock custody. Retired sidecar-fre
 immutable reads only when there are no pending WAL/rollback bytes. The composed adapter is not
 instantiated by the app; live idle/retirement/closure/boot/business collectors and full committed-tail recovery remain unenabled; see `HERMES_UPGRADE.md` for evidence and gates.
 
+## Overview visual hierarchy (2026-10-24)
+
+The accepted three-section overview now emphasizes latency/version and independent background,
+connection and mobile-verification marks. Healthy prose and timestamps live in expandable details;
+nonhealthy explanations and repair guidance stay visible. The impact header has a semantic icon,
+without duplicate status boxes. Healthy reconnect is in connection details; every action retains its
+existing model entry and confirmation. No protocol, service ownership or data changes.
+
+
+## Status and diagnostics polish — 2026-10-24
+
+The diagnostics presentation combines local background/authenticated Hermes probes and the local
+binding's account/cloud reports into seven explicitly sourced results. Technical installation plans
+are secondary to actual checks. The embedded log viewer supports source/query/keyword filters and
+copying the displayed redacted set, with the existing bounded managed-log reader. Overview gains
+fresh direct cloud latency and a device-specific Desktop title; window branding and the Local Hermes
+placeholder card are removed. Runtime/repair confirmations and data ownership remain unchanged.
+
+## Per-Mac transfer budget — unreleased
+
+Managed repair/reconnect permits the single bounded decimal `FILE_DOWNLOAD_BYTES_PER_SECOND`
+override, and both upgrade writers retain it from the owner-private Connector plist. Unknown
+environment still fails repair. Missing plists use the default 4 MiB/s; rollback restores exact
+saved bytes. No UI, Hermes runtime, signed component, protocol or default changes. See
+[`CONNECTOR_TRANSFER_TUNING.md`](CONNECTOR_TRANSFER_TUNING.md) for the M4 measurements and 8 MiB/s
+single-Mac rollout, which requires installing this Desktop support first.
+
+## Existing-Hermes repair and navigation follow-up — 2026-10-24
+
+Repair now accepts a standard existing installation with named profiles. Missing GO startup items are
+reconstructed from the same committed account/release/credential evidence, using local Hermes and
+retaining binding/token. The private launcher appends upstream's `--profile default` before CLI
+imports, preventing sticky selection from silently changing the managed data home. An exact previous
+GO launcher can be replaced when Hermes is stopped, with byte-for-byte rollback; a running service
+and Connector-only repair retain its launcher. Unknown scripts still fail closed. Runtime reconciliation
+subsequently updates old launchers through its existing transaction.
+
+Local-runtime detection failures and dependency mismatch remain distinct repair reasons. All identity,
+file ownership, port, readiness, authenticated local and fresh cloud checks remain required.
+Devices no longer owns local installation UI; setup expands contextually from the Overview Desktop
+card or Local Hermes. Diagnostics keeps repair and technical preflight. Headline actions are removed.
+Account reports expire consistently in Overview, Devices and Diagnostics; diagnostics uses the active
+local binding, never a selected remote device. Physical repair/mobile access still requires acceptance.
+
+## Overview/global account update — 2026-10-24
+
+Overview now reads only this Mac’s Cloud probe, local Desktop background and authenticated Hermes.
+An impact headline with a semantic icon summarizes three detailed sections; duplicate status labels
+were removed in the visual-hierarchy follow-up. Evidence
+older than three minutes (or invalid future times) is unconfirmed, not healthy; remote usability also
+requires a fresh local-binding end-to-end report. Public Cloud and account API checks remain distinct.
+
+The sidebar footer holds the global account/login menu, including expired login. Signed-out users
+can read the overview and choose email-code login; setup and management mutation gates remain intact.
+Devices owns binding/device/sharing; account management opens from the global footer. Settings and
+overview no longer repeat account summaries. Existing confirmations, runtime/data and rollback remain.
+
+## Current retirement boundary — 2026-10-24
+
+The original phase-0 compatibility observer is retired in the current source. Desktop supports
+account connections only. Removed: old URL/Token editor and credential storage, token-bearing v1 QR,
+legacy endpoint/log/config parsing, optional observer health, migration from a running legacy
+Connector, and legacy rollback/restart restoration. Only a retired-job/startup-item conflict check
+and suppression of a duplicate on a proven account-active installation remain. Conflict reports
+`HR-MIGRATE-022`; old-mode journals are rejected without mutation. Clean-install failure returns to
+`clean_uninstalled`; account upgrade failure restores the prior account installation.
+
+The dated phase and rollout sections below are historical implementation records. References to
+legacy compatibility, takeover, `legacy_active`, and legacy Token probes no longer describe supported
+Desktop behavior. This retirement does not remove Hermes upstream API checks, signed release
+compatibility, existing account-installation format support, or Android/Gateway routes.
+
+
 ## Existing-binding onboarding recovery (HG-234, 2026-10-23)
 
 A restored account session with this Desktop's `bound` snapshot and active binding clears the legacy
@@ -143,7 +232,7 @@ is part of this work.
 Standard-install detection now prefers `~/.hermes/hermes-agent/.hermes/bin/hermes` when present;
 the historical `venv/bin/hermes` remains supported only when the PM command is absent. An unsafe PM
 file/parent never falls back to the old venv. Both entrypoints retain the same checkout, default home,
-profile restrictions, private token, GO label, loopback address/9119 and stdout/stderr. The PM agent
+default data-home pinning, private token, GO label, loopback address/9119 and stdout/stderr. The PM agent
 puts its published bin directory on PATH and omits VIRTUAL_ENV. Runtime-switch snapshots restore the
 prior launcher and plist exactly. Update waits, settle interval and crash backoff remain unchanged.
 PM owns interpreter/dependency activation; normal startup does not require GO to understand its
@@ -1025,12 +1114,11 @@ does not change between commits.
 
 - **Usable** means exactly the standard upstream layout: checkout `~/.hermes/hermes-agent`, entrypoint
   `venv/bin/hermes` (a private regular executable of this user, path quotable without escaping),
-  `HERMES_HOME=~/.hermes`, one default profile, and `hermes_cli.__version__` at or above **0.21.3**.
+  `HERMES_HOME=~/.hermes`, existing named profiles allowed, and `hermes_cli.__version__` at or above **0.21.3**.
 - **Identity** is `HEAD` resolved through `.git/HEAD`, the loose ref or `packed-refs`, plus the newest
   modification time among those files ("when the checkout last moved"). `hermes update`, `git pull`
   and `git checkout` all rewrite one of them.
-- **Everything else is surfaced, never guessed** (`HR-MIGRATE-008`, reason behind Details): a profile
-  under `~/.hermes/profiles/` or a non-default `active_profile`; `HERMES_HOME` pointing elsewhere in
+- **Everything else is surfaced, never guessed** (`HR-MIGRATE-008`, reason behind Details): `HERMES_HOME` pointing elsewhere in
   Desktop's environment or in any of the owner's `ai.hermes.*.plist` agents; an `ai.hermes.*` agent
   running Hermes from outside the checkout; a `hermes` entrypoint in `~/.local/bin`, `/opt/homebrew/bin`
   or `/usr/local/bin` that does not lead back to the checkout (upstream's own `~/.local/bin/hermes`
@@ -1097,7 +1185,7 @@ Read in `~/.hermes/hermes-agent` (read-only):
 | `web_server._desktop_loopback_auth_exempt` | a loopback bind plus an env session token is exempt from the ticket-only gate a non-loopback `dashboard.public_url` engages | **the reason to keep it**: without it, setting `public_url` (the owner's dashboard is on the Tailscale address) would make `/api/ws` refuse the Connector's `?token=` or stop startup fail-closed |
 | `web_server.start_server` → `_reap_orphaned_desktop_local_serves` | reaps orphaned `serve --port 0` backends | our serve is `--port 9119` and never matches; it may reap the Electron app's orphans |
 | `main._dashboard_sanitize_desktop_env`, `main._dashboard_prepare_runtime` | keeps `HERMES_WEB_DIST`; starts MCP discovery after bind | headless, timing only |
-| `main_dashboard` profile routing | named-profile launches stay per-profile | only the default profile is supported |
+| `main_dashboard` profile routing | named-profile launches stay per-profile | GO pins its original default data home with `--profile default`; existing named profiles remain available to upstream profile-aware routes |
 | `tui_gateway.server._resolve_session_platform` | an empty session `source` becomes `desktop` | the phone always sends `source=hermes_remote` |
 | `gateway.hosted_room_peer.catalog_mapping` | advertises the process as non-persistent | no effect on the phone |
 
@@ -1436,7 +1524,7 @@ Desktop therefore asks whose Hermes blocked it (`DesktopHermesInstallResume.desk
   (recorded after a stage, or claimed after a quit), for example one that ran every stage but failed
   verification (`018`). Only then does a small card beside the code offer "改用内置 Hermes"
   (with a confirmation), because the in-app flow created the problem and must also offer a way out.
-- **The owner's own Hermes** — profiles, a custom `HERMES_HOME`, pipx, an old version, Hermes data
+- **The owner's own Hermes** — a custom `HERMES_HOME`, pipx, an old version, Hermes data
   without a checkout, or any checkout not born from Desktop's attempt. Only `HR-MIGRATE-008` is shown,
   with guidance to fix or remove that install; no built-in alternative is offered.
 
@@ -1569,3 +1657,19 @@ shared-device refusal). `swift build` compiles the executable target. The mockup
 `docs/design/desktop-onboarding/`. Not verified: the clean-Mac first run, the two QR codes on real
 phones, and the "services keep running while the window is gated" claim — all three are manual steps
 in `docs/DESKTOP_TEST_PLAN.md`.
+
+### Existing-install update source selection (2026-10-24)
+
+A managed update follows the persisted installation layout: schema-1/bundled installations use
+`/desktop/releases/index.json` and the bundled executor; component-store installations use
+`/desktop/components/index.json` and the component executor. Server component capability applies to
+fresh setup and cannot convert an existing installation. Discovery reads the scoped installation
+first and records the layout in its update offer; confirmation uses that recorded executor even if
+server capabilities refresh. Component update preparation reloads its signed preflight instead of
+using a startup cache. A missing matching source never falls back to the other layout. The executor
+still rejects changed/invalid starting state and non-newer versions, before touching live services.
+
+This fixes a bundled 0.3.4 installation offered 0.4.12 but incorrectly passed to the component
+executor, whose layout guard used to report `releaseNotNewer` (`HR-MIGRATE-001`). App replacement
+continues only after successful background commit/cleanup. An affected old GUI may need one direct
+DMG replacement to acquire this updater fix; do not edit its journal or reinstall/reset Hermes.
