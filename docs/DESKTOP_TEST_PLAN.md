@@ -15,6 +15,13 @@ Exercise log source/search/warnings filters, empty result, scroll, refresh, copy
 open directory. Old log errors cannot change the current health conclusion. Verify Local Hermes has
 one state card without roadmap prose; missing installations must not claim an existing install.
 
+Local validation: 604 Swift tests and asset consistency passed after integrating #641. Native fixtures
+covered healthy/failed diagnostics, the log viewer, Local Hermes and overview in light/dark/compact
+layouts; a native window assertion verified hidden title text. App packaging passed. These fixtures
+do not execute live repair/reconnect, replace the installed app, or establish physical interaction
+acceptance. Interactive scrolling/filter/copy/open-directory and packaged window dragging remain
+manual acceptance checks.
+
 ## Per-Mac transfer budget — unreleased
 
 Test-impact review: reproduce old repair/reconnect refusing an otherwise-valid 8 MiB/s override.
