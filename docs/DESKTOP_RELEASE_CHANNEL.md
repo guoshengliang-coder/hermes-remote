@@ -1,6 +1,6 @@
 # Desktop release channel
 
-## Approved internal test distribution: 0.2.35
+## Published internal test distribution: 0.2.35
 
 On 2026-10-24 the owner authorized merge/publication and confirmed **0.2.35/build 38**.
 The overview separates cloud connectivity, this Mac's Desktop and authenticated local Hermes
@@ -8,7 +8,16 @@ usability, with a concrete impact summary. Account login and management move to 
 footer. Retain the existing public trust settings and temporary-signing internal channel; build from
 clean current main and use the unified publisher to verify the exact DMG and synchronize website
 and app-update discovery. Managed-component pointers remain unchanged. Publication and physical
-upgrade acceptance must be recorded separately after verification.
+upgrade acceptance are separate gates; publication evidence follows.
+
+Publication completed on 2026-10-24 from clean main `6de547e1071b343a307fb0d79756b53dafcbcab0` after PR #636 and
+main checks passed. Both unified-publisher success markers and independent public verification
+passed. The `-dev.dmg` and compatible `.dmg` alias both match **3,694,300 bytes**, SHA-256
+`ccb22051b8b333c1e0fff901344fb6dc7b83221aedaf60bd56df0951cab8cf1e`. Website and app-update discovery report 0.2.35/build 38;
+signed managed-component indexes remain byte-identical at 0.4.12. Assets, 586 Swift tests,
+strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image integrity passed.
+No installed user app or local service was replaced. Physical upgrade/login/data-preservation
+acceptance remains pending; this does not establish Apple notarization.
 
 ## Published internal test distribution: 0.2.34
 
