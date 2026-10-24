@@ -1,12 +1,22 @@
 # Hermes Go Desktop
 
-Release candidate **0.2.37 / build 40** (owner confirmed 2026-10-24): overview now emphasizes
+Published **0.2.37 / build 40** (owner confirmed 2026-10-24): overview now emphasizes
 semantic icons, direct cloud latency, Hermes version and independently checked background/cloud/mobile
 status. Healthy explanations and check times expand on demand; recovery remains visible for failures.
 Includes the diagnostics/log viewer, native title cleanup, Mac naming, shared Hermes portrait icon and
 Local Hermes placeholder removal previously merged in #642. Also includes #641's validated per-Mac
 transfer-budget override; its default remains unchanged. See `CONNECTOR_TRANSFER_TUNING.md`.
-606 Swift tests and assets passed. Publication evidence will be recorded after public readback.
+Publication completed on 2026-10-24 after PR #643 and main checks passed, from clean main
+`a9a812198cf4913fc2e7c86731f7a062731cb7ed`. Both unified-publisher success markers and independent full public downloads
+passed. The `-dev.dmg` and compatible `.dmg` alias match **3,794,849 bytes**, SHA-256
+`79ae595664f76ccb38c9a74f664ef33b88d4c1c86af59aed7b60f5ec61a26a44`. Website and app-update discovery report 0.2.37/build 40; signed managed-component
+indexes remain byte-identical at 0.4.12. Assets, 606 Swift tests, 41 Desktop packaging/tooling tests,
+app/DMG packaging, strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image
+integrity passed. Native light/dark/compact, long-name, expanded, signed-out, stale and failed-state
+fixtures were reviewed. No installed user app or local service was replaced. Physical upgrade and
+mobile/data-preservation acceptance remain pending; this does not establish Apple notarization.
+
+Download: `https://mrlgs.net/desktop/apps/0.2.37/Hermes-Go-Desktop-0.2.37-dev.dmg`.
 
 Published **0.2.36 / build 39** (2026-10-24): repair existing Hermes installations with named profiles without changing their data,
 pin the managed backend to its original default home, show concrete repair blockers, and remove
@@ -18,7 +28,7 @@ Overview/global-account update (0.2.35 / build 38): three independently checked 
 an impact headline replace mixed connection tables. The sidebar footer owns login, identity and
 account management throughout the app; Devices and Settings keep their own responsibilities.
 
-Current published internal test version: **0.2.36 / build 39**, published on 2026-10-24.
+Previous published internal test version: **0.2.36 / build 39**, published on 2026-10-24.
 PR #639 and its main checks passed. Assets, 592 Swift tests, app/DMG packaging, strict ad-hoc
 signature, mounted bundle identity/version/build/arm64 and image integrity passed. The unified
 publisher synchronized website and app-update discovery; independent full public downloads match

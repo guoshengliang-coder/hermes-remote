@@ -42,7 +42,7 @@ current healthy checks into a false alarm. No new error codes, runtime, account 
 
 ## Recovery and page responsibilities — 2026-10-24 follow-up
 
-Overview's headline and three status links are information/navigation only. Actions belong to their
+Overview's headline is information only; the duplicate status links were removed by the visual-hierarchy follow-up. Actions belong to their
 Cloud/Desktop/Hermes section. Devices contains only device selection, sharing, removal and authorized
 phones; no local status, install-preflight or repair panels. Connection setup expands contextually
 from Overview/Local Hermes so the existing root confirmation sheets still work (no nested setup modal).
@@ -58,8 +58,7 @@ uses the active local binding, never the selected remote Mac. Devices keeps each
 
 ## Overview and global account — 2026-10-24
 
-Overview always describes this Mac. Show an impact headline beside three compact, clickable status
-labels, then three vertical sections: Hermes GO Cloud, this Mac’s Desktop, and local Hermes. Each
+Overview always describes this Mac. Show an impact headline, then three vertical sections: Hermes GO Cloud, this Mac’s Desktop, and local Hermes. Each
 section owns its evidence, actual check time and relevant actions. Unknown/stale evidence is neutral,
 not healthy or a proven outage; public Cloud reachability is separate from account API availability.
 Remote usability additionally needs a fresh local-binding end-to-end report. Never borrow the
