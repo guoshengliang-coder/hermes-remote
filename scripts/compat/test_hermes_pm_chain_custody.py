@@ -52,12 +52,14 @@ class PMChainStandaloneTest(unittest.TestCase):
 
     def test_local_backend_supports_the_actual_pm_editable_build_entrypoint(self):
         actor = load("chain_actor_backend_fixture", HERE / "upstream-maintenance-prototype/pm_chain_actor.py")
-        namespace = {}
         source = actor.BACKEND.replace("__ROOT__", repr("/tmp/hg199-not-executed-backend"))
         source = source.replace("__IDENTITIES__", "[]")
-        exec(compile(source, "<local-backend-definitions>", "exec"), namespace)
-        self.assertIs(namespace["build_editable"], namespace["build_wheel"])
-        self.assertEqual(namespace["get_requires_for_build_editable"](), [])
+        with tempfile.TemporaryDirectory(prefix="hg199-backend-definitions-") as directory:
+            path = Path(directory) / "backend.py"
+            path.write_text(source)
+            backend = load("hg199_local_backend_definitions", path)
+            self.assertIs(backend.build_editable, backend.build_wheel)
+            self.assertEqual(backend.get_requires_for_build_editable(), [])
 
 
 class PMChainCustodyTest(unittest.TestCase):
