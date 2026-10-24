@@ -13,7 +13,7 @@
 
 保留三块概览和现有导航。打开 Hermes 使用普通按钮；本机验证、模型配置并列为独立状态，模型仅有“已配置 / 未配置 / 待确认”，已配置表示检测到选择，详情保留凭据及实际调用尚未验证的边界。未配置时才出现提示与配置操作。本机 Hermes 页采用状态标题、并列事实、条件提示、底部操作及折叠详情，正常状态使用“查看诊断”。
 
-我的设备使用电脑图标。侧栏品牌副标题与辅助文字使用明确的深浅主题次级色。账号名字优先有效昵称，否则邮箱前缀；邮箱在头像行下占满宽度，可换行两行、悬停查看及菜单复制；菜单只显示竖向三点，无额外箭头。设置把更新状态放在版本号旁，不重复版本号。
+我的设备使用电脑图标。侧栏品牌副标题与辅助文字使用明确的深浅主题次级色。账号名字优先有效昵称，否则邮箱前缀；已登录侧栏仅显示头像、名称与竖向三点菜单，不常驻展示邮箱；完整邮箱在“我的账号”详情与账号菜单查看、复制。长名称单行截断并支持悬停查看；菜单无额外箭头。设置把更新状态放在版本号旁，不重复版本号。
 
 首次安装明确分为安装 Hermes、连接这台 Mac、配置模型、手机验证（模型元数据需连接后才能读取）。安装进度展示真实阶段，不用阶段数量冒充下载百分比。网络失败有限重试并说明正在等待，失败可继续，已完成内容由官方安装程序复用；官方脚本和依赖不宣称分片加速。Desktop 签名组件仍使用已有按字节续传及大小/哈希验证。
 
@@ -99,8 +99,9 @@ selected remote Mac’s health. Installation/version presence is not authenticat
 The fixed sidebar footer is the global account entry on every route. Signed-out/expired users can
 read the overview and open the existing email-code login from this entry or the Cloud section action.
 Other management sections remain gated until setup is complete; existing onboarding and mutation
-locks remain in force. Signed-in users see their name/email and account menu. Account management
-opens separately; the Devices section owns bindings/devices/sharing, and Settings owns preferences
+locks remain in force. Signed-in users see their avatar, display name and a single vertical-ellipsis
+account menu. The full email is available in account details and the menu, not as a permanent footer
+line. Account management opens separately; the Devices section owns bindings/devices/sharing, and Settings owns preferences
 and updates. Remove duplicate overview login badges and Settings account summaries. Preserve the
 explicit deletion receipt, installation confirmations, rollback and sign-out background-service rule.
 
