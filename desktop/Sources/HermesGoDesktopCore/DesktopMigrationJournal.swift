@@ -177,6 +177,10 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
         return try loadUnlocked()
     }
 
+    public var hermesUpgradeJournal: DesktopHermesUpgradeJournalStore {
+        .init(root: root)
+    }
+
     public func acquireOperationLease() throws -> DesktopMigrationOperationLease {
         do { try ensureRoot() }
         catch let error as DesktopMigrationJournalError { throw error }
@@ -194,7 +198,9 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
             if descriptor >= 0 { Darwin.close(descriptor) }
             throw DesktopMigrationJournalError.lockUnavailable
         }
-        return DesktopMigrationOperationLease(descriptor: descriptor)
+        let lease = DesktopMigrationOperationLease(descriptor: descriptor)
+        try hermesUpgradeJournal.requireNoPendingUpgrade()
+        return lease
     }
 
     public func begin(

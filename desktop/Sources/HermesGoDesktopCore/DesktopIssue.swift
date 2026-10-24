@@ -14,6 +14,10 @@ public enum DesktopRecoveryAction: String, Codable, Equatable, Sendable {
 }
 
 public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
+    case hermesUpdateCheckFailed = "HR-HERMESUPDATE-001"
+    case hermesUpdateBlocked = "HR-HERMESUPDATE-002"
+    case hermesUpdateRecoveryRequired = "HR-HERMESUPDATE-003"
+
     case connectionFailed = "HR-CONN-002"
     case connectorOffline = "HR-CONN-005"
     case hermesUnavailable = "HR-CONN-006"
@@ -175,6 +179,13 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         recoveryAction: DesktopRecoveryAction
     ) {
         switch code {
+        case .hermesUpdateCheckFailed:
+            ("无法核实 Hermes 更新", "Couldn't verify Hermes updates", "无法核实 Hermes 更新信息，请重新检查。", "Hermes update information could not be verified. Check again.", true, .retry)
+        case .hermesUpdateBlocked:
+            ("暂时无法安全升级 Hermes", "Hermes upgrade is blocked", "暂时无法安全升级 Hermes，请查看升级条件后重新检查。", "Hermes cannot be upgraded safely yet. Review the upgrade conditions and check again.", false, .details)
+        case .hermesUpdateRecoveryRequired:
+            ("Hermes 升级需要恢复", "Hermes upgrade needs recovery", "Hermes 升级未完成，需要恢复上次操作。请查看详情。", "Hermes upgrade did not finish. Recover the previous operation and review the details.", false, .details)
+
         case .connectionFailed:
             ("无法连接 Relay", "Couldn't connect to the Relay", "连接失败，请检查网络和地址。", "Connection failed. Check the network and URL.", true, .retry)
         case .connectorOffline:

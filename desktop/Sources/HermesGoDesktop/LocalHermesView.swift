@@ -58,6 +58,19 @@ struct LocalHermesView: View {
                 }
                 .padding(22).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
 
+                HermesVersionCard(
+                    report: model.hermesUpgradeReport,
+                    readiness: model.hermesUpgradeReadiness,
+                    issue: model.hermesUpgradeIssue,
+                    isChecking: model.isCheckingHermesUpgrade,
+                    isBusy: model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked,
+                    checkVersions: { Task { await model.checkHermesUpdates() } },
+                    checkConditions: { Task { await model.checkHermesUpgradeConditions() } },
+                    record: model.hermesUpgradeRecord,
+                    isRefreshingRecord: model.isRefreshingHermesUpgradeRecord,
+                    refreshRecord: { Task { await model.refreshHermesUpgradeRecord() } }
+                )
+
                 if showsConnectionSetup, model.currentDashboard != nil {
                     DesktopConnectionSetupView { showsConnectionSetup = false }
                 } else if model.hermesInstallPhase != .hidden, model.currentDashboard != nil { HermesInstallCard() }

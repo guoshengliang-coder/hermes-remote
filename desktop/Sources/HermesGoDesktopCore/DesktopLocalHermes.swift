@@ -270,11 +270,39 @@ public struct DesktopLocalHermesDetector: Sendable {
         ))
     }
 
-    /// Whether an upstream update currently holds its lock. A marker older than upstream's own
-    /// ceiling (`UPDATE_MARKER_MAX_AGE_SECONDS`, 20 minutes) is stale by upstream's definition and
-    /// does not count — otherwise a crashed update would freeze Desktop's restart logic forever.
+    /// Legacy v1 markers expire after 20 minutes. v2 markers remain live while their exact
+    /// owner or delegate process survives, regardless of age (PID reuse does not retain a lock).
     public func updateInProgress(now: Date = Date()) -> Bool {
         guard let modified = modificationDate(paths.updateMarker) else { return false }
+        if let data = readSmallFile(paths.updateMarker),
+           let text = String(data: data, encoding: .utf8) {
+            let lines = text.split(separator: "\n").map(String.init)
+            if lines.count >= 3, let pid = Int32(lines[0]), pid > 0,
+               lines[2].hasPrefix("ct:"), let created = Double(lines[2].dropFirst(3)), created.isFinite {
+                var owners: [(Int32, Double)] = [(pid, created)]
+                for line in lines.dropFirst(3) {
+                    let parts = line.split(separator: " ")
+                    if parts.count == 2, parts[0].hasPrefix("delegate:"), parts[1].hasPrefix("ct:"),
+                       let delegate = Int32(parts[0].dropFirst(9)), delegate > 0,
+                       let ct = Double(parts[1].dropFirst(3)), ct.isFinite {
+                        owners.append((delegate, ct))
+                    }
+                }
+                return owners.contains { pid, created in
+                    var info = kinfo_proc()
+                    var size = MemoryLayout<kinfo_proc>.stride
+                    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+                    if sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0,
+                       size > 0, info.kp_proc.p_pid == pid {
+                        let start = info.kp_proc.p_starttime
+                        let actual = Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000
+                        return abs(actual - created) <= 2
+                    }
+                    // An alive process whose creation time is unreadable stays exclusive.
+                    return kill(pid, 0) == 0 || errno == EPERM
+                }
+            }
+        }
         return now.timeIntervalSince(modified) < 20 * 60
     }
 
