@@ -1,5 +1,18 @@
 # HG-199：跨进程维护的上游协作需求与隔离原型
 
+## PM 独立 worker 的 custody 边界（2026-10-24）
+
+已用固定真实PM的_request启动参数复核：原Popen不显式传维护FD，最后调用方死亡后，尚在闸门内的
+worker没有锁，另一个维护/官方锁请求可进入。原started意图仍阻止普通writer，也不允许把未知同步
+当准备完成。新proposed spawn在同一计划/源码/started历史与真实FD校验后显式继承，保留close_fds，
+限定私有解释器、精确worker参数和home/cwd；父方死亡后该worker仍持两类锁。
+
+实际Mac两模式分别新建夹具并运行真实PM runtime bootstrap，选中Python3.14.7到达被截获的worker
+启动闸门；raw空窗与proposed持锁均符合预期，闸门退出后锁释放，未知started记录在运行观察器前拒绝。
+该闸门没有导入/执行PM worker的业务操作；不代表PM worker内部uv/build孙进程已覆盖，尚不能恢复
+未知同步。五项合成worker/真实内核回归另覆盖父方SIGKILL/主动close、默认丢锁反例及边界/双语脱敏。
+产品与默认joint sync未接入此proposal，全部完整恢复/升级认证仍false，继续覆盖后续spawn边界。
+
 ## 联合源码与真实 PM 准备实验（2026-10-24）
 
 固定旧/新 Git 输入、原 run/域/稳定槽及目标 PM 锁输入现在由同一隔离计划约束；默认先排空双域，

@@ -41,6 +41,19 @@ site=venv/'lib/python3.11/site-packages'
 (state/'facts.json').write_text(json.dumps({'packages':{'venv':{'environment':str(venv)}}}))
 '''
 
+SYNTHETIC_WORKER = r'''
+import json,os,select,sys
+expected=json.loads(os.environ['HG199_TEST_DESCRIPTOR_IDENTITIES'])
+matches=True
+for fd,identity in expected:
+    try:
+        found=os.fstat(fd)
+        matches=matches and [found.st_dev,found.st_ino]==identity
+    except OSError: matches=False
+print(json.dumps({'workerReady':True,'descriptorsMatch':matches,'pid':os.getpid()}),flush=True)
+if select.select([sys.stdin],[],[],10)[0]: sys.stdin.buffer.readline()
+'''
+
 
 class JointSourcePMTest(unittest.TestCase):
     def setUp(self):
@@ -50,6 +63,7 @@ class JointSourcePMTest(unittest.TestCase):
         self.candidate = case.new
         values = {"pm/__init__.py": b'"""Synthetic PM selector."""\n',
                   "pm/environments.py": pm_fixtures.SELECTOR.encode(),
+                  "pm/worker.py": SYNTHETIC_WORKER.encode(),
                   "hermes_constants.py": b'"""Synthetic target constants."""\n',
                   "pyproject.toml": b"# synthetic lock input\n", "uv.lock": b"# synthetic lock input\n",
                   "pm/lock.json": json.dumps({"packages": {"python": {"version": "3.11.15+synthetic"}}}).encode()}
@@ -70,7 +84,7 @@ class JointSourcePMTest(unittest.TestCase):
         self.addCleanup(self.held.close)
         lock = self.root / "checkout/.git/hermes-update.lock"
         self.official = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
-        self.addCleanup(os.close, self.official)
+        self.addCleanup(self.close_official)
         fcntl.flock(self.official, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.plan = {"schema": 1, "policy": joint.POLICY, "source": self.fixture.plan,
                      "pmInputs": joint.binding.snapshot(self.candidate, list(joint.PM_INPUTS)), "pythonVersion": [3, 11, 15]}
@@ -79,6 +93,7 @@ class JointSourcePMTest(unittest.TestCase):
         p = patch.dict(joint.pm.PINNED, pins, clear=True)
         p.start()
         self.addCleanup(p.stop)
+
         p = patch.object(joint, "PM_CODE", SYNTHETIC_SYNC)
         p.start()
         self.addCleanup(p.stop)
@@ -98,6 +113,11 @@ class JointSourcePMTest(unittest.TestCase):
         p = patch.object(joint.pm, "child", side_effect=child)
         p.start()
         self.addCleanup(p.stop)
+
+    def close_official(self):
+        if self.official is not None:
+            os.close(self.official)
+            self.official = None
 
     def prepare_move(self):
         joint.prepare(self.held, self.plan, *self.args, official_fd=self.official)

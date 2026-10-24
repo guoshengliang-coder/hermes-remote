@@ -1,5 +1,19 @@
 # Hermes Go Desktop test plan
 
+## PM worker custody 回归（2026-10-24）
+
+测试影响：新增窄spawn proposal，限定joint source/PM scope、精确mutable-worker命令、私有解释器/
+home/cwd，保留close_fds且只显式传已核验维护/官方FD。五项portable覆盖：真实parent SIGKILL与主动
+close后合成worker继续持两锁，默认Popen失锁反例、未知started历史仍阻断/不运行观察器、命令/环境/
+spawn参数拒绝以及CLI双语HR-HERMESUPDATE-002/不可重试/脱敏。合成worker通过fixture宿主Python
+launcher运行；不把复制一个Mach-O二进制当完整依赖闭包。
+
+独立Mac真实固定源两模式都新建夹具、运行PM bootstrap和选中Python3.14.7，捕获原_request worker
+命令，闸门在worker业务导入前报告FD。raw在调用方SIGKILL后出现两锁空窗，proposed仍持锁；受控
+闸门退出才释放。未知同步复核拒绝且观察器调用为0，意图未变、普通writer仍禁入。实际worker业务/
+后续uv/build孙进程未执行，不能据此认证PM在途恢复、全writer或完整升级。GO执行仍关闭。
+本轮无产品源码/UI改动；不重跑本地app/Node/Web/Android/device基线，以当前head CI核对全分支。
+
 ## 联合源码与 PM 准备回归（2026-10-24）
 
 测试影响：保持原PM观察器公共scope guard，抽出私有只读引擎供独立严格joint scope复用。

@@ -1,5 +1,15 @@
 # Hermes 持续升级（HG-199）
 
+## PM worker 持锁实验（隔离，2026-10-24）
+
+新增窄proposed spawn与真实固定PM启动参数对照。默认_request worker在最后调用方死亡后丢失维护/
+官方锁，受控传递实际FD后能继续持锁；保留close_fds、固定private home/cwd/解释器和原计划，拒绝
+任意命令或继承环境。普通writer仍由持久意图阻断，未知started状态不自动重跑，也不运行验证解释器。
+
+实际Mac两份新夹具的PM runtime bootstrap/选中Python3.14.7、raw/proposed闸门及各一次自建调用方
+SIGKILL通过；PM worker业务代码未执行。后续uv/build进程及其父方死亡、同步恢复仍未证明。
+此proposal还没有接入GO或默认joint同步，不能由单个worker持锁推断整棵进程树或产品升级安全。
+
 ## 同事务的源码与 PM 准备（隔离原型，2026-10-24）
 
 新增source_pm策略将原源码计划、目标PM输入/Python版本与真实同步的准备检查点连接起来，

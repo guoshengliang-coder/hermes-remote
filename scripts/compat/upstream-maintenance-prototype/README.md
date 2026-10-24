@@ -743,3 +743,49 @@ child custody/recovery, source-move interruption, full CLI/services/business, de
 whole-writer coverage and production authority remain unverified. `updaterRecoveryVerified`,
 `productionCompletionVerified`, `durableHandoffVerified`, `globalAdmissionProven`, `certifiesUpgrade`
 remain false. The app does not import this prototype or enable execution.
+
+### Actual PM worker spawn custody (2026-10-24, still isolated)
+
+`pm_worker_custody.spawn` proposes a narrowly reviewed mutable-PM worker launch. It revalidates
+the original joint plan, actual source/locks and identical `pm-sync-started` histories before
+Popen. Only `[private-python, -I, -B, checkout/pm/worker.py]` is accepted; the actual executable must
+resolve inside this fixture's tools and pass bounded byte/permission inspection. The caller remains
+responsible for proving its toolchain. Home/data/cwd are bound to the fixture; PYTHONPATH/PYTHONHOME/
+VIRTUAL_ENV, arbitrary spawn options and arbitrary commands are refused. close_fds remains true,
+with only the actual maintenance/official descriptors explicitly inherited. No environment FD number
+is authority. This is not wired into GO or the default joint PM sync.
+
+Five portable tests use synthetic Git/PM-worker code and a fixture-only launcher of the host Python;
+copying a Mach-O executable alone failed on its relative framework dependency, so that copy is NOT
+claimed as a verified interpreter closure. Actual POSIX parent SIGKILL and active parent close prove
+that a proposed worker retains both maintenance and official locks; the raw Popen negative control
+loses both while its worker remains alive. A separate supervisor pipe gates the worker independently
+of parent lifetime. After controlled worker exit, fresh locks return, but the original started intent
+still blocks ordinary writers and runtime verification. Command/context/option refusal and bilingual
+CLI redaction are also covered.
+
+`hermes-maintenance-pm-worker.py --provision --mode raw|proposed` separately exercises the fixed real
+old/target source and the actual `pm.client._request` worker command. Each mode creates a NEW fixture,
+runs real official-lock-held PM runtime bootstrap, then captures exactly the mutable worker spawn.
+The selected real Python 3.14.7 executes a no-mutation test gate in place of worker imports. The gate
+reports descriptor identities over a private channel and remains alive after the test-owned caller
+is SIGKILLed. Raw mode observed a free maintenance/official lock while the gated worker still lived;
+proposed mode retained both. Both released on gate exit, and unknown started history refused BEFORE
+any interpreter observation, unchanged and still closed to ordinary writers. Both real Mac modes
+passed. The installed candidate's source bytes are never patched; the Popen hook exists only in the
+isolated instrumented caller and only substitutes this captured spawn.
+
+```bash
+python -I -S -B scripts/compat/hermes-maintenance-pm-worker.py --provision --mode raw \
+  --old-root <clean-fixed-old-git> --candidate-root <clean-fixed-target-git>
+python -I -S -B scripts/compat/hermes-maintenance-pm-worker.py --provision --mode proposed \
+  --old-root <clean-fixed-old-git> --candidate-root <clean-fixed-target-git>
+```
+
+The real worker OPERATION is never executed in this gate experiment. Runtime bootstrap is real;
+all later PM worker/uv/build descendants and earlier bootstrap-death boundaries remain unproven.
+A retained top-level worker does not prove a child/grandchild also retains custody if that worker
+dies. No unknown-sync retry, full PM/updater recovery, terminal maintenance or product authorization
+is added. `realPMWorkerOperationExecuted`, `allPMDescendantsCovered`, `pmInFlightRecoveryVerified`,
+`updaterRecoveryVerified`, `productionCompletionVerified`, `globalAdmissionProven`, `certifiesUpgrade`
+remain false. The next step is real downstream-mutator custody and recovery-policy validation.
