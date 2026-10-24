@@ -25,7 +25,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .overview: "square.grid.2x2"
         case .diagnostics: "waveform.path.ecg"
         case .localHermes: "desktopcomputer"
-        case .pairing: "iphone"
+        case .pairing: "desktopcomputer"
         case .settings: "gearshape"
         }
     }
@@ -135,7 +135,7 @@ private struct SidebarView: View {
                         .font(.system(size: 17, weight: .bold))
                     Text("Desktop")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.hermesSecondaryText(colorScheme))
                 }
             }
             .padding(.horizontal, 18)
@@ -175,7 +175,7 @@ private struct SidebarView: View {
             accountEntry.padding(.horizontal, 14).padding(.bottom, 12)
             Text(versionLabel)
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.hermesSecondaryText(colorScheme))
                 .padding(.horizontal, 18)
                 .padding(.bottom, 18)
         }
@@ -189,20 +189,35 @@ private struct SidebarView: View {
 
     @ViewBuilder private var accountEntry: some View {
         if case .signedIn(let dashboard) = model.accountState {
-            HStack(spacing: 4) {
-                Button(action: showAccount) { accountLabel }.buttonStyle(.plain)
-                Menu {
-                    Text(dashboard.session.account.email ?? "Hermes GO 账号")
-                    Button("管理账号与登录设备", action: showAccount)
-                    Button("设备管理") { selection = .pairing }
-                    Divider()
-                    Button("退出这台 Desktop 的账号") { Task { await model.signOutAccount() } }
-                        .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
-                } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("账号操作") }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 4) {
+                    Button(action: showAccount) { accountNameRow }.buttonStyle(.plain)
+                    Menu {
+                        Text(dashboard.session.account.email ?? "Hermes GO 账号")
+                        Button("管理账号与登录设备", action: showAccount)
+                        if let email = dashboard.session.account.email {
+                            Button("复制邮箱") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(email, forType: .string)
+                            }
+                        }
+                        Button("设备管理") { selection = .pairing }
+                        Divider()
+                        Button("退出这台 Desktop 的账号") { Task { await model.signOutAccount() } }
+                    } label: {
+                        Text("⋮").font(.system(size: 20, weight: .semibold))
+                            .frame(width: 28, height: 30).contentShape(Rectangle())
+                            .accessibilityLabel("账号操作")
+                    }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                }
+                Text(accountSubtitle)
+                    .font(.system(size: 11)).foregroundStyle(Color.hermesSecondaryText(colorScheme))
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(accountSubtitle).textSelection(.enabled)
             }
-                .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
+            .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
         } else {
             Button {
                 if isSignInRoute { showSignIn() }
@@ -214,23 +229,28 @@ private struct SidebarView: View {
         }
     }
 
-    private var accountLabel: some View {
+    private var accountNameRow: some View {
         HStack(spacing: 9) {
             Image(systemName: "person.crop.circle.fill")
                 .font(.system(size: 28)).foregroundStyle(Color.hermesBlue)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(accountTitle).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                Text(accountSubtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-            }
+            Text(accountTitle).font(.system(size: 12, weight: .semibold)).lineLimit(1)
             Spacer(minLength: 0)
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            .help("\(accountTitle) · \(accountSubtitle)")
-            .accessibilityElement(children: .combine)
+            .help(accountTitle)
+    }
+
+    private var accountLabel: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            accountNameRow
+            Text(accountSubtitle).font(.system(size: 11))
+                .foregroundStyle(Color.hermesSecondaryText(colorScheme))
+                .fixedSize(horizontal: false, vertical: true)
+        }.accessibilityElement(children: .combine)
     }
 
     private var accountTitle: String {
         if case .signedIn(let dashboard) = model.accountState {
-            return dashboard.session.account.displayName ?? dashboard.session.account.email ?? "我的账号"
+            return DesktopAccountDisplay.name(displayName: dashboard.session.account.displayName, email: dashboard.session.account.email)
         }
         if case .needsSignIn = model.accountState { return model.lastAccountIdentity?.displayName ?? "重新登录" }
         return switch model.accountState {

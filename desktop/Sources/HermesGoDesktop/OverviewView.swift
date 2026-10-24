@@ -141,8 +141,8 @@ struct OverviewView: View {
     private var hermesSection: some View {
         section("本机 Hermes", subtitle: nil, symbol: "terminal", status: state.hermes) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 32) { hermesVersion; hermesVerification }
-                VStack(alignment: .leading, spacing: 16) { hermesVersion; hermesVerification }
+                HStack(spacing: 32) { hermesVersion; hermesVerification; HermesModelFact() }
+                VStack(alignment: .leading, spacing: 16) { hermesVersion; hermesVerification; HermesModelFact() }
             }
             if let issue = model.localHermesIssue ?? model.localManagedHermesHealth?.issue {
                 issueLink(issue)
@@ -153,7 +153,7 @@ struct OverviewView: View {
             footer("hermes", title: "检查详情") {
                 if !model.isManagedBootstrapAccountLocked {
                     if state.hermes.level == .healthy {
-                        Button("打开 Hermes") { model.openHermes() }.buttonStyle(.borderedProminent)
+                        Button("打开 Hermes") { model.openHermes() }.buttonStyle(.bordered)
                     }
                     Button("查看本机 Hermes") { selection = .localHermes }
                     if state.hermes.level != .healthy {
@@ -164,8 +164,8 @@ struct OverviewView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(state.hermes.detail)
                     if model.localHermesDetection?.installation != nil {
-                        Text(model.modelConfiguration.title)
-                        Text(model.modelConfiguration.detail)
+                        Text(model.currentModelConfiguration.title)
+                        Text(model.currentModelConfiguration.detail)
                     }
                     Text(checkTime("本机验证", state.hermes.checkedAt))
                 }.detailStyle()

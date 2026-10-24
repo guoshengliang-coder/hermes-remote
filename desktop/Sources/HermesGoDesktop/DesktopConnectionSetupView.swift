@@ -13,6 +13,7 @@ struct DesktopConnectionSetupView: View {
                 Spacer()
                 Button("收起") { close() }.disabled(model.isManagedBootstrapAccountLocked)
             }
+            HermesSetupSteps()
             if model.hermesInstallPhase != .hidden {
                 HermesInstallCard()
             }
@@ -222,4 +223,25 @@ struct DesktopConnectionSetupView: View {
         }
     }
 
+}
+
+struct HermesSetupSteps: View {
+    @EnvironmentObject private var model: DesktopViewModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), alignment: .leading)], alignment: .leading, spacing: 12) {
+                HermesFact(title: "1 · 安装 Hermes", value: installed ? "已安装" : "等待安装", level: installed ? .healthy : .unavailable)
+                HermesFact(title: "2 · 连接这台 Mac", value: connected ? "本机服务已连接" : "等待连接", level: connected ? .healthy : .unavailable)
+                HermesFact(title: "3 · 配置模型", value: configuration.statusText, level: configuration.level)
+            }
+            Text("完成后，在手机登录同一账号并选择这台 Mac，发起一次任务验证。")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+        }
+    }
+    private var connected: Bool { installed && model.localHermesPresentation.canOpen }
+    private var configuration: DesktopModelConfiguration { connected ? model.currentModelConfiguration : .unknown }
+    private var installed: Bool {
+        if model.hermesInstallPhase.isRunning || model.isHermesInstallDecisionPending { return false }
+        return model.localHermesDetection?.installation != nil
+    }
 }
