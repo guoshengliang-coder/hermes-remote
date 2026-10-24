@@ -48,13 +48,24 @@ negative check before stopping services, around backups and before source moves.
 samples and extra/surviving processes block; empty samples never prove admission, task inactivity or
 recoverable dependencies. Full live evidence and end-to-end certification remain pending.
 
-Release candidate **0.2.38 / build 41** (owner confirmed 2026-10-24): fixes updates blocked
+Published **0.2.38 / build 41** (owner confirmed 2026-10-24): fixes updates blocked
 on existing bundled installations (#646). Discovery and execution now follow the installed layout;
 component updates refresh signed preflight, while stale hints cannot override index discovery.
 Existing signing, confirmation, rollback and background-before-app sequencing remain unchanged.
 Affected 0.2.36/0.2.37 clients may need one direct DMG app replacement to acquire this updater fix.
 Do not reset Hermes, profiles, account binding or installation records. Continue temporary ad-hoc
-internal distribution and preserve the signed backend pointers. Publication evidence follows.
+internal distribution and preserve the signed backend pointers. Publication completed on 2026-10-24 after PR #647 and main checks passed, from clean main
+`0db655edd022cdae3e9db477c5b175e3f3b1876b`. Both unified-publisher success markers and independent full public downloads
+passed. The `-dev.dmg` and compatible `.dmg` alias match **3,796,718 bytes**, SHA-256
+`0f43335e63654dc46162c0bf17dab1fa29812c1b93a6029c306621d0cc6dd352`. Website and app-update discovery report 0.2.38/build 41; signed managed-component
+indexes remain byte-identical at 0.4.12. Assets, 612 Swift tests, 41 Desktop packaging/tooling tests,
+app/DMG packaging, strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image
+integrity passed. The affected Mac's read-only source/manifest verification is recorded under the
+update-routing regression in DESKTOP_TEST_PLAN.md. No installed user app, service, account binding
+or Hermes data was replaced. Physical background commit/relaunch and mobile acceptance remain
+pending; this is a temporary-signed internal build, not an Apple-notarized release.
+
+Download: `https://mrlgs.net/desktop/apps/0.2.38/Hermes-Go-Desktop-0.2.38-dev.dmg`.
 
 
 Published **0.2.37 / build 40** (owner confirmed 2026-10-24): overview now emphasizes
