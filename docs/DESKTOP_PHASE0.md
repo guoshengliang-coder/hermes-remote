@@ -1,5 +1,14 @@
 # Hermes Go Desktop phase 0
 
+## Per-Mac transfer budget — unreleased
+
+Managed repair/reconnect permits the single bounded decimal `FILE_DOWNLOAD_BYTES_PER_SECOND`
+override, and both upgrade writers retain it from the owner-private Connector plist. Unknown
+environment still fails repair. Missing plists use the default 4 MiB/s; rollback restores exact
+saved bytes. No UI, Hermes runtime, signed component, protocol or default changes. See
+[`CONNECTOR_TRANSFER_TUNING.md`](CONNECTOR_TRANSFER_TUNING.md) for the M4 measurements and 8 MiB/s
+single-Mac rollout, which requires installing this Desktop support first.
+
 ## Existing-Hermes repair and navigation follow-up — 2026-10-24
 
 Repair now accepts a standard existing installation with named profiles. Missing GO startup items are
