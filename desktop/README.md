@@ -1,5 +1,11 @@
 # Hermes Go Desktop
 
+Unreleased follow-up: Hermes conditions now distinguish unsupported custom Git configuration
+from an unknown inspection failure. Existing SSH/filter/include configuration remains untouched and
+blocked, with a fixed redacted diagnostic under HR-HERMESUPDATE-002. Execution remains disabled.
+The installed/published 0.2.41 package does not yet contain this clarification. Physical phone
+history/send/receive acceptance is pending because the owner confirmed the device is unavailable.
+
 Published **0.2.41 / build 44** on 2026-10-24 (owner-authorized internal distribution):
 the Local Hermes page includes read-only version discovery, upgrade-condition checks and upgrade
 records (#659), plus the compact account footer (#660). One-click Hermes upgrade/recovery remains

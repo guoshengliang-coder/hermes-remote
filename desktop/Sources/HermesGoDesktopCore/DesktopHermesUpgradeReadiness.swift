@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-public enum DesktopHermesUpgradeWorkingTree: String, Sendable { case clean, dirty, unknown }
+public enum DesktopHermesUpgradeWorkingTree: String, Sendable { case clean, dirty, unsupportedConfiguration, unknown }
 public protocol DesktopHermesUpgradeGitInspecting: Sendable {
     func workingTree(checkout: URL) -> DesktopHermesUpgradeWorkingTree
 }
@@ -10,9 +10,10 @@ public struct DesktopHermesUpgradeGitInspector: DesktopHermesUpgradeGitInspectin
     public func workingTree(checkout: URL) -> DesktopHermesUpgradeWorkingTree {
         let deadline = ProcessInfo.processInfo.systemUptime + 3
         let configArguments = ["config", "--local", "--no-includes", "--null", "--list"]
-        guard let config = Self.readOnlyOutput(checkout: checkout, arguments: configArguments, deadline: deadline),
-              Self.reviewedConfiguration(config),
-              let top = Self.readOnlyOutput(checkout: checkout, arguments: ["rev-parse", "--show-toplevel"], deadline: deadline),
+        guard let config = Self.readOnlyOutput(checkout: checkout, arguments: configArguments, deadline: deadline)
+        else { return .unknown }
+        guard Self.reviewedConfiguration(config) else { return .unsupportedConfiguration }
+        guard let top = Self.readOnlyOutput(checkout: checkout, arguments: ["rev-parse", "--show-toplevel"], deadline: deadline),
               let path = String(data: top, encoding: .utf8),
               URL(fileURLWithPath: path.trimmingCharacters(in: .newlines)).resolvingSymlinksInPath().path
                 == checkout.resolvingSymlinksInPath().path,
@@ -95,12 +96,17 @@ public struct DesktopHermesUpgradeReadiness: Equatable, Sendable {
     public let checkedAt: Date
     public var executionAvailable: Bool { false }
     public var issue: DesktopIssue? {
-        recoveryRequired ? DesktopHermesUpgradeError.recoveryRequired.issue : DesktopHermesUpgradeError.preflightBlocked.issue
+        if recoveryRequired { return DesktopHermesUpgradeError.recoveryRequired.issue }
+        if workingTree == .unsupportedConfiguration {
+            return DesktopIssue(code: .hermesUpdateBlocked, technicalCause: "stage=git-preflight reason=unsupported-configuration")
+        }
+        return DesktopHermesUpgradeError.preflightBlocked.issue
     }
     public var workingTreeSummaryChinese: String {
         switch workingTree {
         case .clean: "未发现本地改动"
         case .dirty: "存在本地改动，请先处理后再升级"
+        case .unsupportedConfiguration: "自定义 Git 配置阻止安全检查，暂不能升级"
         case .unknown: "无法确认本地改动，暂不能升级"
         }
     }
@@ -108,6 +114,7 @@ public struct DesktopHermesUpgradeReadiness: Equatable, Sendable {
         switch workingTree {
         case .clean: "No local changes found"
         case .dirty: "Resolve local changes before upgrading"
+        case .unsupportedConfiguration: "Custom Git configuration prevents safe inspection; upgrading is blocked"
         case .unknown: "Local changes could not be checked; upgrading is blocked"
         }
     }

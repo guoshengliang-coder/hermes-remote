@@ -3,6 +3,23 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopHermesUpgradeReadinessTests: XCTestCase {
+    func testCustomSSHConfigurationHasAnExplicitBlockedResultWithoutExecutingOrChangingIt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try git(["init", "-q", root.path])
+        let marker = root.appendingPathComponent("ssh-must-not-run")
+        try git(["-C", root.path, "config", "core.sshCommand", "/usr/bin/touch \(marker.path)"])
+        let config = root.appendingPathComponent(".git/config")
+        let original = try Data(contentsOf: config)
+
+        XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root).rawValue,
+                       "unsupportedConfiguration")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertEqual(try Data(contentsOf: config), original)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".git/index").path))
+    }
+
     func testRealGitInspectorSeesTrackedAndUntrackedChangesWithoutWritingIndex() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -46,7 +63,7 @@ final class DesktopHermesUpgradeReadinessTests: XCTestCase {
             }
             try Data("change\n".utf8).write(to: file)
             try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(3)], ofItemAtPath: file.path)
-            XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .unknown)
+            XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .unsupportedConfiguration)
             XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "A read-only condition check must not run local filters")
             try git(["-C", root.path, "config", "filter.hg199.required", "true"])
             let bypassedPreflight = DesktopHermesUpgradeGitInspector.readOnlyOutput(checkout: root,
@@ -70,7 +87,7 @@ final class DesktopHermesUpgradeReadinessTests: XCTestCase {
         for (key, value) in entries {
             try original.write(to: config)
             try git(["-C", root.path, "config", key, value])
-            XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .unknown, key)
+            XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .unsupportedConfiguration, key)
         }
         try (original + Data(("\n[extra]\n value = " + String(repeating: "x", count: 70_000) + "\n").utf8)).write(to: config)
         XCTAssertEqual(DesktopHermesUpgradeGitInspector().workingTree(checkout: root), .unknown)
