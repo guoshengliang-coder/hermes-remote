@@ -1,6 +1,6 @@
 # Hermes Go Desktop
 
-Approved candidate **0.2.36 / build 39** (2026-10-24): repair existing Hermes installations with named profiles without changing their data,
+Published **0.2.36 / build 39** (2026-10-24): repair existing Hermes installations with named profiles without changing their data,
 pin the managed backend to its original default home, show concrete repair blockers, and remove
 local setup/repair panels from Devices and the Overview headline. Diagnostics and device rows now
 expire old reports and keep local/remote identity separate. 592 Swift tests and asset checks passed;
@@ -10,7 +10,18 @@ Overview/global-account update (0.2.35 / build 38): three independently checked 
 an impact headline replace mixed connection tables. The sidebar footer owns login, identity and
 account management throughout the app; Devices and Settings keep their own responsibilities.
 
-Current published internal test version: **0.2.35 / build 38**, published on 2026-10-24.
+Current published internal test version: **0.2.36 / build 39**, published on 2026-10-24.
+PR #639 and its main checks passed. Assets, 592 Swift tests, app/DMG packaging, strict ad-hoc
+signature, mounted bundle identity/version/build/arm64 and image integrity passed. The unified
+publisher synchronized website and app-update discovery; independent full public downloads match
+3,681,884 bytes and SHA-256 `fd3add77b6524cd5507160ef00d778d7935232c3229ec7ca9bb0244193dfac8d`.
+Source: `4ee653e488dd96a8d6d9ea0b6efba3d0746a2227`.
+Download: `https://mrlgs.net/desktop/apps/0.2.36/Hermes-Go-Desktop-0.2.36-dev.dmg`.
+Temporary ad-hoc signing continues. No installed user app, local service or Hermes data was changed;
+live repair and mobile acceptance remain pending. Public trust/settings are retained, and signed
+managed-component indexes remain byte-identical at 0.4.12.
+
+Previous published internal test version: **0.2.35 / build 38**, published on 2026-10-24.
 PR #636 adds the overview/global-account redesign and adapts onboarding to the persistent sidebar.
 Assets, 586 Swift tests, app/DMG packaging and native light/dark fixture checks passed. The unified
 publisher synchronized website and app-update discovery; both full public downloads match

@@ -1,12 +1,22 @@
 # Desktop release channel
 
-## Approved internal candidate: 0.2.36
+## Published internal test distribution: 0.2.36
 
 On 2026-10-24 the owner confirmed **0.2.36/build 39** for the existing-Hermes/profile repair
 and recovery UI iteration (#639). Continue temporary ad-hoc internal distribution, preserving
 public trust settings. Publish from clean current main through the unified internal publisher;
 verify the exact DMG and synchronize website/app-update discovery. Signed managed-component
 pointers stay unchanged. Live Mac repair/mobile acceptance is separate and remains pending.
+
+Publication completed on 2026-10-24 from clean main `4ee653e488dd96a8d6d9ea0b6efba3d0746a2227`
+after PR #639 and main checks passed. Both unified-publisher success markers and independent
+public verification passed. The `-dev.dmg` and compatible `.dmg` alias both match **3,681,884 bytes**,
+SHA-256 `fd3add77b6524cd5507160ef00d778d7935232c3229ec7ca9bb0244193dfac8d`.
+Website and app-update discovery report 0.2.36/build 39; signed managed-component indexes remain
+byte-identical at 0.4.12. Assets, 592 Swift tests, strict ad-hoc signature, mounted bundle
+identity/version/build/arm64 and image integrity passed. No installed user app or local service was
+replaced. Physical upgrade, live repair and mobile/data-preservation acceptance remain pending;
+this does not establish Apple notarization.
 
 ## Published internal test distribution: 0.2.35
 
