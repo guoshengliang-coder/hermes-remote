@@ -1,5 +1,41 @@
 # Hermes Go Desktop test plan
 
+## Same-run PM worker/native chain (2026-10-24, isolated)
+
+Test-impact review: independent worker/native probes cannot certify a combined chain. The new
+isolated audit must bind a separate build plan and exact PM wire request to the original source/PM
+run, project/tool bytes and actual maintenance/official descriptions. It uses an explicit build-audit
+history row, never disguises build_environment as sync_venv, and must retain pending durable intent.
+Plan/project/tool drift, unknown fields, request/package substitutions, spawn/env changes and partial
+history require refusal without repair. A real fixed-source PM worker → native uv → local backend
+experiment still needs independent lifetime controls, post-death heartbeat and kernel-lock checks
+after every owning parent has ended. Bootstrap-death, arbitrary PM branches/full sync, global writer
+exclusion, finish/recovery and production authority remain outside this narrow audit.
+
+Eight portable tests cover the plan/wire/options/history boundaries, actual PM initial cancel flag,
+duplicate/oversized/unknown control packets, editable backend entrypoints and bilingual CLI refusal.
+The invalid fixed-commit CLI case first failed because separately loaded worker Refused classes were
+not all caught; all known aliases now map to HR-HERMESUPDATE-002 without input echo. The initial real
+wire fixture missed cancel=false; the next local project missed PEP 660 build_editable. Those two
+failed runs remain diagnostic artifacts, not successful chain evidence.
+
+Final real Mac worker-only/full-chain modes each use a NEW fixed 17b5df02→818c13be clone/home/run,
+the actual official checkout lock, real PM runtime bootstrap and actual client.build_environment /
+worker / quiet native uv / local editable backend. The shim verifies a private live context and exact
+wire operation/arguments/package declarations before worker business. Native UV is killed by its
+exact Popen owner; worker cleanup stops while still custodied, then its caller kills that exact
+worker Popen; caller cleanup stops before closing its own custody, and the supervisor kills the
+caller. A NEW backend heartbeat after all three are reaped proves continued liveness. Worker-only
+loses both maintenance/official locks, full-chain retains both until backend exit. History remains
+identical and the original sync verifier refuses BEFORE any runtime probe; proposed ordinary writer
+admission remains closed after locks are free. Both final modes pass. The build intentionally aborts;
+no app sync, finish, bootstrap-death recovery, arbitrary branch/full-tree or production proof follows.
+Local full compatibility suite: 171 pass. The report names syncVenvExecuted=false specifically;
+private PM-runtime and local-build sync primitives do execute. No product source changed in this
+audit, so the product baseline remains the previously verified dcf728df 781 Swift tests/app; upcoming
+Desktop 0.2.39 integration requires a fresh baseline. No installed Hermes, service, release or
+upstream PR is changed by these experiments.
+
 ## Unadopted upstream source audit (2026-10-24)
 
 Test-impact review: a passing AST/synthetic-database matrix must never become upgrade permission.

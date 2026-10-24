@@ -828,3 +828,53 @@ official update lock; it is not the original pm.client worker or full sync chain
 worker/native boundaries cannot be composed into a full-tree proof. No arbitrary hooks, other
 platforms, unknown-sync recovery, global writers or production authority are certified. GO/default
 sync do not import this proposal; fullPMTreeCovered, pmSyncExecuted and certifiesUpgrade stay false.
+
+### Same-run actual PM worker/native build chain (2026-10-24, isolated)
+
+`hermes-maintenance-pm-chain.py` binds the fixed source transition, original durable intent, actual
+official checkout lock, PM worker and native build to ONE new temporary run/home. A separate bounded
+build plan fixes project/tool bytes, the selected worker interpreter and exact build_environment
+wire arguments/package declarations. It uses a distinct pm-build-audit-started history row; it never
+relabels a build as sync_venv. Anonymous private context/descriptions must match the actual drained
+domains, source and history before upstream worker business. The real initial wire includes the
+sender's cancel=false; duplicate/unknown packets, numeric Boolean substitutions, other operations,
+package/callback/context/argument changes and unreviewed spawn branches refuse.
+
+The fixed target source is unchanged. An isolated shim invokes its actual worker.main, checking
+the wire before dispatch and instrumenting only the reviewed quiet pm.environment native branch.
+The actual API creates a fresh environment and reaches the local PEP 660 editable backend. Each
+mode has its own fresh source clone/tools/cache. Worker-only inherits the actual maintenance and
+official descriptions into the worker but keeps the original native options. Full-chain explicitly
+passes those validated descriptions at the reviewed native venv/lock/sync spawns too, retaining
+close_fds. No context/control/event descriptors are passed to uv/backend.
+
+The supervisor waits for the actual backend, requests that its shim kill its exact uv Popen, then
+requires worker business/cleanup to stop while custody is STILL held. The caller kills that exact
+worker Popen, stops its own SDK cleanup before closing custody, and is SIGKILLed by its supervisor.
+A NEW heartbeat after ALL THREE parents were reaped proves backend liveness. Actual Mac modes pass:
+worker-only loses both kinds of lock; full-chain retains home/checkout/official locks until backend
+exit. Original history bytes stay identical, the default sync verifier refuses before any runtime
+observer, and proposed ordinary writer admission stays closed after all locks are free.
+
+```bash
+python -I -S -B scripts/compat/hermes-maintenance-pm-chain.py --provision --mode worker-only \
+  --old-root <clean-fixed-old-git> --candidate-root <clean-fixed-target-git>
+python -I -S -B scripts/compat/hermes-maintenance-pm-chain.py --provision --mode full-chain \
+  --old-root <clean-fixed-old-git> --candidate-root <clean-fixed-target-git>
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_pm_chain_custody.py'
+```
+
+Eight portable cases cover plan/tool/project/wire/options/history refusal, actual cancel shape,
+duplicate/oversized controls, editable backend entrypoints and bilingual/nonretryable CLI redaction.
+A wrong fixed commit first exposed uncaught Refused classes from separately loaded modules; their
+known aliases now map to HR-HERMESUPDATE-002. Earlier real attempts missing cancel or build_editable
+failed and are not counted as successful chain evidence. The same dedicated sandbox signal exception
+as the native probe permits only code with exact owned Popen handles; file/service-exec boundaries
+remain, and network is allowed for the earlier real bootstrap. The build itself is offline/local.
+
+This is ONE observed post-bootstrap quiet build path, deliberately aborted. PM runtime bootstrap
+itself completes before the measured death boundary. `syncVenvExecuted=false` means the application
+sync_venv API was not called; private runtime/local-build sync primitives DO run. There is no finish,
+unknown-sync retry, arbitrary branch/full-tree/global-writer proof or durable production authority.
+Bootstrap-death, allPMDescendantsCovered, updaterRecoveryVerified, globalAdmissionProven and
+certifiesUpgrade remain false. GO/default joint sync do not import this audit.

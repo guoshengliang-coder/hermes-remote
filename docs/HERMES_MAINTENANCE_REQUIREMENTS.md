@@ -1,5 +1,23 @@
 # HG-199：跨进程维护的上游协作需求与隔离原型
 
+## 同一 run 的真实 PM worker/native 构建链（2026-10-24）
+
+新实验将固定源码17b5df02→818c13be、原双槽意图、真实官方锁与实际PM worker/native UV/本地
+editable backend放入同一新home/run；不再依靠两个独立边界的结果拼接。独立build plan固定
+项目/工具字节、实际worker路径和完整wire参数/声明摘要，使用不同的pm-build-audit-started行，
+不冒充sync_venv。真正执行client.build_environment，worker读取初始请求前核对操作/参数/context/
+package/cancel=false，再在已审查的quiet原生分支显式保留维护/官方FD，拒绝其他命令/选项。
+
+两模式分别使用新夹具：worker-only在UV/backend边界失锁，full-chain在native UV被其拥有者中止、
+worker业务清理完成后被其调用方中止、调用方清理完成并关闭自身FD再被监督方SIGKILL之后，
+仍由实际backend持双域/官方锁。父方全部回收后的新心跳验证存活，backend退出才释放。原意图/
+审计历史未变，普通原型writer禁入；原sync验证器在观察解释器之前拒绝此未知构建历史。
+两次最终Mac实测通过。前两次夹具失败分别是漏掉实际发包cancel字段、缺editable入口，未作成功证据。
+
+此处实际PM bootstrap先完成，尚未验证bootstrap执行中父方死亡；实际业务为无外部依赖的本地
+构建并有意中止，未进行完整app sync、finish/未知sync恢复、全writer/全PM分支或耐久生产授权。
+具体窄scope可持锁不等于一键升级通过，GO/默认joint sync不导入该审计，所有生产认证仍false。
+
 ## 原生 uv → 本地构建 backend 边界（2026-10-24）
 
 独立新夹具使用固定818c13be的实际PythonEnvironment API、已准备夹具只读工具、uv0.12.3/
