@@ -1,5 +1,18 @@
 # Desktop release channel
 
+## Approved internal test distribution: 0.2.39
+
+On 2026-10-24 the owner authorized this iteration's merge/publication and confirmed
+**0.2.39/build 42**. Includes first-run and signed-out recovery, independent optional account
+panels, unified device/invitation management, model configuration guidance and update/settings
+polish (#650). Preserve existing Hermes profiles/data and runtime settings for installed Macs.
+Continue the existing temporary ad-hoc internal channel and installed public trust settings.
+Build from clean current main after #650 and this version PR pass all PR/main checks; use the
+unified internal publisher, verify full public DMGs and synchronize website/app-update indexes.
+Physical first-install, login, phone access and model-task acceptance remain separate from
+package/publication verification. This is not an Apple-notarized release.
+
+
 ## Published internal test distribution: 0.2.38
 
 On 2026-10-24 the owner confirmed **0.2.38/build 41** for the updater routing fix (#646).
