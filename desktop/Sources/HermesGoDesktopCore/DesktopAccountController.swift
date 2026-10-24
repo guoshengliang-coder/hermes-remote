@@ -988,33 +988,36 @@ public actor DesktopAccountController {
             let identityManagementEnabled = capabilitiesSnapshot?.accountAuth.identityManagement == true
             let bindingEnabled = capabilitiesSnapshot?.binding.enabled == true
             async let account = api.account(accessToken: refreshed.session.accessToken)
-            async let installations = loadInstallations(
-                accessToken: refreshed.session.accessToken,
-                enabled: identityManagementEnabled
-            )
-            async let binding = loadBinding(
-                accessToken: refreshed.session.accessToken,
-                enabled: bindingEnabled
-            )
+            // Authentication and this Mac's binding remain authoritative; optional management
+            // panels may fail independently, but a revoked session is never swallowed.
+            async let binding = loadBinding(accessToken: refreshed.session.accessToken, enabled: bindingEnabled)
+            var sectionIssues: [AccountDashboardSection: DesktopIssue] = [:]
+            let installationSnapshot: [ManagedAccountInstallation]
+            do {
+                installationSnapshot = try await loadInstallations(accessToken: refreshed.session.accessToken,
+                                                                   enabled: identityManagementEnabled)
+            } catch {
+                installationSnapshot = []
+                sectionIssues[.installations] = try optionalPanelIssue(error)
+            }
             let devicePage: AccountDevicePage
             if capabilitiesSnapshot?.binding.supportsDeviceSelection == true {
-                devicePage = try await api.devices(accessToken: refreshed.session.accessToken)
-            } else {
-                devicePage = AccountDevicePage(items: [], maxOwnedDevices: 1)
-            }
-            let (accountSnapshot, installationSnapshot, bindingSnapshot) = try await (
-                account,
-                installations,
-                binding
-            )
+                do { devicePage = try await api.devices(accessToken: refreshed.session.accessToken) }
+                catch {
+                    sectionIssues[.devices] = try optionalPanelIssue(error)
+                    devicePage = AccountDevicePage(items: [], maxOwnedDevices: 0)
+                }
+            } else { devicePage = AccountDevicePage(items: [], maxOwnedDevices: 1) }
+            let (accountSnapshot, bindingSnapshot) = try await (account, binding)
             let supportsDeviceSharing = capabilitiesSnapshot?.binding.supportsDeviceSharing == true
             var deviceShares: [String: DeviceShareManagement] = [:]
+            var shareIssues: [String: DesktopIssue] = [:]
             if supportsDeviceSharing {
                 for device in devicePage.items where device.access == "owner" {
-                    deviceShares[device.deviceId] = try await api.deviceShares(
-                        id: device.deviceId,
-                        accessToken: refreshed.session.accessToken
-                    )
+                    do {
+                        deviceShares[device.deviceId] = try await api.deviceShares(
+                            id: device.deviceId, accessToken: refreshed.session.accessToken)
+                    } catch { shareIssues[device.deviceId] = try optionalPanelIssue(error) }
                 }
             }
             guard accountSnapshot.account.id == refreshed.account.id,
@@ -1038,7 +1041,7 @@ public actor DesktopAccountController {
                 selectedDeviceID = devicePage.items.contains(where: { $0.deviceId == storedSelection })
                     ? storedSelection
                     : devicePage.items.first(where: \.isDefault)?.deviceId ?? devicePage.items.first?.deviceId
-                deviceSelectionStore.save(selectedDeviceID, accountID: current.account.id)
+                if sectionIssues[.devices] == nil { deviceSelectionStore.save(selectedDeviceID, accountID: current.account.id) }
             } else {
                 selectedDeviceID = nil
             }
@@ -1050,6 +1053,7 @@ public actor DesktopAccountController {
                 maxOwnedDevices: devicePage.maxOwnedDevices,
                 selectedDeviceID: selectedDeviceID,
                 deviceShares: deviceShares,
+                sectionIssues: sectionIssues, shareIssues: shareIssues,
                 supportsDeviceSharing: supportsDeviceSharing,
                 maxSharedDevices: capabilitiesSnapshot?.binding.maxSharedDevices ?? 0,
                 accountDeletionEnabled: capabilitiesSnapshot?.accountAuth.accountDeletion == true,
@@ -1073,6 +1077,13 @@ public actor DesktopAccountController {
             }
             return .needsSignIn(issueCode)
         }
+    }
+
+    private func optionalPanelIssue(_ error: Error) throws -> DesktopIssue {
+        if case AccountClientError.remote(let remote) = error,
+           ["HR-AUTH-003", "HR-AUTH-004", "HR-AUTH-005"].contains(remote.code) { throw error }
+        if let error = error as? AccountClientError { return DesktopIssue.account(error) }
+        return DesktopIssue(code: .accountServiceUnavailable, technicalCause: String(describing: error))
     }
 
     private func loadInstallations(
@@ -1224,9 +1235,12 @@ public actor DesktopAccountController {
             maxOwnedDevices: dashboard.maxOwnedDevices,
             selectedDeviceID: selectedDeviceID,
             deviceShares: dashboard.deviceShares,
+            sectionIssues: dashboard.sectionIssues, shareIssues: dashboard.shareIssues,
             supportsDeviceSharing: dashboard.supportsDeviceSharing,
             maxSharedDevices: dashboard.maxSharedDevices,
-            accountDeletionEnabled: dashboard.accountDeletionEnabled
+            accountDeletionEnabled: dashboard.accountDeletionEnabled,
+            desktopBootstrapRuntimeContract: dashboard.desktopBootstrapRuntimeContract,
+            desktopComponentManifestSchemaVersion: dashboard.desktopComponentManifestSchemaVersion
         )
     }
 

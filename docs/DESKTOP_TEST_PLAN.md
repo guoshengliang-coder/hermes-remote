@@ -1,5 +1,23 @@
 # Hermes Go Desktop test plan
 
+## 2026-10-24：本轮回归矩阵
+
+| 场景 | 预期 |
+| --- | --- |
+| 未登录 / 会话过期 / 账号 API 失败 | 本机 Hermes、诊断、设置可达；云端操作需登录 |
+| 新账号无设备 / 仅共享设备 | 可先管理设备和接受邀请，也可显式连接本机 |
+| 本机未装 Hermes，旧 opt-out 为 false | 新安装仍走官方检测和确认；不创建第二份 Hermes |
+| 现有 Hermes 含 profiles 或旧 bundled 安装 | 保留原数据与已有运行策略 |
+| 服务就绪但未选模型 / 接口不支持 | 显示模型未选或待确认，提供配置入口，不声称任务可用 |
+| 分享 API / 设备列表 / 登录设备列表局部失败 | 对应区域提示，保留会话；设备列表失败不推断安装名额 |
+| 可选 API 返回认证撤销 | 仍清理失效会话并要求登录 |
+| 手机有历史登录记录 | 不自动完成引导；明确需要手机选择本机打开会话 |
+| 更新完成 / 已是最新版 | 确定关闭；无升级前警告及重复状态 |
+| 我的设备 / 接受邀请 / 邀请账号 | 列表按归属分组；权限说明与确认随操作显示 |
+
+验证层次：Swift 状态机、控制器假 API 与固定 loopback 请求测试，以及原生 SwiftUI fixture 截图。真实新机器安装、真实邮箱首次注册、手机访问与实际模型推理必须单独验收，fixture 通过不能替代这些端到端结果。
+
+
 ## Overview visual hierarchy acceptance (2026-10-24)
 
 Local validation: 606 Swift tests, 41 Desktop packaging/tooling tests and asset consistency passed.

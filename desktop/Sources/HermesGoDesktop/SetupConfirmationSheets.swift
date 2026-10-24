@@ -9,6 +9,7 @@ struct SetupConfirmationSheets: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .sheet(isPresented: $model.showsModelSetup) { ModelSetupSheet() }
             .sheet(item: Binding(
                 get: { model.serviceRepairPreparation },
                 set: { value in
@@ -57,7 +58,7 @@ struct SetupConfirmationSheets: ViewModifier {
             Label("Desktop 更新", systemImage: "arrow.down.circle.fill")
                 .font(.system(size: 19, weight: .bold)).foregroundStyle(Color.hermesBlue)
             Text(model.updateStatusText).font(.system(size: 15, weight: .semibold))
-            if let report = model.updateCheckState.report {
+            if let report = model.updateCheckState.report, report.hasUpdates {
                 let notes = (report.appUpdate?.releaseNotes ?? []) + (report.managedUpdate?.releaseNotes ?? [])
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
@@ -77,7 +78,7 @@ struct SetupConfirmationSheets: ViewModifier {
             }
             if model.isDesktopUpdateRunning { ProgressView("正在更新 Desktop…") }
             HStack {
-                Button("稍后") { model.isUpdateSheetPresented = false }
+                Button(model.updateCheckState.report?.hasUpdates == true ? "稍后" : "确定") { model.isUpdateSheetPresented = false }
                     .disabled(model.isDesktopUpdateRunning).keyboardShortcut(.cancelAction)
                 Spacer()
                 if model.updateCheckState.report?.hasUpdates == true {
@@ -185,5 +186,34 @@ struct SetupConfirmationSheets: ViewModifier {
         .padding(26)
         .frame(width: 540)
         .interactiveDismissDisabled(model.componentBootstrapOperation == .committing)
+    }
+}
+
+struct ModelSetupSheet: View {
+    @EnvironmentObject private var model: DesktopViewModel
+    @State private var copied = false
+    private var command: String {
+        let path = model.localHermesDetection?.installation?.executable.path ?? "hermes"
+        return "'" + path.replacingOccurrences(of: "'", with: "'\"'\"'") + "' setup"
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("配置 Hermes 模型").font(.system(size: 20, weight: .bold))
+            Text(model.modelConfiguration.detail).foregroundStyle(.secondary)
+            Text("打开 Hermes，选择模型服务并完成登录或填写 API Key。也可以复制下面的命令，在终端运行官方配置向导。")
+                .font(.system(size: 13))
+            Text(command).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+            Text("配置保存在本机。完成后回到 Hermes 发起一次任务，确认模型服务可用。")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+            HStack {
+                Button(copied ? "已复制" : "复制配置命令") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(command, forType: .string); copied = true
+                }
+                if model.localHermesPresentation.canOpen { Button("打开 Hermes") { model.openHermes() } }
+                Spacer()
+                Button("完成") { model.showsModelSetup = false; Task { await model.refresh() } }
+            }
+        }.padding(26).frame(width: 560)
     }
 }

@@ -15,8 +15,8 @@ public struct DesktopLocalHermesPresentation: Equatable, Sendable {
         canOpen = health?.level == .healthy
         if canOpen {
             level = .healthy
-            title = "可以使用"
-            detail = "这台 Mac 的 Hermes 已通过本机认证检查。"
+            title = "服务已就绪"
+            detail = "Hermes 服务与本机认证检查已通过，模型配置单独显示。"
         } else if let health, health.level != .checking {
             level = health.level == .unavailable ? .checking : .failed
             title = "暂时无法使用"

@@ -15,6 +15,7 @@ struct AccountDevicesView: View {
     @State private var shareAcknowledged = false
     @State private var shareVerificationCode = ""
     @State private var shareVerificationChallenge: DesktopEmailVerificationChallenge?
+    @State private var showsAcceptInvitation = false
     @State private var invitationInput = ""
     @State private var invitationAcknowledged = false
     @State private var grantToRevoke: DeviceAccessGrant?
@@ -30,9 +31,13 @@ struct AccountDevicesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 PageHeader(
-                    title: accountOnly ? "我的账号" : "设备",
-                    subtitle: accountOnly ? "管理当前账号与登录" : "一个账号可管理多台 Mac；当前选择只影响接下来打开的新内容。"
+                    title: accountOnly ? "我的账号" : "我的设备",
+                    subtitle: accountOnly ? "管理当前账号与登录设备" : "管理自己的 Mac 和他人共享的 Mac。自己的手机使用同一账号登录即可。"
                 ) {
+                    if !accountOnly, model.currentDashboard?.supportsDeviceSharing == true {
+                        Button("接受邀请") { showsAcceptInvitation = true }
+                            .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
+                    }
                     Button {
                         Task {
                             await model.refreshAccount()
@@ -61,6 +66,7 @@ struct AccountDevicesView: View {
         }) { phone in
             phoneRevocationSheet(phone)
         }
+        .sheet(isPresented: $showsAcceptInvitation) { acceptInvitationSheet }
         .sheet(item: $shareDevice) { device in
             shareInvitationSheet(device)
         }
@@ -126,7 +132,7 @@ struct AccountDevicesView: View {
                 detail: "当前服务尚未开放账号连接，请检查服务配置后重试。"
             )
         case .signedOut, .needsSignIn:
-            // Unreachable behind the sign-in gate; kept so the page never renders empty.
+            // Device management remains reachable; cloud actions require signing in here.
             SignInForm()
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -167,222 +173,147 @@ struct AccountDevicesView: View {
     private func signedInContent(_ dashboard: AccountDashboard) -> some View {
         if accountOnly {
             accountCard(dashboard)
+            if let issue = dashboard.sectionIssues[.installations] { accountIssueCard(issue) }
+            else { phonesCard(dashboard.phones) }
         } else {
-            if !dashboard.devices.isEmpty {
-                devicesCard(dashboard)
-            }
-            if dashboard.supportsDeviceSharing {
-                sharingCard(dashboard)
-            }
-            phonesCard(dashboard.phones)
+            if let issue = dashboard.sectionIssues[.devices] {
+                statusCard(symbol: "wifi.exclamationmark", title: "设备列表暂时无法加载", detail: "请刷新重试。账号和本机功能仍可使用。")
+                accountIssueCard(issue)
+            } else { devicesCard(dashboard) }
         }
     }
 
     private func devicesCard(_ dashboard: AccountDashboard) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("可使用的 Mac")
-                        .font(.system(size: 17, weight: .bold))
-                    Text(dashboard.supportsDeviceSharing
-                        ? "自有 \(dashboard.ownedDevices.count) / \(dashboard.maxOwnedDevices) 台 · 他人共享 \(dashboard.sharedDevices.count) / \(dashboard.maxSharedDevices) 台"
-                        : "已连接 \(dashboard.ownedDevices.count) / \(dashboard.maxOwnedDevices) 台")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let selected = dashboard.selectedDevice {
-                    Text("当前使用：\(selected.desktopDisplayName)")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.hermesBlue)
-                }
-            }
-            .padding(.bottom, 12)
-
-            ForEach(Array(dashboard.devices.enumerated()), id: \.element.id) { index, device in
-                if index > 0 { Divider() }
-                HStack(spacing: 12) {
-                    Image(systemName: device.deviceId == dashboard.localDeviceID
-                        ? "desktopcomputer.and.macbook"
-                        : "desktopcomputer")
-                        .foregroundStyle(Color.hermesBlue)
-                        .frame(width: 25)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 7) {
-                            Text(device.desktopDisplayName)
-                                .font(.system(size: 13, weight: .semibold))
-                            if device.deviceId == dashboard.localDeviceID {
-                                deviceBadge("本机")
-                            }
-                            if device.access == "operator" {
-                                deviceBadge("他人共享")
-                            }
-                            if device.isDefault {
-                                deviceBadge("账号默认")
-                            }
-                        }
-                        Text(deviceStatus(device))
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if dashboard.selectedDeviceID == device.deviceId {
-                        Label("正在使用", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.hermesBlue)
-                    } else {
-                        Button("切换") {
-                            Task { await model.selectDevice(device.deviceId) }
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(model.isAccountOperationInProgress)
-                    }
-                    if !device.isDefault {
-                        Button("设为默认") {
-                            Task { await model.selectDefaultDevice(device.deviceId) }
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(model.isAccountOperationInProgress)
-                    }
-                    if device.access == "owner", dashboard.supportsDeviceSharing {
-                        Button("共享") {
-                            shareEmail = ""
-                            shareAcknowledged = false
-                            shareVerificationCode = ""
-                            shareVerificationChallenge = nil
-                            shareDevice = device
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(model.isAccountOperationInProgress)
-                    } else if device.access == "operator" {
-                        Button("退出共享", role: .destructive) { sharedDeviceToLeave = device }
-                            .buttonStyle(.borderless)
-                            .disabled(model.isAccountOperationInProgress)
-                    }
-                    if device.access == "owner",
-                       device.deviceId != dashboard.localDeviceID,
-                       dashboard.maxOwnedDevices > 1 {
-                        Button("移除", role: .destructive) { macToRemove = device }
-                            .buttonStyle(.borderless)
-                            .disabled(model.isAccountOperationInProgress)
-                    }
-                }
-                .frame(minHeight: 62)
-            }
-
-            Text("切换只保存在这台 Desktop；“账号默认”会同步给同账号的其他新会话。已有会话仍固定使用创建时的 Mac。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.top, 12)
-        }
-        .padding(20)
-        .hermesCard()
-    }
-
-    private func sharingCard(_ dashboard: AccountDashboard) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Label("整台设备共享", systemImage: "person.2.badge.gearshape")
+                Text("我的 Mac · \(dashboard.ownedDevices.count) / \(dashboard.maxOwnedDevices) 台")
                     .font(.system(size: 17, weight: .bold))
                 Spacer()
-                Text("每台最多 5 个账号")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                if dashboard.localDevice == nil {
+                    Button("连接这台 Mac") { Task { await model.chooseNewMacUse(.connect) } }
+                        .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
+                }
             }
-
-            Label(
-                "被邀请者可访问这台 Hermes 暴露的现有会话、文件和模型配置。当前不是项目或文件夹级权限。",
-                systemImage: "exclamationmark.shield"
-            )
-            .font(.system(size: 12))
-            .foregroundStyle(.orange)
-            .fixedSize(horizontal: false, vertical: true)
-
+            if dashboard.ownedDevices.isEmpty {
+                Text("还没有自己的 Mac。可以连接本机，或通过右上角接受他人的邀请。")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+            }
             ForEach(dashboard.ownedDevices) { device in
-                let sharing = dashboard.deviceShares[device.deviceId]
-                VStack(alignment: .leading, spacing: 9) {
-                    HStack {
-                        Text(device.desktopDisplayName)
-                            .font(.system(size: 13, weight: .semibold))
-                        Spacer()
-                        Button("邀请账号") {
-                            shareEmail = ""
-                            shareAcknowledged = false
-                            shareVerificationCode = ""
-                            shareVerificationChallenge = nil
-                            shareDevice = device
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(model.isAccountOperationInProgress)
-                    }
-                    if let sharing {
-                        ForEach(sharing.invitations) { invitation in
-                            HStack {
-                                Label("等待 \(invitation.targetEmailHint) 接受", systemImage: "envelope.badge")
-                                    .font(.system(size: 11))
-                                Spacer()
-                                Button("取消邀请", role: .destructive) {
-                                    Task {
-                                        await model.cancelShareInvitation(
-                                            deviceID: device.deviceId,
-                                            invitationID: invitation.id
-                                        )
-                                    }
-                                }
-                                .buttonStyle(.borderless)
-                                .disabled(model.isAccountOperationInProgress)
-                            }
-                        }
-                        ForEach(sharing.grants) { grant in
-                            HStack {
-                                Label("已共享给 \(grant.granteeEmailHint)", systemImage: "person.crop.circle.badge.checkmark")
-                                    .font(.system(size: 11))
-                                Spacer()
-                                Button("撤销", role: .destructive) { grantToRevoke = grant }
-                                    .buttonStyle(.borderless)
-                                    .disabled(model.isAccountOperationInProgress)
-                            }
-                        }
-                        if sharing.invitations.isEmpty && sharing.grants.isEmpty {
-                            Text("尚未共享给其他账号。")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                deviceRow(device, dashboard: dashboard)
+                if dashboard.supportsDeviceSharing {
+                    DisclosureGroup("邀请与访问权限") { deviceSharingDetails(device, dashboard: dashboard) }
+                        .font(.system(size: 12)).padding(.leading, 37)
                 }
-                .padding(12)
-                .background(Color.primary.opacity(0.035))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                Divider()
             }
+            if !dashboard.sharedDevices.isEmpty {
+                Text("他人共享 · \(dashboard.sharedDevices.count) 台").font(.system(size: 15, weight: .semibold))
+                ForEach(dashboard.sharedDevices) { device in
+                    deviceRow(device, dashboard: dashboard)
+                    Divider()
+                }
+            }
+            Text("切换仅影响接下来打开的新内容；已有会话仍使用原来的 Mac。“账号默认”会同步给同账号的新会话。")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }.padding(20).hermesCard()
+    }
 
-            Divider()
-            Text("接受别人发来的邀请")
-                .font(.system(size: 13, weight: .semibold))
-            TextField("粘贴邮件中的完整邀请链接或 hsi_ 邀请码", text: $invitationInput)
-                .textFieldStyle(.roundedBorder)
-            Toggle(
-                "我理解此账号将能访问该 Hermes 暴露的整台设备内容",
-                isOn: $invitationAcknowledged
-            )
-            .font(.system(size: 11))
-            Button("接受邀请") {
-                let input = invitationInput
-                Task {
-                    if await model.acceptShareInvitation(input, acknowledged: invitationAcknowledged) {
-                        invitationInput = ""
-                        invitationAcknowledged = false
+    private func deviceRow(_ device: AccountDevice, dashboard: AccountDashboard) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: device.deviceId == dashboard.localDeviceID ? "desktopcomputer.and.macbook" : "desktopcomputer")
+                    .foregroundStyle(Color.hermesBlue).frame(width: 25)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text(device.desktopDisplayName).font(.system(size: 14, weight: .semibold))
+                        if device.deviceId == dashboard.localDeviceID { deviceBadge("本机") }
+                        if device.isDefault { deviceBadge("账号默认") }
                     }
+                    Text(deviceStatus(device)).font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if dashboard.selectedDeviceID == device.deviceId {
+                    Label("当前使用", systemImage: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Color.hermesBlue)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(
-                invitationInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || !invitationAcknowledged
-                    || model.isAccountOperationInProgress
-            )
-        }
-        .padding(20)
-        .hermesCard()
+            HStack(spacing: 12) {
+                if dashboard.selectedDeviceID != device.deviceId {
+                    Button("切换使用") { Task { await model.selectDevice(device.deviceId) } }
+                }
+                if device.access == "owner", dashboard.supportsDeviceSharing {
+                    Button("邀请他人") {
+                        shareEmail = ""; shareAcknowledged = false
+                        shareVerificationCode = ""; shareVerificationChallenge = nil; shareDevice = device
+                    }
+                }
+                if !device.isDefault || device.access == "operator" || (device.deviceId != dashboard.localDeviceID && dashboard.maxOwnedDevices > 1) {
+                Menu("更多") {
+                    if !device.isDefault { Button("设为默认") { Task { await model.selectDefaultDevice(device.deviceId) } } }
+                    if device.access == "operator" {
+                        Button("退出共享", role: .destructive) { sharedDeviceToLeave = device }
+                    } else if device.deviceId != dashboard.localDeviceID, dashboard.maxOwnedDevices > 1 {
+                        Button("移除设备", role: .destructive) { macToRemove = device }
+                    }
+                }.menuStyle(.borderlessButton).fixedSize()
+                }
+                Spacer()
+            }.buttonStyle(.bordered).padding(.leading, 37)
+                .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
+        }.padding(.vertical, 8)
+    }
+
+    @ViewBuilder private func deviceSharingDetails(_ device: AccountDevice, dashboard: AccountDashboard) -> some View {
+        if let issue = dashboard.shareIssues[device.deviceId] {
+            Text("访问权限暂时无法加载，请刷新重试。").foregroundStyle(.secondary)
+            GateIssueBanner(issue: issue)
+        } else if let sharing = dashboard.deviceShares[device.deviceId] {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("已邀请 \(sharing.grants.count) 个账号 · 最多 \(sharing.maxGranteesPerDevice) 个")
+                    .foregroundStyle(.secondary)
+                ForEach(sharing.invitations) { invitation in
+                    HStack {
+                        Label("等待 \(invitation.targetEmailHint) 接受", systemImage: "envelope")
+                        Spacer()
+                        Button("取消邀请", role: .destructive) {
+                            Task { await model.cancelShareInvitation(deviceID: device.deviceId, invitationID: invitation.id) }
+                        }
+                    }
+                }
+                ForEach(sharing.grants) { grant in
+                    HStack {
+                        Text(grant.granteeEmailHint)
+                        Spacer()
+                        Button("撤销访问", role: .destructive) { grantToRevoke = grant }
+                    }
+                }
+                if sharing.invitations.isEmpty && sharing.grants.isEmpty { Text("尚未邀请其他账号。") }
+            }.padding(.top, 8).disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
+        } else { Text("权限信息待刷新。").foregroundStyle(.secondary) }
+    }
+
+    private var acceptInvitationSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("接受设备邀请").font(.system(size: 20, weight: .bold))
+            Text("接受后，这台 Mac 会出现在“我的设备”的“他人共享”中，无需在本机安装 Hermes。")
+                .foregroundStyle(.secondary)
+            TextField("粘贴邮件中的完整邀请链接或邀请码", text: $invitationInput).textFieldStyle(.roundedBorder)
+            Toggle("我理解此账号将能访问该 Hermes 暴露的会话、文件和模型配置", isOn: $invitationAcknowledged)
+                .font(.system(size: 12))
+            if let issue = model.accountIssue { GateIssueBanner(issue: issue) }
+            HStack {
+                Button("取消") { showsAcceptInvitation = false }.disabled(model.isAccountOperationInProgress)
+                Spacer()
+                Button("接受邀请") {
+                    Task {
+                        if await model.acceptShareInvitation(invitationInput, acknowledged: invitationAcknowledged) {
+                            invitationInput = ""; invitationAcknowledged = false; showsAcceptInvitation = false
+                            await model.chooseNewMacUse(.manageOnly)
+                        }
+                    }
+                }.buttonStyle(.borderedProminent)
+                    .disabled(invitationInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !invitationAcknowledged || model.isAccountOperationInProgress)
+            }
+        }.padding(26).frame(width: 540).interactiveDismissDisabled(model.isAccountOperationInProgress)
     }
 
     private func shareInvitationSheet(_ device: AccountDevice) -> some View {
@@ -677,10 +608,17 @@ struct AccountDevicesView: View {
         value.count == 6 && value.allSatisfy { $0.isASCII && $0.isNumber }
     }
 
+    private func formattedActivity(_ value: String) -> String {
+        let format = ISO8601DateFormatter()
+        format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = format.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        return date?.formatted(date: .abbreviated, time: .shortened) ?? "未知"
+    }
+
     private func phonesCard(_ phones: [ManagedAccountInstallation]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("已授权手机")
+                Text("登录设备 · 手机")
                     .font(.system(size: 17, weight: .bold))
                 Spacer()
                 Text("\(phones.count) 台")
@@ -703,7 +641,7 @@ struct AccountDevicesView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(phone.displayName)
                                 .font(.system(size: 13, weight: .semibold))
-                            Text("\(phone.status == "active" ? "已授权" : "已撤销") · 最近活动 \(phone.lastSeenAt)")
+                            Text("\(phone.status == "active" ? "登录有效" : "已撤销") · 最近活动 \(formattedActivity(phone.lastSeenAt))")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -818,7 +756,7 @@ struct SettingsView: View {
                     if let issue = model.appUpdateIssue {
                         GateIssueBanner(issue: issue)
                     }
-                    if let message = model.appUpdateStatusMessage {
+                    if let message = model.appUpdateStatusMessage, message != model.updateStatusText {
                         Text(message)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
@@ -828,26 +766,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .hermesCard()
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("后台运行").font(.system(size: 16, weight: .bold)).foregroundStyle(.primary)
-                    Text("完成连接设置后，Desktop 的后台运行能力会在登录这台 Mac 时自动启动。")
-                    Text("关闭窗口：Desktop 和后台连接继续运行。退出 Desktop：关闭界面与自动检查，已设置的后台连接继续运行。")
-                    Text("安装、更新或修复期间请保持 Desktop 打开。退出可能中断当前操作；重新打开后会检查恢复状态。Mac 睡眠、关机或退出系统账号时，远程访问和任务可能中断。")
-                    Text("任务进度、结果和历史请在 Hermes 的任务页面查看；运行日志集中在“诊断”。")
-                }
-                .font(.system(size: 13)).foregroundStyle(.secondary)
-                .padding(20).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("安全边界")
-                        .font(.system(size: 16, weight: .bold))
-                    Text("Desktop 通过账号建立安全连接，Hermes 凭据保留在这台 Mac。")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .hermesCard()
             }
             .padding(34)
         }

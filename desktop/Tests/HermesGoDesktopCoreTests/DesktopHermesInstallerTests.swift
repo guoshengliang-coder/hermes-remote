@@ -926,9 +926,7 @@ final class HermesInstallWiringTests: XCTestCase {
         XCTAssertTrue(model.contains("guard let offer = reevaluated, offer.resumeCheckout == shownOffer.resumeCheckout else {"))
         // Finding 9.
         XCTAssertTrue(try appSource("HermesGoDesktopApp.swift").contains("DesktopPosixProcessRunner.terminateAllProcessGroups()"))
-        // Re-review: "use the bundled Hermes" stays reachable whenever a fresh setup is refused.
-        // Owner decision: the built-in escape beside HR-MIGRATE-008 exists only for Desktop's own
-        // leftover checkout; the owner's own Hermes gets guidance and no alternative.
+        // Fresh setup must never offer a second bundled Hermes as an escape.
         XCTAssertEqual(model.components(separatedBy: "noteFreshInstallBlock()").count - 1, 3, "both refusals must classify the block")
         XCTAssertTrue(model.contains("DesktopHermesInstallResume.desktopOwnsCheckout(hermesInstallAttempts, paths: $0.paths)"))
         XCTAssertTrue(model.contains("isFreshInstallBlockedByOwnersHermes = !owned"))
@@ -937,7 +935,8 @@ final class HermesInstallWiringTests: XCTestCase {
         let guidance = try XCTUnwrap(views.range(of: "private var ownersHermesGuidanceCard"))
         let guidanceBody = views[guidance.lowerBound...].prefix(900)
         XCTAssertFalse(guidanceBody.contains("useBundledHermes"), "no second copy is offered next to the owner's Hermes")
-        XCTAssertTrue(views.contains("Button(\"改用内置 Hermes\") { model.useBundledHermes() }"))
+        XCTAssertFalse(views.contains("useBundledHermes"))
+        XCTAssertFalse(model.contains("func useBundledHermes"))
 
         let card = try appSource("HermesInstallCard.swift")
         XCTAssertEqual(card.components(separatedBy: "model.startHermesInstall()").count - 1, 2, "only the confirmation sheet and Retry may start it")

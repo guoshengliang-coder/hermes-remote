@@ -1,5 +1,14 @@
 # Hermes Go Desktop design contract
 
+## 2026-10-24：设备与缺省状态收敛
+
+“我的设备”统一列出自有与他人共享的 Mac，每台 Mac 行内放切换、邀请账号及更多操作，邀请与访问权限按需展开。接受邀请放在页头弹窗；邀请授予的是其他账号对该 Mac 的访问权，自己的手机使用同一账号登录，不称为“邀请手机”。账号面板收纳“登录设备 · 手机”。
+
+设置页移除纯说明的后台运行、安全边界大卡片。更新完成或已是最新版时按钮为“确定”，不再显示升级前说明、重复状态；有可用更新时保留“稍后”和更新操作。
+
+本机 Hermes 的绿色状态表示“服务已就绪”；模型选择单独显示，不能以服务认证通过代替模型凭据验证。签出不屏蔽本机信息与诊断，云端相关操作就地引导登录。
+
+
 ## Overview visual hierarchy — 2026-10-24
 
 Keep the three vertical Cloud / local Desktop / local Hermes sections. The headline is one impact

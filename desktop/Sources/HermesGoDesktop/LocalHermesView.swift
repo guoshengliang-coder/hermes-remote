@@ -33,20 +33,28 @@ struct LocalHermesView: View {
                             .buttonStyle(.borderedProminent)
                             .disabled(!model.localHermesPresentation.canOpen)
                         Button("诊断与修复") { selection = .diagnostics }.buttonStyle(.bordered)
-                        if model.isManageOnly {
+                        Button("配置模型") { model.showsModelSetup = true }
+                            .disabled(model.localHermesDetection?.installation == nil)
+                        if model.currentDashboard == nil {
+                            Button("登录后连接本机") { model.requestAccountSignIn() }
+                        } else if model.isManageOnly {
                             Button("连接这台 Mac") { Task { await model.chooseNewMacUse(.connect) } }
                                 .buttonStyle(.bordered)
                         } else if !model.localHermesPresentation.canOpen {
                             Button("连接设置") { showsConnectionSetup = true }.buttonStyle(.bordered)
                         }
                     }
+                    if model.localHermesDetection?.installation != nil {
+                        LabeledContent("模型配置", value: model.modelConfiguration.title)
+                        Text(model.modelConfiguration.detail).font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
                     if let issue = model.localHermesIssue { GateIssueBanner(issue: issue) }
                 }
                 .padding(22).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
 
-                if showsConnectionSetup {
+                if showsConnectionSetup, model.currentDashboard != nil {
                     DesktopConnectionSetupView { showsConnectionSetup = false }
-                } else if model.hermesInstallPhase != .hidden { HermesInstallCard() }
+                } else if model.hermesInstallPhase != .hidden, model.currentDashboard != nil { HermesInstallCard() }
 
             }
             .padding(34)
