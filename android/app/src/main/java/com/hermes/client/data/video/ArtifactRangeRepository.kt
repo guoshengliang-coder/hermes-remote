@@ -63,6 +63,7 @@ class ArtifactRangeRepository @Inject constructor(
         internal val parallel = descriptor.maxConcurrentRanges.coerceIn(1, 4)
         internal val slots = Semaphore(parallel)
         internal val renewal = Mutex()
+        @Volatile internal var permitsEarlyRefill = false
     }
 
     suspend fun prepare(file: ChatFile, deviceId: String?): Source {
@@ -132,10 +133,13 @@ class ArtifactRangeRepository @Inject constructor(
         suspend fun request(): ByteArray = source.slots.withPermit {
             checkOwner(source.owner, source.deviceId)
             attempted = source.descriptor
-            rest.readArtifactRange(attempted, start, count, source.deviceId, source.owner)
+            val sample = VideoTransferSample()
+            rest.readArtifactRangeWithProgress(attempted, start, count, source.deviceId, source.owner,
+                sample::received).also { source.permitsEarlyRefill = sample.permitsEarlyRefill() }
         }
         return try { request() }
         catch (error: Exception) {
+            source.permitsEarlyRefill = false
             currentCoroutineContext().ensureActive()
             if (!(error is IOException || error is HermesApiException && error.errorCode == "HR-FILE-015")) throw error
             source.renewal.withLock {

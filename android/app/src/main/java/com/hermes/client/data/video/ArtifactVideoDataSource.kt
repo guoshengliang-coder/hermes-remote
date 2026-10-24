@@ -30,7 +30,8 @@ class ArtifactVideoDataSource(
         loader = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         buffered = null; bufferedStart = -1L
         ahead = VideoReadAhead(loader, source.descriptor.maxConcurrentRanges, source.descriptor.maxRangeBytes,
-            { start, blocks -> repository.read(source, start, blocks) })
+            { start, blocks -> repository.read(source, start, blocks) },
+            permitsEarlyRefill = { source.permitsEarlyRefill })
         closed = false
         io { repository.checkOwner(source.owner, source.deviceId) }
         if (dataSpec.position > source.size) throw IOException("video position outside source")

@@ -70,7 +70,6 @@ class ArtifactDownloadBatchTest {
 
     @Test fun playback_cache_hits_are_not_fetched_again() = runBlocking {
         coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } answers { ByteArray(thirdArg()) { 7 } }
-        coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } answers { ByteArray(thirdArg()) { 7 } }
         val source = ranges.prepare(ChatFile("v", "video.mp4", "video/mp4", remotePath = "/video.mp4"), "mac")
         ranges.read(source, 0); ranges.read(source, 2L * block)
         clearMocks(rest, answers = false, recordedCalls = true)
