@@ -1,5 +1,30 @@
 # Hermes Go Desktop test plan
 
+## 0.2.41：发布与实际安装客户端验收（2026-10-25）
+
+本轮仅记录已完成的只读功能发布与现场结果，不新增实验或执行器。文档改动无新的行为测试；
+复用发布提交 `66f62ed7` 的 assets、659 项 Swift、15 项发布/更新工具测试、app/DMG 构建与校验。
+PR/main 检查通过，两个公网 DMG 全量大小/哈希一致，网站和应用更新索引均为 0.2.41/build 44，
+两个签名组件指针仍为原字节。包内不含 updater worker，一键升级/恢复执行持续关闭。
+
+实际目标：LGS-MACMINI 的 `/Applications/Hermes Go Desktop.app`。通过原 0.2.39/build 42 的
+“检查更新 → 更新 Desktop”操作更新，旧进程退出，新进程运行 0.2.41/build 44；安装后严格签名校验通过。
+没有手工替换 app，也没有操作 Hermes 升级/安装/修复或服务重启。
+
+| 现场项目 | 实际结果 |
+| --- | --- |
+| 检查 Hermes 版本 | 已点击；0.21.3 / `17b5df02f2a7`，上游稳定版 0.22.5，GO 推荐尚无验证结果，展示检查时间及未认证提示 |
+| 刷新升级记录 | 已点击；无本机升级记录，不创建记录文件或目录 |
+| 检查升级条件 | 已点击；本地改动无法确认，无待恢复操作、无进行中的官方更新；`HR-HERMESUPDATE-002` 保守阻断，无升级/恢复执行按钮 |
+| 只读检查边界 | 前后 Hermes PID 78790、Connector PID 32106 未变；源码 commit、配置字节/元数据、升级记录仍缺失均不变 |
+| 账号恢复 | 仍停在“正在检查账号与这台 Mac”；观察到系统 SecurityAgent 进程，但未能查看其窗口，不能确认具体提示或将其认定为根因。计算机控制被系统安全工具拒绝，已请求用户本人检查可能的钥匙串确认 |
+| 本地改动未知的诊断 | 另一次同参数只读沙箱 Git config/root/status 各自成功，但不能据此把实际 UI 的 unknown 改记为 clean/dirty；未放松沙箱或追加执行实验 |
+
+账号恢复后的概览/云端健康尚待验证；不将此次记录写成全部验收通过。数据库及 WAL 的元数据在
+持续运行的 Hermes 观察期间有变化；未读取真实历史内容，不能据此证明数据库无写入或归因于某个按钮。
+Android L1/L2/L3、手机业务、干净机器、重启和 Apple 公证未执行，均不能由上述自动测试替代。
+HG-199 整体仍进行中，#560 保持草稿，维护/升级执行前置条件不在本轮扩展。
+
 ## Compact signed-in account footer (2026-10-24)
 
 - Signed-in footer: avatar, nickname (or email prefix) and a single vertical-ellipsis menu; no persistent email row. Long names truncate on one line and retain their full-name tooltip.

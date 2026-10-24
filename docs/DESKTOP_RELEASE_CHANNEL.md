@@ -1,16 +1,36 @@
 # Desktop release channel
 
-## Authorized preparation: 0.2.41
+## Published internal test distribution: 0.2.41
 
-On 2026-10-24 the owner requested preparing and publishing the three read-only Hermes management
-features and actual client acceptance. Allocate the next patch **0.2.41/build 44** on the existing
-ad-hoc internal channel. Includes #659 and already merged account-footer polish #660. One-click
-Hermes upgrade/recovery remains closed; no updater, PM/maintenance experiment or journal writer is
-packaged. Build only from clean current main after version PR/main checks pass, retain installed
-public trust/update settings, publish through the unified internal publisher and verify full public
-DMGs plus website/app discovery. Preserve both signed managed-component pointers. Test the actual
-updated Desktop client and record Hermes process/source/record invariants separately; this does not
-claim Apple notarization, clean-machine or full phone/business acceptance.
+Owner-authorized publication completed on 2026-10-24 after #659 and version PR #661 and their
+main checks passed. The package was built from clean main
+`66f62ed713042856ecdf2371b3dc85c7e5dd7b83`, including #660's compact account footer.
+The three Hermes management functions are read-only. One-click Hermes upgrade/recovery remains
+closed; no updater, PM/maintenance experiment or journal writer is packaged.
+
+Both public DMGs match **4,012,102 bytes**, SHA-256
+`9f82c98523b8e3bd81a741c48e352e163e588c79ffbb4947abd904f3a85aaa9d`.
+Website and app-update indexes report **0.2.41/build 44**; both signed managed-component pointers
+remain byte-identical at 0.4.12. Existing installed public trust/update settings were retained in the
+mounted package. Assets, **659 Swift tests**, **15 publication/update tooling tests**, release app/DMG
+build, strict ad-hoc signature, mounted identity/version/build/arm64 and image integrity passed.
+The first unified-publisher attempt failed after artifact upload with old pointers unchanged.
+After reconciling those pointers and the full public artifact bytes, one retry with the same package,
+receipt and notes passed both unified-publisher success markers. No artifact was overwritten.
+
+On 2026-10-25 the actual installed 0.2.39/build 42 client discovered the update, downloaded it and relaunched as
+0.2.41/build 44. Its installed signature passed strict verification. Actual clicks checked Hermes
+0.21.3/commit `17b5df02f2a7`, upstream stable 0.22.5, empty GO recommendation and absent upgrade record.
+Condition checking conservatively returned unknown local changes with `HR-HERMESUPDATE-002`;
+execution stayed unavailable. Hermes/Connector PIDs, source commit, config and absent upgrade record
+were unchanged. Account restoration remains checking; a possible Keychain prompt needs the owner,
+and system security UI is unavailable to computer control. Full acceptance remains incomplete.
+Live database/WAL metadata changed during the observation interval while Hermes was running, so this
+is not evidence of database immutability or a completed account/phone/business test. See the actual
+client record in `DESKTOP_TEST_PLAN.md`. No Hermes upgrade or service restart was performed.
+This is temporary ad-hoc internal distribution, not Apple notarization or clean-machine acceptance.
+
+Download: `https://mrlgs.net/desktop/apps/0.2.41/Hermes-Go-Desktop-0.2.41-dev.dmg`.
 
 ## Published internal test distribution: 0.2.40
 
