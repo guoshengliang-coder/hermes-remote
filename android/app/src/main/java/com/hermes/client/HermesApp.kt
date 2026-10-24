@@ -13,6 +13,7 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -28,6 +29,7 @@ class HermesApp : Application() {
     @Inject lateinit var modelCatalog: com.hermes.client.data.repository.ModelCatalogStore
     @Inject lateinit var notifier: com.hermes.client.notifications.HermesNotifier
     @Inject lateinit var sessionNotifications: com.hermes.client.notifications.SessionNotificationCoordinator
+    @Inject lateinit var videoCache: dagger.Lazy<com.hermes.client.data.video.ArtifactRangeRepository>
     @Inject lateinit var pushRegistration: com.hermes.client.notifications.push.PushRegistrationManager
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -80,5 +82,11 @@ class HermesApp : Application() {
         // Keep the model catalog warm: refresh in the background on every start/foreground so
         // the model picker opens instantly from cache instead of showing a loading state.
         modelCatalog.start()
+        // Opportunistic local cache maintenance, never a timed wake-up or a startup UI blocker.
+        appScope.launch(Dispatchers.IO) {
+            try { videoCache.get().maintainCache() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Optional preview cache; management UI exposes failures on demand. */ }
+        }
     }
 }

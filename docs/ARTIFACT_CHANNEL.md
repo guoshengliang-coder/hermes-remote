@@ -163,7 +163,14 @@ downloads can grow to negotiated 1 MiB ranges with at most four concurrent reque
 If-Match/ETag, exact Content-Range and body length, and reject 200 responses. Seeking may fetch any aligned range,
 including the MP4 tail index. No whole-file staging, transcoding or HLS service is introduced.
 
-A separate app-private 256 MiB LRU block cache stores only complete validated blocks using atomic
+A separate app-private LRU block cache defaults to 3 GiB shared across videos (1/3/5 GiB choices).
+It trims 1 → 0.8 GiB, 3 → 2.5 GiB and 5 → 4 GiB on capacity pressure, expires blocks unused for 30 days,
+and pauses new disk writes below 1 GiB free storage until 1.5 GiB becomes available. Startup/open
+maintenance uses IO threads without scheduled wake-ups. One initial directory scan builds an
+in-memory last-access index; ordinary batches never rescan. Playback protects a bounded 16 MiB hot
+set per source, and explicit clear defers that set while rejecting stale in-flight cache writes.
+Only video download blocks are published to this pool; durable complete files live separately.
+The cache stores only complete validated blocks using atomic
 replacement, a stored length and SHA-256 corruption check. Its key binds Gateway/account/Mac,
 original path, file size and ETag; changing the ten-minute opaque reference does not invalidate
 matching bytes. The player retains at most one 256 KiB block per DataSource in memory. Explicit
@@ -222,7 +229,8 @@ wire or REST contracts. Initial reads and seeks request one 256 KiB block. After
 two speculative ranges (or one for legacy peers) overlap decoding; fast consumed ranges (<1.5s)
 double the range size to at most 1 MiB and grow the window to at most four. Slow ranges (>3s) halve
 range size and reduce read-ahead to one, cancelling distant pending requests. At most 4 MiB of
-speculative payload plus the current <=1 MiB range are retained; the evictable cache stays 256 MiB.
+speculative payload plus the current <=1 MiB range are retained; disk cache follows the configurable
+shared capacity and cleanup policy described above.
 Responses are consumed in address order without waiting for later ranges. Cache hits split missing
 network spans so previously played/downloaded blocks are reused. Only verified responses are split
 into atomic, checksummed 256 KiB cache blocks. Old peers remain serial at their negotiated size.

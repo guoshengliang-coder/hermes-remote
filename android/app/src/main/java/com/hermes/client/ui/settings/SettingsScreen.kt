@@ -51,6 +51,8 @@ fun SettingsScreen(
             HorizontalDivider()
             OutputHapticsSetting(outputHaptics, vm.outputHaptics::setEnabled, vm.outputHaptics::retry)
             HorizontalDivider()
+            Entry(localized(language, "视频缓存", "Video cache"), localized(language, "共享容量、自动清理与空间占用", "Shared capacity, cleanup and storage usage")) { onNavigate("settings_video_cache") }
+            HorizontalDivider()
             Entry(localized(language, "记忆与预算", "Memory & budgets"), localized(language, "记忆、用户资料和默认模型", "Memory, user profile & default model")) { onNavigate("settings_memory") }
             // Moved here from the card page on 2026-09-11: the drawer's stats card became the
             // single 远程节点 card, so the usage page needed a home (docs/DESIGN.md §5.1, §5.14).
