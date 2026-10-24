@@ -1,5 +1,25 @@
 # Hermes Go Desktop test plan
 
+## Overview visual hierarchy acceptance (2026-10-24)
+
+Local validation: 606 Swift tests, 41 Desktop packaging/tooling tests and asset consistency passed.
+Native SwiftUI fixtures reviewed: healthy light/dark/compact, expanded evidence, long device name,
+signed-out, stale account evidence and failed repair. Native title hiding was asserted. These fixture
+runs did not start monitoring, repair services or replace the installed app. The packaged release is
+built again from clean merged main before publication.
+
+- Automated: each indicator preserves its own evidence boundary. A running background can coexist
+  with a disconnected cloud, a failed mobile check or an unverified account; stale/future/signed-out,
+  manage-only and busy states cannot become green through aggregate card color.
+- Native fixtures: healthy light/dark, compact, long Mac name, signed-out, failed/blocked repair,
+  and stale evidence. Check three sections, wrapping controls, semantic contrast and Hermes artwork.
+- Expand each details control and verify original evidence times remain visible. Healthy reconnect
+  is reachable there; failed Desktop still shows repair outside. Refresh, update and navigation retain
+  their handlers. Do not activate service-changing actions in fixture verification.
+- Physical app upgrade and phone access remain separate acceptance; image rendering is not proof
+  of installed-client behavior.
+
+
 ## Status and diagnostics polish acceptance — 2026-10-24
 
 Test impact: add regression coverage for mixed local/cloud failures, stale/future timestamps, failed

@@ -1,5 +1,21 @@
 # Hermes Go Desktop design contract
 
+## Overview visual hierarchy — 2026-10-24
+
+Keep the three vertical Cloud / local Desktop / local Hermes sections. The headline is one impact
+statement with a semantic status icon; remove the duplicate status-link boxes. Every section follows
+icon + name + state, key evidence, divider + actions, and a collapsed evidence detail. Cloud emphasizes
+only the fresh direct-probe latency; Desktop uses three independently colored marks for background,
+cloud connection and mobile verification. Unknown, stale, future, signed-out and busy evidence stays
+neutral. A healthy card cannot paint an unverified individual check green.
+
+Normal-state explanation and actual check times move into expandable details; failures and specific
+repair guidance remain visible. Healthy reconnect moves inside connection details and retains the
+existing preparation/confirmation flow. Keep refresh, updates, diagnostics, Hermes open and mobile
+onboarding reachable. Adaptive columns and native fitting layouts wrap long Mac names and actions at
+compact widths. Use existing semantic colors and Hermes artwork, with no fabricated charts or scores.
+
+
 ## Status hierarchy and actionable diagnostics — 2026-10-24
 
 Hide only native window title text, preserving traffic lights, drag behavior and semantic window identity.

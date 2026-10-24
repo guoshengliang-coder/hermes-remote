@@ -1,5 +1,17 @@
 # Desktop release channel
 
+## Approved internal test candidate: 0.2.37
+
+On 2026-10-24 the owner authorized merge/publication and confirmed **0.2.37/build 40**.
+This includes the overview visual hierarchy, the previously merged diagnostics/log viewer and
+interface cleanup (#642), and the existing per-Mac transfer-budget override support (#641; default
+unchanged). Continue temporary ad-hoc internal distribution with the existing public trust settings.
+Publish from clean current main through the unified internal publisher, verify the complete public
+DMG and synchronize website/app-update discovery. Preserve signed managed-component pointers.
+Physical upgrade and mobile/data-preservation acceptance remain separate from package/publication
+verification. This is not an Apple-notarized release.
+
+
 ## Published internal test distribution: 0.2.36
 
 On 2026-10-24 the owner confirmed **0.2.36/build 39** for the existing-Hermes/profile repair

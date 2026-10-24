@@ -15,6 +15,10 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
     public let hermes: DesktopOverviewStatus
     public let accountService: String
     public let cloudLatency: String
+    public let accountServiceLevel: HealthLevel
+    public let backgroundLevel: HealthLevel
+    public let remoteConnectionLevel: HealthLevel
+    public let remoteAccessLevel: HealthLevel
     public let background: String
     public let remoteConnection: String
     public let remoteAccess: String
@@ -108,6 +112,23 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
             hermes = status(.healthy, "可以使用", localHermes.detail, localHealth?.checkedAt)
         } else {
             hermes = status(localHermes.level, localHermes.title, localHermes.detail, localHealth?.checkedAt)
+        }
+        // Individual marks describe their own evidence, never inherit the aggregate card color.
+        accountServiceLevel = needsLogin ? .unavailable : accountFresh ? .healthy : hasAccountIssue ? .degraded : .checking
+        remoteConnectionLevel = !accountFresh ? .checking : binding == nil ? .unavailable :
+            binding?.connector.online == true ? .healthy : .failed
+        remoteAccessLevel = !accountFresh || !reportFresh ? .checking :
+            binding?.endToEnd.healthy == true ? .healthy : binding?.endToEnd.healthy == false ? .failed : .checking
+        if operationInProgress { backgroundLevel = .checking }
+        else if manageOnly { backgroundLevel = .unavailable }
+        else if !fresh(agent.health.checkedAt) { backgroundLevel = .checking }
+        else {
+            switch agent.mode {
+            case .managedVerified, .managedUnverified: backgroundLevel = .healthy
+            case .attentionRequired: backgroundLevel = .failed
+            case .checking: backgroundLevel = .checking
+            case .unavailable: backgroundLevel = .unavailable
+            }
         }
         let remoteVerified = accountFresh && reportFresh && binding?.endToEnd.healthy == true
         if needsLogin {

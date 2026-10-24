@@ -1,5 +1,14 @@
 # Hermes Go Desktop phase 0
 
+## Overview visual hierarchy (2026-10-24)
+
+The accepted three-section overview now emphasizes latency/version and independent background,
+connection and mobile-verification marks. Healthy prose and timestamps live in expandable details;
+nonhealthy explanations and repair guidance stay visible. The impact header has a semantic icon,
+without duplicate status boxes. Healthy reconnect is in connection details; every action retains its
+existing model entry and confirmation. No protocol, service ownership or data changes.
+
+
 ## Status and diagnostics polish — 2026-10-24
 
 The diagnostics presentation combines local background/authenticated Hermes probes and the local
