@@ -8,8 +8,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
@@ -43,9 +41,8 @@ class UpdateDownloadTransfer(
     private val directory: File,
     private val commit: (UpdateDownloadRecord) -> Unit,
     private val progress: (UpdateDownloadRecord) -> Unit,
-    private val now: () -> Long = System::currentTimeMillis,
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
-    private val writeLock = Mutex()
 
     /** Download [record]'s missing ranges; returns the record with every segment committed. */
     suspend fun run(record: UpdateDownloadRecord): UpdateDownloadRecord = withContext<UpdateDownloadRecord>(Dispatchers.IO) {
@@ -80,43 +77,50 @@ class UpdateDownloadTransfer(
         commit(record)
 
         val positions = record.segments.map { it.downloaded }.toLongArray()
-        val positionsLock = Any()
+        // One lock orders live snapshots and journal commits from all four workers. Taking
+        // separate snapshots of each position could publish stale totals after newer ones.
+        val stateLock = Any()
         var lastPublished = 0L
         var lastPublishedAt = 0L
         fun publish(force: Boolean = false) {
-            val total = synchronized(positionsLock) { positions.sum() }
+            val total = positions.sum()
             val stamp = now()
             if (!force && stamp - lastPublishedAt < PROGRESS_INTERVAL_MS) return
             if (total == lastPublished && !force) return
             lastPublished = total
             lastPublishedAt = stamp
             val live = record.segments.mapIndexed { index, segment ->
-                segment.copy(downloaded = synchronized(positionsLock) { positions[index] })
+                segment.copy(downloaded = positions[index])
             }
             progress(record.copy(segments = live, status = UpdateDownloadStatus.RUNNING))
         }
 
+        val segments = record.segments
         coroutineScope {
-            record.segments.indices.map { index ->
+            segments.indices.map { index ->
                 async(Dispatchers.IO) {
-                    var segment = record.segments[index]
+                    var segment = segments[index]
                     val channel = RandomAccessFile(part, "rw").channel
                     try {
                         while (true) {
                             currentCoroutineContext().ensureActive()
                             val range = segment.nextRange() ?: break
-                            val received = downloadRange(record, range, channel) { live ->
-                                synchronized(positionsLock) { positions[index] = segment.downloaded + live }
-                                publish()
+                            val received = downloadRange(input.copy(etag = etag ?: input.etag), range, channel) { live ->
+                                synchronized(stateLock) {
+                                    positions[index] = segment.downloaded + live
+                                    publish()
+                                }
                             }
+                            currentCoroutineContext().ensureActive()
                             channel.force(false)
+                            currentCoroutineContext().ensureActive()
                             segment = segment.advance(range, received)
-                            synchronized(positionsLock) { positions[index] = segment.downloaded }
-                            writeLock.withLock {
+                            synchronized(stateLock) {
+                                positions[index] = segment.downloaded
                                 record = record.copy(segments = record.segments.toMutableList().also { it[index] = segment })
                                 commit(record)
+                                publish(force = true)
                             }
-                            publish(force = true)
                         }
                     } finally {
                         channel.close()
@@ -126,6 +130,7 @@ class UpdateDownloadTransfer(
             }.awaitAll()
         }
 
+        currentCoroutineContext().ensureActive()
         if (!record.complete) throw UpdateDownloadFailure(AppErrorCode.UPDATE_DOWNLOAD_FAILED, true, "incomplete ranges")
         val target = updateDownloadTarget(directory, record.version)
         if (target.exists() && !target.delete()) throw UpdateDownloadFailure(AppErrorCode.UPDATE_CLEANUP_FAILED, true, "cannot replace APK")
@@ -161,6 +166,7 @@ class UpdateDownloadTransfer(
     ): Long {
         var attempt = 0
         while (true) {
+            onBytes(0)
             try {
                 return requestRange(record, range, channel, onBytes)
             } catch (error: SourceChangedException) {
@@ -177,7 +183,7 @@ class UpdateDownloadTransfer(
         }
     }
 
-    private fun requestRange(
+    private suspend fun requestRange(
         record: UpdateDownloadRecord,
         range: LongRange,
         channel: java.nio.channels.FileChannel,
@@ -206,6 +212,7 @@ class UpdateDownloadTransfer(
             val buffer = ByteBuffer.allocate(BUFFER_BYTES)
             response.body.byteStream().use { input ->
                 while (true) {
+                    currentCoroutineContext().ensureActive()
                     val read = input.read(buffer.array())
                     if (read < 0) break
                     if (received + read > expected) {

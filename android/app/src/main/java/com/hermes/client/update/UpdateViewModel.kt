@@ -30,6 +30,7 @@ data class UpdateTask(
     val verifiedFile: File? = null,
     /** One-shot: the page already launched the installer for this task automatically. */
     val autoInstallAttempted: Boolean = false,
+    val bytesPerSecond: Long? = null,
 )
 
 data class UpdateUiState(
@@ -258,6 +259,7 @@ class UpdateViewModel(
                     percent = downloadPercent(snapshot.downloaded, snapshot.total),
                     downloadedBytes = snapshot.downloaded,
                     totalBytes = snapshot.total,
+                    bytesPerSecond = snapshot.bytesPerSecond,
                 )
             }
             when (phase) {
@@ -307,10 +309,10 @@ class UpdateViewModel(
         if (generation != monitorGeneration) return
         val task = _state.value.task ?: return
         _state.value = _state.value.copy(
-            task = task.copy(phase = DownloadPhase.FAILED, verifiedFile = null),
+            task = task.copy(phase = DownloadPhase.FAILED, verifiedFile = null, bytesPerSecond = null),
             taskError = AppError(code, retryable = true, technicalCause = cause, stage = stage),
         )
     }
 
-    private companion object { const val POLL_INTERVAL_MS = 750L }
+    private companion object { const val POLL_INTERVAL_MS = 300L }
 }

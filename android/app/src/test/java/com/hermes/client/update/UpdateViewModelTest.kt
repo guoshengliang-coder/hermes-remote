@@ -33,6 +33,20 @@ class UpdateViewModelTest {
 
     private val done = snapshot(UpdateDownloadStatus.COMPLETE, 3, 3)
 
+    @Test fun `monitor renders sub chunk bytes and speed then clears speed on pause`() = runTest {
+        val repo = FakeRepository(index = index, saved = version, snapshots = mutableListOf(
+            snapshot(UpdateDownloadStatus.RUNNING, 64 * 1024, 8 * 1024 * 1024).copy(bytesPerSecond = 32 * 1024),
+            snapshot(UpdateDownloadStatus.PAUSED, 0, 8 * 1024 * 1024),
+        ))
+        val vm = UpdateViewModel(repo) { 1L }
+        vm.onOpen(); runCurrent()
+        assertEquals(64L * 1024, vm.state.value.task!!.downloadedBytes)
+        assertEquals(32L * 1024, vm.state.value.task!!.bytesPerSecond)
+        advanceTimeBy(300); runCurrent()
+        assertEquals(DownloadPhase.PAUSED, vm.state.value.task!!.phase)
+        assertNull(vm.state.value.task!!.bytesPerSecond)
+    }
+
     // ---- page entry -------------------------------------------------------------------------
 
     // The two jobs are independent on purpose: a restored download is local state and must render

@@ -1,5 +1,10 @@
 # Hermes Remote Android
 
+In-app updates show live sub-chunk progress and a three-second moving download speed, independently
+of the durable resume journal. Four workers now request up to 4 MiB each, reducing HTTP round trips
+and fsync/journal writes; each worker still streams through 64 KiB memory. Resume trusts only fsynced
+chunks (up to 16 MiB of uncommitted work may be re-fetched). No version or APK is allocated here.
+
 Video preview shares a device-local 3 GiB cache, adjustable to 1/3/5 GiB in Settings → Video cache.
 Capacity eviction uses last access with lower watermarks (3 → 2.5 GiB, 5 → 4 GiB, 1 → 0.8 GiB),
 and segments unused for 30 days expire opportunistically at startup/open. Below 1 GiB free storage,

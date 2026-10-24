@@ -38,11 +38,21 @@ through enqueuing → waiting/paused → downloading(progress) → verifying →
 failed. Failure exposes a stage-specific retry/recovery action.
 
 Downloads run in `UpdateDownloadEngine` behind a foreground `dataSync` service, not in Android's
-DownloadManager (HG-223). The engine splits the APK into four contiguous ranges, requests 1 MiB per
+DownloadManager (HG-223). The engine splits the APK into four contiguous ranges, requests up to 4 MiB per
 HTTP call with `Range` and `If-Range`, and writes each chunk at its absolute offset in
-`<file>.part`. A chunk is fsynced before its offset is journaled, so at most the chunk in flight can
-be lost; a checkpoint never counts bytes that are not on disk. Parallel ranges reduce the
+`<file>.part`. A chunk is fsynced before its offset is journaled, so at most one in-flight chunk
+per worker can be lost (up to 16 MiB across four workers); a checkpoint never counts bytes that are
+not on disk. Larger requests reduce HTTP round trips, fsyncs and synchronous journal writes without
+buffering the whole chunk in memory (each worker still writes through a 64 KiB buffer). Parallel ranges reduce the
 single-stream stall that made a 32 MB APK slow over the Hong Kong link.
+
+The page polls the engine's live snapshot every 300 ms, including bytes received before a chunk is
+committed. The live total stays separate from the resume journal and cannot rewind when another
+worker commits or retries its range. Speed is three-second moving goodput using a monotonic clock;
+it excludes restored bytes, decays to zero on stalls, and resets on pause, source restart or a new
+attempt. Waiting/paused/failed snapshots expose only committed bytes and no speed. A restart may
+therefore legitimately show fewer bytes than the previous live display. Notifications retain their
+one-second refresh limit. Size, ETag, Content-Range, final SHA-256 and APK identity checks remain required.
 
 Leaving the page, backgrounding the app, a network drop, or process death only pauses the task: the
 service resumes from the committed offsets, and the journal (selected version, ETag, size, per-range

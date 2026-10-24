@@ -112,9 +112,7 @@ class UpdateRepository(
         }
     }
 
-    override suspend fun query(): UpdateDownloadSnapshot? = engine.record.value?.let {
-        UpdateDownloadSnapshot(it.status, it.downloadedBytes, it.totalBytes, it.errorCode)
-    }
+    override suspend fun query(): UpdateDownloadSnapshot? = engine.snapshot()
 
     override suspend fun verify(version: UpdateVersion): File = withContext(Dispatchers.IO) {
         val file = updateDownloadTarget(downloadDirectory, version).canonicalFile
