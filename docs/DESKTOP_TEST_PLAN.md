@@ -1,5 +1,29 @@
 # Hermes Go Desktop test plan
 
+## HG-199 Git condition checks cannot execute checkout filters (2026-10-24)
+
+Test-impact/error-code review: ordinary git status can execute a local clean filter, contradicting
+the product's read-only condition-check promise. Two disposable real Git repositories (direct and
+included config) reproduced actual marker writes; the old test failed four assertions. The fix
+inspects local config without includes, refuses filter/include/executable/redirected classes, checks
+the actual repository root, and requires the config bytes to match after status. Each command also
+uses macOS sandbox-exec with file writes (except /dev/null), network and process forks denied.
+This OS boundary covers configuration introduced after preflight. Transport/helpers/global/system
+config, lazy fetch, hooks, replace refs and optional index/cache writes are disabled.
+
+The 11-test focused readiness suite passes, including direct invocation of the sandboxed status
+runner with required filters (preflight bypassed) and zero marker writes, 12 unsafe config classes,
+over-64-KiB output, an ancestor repository and an expired monotonic budget. Normal tracked/untracked/
+clean checks and unchanged index mtime still pass. Config/root/status/recheck share three seconds;
+nonblocking output polling and bounded owned-process termination avoid waiting on a child-held pipe.
+No live installation/service is inspected. Unknown failures retain the existing bilingual
+working-tree explanation and HR-HERMESUPDATE-002; raw config/path output is not shown. No UI controls
+or visual change; the existing 22 stub-model native card fixtures remain applicable. Fresh assets,
+801 Swift tests (2 existing skips) and ad-hoc app packaging pass. A separate CLI linked to the
+actual current Core inspector checked the complete private 17b5df02 and bf0203a7 source caches as
+clean in approximately 1.10/0.77 seconds, preserving index mtime and config bytes. No ViewModel,
+monitor, network, installed app or live Hermes is involved. Unsupported sandbox stays unknown.
+
 ## Unadopted 0.22.5 synthetic history diagnostic (2026-10-24)
 
 Test-impact/error-code review: the prior candidate job was AST-only. Complete the private fixed

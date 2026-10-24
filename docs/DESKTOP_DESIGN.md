@@ -1,5 +1,12 @@
 # Hermes Go Desktop design contract
 
+HG-199's “条件检查不会停止服务或修改数据” also applies to Git status: local executable/include
+configuration is refused, and an OS read-only/no-network/no-fork boundary covers a config race.
+Unsupported sandbox, unsafe/changed config, a different repository root, output budget or timeout
+maps to the existing unknown working-tree explanation and HR-HERMESUPDATE-002. Never display raw
+local Git config/status paths or turn this diagnostic into upgrade permission. The card/actions
+and visual layout remain the same.
+
 HG-199 integrates the 0.2.39 Local Hermes surface: preserve its separate model metadata and conditional missing-model
 configuration prompt, signed-out local inspection and account-gated connection/install. “版本与升级” follows the
 usability/model card and remains read-only without an account. Its recovery record cannot replace

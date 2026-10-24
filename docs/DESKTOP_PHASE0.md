@@ -1,5 +1,16 @@
 # Hermes Go Desktop phase 0
 
+## HG-199 read-only Git condition inspection — unreleased
+
+The Local Hermes condition check refuses local filters/includes and other executable or redirected
+Git configuration before status. Every probe also runs inside a read-only, no-network/no-fork macOS
+sandbox, protecting the read-only promise if config changes between checks. Global/system config,
+lazy transports, hooks, replace refs and optional index/cache writes are disabled. The local config
+must match again afterwards; the requested directory must be the actual repository top level.
+Four probes share a three-second monotonic budget, with bounded output and owned-process cleanup.
+Missing sandbox support, unsafe/changed/oversized input, timeout or Git failure stays unknown under
+HR-HERMESUPDATE-002. No source, config, index or service is repaired and no execution is authorized.
+
 ## HG-199 / Desktop 0.2.39 integration — unreleased
 
 The task branch integrates main 9b659400 (after 2b1f8b64), including the already published Desktop 0.2.39/build 42.
