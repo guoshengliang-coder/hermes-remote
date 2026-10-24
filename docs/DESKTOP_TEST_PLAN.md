@@ -1,5 +1,31 @@
 # Hermes Go Desktop test plan
 
+## HG-199 isolated cache material preservation (2026-10-24)
+
+Test-impact review: refusing ordinary warm caches must not lead to automatic deletion or an
+assumption that -B prevents cache reads. This isolated harness preserves them and rechecks a cold
+source material snapshot, without changing the product worker, UI, execution eligibility or version.
+Thirteen synthetic Git tests exercise actual cache bytes/OS locks/new processes and SIGKILL after
+copy, partial prepared-slot append and complete preservation. Wrong independent identities, partial
+started history, source/cache/archive changes, aliases/hardlinks, extra native overlays and malformed
+private records refuse; unknown history refuses before source probes and is never repaired.
+Final local focused 13 and full compatibility 206 Python tests pass.
+
+The actual fixed bf0203a7 Mac probe preserves one compiled backend_retirement cache and passes a
+fresh-interpreter recheck after its coordinator dies. All original bytes remain; cooperating writers
+stay blocked after locks release. Initial attempts refused declared PowerShell CRLF conversion;
+the revised exact attribute rule permits only that material conversion, with regression coverage.
+Python/native artifacts always require exact Git bytes. CLI failures use existing bilingual
+HR-HERMESUPDATE-002, retryable=false, with no argument/exception/path echo.
+
+Both source copies and the sample cache are prepared before the measured transaction. Neither copy
+is installed or launched, and no Hermes runtime, PM, DB or service is started. There is no UI/app
+change, so the preceding 801-case Swift baseline (2 existing skips), assets and ad-hoc packaging are
+not rerun locally for this script-only iteration. Full Desktop CI still applies to the final PR head.
+Cold source check/material preservation is not cache provenance, execution/activation, global writer
+exclusion, durable supervisor-death authority or updater recovery. All such certification remains
+false; certified targets/paths stay empty and one-click upgrade stays disabled.
+
 ## HG-199 compiled/native source import artifacts (2026-10-24)
 
 Test-impact review: Python -B prevents new bytecode writes, but may load an existing valid timestamp

@@ -20,6 +20,57 @@ tests actual prepare/commit with an injected idle ledger. Neither starts a serve
 updates an environment, loads real history, or writes to the supplied checkout.
 Every subprocess gets a whitelist environment and disposable HOME/HERMES_HOME.
 
+## Cache preservation and cold source materials (2026-10-24)
+
+```bash
+python -I -S -B -m unittest discover -s scripts/compat -p 'test_hermes_cache_material.py'
+python -I -S -B scripts/compat/hermes-maintenance-cache-material.py --provision \
+  --candidate-root <complete-fixed-bf0203a7-snapshot>
+```
+
+The opt-in command accepts only bf0203a794a07aac3ff764972ab9087baa4e4f4e. It verifies the supplied
+source before creating two private disposable material snapshots with local-only Git fetch, no
+hooks/global config/lazy transport. One receives a real source-backed timestamp cache via
+py_compile, without importing or executing upstream source. The other stays cold and passes the
+strict product source verifier. Neither is installed or started as a second Hermes runtime;
+there is no database, PM synchronization, server, activation or existing installation operation.
+The cold snapshot and example warm cache are fixture setup BEFORE the measured transaction.
+
+A private home/checkout registry then drains its four real maintenance roles. The independent
+run/commit/plan digest binds both material roots, all tracked file identities/content digests,
+the Git tree, and at most 512 source-backed cache files (1 MiB plan, existing 2 GiB/65536 observation
+budget). Every tracked regular file is compared against its Git blob. Declared text/eol=crlf
+PowerShell material alone allows Git's CRLF worktree conversion; Python/native bytes remain exact,
+and no clean/smudge filter is invoked. Both actual byte digests still enter the plan. The first
+real attempts refused ordinary PowerShell CRLF differences, and are not successful evidence.
+
+Original pre-enrolled intent slots are appended/fsynced, never replaced. A distinct
+cache-material-started row binds the plan. Cache copies go into a new private directory, with
+original identity/content checked before and after copying, fsynced files/directory, then a private
+canonical manifest and appended cache-material-prepared row. Original source/cache bytes remain
+in place. A completed coordinator is SIGKILLed by its owning supervisor; a fresh interpreter must
+acquire new actual maintenance custody, match external run/commit/plan/manifest expectations and
+the original complete two-slot history, and re-observe all materials. A saved success report is
+never used as permission. Normal cooperating writers remain blocked after every lock closes.
+
+Thirteen portable cases use synthetic Git/source and actual locks, cache bytes and processes.
+They cover completed/copy/partial-slot deaths, changed source/cache/archive, same-byte inode
+replacement, aliases, extra native code, CRLF conversion/tampering, malformed private JSON,
+external expectation mismatches and bilingual redacted CLI failures. Incomplete histories refuse
+before source observation and remain unchanged; an incomplete archive is never overwritten/reused.
+The actual Mac fixed-candidate run preserves one backend_retirement cache and passes fresh-process
+rechecking. CI runs the portable cases on Linux/macOS and the real fixed-source material command
+in the unadopted candidate job.
+
+This is a material preservation checkpoint, not cache provenance/execution or source activation
+certification. The product worker still refuses warm caches even after successful preservation.
+No cache is removed, no generation is activated and there is no resume/replay/finish/clear API.
+The supervisor retains the original external expectations; supervisor-death durable authorization,
+Git mutation interrupted in flight, official updater custody, nonparticipating writers, full
+dependency closure, descendant imports and service/business recovery remain unverified.
+sourceActivationVerified/cacheExecutionVerified/updaterRecoveryVerified/globalAdmissionProven/
+certifiesUpgrade are always false. No production target or certified path is added.
+
 ## Proposed cooperative primitive
 
 Each participant supplies its **fleet maintenance home** and checkout explicitly.
