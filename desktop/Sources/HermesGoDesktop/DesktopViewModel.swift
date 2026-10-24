@@ -373,6 +373,10 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             || sources.managedIndexURL?.lastPathComponent == "index.json"
     }
 
+    var currentModelConfiguration: DesktopModelConfiguration {
+        modelConfiguration.current(health: localManagedHermesHealth)
+    }
+
     var updateStatusText: String {
         switch updateCheckState {
         case .idle: isUpdateConfigured ? "尚未检查" : "此版本未配置更新检查"

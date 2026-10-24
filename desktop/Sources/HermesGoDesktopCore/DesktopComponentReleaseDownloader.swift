@@ -172,7 +172,7 @@ private final class ComponentStreamingDownloadDelegate: NSObject, URLSessionData
     private let lock = NSLock()
     private let requestedURL: URL
     private let partialURL: URL
-    private let startingOffset: Int64
+    private var startingOffset: Int64
     private let expectedSize: Int64
     private var receivedBytes: Int64 = 0
     private var failure: DesktopComponentDownloadError?
@@ -218,8 +218,12 @@ private final class ComponentStreamingDownloadDelegate: NSObject, URLSessionData
                   let http = response as? HTTPURLResponse,
                   http.url == requestedURL
             else { return false }
-            let remaining = expectedSize - startingOffset
-            if startingOffset == 0 {
+            // Some official hosts ignore Range. A complete 200 response may restart the file,
+            // but never append its bytes to the saved prefix. Signed size/hash remain mandatory.
+            let restart = startingOffset > 0 && http.statusCode == 200
+            let responseOffset: Int64 = restart ? 0 : startingOffset
+            let remaining = expectedSize - responseOffset
+            if responseOffset == 0 {
                 guard http.statusCode == 200 else { return false }
             } else {
                 guard http.statusCode == 206,
@@ -231,6 +235,8 @@ private final class ComponentStreamingDownloadDelegate: NSObject, URLSessionData
                Int64(value) != remaining { return false }
             do {
                 handle = try FileHandle(forWritingTo: partialURL)
+                if restart { try handle?.truncate(atOffset: 0) }
+                startingOffset = responseOffset
                 try handle?.seek(toOffset: UInt64(startingOffset))
             } catch { return false }
             return true

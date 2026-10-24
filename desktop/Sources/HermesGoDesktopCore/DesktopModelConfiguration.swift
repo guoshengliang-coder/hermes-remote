@@ -20,6 +20,26 @@ public enum DesktopModelConfiguration: Equatable, Sendable {
         "'" + executable.replacingOccurrences(of: "'", with: "'\"'\"'") + "' --profile default setup"
     }
 
+    public func current(health: ComponentHealth?, now: Date = Date()) -> Self {
+        guard let health, health.level == .healthy, AccountDeviceHealth.isFresh(health.checkedAt, now: now) else { return .unknown }
+        return self
+    }
+
+    public var statusText: String {
+        switch self {
+        case .unknown: "待确认"
+        case .missing: "未配置"
+        case .selected: "已配置"
+        }
+    }
+    public var level: HealthLevel {
+        switch self {
+        case .unknown: .unavailable
+        case .missing: .degraded
+        case .selected: .healthy
+        }
+    }
+
     public var title: String {
         switch self {
         case .unknown: "模型配置待确认"

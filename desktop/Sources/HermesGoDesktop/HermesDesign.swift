@@ -3,6 +3,10 @@ import HermesGoDesktopCore
 import SwiftUI
 
 extension Color {
+    static func hermesSecondaryText(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0xAEB8C4) : Color(hex: 0x596573)
+    }
+
     static let hermesBlue = Color(hex: 0x0B5FD0)
 
     static func hermesCanvas(_ scheme: ColorScheme) -> Color {
@@ -125,5 +129,39 @@ struct PrimaryButtonStyle: ButtonStyle {
             .frame(minHeight: 36)
             .background(Color.hermesBlue.opacity(configuration.isPressed ? 0.82 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+}
+
+struct HermesFact: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let title: String
+    let value: String
+    let level: HealthLevel
+    var detail: String? = nil
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: level == .healthy ? "checkmark.circle.fill" :
+                    (level == .degraded || level == .failed ? "exclamationmark.circle.fill" : "questionmark.circle"))
+                .foregroundStyle(Color.status(level, scheme: colorScheme))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.system(size: 13, weight: .medium))
+                Text(value).font(.system(size: 12)).foregroundStyle(Color.hermesSecondaryText(colorScheme))
+                if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(Color.hermesSecondaryText(colorScheme)).textSelection(.enabled) }
+            }
+        }.fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct HermesModelFact: View {
+    @EnvironmentObject private var model: DesktopViewModel
+    var showsName = false
+    var body: some View {
+        HermesFact(title: "模型配置", value: model.currentModelConfiguration.statusText,
+                   level: model.currentModelConfiguration.level, detail: modelName)
+    }
+    private var modelName: String? {
+        if showsName, case .selected(let name) = model.currentModelConfiguration { return name }
+        return nil
     }
 }

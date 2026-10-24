@@ -731,7 +731,17 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Desktop 更新")
                         .font(.system(size: 16, weight: .bold))
-                    settingRow("当前版本", model.appVersion)
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            Text("当前版本").foregroundStyle(.secondary)
+                            Spacer()
+                            versionAndStatus
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("当前版本").foregroundStyle(.secondary)
+                            versionAndStatus
+                        }
+                    }.font(.system(size: 13)).padding(.vertical, 10)
                     Toggle(
                         "自动检查更新（每 12 小时）",
                         isOn: Binding(
@@ -742,9 +752,6 @@ struct SettingsView: View {
                     .font(.system(size: 13))
                     .toggleStyle(.switch)
                     HStack(spacing: 12) {
-                        Text(model.updateStatusText)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
                         Spacer()
                         Button("检查更新") {
                             Task { await model.checkForUpdates(manual: true) }
@@ -756,7 +763,7 @@ struct SettingsView: View {
                     if let issue = model.appUpdateIssue {
                         GateIssueBanner(issue: issue)
                     }
-                    if let message = model.appUpdateStatusMessage, message != model.updateStatusText {
+                    if let message = model.appUpdateStatusMessage, message != model.updateStatusText, !isUpToDate {
                         Text(message)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
@@ -769,6 +776,35 @@ struct SettingsView: View {
 
             }
             .padding(34)
+        }
+    }
+
+    private var versionAndStatus: some View {
+        HStack(spacing: 10) {
+            Text(model.appVersion).textSelection(.enabled)
+            Label(updateBadge, systemImage: updateSymbol)
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+        }
+    }
+    private var isUpToDate: Bool {
+        if case .upToDate = model.updateCheckState { return true }
+        return false
+    }
+    private var updateBadge: String {
+        switch model.updateCheckState {
+        case .idle: model.isUpdateConfigured ? "尚未检查" : "未配置更新"
+        case .checking: "检查中"
+        case .upToDate: "已是最新"
+        case .available: "有新版本"
+        case .failed: "检查失败"
+        }
+    }
+    private var updateSymbol: String {
+        switch model.updateCheckState {
+        case .upToDate: "checkmark.circle"
+        case .available: "arrow.down.circle"
+        case .failed: "exclamationmark.circle"
+        default: "arrow.clockwise"
         }
     }
 
