@@ -136,4 +136,40 @@ class ArtifactRangeRepositoryTest {
         try { repository.read(source, ArtifactRangeCache.BLOCK_BYTES.toLong()); fail() }
         catch (error: HermesApiException) { assertEquals("HR-FILE-011", error.errorCode) }
     }
+    @Test fun cache_capacity_persists_and_cleanup_never_removes_complete_files() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        repository.setCacheCapacity(VideoCacheCapacity.LARGE)
+        val restored = ArtifactRangeRepository(context, rest)
+        assertEquals(5 * GIB, restored.refreshCache().maxBytes)
+        val complete = File(context.filesDir, "complete-video.mp4")
+        complete.writeBytes(ByteArray(descriptor.sizeBytes.toInt()) { 7 })
+        restored.publish("owner", "/video.mp4", descriptor, complete, 0)
+        assertTrue(restored.refreshCache().usedBytes > 0)
+        restored.clearCache()
+        assertEquals(0L, restored.refreshCache().usedBytes)
+        assertEquals(descriptor.sizeBytes, complete.length())
+        assertEquals(7, complete.readBytes().first().toInt())
+        restored.setCacheCapacity(VideoCacheCapacity.DEFAULT)
+    }
+
+    @Test fun nonvideo_downloads_do_not_fill_video_pool() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val complete = File(context.filesDir, "complete-document.pdf")
+        complete.writeBytes(ByteArray(ArtifactRangeCache.BLOCK_BYTES))
+        val pdf = descriptor.copy(contentType = "application/pdf", sizeBytes = complete.length())
+        repository.publish("owner", "/report.pdf", pdf, complete, 0)
+        assertNull(repository.cached("owner", "/report.pdf", pdf, 0))
+        assertEquals(0L, repository.refreshCache().usedBytes)
+    }
+
+    @Test fun clear_while_range_in_flight_serves_playback_without_repopulating_disk() = runBlocking {
+        val source = repository.prepare(file, "mac")
+        coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } coAnswers {
+            repository.clearCache()
+            ByteArray(thirdArg()) { 9 }
+        }
+        assertEquals(9, repository.read(source, 0).first().toInt())
+        assertNull(repository.cached("owner", "/video.mp4", descriptor, 0))
+    }
+
 }

@@ -680,6 +680,7 @@ fun HermesNav(
                     onBack = { nav.popBackStack() },
                 )
             }
+            composable("settings_video_cache") { com.hermes.client.ui.settings.VideoCacheScreen(onBack = { nav.popBackStack() }) }
             composable("settings_language") { LanguageScreen(onBack = { nav.popBackStack() }) }
             composable("settings_account") {
                 com.hermes.client.ui.account.AccountSettingsScreen(

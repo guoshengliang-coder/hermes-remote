@@ -11,6 +11,7 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -24,7 +25,36 @@ class ArtifactRangeRepository @Inject constructor(
     private val rest: HermesRestApi,
 ) {
     val arbiter = ArtifactTransferArbiter()
-    private val cache = ArtifactRangeCache(File(context.cacheDir, "video-ranges"))
+    private val preferences by lazy { context.getSharedPreferences("video_cache_preferences", Context.MODE_PRIVATE) }
+    private val _cacheState = kotlinx.coroutines.flow.MutableStateFlow(VideoCacheStats())
+    val cacheState: kotlinx.coroutines.flow.StateFlow<VideoCacheStats> = _cacheState
+    private val cache = ArtifactRangeCache(File(context.cacheDir, "video-ranges"),
+        loadCapacity = { VideoCacheCapacity.from(runCatching { preferences.getInt("capacity_gib", 3) }.getOrDefault(3)) },
+        changed = { _cacheState.value = it })
+    private val cleanupScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    suspend fun maintainCache() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { cache.maintain() }
+    suspend fun refreshCache(): VideoCacheStats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { cache.refresh() }
+    suspend fun clearCache(): VideoCacheStats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { cache.clear() }
+    suspend fun setCacheCapacity(value: VideoCacheCapacity) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (!preferences.edit().putInt("capacity_gib", value.gib).commit()) throw IOException("cache preference write failed")
+        cache.capacity(value)
+    }
+
+    /** Priority and bounded hot-block protection share the exact playback lifetime. */
+    fun playbackLease(source: Source): AutoCloseable {
+        val priority = arbiter.playbackLease(source.owner)
+        val protection = cache.protect(source.key)
+        val closed = java.util.concurrent.atomic.AtomicBoolean()
+        return AutoCloseable {
+            if (closed.compareAndSet(false, true)) {
+                protection.close(); priority.close()
+                if (cacheState.value.loaded) cleanupScope.launch {
+                    try { cache.maintain(force = true) } catch (_: IOException) { /* Optional playback cache. */ }
+                }
+            }
+        }
+    }
 
     class Source internal constructor(val owner: String, val deviceId: String?, val path: String,
         @Volatile internal var descriptor: ArtifactDownloadDescriptor) {
@@ -36,6 +66,9 @@ class ArtifactRangeRepository @Inject constructor(
     }
 
     suspend fun prepare(file: ChatFile, deviceId: String?): Source {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try { cache.maintain() } catch (_: IOException) { /* A cache failure must not prevent streaming. */ }
+        }
         val owner = rest.artifactOwnerKey(deviceId) ?: throw HermesApiException(401, "video owner unavailable")
         val path = file.remotePath ?: throw HermesApiException(404, "video reference unavailable")
         return Source(owner, deviceId, path, rest.prepareArtifactDownload(path, deviceId, owner))
@@ -48,6 +81,7 @@ class ArtifactRangeRepository @Inject constructor(
     /** Random reads including the tail index of MP4 files. Reference renewal cannot change generation. */
     suspend fun read(source: Source, position: Long, blocks: Int = 1): ByteArray {
         checkOwner(source.owner, source.deviceId)
+        val cacheGeneration = cache.generation()
         require(position in 0 until source.size)
         val start = position / ArtifactRangeCache.BLOCK_BYTES * ArtifactRangeCache.BLOCK_BYTES
         val block = ArtifactRangeCache.BLOCK_BYTES
@@ -60,14 +94,14 @@ class ArtifactRangeRepository @Inject constructor(
             while (offset < count) {
                 currentCoroutineContext().ensureActive()
                 val at = start + offset
-                val cached = cache.read(source.key, at, minOf(block, count - offset))
+                val cached = cachedBlock(source.key, at, minOf(block, count - offset))
                 if (cached != null) {
                     cached.copyInto(result, offset); offset += cached.size
                     continue
                 }
                 var missing = minOf(block, count - offset)
                 // Stop at cached blocks instead of re-downloading bytes from a previous preview.
-                while (offset + missing < count && cache.read(source.key, at + missing,
+                while (offset + missing < count && cachedBlock(source.key, at + missing,
                         minOf(block, count - offset - missing)) == null) {
                     missing += minOf(block, count - offset - missing)
                 }
@@ -83,7 +117,7 @@ class ArtifactRangeRepository @Inject constructor(
                             val end = minOf(bytes.size, cursor + block)
                             yield(at + cursor to bytes.copyOfRange(cursor, end)); cursor = end
                         }
-                    })
+                    }, expectedGeneration = cacheGeneration)
                 } catch (_: IOException) { }
                 bytes.copyInto(result, offset); offset += bytes.size
             }
@@ -127,12 +161,19 @@ class ArtifactRangeRepository @Inject constructor(
     fun cached(owner: String, path: String, descriptor: ArtifactDownloadDescriptor, position: Long): ByteArray? {
         if (position % ArtifactRangeCache.BLOCK_BYTES != 0L) return null
         val count = minOf(ArtifactRangeCache.BLOCK_BYTES.toLong(), descriptor.sizeBytes - position).toInt()
-        return cache.read(ArtifactRangeCache.identity(owner, path, descriptor.etag, descriptor.sizeBytes), position, count)
+        return cachedBlock(ArtifactRangeCache.identity(owner, path, descriptor.etag, descriptor.sizeBytes), position, count)
     }
+
+    private fun cachedBlock(key: String, start: Long, count: Int): ByteArray? =
+        try { cache.read(key, start, count) } catch (_: IOException) { null }
 
     /** Download data becomes cache-visible only after HTTP validation and the durable checkpoint. */
     fun publish(owner: String, path: String, descriptor: ArtifactDownloadDescriptor, file: File, from: Long) {
+        // Other complete attachments have their own durable storage; don't fill the video pool.
+        if (!descriptor.contentType.startsWith("video/", true) &&
+            path.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT) !in setOf("mp4", "m4v", "mov", "webm", "mkv", "3gp", "avi", "mpeg", "mpg")) return
         val key = ArtifactRangeCache.identity(owner, path, descriptor.etag, descriptor.sizeBytes)
+        val cacheGeneration = cache.generation()
         var start = ((from + ArtifactRangeCache.BLOCK_BYTES - 1) / ArtifactRangeCache.BLOCK_BYTES) * ArtifactRangeCache.BLOCK_BYTES
         try {
             RandomAccessFile(file, "r").use { input ->
@@ -141,13 +182,13 @@ class ArtifactRangeRepository @Inject constructor(
                         val count = minOf(ArtifactRangeCache.BLOCK_BYTES.toLong(), descriptor.sizeBytes - start).toInt()
                         if (start + count > file.length()) break
                         // Cached playback blocks need no second write into the same cache.
-                        if (cache.read(key, start, count) == null) {
+                        if (cachedBlock(key, start, count) == null) {
                             val data = ByteArray(count); input.seek(start); input.readFully(data)
                             yield(start to data)
                         }
                         start += count
                     }
-                })
+                }, expectedGeneration = cacheGeneration)
             }
         } catch (_: IOException) { /* Optional cache, durable download remains valid. */ }
     }
