@@ -1,5 +1,17 @@
 # Desktop release channel
 
+## Authorized preparation: 0.2.41
+
+On 2026-10-24 the owner requested preparing and publishing the three read-only Hermes management
+features and actual client acceptance. Allocate the next patch **0.2.41/build 44** on the existing
+ad-hoc internal channel. Includes #659 and already merged account-footer polish #660. One-click
+Hermes upgrade/recovery remains closed; no updater, PM/maintenance experiment or journal writer is
+packaged. Build only from clean current main after version PR/main checks pass, retain installed
+public trust/update settings, publish through the unified internal publisher and verify full public
+DMGs plus website/app discovery. Preserve both signed managed-component pointers. Test the actual
+updated Desktop client and record Hermes process/source/record invariants separately; this does not
+claim Apple notarization, clean-machine or full phone/business acceptance.
+
 ## Published internal test distribution: 0.2.40
 
 On 2026-10-24 the owner authorized publication and confirmed **0.2.40/build 43**.

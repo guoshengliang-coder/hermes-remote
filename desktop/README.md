@@ -1,10 +1,14 @@
 # Hermes Go Desktop
 
-Source addition (HG-199, release pending): “本机 Hermes” now offers read-only upstream version,
-upgrade-condition and local upgrade-record checks. Upstream latest is separate from GO recommendation;
-recommendations remain empty and there are no upgrade/recovery execution actions. Pending or unsafe
-records block existing automatic service/install/repair operations. No updater, journal writer or
-maintenance prototype is included. See ../docs/HERMES_VERSION_MANAGEMENT.md.
+Prepared **0.2.41 / build 44** (publication authorized 2026-10-24): the Local Hermes page now
+includes read-only version discovery, upgrade-condition checks and upgrade records (#659).
+Upstream latest remains separate from GO recommendation, which defaults empty. One-click Hermes
+upgrade and recovery execution stay disabled; no updater or journal writer is packaged.
+Also retains main's compact signed-in account footer (#660). Existing Hermes installation/data and
+public release trust/settings are preserved. Continue the established ad-hoc internal channel;
+publication and actual installed-client acceptance are recorded separately after verification.
+
+## Previous distribution: 0.2.40
 
 Published **0.2.40 / build 43** (owner confirmed 2026-10-24): structured Hermes/model status,
 account/sidebar/settings polish, installation guidance and bounded download recovery (#654/#656).
