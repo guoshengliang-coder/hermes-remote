@@ -100,6 +100,132 @@ class VideoReadAheadTest {
         loader.cancel()
     }
 
+    @Test fun confirmed_sequential_read_starts_future_ranges_before_waiting_for_current_bytes() = runTest {
+        val loader = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val current = CompletableDeferred<Unit>()
+        val started = mutableListOf<Long>()
+        val reader = VideoReadAhead(loader, 4, block, { start, _ ->
+            started += start
+            if (start == block.toLong()) current.await()
+            ByteArray(block)
+        }, permitsEarlyRefill = { true })
+        try {
+            reader.load(0, 8L * block)
+            val foreground = async { reader.load(block.toLong(), 8L * block) }
+            runCurrent()
+            assertFalse(foreground.isCompleted)
+            assertTrue("sequential reads must overlap the current request's latency", 2L * block in started)
+            current.complete(Unit)
+            foreground.await()
+        } finally { loader.cancel(); current.complete(Unit) }
+    }
+
+    @Test fun awaiting_a_slow_current_range_refills_the_bounded_future_window() = runTest {
+        val loader = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val current = CompletableDeferred<Unit>()
+        val started = mutableListOf<Long>()
+        val reader = VideoReadAhead(loader, 4, block, { start, _ ->
+            started += start
+            if (start == 2L * block) current.await()
+            ByteArray(block)
+        }, permitsEarlyRefill = { true })
+        try {
+            reader.load(0, 8L * block); reader.load(block.toLong(), 8L * block)
+            runCurrent()
+            val foreground = async { reader.load(2L * block, 8L * block) }
+            runCurrent()
+            assertFalse(foreground.isCompleted)
+            assertTrue("finished later ranges must not leave a vacant prefetch slot", 4L * block in started)
+            current.complete(Unit)
+            foreground.await()
+            assertEquals(1, started.count { it == 2L * block })
+        } finally { loader.cancel(); current.complete(Unit) }
+    }
+
+    @Test fun early_refill_keeps_foreground_and_future_reads_within_negotiated_concurrency() = runTest {
+        for (parallel in listOf(1, 2, 4)) {
+            val loader = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+            var active = 0
+            var peak = 0
+            val reader = VideoReadAhead(loader, parallel, 4 * block, { _, blocks ->
+                active++
+                peak = maxOf(peak, active)
+                assertTrue("foreground plus future requests exceeded $parallel", active <= parallel)
+                try { delay(100); ByteArray(blocks * block) } finally { active-- }
+            }, { testScheduler.currentTime * 1_000_000 }, permitsEarlyRefill = { true })
+            try {
+                var position = 0L
+                while (position < 20L * block) position += reader.load(position, 20L * block).size
+                assertTrue(peak <= parallel)
+            } finally { loader.cancel(); runCurrent() }
+            assertEquals(0, active)
+        }
+    }
+
+    @Test fun cancelling_a_sequential_read_cancels_its_current_and_future_requests() = runTest {
+        for (currentBlock in listOf(1L, 2L)) {
+            val loader = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+            val started = mutableSetOf<Long>()
+            val stopped = mutableSetOf<Long>()
+            val reader = VideoReadAhead(loader, 4, block, { start, _ ->
+                if (start >= currentBlock * block) {
+                    started += start
+                    try { awaitCancellation() } finally { stopped += start }
+                }
+                ByteArray(block)
+            }, permitsEarlyRefill = { true })
+            try {
+                reader.load(0, 8L * block)
+                if (currentBlock == 2L) reader.load(block.toLong(), 8L * block)
+                val foreground = launch { reader.load(currentBlock * block, 8L * block) }
+                runCurrent()
+                assertTrue(started.size > 1)
+                foreground.cancelAndJoin()
+                runCurrent()
+                assertEquals(started, stopped)
+            } finally { loader.cancel() }
+        }
+    }
+
+    @Test fun unknown_or_low_goodput_keeps_the_current_request_ahead_of_future_work() = runTest {
+        val loader = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val current = CompletableDeferred<Unit>()
+        val started = mutableListOf<Long>()
+        val reader = VideoReadAhead(loader, 4, block, { start, _ ->
+            started += start
+            if (start == block.toLong()) current.await()
+            ByteArray(block)
+        })
+        try {
+            reader.load(0, 8L * block)
+            val foreground = async { reader.load(block.toLong(), 8L * block) }
+            runCurrent()
+            assertEquals(listOf(0L, block.toLong()), started)
+            current.complete(Unit)
+            foreground.await()
+            runCurrent()
+            assertTrue(2L * block in started)
+        } finally { loader.cancel(); current.complete(Unit) }
+    }
+
+    @Test fun slow_range_shrink_to_one_does_not_early_refill_on_a_stale_fast_hint() = runTest {
+        val loader = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val started = mutableListOf<Long>()
+        val reader = VideoReadAhead(loader, 4, block, { start, _ ->
+            started += start
+            if (start >= 2L * block) delay(4_000)
+            ByteArray(block)
+        }, { testScheduler.currentTime * 1_000_000 }, permitsEarlyRefill = { true })
+        try {
+            repeat(4) { reader.load(it.toLong() * block, 8L * block) }
+            val foreground = async { reader.load(4L * block, 8L * block) }
+            runCurrent()
+            assertFalse(foreground.isCompleted)
+            assertFalse("a shrunken one-range window must not become two in-flight requests", 5L * block in started)
+            foreground.await()
+        } finally { loader.cancel() }
+    }
+
     @Test fun final_window_never_schedules_a_range_beyond_the_requested_end() = runTest {
         val calls = mutableListOf<Long>()
         val reader = VideoReadAhead(this, 4, block, { start, _ -> calls += start; ByteArray(block) })

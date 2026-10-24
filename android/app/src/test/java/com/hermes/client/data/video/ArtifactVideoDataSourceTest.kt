@@ -46,6 +46,35 @@ class ArtifactVideoDataSourceTest {
         data.close(); withTimeout(5000) { stopped.await() }
     }
 
+    @Test fun measured_fast_source_overlaps_the_second_request_with_future_reads() = runBlocking {
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        val streaming = ArtifactRangeRepository.Source("owner", "mac", "/fast.mp4",
+            source.descriptor.copy(sizeBytes = 4L * block, maxConcurrentRanges = 4))
+        coEvery { repository.checkOwner(any(), any()) } returns Unit
+        coEvery { repository.read(streaming, 0) } answers {
+            streaming.permitsEarlyRefill = true
+            ByteArray(block)
+        }
+        val current = CompletableDeferred<Unit>()
+        val future = CompletableDeferred<Unit>()
+        coEvery { repository.read(streaming, block.toLong()) } coAnswers { current.await(); ByteArray(block) }
+        coEvery { repository.read(streaming, match { it >= 2L * block }, 1) } coAnswers {
+            future.complete(Unit); awaitCancellation()
+        }
+        val data = ArtifactVideoDataSource(repository, streaming)
+        try {
+            data.open(DataSpec.Builder().setUri(uri).build())
+            data.read(ByteArray(block), 0, block)
+            val foreground = CompletableFuture.supplyAsync {
+                try { data.read(ByteArray(1), 0, 1); false } catch (_: IOException) { true }
+            }
+            withTimeout(5_000) { future.await() }
+            assertFalse(foreground.isDone)
+            data.close()
+            assertTrue(foreground.get(3, TimeUnit.SECONDS))
+        } finally { data.close(); current.complete(Unit) }
+    }
+
     @Test fun a_cached_prefetch_is_consumed_once_without_another_network_read() {
         val block = ArtifactRangeCache.BLOCK_BYTES
         val streaming = ArtifactRangeRepository.Source("owner", "mac", "/video.mp4",

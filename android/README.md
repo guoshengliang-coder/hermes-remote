@@ -1,5 +1,13 @@
 # Hermes Remote Android
 
+On measured fast links, sequential video read-ahead refills its bounded window before awaiting
+the current range. A request-local body-goodput sample excludes first-byte latency; unknown or
+sub-1 MiB/s responses retain conservative scheduling. A shrunken one-range window never refills
+early. Initial/index/seek reads remain
+256 KiB; foreground plus future requests respect negotiated concurrency (up to four), with the
+existing validated range delivery, cache, shrink-on-slow-read and cancellation rules. Measurements
+and physical-device limits are in `../docs/ATTACHMENT_PERFORMANCE.md`. No APK is published here.
+
 In-app updates show live sub-chunk progress and a three-second moving download speed, independently
 of the durable resume journal. Four workers now request up to 4 MiB each, reducing HTTP round trips
 and fsync/journal writes; each worker still streams through 64 KiB memory. Resume trusts only fsynced

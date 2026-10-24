@@ -65,7 +65,7 @@ class ArtifactDownloadManagerTest {
         val size = 2L * com.hermes.client.data.video.ArtifactRangeCache.BLOCK_BYTES
         val desc = descriptor.copy(sizeBytes = size)
         coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns desc
-        coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } answers { ByteArray(thirdArg()) { 7 } }
+        coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } answers { ByteArray(thirdArg()) { 7 } }
         val manager = ArtifactDownloadManager(context, rest)
         manager.videoRanges.read(manager.videoRanges.prepare(file, "mac-a"), 0)
         coEvery { rest.downloadArtifactRange(any(), any(), any(), any(), any()) } coAnswers {

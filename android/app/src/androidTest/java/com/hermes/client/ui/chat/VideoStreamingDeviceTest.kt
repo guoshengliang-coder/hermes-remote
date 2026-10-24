@@ -95,6 +95,74 @@ class VideoStreamingDeviceTest {
         }
     }
 
+    /** Same reader and bytes, cold/warm cache, one shared 8 MiB/s budget; timings are evidence,
+     * not a wall-clock pass/fail threshold. Pacing approximates a decoder consuming buffered bytes.
+     */
+    @Test fun preview_buffer_profile_cold_warm_and_consumer_pacing(): Unit = runBlocking {
+        val mp4 = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
+        for ((latency, consumerPause) in listOf(0L to 0L, 120L to 0L, 900L to 0L, 120L to 16L)) {
+            profileBuffer(mp4, latency, consumerPause)
+        }
+    }
+
+    @Test fun low_bandwidth_preview_records_each_required_range_wait(): Unit = runBlocking {
+        val mp4 = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
+        for (rate in listOf(128 * 1024, 512 * 1024)) {
+            profileBuffer(mp4, 120, 0, bytesPerSecond = rate, windowBytes = 1024 * 1024L)
+        }
+    }
+
+    private suspend fun profileBuffer(mp4: ByteArray, latency: Long, consumerPause: Long,
+        bytesPerSecond: Int = 8 * 1024 * 1024, windowBytes: Long? = null) {
+        repeat(3) { attempt ->
+            val source = VideoFixtureSource(mp4, 2 * 1024 * 1024, 4, latency, bytesPerSecond)
+            val previous = credentials.load()
+            credentials.save(GatewayConfig("http://127.0.0.1:${source.port}", "local-video-test"))
+            try {
+                val file = ChatFile("profile", "profile.mp4", "video/mp4", source.size,
+                    remotePath = "/fixture/profile-$latency-$consumerPause-$attempt-${System.nanoTime()}.mp4")
+                val remote = ranges.prepare(file, null)
+                val expectedBytes = windowBytes ?: source.size
+                var expected: String? = null
+                for (warm in listOf(false, true)) {
+                    val data = com.hermes.client.data.video.ArtifactVideoDataSource(ranges, remote)
+                    val beforeBytes = source.sent.get()
+                    val beforeRequests = source.offsets.size
+                    val waits = mutableListOf<Long>()
+                    val rangeWaits = mutableListOf<Long>()
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    val start = android.os.SystemClock.elapsedRealtimeNanos()
+                    var total = 0L
+                    try {
+                        data.open(androidx.media3.datasource.DataSpec.Builder()
+                            .setUri(android.net.Uri.parse("hermes-video://attachment/profile")).setLength(expectedBytes).build())
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val at = android.os.SystemClock.elapsedRealtimeNanos()
+                            val count = data.read(buffer, 0, buffer.size)
+                            val waited = android.os.SystemClock.elapsedRealtimeNanos() - at
+                            waits += waited
+                            if (total % (256 * 1024) == 0L && count > 0) rangeWaits += waited / 1_000_000
+                            if (count == androidx.media3.common.C.RESULT_END_OF_INPUT) break
+                            digest.update(buffer, 0, count); total += count
+                            if (consumerPause > 0) Thread.sleep(consumerPause)
+                        }
+                    } finally { data.close() }
+                    val elapsed = (android.os.SystemClock.elapsedRealtimeNanos() - start) / 1_000_000
+                    val hash = digest.digest().joinToString("") { "%02x".format(it) }
+                    if (expected == null) expected = hash else assertEquals(expected, hash)
+                    assertEquals(expectedBytes, total)
+                    assertEquals(if (warm) 0L else expectedBytes, source.sent.get() - beforeBytes)
+                    assertTrue(source.peak.get() <= 4)
+                    android.util.Log.i("VIDEO_BUFFER_PROFILE", "attempt=$attempt bytesPerSecond=$bytesPerSecond latencyMs=$latency consumerPauseMs=$consumerPause warm=$warm elapsedMs=$elapsed readWaitMs=${waits.sum() / 1_000_000} firstReadMs=${waits.first() / 1_000_000} maxReadMs=${waits.max() / 1_000_000} rangeWaitMs=${rangeWaits.joinToString(",")} requests=${source.offsets.size - beforeRequests} peak=${source.peak.get()} bytes=$total sha256=$hash")
+                }
+            } finally {
+                if (previous == null) credentials.clear() else credentials.save(previous)
+                source.close()
+            }
+        }
+    }
+
     @Test fun delayed_loopback_records_serial_and_parallel_first_frame_and_seek() {
         for (latency in listOf(120L, 900L)) {
             repeat(if (latency == 120L) 3 else 1) { attempt ->
@@ -394,7 +462,8 @@ class VideoStreamingDeviceTest {
 }
 
 private class VideoFixtureSource(mp4: ByteArray, private val padding: Int,
-    private val parallel: Int = 4, private val latency: Long = 0) : AutoCloseable {
+    private val parallel: Int = 4, private val latency: Long = 0,
+    private val bytesPerSecond: Int = 4 * 1024 * 1024) : AutoCloseable {
     private val prefix: ByteArray
     private val moov: ByteArray
     val size: Long
@@ -456,10 +525,10 @@ private class VideoFixtureSource(mp4: ByteArray, private val padding: Int,
                                             else -> 0
                                         }
                                     }
-                                    // All responses share 4 MiB/s; concurrency must not multiply fixture bandwidth.
+                                    // All responses share one budget; concurrency must not multiply fixture bandwidth.
                                     val wait = synchronized(paceLock) {
                                         val now = System.nanoTime()
-                                        nextSendNanos = maxOf(now, nextSendNanos) + count * 1_000_000_000L / (4 * 1024 * 1024)
+                                        nextSendNanos = maxOf(now, nextSendNanos) + count * 1_000_000_000L / bytesPerSecond
                                         nextSendNanos - now
                                     }
                                     TimeUnit.NANOSECONDS.sleep(wait)

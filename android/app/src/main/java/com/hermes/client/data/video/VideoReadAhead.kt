@@ -8,7 +8,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 /** Loader-thread owned window. Children only return results; they never mutate the window.
- * Initial/seek reads stay small. Completed ranges can be consumed independently of later ones.
+ * Initial/seek reads stay small. On measured fast links sequential reads refill before waiting, so
+ * request latency overlaps without delivering unvalidated or out-of-order bytes.
  */
 internal class VideoReadAhead(
     private val scope: CoroutineScope,
@@ -16,6 +17,7 @@ internal class VideoReadAhead(
     maxRangeBytes: Int,
     private val read: suspend (Long, Int) -> ByteArray,
     private val nanoTime: () -> Long = System::nanoTime,
+    private val permitsEarlyRefill: () -> Boolean = { false },
 ) {
     private data class Loaded(val bytes: ByteArray, val elapsedMs: Long)
     private data class Pending(val end: Long, val task: Deferred<Loaded>)
@@ -30,7 +32,25 @@ internal class VideoReadAhead(
         val sequential = start == previousEnd
         if (!sequential) reset()
         val ready = pending.remove(start)
-        val bytes = if (ready == null) read(start, 1) else {
+        val bytes = if (ready == null) {
+            if (!sequential || parallel == 1 || !permitsEarlyRefill()) read(start, 1) else {
+                // The second contiguous read confirms playback rather than index discovery.
+                // Include the foreground request in the negotiated concurrency budget.
+                val current = scope.async { read(start, 1) }
+                try {
+                    fill(minOf(end, start + BLOCK), end, minOf(depth, parallel - 1))
+                    current.await()
+                } catch (error: Exception) {
+                    reset()
+                    throw error
+                } finally { current.cancel() }
+            }
+        } else {
+            // Completed work can adapt the range size immediately; only an actual wait
+            // needs an early refill using the previous size/depth.
+            if (depth > 1 && permitsEarlyRefill() && !ready.task.isCompleted) {
+                fill(ready.end, end, minOf(depth, parallel - 1))
+            }
             try {
                 val loaded = ready.task.await()
                 when {
@@ -47,7 +67,11 @@ internal class VideoReadAhead(
                     }
                 }
                 loaded.bytes
-            } catch (cancelled: CancellationException) { throw cancelled }
+            } catch (cancelled: CancellationException) {
+                ready.task.cancel()
+                reset()
+                throw cancelled
+            }
             catch (_: Exception) {
                 currentCoroutineContext().ensureActive()
                 reset()
@@ -57,20 +81,22 @@ internal class VideoReadAhead(
         }
         currentCoroutineContext().ensureActive()
         previousEnd = start + bytes.size
-        if (sequential) {
-            var next = pending.values.lastOrNull()?.end ?: previousEnd
-            while (pending.size < depth && next < end) {
-                val from = next
-                val count = minOf(blocks.toLong() * BLOCK, end - from).toInt()
-                val requestedBlocks = (count + BLOCK - 1) / BLOCK
-                next = minOf(end, from + requestedBlocks.toLong() * BLOCK)
-                pending[from] = Pending(next, scope.async {
-                    val at = nanoTime()
-                    Loaded(read(from, requestedBlocks), (nanoTime() - at) / 1_000_000)
-                })
-            }
-        }
+        if (sequential) fill(previousEnd, end, depth)
         return bytes
+    }
+
+    private fun fill(fromEnd: Long, end: Long, limit: Int) {
+        var next = pending.values.lastOrNull()?.end ?: fromEnd
+        while (pending.size < limit && next < end) {
+            val from = next
+            val count = minOf(blocks.toLong() * BLOCK, end - from).toInt()
+            val requestedBlocks = (count + BLOCK - 1) / BLOCK
+            next = minOf(end, from + requestedBlocks.toLong() * BLOCK)
+            pending[from] = Pending(next, scope.async {
+                val at = nanoTime()
+                Loaded(read(from, requestedBlocks), (nanoTime() - at) / 1_000_000)
+            })
+        }
     }
 
     private fun reset() {

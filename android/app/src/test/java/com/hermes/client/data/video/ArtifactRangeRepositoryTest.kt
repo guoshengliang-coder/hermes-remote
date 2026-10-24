@@ -30,7 +30,7 @@ class ArtifactRangeRepositoryTest {
         rest = mockk()
         coEvery { rest.artifactOwnerKey(any()) } returns "owner"
         coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns descriptor
-        coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } answers { ByteArray(thirdArg()) { 5 } }
+        coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } answers { ByteArray(thirdArg()) { 5 } }
         repository = ArtifactRangeRepository(context, rest)
     }
 
@@ -42,7 +42,7 @@ class ArtifactRangeRepositoryTest {
                 coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns desc
                 val source = repository.prepare(file, "mac")
                 val entered = Channel<Unit>(4); val release = CompletableDeferred<Unit>()
-                coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } coAnswers {
+                coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } coAnswers {
                     entered.send(Unit); release.await(); ByteArray(thirdArg())
                 }
                 // Different paths keep this iteration independent of earlier cache hits.
@@ -64,9 +64,9 @@ class ArtifactRangeRepositoryTest {
         repository.read(source, block.toLong())
         clearMocks(rest, answers = false)
         assertEquals(4 * block, repository.read(source, 0, 4).size)
-        coVerify(exactly = 1) { rest.readArtifactRange(desc, 0, block, "mac", "owner") }
-        coVerify(exactly = 1) { rest.readArtifactRange(desc, 2L * block, 2 * block, "mac", "owner") }
-        coVerify(exactly = 0) { rest.readArtifactRange(desc, block.toLong(), any(), any(), any()) }
+        coVerify(exactly = 1) { rest.readArtifactRangeWithProgress(desc, 0, block, "mac", "owner", any()) }
+        coVerify(exactly = 1) { rest.readArtifactRangeWithProgress(desc, 2L * block, 2 * block, "mac", "owner", any()) }
+        coVerify(exactly = 0) { rest.readArtifactRangeWithProgress(desc, block.toLong(), any(), any(), any(), any()) }
         repeat(4) { assertNotNull(repository.cached("owner", "/video.mp4", desc, it.toLong() * block)) }
     }
 
@@ -76,7 +76,7 @@ class ArtifactRangeRepositoryTest {
             coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns desc
             val source = repository.prepare(file, "mac")
             val entered = Channel<Unit>(2); val release = CompletableDeferred<Unit>()
-            coEvery { rest.readArtifactRange(desc, any(), any(), any(), any()) } coAnswers {
+            coEvery { rest.readArtifactRangeWithProgress(desc, any(), any(), any(), any(), any()) } coAnswers {
                 entered.send(Unit); release.await()
                 throw HermesApiException(410, "expired", errorCode = "HR-FILE-015")
             }
@@ -87,7 +87,7 @@ class ArtifactRangeRepositoryTest {
             coVerify(exactly = 1) { rest.prepareArtifactDownload(any(), any(), any()) }
             release.complete(Unit); reads.awaitAll()
             coVerify(exactly = 2) { rest.prepareArtifactDownload(any(), any(), any()) }
-            coVerify(exactly = 2) { rest.readArtifactRange(renewed, any(), any(), any(), any()) }
+            coVerify(exactly = 2) { rest.readArtifactRangeWithProgress(renewed, any(), any(), any(), any(), any()) }
         }
     }
 
@@ -96,7 +96,7 @@ class ArtifactRangeRepositoryTest {
         val desc = descriptor.copy(maxRangeBytes = 4 * block)
         coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns desc
         val source = repository.prepare(file, "mac")
-        coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } coAnswers {
             coEvery { rest.artifactOwnerKey(any()) } returns "other"
             ByteArray(thirdArg())
         }
@@ -111,18 +111,18 @@ class ArtifactRangeRepositoryTest {
         repository.read(source, tail + 80)
         coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns descriptor.copy(artifactId = "c".repeat(64))
         repository.read(repository.prepare(file, "mac"), tail + 100)
-        coVerify(exactly = 1) { rest.readArtifactRange(any(), tail, ArtifactRangeCache.BLOCK_BYTES, "mac", "owner") }
-        coVerify(exactly = 0) { rest.readArtifactRange(any(), 0, any(), any(), any()) }
+        coVerify(exactly = 1) { rest.readArtifactRangeWithProgress(any(), tail, ArtifactRangeCache.BLOCK_BYTES, "mac", "owner", any()) }
+        coVerify(exactly = 0) { rest.readArtifactRangeWithProgress(any(), 0, any(), any(), any(), any()) }
         assertNotNull(repository.cached("owner", "/video.mp4", descriptor, tail))
     }
 
     @Test fun reference_expiry_renews_only_the_same_generation() = runBlocking {
         val source = repository.prepare(file, "mac")
-        coEvery { rest.readArtifactRange(descriptor, any(), any(), any(), any()) } throws HermesApiException(410, "expired", errorCode = "HR-FILE-015")
+        coEvery { rest.readArtifactRangeWithProgress(descriptor, any(), any(), any(), any(), any()) } throws HermesApiException(410, "expired", errorCode = "HR-FILE-015")
         val renewed = descriptor.copy(artifactId = "c".repeat(64))
         coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns renewed
         assertEquals(ArtifactRangeCache.BLOCK_BYTES, repository.read(source, 0).size)
-        coVerify(exactly = 1) { rest.readArtifactRange(renewed, 0, ArtifactRangeCache.BLOCK_BYTES, "mac", "owner") }
+        coVerify(exactly = 1) { rest.readArtifactRangeWithProgress(renewed, 0, ArtifactRangeCache.BLOCK_BYTES, "mac", "owner", any()) }
     }
 
     @Test fun changed_generation_and_account_never_reuse_cached_bytes() = runBlocking {
@@ -131,7 +131,7 @@ class ArtifactRangeRepositoryTest {
         coEvery { rest.artifactOwnerKey(any()) } returns "other"
         try { repository.read(source, 0); fail() } catch (error: HermesApiException) { assertEquals(401, error.code) }
         coEvery { rest.artifactOwnerKey(any()) } returns "owner"
-        coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } throws HermesApiException(410, "expired", errorCode = "HR-FILE-015")
+        coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } throws HermesApiException(410, "expired", errorCode = "HR-FILE-015")
         coEvery { rest.prepareArtifactDownload(any(), any(), any()) } returns descriptor.copy(etag = "\"${"c".repeat(64)}\"")
         try { repository.read(source, ArtifactRangeCache.BLOCK_BYTES.toLong()); fail() }
         catch (error: HermesApiException) { assertEquals("HR-FILE-011", error.errorCode) }
@@ -164,7 +164,7 @@ class ArtifactRangeRepositoryTest {
 
     @Test fun clear_while_range_in_flight_serves_playback_without_repopulating_disk() = runBlocking {
         val source = repository.prepare(file, "mac")
-        coEvery { rest.readArtifactRange(any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } coAnswers {
             repository.clearCache()
             ByteArray(thirdArg()) { 9 }
         }
