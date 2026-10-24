@@ -20,10 +20,42 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class UpdateDownloadEngineTest {
+    @Test fun `page snapshot does not wait behind the journal monitor`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("app_update", Context.MODE_PRIVATE).edit().clear().commit()
+        val client = OkHttpClient()
+        val engine = UpdateDownloadEngine(context, client, Json)
+        engine.prepare(UpdateVersion("test", 9999, "com.hermes.remote", "internal", "2026-10-24T00:00:00Z",
+            "Hermes-Remote-query-test-debug.apk", "https://mrlgs.net/releases/query-test.apk", 16,
+            "a".repeat(64), "b".repeat(64), 26, listOf("test"), "abcdef1"))
+        val repository = UpdateRepository(context, Json, client, engine)
+        val acquired = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val workers = Executors.newFixedThreadPool(2)
+        val journal = workers.submit {
+            synchronized(engine) {
+                acquired.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+        }
+        try {
+            assertTrue(acquired.await(5, TimeUnit.SECONDS))
+            val page = workers.submit<UpdateDownloadSnapshot?> { runBlocking { repository.query() } }
+            assertNotNull(page.get(1, TimeUnit.SECONDS))
+        } finally {
+            release.countDown()
+            journal.get(5, TimeUnit.SECONDS)
+            workers.shutdownNow()
+            engine.cancel()
+        }
+    }
+
     @Test fun `repository exposes in flight bytes before the first durable chunk`() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("app_update", Context.MODE_PRIVATE).edit().clear().commit()

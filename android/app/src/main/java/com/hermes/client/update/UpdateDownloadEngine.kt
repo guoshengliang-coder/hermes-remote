@@ -212,8 +212,11 @@ class UpdateDownloadEngine @Inject constructor(
         displayProgress.reset(0)
     }
 
-    /** Live view for the page: durable bytes plus the chunk currently being written. */
-    @Synchronized fun snapshot(): UpdateDownloadSnapshot? = _record.value?.let(displayProgress::snapshot)
+    /**
+     * Read the atomic record and the telemetry's short memory-only lock. The page polls on Main,
+     * so it must never acquire the engine monitor that holds synchronous journal writes.
+     */
+    fun snapshot(): UpdateDownloadSnapshot? = _record.value?.let(displayProgress::snapshot)
 
     /** Serialize only durable offsets, while keeping other workers' live bytes on screen. */
     private fun checkpoint(record: UpdateDownloadRecord) = synchronized(this) {
