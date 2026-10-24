@@ -1,5 +1,15 @@
 # Hermes Go Desktop phase 0
 
+## HG-199 source import artifacts — unreleased
+
+The official worker validates committed Python bytecode/native import artifacts as well as .py,
+and refuses extra ignored importable files, including __pycache__, in both frozen and live source.
+The controlled regression demonstrates that -B can execute a timestamp cache inconsistent with
+the verified .py bytes. Tracked native bytes are independently hashed; existing live dependency
+root exclusions remain. Ordinary source caches may be legitimate: retain them and refuse rather
+than automatically delete or repair. Safe cache custody/materialization and runtime/native closure
+remain execution requirements. No target is certified or product execution enabled by this check.
+
 ## HG-199 read-only Git condition inspection — unreleased
 
 The Local Hermes condition check refuses local filters/includes and other executable or redirected

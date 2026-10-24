@@ -1,5 +1,17 @@
 # Hermes 持续升级（HG-199）
 
+## 源码核验也覆盖可导入缓存与原生模块（2026-10-24）
+
+`-B`只禁止写入新字节码，不禁止读取已有缓存。临时夹具已复现：Git/.py内容保持固定版本，
+有效时间戳缓存仍令`python -I -S -B`执行另一值；旧worker也漏过被Git忽略的legacy bytecode/
+原生扩展。worker现将.py/.pyw/.pyc/.pyo/.so/.pyd/.dylib纳入同一Git blob清单、正规文件模式和
+实际字节校验；未声明的可导入文件（包括__pycache__）拒绝，原生已跟踪内容不再只依赖git status。
+live树原有venv/.venv/.hermes/node_modules依赖根排除规则保留，依赖闭包/ABI仍需独立证据。
+
+普通安装也可能含合法源码缓存，拒绝仅表示无法证明其来源，不能解释为恶意或损坏。保留原文件，
+沿用HR-HERMESUPDATE-002，不自动清缓存、修工作区、重跑更新或开放执行。安全缓存交接/新源码代次
+以及全Python后代的加载策略仍待实现与认证；不能以新增拒绝检查声称完整升级可用。
+
 ## 升级条件的 Git 只读边界（2026-10-24）
 
 普通git status会运行本地clean filter，故条件检查先拒绝filter/include及可执行或重定向配置，

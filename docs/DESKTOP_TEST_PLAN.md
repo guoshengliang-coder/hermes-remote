@@ -1,5 +1,23 @@
 # Hermes Go Desktop test plan
 
+## HG-199 compiled/native source import artifacts (2026-10-24)
+
+Test-impact review: Python -B prevents new bytecode writes, but may load an existing valid timestamp
+cache after .py bytes are restored. A controlled real interpreter observes VALUE=3 from that cache
+while Git/.py remain VALUE=1. Four regression cases fail on the old worker: this ignored cache,
+orphan legacy bytecode in frozen/live roots, ignored .so/.pyd/.dylib overlays, and tracked native
+bytes changed while a mocked status misses them. The new 33-case worker suite passes.
+
+The byte guard now inventories/hashes committed .py/.pyw/.pyc/.pyo/.so/.pyd/.dylib, refuses unknown
+importable entries and symlinks/modes, and preserves existing live dependency-root exclusions.
+This does not certify ABI or dependency closure. Common source caches can be legitimate; preserve
+and refuse them under existing HR-HERMESUPDATE-002. No automatic cache removal, mutation replay or
+upgrade permission is added. Safe cache custody/new generations and all Python descendant loading
+remain unverified requirements. Final local 33 focused/193 full Python tests, 801 Swift tests
+(2 existing skips), assets and ad-hoc app packaging pass. The final focused case also asserts cache
+and source bytes are retained after refusal. The actual fixed bf0203a7 writer counterexample passes
+again with the new guard. No visual change or app/service/device operation; no upgrade certification.
+
 ## HG-199 actual 0.22.5 database writer scope (isolated)
 
 Test-impact review: the retirement-module counterexample cannot establish whether the database API

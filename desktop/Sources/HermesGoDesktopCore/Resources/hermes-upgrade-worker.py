@@ -174,15 +174,17 @@ def verify_source(root: Path, commit: str, *, installation=False):
         raise Refused("dirty_source")
     if any(row and row[:1] != b"H" for row in git(root, "ls-files", "-v", "-z").split(b"\0")):
         raise Refused("hidden_index_edits")
-    # Git status can hide assume-unchanged/skip-worktree edits. Check Python blobs directly before
-    # importing the official graph, including ignored/untracked modules that could shadow it.
+    # -B prevents bytecode writes, not reads. Native modules and legacy .pyc can also shadow
+    # source. Verify every committed importable artifact and refuse extra cached/native code,
+    # including normal source caches whose derivation has not independently been certified.
+    import_suffixes = (".py", ".pyw", ".pyc", ".pyo", ".so", ".pyd", ".dylib")
     expected = {}
     for row in rows:
         if not row:
             continue
         meta, name = row.split(b"\t", 1)
         path = name.decode()
-        if path.endswith(".py"):
+        if path.lower().endswith(import_suffixes):
             mode, kind, blob = meta.split()
             if kind != b"blob" or mode not in (b"100644", b"100755"):
                 raise Refused("unsafe_source")
@@ -204,7 +206,8 @@ def verify_source(root: Path, commit: str, *, installation=False):
         for name in children:
             if (Path(directory) / name).is_symlink():
                 raise Refused("unsafe_source")
-        actual.update(str((Path(directory) / name).relative_to(root)) for name in files if name.endswith(".py"))
+        actual.update(str((Path(directory) / name).relative_to(root)) for name in files
+                      if name.lower().endswith(import_suffixes))
     if actual != set(expected):
         raise Refused("unexpected_source")
     for relative, blob in expected.items():

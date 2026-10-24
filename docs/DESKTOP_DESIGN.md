@@ -1,5 +1,10 @@
 # Hermes Go Desktop design contract
 
+HG-199 source-cache/native-overlay refusal uses the existing HR-HERMESUPDATE-002 explanation and
+diagnostics. Do not label ordinary caches malicious, offer automatic deletion, or equate a clean
+Git worktree with verified executable contents. Upgrade/recovery actions remain gated; this worker
+change adds no visual controls or layout change.
+
 HG-199's “条件检查不会停止服务或修改数据” also applies to Git status: local executable/include
 configuration is refused, and an OS read-only/no-network/no-fork boundary covers a config race.
 Unsupported sandbox, unsafe/changed config, a different repository root, output budget or timeout

@@ -1,8 +1,10 @@
 import importlib.util
 import json
 import os
+import py_compile
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -89,6 +91,65 @@ class WorkerBoundaryTest(unittest.TestCase):
         (self.root / ".git/info/exclude").write_text("injected.py\n")
         (self.root / "pm/injected.py").write_text("VALUE = 3\n")
         with self.assertRaises(worker.Refused): worker.verify_source(self.root, commit)
+
+    def test_frozen_source_refuses_ignored_timestamp_cache_that_B_still_loads(self):
+        commit = self.repository()
+        path = self.root / "hermes_cli/code.py"
+        original, stamp = path.read_bytes(), path.stat()
+        (self.root / ".git/info/exclude").write_text("__pycache__/\n")
+        path.write_bytes(b"VALUE = 3\n")
+        os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        cache = Path(py_compile.compile(str(path), doraise=True, invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP))
+        cache_bytes = cache.read_bytes()
+        path.write_bytes(original)
+        os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        # A valid controlled cache proves that -B disables writes, not cache reads.
+        observed = subprocess.check_output([sys.executable, "-I", "-S", "-B", "-c",
+            "import sys;sys.path.insert(0,sys.argv[1]);from hermes_cli import code;print(code.VALUE)", str(self.root)],
+            env={"PATH": os.defpath, "HOME": str(self.root)}, text=True)
+        self.assertEqual(observed.strip(), "3")
+        self.assertEqual(path.read_bytes(), original)
+        with self.assertRaises(worker.Refused):
+            worker.verify_source(self.root, commit)
+        self.assertEqual(cache.read_bytes(), cache_bytes, "Unknown cache material must be retained, never repaired/deleted")
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_orphan_legacy_bytecode_cannot_shadow_an_untracked_module_even_in_live_source(self):
+        commit = self.repository()
+        (self.root / ".git/info/exclude").write_text("*.pyc\n")
+        injected = self.root / "pm/injected.py"
+        injected.write_text("VALUE = 3\n")
+        py_compile.compile(str(injected), cfile=str(injected.with_suffix(".pyc")), doraise=True)
+        injected.unlink()
+        for installation in (False, True):
+            with self.assertRaises(worker.Refused):
+                worker.verify_source(self.root, commit, installation=installation)
+
+    def test_ignored_native_extensions_cannot_shadow_the_verified_graph(self):
+        commit = self.repository()
+        (self.root / ".git/info/exclude").write_text("*.so\n*.pyd\n*.dylib\n")
+        for suffix in (".so", ".pyd", ".dylib"):
+            path = self.root / ("hermes_cli/code" + suffix)
+            path.write_bytes(b"synthetic native overlay, never executed\n")
+            for installation in (False, True):
+                with self.assertRaises(worker.Refused):
+                    worker.verify_source(self.root, commit, installation=installation)
+            path.unlink()
+
+    def test_tracked_native_import_bytes_are_checked_independently_of_git_status(self):
+        self.repository()
+        path = self.root / "pm/fixture.so"
+        path.write_bytes(b"synthetic native bytes one\n")
+        self.git("add", "pm/fixture.so"); self.git("commit", "-qm", "tracked native fixture")
+        commit = self.git("rev-parse", "HEAD").decode().strip()
+        worker.verify_source(self.root, commit)
+        path.write_bytes(b"synthetic native bytes two\n")
+        original_git = worker.git
+        def status_misses_change(root, *arguments, **kwargs):
+            return b"" if arguments[0] == "status" else original_git(root, *arguments, **kwargs)
+        with mock.patch.object(worker, "git", side_effect=status_misses_change):
+            with self.assertRaises(worker.Refused):
+                worker.verify_source(self.root, commit)
 
     def test_ignored_helper_outside_cli_and_pm_cannot_enter_import_graph(self):
         commit = self.repository()
