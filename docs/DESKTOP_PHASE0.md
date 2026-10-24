@@ -1,5 +1,17 @@
 # Hermes Go Desktop phase 0
 
+## Overview/global account update — 2026-10-24
+
+Overview now reads only this Mac’s Cloud probe, local Desktop background and authenticated Hermes.
+An impact headline and three clickable status labels summarize three detailed sections. Evidence
+older than three minutes (or invalid future times) is unconfirmed, not healthy; remote usability also
+requires a fresh local-binding end-to-end report. Public Cloud and account API checks remain distinct.
+
+The sidebar footer holds the global account/login menu, including expired login. Signed-out users
+can read the overview and choose email-code login; setup and management mutation gates remain intact.
+Devices owns binding/device/sharing; account management opens from the global footer. Settings and
+overview no longer repeat account summaries. Existing confirmations, runtime/data and rollback remain.
+
 ## Current retirement boundary — 2026-10-24
 
 The original phase-0 compatibility observer is retired in the current source. Desktop supports

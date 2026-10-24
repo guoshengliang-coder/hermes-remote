@@ -145,7 +145,7 @@ struct DiagnosticsView: View {
                     Button("再次尝试") { Task { await model.refreshDiagnostics() } }
                         .buttonStyle(PrimaryButtonStyle())
                         .disabled(model.isDiagnosing || model.isRefreshing || model.isManagedBootstrapAccountLocked)
-                    Button("账号与设备") { selection = .pairing }
+                    Button("设备") { selection = .pairing }
                         .buttonStyle(.bordered)
                     if let structuredIssue = issue?.issue {
                         Button("复制诊断") { model.copyDiagnostics(structuredIssue) }

@@ -220,6 +220,23 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }
     }
 
+    @Published var accountSignInRequestID = UUID()
+    @Published private(set) var lastAccountIdentity: HermesAccount?
+
+    func requestAccountSignIn() { accountSignInRequestID = UUID() }
+
+    var localDeviceName: String {
+        currentDashboard?.session.installation.displayName ?? Host.current().localizedName ?? "这台 Mac"
+    }
+
+    var overviewPresentation: DesktopOverviewPresentation {
+        DesktopOverviewPresentation(gateway: health.component(.gateway), agent: agentPresentation,
+            localHermes: localHermesPresentation, localHealth: localManagedHermesHealth,
+            accountState: accountState, accountCheckedAt: accountCheckedAt,
+            hasAccountIssue: accountIssue != nil, manageOnly: isManageOnly,
+            operationInProgress: isManagedBootstrapAccountLocked)
+    }
+
     var statusTitle: String {
         switch presentedHealth.overall {
         case .checking: "正在检查"
@@ -853,6 +870,11 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let previousAccountID = currentAccountID(accountState)
         let nextAccountID = currentAccountID(state)
         accountState = state
+        switch state {
+        case .signedIn(let dashboard): lastAccountIdentity = dashboard.session.account
+        case .signedOut, .accountDeletionSubmitted: lastAccountIdentity = nil
+        default: break
+        }
         switch state {
         case .unavailable:
             accountIssue = DesktopIssue(code: .accountFeatureDisabled)
