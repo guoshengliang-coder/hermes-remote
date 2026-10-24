@@ -6,11 +6,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
-/** One request per originating Mac. Playback preempts only its own download's current range. */
+/** Bounded parallel playback, exclusive downloads. Playback preempts its own Mac's download. */
 class ArtifactTransferArbiter {
     private class Lane {
         val gate = Mutex()
+        val slots = Semaphore(4)
         val lock = Any()
         val viewers = MutableStateFlow(0)
         var download: Job? = null
@@ -29,7 +32,7 @@ class ArtifactTransferArbiter {
         return AutoCloseable { if (closed.compareAndSet(false, true)) synchronized(lane.lock) { lane.viewers.value-- } }
     }
 
-    suspend fun <T> playback(owner: String, action: suspend () -> T): T = lane(owner).gate.withLock { action() }
+    suspend fun <T> playback(owner: String, action: suspend () -> T): T = lane(owner).slots.withPermit { action() }
 
     suspend fun download(owner: String, onYield: () -> Unit, waiting: (Boolean) -> Unit, action: suspend () -> Unit) {
         val lane = lane(owner)
@@ -47,9 +50,16 @@ class ArtifactTransferArbiter {
                             if (lane.viewers.value > 0) throw PlaybackPriority()
                             lane.download = job
                         }
-                        try { action() }
+                        var acquired = 0
+                        try {
+                            repeat(4) { lane.slots.acquire(); acquired++ }
+                            action()
+                        }
                         catch (error: Exception) { currentCoroutineContext().ensureActive(); throw error }
-                        finally { synchronized(lane.lock) { lane.download = null } }
+                        finally {
+                            repeat(acquired) { lane.slots.release() }
+                            synchronized(lane.lock) { lane.download = null }
+                        }
                     }
                 }
                 transfer.start()

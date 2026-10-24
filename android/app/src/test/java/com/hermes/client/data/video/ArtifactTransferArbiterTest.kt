@@ -5,6 +5,38 @@ import org.junit.Test
 import org.junit.Assert.*
 
 class ArtifactTransferArbiterTest {
+    @Test fun playback_overlaps_four_ranges_but_download_waits_for_every_reader() = runBlocking {
+        withTimeout(5_000) {
+            val arbiter = ArtifactTransferArbiter()
+            val started = kotlinx.coroutines.channels.Channel<Int>(4)
+            val release = CompletableDeferred<Unit>()
+            val reads = (0..3).map { index -> launch {
+                arbiter.playback("mac") { started.send(index); release.await() }
+            } }
+            repeat(4) { started.receive() }
+            var fifthStarted = false; var downloadStarted = false
+            val fifth = launch { arbiter.playback("mac") { fifthStarted = true } }
+            val download = launch { arbiter.download("mac", {}, {}) { downloadStarted = true } }
+            yield()
+            assertFalse(fifthStarted); assertFalse(downloadStarted)
+            release.complete(Unit); reads.forEach { it.join() }; fifth.join(); download.join()
+            assertTrue(fifthStarted); assertTrue(downloadStarted)
+        }
+    }
+
+    @Test fun cancelling_a_download_waiting_for_slots_releases_its_partial_reservation() = runBlocking {
+        withTimeout(5_000) {
+            val arbiter = ArtifactTransferArbiter()
+            val started = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+            val read = launch { arbiter.playback("mac") { started.complete(Unit); release.await() } }
+            started.await()
+            val download = launch { arbiter.download("mac", {}, {}) { fail("must wait for reader") } }
+            yield(); download.cancelAndJoin()
+            release.complete(Unit); read.join()
+            arbiter.download("mac", {}, {}) { }
+        }
+    }
+
     @Test fun playback_preempts_a_range_then_download_resumes_only_after_last_viewer_leaves() = runBlocking {
         withTimeout(5_000) {
             val arbiter = ArtifactTransferArbiter()
