@@ -137,9 +137,10 @@ private struct SidebarView: View {
                     if item == .overview { showOverview() }
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: item.symbol)
-                            .font(.system(size: 16, weight: .regular))
-                            .frame(width: 22)
+                        Group {
+                            if item == .localHermes { HermesBrandIcon().frame(width: 20, height: 20) }
+                            else { Image(systemName: item.symbol).font(.system(size: 16, weight: .regular)) }
+                        }.frame(width: 22)
                         Text(item.title)
                             .font(.system(size: 14, weight: selection == item ? .semibold : .regular))
                         Spacer()

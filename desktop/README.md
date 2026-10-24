@@ -1,5 +1,10 @@
 # Hermes Go Desktop
 
+Unreleased UI polish: diagnostics now presents seven sourced checks, contextual recovery, a searchable
+redacted log viewer and collapsed technical details. Overview shows direct cloud latency and names
+the local Desktop; duplicate window/page branding and the Local Hermes placeholder card are removed.
+The sidebar and Hermes section share a monochrome portrait outline. No service/data or version changes.
+
 Unreleased: managed reconnect/repair and both upgrade layouts support a validated per-Mac
 `FILE_DOWNLOAD_BYTES_PER_SECOND` override. The Connector default remains 4 MiB/s; the measured
 M4 trial target is 8 MiB/s after installing this support. See

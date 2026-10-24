@@ -1,5 +1,29 @@
 # Hermes Go Desktop design contract
 
+## Status hierarchy and actionable diagnostics — 2026-10-24
+
+Hide only native window title text, preserving traffic lights, drag behavior and semantic window identity.
+Overview puts the Mac name in its Desktop section title with a quiet local badge; remove the redundant
+page eyebrow. Cloud shows this Mac's direct HTTP probe latency, never a Connector-reported RTT; failed,
+stale, missing and future samples have no numeric latency. Use the same small monochrome Hermes portrait
+outline in sidebar and Overview, keeping upstream bob/headband/profile features distinct from GO branding.
+Local Hermes has no placeholder version/data card or roadmap/update prose; an existing-install note
+belongs beside its version, only when an existing installation was actually found.
+
+Diagnostics reads top-to-bottom: one summary, seven check rows, a usable log viewer, collapsed technical
+details. Each check has result, detail, evidence source and actual time. Include local authenticated
+Hermes and cloud-reported Hermes separately in the same list. Missing/stale evidence is pending; all
+seven must pass for an all-passed conclusion. A cloud refresh failure invalidates remote evidence.
+Show repair beneath the failed background check; reconnect only alongside a failed/degraded remote
+check and through the existing confirmation. No healthy-state repair card. Technical details separate
+installed versions from the last installation preflight plan, which is not current runtime evidence.
+
+Logs show bounded redacted records with source, text and warning-keyword filters, scrolling, refresh,
+copy filtered results and open-directory actions. Explicitly state 20 lines/source and historic dates;
+keyword matches are not current incidents. Preserve log source/security restrictions and do not read
+Hermes conversation stdout. A carried-in issue is labeled historical and dismissible; it cannot turn
+current healthy checks into a false alarm. No new error codes, runtime, account or service mutations.
+
 ## Recovery and page responsibilities — 2026-10-24 follow-up
 
 Overview's headline and three status links are information/navigation only. Actions belong to their

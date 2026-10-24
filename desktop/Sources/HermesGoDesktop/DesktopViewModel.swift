@@ -1098,6 +1098,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let relayResult = await prober.probeRelay(
             URL(string: "/health", relativeTo: accountGatewayURL)!.absoluteURL
         )
+        let relayCheckedAt = Date()
         let hermesResult = await HTTPHealthProber.loopbackDirect().probeHermes(
             DesktopBootstrapPlanner.hermesStatusURL
         )
@@ -1116,7 +1117,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                     component: .gateway,
                     level: relayResult.level,
                     detail: relayDetail,
-                    checkedAt: checkedAt
+                    checkedAt: relayCheckedAt,
+                    latencyMilliseconds: relayResult.latencyMilliseconds
                 ),
                 ComponentHealth(
                     component: .hermes,
@@ -2204,13 +2206,34 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         diagnosticRequestID = UUID()
     }
 
+    func clearDiagnosticFocus() { diagnosticFocusIssue = nil }
+
+    var diagnosticPresentation: DesktopDiagnosticsPresentation {
+        DesktopDiagnosticsPresentation(gateway: health.component(.gateway), agent: agentPresentation,
+            localHermes: localHermesPresentation, localHealth: localManagedHermesHealth,
+            accountState: accountState, accountCheckedAt: accountCheckedAt, accountIssue: accountIssue,
+            repairNeeded: serviceRepairNeeded)
+    }
+
+    func refreshLogs() async {
+        let directory = managedPaths?.managedRoot.appendingPathComponent("logs", isDirectory: true)
+        managedRecentLogs = await Task.detached(priority: .utility) {
+            directory.map { ManagedLogInspector(logsDirectory: $0).inspect() } ?? []
+        }.value
+    }
+
+    func copyLogLines(_ lines: [String]) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(SecretRedactor.redact(lines.joined(separator: "\n")), forType: .string)
+    }
+
     func copyDiagnosticReport() {
         var lines = ["Desktop \(appVersion)", "Managed: \(installedManagedVersion ?? "unknown")",
                      "Local Hermes: \(localHermesPresentation.version)"]
-        for item in presentedHealth.components {
-            lines.append("\(item.component.rawValue): \(item.level.rawValue) — \(item.detail) — \(String(describing: item.checkedAt))")
+        for check in diagnosticPresentation.checks {
+            let item = check.health
+            lines.append("\(check.title) [\(check.source)]: \(item.level.rawValue) — \(item.detail) — \(String(describing: item.checkedAt))")
         }
-        if let local = localManagedHermesHealth { lines.append("Local authenticated check: \(local.level.rawValue) — \(local.detail)") }
         if case .unsupported(let reason, let detail) = localHermesDetection { lines.append("\(reason.rawValue): \(detail)") }
         for issue in [localHermesIssue, managedBootstrapIssue, componentBootstrapIssue, serviceRepairIssue, appUpdateIssue, accountIssue].compactMap({ $0 }) {
             lines.append(issue.sanitizedDiagnostic)

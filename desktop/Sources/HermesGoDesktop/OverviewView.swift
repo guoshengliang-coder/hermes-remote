@@ -13,8 +13,6 @@ struct OverviewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack {
-                        Text("这台 Mac · \(model.localDeviceName)")
-                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
                         Spacer()
                         Button { Task { await model.refreshDiagnostics() } } label: {
                             Label(model.isRefreshing || model.isDiagnosing ? "检查中" : "刷新状态", systemImage: "arrow.clockwise")
@@ -41,6 +39,7 @@ struct OverviewView: View {
                     section("Hermes GO 云端", symbol: "cloud", status: state.cloud) {
                         HStack(spacing: 24) {
                             fact("服务地址", model.accountGatewayURL.host ?? "未配置")
+                            fact("本机到云端延时", state.cloudLatency)
                             fact("账号服务", state.accountService)
                         }
                         if state.cloud.level == .failed {
@@ -55,7 +54,7 @@ struct OverviewView: View {
                         }.buttonStyle(.bordered)
                     }.id("cloud")
 
-                    section("这台 Mac 的 Desktop", symbol: "laptopcomputer", status: state.desktop) {
+                    section("\(model.localDeviceName) 的 Desktop", symbol: "laptopcomputer", status: state.desktop, isLocal: true) {
                         HStack(alignment: .top, spacing: 24) {
                             fact("后台运行", state.background)
                             fact("远程连接", state.remoteConnection)
@@ -160,11 +159,21 @@ struct OverviewView: View {
         }.buttonStyle(.plain).accessibilityLabel("\(label)，\(status.title)，查看详情")
     }
 
-    private func section<Content: View>(_ title: String, symbol: String, status: DesktopOverviewStatus,
+    private func section<Content: View>(_ title: String, symbol: String, status: DesktopOverviewStatus, isLocal: Bool = false,
                                         @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label(title, systemImage: symbol).font(.system(size: 16, weight: .semibold))
+                Label {
+                    Text(title).fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    if symbol == "terminal" { HermesBrandIcon().frame(width: 20, height: 20) }
+                    else { Image(systemName: symbol) }
+                }.font(.system(size: 16, weight: .semibold))
+                if isLocal {
+                    Text("本机").font(.system(size: 10)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(.secondary.opacity(0.08), in: Capsule())
+                }
                 Spacer()
                 OverviewStatusLabel(status: status)
             }
