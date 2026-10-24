@@ -1,14 +1,21 @@
 # Desktop release channel
 
-## Approved internal test candidate: 0.2.34
+## Published internal test distribution: 0.2.34
 
 On 2026-10-24 the owner authorized publication and confirmed **0.2.34/build 37** on the
-existing temporary-signing internal channel. This candidate includes HG-234 onboarding recovery
+existing temporary-signing internal channel. This release includes HG-234 onboarding recovery
 and HG-235 Desktop product/navigation/update/diagnostic integration and retirement of the old
 Desktop connection mode. Build from clean current main with the existing public trust settings.
 Use the unified internal publisher for the exact immutable `-dev.dmg`, full public size/hash
 readback and both website and app-update indexes. This does not change the signed managed-component
 pointers, claim Apple notarization, or replace physical upgrade acceptance.
+
+Publication completed with both unified-publisher success markers on 2026-10-24. Source commit:
+`5c83ce9ae446a1fd3bf2c16bc34b716894693646`. The public `-dev.dmg` and compatible `.dmg` alias
+both match **3,611,681 bytes**, SHA-256
+`ffb29645613c6c235d824317690986fbb18174c6a3bd97ba64aad857fb6be6c9`.
+The website and app-update indexes report 0.2.34/build 37; signed managed-component indexes
+remain unchanged at 0.4.12. Physical old-Mac update and task/data-preservation acceptance are pending.
 
 ## Internal app-update discovery (owner decision, 2026-10-22)
 
