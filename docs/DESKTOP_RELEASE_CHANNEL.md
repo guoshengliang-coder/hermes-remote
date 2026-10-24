@@ -1,6 +1,6 @@
 # Desktop release channel
 
-## Approved internal test candidate: 0.2.38
+## Published internal test distribution: 0.2.38
 
 On 2026-10-24 the owner confirmed **0.2.38/build 41** for the updater routing fix (#646).
 Continue the existing temporary ad-hoc internal channel with unchanged public trust settings.
@@ -10,6 +10,17 @@ Old clients blocked by this updater defect require one direct DMG replacement of
 this does not reset or reinstall the owner's Hermes or change account bindings. Physical background
 commit/relaunch and mobile/data-preservation acceptance remain separate from publication checks.
 
+
+Publication completed on 2026-10-24 after PR #647 and main checks passed, from clean main
+`0db655edd022cdae3e9db477c5b175e3f3b1876b`. Both unified-publisher success markers and independent full public downloads
+passed. The `-dev.dmg` and compatible `.dmg` alias match **3,796,718 bytes**, SHA-256
+`0f43335e63654dc46162c0bf17dab1fa29812c1b93a6029c306621d0cc6dd352`. Website and app-update discovery report 0.2.38/build 41; signed managed-component
+indexes remain byte-identical at 0.4.12. Assets, 612 Swift tests, 41 Desktop packaging/tooling tests,
+app/DMG packaging, strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image
+integrity passed. The affected Mac's read-only source/manifest verification is recorded under the
+update-routing regression in DESKTOP_TEST_PLAN.md. No installed user app, service, account binding
+or Hermes data was replaced. Physical background commit/relaunch and mobile acceptance remain
+pending; this is a temporary-signed internal build, not an Apple-notarized release.
 
 ## Published internal test distribution: 0.2.37
 
