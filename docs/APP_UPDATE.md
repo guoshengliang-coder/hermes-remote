@@ -47,7 +47,9 @@ buffering the whole chunk in memory (each worker still writes through a 64 KiB b
 single-stream stall that made a 32 MB APK slow over the Hong Kong link.
 
 The page polls the engine's live snapshot every 300 ms, including bytes received before a chunk is
-committed. The live total stays separate from the resume journal and cannot rewind when another
+committed. Snapshot reads use only the atomic record and memory telemetry; they never acquire the
+engine's journal monitor, so a synchronous preference write cannot block the page's main thread.
+The live total stays separate from the resume journal and cannot rewind when another
 worker commits or retries its range. Speed is three-second moving goodput using a monotonic clock;
 it excludes restored bytes, decays to zero on stalls, and resets on pause, source restart or a new
 attempt. Waiting/paused/failed snapshots expose only committed bytes and no speed. A restart may
