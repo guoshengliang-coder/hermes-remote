@@ -3019,7 +3019,8 @@ Publication and pending verification do not establish acceptance.
 ### 2026-10-24 — Desktop 0.2.34 internal publication
 
 Owner-approved **0.2.34/build 37** was built from clean current main
-`5c83ce9ae446a1fd3bf2c16bc34b716894693646` after version PR #634 and all PR/main checks passed.
+`5c83ce9ae446a1fd3bf2c16bc34b716894693646` after version PR #634 merged. All PR/main checks
+passed before publication.
 It includes HG-234 (#632) onboarding recovery and HG-235 (#633) unified Desktop navigation,
 updates, local Hermes status, diagnostics/logs and retirement of the old Desktop connection mode.
 
