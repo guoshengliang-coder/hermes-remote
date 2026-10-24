@@ -582,6 +582,54 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertEqual(lookups, [fixtures.deviceA.deviceId, fixtures.deviceB.deviceId])
     }
 
+    func testSharingFailureDoesNotBlockAccountAndDeviceManagement() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures, multiDeviceEnabled: true, sharingEnabled: true,
+                                      shareReadFailure: .transport)
+        let controller = DesktopAccountController(api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: MemoryMachineIdentityStore(), deviceSelectionStore: MemoryDeviceSelectionStore(),
+            oauth: nil, displayName: "Mac", appVersion: "0.2.38")
+        guard case .signedIn(let dashboard) = try await controller.bootstrap() else {
+            return XCTFail("Sharing failure must not block signed-in dashboard")
+        }
+        XCTAssertEqual(dashboard.devices.count, 3)
+        XCTAssertTrue(dashboard.deviceShares.isEmpty)
+        XCTAssertEqual(dashboard.shareIssues.count, 2)
+    }
+
+    func testPartialListsPreserveSessionAndRememberedSelection() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures, multiDeviceEnabled: true,
+                                      deviceReadFailure: .transport, installationReadFailure: .transport)
+        let selections = MemoryDeviceSelectionStore()
+        selections.save(fixtures.deviceA.deviceId, accountID: fixtures.record.account.id)
+        let controller = DesktopAccountController(api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record), machineIdentityStore: MemoryMachineIdentityStore(),
+            deviceSelectionStore: selections, oauth: nil, displayName: "Mac", appVersion: "0.2.38")
+        guard case .signedIn(let dashboard) = try await controller.bootstrap() else { return XCTFail("Keep account") }
+        XCTAssertNotNil(dashboard.sectionIssues[.devices])
+        XCTAssertNotNil(dashboard.sectionIssues[.installations])
+        XCTAssertEqual(selections.value, fixtures.deviceA.deviceId)
+        XCTAssertEqual(DesktopEntryRouter.route(.init(accountState: .signedIn(dashboard), hasAccountIssue: false,
+            readiness: .readyForManagedInstall, setupInProgress: false, hermesDecisionPending: true,
+            record: .init(newMacChoice: .connect))), .main)
+    }
+
+    func testOptionalPanelMustNotSwallowRevokedSession() async throws {
+        let fixtures = AccountFixtures()
+        let error = AccountClientError.remote(.init(code: "HR-AUTH-004", message: "revoked", retryable: false,
+                                                     recoveryAction: "sign_in", correlationId: nil))
+        let api = RecordingAccountAPI(fixtures: fixtures, multiDeviceEnabled: true, sharingEnabled: true, shareReadFailure: error)
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let controller = DesktopAccountController(api: api, sessionStore: sessions,
+            machineIdentityStore: MemoryMachineIdentityStore(), deviceSelectionStore: MemoryDeviceSelectionStore(),
+            oauth: nil, displayName: "Mac", appVersion: "0.2.38")
+        let state = try await controller.bootstrap()
+        XCTAssertEqual(state, .needsSignIn(.accountSessionRevoked))
+        XCTAssertNil(try sessions.load())
+    }
+
     func testShareInvitationRequiresDisclosureAndReusesKeychainGrantAfterLostResponse() async throws {
         let fixtures = AccountFixtures()
         let sessions = MemoryAccountSessionStore(record: fixtures.record)
@@ -1363,6 +1411,9 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
     private let accountDeletionEnabled: Bool
     private var shareManagementHistory: [String] = []
     private var shareCreateHistory: [ShareCreateInput] = []
+    private let shareReadFailure: AccountClientError?
+    private let deviceReadFailure: AccountClientError?
+    private let installationReadFailure: AccountClientError?
     private var shareCreateFailuresRemaining: Int
     private var defaultSelectionHistory: [DefaultSelectionInput] = []
     private var defaultSelectionFailuresRemaining: Int
@@ -1386,6 +1437,9 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         phoneRevocationFailuresRemaining: Int = 0,
         deviceUnbindFailuresRemaining: Int = 0,
         shareCreateFailuresRemaining: Int = 0,
+        shareReadFailure: AccountClientError? = nil,
+        deviceReadFailure: AccountClientError? = nil,
+        installationReadFailure: AccountClientError? = nil,
         emailReauthenticationFailuresRemaining: Int = 0,
         defaultSelectionFailuresRemaining: Int = 0,
         bindingCreateFailuresRemaining: Int = 0,
@@ -1403,6 +1457,9 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         self.accountDeletionFailuresRemaining = accountDeletionFailuresRemaining
         self.phoneRevocationFailuresRemaining = phoneRevocationFailuresRemaining
         self.deviceUnbindFailuresRemaining = deviceUnbindFailuresRemaining
+        self.shareReadFailure = shareReadFailure
+        self.deviceReadFailure = deviceReadFailure
+        self.installationReadFailure = installationReadFailure
         self.shareCreateFailuresRemaining = shareCreateFailuresRemaining
         self.emailReauthenticationFailuresRemaining = emailReauthenticationFailuresRemaining
         self.defaultSelectionFailuresRemaining = defaultSelectionFailuresRemaining
@@ -1495,6 +1552,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
 
     func account(accessToken: String) async throws -> AccountSnapshot { fixtures.accountSnapshot }
     func installations(accessToken: String) async throws -> [ManagedAccountInstallation] {
+        if let installationReadFailure { throw installationReadFailure }
         guard identityManagementEnabled else { throw AccountClientError.transport }
         return [fixtures.phoneA, fixtures.phoneB]
     }
@@ -1503,7 +1561,8 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         return bindingSnapshot
     }
     func devices(accessToken: String) async throws -> AccountDevicePage {
-        AccountDevicePage(
+        if let deviceReadFailure { throw deviceReadFailure }
+        return AccountDevicePage(
             items: ([fixtures.deviceA, fixtures.deviceB] + (sharingEnabled ? [fixtures.sharedDevice] : []))
                 .filter { !unboundDeviceIDs.contains($0.deviceId) },
             maxOwnedDevices: 3
@@ -1581,6 +1640,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
     }
     func deviceShares(id: String, accessToken: String) async throws -> DeviceShareManagement {
         shareManagementHistory.append(id)
+        if let shareReadFailure { throw shareReadFailure }
         return DeviceShareManagement(invitations: [], grants: [], maxGranteesPerDevice: 5)
     }
     func createShareInvitation(

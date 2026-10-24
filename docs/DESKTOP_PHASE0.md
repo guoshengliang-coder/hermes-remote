@@ -1,5 +1,25 @@
 # Hermes Go Desktop phase 0
 
+## HG-199 / Desktop 0.2.39 integration — unreleased
+
+The task branch integrates main 2b1f8b64, including the already published Desktop 0.2.39/build 42.
+No version is allocated or distributed here. Root orchestration reviewed the shared ViewModel,
+Local Hermes, runtime-setting and documentation paths before combining them. Main's first-run
+recovery, signed-out local navigation, account-gated install/connect, device management, model setup
+and managed default-profile configuration remain. The version/record card stays after the local
+usability/model information and before account-gated connection/install setup. An observed model
+name, service readiness or a fresh-install preference never certifies an upgrade or clears a journal.
+Both branches' requirements and test records are retained; fresh combined baselines are required.
+
+## 2026-10-24：缺省状态与设备管理迭代
+
+- 首次登录统一提供“连接这台 Mac”和“先管理设备”；没有自有 Mac、只有共享 Mac 或尚未安装 Hermes 都可以先管理设备、接受邀请。
+- 未登录、认证过期或账号服务暂不可用时，仍可查看本机 Hermes、诊断和设置。云端绑定、安装与共享操作仍要求有效账号。
+- 新安装只复用本机 Hermes 或经用户确认安装官方 Hermes，移除无效的“改用内置 Hermes”入口；旧安装继续使用原运行方式。新安装的旧 opt-out 设置在显式连接时恢复，保留 profiles、会话与未完成安装记录。
+- 模型配置与服务连通分开展示。可选认证接口 `/api/model/info` 只提取模型名称；接口不兼容时显示待确认，不推断密钥有效或任务成功。提供 Hermes 配置入口和 `hermes --profile default setup` 命令复制，与后台服务使用同一 profile。
+- 登录设备与共享详情接口局部失败只影响对应区域；会话失效仍重新登录。设备列表失败不推断空列表/名额，不启动本机安装，不清除已选设备。
+- 手机登录记录不再自动完成引导或证明访问了这台 Mac，由用户完成引导后实际在手机打开会话验证。
+
 ## HG-199 bounded public version discovery — unreleased, 2026-10-24
 
 Release/tag requests now create credential-free/cookie-free/cache-free ephemeral sessions, retain
@@ -30,7 +50,7 @@ upgrade/recovery execution adapter. No live installation, service or release is 
 
 ## HG-199 Local Hermes integration — unreleased, 2026-10-24
 
-The working branch integrates main 0db655ed (Desktop 0.2.38/build 41) without allocating a version.
+The working branch now integrates main 2b1f8b64 (Desktop 0.2.39/build 42) without allocating a version.
 The read-only upstream version/condition card moves from Settings to Local Hermes. The installation
 and authenticated-health card stays first; Settings keeps the unified GO app/background update
 transaction and its layout-aware discovery. This action no longer launches an upstream check.
@@ -137,6 +157,7 @@ finish, with immutable launcher/upstream IDs, pinned commit/tag/version and priv
 prove cross-home exclusion and surviving-child lock custody. Retired sidecar-free WAL snapshots use
 immutable reads only when there are no pending WAL/rollback bytes. The composed adapter is not
 instantiated by the app; live idle/retirement/closure/boot/business collectors and full committed-tail recovery remain unenabled; see `HERMES_UPGRADE.md` for evidence and gates.
+
 
 ## Overview visual hierarchy (2026-10-24)
 

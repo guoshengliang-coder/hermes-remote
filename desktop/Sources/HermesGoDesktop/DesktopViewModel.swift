@@ -55,6 +55,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var accountIssue: DesktopIssue?
     @Published private(set) var accountCheckedAt: Date?
     @Published private(set) var isDiagnosing = false
+    @Published private(set) var setupRequestID = 0
+    @Published private(set) var modelConfiguration: DesktopModelConfiguration = .unknown
+    @Published var showsModelSetup = false
     @Published private(set) var localManagedHermesHealth: ComponentHealth?
     private var isAccountRefreshInProgress = false
     @Published private(set) var isAccountOperationInProgress = false
@@ -447,7 +450,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             if report.hasUpdates {
                 isUpdateSheetPresented = true
             } else if manual {
-                appUpdateStatusMessage = "已是最新版本（\(appVersion)）"
+                appUpdateStatusMessage = nil
             }
         } catch {
             let issue = DesktopIssue.updateCheck(error)
@@ -1061,10 +1064,11 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         var record = onboardingRecord
         record.newMacChoice = choice
         saveOnboardingRecord(record)
+        if choice == .connect { enableOfficialHermesForFreshSetup(); setupRequestID += 1; await refresh() }
         guard choice == .manageOnly, let dashboard = currentDashboard,
               dashboard.selectedDevice == nil
         else { return }
-        let others = DesktopEntryRouter.otherOwnedDevices(dashboard)
+        let others = dashboard.devices.filter { $0.deviceId != dashboard.localDeviceID }
         if let target = others.first(where: \.isDefault) ?? others.first {
             await selectDevice(target.deviceId)
         }
@@ -1094,7 +1098,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func onboardingHermesSource() async -> OnboardingHermesSource {
-        guard DesktopLocalHermesRuntimeSetting.isEnabled() else { return .bundled }
+        guard DesktopLocalHermesRuntimeSetting.enabledForSetup(freshInstall: currentManagedInstallation == .absent, configuredEnabled: DesktopLocalHermesRuntimeSetting.isEnabled()) else { return .bundled }
         guard let detector = localHermesDetector else { return .unknown }
         let detection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
         return detection.installation.map { .local($0) } ?? .unknown
@@ -1170,7 +1174,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             let result = await DesktopManagedInstaller(layout: layout).probeManagedHermes()
             localManagedHermesHealth = ComponentHealth(component: .hermes, level: result.level,
                 detail: result.detail, checkedAt: Date(), issue: result.issue)
-        } else { localManagedHermesHealth = nil }
+            modelConfiguration = result.level == .healthy
+                ? await DesktopManagedInstaller(layout: layout).probeModelConfiguration() : .unknown
+        } else { localManagedHermesHealth = nil; modelConfiguration = .unknown }
         agentPresentation = DesktopAgentPresentation.reduce(
             legacy: observation,
             managed: rawManagedInstallation,
@@ -1346,7 +1352,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             return
         }
         let setupAvailable = bootstrapPlan.canBegin || componentBootstrapCanBegin
-        let enabled = DesktopLocalHermesRuntimeSetting.isEnabled()
+        let enabled = DesktopLocalHermesRuntimeSetting.enabledForSetup(freshInstall: fresh, configuredEnabled: DesktopLocalHermesRuntimeSetting.isEnabled())
         // Most refreshes end here: an installed Mac, or the setting off, needs no detection.
         guard fresh, enabled else {
             hermesInstallPhase = .hidden
@@ -1389,7 +1395,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     /// cancellation. The only path into `DesktopHermesInstaller.install`.
     func startHermesInstall() {
         isHermesInstallConfirmationPresented = false
-        guard !hermesInstallPhase.isRunning,
+        guard currentDashboard != nil, !isManagedBootstrapAccountLocked, !hermesInstallPhase.isRunning,
               let shownOffer = hermesInstallPhase.offer,
               let detector = localHermesDetector,
               let managedPaths
@@ -1409,7 +1415,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let reevaluated = DesktopHermesInstallOffer.evaluate(
             detection: detector.detect(),
             paths: detector.paths,
-            localRuntimeEnabled: DesktopLocalHermesRuntimeSetting.isEnabled(),
+            localRuntimeEnabled: DesktopLocalHermesRuntimeSetting.enabledForSetup(freshInstall: currentManagedInstallation == .absent, configuredEnabled: DesktopLocalHermesRuntimeSetting.isEnabled()),
             freshInstall: true,
             unfinishedCheckout: DesktopHermesInstallResume.reconcile(hermesInstallAttempts, paths: detector.paths),
             proxy: DesktopSystemProxy.current()
@@ -1454,19 +1460,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         hermesInstallTask?.cancel()
     }
 
-    /// "改用内置 Hermes": the owner's persisted choice for this Mac. Turning the local-runtime
-    /// setting off makes the managed setup — and every later refresh — behave exactly as before
-    /// local runtime mode existed. Whatever an unfinished install left in `~/.hermes` is not touched.
-    func useBundledHermes() {
-        guard !hermesInstallPhase.isRunning else { return }
-        DesktopLocalHermesRuntimeSetting.chooseBundled()
-        hermesInstallAttempts.clear()
-        hermesInstallPhase = .hidden
-        if isFreshInstallBlockedByDesktopsOwnCheckout {
-            isFreshInstallBlockedByDesktopsOwnCheckout = false
-            if managedBootstrapIssue?.code == .localHermesUnsupported { managedBootstrapIssue = nil }
-            if componentBootstrapIssue?.code == .localHermesUnsupported { componentBootstrapIssue = nil }
-        }
+    private func enableOfficialHermesForFreshSetup() {
+        guard currentManagedInstallation == .absent else { return }
+        UserDefaults.standard.set(true, forKey: DesktopLocalHermesRuntimeSetting.defaultsKey)
     }
 
     private func applyHermesInstallProgress(_ progress: DesktopHermesInstallProgress) {
@@ -1487,7 +1483,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 DesktopHermesInstallOffer.evaluate(
                     detection: detector.detect(),
                     paths: detector.paths,
-                    localRuntimeEnabled: DesktopLocalHermesRuntimeSetting.isEnabled(),
+                    localRuntimeEnabled: true,
                     freshInstall: true,
                     unfinishedCheckout: DesktopHermesInstallResume.reconcile(attempts, paths: detector.paths),
                     proxy: shownOffer.proxy
@@ -1539,6 +1535,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
 
     func prepareManagedBootstrap(forDesktopUpdate: Bool = false) async {
         guard !isServiceMutationLocked, (!isDesktopUpdateRunning || forDesktopUpdate), !isHermesInstallDecisionPending else { return }
+        guard currentDashboard?.sectionIssues[.devices] == nil else { return }
+        enableOfficialHermesForFreshSetup()
         managedBootstrapIssue = nil
         clearFreshInstallBlock()
         managedBootstrapOperation = .preparing
@@ -1684,6 +1682,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
               let runtime = componentBootstrapRuntime
         else { return }
 
+        guard currentDashboard?.sectionIssues[.devices] == nil else { return }
+        enableOfficialHermesForFreshSetup()
         componentBootstrapIssue = nil
         clearFreshInstallBlock()
         componentBootstrapOperation = .preparing
@@ -1961,7 +1961,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     /// The owner's own Hermes, when Desktop is allowed to reuse it, for the planner's adoption
     /// branch. Read-only filesystem work, so it runs off the main actor.
     private func detectLocalHermesInstallation() async -> DesktopLocalHermesInstallation? {
-        guard DesktopLocalHermesRuntimeSetting.isEnabled(), let detector = localHermesDetector else {
+        guard DesktopLocalHermesRuntimeSetting.enabledForSetup(freshInstall: currentManagedInstallation == .absent, configuredEnabled: DesktopLocalHermesRuntimeSetting.isEnabled()), let detector = localHermesDetector else {
             return nil
         }
         return await Task.detached(priority: .userInitiated) { detector.detect().installation }.value

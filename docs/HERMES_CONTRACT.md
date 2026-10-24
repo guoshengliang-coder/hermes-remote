@@ -1,5 +1,9 @@
 # Hermes upstream contract
 
+## Desktop optional model metadata (2026-10-24)
+
+Desktop may read authenticated `GET /api/model/info` on fixed loopback serve-v1 after local authentication succeeds. Source checked: upstream `hermes_cli/web_routers/models.py`. Only the `model` string is consumed; empty means no selected model, malformed/missing/non-200/transport failure means unknown. This is informational and must never gate existing connectivity or claim credentials/inference were tested. Tokens remain on the Mac and use the existing proxy-disabled, redirect-restricted session. No writes, model requests, profile changes or provider secrets are consumed. Android, Web, Gateway and Connector contracts remain unchanged.
+
 ## Unadopted candidate source diagnostic — 2026-10-24
 
 Public release v0.22.5 resolves to `bf0203a794a07aac3ff764972ab9087baa4e4f4e`. It is **not an
@@ -15,6 +19,7 @@ semantics, real OpenAPI, database migration, auth, streaming, approvals, runtime
 This snapshot is not a whole Git checkout: direct Git timed out and the archive download remained
 incomplete, so neither is used as evidence. CI independently checks out the full fixed source.
 The entire adoption checklist below still applies before any adoption.
+
 
 Hermes Remote is a **client of upstream Hermes' private API**. Nothing in this repository modifies
 Hermes, and there is no version negotiation on the wire: the Android app speaks Hermes' own REST and

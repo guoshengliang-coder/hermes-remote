@@ -281,6 +281,10 @@ public enum DesktopLocalHermesRuntimeSetting {
     /// The value with nothing configured (owner decision 2026-09-22).
     public static let defaultValue = true
 
+    public static func enabledForSetup(freshInstall: Bool, configuredEnabled: Bool) -> Bool {
+        freshInstall || configuredEnabled
+    }
+
     /// "Use the bundled Hermes on this Mac": the owner's explicit choice, persisted. Afterwards this
     /// Mac behaves exactly as it did before local runtime mode existed.
     public static func chooseBundled(defaults: UserDefaults = .standard) {

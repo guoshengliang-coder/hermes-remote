@@ -147,11 +147,15 @@ struct OverviewView: View {
             if let issue = model.localHermesIssue ?? model.localManagedHermesHealth?.issue {
                 issueLink(issue)
             }
+            if model.localHermesDetection?.installation != nil {
+                Text(model.modelConfiguration.title).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+            }
             footer("hermes", title: "检查详情") {
-                if model.entryRoute == .main {
+                if !model.isManagedBootstrapAccountLocked {
                     if state.hermes.level == .healthy {
                         Button("打开 Hermes") { model.openHermes() }.buttonStyle(.borderedProminent)
                     }
+                    if model.localHermesDetection?.installation != nil { Button("配置模型") { model.showsModelSetup = true } }
                     Button("查看本机 Hermes") { selection = .localHermes }
                     if state.hermes.level != .healthy {
                         Button("诊断与修复") { selection = .diagnostics }

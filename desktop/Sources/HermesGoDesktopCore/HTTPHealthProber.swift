@@ -78,6 +78,19 @@ public struct HTTPHealthProber {
         return localFailure("missing-route")
     }
 
+    public func probeModelConfiguration(sessionToken: String) async -> DesktopModelConfiguration {
+        let url = URL(string: "/api/model/info", relativeTo: DesktopHermesRuntimeContract.serveV1.baseURL)!.absoluteURL
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue(sessionToken, forHTTPHeaderField: "X-Hermes-Session-Token")
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let response = response as? HTTPURLResponse, response.statusCode == 200 else { return .unknown }
+            return DesktopModelConfiguration.parse(data)
+        } catch { return .unknown }
+    }
+
     private func localFailure(_ reason: String) -> ProbeResult {
         let issue = DesktopIssue(code: .hermesUnavailable, technicalCause: "stage=local-hermes-auth result=\(reason)")
         return ProbeResult(level: .failed, detail: issue.displayChinese, issue: issue)

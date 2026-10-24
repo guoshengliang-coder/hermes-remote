@@ -7,7 +7,7 @@ final class DesktopOverviewPresentationTests: XCTestCase {
 
     func testHealthyRequiresAllThreeAndFreshLocalRemoteVerification() {
         let result = make()
-        XCTAssertEqual(result.title, "本机与远程访问均正常")
+        XCTAssertEqual(result.title, "本机与远程连接均正常")
         XCTAssertEqual(result.level, .healthy)
         XCTAssertEqual(result.remoteAccess, "已通过")
     }

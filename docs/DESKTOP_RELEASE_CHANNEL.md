@@ -1,5 +1,32 @@
 # Desktop release channel
 
+## Published internal test distribution: 0.2.39
+
+On 2026-10-24 the owner authorized this iteration's merge/publication and confirmed
+**0.2.39/build 42**. Includes first-run and signed-out recovery, independent optional account
+panels, unified device/invitation management, model configuration guidance and update/settings
+polish (#650). Preserve existing Hermes profiles/data and runtime settings for installed Macs.
+Continue the existing temporary ad-hoc internal channel and installed public trust settings.
+Build from clean current main after #650 and this version PR pass all PR/main checks; use the
+unified internal publisher, verify full public DMGs and synchronize website/app-update indexes.
+Physical first-install, login, phone access and model-task acceptance remain separate from
+package/publication verification. This is not an Apple-notarized release.
+
+
+Publication completed on 2026-10-24 after PRs #650/#651 and their main checks passed,
+from clean main `c431b041a1b5f9c46329a0047858b4f137c833c7`. Both unified-publisher success markers and
+independent complete public downloads passed. The internal `-dev.dmg` and compatible `.dmg`
+alias match **3,830,604 bytes**, SHA-256 `cf3b8527bfd5ba8e2908a7b43adcefffff32cbbd6573095040ef9c5af272f3df`.
+Website and app-update indexes both report 0.2.39/build 42; signed managed-component indexes
+remain byte-identical at 0.4.12. Assets, 620 Swift tests, 12 update/publication tooling tests,
+release app/DMG build, strict ad-hoc signature, mounted identity/version/build/arm64 and image
+integrity passed. Native fixtures cover light/dark devices, empty-account onboarding, signed-out
+states, settings and model setup. No user-installed app, local services or Hermes data were replaced.
+Physical first registration/install, upgrade/relaunch, phone access and model inference still need
+separate acceptance. This remains temporary-signed internal distribution, not Apple notarization.
+
+Download: `https://mrlgs.net/desktop/apps/0.2.39/Hermes-Go-Desktop-0.2.39-dev.dmg`.
+
 ## Published internal test distribution: 0.2.38
 
 On 2026-10-24 the owner confirmed **0.2.38/build 41** for the updater routing fix (#646).

@@ -15,7 +15,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .overview: "概览"
         case .diagnostics: "诊断"
         case .localHermes: "本机 Hermes"
-        case .pairing: "设备"
+        case .pairing: "我的设备"
         case .settings: "设置"
         }
     }
@@ -52,9 +52,13 @@ private struct MainShellView: View {
     @State private var showsSignIn = false
     @State private var showsAccount = false
 
+    private var canInspectLocal: Bool {
+        DesktopNavigationAccess.allowsLocalPages(operationLocked: model.isManagedBootstrapAccountLocked)
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            SidebarView(selection: $selection, showSignIn: { showsSignIn = true },
+            SidebarView(selection: $selection, showSignIn: { selection = .overview; showsSignIn = true },
                         showOverview: { showsSignIn = false }, showAccount: { showsAccount = true })
                 .frame(width: 210)
 
@@ -63,31 +67,38 @@ private struct MainShellView: View {
                 .frame(width: 1)
 
             Group {
-                switch model.entryRoute {
-                case .launching: LaunchGateView()
-                case .launchFailed: LaunchFailedGateView()
-                case .signIn(let reason):
-                    if showsSignIn { SignInGateView(expiredReason: reason) }
-                    else { OverviewView(selection: $selection) }
-                case .serviceUnavailable: ServiceUnavailableGateView()
-                case .accountDeletionSubmitted: AccountDeletionSubmittedGateView()
-                case .newMacChoice: NewMacChoiceGateView()
-                case .onboarding(let step): OnboardingGateView(step: step)
-                case .main:
-                    switch selection {
-                    case .overview: OverviewView(selection: $selection)
-                    case .diagnostics: DiagnosticsView(selection: $selection)
-                    case .localHermes: LocalHermesView(selection: $selection)
-                    case .pairing: AccountDevicesView()
-                    case .settings: SettingsView()
+                if canInspectLocal && selection == .diagnostics { DiagnosticsView(selection: $selection) }
+                else if canInspectLocal && selection == .settings { SettingsView() }
+                else if canInspectLocal && selection == .localHermes { LocalHermesView(selection: $selection) }
+                else if canInspectLocal && selection == .pairing { AccountDevicesView() }
+                else {
+                    switch model.entryRoute {
+                    case .launching: LaunchGateView()
+                    case .launchFailed: LaunchFailedGateView()
+                    case .signIn(let reason):
+                        if showsSignIn { SignInGateView(expiredReason: reason) }
+                        else { OverviewView(selection: $selection) }
+                    case .serviceUnavailable: ServiceUnavailableGateView()
+                    case .accountDeletionSubmitted: AccountDeletionSubmittedGateView()
+                    case .newMacChoice: NewMacChoiceGateView()
+                    case .onboarding(let step): OnboardingGateView(step: step)
+                    case .main:
+                        switch selection {
+                        case .overview: OverviewView(selection: $selection)
+                        case .diagnostics: DiagnosticsView(selection: $selection)
+                        case .localHermes: LocalHermesView(selection: $selection)
+                        case .pairing: AccountDevicesView()
+                        case .settings: SettingsView()
+                        }
                     }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color.hermesCanvas(colorScheme))
+        .onChange(of: model.setupRequestID) { _, _ in selection = .overview; showsSignIn = false }
         .onChange(of: model.diagnosticRequestID) { _, _ in selection = .diagnostics }
-        .onChange(of: model.accountSignInRequestID) { _, _ in showsSignIn = true }
+        .onChange(of: model.accountSignInRequestID) { _, _ in selection = .overview; showsSignIn = true }
         .onChange(of: model.entryRoute) { _, route in
             if case .signIn = route { showsAccount = false }
             else { showsSignIn = false }
@@ -155,7 +166,7 @@ private struct SidebarView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 10)
                 .accessibilityLabel(item.title)
-                .disabled(model.entryRoute != .main && !(item == .overview && isSignInRoute))
+                .disabled(!DesktopNavigationAccess.allowsLocalPages(operationLocked: model.isManagedBootstrapAccountLocked))
             }
 
             Spacer()
@@ -182,9 +193,8 @@ private struct SidebarView: View {
                 Button(action: showAccount) { accountLabel }.buttonStyle(.plain)
                 Menu {
                     Text(dashboard.session.account.email ?? "Hermes GO 账号")
-                    Button("管理账号", action: showAccount)
+                    Button("管理账号与登录设备", action: showAccount)
                     Button("设备管理") { selection = .pairing }
-                        .disabled(model.entryRoute != .main)
                     Divider()
                     Button("退出这台 Desktop 的账号") { Task { await model.signOutAccount() } }
                         .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked)
@@ -200,7 +210,7 @@ private struct SidebarView: View {
             } label: { accountLabel }
                 .buttonStyle(.plain)
                 .disabled(model.isAccountOperationInProgress || model.isManagedBootstrapAccountLocked
-                          || model.accountState == .checking || model.accountState == .accountDeletionSubmitted)
+                          || (model.accountState == .checking && model.accountIssue == nil) || model.accountState == .accountDeletionSubmitted)
         }
     }
 

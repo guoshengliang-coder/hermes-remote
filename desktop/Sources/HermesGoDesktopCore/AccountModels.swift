@@ -346,6 +346,8 @@ public struct DeviceShareInvitationEnvelope: Codable, Equatable, Sendable {
     public let invitation: DeviceShareInvitation
 }
 
+public enum AccountDashboardSection: String, Sendable { case devices, installations }
+
 public struct AccountDashboard: Equatable, Sendable {
     public let session: AccountSessionRecord
     public let binding: AccountBindingSnapshot
@@ -353,6 +355,8 @@ public struct AccountDashboard: Equatable, Sendable {
     public let devices: [AccountDevice]
     public let maxOwnedDevices: Int
     public let selectedDeviceID: String?
+    public let sectionIssues: [AccountDashboardSection: DesktopIssue]
+    public let shareIssues: [String: DesktopIssue]
     public let deviceShares: [String: DeviceShareManagement]
     public let supportsDeviceSharing: Bool
     public let maxSharedDevices: Int
@@ -368,6 +372,8 @@ public struct AccountDashboard: Equatable, Sendable {
         maxOwnedDevices: Int = 1,
         selectedDeviceID: String? = nil,
         deviceShares: [String: DeviceShareManagement] = [:],
+        sectionIssues: [AccountDashboardSection: DesktopIssue] = [:],
+        shareIssues: [String: DesktopIssue] = [:],
         supportsDeviceSharing: Bool = false,
         maxSharedDevices: Int = 0,
         accountDeletionEnabled: Bool = false,
@@ -380,6 +386,8 @@ public struct AccountDashboard: Equatable, Sendable {
         self.devices = devices
         self.maxOwnedDevices = maxOwnedDevices
         self.selectedDeviceID = selectedDeviceID
+        self.sectionIssues = sectionIssues
+        self.shareIssues = shareIssues
         self.deviceShares = deviceShares
         self.supportsDeviceSharing = supportsDeviceSharing
         self.maxSharedDevices = maxSharedDevices

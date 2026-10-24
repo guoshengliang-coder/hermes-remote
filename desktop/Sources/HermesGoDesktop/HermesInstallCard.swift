@@ -8,7 +8,6 @@ import SwiftUI
 /// the installer's own stages while it runs, and always leaves the bundled copy as the way out.
 struct HermesInstallCard: View {
     @EnvironmentObject private var model: DesktopViewModel
-    @State private var isBundledChoicePresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -29,15 +28,7 @@ struct HermesInstallCard: View {
                 confirmationSheet(offer)
             }
         }
-        .confirmationDialog(
-            "这台 Mac 改用 Hermes GO 内置的 Hermes？",
-            isPresented: $isBundledChoicePresented
-        ) {
-            Button("改用内置 Hermes") { model.useBundledHermes() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("之后的设置会像以前一样安装并运行 Hermes GO 自带的 Hermes，不会安装官方 Hermes。已经下载到 ~/.hermes 的内容保持不动。")
-        }
+
     }
 
     private var title: String {
@@ -73,8 +64,6 @@ struct HermesInstallCard: View {
             facts(offer)
             Divider()
             HStack {
-                Button("改用内置 Hermes") { isBundledChoicePresented = true }
-                    .buttonStyle(.bordered)
                 Spacer()
                 Button("安装 Hermes…") { model.isHermesInstallConfirmationPresented = true }
                     .buttonStyle(.borderedProminent)
@@ -100,7 +89,7 @@ struct HermesInstallCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         case .cancelled(_, let run):
             stageList(run)
-            Text("已停止安装。已完成的部分保留在 ~/.hermes，重试会从那里继续；也可以改用内置 Hermes。")
+            Text("已停止安装。已完成的部分保留在 ~/.hermes，重试会从那里继续。可稍后从“本机 Hermes”继续。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -204,8 +193,6 @@ struct HermesInstallCard: View {
 
     private func retryActions(retryable: Bool) -> some View {
         HStack {
-            Button("改用内置 Hermes") { isBundledChoicePresented = true }
-                .buttonStyle(.bordered)
             Spacer()
             if retryable {
                 Button("重试") { model.startHermesInstall() }
