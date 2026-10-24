@@ -69,6 +69,8 @@ public struct DesktopHermesInstallerStage: Equatable, Sendable, Identifiable {
         case "config": "准备配置与技能"
         case "setup": "配置模型服务"
         case "gateway": "配置消息网关"
+        case "products": "准备 Hermes 应用与工具"
+        case "desktop": "准备 Hermes 桌面应用"
         case "complete": "完成安装"
         default: title
         }
@@ -172,6 +174,8 @@ public enum DesktopHermesInstallFailure: Error, Equatable, Sendable {
 
 public enum DesktopHermesInstallProgress: Equatable, Sendable {
     case downloading
+    case downloadProgress(DesktopInstallerDownloadProgress)
+    case retrying(stage: String, attempt: Int, delaySeconds: Int)
     case manifest([DesktopHermesInstallerStage])
     case stageStarted(DesktopHermesInstallerStage)
     case stageSucceeded(DesktopHermesInstallerStage)
@@ -197,6 +201,9 @@ public struct DesktopHermesInstallRun: Equatable, Sendable {
 
     public init() {}
 
+    public private(set) var downloadProgress: DesktopInstallerDownloadProgress?
+    public private(set) var retryMessage: String?
+
     public var completedCount: Int { rows.filter { $0.state == .succeeded || $0.state == .skipped }.count }
     public var current: Row? { rows.first { $0.state == .running } }
 
@@ -204,12 +211,21 @@ public struct DesktopHermesInstallRun: Equatable, Sendable {
         switch progress {
         case .downloading:
             downloading = true
+            retryMessage = nil
+            downloadProgress = nil
+        case .downloadProgress(let value):
+            downloadProgress = value
+        case .retrying(let stage, let attempt, let delay):
+            retryMessage = "\(stage)网络暂不可用，\(delay) 秒后第 \(attempt)/3 次尝试"
         case .manifest(let stages):
             downloading = false
+            retryMessage = nil
             rows = stages.map { Row(stage: $0, state: .pending) }
         case .stageStarted(let stage):
+            retryMessage = nil
             set(stage.name, .running)
         case .stageSucceeded(let stage):
+            retryMessage = nil
             set(stage.name, .succeeded)
         case .stageSkipped(let stage):
             set(stage.name, .skipped)
@@ -222,6 +238,7 @@ public struct DesktopHermesInstallRun: Equatable, Sendable {
     public mutating func fail(stage name: String?) {
         downloading = false
         verifying = false
+        retryMessage = nil
         if let index = rows.firstIndex(where: { $0.state == .running }) {
             rows[index].state = .failed
         } else if let name, let index = rows.firstIndex(where: { $0.stage.name == name }) {
@@ -233,6 +250,7 @@ public struct DesktopHermesInstallRun: Equatable, Sendable {
     public mutating func stop() {
         downloading = false
         verifying = false
+        retryMessage = nil
         for index in rows.indices where rows[index].state == .running { rows[index].state = .pending }
     }
 
@@ -494,6 +512,13 @@ public struct DesktopHermesInstallConfirmation: Equatable, Sendable {
 
 public protocol DesktopHermesInstallerScriptFetching: Sendable {
     func fetchInstallerScript(from url: URL) async throws -> Data
+    func fetchInstallerScript(from url: URL, progress: @escaping @Sendable (DesktopInstallerDownloadProgress) -> Void) async throws -> Data
+}
+
+public extension DesktopHermesInstallerScriptFetching {
+    func fetchInstallerScript(from url: URL, progress: @escaping @Sendable (DesktopInstallerDownloadProgress) -> Void) async throws -> Data {
+        try await fetchInstallerScript(from: url)
+    }
 }
 
 public struct DesktopHermesInstallerProcessResult: Equatable, Sendable {
@@ -537,6 +562,7 @@ public struct DesktopHermesInstaller: Sendable {
     private let inheritedEnvironment: [String: String]
     private let userID: UInt32
     private let bash: URL
+    private let retrySleep: @Sendable (UInt64) async throws -> Void
 
     public static let logFileName = "hermes-install.log"
 
@@ -551,7 +577,8 @@ public struct DesktopHermesInstaller: Sendable {
         attempts: any DesktopHermesInstallAttemptStoring = DesktopUserDefaultsInstallAttemptStore(),
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         userID: UInt32 = Darwin.getuid(),
-        bash: URL = URL(fileURLWithPath: "/bin/bash")
+        bash: URL = URL(fileURLWithPath: "/bin/bash"),
+        retrySleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     ) {
         self.paths = paths
         self.workRoot = workRoot
@@ -565,6 +592,7 @@ public struct DesktopHermesInstaller: Sendable {
         self.inheritedEnvironment = inheritedEnvironment
         self.userID = userID
         self.bash = bash
+        self.retrySleep = retrySleep
     }
 
     /// Downloads upstream's installer, runs every stage its manifest lists, and returns the usable
@@ -638,8 +666,12 @@ public struct DesktopHermesInstaller: Sendable {
 
         do {
             try Task.checkCancellation()
-            progress(.downloading)
-            let script = try await download(offer.scriptURL)
+            let script = try await DesktopInstallRetry.run(sleep: retrySleep, onRetry: { attempt, delay in
+                progress(.retrying(stage: "下载安装程序", attempt: attempt, delaySeconds: delay))
+            }) {
+                progress(.downloading)
+                return try await download(offer.scriptURL, progress: progress)
+            }
             let scriptURL = runDirectory.appendingPathComponent("install.sh")
             try writePrivate(script, to: scriptURL)
             log.record("hermes-install script bytes=\(script.count) sha256=\(Self.sha256(script))")
@@ -663,41 +695,53 @@ public struct DesktopHermesInstaller: Sendable {
 
             for stage in manifest.stages {
                 try Task.checkCancellation()
-                progress(.stageStarted(stage))
                 let log = self.log
                 let name = stage.name
-                // Whatever happens to the stage — success, failure, cancellation, a spawn error —
-                // the checkout it may have created is recorded as Desktop's before anything else.
-                defer { recordCheckout() }
-                let run = try await runner.run(
-                    executable: bash,
-                    arguments: [scriptURL.path, "--stage", stage.name, "--non-interactive", "--json"] + common,
-                    environment: environment,
-                    workingDirectory: runDirectory,
-                    onLine: { line in log.record("stage=\(name) \(line)") }
-                )
-                guard let result = DesktopHermesInstallerStageResult.parse(run.standardOutputTail),
-                      result.stage == stage.name
-                else {
-                    log.record("hermes-install stage=\(stage.name) no result frame exit=\(run.exitStatus)")
-                    if Self.looksLikeNetworkFailure(run.combinedTail) {
-                        throw DesktopHermesInstallFailure.network(stage: stage.name, detail: Self.tail(run.combinedTail))
+                var expectedCheckout = DesktopCheckoutIdentity.read(paths.checkoutRoot)
+                try await DesktopInstallRetry.run(sleep: retrySleep, onRetry: { attempt, delay in
+                    log.record("stage=\(stage.name) retry attempt=\(attempt)")
+                    progress(.retrying(stage: stage.titleChinese, attempt: attempt, delaySeconds: delay))
+                }) {
+                    // Never replay a failed stage over a checkout replaced while waiting.
+                    guard DesktopCheckoutIdentity.read(paths.checkoutRoot) == expectedCheckout else {
+                        throw DesktopHermesInstallFailure.notUsable(stage: stage.name, detail: "checkout replaced during network retry")
                     }
-                    throw DesktopHermesInstallFailure.protocolMismatch(
-                        detail: "stage \(stage.name) produced no result frame (exit \(run.exitStatus))"
+                    defer {
+                        recordCheckout()
+                        expectedCheckout = DesktopCheckoutIdentity.read(paths.checkoutRoot)
+                    }
+                    progress(.stageStarted(stage))
+                    let run = try await runner.run(
+                        executable: bash,
+                        arguments: [scriptURL.path, "--stage", stage.name, "--non-interactive", "--json"] + common,
+                        environment: environment,
+                        workingDirectory: runDirectory,
+                        onLine: { line in log.record("stage=\(name) \(line)") }
                     )
+                    guard let result = DesktopHermesInstallerStageResult.parse(run.standardOutputTail),
+                          result.stage == stage.name
+                    else {
+                        log.record("hermes-install stage=\(stage.name) no result frame exit=\(run.exitStatus)")
+                        if Self.looksLikeNetworkFailure(run.combinedTail) {
+                            throw DesktopHermesInstallFailure.network(stage: stage.name, detail: Self.tail(run.combinedTail))
+                        }
+                        throw DesktopHermesInstallFailure.protocolMismatch(
+                            detail: "stage \(stage.name) produced no result frame (exit \(run.exitStatus))"
+                        )
+                    }
+                    if result.ok {
+                        log.record("hermes-install stage=\(stage.name) \(result.skipped ? "skipped" : "ok")")
+                        progress(result.skipped ? .stageSkipped(stage) : .stageSucceeded(stage))
+                        return
+                    }
+                    let detail = "\(result.reason ?? "exit \(run.exitStatus)"): \(Self.tail(run.combinedTail))"
+                    log.record("hermes-install stage=\(stage.name) failed \(result.reason ?? "")")
+                    if Self.looksLikeNetworkFailure(run.combinedTail) {
+                        throw DesktopHermesInstallFailure.network(stage: stage.name, detail: detail)
+                    }
+                    throw DesktopHermesInstallFailure.stageFailed(stage: stage.name, detail: detail)
                 }
-                if result.ok {
-                    log.record("hermes-install stage=\(stage.name) \(result.skipped ? "skipped" : "ok")")
-                    progress(result.skipped ? .stageSkipped(stage) : .stageSucceeded(stage))
-                    continue
-                }
-                let detail = "\(result.reason ?? "exit \(run.exitStatus)"): \(Self.tail(run.combinedTail))"
-                log.record("hermes-install stage=\(stage.name) failed \(result.reason ?? "")")
-                if Self.looksLikeNetworkFailure(run.combinedTail) {
-                    throw DesktopHermesInstallFailure.network(stage: stage.name, detail: detail)
-                }
-                throw DesktopHermesInstallFailure.stageFailed(stage: stage.name, detail: detail)
+
             }
 
             progress(.verifying)
@@ -832,8 +876,8 @@ public struct DesktopHermesInstaller: Sendable {
         }
     }
 
-    private func download(_ url: URL) async throws -> Data {
-        let data = try await fetcher.fetchInstallerScript(from: url)
+    private func download(_ url: URL, progress: @escaping @Sendable (DesktopHermesInstallProgress) -> Void) async throws -> Data {
+        let data = try await fetcher.fetchInstallerScript(from: url) { progress(.downloadProgress($0)) }
         guard data.count > 2, data.count <= DesktopHermesInstallerSource.maximumScriptBytes,
               data.starts(with: Data("#!".utf8)),
               String(data: data, encoding: .utf8) != nil
@@ -940,6 +984,10 @@ public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScr
     }
 
     public func fetchInstallerScript(from url: URL) async throws -> Data {
+        try await fetchInstallerScript(from: url, progress: { _ in })
+    }
+
+    public func fetchInstallerScript(from url: URL, progress: @escaping @Sendable (DesktopInstallerDownloadProgress) -> Void) async throws -> Data {
         guard DesktopHermesInstallerSource.isOfficial(url) else {
             throw DesktopHermesInstallFailure.protocolMismatch(detail: "installer URL is not upstream's")
         }
@@ -966,7 +1014,17 @@ public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScr
             guard http.statusCode == 200 else {
                 throw DesktopHermesInstallFailure.network(stage: "download", detail: "HTTP \(http.statusCode)")
             }
-            return try await Self.collect(bytes, limit: DesktopHermesInstallerSource.maximumScriptBytes)
+            let total = http.expectedContentLength > 0 && http.expectedContentLength <= Int64(DesktopHermesInstallerSource.maximumScriptBytes)
+                ? Int(http.expectedContentLength) : nil
+            let started = ProcessInfo.processInfo.systemUptime
+            var lastReport = started
+            return try await Self.collect(bytes, limit: DesktopHermesInstallerSource.maximumScriptBytes) { count, finished in
+                let now = ProcessInfo.processInfo.systemUptime
+                if finished || now - lastReport >= 0.25 {
+                    progress(.init(receivedBytes: count, totalBytes: total, elapsed: now - started))
+                    lastReport = now
+                }
+            }
         } catch let failure as DesktopHermesInstallFailure {
             throw failure
         } catch let error as URLError where error.code == .cancelled {
@@ -981,7 +1039,7 @@ public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScr
     }
 
     /// Reads a byte stream, giving up as soon as it passes `limit`.
-    public static func collect<Bytes: AsyncSequence>(_ bytes: Bytes, limit: Int) async throws -> Data
+    public static func collect<Bytes: AsyncSequence>(_ bytes: Bytes, limit: Int, progress: (Int, Bool) -> Void = { _, _ in }) async throws -> Data
     where Bytes.Element == UInt8 {
         var data = Data()
         for try await byte in bytes {
@@ -989,7 +1047,10 @@ public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScr
             if data.count > limit {
                 throw DesktopHermesInstallFailure.protocolMismatch(detail: "installer download exceeds \(limit) bytes")
             }
+            try Task.checkCancellation()
+            progress(data.count, false)
         }
+        progress(data.count, true)
         return data
     }
 }

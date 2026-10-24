@@ -752,9 +752,7 @@ fun ChatScreen(
         )
     }
 
-    var videoFile by remember(vm, vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)) {
-        mutableStateOf<com.hermes.client.domain.ChatFile?>(null)
-    }
+    var videoFile by rememberVideoFile(vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId))
     videoFile?.let { file ->
         val complete = file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }
             ?: scopedFileTasks.firstOrNull { it.remotePath == file.remotePath }?.let(vm::completedDownload)

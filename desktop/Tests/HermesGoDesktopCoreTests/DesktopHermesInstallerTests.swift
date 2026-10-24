@@ -36,6 +36,34 @@ final class DesktopHermesInstallerTests: XCTestCase {
         sandbox.remove()
     }
 
+    func testTemporaryNetworkFailureRetriesOnlyTheCurrentStage() async throws {
+        let script = FakeInstaller(stages: ["prerequisites", "repository", "complete"], failing: "repository", failure: .network, failuresBeforeSuccess: 1)
+        let events = EventRecorder()
+        let installer = sandbox.installer(script: script, detections: [.absent(hermesDataPresent: false), .usable(sandbox.installation)])
+        _ = try await installer.install(sandbox.offer().confirm()) { events.append($0) }
+        let calls = try sandbox.invocations().filter { $0.hasPrefix("ARGS --stage") }
+        XCTAssertEqual(calls.filter { $0.contains("--stage prerequisites ") }.count, 1)
+        XCTAssertEqual(calls.filter { $0.contains("--stage repository ") }.count, 2)
+        XCTAssertEqual(calls.filter { $0.contains("--stage complete ") }.count, 1)
+        XCTAssertTrue(events.values.contains(.retrying(stage: "下载 Hermes", attempt: 2, delaySeconds: 2)))
+        XCTAssertNil(sandbox.attempts.load())
+    }
+
+    func testNetworkRetryStopsIfAnotherProgramReplacesTheCheckout() async throws {
+        let paths = sandbox.paths
+        let script = FakeInstaller(stages: ["repository", "python-deps", "complete"], failing: "python-deps", failure: .network)
+        let installer = sandbox.installer(script: script, detections: [.absent(hermesDataPresent: false)], retrySleep: { _ in
+            try FileManager.default.moveItem(at: paths.checkoutRoot, to: paths.checkoutRoot.appendingPathExtension("previous"))
+            try FileManager.default.createDirectory(at: paths.checkoutRoot, withIntermediateDirectories: true)
+        })
+        let failure = await installFailure(installer)
+        XCTAssertEqual(failure, .notUsable(stage: "python-deps", detail: "checkout replaced during network retry"))
+        let calls = try sandbox.invocations().filter { $0.hasPrefix("ARGS --stage") }
+        XCTAssertEqual(calls.filter { $0.contains("--stage python-deps ") }.count, 1)
+        XCTAssertFalse(calls.contains { $0.contains("--stage complete ") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.checkoutRoot.path))
+    }
+
     // MARK: Success
 
     func testASuccessfulInstallRunsEveryManifestStageThroughTheProtocol() async throws {
@@ -967,6 +995,7 @@ private struct FakeInstaller {
     /// Lines the failing stage prints before its own failure.
     var failurePreamble: [String] = []
     var titleLength = 0
+    var failuresBeforeSuccess: Int? = nil
 
     var source: String {
         let manifestStages = stages.map { name in
@@ -1023,7 +1052,11 @@ private struct FakeInstaller {
           echo "$!" > "$HOME/child.pid"
           wait
         fi
-        if [ "$stage" = "\#(failing ?? "")" ]; then
+        failure_count_file="$HOME/failure-count"
+        failure_count=0
+        [ -f "$failure_count_file" ] && failure_count=$(cat "$failure_count_file")
+        if [ "$stage" = "\#(failing ?? "")" ] && [ "$failure_count" -lt "\#(failuresBeforeSuccess ?? 999)" ]; then
+        echo $((failure_count + 1)) > "$failure_count_file"
         \#(failurePreamble.map { "echo '\($0)' >&2" }.joined(separator: "\n"))
         \#(failureBody)
         fi
@@ -1142,7 +1175,8 @@ private final class InstallerSandbox {
         detections: [DesktopLocalHermesDetection],
         userID: UInt32 = Darwin.getuid(),
         inherited: [String: String] = [:],
-        runtimeChecker: any DesktopHermesInstalledRuntimeChecking = SuccessfulRuntimeChecker()
+        runtimeChecker: any DesktopHermesInstalledRuntimeChecking = SuccessfulRuntimeChecker(),
+        retrySleep: @escaping @Sendable (UInt64) async throws -> Void = { _ in }
     ) -> DesktopHermesInstaller {
         let fetcher = fetcher ?? StubFetcher(result: .success(Data((script ?? FakeInstaller(stages: ["complete"])).source.utf8)))
         let sequence = DetectionSequence(detections)
@@ -1155,7 +1189,7 @@ private final class InstallerSandbox {
             detect: { sequence.next() },
             attempts: attempts,
             inheritedEnvironment: inherited,
-            userID: userID
+            userID: userID, retrySleep: retrySleep
         )
     }
 

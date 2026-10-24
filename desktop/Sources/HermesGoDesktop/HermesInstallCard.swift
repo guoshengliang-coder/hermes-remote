@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// Shown above the setup-preflight card, only on a fresh Mac about to be set up that has no Hermes
 /// at all. It says what will happen before anything runs, requires the confirmation sheet, shows
-/// the installer's own stages while it runs, and always leaves the bundled copy as the way out.
+/// the installer’s own stages while it runs, and allows retry without installing a second copy.
 struct HermesInstallCard: View {
     @EnvironmentObject private var model: DesktopViewModel
 
@@ -57,11 +57,11 @@ struct HermesInstallCard: View {
         case .hidden:
             EmptyView()
         case .offered(let offer):
-            Text("推荐先安装 Hermes 官方版本：Hermes GO 会运行 Hermes 官方安装程序，把 Hermes 装到 ~/.hermes，和你自己在终端安装的完全一样；之后由 Hermes GO 负责启动它，手机连接的就是这一份 Hermes。")
+            Text("Desktop 会下载并运行官方安装程序。安装完成后，继续连接这台 Mac，再配置模型。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            facts(offer)
+            DisclosureGroup("安装详情") { facts(offer).padding(.top, 8) }
             Divider()
             HStack {
                 Spacer()
@@ -83,13 +83,13 @@ struct HermesInstallCard: View {
                     .disabled(cancelling)
             }
         case .succeeded(let version):
-            Text("Hermes \(version) 已安装在 ~/.hermes。继续下方的安装步骤，Hermes GO 会直接使用这份 Hermes，不会再安装第二份。模型服务可稍后在终端运行 hermes setup 配置。")
+            Text("Hermes \(version) 安装完成。下一步：继续下方的连接设置；连接后会检查模型配置，并在需要时提供配置入口。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .cancelled(_, let run):
             stageList(run)
-            Text("已停止安装。已完成的部分保留在 ~/.hermes，重试会从那里继续。可稍后从“本机 Hermes”继续。")
+            Text("已停止安装，已完成的内容会保留。继续时重新检查并复用可用内容；未完成的下载可能重下。可稍后从“本机 Hermes”继续。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -122,10 +122,10 @@ struct HermesInstallCard: View {
     private func facts(_ offer: DesktopHermesInstallOffer) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             fact("来源：\(offer.scriptURL.host ?? "hermes-agent.nousresearch.com") 官方安装程序（HTTPS），分支 \(offer.branch)", symbol: "checkmark.seal")
-            fact("安装到 ~/.hermes/hermes-agent；约占用 2–4 GB，网络良好时约 10–20 分钟", symbol: "internaldrive")
+            fact("安装到 ~/.hermes/hermes-agent；耗时和空间取决于官方依赖及网络情况", symbol: "internaldrive")
             fact("需要联网：\(offer.proxy.summaryChinese)", symbol: "network")
             fact("以当前用户身份运行，不使用管理员权限、不执行 sudo；可随时取消", symbol: "lock.shield")
-            fact("模型服务与消息网关不在此时配置，可稍后运行 hermes setup", symbol: "slider.horizontal.3")
+            fact("模型服务稍后配置，指引使用 hermes --profile default setup", symbol: "slider.horizontal.3")
             if offer.resumesEarlierAttempt {
                 fact("会从上次未完成的安装继续", symbol: "arrow.clockwise")
             }
@@ -140,7 +140,22 @@ struct HermesInstallCard: View {
     }
 
     private func stageList(_ run: DesktopHermesInstallRun) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 9) {
+            if let message = run.retryMessage {
+                Label(message, systemImage: "arrow.clockwise").font(.system(size: 12)).foregroundStyle(.orange)
+            }
+            if run.downloading, let download = run.downloadProgress {
+                HStack {
+                    Text("已下载 " + ByteCountFormatter.string(fromByteCount: Int64(download.receivedBytes), countStyle: .file))
+                    if let total = download.totalBytes {
+                        Text("/ " + ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file))
+                    }
+                    Spacer()
+                    if let speed = download.bytesPerSecond {
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file) + "/秒")
+                    }
+                }.font(.system(size: 11)).foregroundStyle(.secondary)
+            }
             if run.downloading {
                 stageRow(symbol: nil, title: "下载官方安装程序", note: nil)
             }
@@ -162,8 +177,10 @@ struct HermesInstallCard: View {
                 stageRow(symbol: nil, title: "确认 Hermes 可以使用", note: nil)
             }
             if !run.rows.isEmpty {
-                ProgressView(value: Double(run.completedCount), total: Double(max(run.rows.count, 1)))
-                    .progressViewStyle(.linear)
+                Text("已完成 \(run.completedCount) / \(run.rows.count) 个安装步骤")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("代码与依赖由官方安装程序下载；下载、解压和安装耗时不同。")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
     }
@@ -195,7 +212,7 @@ struct HermesInstallCard: View {
         HStack {
             Spacer()
             if retryable {
-                Button("重试") { model.startHermesInstall() }
+                Button("继续安装") { model.startHermesInstall() }
                     .buttonStyle(.borderedProminent)
             }
         }

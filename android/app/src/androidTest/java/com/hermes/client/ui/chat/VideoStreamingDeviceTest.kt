@@ -5,6 +5,8 @@ import android.view.SurfaceView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.Lifecycle
 import com.hermes.client.ui.localization.AppLanguage
@@ -22,6 +24,7 @@ import com.hermes.client.data.downloads.ArtifactDownloadManager
 import com.hermes.client.data.video.ArtifactRangeRepository
 import com.hermes.client.data.video.VideoPlayback
 import com.hermes.client.domain.ChatFile
+import com.hermes.client.ui.workspace.SessionState
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import java.net.InetAddress
@@ -129,12 +132,24 @@ class VideoStreamingDeviceTest {
                 screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
             }
             assertTrue(node("Pause").isVisibleToUser)
+            click("More")
             click("Download")
             assertEquals(1, downloadClicks)
             click("Pause")
             assertTrue(node("Play").isVisibleToUser)
             Thread.sleep(500); val pausedBytes = source.sent.get(); Thread.sleep(500)
             assertEquals(pausedBytes, source.sent.get())
+            val paused = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            var vividPixels = 0
+            for (y in 0 until paused.height step 4) for (x in 0 until paused.width step 4) {
+                val pixel = paused.getPixel(x, y)
+                val channels = listOf(android.graphics.Color.red(pixel), android.graphics.Color.green(pixel), android.graphics.Color.blue(pixel))
+                if (channels.max() - channels.min() > 80 && channels.max() > 150) vividPixels++
+            }
+            assertTrue("pause removed the decoded video frame", vividPixels > 1000)
+            java.io.File(context.getExternalFilesDir(null), "video-player-paused.png").outputStream().use {
+                paused.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
             click("Play")
             activity.scenario.moveToState(Lifecycle.State.CREATED)
             Thread.sleep(750); val backgroundBytes = source.sent.get(); Thread.sleep(500)
@@ -143,6 +158,125 @@ class VideoStreamingDeviceTest {
             assertTrue(node("Play").isVisibleToUser)
         } finally {
             activity.scenario.onActivity { show.value = false }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            if (previous == null) credentials.clear() else credentials.save(previous)
+            source.close()
+        }
+    }
+
+    @Test fun fullscreen_recreation_preserves_file_position_and_pause_intent(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val app = context as android.app.Application
+        val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
+        val source = VideoFixtureSource(bytes, 2 * 1024 * 1024)
+        val previous = credentials.load()
+        val show = mutableStateOf(true)
+        val position = AtomicLong()
+        val initialized = java.util.concurrent.atomic.AtomicBoolean()
+        credentials.save(GatewayConfig("http://127.0.0.1:${source.port}", "local-video-test"))
+        var callbacks: android.app.Application.ActivityLifecycleCallbacks? = null
+        try {
+            val file = ChatFile("rotate", "rotation.mp4", "video/mp4", source.size, remotePath = "/fixture/rotation.mp4")
+            val remote = ranges.prepare(file, null)
+            fun render(host: ComponentActivity) { host.setContent {
+                HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+                    var selected by rememberVideoFile("rotation-fixture")
+                    androidx.compose.runtime.LaunchedEffect(Unit) { if (initialized.compareAndSet(false, true)) selected = file }
+                    if (show.value && selected != null) VideoPlayerDialog(selected!!.name,
+                        prepare = { VideoPlayback(repository = ranges, source = remote,
+                            initialPosition = position.get(), rememberPosition = position::set) },
+                        download = {}, onDismiss = { selected = null })
+                } }
+            } }
+            callbacks = object : android.app.Application.ActivityLifecycleCallbacks {
+                override fun onActivityCreated(host: android.app.Activity, state: android.os.Bundle?) {
+                    if (host.javaClass == ComponentActivity::class.java) render(host as ComponentActivity)
+                }
+                override fun onActivityStarted(host: android.app.Activity) {}
+                override fun onActivityResumed(host: android.app.Activity) {}
+                override fun onActivityPaused(host: android.app.Activity) {}
+                override fun onActivityStopped(host: android.app.Activity) {}
+                override fun onActivitySaveInstanceState(host: android.app.Activity, state: android.os.Bundle) {}
+                override fun onActivityDestroyed(host: android.app.Activity) {}
+            }
+            app.registerActivityLifecycleCallbacks(callbacks)
+            activity.scenario.onActivity(::render)
+            val startedDeadline = android.os.SystemClock.elapsedRealtime() + 30_000
+            while (position.get() < 1_000 && android.os.SystemClock.elapsedRealtime() < startedDeadline) Thread.sleep(50)
+            click("Pause")
+            Thread.sleep(300)
+            val before = position.get()
+            assertTrue(before > 0)
+            click("Fullscreen")
+            assertTrue(node("Exit fullscreen").isVisibleToUser)
+            assertTrue(node("Play").isVisibleToUser)
+            assertTrue("rotation changed paused position", kotlin.math.abs(before - position.get()) < 100)
+            val landscape = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            assertTrue("fullscreen did not enter landscape", landscape.width > landscape.height)
+            var vivid = 0
+            for (y in 0 until landscape.height step 8) for (x in 0 until landscape.width step 8) {
+                val pixel = landscape.getPixel(x, y)
+                val channels = listOf(android.graphics.Color.red(pixel), android.graphics.Color.green(pixel), android.graphics.Color.blue(pixel))
+                if (channels.max() - channels.min() > 80 && channels.max() > 150) vivid++
+            }
+            assertTrue("rotation lost the paused frame", vivid > 300)
+            java.io.File(context.getExternalFilesDir(null), "video-player-landscape.png").outputStream().use {
+                landscape.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+            val pausedBytes = source.sent.get(); Thread.sleep(750)
+            assertEquals("paused rotation started loading", pausedBytes, source.sent.get())
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            assertTrue(node("Play").isVisibleToUser)
+            assertTrue(node("Fullscreen").isVisibleToUser)
+            click("Play")
+            Thread.sleep(1_500)
+            assertTrue("rotation lost playback position", position.get() >= before)
+            click("Fullscreen")
+            assertTrue(node("Exit fullscreen").isVisibleToUser)
+            assertTrue(node("Pause").isVisibleToUser)
+            click("Pause")
+            click("Close")
+        } finally {
+            show.value = false
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            callbacks?.let(app::unregisterActivityLifecycleCallbacks)
+            if (previous == null) credentials.clear() else credentials.save(previous)
+            source.close()
+        }
+    }
+
+    @Test fun returning_to_a_cached_page_does_not_autoplay_or_restart_network(): Unit = runBlocking {
+        val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
+        val source = VideoFixtureSource(bytes, 2 * 1024 * 1024)
+        val previous = credentials.load()
+        val visible = mutableStateOf(true)
+        val cache = com.hermes.client.ui.workspace.SessionUiStateCache()
+        credentials.save(GatewayConfig("http://127.0.0.1:${source.port}", "local-video-test"))
+        try {
+            val file = ChatFile("return", "return.mp4", "video/mp4", source.size, remotePath = "/fixture/return.mp4")
+            val remote = ranges.prepare(file, null)
+            val savedPosition = AtomicLong()
+            val video = VideoPlayback(repository = ranges, source = remote, rememberPosition = savedPosition::set)
+            activity.scenario.onActivity { host -> host.setContent {
+                HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+                    if (visible.value) cache.SessionState("fixture") {
+                        VideoPlayerDialog(file.name, prepare = { video }, download = {}, onDismiss = { visible.value = false })
+                    }
+                } }
+            } }
+            val deadline = android.os.SystemClock.elapsedRealtime() + 30_000
+            while (savedPosition.get() < 1_000 && android.os.SystemClock.elapsedRealtime() < deadline) Thread.sleep(50)
+            assertTrue(savedPosition.get() > 0)
+            activity.scenario.onActivity { cache.captureBeforeNavigation(); visible.value = false }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            Thread.sleep(500)
+            val bytesBefore = source.sent.get()
+            activity.scenario.onActivity { visible.value = true }
+            assertTrue(node("Play").isVisibleToUser)
+            Thread.sleep(500)
+            assertEquals("restored page resumed the network", bytesBefore, source.sent.get())
+        } finally {
+            visible.value = false
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             if (previous == null) credentials.clear() else credentials.save(previous)
             source.close()

@@ -54,7 +54,7 @@ final class DesktopComponentReleaseDownloaderTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: result), payload)
     }
 
-    func testResumeRejectsServerThatIgnoresRangeAndKeepsKnownPartial() async throws {
+    func testResumeRestartsWhenServerIgnoresRangeAndVerifiesWholeFile() async throws {
         let payload = Data("resume this component".utf8)
         let artifact = metadata(payload)
         let root = temporaryRoot()
@@ -66,12 +66,24 @@ final class DesktopComponentReleaseDownloaderTests: XCTestCase {
         }
         defer { try? FileManager.default.removeItem(at: root) }
 
+        let result = try await downloader().download(artifact, into: root)
+        XCTAssertEqual(try Data(contentsOf: result), payload)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
+    }
+
+    func testInvalidFullResponseCannotDiscardResumePrefix() async throws {
+        let payload = Data("resume this component".utf8)
+        let artifact = metadata(payload)
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let partial = root.appendingPathComponent(".\(artifact.fileName).partial")
+        try payload.prefix(7).write(to: partial)
+        ComponentURLProtocol.handler = { _ in (200, ["Content-Length": "1"], Data([0])) }
         do {
             _ = try await downloader().download(artifact, into: root)
-            XCTFail("Expected an exact Range response")
-        } catch {
-            XCTAssertEqual(error as? DesktopComponentDownloadError, .invalidResponse)
-        }
+            XCTFail("invalid length must fail")
+        } catch { XCTAssertEqual(error as? DesktopComponentDownloadError, .invalidResponse) }
         XCTAssertEqual(try Data(contentsOf: partial), payload.prefix(7))
     }
 

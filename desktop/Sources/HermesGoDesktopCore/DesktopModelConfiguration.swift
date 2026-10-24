@@ -20,6 +20,26 @@ public enum DesktopModelConfiguration: Equatable, Sendable {
         "'" + executable.replacingOccurrences(of: "'", with: "'\"'\"'") + "' --profile default setup"
     }
 
+    public func current(health: ComponentHealth?, now: Date = Date()) -> Self {
+        guard let health, health.level == .healthy, AccountDeviceHealth.isFresh(health.checkedAt, now: now) else { return .unknown }
+        return self
+    }
+
+    public var statusText: String {
+        switch self {
+        case .unknown: "待确认"
+        case .missing: "未配置"
+        case .selected: "已配置"
+        }
+    }
+    public var level: HealthLevel {
+        switch self {
+        case .unknown: .unavailable
+        case .missing: .degraded
+        case .selected: .healthy
+        }
+    }
+
     public var title: String {
         switch self {
         case .unknown: "模型配置待确认"
@@ -29,7 +49,7 @@ public enum DesktopModelConfiguration: Equatable, Sendable {
     }
     public var detail: String {
         switch self {
-        case .unknown: "服务连通不代表模型已配置。请在 Hermes 中完成模型与凭据配置，再开始任务。"
+        case .unknown: "暂时无法确认模型配置，可在 Hermes 中查看。此状态不表示尚未配置模型。"
         case .missing: "先配置模型服务，才能开始 AI 任务。"
         case .selected(let name): "\(name) · 模型凭据与实际任务可用性尚未验证。"
         }

@@ -153,6 +153,10 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "下载引用已失效，请重新获取文件后继续。", "The download reference expired. Fetch the file again to continue.")
         AppErrorCode.VIDEO_UNSUPPORTED ->
             localized(language, "此设备无法播放该视频，请下载后用其他播放器打开。", "This device cannot play this video. Download it and open it in another player.")
+        AppErrorCode.VIDEO_CACHE_FAILED ->
+            localized(language, "无法管理视频缓存，请重试。已下载文件不受影响。", "Couldn't manage video cache. Retry. Downloaded files are unaffected.")
+        AppErrorCode.VIDEO_CACHE_LOW_STORAGE ->
+            localized(language, "手机可用空间不足，已暂停新增视频缓存。清理空间后会自动恢复，仍可在线播放。", "Device storage is low. New video caching is paused and resumes when space is available. Online playback remains available.")
         AppErrorCode.VIDEO_PLAYBACK_FAILED ->
             localized(language, "视频播放中断，请重试或下载后观看。", "Video playback stopped. Retry, or download it to watch.")
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->

@@ -1,10 +1,23 @@
 # Hermes Go Desktop design contract
 
-HG-199 integrates the 0.2.39 Local Hermes surface: preserve its separate model metadata/configure
-action, signed-out local inspection and account-gated connection/install. “版本与升级” follows the
+HG-199 integrates the 0.2.39 Local Hermes surface: preserve its separate model metadata and conditional missing-model
+configuration prompt, signed-out local inspection and account-gated connection/install. “版本与升级” follows the
 usability/model card and remains read-only without an account. Its recovery record cannot replace
 the model/service presentation or authorize a service, installation or upgrade action. The existing
 page-level “诊断与修复” destination remains available under the main navigation-access policy.
+## 2026-10-24：状态、账号与首次安装细化
+
+保留三块概览和现有导航。打开 Hermes 使用普通按钮；本机验证、模型配置并列为独立状态，模型仅有“已配置 / 未配置 / 待确认”，已配置表示检测到选择，详情保留凭据及实际调用尚未验证的边界。未配置时才出现提示与配置操作。本机 Hermes 页采用状态标题、并列事实、条件提示、底部操作及折叠详情，正常状态使用“查看诊断”。
+
+我的设备使用电脑图标。侧栏品牌副标题与辅助文字使用明确的深浅主题次级色。账号名字优先有效昵称，否则邮箱前缀；邮箱在头像行下占满宽度，可换行两行、悬停查看及菜单复制；菜单只显示竖向三点，无额外箭头。设置把更新状态放在版本号旁，不重复版本号。
+
+首次安装明确分为安装 Hermes、连接这台 Mac、配置模型、手机验证（模型元数据需连接后才能读取）。安装进度展示真实阶段，不用阶段数量冒充下载百分比。网络失败有限重试并说明正在等待，失败可继续，已完成内容由官方安装程序复用；官方脚本和依赖不宣称分片加速。Desktop 签名组件仍使用已有按字节续传及大小/哈希验证。
+
+
+## 2026-10-24：模型配置提示按需出现
+
+概览和本机 Hermes 页仅在已发现 Hermes 且认证模型接口明确返回未选模型时，展示“尚未配置模型，请先配置模型再开始 AI 任务。”及同一提示内的“配置模型”按钮。普通操作栏不常驻配置入口；已选择模型时无提示，接口未知/不支持时不误报缺少配置。模型名称、凭据未验证与未知说明收进可展开详情。配置指引和默认 profile 命令保持不变。
+
 
 ## 2026-10-24：设备与缺省状态收敛
 

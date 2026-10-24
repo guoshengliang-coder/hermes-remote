@@ -1,10 +1,26 @@
 # Hermes Remote Android
 
+Video preview shares a device-local 3 GiB cache, adjustable to 1/3/5 GiB in Settings → Video cache.
+Capacity eviction uses last access with lower watermarks (3 → 2.5 GiB, 5 → 4 GiB, 1 → 0.8 GiB),
+and segments unused for 30 days expire opportunistically at startup/open. Below 1 GiB free storage,
+old cache is reclaimed and new disk caching pauses until 1.5 GiB is available; streaming continues.
+An in-memory LRU index replaces per-batch directory scans, reconciling at startup/settings refresh.
+Active playback protects at most 16 MiB per source. Explicit clear defers those hot blocks until
+playback stops and rejects old in-flight writes; complete downloads remain untouched. This source
+change does not allocate or publish an APK.
+
+The video preview uses an immersive black media surface with auto-hiding controls, buffered and
+played timeline segments, drag target time, landscape fullscreen and explicit replay. Pause stops
+loading while retaining a bounded last-frame image; rotation restores the scoped file, playback
+position and intent. Real backgrounding still requires manual Play. Download/external playback
+live in More, with the existing bilingual HR recovery actions preserved. This UI iteration does
+not allocate or publish an APK.
+
 HG-236 expands sequential video read-ahead to a negotiated, bounded window: start with up to two
 256 KiB ranges, grow to at most four 1 MiB requests on fast reads, and shrink on slow reads.
 Initial/index and seek reads stay small; close, pause and background cancel the window. Legacy peers
 stay single-range readers. Original quality, generation/owner checks, download priority and the
-shared 256 MiB block cache are preserved. See `../docs/ATTACHMENT_PERFORMANCE.md` for evidence and limits.
+generation-bound shared block cache are preserved (capacity/cleanup policy is described above). See `../docs/ATTACHMENT_PERFORMANCE.md` for evidence and limits.
 This source change does not allocate or publish an APK.
 
 HG-233 adds More → Artifacts to the open conversation. It collects settled assistant deliveries
@@ -30,7 +46,7 @@ and recoverable errors; background completion notifies without launching a viewe
 and account/device identity are checked on resume. Legacy small-file opening stays compatible.
 The HG-222 video follow-up adds in-app Media3 playback on compatible file channels for videos both
 below and above 100 MiB (within the Mac safety cap), with bounded Range reads, tail-index seeking,
-a shared 256 MiB evictable cache and playback priority over local downloads. Complete local videos
+a shared evictable cache (now 3 GiB by default) and playback priority over local downloads. Complete local videos
 play offline; explicit Download stays available and sharing waits for a complete file. Pausing or
 backgrounding stops the player loader and preserves position; user-paused downloads stay paused.
 Unsupported device codecs offer download/external playback instead of a raw decoder failure.
@@ -383,6 +399,12 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.181 Updates video playback and shared preview caching (#649): auto-hiding controls,
+  buffered timeline, seek target, landscape fullscreen/replay, pause-frame and scoped playback
+  recovery; Settings adds a default 3 GiB shared pool with 1/3/5 GiB choices, usage/manual clear,
+  access-based eviction, 30-day expiry and low-storage recovery. Protects bounded active fragments
+  and leaves complete downloads intact. Mac transfer-rate configuration remains an independent
+  operator setting.
 - Version 0.1.180 HG-236: adaptive parallel video read-ahead on compatible file channels, with
   bounded memory, cache reuse, coordinated renewal and cancellation on pause/seek/background.
   Original quality and legacy single-range compatibility are preserved. No Gateway, Connector,
@@ -1124,7 +1146,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.180-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.181-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and

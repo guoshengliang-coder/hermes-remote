@@ -4,7 +4,7 @@
 
 Test-impact review: preserve main's first-run/account/device/default-profile model behavior while
 keeping the upstream card and pending-upgrade exclusion. Root orchestration reviewed overlapping
-ViewModel/Local Hermes/docs; main 2b1f8b64 had completed checks (two pass/five component skips), and
+ViewModel/Local Hermes/docs; the earlier main 2b1f8b64 had completed checks (two pass/five component skips), and
 the Desktop release-code ancestor c431b041 had successful Desktop/secrets/changes/SAST with unrelated
 components skipped. These results do not replace the task branch's fresh combined tests.
 
@@ -14,13 +14,32 @@ requirements still guard connect/install. Preserve the new-device/list-failure/i
 tests and the HG-199 journal/version/activity tests. Keep 0.2.39/build 42 from main; no version bump,
 installed app launch, service action or release. Source-only candidate checks remain uncertified.
 
-Combined local result: assets, 789 Swift tests (2 existing skips), and ad-hoc app packaging pass.
+Earlier 016016d4 local result: assets, 789 Swift tests (2 existing skips), and ad-hoc app packaging pass.
 Twenty-two native fixtures compile the actual current card/design/banner against a stub model,
 including signed-out records in light and compact dark; no model monitoring/check/service callback
 runs. Pending light and signed-out pending dark compact layouts were inspected. These are card
 fixtures, not full-page navigation or physical account/install/model/upgrade acceptance. The prior
 171 Python suite and real same-run experiments use unchanged compatibility/resource code; combined
-head CI will recheck them. No local Node/Web/Android/device baseline is repeated for this merge.
+head CI will recheck them. That head had no CI because main advanced and GitHub reported a conflict.
+A second reviewed integration of 9b659400 preserves the model prompt/status/install retry changes,
+with desktop/changes/secrets/SAST successful and four unrelated component jobs skipped on that main.
+Incoming Android version 0.1.181/code 182 is retained, no allocation or APK distribution here.
+Fresh combined result: assets, 798 Swift tests (2 existing skips), and ad-hoc app packaging pass.
+The 22 native card/design/banner fixtures were recompiled against the incoming design helpers;
+compact-dark pending layout was inspected. No live model or service callbacks ran. These still do
+not verify full-page/account/install/device flows. Local Node/Web/Android/device are not repeated.
+## 2026-10-24：状态与安装体验细化
+
+本轮本地验证：629 项 Swift 测试、资源一致性与应用打包通过。10 个原生 SwiftUI fixture 覆盖深浅色概览、紧凑窗口、长邮箱、已配置/未配置/未知模型、无 Hermes、设置及安装重试；预览不运行真实安装或修改本机服务。
+
+概览和本机 Hermes 并列展示版本、本机验证、模型配置；正常打开按钮为普通样式，模型未知/过期保持中性。账号显示昵称或邮箱前缀、完整宽度邮箱与单一菜单入口；我的设备改电脑图标；深色侧栏辅助文字有独立颜色；设置版本及更新状态同行。
+
+安装引导串联安装、连接、模型配置和手机任务验证。官方脚本下载与明确网络失败阶段最多 3 次尝试，等待 2/4 秒，可取消；仅重试当前阶段，不自动重跑成功阶段。记录并重新检查 checkout 身份，避免等待时被替换后继续写入。安装脚本下载报告实际字节/可用总量和速度，依赖仍由官方安装器负责，不生成虚假的整体百分比或 ETA。阶段完成数明确标为“步骤”。手动继续仍遵循原有受管目录身份校验和官方复用，未下载完的依赖可能重下。
+
+签名组件原有 Range 续传、完整大小和 SHA-256 校验保留；服务器忽略 Range 返回 200 时，在长度验证后截断并重新下载，绝不拼接新旧文件。大组件没有新增多连接分片；Hermes 上游依赖的并发、缓存与续传由上游工具决定，不接管它们的下载地址或改变安装源。
+
+回归覆盖邮箱命名、未知/过期模型状态、临时错误后成功与重试上限、不可重试的 401/404/证书/协议错误、取消等待、阶段局部重试、下载进度、206 续传及 200 回退。原生 fixture 检查深浅主题、紧凑宽度、长邮箱、三种模型状态、无 Hermes 和安装过程。真实新机器安装、网络故障下上游大依赖恢复和手机任务需物理环境另行验收；不会用 fixture 声称其已通过。
+
 
 ## 2026-10-24：本轮回归矩阵
 
@@ -30,7 +49,11 @@ head CI will recheck them. No local Node/Web/Android/device baseline is repeated
 | 新账号无设备 / 仅共享设备 | 可先管理设备和接受邀请，也可显式连接本机 |
 | 本机未装 Hermes，旧 opt-out 为 false | 新安装仍走官方检测和确认；不创建第二份 Hermes |
 | 现有 Hermes 含 profiles 或旧 bundled 安装 | 保留原数据与已有运行策略 |
-| 服务就绪但未选模型 / 接口不支持 | 显示模型未选或待确认，提供配置入口，不声称任务可用 |
+| 服务就绪、已安装且接口明确未选模型 | 概览和本机 Hermes 页显示提示，旁边有“配置模型”；普通操作栏无该按钮 |
+| 已选模型 | 无配置提示或常驻配置按钮；模型信息在展开详情中 |
+| 模型接口不支持 / 无法确认 | 无配置提示或按钮，详情说明未知，不推断未配置 |
+| 未装 Hermes / 安装修复中 | 未安装时无模型提示；操作锁定时配置按钮不可点 |
+| 窄窗口 / 深色模式 | 模型提示与按钮自动换行、不截断；点击仍打开配置指引 |
 | 分享 API / 设备列表 / 登录设备列表局部失败 | 对应区域提示，保留会话；设备列表失败不推断安装名额 |
 | 可选 API 返回认证撤销 | 仍清理失效会话并要求登录 |
 | 手机有历史登录记录 | 不自动完成引导；明确需要手机选择本机打开会话 |
