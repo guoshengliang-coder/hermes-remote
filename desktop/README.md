@@ -1,5 +1,10 @@
 # Hermes Go Desktop
 
+Unreleased: managed reconnect/repair and both upgrade layouts support a validated per-Mac
+`FILE_DOWNLOAD_BYTES_PER_SECOND` override. The Connector default remains 4 MiB/s; the measured
+M4 trial target is 8 MiB/s after installing this support. See
+[`CONNECTOR_TRANSFER_TUNING.md`](../docs/CONNECTOR_TRANSFER_TUNING.md) for rollout and rollback.
+
 Published **0.2.36 / build 39** (2026-10-24): repair existing Hermes installations with named profiles without changing their data,
 pin the managed backend to its original default home, show concrete repair blockers, and remove
 local setup/repair panels from Devices and the Overview headline. Diagnostics and device rows now

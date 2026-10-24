@@ -3,6 +3,41 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedInstallationTests: XCTestCase {
+    func testBundledUpgradePreservesOnlyValidFileRateAndRefusesInvalidRateWithoutWriting() throws {
+        let root = temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let layout = try DesktopManagedInstallLayout(root: root.appendingPathComponent("managed"),
+                                                   launchAgentsRoot: root.appendingPathComponent("agents"))
+        let installer = DesktopManagedInstaller(layout: layout)
+        let configuration = DesktopAccountConnectorLaunchAgent(
+            connectorExecutable: layout.currentRelease.appendingPathComponent("connector/bin/hermes-connector"),
+            credentialFile: layout.connectorCredential, gatewayURL: URL(string: "wss://gateway.example/v2/connect")!,
+            hermesBaseURL: URL(string: "http://127.0.0.1:9119")!, sessionTokenFile: layout.hermesSessionToken,
+            standardOutput: layout.logsRoot.appendingPathComponent("connector.log"),
+            standardError: layout.logsRoot.appendingPathComponent("connector.error.log"))
+        let url = try installer.writeLaunchAgent(configuration, manifest: manifest())
+        let generated = try Data(contentsOf: url)
+        for rate in ["1", "8388608", "134217728", "0", "134217729", "08", "not-a-rate"] {
+            var original = try PropertyListSerialization.propertyList(from: generated, options: [], format: nil) as! [String: Any]
+            var environment = original["EnvironmentVariables"] as! [String: String]
+            environment["FILE_DOWNLOAD_BYTES_PER_SECOND"] = rate
+            environment["NODE_OPTIONS"] = "--inspect"
+            original["EnvironmentVariables"] = environment
+            let oldBytes = try PropertyListSerialization.data(fromPropertyList: original, format: .xml, options: 0)
+            try installer.atomicWrite(oldBytes, to: url, permissions: 0o600)
+            if ["1", "8388608", "134217728"].contains(rate) {
+                _ = try installer.writeLaunchAgent(configuration, manifest: manifest())
+                let actual = try PropertyListSerialization.propertyList(from: Data(contentsOf: url), options: [], format: nil) as! [String: Any]
+                let actualEnvironment = actual["EnvironmentVariables"] as! [String: String]
+                XCTAssertEqual(actualEnvironment["FILE_DOWNLOAD_BYTES_PER_SECOND"], rate)
+                XCTAssertNil(actualEnvironment["NODE_OPTIONS"])
+                XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+            } else {
+                XCTAssertThrowsError(try installer.writeLaunchAgent(configuration, manifest: manifest()))
+                XCTAssertEqual(try Data(contentsOf: url), oldBytes)
+            }
+        }
+    }
+
     func testUpgradeSnapshotRestoresExactLaunchAgentsAndBundledPointer() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -19,7 +54,9 @@ final class DesktopManagedInstallationTests: XCTestCase {
             withDestinationPath: "releases/0.3.4"
         )
         let oldHermes = Data("old-hermes-private".utf8)
-        let oldConnector = Data("old-connector-private".utf8)
+        let oldConnector = try PropertyListSerialization.data(fromPropertyList: [
+            "EnvironmentVariables": ["FILE_DOWNLOAD_BYTES_PER_SECOND": "8388608"],
+        ], format: .xml, options: 0)
         try oldHermes.write(to: layout.hermesLaunchAgent)
         try oldConnector.write(to: layout.connectorLaunchAgent)
         for url in [layout.hermesLaunchAgent, layout.connectorLaunchAgent] {

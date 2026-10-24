@@ -436,6 +436,11 @@ public actor DesktopManagedServiceRepair<Runner: CommandRunning> {
         // A surviving pre-HG-101 agent may omit HERMES_MODE; do not rewrite it during recovery.
         let actualEnvironment = connectorObject["EnvironmentVariables"] as? [String: String]
         if actualEnvironment?["HERMES_MODE"] == nil { expectedEnvironment?.removeValue(forKey: "HERMES_MODE") }
+        do {
+            if let actualEnvironment, let rate = try DesktopConnectorFileRate.read(from: actualEnvironment) {
+                expectedEnvironment?[DesktopConnectorFileRate.environmentKey] = rate
+            }
+        } catch { throw DesktopManagedServiceRepairError.unsafeInstallation }
         guard actualEnvironment == expectedEnvironment,
               try connectorArguments(image.connector) == connectorArguments(expectedConnector(image.record, components: image.components))
         else { throw DesktopManagedServiceRepairError.unsafeInstallation }

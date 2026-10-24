@@ -15,6 +15,26 @@ Exercise log source/search/warnings filters, empty result, scroll, refresh, copy
 open directory. Old log errors cannot change the current health conclusion. Verify Local Hermes has
 one state card without roadmap prose; missing installations must not claim an existing install.
 
+## Per-Mac transfer budget — unreleased
+
+Test-impact review: reproduce old repair/reconnect refusing an otherwise-valid 8 MiB/s override.
+Exercise repair and reconnect under bundled and component-store layouts; preserve exact plist
+bytes and keep Hermes running. Both upgrade writers must retain only the bounded rate, not arbitrary
+Node environment. Cover lower/upper boundaries, malformed/over-limit rates, rejection before mutation,
+private permissions and exact upgrade snapshot rollback. Existing bilingual repair-error contracts
+remain in force; no new UI/errors are added.
+
+Local validation on 2026-10-24: **596 Swift tests**, asset consistency and `desktop:app` passed.
+The new repair regression failed on the prior implementation. The cold-start health-window test
+now injects the fixture shutdown checker, so the owner's running service on 9119 cannot determine
+its outcome. This changes test isolation only; no live service was stopped.
+
+Live acceptance remains pending: install this support before applying the M4-only 8388608 override,
+reload only Connector, prove loaded rate and fresh exact-binding health, then verify actual file
+bytes/hash/throughput, interactive latency and Android preview/seek. See
+[`CONNECTOR_TRANSFER_TUNING.md`](CONNECTOR_TRANSFER_TUNING.md). Unit fixtures and raw TCP measurements
+do not establish these live outcomes.
+
 ## Existing profiles and repair regression — 2026-10-24 follow-up
 
 Test-impact review: exercise real file-only detector + missing-both-startup-items repair with default,

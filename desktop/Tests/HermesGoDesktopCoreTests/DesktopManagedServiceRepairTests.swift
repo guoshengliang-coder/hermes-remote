@@ -4,6 +4,49 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopManagedServiceRepairTests: XCTestCase {
+    func testFileRateOverrideSurvivesReconnectAndRepairInBothLayouts() async throws {
+        for componentStore in [false, true] {
+            for reconnect in [false, true] {
+                let f = try RepairFixture(componentStore: componentStore); defer { f.remove() }
+                try f.configure(hermesFile: true, connectorFile: true,
+                                hermesLoaded: true, connectorLoaded: reconnect)
+                if componentStore {
+                    let local = try f.localInstallation()
+                    f.detection = .usable(local)
+                    _ = try f.installer.writeLocalHermesLaunchAgent(local)
+                    f.runner.loaded[DesktopManagedInstallLayout.hermesLabel] = try args(Data(contentsOf: f.layout.hermesLaunchAgent))
+                }
+                var object = try PropertyListSerialization.propertyList(from: f.connectorPlist, options: [], format: nil) as! [String: Any]
+                var environment = object["EnvironmentVariables"] as! [String: String]
+                environment["FILE_DOWNLOAD_BYTES_PER_SECOND"] = "8388608"
+                object["EnvironmentVariables"] = environment
+                let original = try PropertyListSerialization.data(fromPropertyList: object, format: .xml, options: 0)
+                try f.write(original, f.layout.connectorLaunchAgent)
+                let repair = try f.makeRepair()
+                let plan = try await repair.prepare(reconnectOnly: reconnect)
+                try await repair.commit(plan, confirmed: true)
+                XCTAssertEqual(try Data(contentsOf: f.layout.connectorLaunchAgent), original)
+                XCTAssertFalse(f.runner.mutations.contains("stop hermes"))
+            }
+        }
+    }
+
+    func testFileRateOverrideDoesNotAllowMalformedRatesOrOtherEnvironmentChanges() async throws {
+        for rate in ["0", "-1", "134217729", "8.5", "8MiB", " 8388608", "8388608\n", "99999999999999999999999", "08388608", "8388608"] {
+            let f = try RepairFixture(); defer { f.remove() }
+            try f.configure(hermesFile: true, connectorFile: true, hermesLoaded: true, connectorLoaded: true)
+            var object = try PropertyListSerialization.propertyList(from: f.connectorPlist, options: [], format: nil) as! [String: Any]
+            var environment = object["EnvironmentVariables"] as! [String: String]
+            environment["FILE_DOWNLOAD_BYTES_PER_SECOND"] = rate
+            if rate == "8388608" { environment["NODE_OPTIONS"] = "--inspect" }
+            object["EnvironmentVariables"] = environment
+            try f.write(PropertyListSerialization.data(fromPropertyList: object, format: .xml, options: 0), f.layout.connectorLaunchAgent)
+            do { _ = try await f.makeRepair().prepare(reconnectOnly: true); XCTFail("must reject \(rate)") }
+            catch { XCTAssertEqual(error as? DesktopManagedServiceRepairError, .unsafeInstallation) }
+            XCTAssertTrue(f.runner.mutations.isEmpty)
+        }
+    }
+
     func testReconnectRechecksLocalAuthenticationBeforeChangingServices() async throws {
         let f = try RepairFixture(); defer { f.remove() }
         try f.configure(hermesFile: true, connectorFile: true, hermesLoaded: true, connectorLoaded: true)
