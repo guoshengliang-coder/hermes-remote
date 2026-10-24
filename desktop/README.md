@@ -1,10 +1,19 @@
 # Hermes Go Desktop
 
-Overview/global-account update (0.2.35 / build 38, publication pending): three independently checked local status sections and
+Overview/global-account update (0.2.35 / build 38): three independently checked local status sections and
 an impact headline replace mixed connection tables. The sidebar footer owns login, identity and
 account management throughout the app; Devices and Settings keep their own responsibilities.
 
-Current published internal test version: **0.2.34 / build 37**, published on 2026-10-24.
+Current published internal test version: **0.2.35 / build 38**, published on 2026-10-24.
+PR #636 adds the overview/global-account redesign and adapts onboarding to the persistent sidebar.
+Assets, 586 Swift tests, app/DMG packaging and native light/dark fixture checks passed. The unified
+publisher synchronized website and app-update discovery; both full public downloads match
+3,694,300 bytes and SHA-256 `ccb22051b8b333c1e0fff901344fb6dc7b83221aedaf60bd56df0951cab8cf1e`.
+Download: `https://mrlgs.net/desktop/apps/0.2.35/Hermes-Go-Desktop-0.2.35-dev.dmg`.
+Temporary ad-hoc signing continues; physical upgrade, live login and task/data-preservation
+acceptance remain pending. Public trust/settings and signed managed-component indexes are retained.
+
+Previous published internal test version: **0.2.34 / build 37**, published on 2026-10-24.
 It includes HG-234 and HG-235 below. The unified publisher verified the full public DMG and
 synchronized both the website and Desktop app-update indexes. Download:
 `https://mrlgs.net/desktop/apps/0.2.34/Hermes-Go-Desktop-0.2.34-dev.dmg`.

@@ -3037,3 +3037,26 @@ Both app indexes and the website release API report 0.2.34 with the same source/
 The signed managed-component indexes remain byte-identical at 0.4.12. No user-installed app
 or local service was replaced or restarted. This is temporary-signing internal distribution,
 not Apple notarization or physical Mac upgrade acceptance. Validate HG-234 and HG-235 on this version.
+
+
+### 2026-10-24 — Desktop 0.2.35 internal publication
+
+Owner-approved **0.2.35/build 38** was built from clean main
+`6de547e1071b343a307fb0d79756b53dafcbcab0` after PR #636 merged. All PR/main checks passed before publication.
+It adds independent cloud/Desktop/local-Hermes status sections, a concrete overview conclusion,
+the global sidebar account entry and responsive onboarding beside that sidebar.
+
+The build retained the existing public bootstrap/component/update configuration and trust key.
+Assets, 586 Swift tests, app/DMG packaging, strict ad-hoc signature, mounted bundle identity,
+version/build/arm64 and image integrity passed. Native fixtures covered light/dark, 980 pt windows,
+signed-out/expired/repair states, account management and narrow onboarding. The unified publisher
+returned both `DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK` and
+`DESKTOP_INTERNAL_APP_UPDATE_SYNC_OK`.
+
+Public package: https://mrlgs.net/desktop/apps/0.2.35/Hermes-Go-Desktop-0.2.35-dev.dmg .
+Both this URL and its compatible `.dmg` alias were downloaded in full and match
+3,694,300 bytes; SHA-256 `ccb22051b8b333c1e0fff901344fb6dc7b83221aedaf60bd56df0951cab8cf1e`. Website and app-update discovery report
+0.2.35 with the same source/hash/size; the app index remains `no-store`. Signed managed-component
+indexes are byte-identical at 0.4.12. No installed user app or local service was replaced or
+restarted. This is temporary-signing internal distribution; Apple notarization and physical
+upgrade/live-login/task-data-preservation acceptance have not been performed.
