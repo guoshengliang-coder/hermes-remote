@@ -1,11 +1,13 @@
 # Hermes Go Desktop
 
-Release candidate: **0.2.34 / build 37**, approved on 2026-10-24 for the existing internal
-ad-hoc channel. It includes HG-234 and HG-235 below. Publication must verify the full DMG
-and synchronize both website and Desktop app-update indexes through the unified publisher.
-This is not an Apple-notarized release; physical upgrade and data-preservation acceptance remain pending.
+Current published internal test version: **0.2.34 / build 37**, published on 2026-10-24.
+It includes HG-234 and HG-235 below. The unified publisher verified the full public DMG and
+synchronized both the website and Desktop app-update indexes. Download:
+`https://mrlgs.net/desktop/apps/0.2.34/Hermes-Go-Desktop-0.2.34-dev.dmg`.
+This uses temporary ad-hoc signing; Apple notarization and physical upgrade/data-preservation
+acceptance remain pending. Existing public managed-component trust/settings are retained.
 
-## HG-235: one Desktop product (0.2.34 candidate)
+## HG-235: one Desktop product (0.2.34)
 
 Navigation now contains Overview, Local Hermes, Account & Devices, Diagnostics and Settings.
 Local Hermes distinguishes installation from authenticated usability on this Mac. Diagnostics owns
@@ -15,9 +17,9 @@ context. Settings explains login startup, closing the window, quitting and task 
 A single Desktop update action coordinates background updates before app replacement. Existing
 signed prepare/confirm/commit and rollback remain in use. Failure, cancellation or pending cleanup
 stops the sequence; an app-only retry cannot repeat a successful background update. Upstream Hermes
-version management remains future scope. This behavior is included in the 0.2.34 candidate.
+version management remains future scope. This behavior is included in 0.2.34.
 
-## Account-only Desktop (0.2.34 candidate)
+## Account-only Desktop (0.2.34)
 
 Desktop no longer supports compatibility-observation mode or the URL/App Token/v1 pairing flow.
 The editor, credential store, token probe, config/log parser, observer health and legacy service
@@ -38,7 +40,7 @@ HG-234 fixes the phone onboarding page returning after an existing Mac upgrades 
 Restoring this Desktop's valid binding retires stale onboarding flags, and component-upgrade
 intermediate checks cannot re-arm them. Existing active phone/Web sign-ins satisfy first setup
 without another login; offline clients still count. Local validation passed 578 tests, asset
-consistency and app packaging. This change is included in the 0.2.34 candidate; the reported
+consistency and app packaging. This change is included in 0.2.34; the reported
 M4 upgrade/relaunch acceptance remains pending.
 
 HG-226 adds actual managed-setup stages, per-second elapsed time and per-run system/runtime
@@ -48,7 +50,7 @@ without reopening installation. The original permanent-loading hypothesis remain
 See the Desktop design and test plan for the behavior and pending physical upgrade acceptance.
 This change is included in the **0.2.33 / build 36** internal test release.
 
-Current published internal test version: **0.2.33** (build 36). On 2026-10-22 the owner
+Previous internal test version: **0.2.33** (build 36). On 2026-10-22 the owner
 confirmed that distribution continues with temporary ad-hoc signing. The versioned package is
 `https://mrlgs.net/desktop/apps/0.2.33/Hermes-Go-Desktop-0.2.33-dev.dmg`; publication must use
 the unified internal publisher, verify the full public file, and synchronize the website's

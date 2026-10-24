@@ -3014,3 +3014,25 @@ upload/process exclusion, duplicate display names, current-file references, prev
 source navigation with list-position restoration. No phone was attached; physical Chrome/Safari/PWA,
 system opening, gestures, offline behavior and video codecs remain in the HG-233 smoke plan.
 Publication and pending verification do not establish acceptance.
+
+
+### 2026-10-24 — Desktop 0.2.34 internal publication
+
+Owner-approved **0.2.34/build 37** was built from clean current main
+`5c83ce9ae446a1fd3bf2c16bc34b716894693646` after version PR #634 and all PR/main checks passed.
+It includes HG-234 (#632) onboarding recovery and HG-235 (#633) unified Desktop navigation,
+updates, local Hermes status, diagnostics/logs and retirement of the old Desktop connection mode.
+
+The release build retained the installed public bootstrap/component/update settings and trust key;
+the key verified both current signed manifests. Assets, 573 Swift tests, app/DMG packaging,
+strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image integrity passed.
+The unified internal publisher returned both `DESKTOP_INTERNAL_RELEASE_AND_WEBSITE_SYNC_OK`
+and `DESKTOP_INTERNAL_APP_UPDATE_SYNC_OK`.
+
+Public package: https://mrlgs.net/desktop/apps/0.2.34/Hermes-Go-Desktop-0.2.34-dev.dmg .
+Both that URL and its compatible `.dmg` alias were downloaded in full and verified:
+3,611,681 bytes; SHA-256 `ffb29645613c6c235d824317690986fbb18174c6a3bd97ba64aad857fb6be6c9`.
+Both app indexes and the website release API report 0.2.34 with the same source/hash/size.
+The signed managed-component indexes remain byte-identical at 0.4.12. No user-installed app
+or local service was replaced or restarted. This is temporary-signing internal distribution,
+not Apple notarization or physical Mac upgrade acceptance. Validate HG-234 and HG-235 on this version.
