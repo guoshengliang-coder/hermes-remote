@@ -1,5 +1,22 @@
 # Hermes Go Desktop phase 0
 
+## Existing-Hermes repair and navigation follow-up — 2026-10-24
+
+Repair now accepts a standard existing installation with named profiles. Missing GO startup items are
+reconstructed from the same committed account/release/credential evidence, using local Hermes and
+retaining binding/token. The private launcher appends upstream's `--profile default` before CLI
+imports, preventing sticky selection from silently changing the managed data home. An exact previous
+GO launcher can be replaced when Hermes is stopped, with byte-for-byte rollback; a running service
+and Connector-only repair retain its launcher. Unknown scripts still fail closed. Runtime reconciliation
+subsequently updates old launchers through its existing transaction.
+
+Local-runtime detection failures and dependency mismatch remain distinct repair reasons. All identity,
+file ownership, port, readiness, authenticated local and fresh cloud checks remain required.
+Devices no longer owns local installation UI; setup expands contextually from the Overview Desktop
+card or Local Hermes. Diagnostics keeps repair and technical preflight. Headline actions are removed.
+Account reports expire consistently in Overview, Devices and Diagnostics; diagnostics uses the active
+local binding, never a selected remote device. Physical repair/mobile access still requires acceptance.
+
 ## Overview/global account update — 2026-10-24
 
 Overview now reads only this Mac’s Cloud probe, local Desktop background and authenticated Hermes.
@@ -77,7 +94,7 @@ is part of this work.
 Standard-install detection now prefers `~/.hermes/hermes-agent/.hermes/bin/hermes` when present;
 the historical `venv/bin/hermes` remains supported only when the PM command is absent. An unsafe PM
 file/parent never falls back to the old venv. Both entrypoints retain the same checkout, default home,
-profile restrictions, private token, GO label, loopback address/9119 and stdout/stderr. The PM agent
+default data-home pinning, private token, GO label, loopback address/9119 and stdout/stderr. The PM agent
 puts its published bin directory on PATH and omits VIRTUAL_ENV. Runtime-switch snapshots restore the
 prior launcher and plist exactly. Update waits, settle interval and crash backoff remain unchanged.
 PM owns interpreter/dependency facts; Desktop neither parses generation paths nor edits PM state.
@@ -955,12 +972,11 @@ does not change between commits.
 
 - **Usable** means exactly the standard upstream layout: checkout `~/.hermes/hermes-agent`, entrypoint
   `venv/bin/hermes` (a private regular executable of this user, path quotable without escaping),
-  `HERMES_HOME=~/.hermes`, one default profile, and `hermes_cli.__version__` at or above **0.21.3**.
+  `HERMES_HOME=~/.hermes`, existing named profiles allowed, and `hermes_cli.__version__` at or above **0.21.3**.
 - **Identity** is `HEAD` resolved through `.git/HEAD`, the loose ref or `packed-refs`, plus the newest
   modification time among those files ("when the checkout last moved"). `hermes update`, `git pull`
   and `git checkout` all rewrite one of them.
-- **Everything else is surfaced, never guessed** (`HR-MIGRATE-008`, reason behind Details): a profile
-  under `~/.hermes/profiles/` or a non-default `active_profile`; `HERMES_HOME` pointing elsewhere in
+- **Everything else is surfaced, never guessed** (`HR-MIGRATE-008`, reason behind Details): `HERMES_HOME` pointing elsewhere in
   Desktop's environment or in any of the owner's `ai.hermes.*.plist` agents; an `ai.hermes.*` agent
   running Hermes from outside the checkout; a `hermes` entrypoint in `~/.local/bin`, `/opt/homebrew/bin`
   or `/usr/local/bin` that does not lead back to the checkout (upstream's own `~/.local/bin/hermes`
@@ -1027,7 +1043,7 @@ Read in `~/.hermes/hermes-agent` (read-only):
 | `web_server._desktop_loopback_auth_exempt` | a loopback bind plus an env session token is exempt from the ticket-only gate a non-loopback `dashboard.public_url` engages | **the reason to keep it**: without it, setting `public_url` (the owner's dashboard is on the Tailscale address) would make `/api/ws` refuse the Connector's `?token=` or stop startup fail-closed |
 | `web_server.start_server` → `_reap_orphaned_desktop_local_serves` | reaps orphaned `serve --port 0` backends | our serve is `--port 9119` and never matches; it may reap the Electron app's orphans |
 | `main._dashboard_sanitize_desktop_env`, `main._dashboard_prepare_runtime` | keeps `HERMES_WEB_DIST`; starts MCP discovery after bind | headless, timing only |
-| `main_dashboard` profile routing | named-profile launches stay per-profile | only the default profile is supported |
+| `main_dashboard` profile routing | named-profile launches stay per-profile | GO pins its original default data home with `--profile default`; existing named profiles remain available to upstream profile-aware routes |
 | `tui_gateway.server._resolve_session_platform` | an empty session `source` becomes `desktop` | the phone always sends `source=hermes_remote` |
 | `gateway.hosted_room_peer.catalog_mapping` | advertises the process as non-persistent | no effect on the phone |
 
@@ -1366,7 +1382,7 @@ Desktop therefore asks whose Hermes blocked it (`DesktopHermesInstallResume.desk
   (recorded after a stage, or claimed after a quit), for example one that ran every stage but failed
   verification (`018`). Only then does a small card beside the code offer "改用内置 Hermes"
   (with a confirmation), because the in-app flow created the problem and must also offer a way out.
-- **The owner's own Hermes** — profiles, a custom `HERMES_HOME`, pipx, an old version, Hermes data
+- **The owner's own Hermes** — a custom `HERMES_HOME`, pipx, an old version, Hermes data
   without a checkout, or any checkout not born from Desktop's attempt. Only `HR-MIGRATE-008` is shown,
   with guidance to fix or remove that install; no built-in alternative is offered.
 

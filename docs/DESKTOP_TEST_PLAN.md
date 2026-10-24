@@ -1,5 +1,25 @@
 # Hermes Go Desktop test plan
 
+## Existing profiles and repair regression — 2026-10-24 follow-up
+
+Test-impact review: exercise real file-only detector + missing-both-startup-items repair with default,
+writer and researcher data, including sticky writer selection; assert all data/config/identity bytes
+survive both success and injected Connector startup failure. Pin launcher argv to default. Cover old
+launcher replacement when stopped, retention when running and exact rollback. Keep account mismatch,
+unknown services, occupied port, tampering, stale preparation and stale cloud-health refusal tests.
+Freshness tests cover expired/future/missing report time and expired account reads.
+
+Native fixtures: Overview light/dark compact (one repair action, within Desktop); blocked-repair reason;
+Devices only management; Diagnostics reason + stale reports; expanded setup retains confirmation flow.
+Local validation: 592 Swift tests and asset consistency passed. Native fixtures cover light/dark,
+compact Overview, blocked repair, device management and Diagnostics. A file-only check of the reported
+Mac recognizes Hermes 0.21.3 with consistent dependencies; no live service/data changes were made.
+
+Physical acceptance: on the reported Mac, inspect a repair preparation, confirm existing default home
+and retained binding/token, execute via app, require authenticated Hermes + fresh cloud health, then
+verify mobile access and default/named profile histories. Do not claim this from fixture tests. Repeat
+failed-start rollback in disposable homes, never by injecting failure into the owner's services.
+
 ## Overview/global account acceptance — 2026-10-24
 
 Automated reducer coverage: healthy requires fresh Cloud/local background/authenticated Hermes and
@@ -14,7 +34,7 @@ sidebar. These do not run monitoring, install services or constitute physical de
 Manual: check the three summary links scroll to corresponding sections; verify each source’s timestamp,
 refresh, repair confirmation, update, local-Hermes and phone-setup actions. Switch selected remote Mac:
 overview must stay on this Mac. From every section open the footer account menu, manage account and
-sign out; existing services keep running. Signed-out overview must show login actions; footer/primary
+sign out; existing services keep running. Signed-out overview must show login actions; footer/Cloud-section
 login open the same email-code form. Complete/reject/expire login, verify setup routing and retained
 section. Account deletion must still land on its explicit receipt. During install/repair/deletion,
 account actions and sheet dismissal remain locked. Check long email truncation/help and narrow/dark layouts.

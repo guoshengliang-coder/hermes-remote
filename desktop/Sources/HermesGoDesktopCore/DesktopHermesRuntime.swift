@@ -37,6 +37,21 @@ public enum DesktopLocalHermesLauncher {
     public static let exitUsage: Int32 = 64
     public static let exitConfiguration: Int32 = 78
 
+    /// Exact pre-profile-pin launcher, accepted only to preserve or transactionally replace an
+    /// existing GO-owned file. Never used for a newly reconstructed service.
+    static func previousScript(executable: URL) throws -> Data {
+        let current = String(decoding: try script(executable: executable), as: UTF8.self)
+        return Data(current.replacingOccurrences(of: """
+        # Keep the original machine/default home even when `hermes profile use` changes the
+        # interactive CLI's sticky selection. Upstream pre-parses this flag before imports.
+        exec "$@" --profile default
+        """, with: "exec \"$@\"").utf8)
+    }
+
+    static func recognizes(_ data: Data, executable: URL) throws -> Bool {
+        try data == script(executable: executable) || data == previousScript(executable: executable)
+    }
+
     public static func script(executable: URL) throws -> Data {
         let path = executable.standardizedFileURL.path
         guard DesktopLocalHermesDetector.isScriptSafePath(path) else {
@@ -77,7 +92,9 @@ public enum DesktopLocalHermesLauncher {
         HERMES_DASHBOARD_SESSION_TOKEN="$token"
         export HERMES_DASHBOARD_SESSION_TOKEN
         unset token PYTHONPATH PYTHONHOME
-        exec "$@"
+        # Keep the original machine/default home even when `hermes profile use` changes the
+        # interactive CLI's sticky selection. Upstream pre-parses this flag before imports.
+        exec "$@" --profile default
 
         """
         return Data(text.utf8)

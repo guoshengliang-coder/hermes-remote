@@ -130,20 +130,20 @@ final class DesktopLocalHermesDetectorTests: XCTestCase {
         XCTAssertEqual(home.reason(), .nonStandardLocation)
     }
 
-    func testProfilesAreSurfaced() throws {
+    func testExistingProfilesDoNotBlockTheOriginalDefaultHome() throws {
         let home = try LocalHermesHome()
         try FileManager.default.createDirectory(atPath: home.path(".hermes/profiles/work"), withIntermediateDirectories: true)
 
-        XCTAssertEqual(home.reason(), .multipleProfiles)
+        XCTAssertEqual(home.detect().installation?.hermesHome.path, home.path(".hermes"))
     }
 
-    func testANonDefaultActiveProfileIsSurfacedButDefaultIsNot() throws {
+    func testStickyProfileDoesNotChangeTheManagedDataHome() throws {
         let home = try LocalHermesHome()
         try home.write(".hermes/active_profile", "default\n")
         XCTAssertNotNil(home.detect().installation)
 
         try home.write(".hermes/active_profile", "work\n")
-        XCTAssertEqual(home.reason(), .multipleProfiles)
+        XCTAssertEqual(home.detect().installation?.hermesHome.path, home.path(".hermes"))
     }
 
     func testACustomHermesHomeInTheEnvironmentIsSurfaced() throws {
@@ -669,7 +669,7 @@ final class DesktopLocalHermesLaunchTests: XCTestCase {
         let result = try sandbox.run(arguments: sandbox.expectedArguments)
 
         XCTAssertEqual(result.status, 0, result.error)
-        XCTAssertEqual(result.output, "\(Self.token)|serve --host 127.0.0.1 --port 9119|unset")
+        XCTAssertEqual(result.output, "\(Self.token)|serve --host 127.0.0.1 --port 9119 --profile default|unset")
     }
 
     func testTheLauncherRefusesATokenFileOthersCanRead() throws {
@@ -998,7 +998,7 @@ final class LocalHermesWiringTests: XCTestCase {
         XCTAssertTrue(model.contains("runtime.reconcileHermesRuntime(detector: detector, enabled: enabled)"))
         XCTAssertTrue(model.contains("localHermesInstallBlock(for: installation)"), "fresh managed install is not gated")
         XCTAssertTrue(model.contains("localHermesInstallBlock(for: machine.installation)"), "fresh component install is not gated")
-        XCTAssertTrue(try appSource("SecondaryViews.swift").contains("model.localHermesIssue"))
+        XCTAssertTrue(try appSource("DesktopConnectionSetupView.swift").contains("model.localHermesIssue"))
     }
 
     private func appSource(_ name: String) throws -> String {

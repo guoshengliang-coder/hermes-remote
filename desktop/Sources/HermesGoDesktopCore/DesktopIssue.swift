@@ -299,7 +299,7 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         case .managedServicesNeedRepair:
             ("Desktop 需要修复", "Managed services need repair", "受管启动项缺失或尚未载入，请修复 Desktop 以恢复连接。", "Managed startup items are missing or unloaded. Repair the managed services to restore the connection.", true, .details)
         case .managedServiceRepairBlocked:
-            ("暂时无法安全修复", "Service repair is blocked", "暂时无法安全修复 Desktop。请查看详情，恢复原账号或缺失的安装资料后重新检查。", "Managed services cannot be repaired safely yet. Review the details and restore the original account or missing installation records, then check again.", false, .details)
+            ("暂时无法安全修复", "Service repair is blocked", "修复前检查未通过。请按下方具体原因处理后重新检查；现有设备绑定与 Hermes 数据会保留。", "Repair preflight did not pass. Resolve the specific condition shown below and check again; device binding and Hermes data are preserved.", false, .details)
         case .retiredConnectionUnsupported:
             ("旧连接服务需要移除", "Remove the old connection service", "Desktop 已停止支持旧连接模式。请先停用并移除旧 Connector 启动项，再通过账号设置这台 Mac；无需删除 Hermes 数据。", "Desktop no longer supports the old connection mode. Disable and remove the old Connector startup item, then set up this Mac with your account. Keep your Hermes data.", false, .details)
         case .managedServiceRepairFailed:

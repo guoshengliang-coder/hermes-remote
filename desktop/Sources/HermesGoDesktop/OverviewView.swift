@@ -5,6 +5,7 @@ struct OverviewView: View {
     @EnvironmentObject private var model: DesktopViewModel
     @Binding var selection: DesktopSection
     @State private var isPhoneSheetPresented = false
+    @State private var showsConnectionSetup = false
     private var state: DesktopOverviewPresentation { model.overviewPresentation }
 
     var body: some View {
@@ -34,7 +35,6 @@ struct OverviewView: View {
                         }
                         Text(state.detail).font(.system(size: 13)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        primaryAction
                     }
                     .padding(.vertical, 8)
 
@@ -81,6 +81,9 @@ struct OverviewView: View {
                                 : state.remoteAccess == "未通过" && state.remoteConnection == "已连接云端"
                                     ? .relayFailure : .connectorOffline))
                         }
+                        if let guidance = model.serviceRepairGuidance {
+                            Text(guidance).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                        }
                         HStack {
                             desktopAction
                             if model.entryRoute == .main {
@@ -99,6 +102,9 @@ struct OverviewView: View {
                             }
                         }
                     }.id("desktop")
+                    if showsConnectionSetup {
+                        DesktopConnectionSetupView { showsConnectionSetup = false }
+                    }
 
                     section("本机 Hermes", symbol: "terminal", status: state.hermes) {
                         fact("Hermes 版本", model.localHermesPresentation.version)
@@ -192,19 +198,6 @@ struct OverviewView: View {
         }
     }
 
-    @ViewBuilder private var primaryAction: some View {
-        if state.needsLogin {
-            Button("登录账号") { model.requestAccountSignIn() }.buttonStyle(.borderedProminent)
-        } else if state.cloud.level == .failed {
-            Button("重新检查连接") { Task { await model.refreshDiagnostics() } }
-                .buttonStyle(.borderedProminent).disabled(refreshDisabled)
-        } else if model.serviceRepairNeeded {
-            repairButton.buttonStyle(.borderedProminent)
-        } else if state.hermes.level == .failed {
-            Button("检查本机 Hermes") { selection = .localHermes }.buttonStyle(.borderedProminent)
-        }
-    }
-
     @ViewBuilder private var desktopAction: some View {
         if state.needsLogin {
             Button("登录并继续") { model.requestAccountSignIn() }
@@ -216,11 +209,11 @@ struct OverviewView: View {
         } else if model.canReconnectManagedConnector {
             Button("重新连接") { Task { await model.prepareConnectorReconnect() } }
         } else {
-            Button("连接设置") { selection = .pairing }.disabled(model.entryRoute != .main)
+            Button("连接设置") { showsConnectionSetup = true }.disabled(model.entryRoute != .main)
         }
     }
     private var repairButton: some View {
-        Button("修复 Desktop") { Task { await model.prepareServiceRepair() } }
+        Button(model.serviceRepairGuidance == nil ? "修复 Desktop" : "重新检查修复条件") { Task { await model.prepareServiceRepair() } }
             .disabled(model.isManagedBootstrapAccountLocked)
     }
     private var refreshDisabled: Bool {

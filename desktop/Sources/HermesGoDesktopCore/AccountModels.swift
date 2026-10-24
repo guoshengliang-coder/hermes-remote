@@ -396,6 +396,12 @@ public struct AccountDashboard: Equatable, Sendable {
         devices.first { $0.deviceId == selectedDeviceID }
     }
 
+    /// Only the active binding of this installation may supply local diagnostics.
+    public var localDevice: AccountDevice? {
+        guard binding.state == "bound", let local = binding.binding else { return nil }
+        return devices.first { $0.id == local.id && $0.generation == local.generation && $0.deviceId == local.deviceId }
+    }
+
     public var localDeviceID: String? {
         binding.binding?.deviceId ?? binding.previousBinding?.deviceId ?? binding.deviceId
     }

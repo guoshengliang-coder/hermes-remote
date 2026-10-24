@@ -69,9 +69,10 @@ final class DesktopDiagnosticRefreshWiringTests: XCTestCase {
         let view = try String(contentsOf: app.appendingPathComponent("DiagnosticsView.swift"), encoding: .utf8)
         XCTAssertEqual(view.components(separatedBy: "await model.refreshDiagnostics()").count - 1, 2)
         XCTAssertFalse(view.contains("await model.refresh()"))
-        XCTAssertTrue(view.contains("账号设备上报"))
-        XCTAssertTrue(view.contains("账号设备的 Hermes"))
+        XCTAssertTrue(view.contains("这台 Mac 的连接检查"))
+        XCTAssertTrue(view.contains("本机 Hermes 的云端上报"))
         let model = try String(contentsOf: app.appendingPathComponent("DesktopViewModel.swift"), encoding: .utf8)
+        XCTAssertTrue(model.contains("currentDashboard?.localDevice"), "diagnostics must use this installation's active binding")
         let start = try XCTUnwrap(model.range(of: "func refreshDiagnostics()"))
         let end = try XCTUnwrap(model.range(of: "var canReconnectManagedConnector", range: start.upperBound..<model.endIndex))
         let body = model[start.lowerBound..<end.lowerBound]

@@ -1,5 +1,11 @@
 # Hermes Go Desktop
 
+Pending release: repair existing Hermes installations with named profiles without changing their data,
+pin the managed backend to its original default home, show concrete repair blockers, and remove
+local setup/repair panels from Devices and the Overview headline. Diagnostics and device rows now
+expire old reports and keep local/remote identity separate. 592 Swift tests and asset checks passed;
+native light/dark/compact fixtures were reviewed. Live repair and mobile acceptance remain pending.
+
 Overview/global-account update (0.2.35 / build 38): three independently checked local status sections and
 an impact headline replace mixed connection tables. The sidebar footer owns login, identity and
 account management throughout the app; Devices and Settings keep their own responsibilities.

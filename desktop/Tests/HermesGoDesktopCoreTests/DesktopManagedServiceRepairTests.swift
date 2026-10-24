@@ -208,6 +208,108 @@ final class DesktopManagedServiceRepairTests: XCTestCase {
         XCTAssertTrue(f.installer.localHermesLauncherIsCurrent(executable: local.executable))
     }
 
+    func testProfilesAndMissingStartupItemsRecoverWithoutChangingDataOrIdentity() async throws {
+        for failStart in [false, true] {
+            let f = try RepairFixture(); defer { f.remove() }
+            let local = try f.localInstallation()
+            let fm = FileManager.default
+            let files = ["state.db", "config.yaml", "active_profile",
+                         "profiles/writer/state.db", "profiles/writer/config.yaml",
+                         "profiles/researcher/state.db", "profiles/researcher/config.yaml"]
+            for name in files {
+                let url = f.hermesHome.appendingPathComponent(name)
+                try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try f.write(Data((name == "active_profile" ? "writer" : "preserved-" + name).utf8), url)
+            }
+            for (name, content) in [(".git/HEAD", String(repeating: "a", count: 40)),
+                                    ("hermes_cli/__init__.py", "__version__ = \"0.21.3\""),
+                                    ("venv/lib/python3.11/site-packages/hermes_agent-0.21.3.dist-info/METADATA", "Version: 0.21.3")] {
+                let url = local.checkoutRoot.appendingPathComponent(name)
+                try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try f.write(Data(content.utf8), url)
+            }
+            let detector = DesktopLocalHermesDetector(paths: try .init(homeDirectory: f.root, systemEntrypoints: []), environment: [:])
+            f.detection = detector.detect()
+            XCTAssertNotNil(f.detection.installation)
+            let before = try files.map { try Data(contentsOf: f.hermesHome.appendingPathComponent($0)) }
+            let identity = try f.identityBytes()
+            f.runner.failConnectorStart = failStart
+            let repair = try f.makeRepair()
+            let plan = try await repair.prepare()
+            XCTAssertTrue(plan.usesLocalHermes)
+            XCTAssertTrue(f.runner.mutations.isEmpty)
+            if failStart {
+                do { try await repair.commit(plan, confirmed: true); XCTFail("start should fail") } catch {}
+                XCTAssertFalse(fm.fileExists(atPath: f.layout.localHermesLauncher.path))
+                XCTAssertTrue(f.runner.loaded.isEmpty)
+            } else {
+                try await repair.commit(plan, confirmed: true)
+                XCTAssertEqual(f.runner.loaded.count, 2)
+                XCTAssertEqual(try f.installer.currentHermesRuntimeMode(), .localHermes(executable: local.executable))
+            }
+            XCTAssertEqual(try f.identityBytes(), identity)
+            XCTAssertEqual(try files.map { try Data(contentsOf: f.hermesHome.appendingPathComponent($0)) }, before)
+        }
+    }
+
+    func testUnsupportedHermesReportsItsActualReasonBeforeAnyMutation() async throws {
+        let f = try RepairFixture(); defer { f.remove() }
+        for reason in [DesktopLocalHermesUnsupportedReason.incompleteInstallation, .customHermesHome, .unsafeInstallation] {
+            f.detection = .unsupported(reason, detail: "private diagnostic")
+            do { _ = try await f.makeRepair().prepare(); XCTFail("unsupported") }
+            catch { XCTAssertEqual(error as? DesktopManagedServiceRepairError, .localHermesUnavailable(reason)) }
+            XCTAssertFalse(reason.repairGuidanceChinese.isEmpty)
+            XCTAssertTrue(f.runner.mutations.isEmpty)
+        }
+    }
+
+    func testPreviousLauncherIsUpgradedOnlyForStoppedHermesAndRollsBackExactly() async throws {
+        for loaded in [false, true] {
+            for failStart in [false, true] {
+                let f = try RepairFixture(); defer { f.remove() }
+                let local = try f.localInstallation()
+                f.detection = .usable(local)
+                _ = try f.installer.writeLocalHermesLaunchAgent(local)
+                let previous = try DesktopLocalHermesLauncher.previousScript(executable: local.executable)
+                XCTAssertTrue(String(decoding: previous, as: UTF8.self).contains("exec \"$@\"\n"))
+                XCTAssertFalse(String(decoding: previous, as: UTF8.self).contains("--profile default"))
+                try f.write(previous, f.layout.localHermesLauncher, mode: 0o700)
+                if loaded { f.runner.loaded[DesktopManagedInstallLayout.hermesLabel] = try args(Data(contentsOf: f.layout.hermesLaunchAgent)) }
+                f.runner.failConnectorStart = failStart
+                let repair = try f.makeRepair()
+                let plan = try await repair.prepare()
+                if failStart {
+                    do { try await repair.commit(plan, confirmed: true); XCTFail("expected failure") } catch {}
+                } else { try await repair.commit(plan, confirmed: true) }
+                let expected = loaded || failStart ? previous : try DesktopLocalHermesLauncher.script(executable: local.executable)
+                XCTAssertEqual(try Data(contentsOf: f.layout.localHermesLauncher), expected)
+                XCTAssertFalse(f.runner.mutations.contains("stop hermes") && loaded)
+            }
+        }
+    }
+
+    func testInterruptedPreviousVersionRepairCanStillRestoreItsSnapshot() async throws {
+        let f = try RepairFixture(); defer { f.remove() }
+        let local = try f.localInstallation()
+        f.detection = .usable(local)
+        f.runner.staleHealth = true; f.runner.failStop = true
+        let repair = try f.makeRepair(); let plan = try await repair.prepare()
+        do { try await repair.commit(plan, confirmed: true); XCTFail("must retain recovery") } catch {}
+        // Model the exact previous app's persisted image and launcher, before profile pinning.
+        let previous = try DesktopLocalHermesLauncher.previousScript(executable: local.executable)
+        var image = try JSONSerialization.jsonObject(with: Data(contentsOf: f.snapshot)) as! [String: Any]
+        image["launcher"] = previous.base64EncodedString()
+        try f.write(try JSONSerialization.data(withJSONObject: image), f.snapshot)
+        try f.write(previous, f.layout.localHermesLauncher, mode: 0o700)
+        f.runner.failStop = false
+        let restarted = try f.makeRepair(); let recovery = try await restarted.prepare()
+        XCTAssertTrue(recovery.resumesInterruptedRepair)
+        try await restarted.commit(recovery, confirmed: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: f.snapshot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: f.layout.localHermesLauncher.path))
+        XCTAssertTrue(f.runner.loaded.isEmpty)
+    }
+
     func testComponentStoreIsRehashedAndKeepsExactConnectorAndNodeRoots() async throws {
         let f = try RepairFixture(componentStore: true); defer { f.remove() }
         f.detection = .usable(try f.localInstallation())

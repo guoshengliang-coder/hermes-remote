@@ -4,6 +4,7 @@ import SwiftUI
 struct LocalHermesView: View {
     @EnvironmentObject private var model: DesktopViewModel
     @Binding var selection: DesktopSection
+    @State private var showsConnectionSetup = false
 
     var body: some View {
         ScrollView {
@@ -32,14 +33,16 @@ struct LocalHermesView: View {
                             Button("连接这台 Mac") { Task { await model.chooseNewMacUse(.connect) } }
                                 .buttonStyle(.bordered)
                         } else if !model.localHermesPresentation.canOpen {
-                            Button("连接设置") { selection = .pairing }.buttonStyle(.bordered)
+                            Button("连接设置") { showsConnectionSetup = true }.buttonStyle(.bordered)
                         }
                     }
                     if let issue = model.localHermesIssue { GateIssueBanner(issue: issue) }
                 }
                 .padding(22).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
 
-                if model.hermesInstallPhase != .hidden { HermesInstallCard() }
+                if showsConnectionSetup {
+                    DesktopConnectionSetupView { showsConnectionSetup = false }
+                } else if model.hermesInstallPhase != .hidden { HermesInstallCard() }
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("版本与数据").font(.system(size: 16, weight: .bold))

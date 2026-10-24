@@ -29,8 +29,7 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
                 accountState: DesktopAccountState, accountCheckedAt: Date?, hasAccountIssue: Bool,
                 manageOnly: Bool, operationInProgress: Bool, now: Date = Date()) {
         func fresh(_ date: Date?) -> Bool {
-            guard let date else { return false }
-            return (-5...180).contains(now.timeIntervalSince(date))
+            AccountDeviceHealth.isFresh(date, now: now)
         }
         func status(_ level: HealthLevel, _ title: String, _ detail: String, _ date: Date?) -> DesktopOverviewStatus {
             DesktopOverviewStatus(level: level, title: title, detail: detail, checkedAt: date)

@@ -1,3 +1,5 @@
+import Foundation
+
 /// Installation is not evidence that Hermes can serve requests. Only the authenticated probe of
 /// this Mac can establish usability; a selected remote device must never supply this evidence.
 public struct DesktopLocalHermesPresentation: Equatable, Sendable {
@@ -7,7 +9,8 @@ public struct DesktopLocalHermesPresentation: Equatable, Sendable {
     public let version: String
     public let canOpen: Bool
 
-    public init(detection: DesktopLocalHermesDetection?, health: ComponentHealth?, hasManagedInstallation: Bool) {
+    public init(detection: DesktopLocalHermesDetection?, health: ComponentHealth?, hasManagedInstallation: Bool, now: Date = Date()) {
+        let health = health.flatMap { AccountDeviceHealth.isFresh($0.checkedAt, now: now) ? $0 : nil }
         version = detection?.installation?.version ?? (hasManagedInstallation ? "由 Desktop 管理" : "未检测到版本")
         canOpen = health?.level == .healthy
         if canOpen {
