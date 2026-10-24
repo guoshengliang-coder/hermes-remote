@@ -1,5 +1,17 @@
 # Desktop release channel
 
+## Approved internal test distribution: 0.2.40
+
+On 2026-10-24 the owner authorized publication and confirmed **0.2.40/build 43**.
+Includes structured Hermes/model status, account/sidebar/settings polish, first-install guidance
+and bounded network retry with safe component-download recovery (#654/#656). Preserve the existing
+Hermes profiles/data and installed public trust settings. Continue the temporary ad-hoc internal
+channel, building from clean current main after the version PR and main checks pass. Publish through
+the unified internal publisher and verify complete public DMGs, website and app-update discovery.
+Signed managed-component pointers remain unchanged. Fresh-machine installation, upstream dependency
+outage recovery and phone/model tasks require separate acceptance; publication is not proof of those
+flows or Apple notarization.
+
 ## Published internal test distribution: 0.2.39
 
 On 2026-10-24 the owner authorized this iteration's merge/publication and confirmed
