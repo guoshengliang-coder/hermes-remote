@@ -1,5 +1,12 @@
 # Hermes Remote Android
 
+The video preview uses an immersive black media surface with auto-hiding controls, buffered and
+played timeline segments, drag target time, landscape fullscreen and explicit replay. Pause stops
+loading while retaining a bounded last-frame image; rotation restores the scoped file, playback
+position and intent. Real backgrounding still requires manual Play. Download/external playback
+live in More, with the existing bilingual HR recovery actions preserved. This UI iteration does
+not allocate or publish an APK.
+
 HG-236 expands sequential video read-ahead to a negotiated, bounded window: start with up to two
 256 KiB ranges, grow to at most four 1 MiB requests on fast reads, and shrink on slow reads.
 Initial/index and seek reads stay small; close, pause and background cancel the window. Legacy peers

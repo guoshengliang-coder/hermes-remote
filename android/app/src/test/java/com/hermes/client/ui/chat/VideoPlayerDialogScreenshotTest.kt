@@ -48,8 +48,9 @@ class VideoPlayerDialogScreenshotTest {
                     download = { downloads++ }, onDismiss = {}, downloaded = true, openExternally = { opened++ })
             }
         } }
+        compose.onNodeWithContentDescription("More").performClick()
         compose.onNodeWithText("Downloaded").assertIsNotEnabled()
-        compose.onNodeWithText("Other player").performClick()
+        compose.onAllNodesWithText("Other player").onLast().performClick()
         assertEquals(1, opened); assertEquals(0, downloads)
     }
 

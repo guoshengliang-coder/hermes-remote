@@ -1,30 +1,41 @@
 package com.hermes.client.ui.chat
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.hermes.client.R
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.Player
-import androidx.media3.common.PlaybackException
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.hermes.client.data.error.AppError
 import com.hermes.client.data.error.videoPlaybackError
 import com.hermes.client.data.video.VideoPlayback
-import com.hermes.client.ui.localization.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
-/** No external URL/intent: Media3's loader reads authenticated, bounded ranges on demand. */
+/** Authenticated bounded Range playback, with a persistent surface while loading is stopped. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun VideoPlayerDialog(
@@ -36,154 +47,149 @@ fun VideoPlayerDialog(
     openExternally: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val language = LocalAppLanguage.current
+    val activity = context.videoActivity()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var foreground by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
-    var wantsPlay by remember { mutableStateOf(true) }
+    var wantsPlay by rememberSaveable { mutableStateOf(true) }
+    var wasOpened by rememberSaveable { mutableStateOf(false) }
+    var knownDuration by rememberSaveable { mutableLongStateOf(0) }
+    val frameKey = rememberSaveable { java.util.UUID.randomUUID().toString() }
+    val frameMemory: VideoFrameMemory = viewModel(key = "video-frame:$frameKey")
+    var videoView by remember { mutableStateOf<PlayerView?>(null) }
+    fun captureFrame() {
+        val texture = videoView?.videoSurfaceView as? android.view.TextureView ?: return
+        if (!texture.isAvailable || texture.width <= 0 || texture.height <= 0) return
+        val scale = minOf(1f, 1280f / maxOf(texture.width, texture.height))
+        try {
+            texture.getBitmap((texture.width * scale).toInt().coerceAtLeast(1),
+                (texture.height * scale).toInt().coerceAtLeast(1))?.let { frameMemory.frame = it }
+        } catch (_: OutOfMemoryError) {
+            // Optional visual continuity must never fail playback; keep the previous bounded frame.
+        }
+    }
+    var fullscreen by rememberSaveable { mutableStateOf(false) }
+    val originalOrientation = rememberSaveable { activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     var source by remember { mutableStateOf<VideoPlayback?>(null) }
     var error by remember { mutableStateOf<AppError?>(null) }
     var retry by remember { mutableIntStateOf(0) }
-    var buffering by remember { mutableStateOf(true) }
-    var position by remember { mutableLongStateOf(0) }
-    var duration by remember { mutableLongStateOf(0) }
-    var seeking by remember { mutableStateOf<Float?>(null) }
+    val currentPrepare by rememberUpdatedState(prepare)
 
+    LaunchedEffect(Unit) {
+        // Session UI snapshots also survive navigation/process restoration. Only a real rotation
+        // may restore autoplay; returning to a page must wait for an explicit Play action.
+        if (wasOpened && !frameMemory.configurationRestart) wantsPlay = false
+        wasOpened = true
+        frameMemory.configurationRestart = false
+    }
     LaunchedEffect(foreground, retry) {
         if (foreground && source == null) {
-            error = null
-            try { source = prepare() }
+            try { source = currentPrepare() }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { error = videoPlaybackError(failure); buffering = false; wantsPlay = false }
+            catch (failure: Exception) { error = videoPlaybackError(failure); wantsPlay = false }
         }
     }
-    val player = remember(source, foreground, wantsPlay, retry) {
-        source?.takeIf { foreground && wantsPlay && error == null }?.let { video ->
-            ExoPlayer.Builder(context).setLoadControl(DefaultLoadControl.Builder()
+    val controller = remember(source) {
+        source?.let { video ->
+            val player = ExoPlayer.Builder(context).setLoadControl(DefaultLoadControl.Builder()
                 .setBufferDurationsMs(2_000, 8_000, 750, 1_500).build()).build().apply {
                 setAudioAttributes(androidx.media3.common.AudioAttributes.DEFAULT, true)
                 setHandleAudioBecomingNoisy(true)
                 setMediaSource(video.mediaSource(context))
-                seekTo(video.positionMs)
-                playWhenReady = true
             }
+            VideoPlayerController(player, video.positionMs, video::lease,
+                { video.positionMs = it }, { wantsPlay = it }, { error = videoPlaybackError(it) }, knownDuration)
         }
     }
-    DisposableEffect(player) {
-        val video = source
-        val lease = if (player != null) video?.lease() else null
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                buffering = state == Player.STATE_BUFFERING
-                if (state == Player.STATE_ENDED) {
-                    video?.positionMs = 0; position = 0; wantsPlay = false
-                }
-            }
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                if (!playWhenReady) {
-                    video?.positionMs = player?.currentPosition?.coerceAtLeast(0) ?: position
-                    wantsPlay = false
-                }
-            }
-            override fun onPlayerError(failure: PlaybackException) {
-                video?.positionMs = player?.currentPosition ?: position
-                error = videoPlaybackError(failure); buffering = false
-                wantsPlay = false
-            }
-        }
-        player?.addListener(listener)
-        player?.prepare()
+    DisposableEffect(controller) { onDispose { controller?.close() } }
+    DisposableEffect(frameMemory) {
         onDispose {
-            if (player != null) {
-                if (player.playbackState != Player.STATE_ENDED) video?.positionMs = player.currentPosition.coerceAtLeast(0)
-                player.removeListener(listener)
-                player.release()
+            if (activity?.isChangingConfigurations != true) {
+                frameMemory.frame = null
+                frameMemory.configurationRestart = false
             }
-            lease?.close()
         }
     }
-    DisposableEffect(lifecycle, player) {
+    LaunchedEffect(controller) {
+        if (foreground && wantsPlay) controller?.play()
+        while (controller != null) {
+            controller.refresh()
+            if (controller.state.duration > 0) knownDuration = controller.state.duration
+            delay(250)
+        }
+    }
+    DisposableEffect(lifecycle, controller) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                source?.positionMs = player?.currentPosition?.coerceAtLeast(0) ?: position
-                foreground = false; wantsPlay = false
+                // A configuration change reattaches the same file and intent; an actual background
+                // transition always pauses, stops loading and requires explicit user continuation.
+                frameMemory.configurationRestart = activity?.isChangingConfigurations == true && wantsPlay
+                if (controller?.state?.hasFrame == true) captureFrame()
+                if (activity?.isChangingConfigurations != true) { wantsPlay = false; controller?.pause() }
+                foreground = false
             } else if (event == Lifecycle.Event.ON_START) foreground = true
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(player) {
-        while (player != null) {
-            if (player.playbackState != Player.STATE_ENDED) {
-                position = player.currentPosition.coerceAtLeast(0)
-                source?.positionMs = position
-            }
-            duration = player.duration.coerceAtLeast(0)
-            delay(250)
-        }
+    LaunchedEffect(fullscreen) {
+        if (fullscreen) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else activity?.requestedOrientation = originalOrientation
     }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize().systemBarsPadding(), color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text(name, Modifier.weight(1f), maxLines = 2, style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = onDismiss) { Text(localized(language, "关闭", "Close")) }
-                }
-                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    if (player != null) AndroidView(
-                        factory = { PlayerView(it).apply { useController = false; keepScreenOn = true } },
-                        update = { it.player = player },
-                        onRelease = { it.player = null },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    if (buffering && wantsPlay && error == null) CircularProgressIndicator()
-                    if (!wantsPlay && error == null) Text(localized(language, "已暂停，点继续播放", "Paused. Tap Play to continue."),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+    DisposableEffect(activity) {
+        onDispose { if (activity?.isChangingConfigurations != true) activity?.requestedOrientation = originalOrientation }
+    }
+    fun exit() { if (fullscreen) fullscreen = false else onDismiss() }
+    Dialog(onDismissRequest = ::exit,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+        LaunchedEffect(window) {
+            window ?: return@LaunchedEffect
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        VideoPlayerContent(
+            name = name,
+            state = controller?.state ?: VideoPlayerState(wantsPlay = wantsPlay, buffering = error == null),
+            error = error, fullscreen = fullscreen, canPlay = controller != null,
+            downloaded = downloaded, download = download, openExternally = openExternally,
+            onClose = onDismiss, onFullscreen = { fullscreen = !fullscreen },
+            onTogglePlay = { controller?.let { if (it.state.wantsPlay) { if (it.state.hasFrame) captureFrame(); it.pause() } else it.play() } },
+            onSeek = { controller?.seek(it) },
+            onRetry = { error = null; wantsPlay = true; source = null; retry++ },
+            onDiagnostics = {
                 error?.let { failure ->
-                    Text(failure.localizedMessage(language), color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = {
-                        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Hermes diagnostics", failure.sanitizedDiagnostic()))
-                    }) { Text(localized(language, "复制诊断", "Copy diagnostics")) }
-                    if (failure.retryable) TextButton(onClick = {
-                        error = null; buffering = true; wantsPlay = true; retry++
-                    }) { Text(localized(language, "重试", "Retry")) }
+                    context.getSystemService(android.content.ClipboardManager::class.java)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("Hermes diagnostics", failure.sanitizedDiagnostic()))
                 }
-                Slider(
-                    value = seeking ?: position.toFloat().coerceAtMost(duration.toFloat()),
-                    onValueChange = { seeking = it },
-                    onValueChangeFinished = {
-                        val target = seeking?.toLong() ?: position
-                        source?.positionMs = target; position = target
-                        player?.seekTo(target); seeking = null
-                    },
-                    valueRange = 0f..duration.coerceAtLeast(1).toFloat(), enabled = duration > 0 && error == null,
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text("${videoTime(position)} / ${videoTime(duration)}", style = MaterialTheme.typography.labelMedium, // l10n-allow: language-neutral elapsed / total duration digits.
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(enabled = source != null && error == null, onClick = {
-                        source?.positionMs = player?.currentPosition?.coerceAtLeast(0) ?: position
-                        wantsPlay = !wantsPlay
-                        if (wantsPlay) buffering = true
-                    }) { Text(if (wantsPlay) localized(language, "暂停", "Pause") else localized(language, "继续播放", "Play")) }
-                    TextButton(onClick = download, enabled = !downloaded) {
-                        Text(if (downloaded) localized(language, "已下载", "Downloaded") else localized(language, "下载", "Download"))
-                    }
-                }
-                openExternally?.let { open ->
-                    TextButton(onClick = open) { Text(localized(language, "其他播放器", "Other player")) }
-                }
+            },
+        ) {
+            if (controller != null) AndroidView(
+                factory = { android.view.LayoutInflater.from(it).inflate(R.layout.video_preview_player, null) as PlayerView },
+                update = { videoView = it; it.player = controller.player; it.keepScreenOn = controller.state.wantsPlay },
+                onRelease = { it.player = null; videoView = null }, modifier = Modifier.fillMaxSize(),
+            )
+            frameMemory.frame?.takeIf { controller?.state?.let { !it.wantsPlay || !it.hasFrame } != false }?.let { frame ->
+                Image(frame.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize())
             }
         }
     }
 }
 
-private fun videoTime(ms: Long): String = java.lang.String.format(java.util.Locale.ROOT,
-    "%d:%02d", ms / 60_000, ms / 1_000 % 60)
+/** Bounded last frame across configuration recreation; cleared on close, never written to disk. */
+internal class VideoFrameMemory : ViewModel() {
+    var frame by mutableStateOf<android.graphics.Bitmap?>(null)
+    var configurationRestart = false
+}
 
+private tailrec fun Context.videoActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.videoActivity()
+    else -> null
+}
 
 /** The caller supplies only a verified complete file; the player cache is never exported. */
 internal fun openCompletedVideo(context: android.content.Context, file: java.io.File, mimeType: String?,
