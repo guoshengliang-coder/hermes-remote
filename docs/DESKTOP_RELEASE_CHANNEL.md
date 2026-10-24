@@ -1,6 +1,6 @@
 # Desktop release channel
 
-## Approved internal test candidate: 0.2.37
+## Published internal test distribution: 0.2.37
 
 On 2026-10-24 the owner authorized merge/publication and confirmed **0.2.37/build 40**.
 This includes the overview visual hierarchy, the previously merged diagnostics/log viewer and
@@ -11,6 +11,16 @@ DMG and synchronize website/app-update discovery. Preserve signed managed-compon
 Physical upgrade and mobile/data-preservation acceptance remain separate from package/publication
 verification. This is not an Apple-notarized release.
 
+
+Publication completed on 2026-10-24 after PR #643 and main checks passed, from clean main
+`a9a812198cf4913fc2e7c86731f7a062731cb7ed`. Both unified-publisher success markers and independent full public downloads
+passed. The `-dev.dmg` and compatible `.dmg` alias match **3,794,849 bytes**, SHA-256
+`79ae595664f76ccb38c9a74f664ef33b88d4c1c86af59aed7b60f5ec61a26a44`. Website and app-update discovery report 0.2.37/build 40; signed managed-component
+indexes remain byte-identical at 0.4.12. Assets, 606 Swift tests, 41 Desktop packaging/tooling tests,
+app/DMG packaging, strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image
+integrity passed. Native light/dark/compact, long-name, expanded, signed-out, stale and failed-state
+fixtures were reviewed. No installed user app or local service was replaced. Physical upgrade and
+mobile/data-preservation acceptance remain pending; this does not establish Apple notarization.
 
 ## Published internal test distribution: 0.2.36
 

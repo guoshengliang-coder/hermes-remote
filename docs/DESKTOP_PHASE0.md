@@ -47,7 +47,8 @@ local binding, never a selected remote device. Physical repair/mobile access sti
 ## Overview/global account update — 2026-10-24
 
 Overview now reads only this Mac’s Cloud probe, local Desktop background and authenticated Hermes.
-An impact headline and three clickable status labels summarize three detailed sections. Evidence
+An impact headline with a semantic icon summarizes three detailed sections; duplicate status labels
+were removed in the visual-hierarchy follow-up. Evidence
 older than three minutes (or invalid future times) is unconfirmed, not healthy; remote usability also
 requires a fresh local-binding end-to-end report. Public Cloud and account API checks remain distinct.
 
