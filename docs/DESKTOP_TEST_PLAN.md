@@ -1,5 +1,27 @@
 # Hermes Go Desktop test plan
 
+## Hermes official release request bounds (2026-10-24)
+
+Test-impact review: the version card's upstream request must reject oversized bodies while receiving,
+not after buffering them. Regressions must cover declared and undeclared size, exact endpoint/status,
+duplicate JSON fields, ambient session headers/cookies, cancellation and successful lightweight/
+annotated tag resolution. No live network or updater should run. Failures retain the existing
+HR-HERMESUPDATE-001 bilingual/retryable mapping and clear earlier model success. No target is certified
+by improving this read-only transport; existing card/diagnostic layout and execution gates remain.
+The original seven tests reproduced ten failed assertions in ambient headers, mismatched repository,
+duplicate tag and declared/undeclared oversize cases. Declared oversize may coalesce one initial
+CFNetwork body read with headers; assert the remaining stream is cancelled, not zero network bytes.
+The corrected transport, complete-lookup deadline and private in-memory cookie jar cases pass in
+the full baseline. Numeric draft/prerelease flags reproduced two more false Boolean acceptances;
+strict CFBoolean type checks reject them. No live GitHub or user Hermes request is used by this fixture.
+
+Final local baseline: assets, 781 Swift tests (2 existing skips), and ad-hoc app packaging pass.
+Separately, an isolated CLI linked to the actual Core fetcher performs only public GitHub discovery
+and resolves v0.22.5 to bf0203a794a07aac3ff764972ab9087baa4e4f4e on 2026-10-24. It creates no
+Desktop model/monitor, reads no installed Hermes and does not alter the empty certified target list.
+No new UI source changed in this transport iteration; the earlier record-card native review remains
+separate. Node/Web/Android/device baselines were not locally repeated; exact-head CI is still required.
+
 ## 原生 PM 构建后代回归（2026-10-24，独立兼容夹具）
 
 五项portable测试覆盖真实enrolled双域FD/验证临时dup不解锁、未知命令/options/环境/越界需求文件

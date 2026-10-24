@@ -51,16 +51,32 @@ public protocol DesktopHermesReleaseFetching: Sendable {
 }
 
 public struct DesktopHermesOfficialReleaseFetcher: DesktopHermesReleaseFetching {
-    private let session: URLSession
-    public init(session: URLSession = .shared) { self.session = session }
+    private let configuration: URLSessionConfiguration
+    public init(session: URLSession? = nil) {
+        // Preserve injectable protocol classes for isolated tests, never another client's
+        // cookies, credentials or default headers. Upstream discovery is a public request.
+        let configuration = URLSessionConfiguration.ephemeral
+        if let session { configuration.protocolClasses = session.configuration.protocolClasses }
+        configuration.httpAdditionalHeaders = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.urlCredentialStorage = nil
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.configuration = configuration
+    }
     public func latestStable() async throws -> DesktopHermesUpgradeTarget {
-        let release = try await json("releases/latest")
-        guard release["draft"] as? Bool == false, release["prerelease"] as? Bool == false,
+        try await latestStable(deadline: ContinuousClock.now.advanced(by: .seconds(30)))
+    }
+    func latestStable(deadline: ContinuousClock.Instant) async throws -> DesktopHermesUpgradeTarget {
+        let release = try await json("releases/latest", deadline: deadline)
+        guard isFalse(release["draft"]), isFalse(release["prerelease"]),
               let tag = release["tag_name"] as? String, tag.hasPrefix("v")
         else { throw DesktopHermesUpgradeError.invalidRelease }
         // Validate before embedding a tag in a URL. target_commitish may be "main"; never use it.
         _ = try DesktopHermesUpgradeTarget(version: String(tag.dropFirst()), commit: String(repeating: "a", count: 40))
-        var reference = try await json("git/ref/tags/\(tag)")
+        var reference = try await json("git/ref/tags/\(tag)", deadline: deadline)
         for _ in 0..<4 {
             guard let object = reference["object"] as? [String: Any],
                   let sha = object["sha"] as? String, DesktopLocalHermesDetector.isObjectID(sha),
@@ -68,22 +84,51 @@ public struct DesktopHermesOfficialReleaseFetcher: DesktopHermesReleaseFetching 
             else { throw DesktopHermesUpgradeError.invalidRelease }
             if type == "commit" { return try DesktopHermesUpgradeTarget(version: String(tag.dropFirst()), commit: sha) }
             guard type == "tag" else { throw DesktopHermesUpgradeError.invalidRelease }
-            reference = try await json("git/tags/\(sha)")
+            reference = try await json("git/tags/\(sha)", deadline: deadline)
         }
         throw DesktopHermesUpgradeError.invalidRelease
     }
-    private func json(_ path: String) async throws -> [String: Any] {
+    private func isFalse(_ value: Any?) -> Bool {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return !number.boolValue
+    }
+    private func json(_ path: String, deadline: ContinuousClock.Instant) async throws -> [String: Any] {
+        try Task.checkCancellation()
+        let remaining = ContinuousClock.now.duration(to: deadline).components
+        let timeout = min(20, Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18)
+        guard timeout > 0 else { throw DesktopHermesUpgradeError.checkFailed }
+        let configuration = configuration.copy() as! URLSessionConfiguration
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
         let url = URL(string: "https://api.github.com/repos/NousResearch/hermes-agent/" + path)!
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+        request.httpShouldHandleCookies = false
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("Hermes-GO-Desktop", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request, delegate: HermesReleaseRedirectGuard())
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-              http.url?.scheme == "https", http.url?.host == "api.github.com",
-              data.count <= 512 * 1024,
+              http.url == url, response.expectedContentLength <= 512 * 1024
+        else { throw DesktopHermesUpgradeError.checkFailed }
+        var data = Data()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            guard data.count < 512 * 1024, ContinuousClock.now < deadline
+            else { throw DesktopHermesUpgradeError.checkFailed }
+            data.append(byte)
+        }
+        guard DesktopHermesUpgradeJSON.isUnambiguous(data, maximumBytes: 512 * 1024),
               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { throw DesktopHermesUpgradeError.checkFailed }
         return value
+    }
+}
+
+private final class HermesReleaseRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
 

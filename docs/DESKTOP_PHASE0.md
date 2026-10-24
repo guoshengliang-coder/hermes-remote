@@ -1,5 +1,18 @@
 # Hermes Go Desktop phase 0
 
+## HG-199 bounded public version discovery — unreleased, 2026-10-24
+
+Release/tag requests now create credential-free/cookie-free/cache-free ephemeral sessions, retain
+only injectable test protocol classes from an optional caller, refuse redirects and require the
+exact requested official URL. Header size is checked before application body consumption and the
+stream stops above 512 KiB; duplicate JSON fields are rejected. A shared monotonic 30-second deadline
+and per-resource/request 20-second cap bound the complete tag resolution. Cancellation invalidates
+the current session. Previous target/check semantics and error HR-HERMESUPDATE-001 remain.
+The old transport regressions reproduced ten failed assertions across five cases; successful
+lightweight/annotated tags, exact budget and cancellation remain covered without real network.
+Draft/prerelease fields must be actual JSON Booleans; Foundation's conversion of numeric zero to
+false previously accepted two malformed responses, now rejected by exact CFBoolean type checks.
+
 ## HG-199 local upgrade records — unreleased, 2026-10-24
 
 The Local Hermes version card independently refreshes the private upgrade journal on monitoring,

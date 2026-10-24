@@ -1,5 +1,21 @@
 # Hermes 持续升级（HG-199）
 
+## 本机管理记录与版本检测边界（2026-10-24）
+
+本机Hermes页独立读取升级journal，显示固定目标、最后意图阶段/时间，并区分待恢复和历史终态；
+不将其当当前运行/健康或完成证明。重复键、嵌套未来字段、超预算或读取期间身份变化拒绝，保留
+HR-HERMESUPDATE-003且不改写记录。上游检查使用无继承凭据/cookie的临时会话、精确官方URL、
+拒绝重定向、接收中512KiB JSON上限及同一30秒单调时限；错误沿用HR-HERMESUPDATE-001。
+此处仍无执行/恢复按钮，GO推荐和certified path继续为空。
+2026-10-24独立实际Core fetcher只访问公共GitHub，已解析官方v0.22.5到固定
+bf0203a794a07aac3ff764972ab9087baa4e4f4e；没有读取/修改现用安装或认证此目标。既有0.21.3→
+0.21.6矩阵是固定历史实验，不会因检测到新发布而自动扩展适用范围。
+
+新增独立原生uv/本地PEP517实验用实际固定PM PythonEnvironment、uv0.12.3/Python3.14.7：
+调用方中止自建uv并关闭FD、监督方再中止调用方后，backend新心跳与真实双域锁验证raw丢锁/
+proposal持锁直到backend退出。该构建有意中止，没有durable intent/实际官方锁或完整sync，不能
+将独立通过的worker和native边界拼成全树认证。复现及sandbox差异见原型README。
+
 ## PM worker 持锁实验（隔离，2026-10-24）
 
 新增窄proposed spawn与真实固定PM启动参数对照。默认_request worker在最后调用方死亡后丢失维护/

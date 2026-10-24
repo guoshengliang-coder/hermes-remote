@@ -30,6 +30,11 @@ recommendation reads “尚无验证结果”; unverified latest explains that e
 “正在检查…” and is disabled. Failed checks clear earlier success and show `HR-HERMESUPDATE-001`
 through GateIssueBanner, keeping raw technical causes behind details. No upgrade confirmation or
 execution button is exposed until the official adapter/recovery certification in stage two.
+Official release discovery uses an ephemeral public session without inherited credentials, cookies
+or default headers. It refuses redirects and mismatched endpoint URLs, checks declared size before
+consuming the response, and caps received JSON at 512 KiB with unambiguous keys. One monotonic
+30-second budget covers the release and annotated-tag chain, each request capped at 20 seconds.
+These checks retain HR-HERMESUPDATE-001 and never convert upstream availability into certification.
 
 After a successful version check, “检查升级条件” uses the same small bordered control. It adds
 “本地修改”, “升级恢复”, and “其他更新” rows; dirty files are explained without printing filenames or

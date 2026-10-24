@@ -4,8 +4,9 @@ import Foundation
 /// Parse bounded JSON first, comparing decoded keys within EACH object (including escaped keys).
 /// Foundation still performs typed decoding after this syntax/ambiguity check.
 enum DesktopHermesUpgradeJSON {
-    static func isUnambiguous(_ data: Data) -> Bool {
-        guard !data.isEmpty, data.count <= 64 * 1024, String(data: data, encoding: .utf8) != nil else { return false }
+    static func isUnambiguous(_ data: Data, maximumBytes: Int = 64 * 1024) -> Bool {
+        guard (1...(512 * 1024)).contains(maximumBytes), !data.isEmpty, data.count <= maximumBytes,
+              String(data: data, encoding: .utf8) != nil else { return false }
         var parser = Parser(bytes: Array(data))
         do {
             try parser.value(depth: 0)
