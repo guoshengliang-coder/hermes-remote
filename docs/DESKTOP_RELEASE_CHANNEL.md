@@ -1,5 +1,16 @@
 # Desktop release channel
 
+## Approved internal test candidate: 0.2.38
+
+On 2026-10-24 the owner confirmed **0.2.38/build 41** for the updater routing fix (#646).
+Continue the existing temporary ad-hoc internal channel with unchanged public trust settings.
+Build from clean current main, publish with the unified internal publisher, verify the full public
+DMG, and synchronize website/app-update discovery. Preserve the signed managed-component pointers.
+Old clients blocked by this updater defect require one direct DMG replacement of the GUI app;
+this does not reset or reinstall the owner's Hermes or change account bindings. Physical background
+commit/relaunch and mobile/data-preservation acceptance remain separate from publication checks.
+
+
 ## Published internal test distribution: 0.2.37
 
 On 2026-10-24 the owner authorized merge/publication and confirmed **0.2.37/build 40**.

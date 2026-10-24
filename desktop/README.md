@@ -1,5 +1,14 @@
 # Hermes Go Desktop
 
+Release candidate **0.2.38 / build 41** (owner confirmed 2026-10-24): fixes updates blocked
+on existing bundled installations (#646). Discovery and execution now follow the installed layout;
+component updates refresh signed preflight, while stale hints cannot override index discovery.
+Existing signing, confirmation, rollback and background-before-app sequencing remain unchanged.
+Affected 0.2.36/0.2.37 clients may need one direct DMG app replacement to acquire this updater fix.
+Do not reset Hermes, profiles, account binding or installation records. Continue temporary ad-hoc
+internal distribution and preserve the signed backend pointers. Publication evidence follows.
+
+
 Published **0.2.37 / build 40** (owner confirmed 2026-10-24): overview now emphasizes
 semantic icons, direct cloud latency, Hermes version and independently checked background/cloud/mobile
 status. Healthy explanations and check times expand on demand; recovery remains visible for failures.
