@@ -92,12 +92,23 @@ final class DesktopOverviewPresentationTests: XCTestCase {
         XCTAssertEqual(result.title, "本机可用，远程访问中断")
     }
 
+    func testLatencyUsesFreshDirectProbeAndNeverAccountReport() {
+        XCTAssertEqual(make(latency: 149).cloudLatency, "149 ms")
+        XCTAssertEqual(make(latency: 0).cloudLatency, "0 ms")
+        XCTAssertEqual(make(latency: nil).cloudLatency, "暂不可用")
+        XCTAssertEqual(make(latency: -1).cloudLatency, "暂不可用")
+        XCTAssertEqual(make(cloudLevel: .failed, latency: 149).cloudLatency, "暂不可用")
+        for age in [181.0, -20.0] {
+            XCTAssertEqual(make(age: age, latency: 149).cloudLatency, "待检测")
+        }
+    }
+
     private func make(online: Bool = true, selectedRemote: Bool = false,
                       cloudLevel: HealthLevel = .healthy, localLevel: HealthLevel? = .healthy,
                       age: TimeInterval = 0, accountAge: TimeInterval = 0, reportAge: TimeInterval = 0,
                       accountIssue: Bool = false, remoteHealthy: Bool = true,
                       state: DesktopAccountState? = nil, manageOnly: Bool = false,
-                      busy: Bool = false, unverified: Bool = false) -> DesktopOverviewPresentation {
+                      busy: Bool = false, unverified: Bool = false, latency: Int? = nil) -> DesktopOverviewPresentation {
         let checked = now.addingTimeInterval(-age)
         let report = ISO8601DateFormatter().string(from: now.addingTimeInterval(-reportAge))
         let localHealth = localLevel.map { ComponentHealth(component: .hermes, level: $0, detail: "fixture", checkedAt: checked) }
@@ -117,7 +128,7 @@ final class DesktopOverviewPresentationTests: XCTestCase {
                 expiresAt: nil, keyProved: nil, healthVerified: nil, binding: binding, previousBinding: nil),
             installations: [], devices: selectedRemote ? [remote] : [], selectedDeviceID: selectedRemote ? remote.deviceId : nil)
         return DesktopOverviewPresentation(
-            gateway: ComponentHealth(component: .gateway, level: cloudLevel, detail: "fixture", checkedAt: checked),
+            gateway: ComponentHealth(component: .gateway, level: cloudLevel, detail: "fixture", checkedAt: checked, latencyMilliseconds: latency),
             agent: DesktopAgentPresentation(mode: unverified ? .managedUnverified(releaseVersion: "1") : .managedVerified(releaseVersion: "1"),
                 health: ComponentHealth(component: .desktopAgent, level: .healthy, detail: "fixture", checkedAt: checked)),
             localHermes: DesktopLocalHermesPresentation(detection: .absent(hermesDataPresent: false), health: localHealth, hasManagedInstallation: true, now: now),

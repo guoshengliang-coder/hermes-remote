@@ -14,6 +14,7 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
     public let desktop: DesktopOverviewStatus
     public let hermes: DesktopOverviewStatus
     public let accountService: String
+    public let cloudLatency: String
     public let background: String
     public let remoteConnection: String
     public let remoteAccess: String
@@ -41,6 +42,12 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
         default: needsLogin = false
         }
         let accountFresh = fresh(accountCheckedAt) && !hasAccountIssue && dashboard != nil
+        if fresh(gateway.checkedAt), gateway.level == .healthy,
+           let milliseconds = gateway.latencyMilliseconds, milliseconds >= 0 {
+            cloudLatency = "\(milliseconds) ms"
+        } else {
+            cloudLatency = fresh(gateway.checkedAt) && gateway.level != .checking ? "暂不可用" : "待检测"
+        }
         accountService = needsLogin ? "登录后验证" : accountFresh ? "响应正常" : "尚未确认"
         if gateway.level == .checking || !fresh(gateway.checkedAt) {
             cloud = status(.checking, "尚未确认", "等待这台 Mac 的云端连接检查。", gateway.checkedAt)

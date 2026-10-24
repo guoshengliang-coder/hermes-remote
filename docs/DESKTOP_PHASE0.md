@@ -1,5 +1,14 @@
 # Hermes Go Desktop phase 0
 
+## Status and diagnostics polish — 2026-10-24
+
+The diagnostics presentation combines local background/authenticated Hermes probes and the local
+binding's account/cloud reports into seven explicitly sourced results. Technical installation plans
+are secondary to actual checks. The embedded log viewer supports source/query/keyword filters and
+copying the displayed redacted set, with the existing bounded managed-log reader. Overview gains
+fresh direct cloud latency and a device-specific Desktop title; window branding and the Local Hermes
+placeholder card are removed. Runtime/repair confirmations and data ownership remain unchanged.
+
 ## Existing-Hermes repair and navigation follow-up — 2026-10-24
 
 Repair now accepts a standard existing installation with named profiles. Missing GO startup items are

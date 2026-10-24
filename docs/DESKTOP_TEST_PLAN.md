@@ -1,5 +1,20 @@
 # Hermes Go Desktop test plan
 
+## Status and diagnostics polish acceptance — 2026-10-24
+
+Test impact: add regression coverage for mixed local/cloud failures, stale/future timestamps, failed
+account refresh, missing local binding with selected remote device, and direct cloud latency rather
+than reported RTT. Log filtering must combine source/query/keyword predicates and preserve redaction.
+Existing service/repair tests remain unchanged; this is presentation plus bounded read-only log access.
+
+Native acceptance: inspect healthy and failed checks, compact/dark layouts, long Mac names and selected
+Hermes icon. Header title text must be hidden while traffic lights/window dragging still work. Verify
+all seven checks pass before a green summary, repair appears beside a failing background check, no
+reconnect is suggested for healthy results, and preflight downloads are clearly historical plans.
+Exercise log source/search/warnings filters, empty result, scroll, refresh, copy matching text and
+open directory. Old log errors cannot change the current health conclusion. Verify Local Hermes has
+one state card without roadmap prose; missing installations must not claim an existing install.
+
 ## Existing profiles and repair regression — 2026-10-24 follow-up
 
 Test-impact review: exercise real file-only detector + missing-both-startup-items repair with default,

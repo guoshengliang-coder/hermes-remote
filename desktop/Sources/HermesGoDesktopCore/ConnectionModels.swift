@@ -39,6 +39,7 @@ public struct ComponentHealth: Identifiable, Equatable, Sendable {
     public let detail: String
     public let checkedAt: Date?
     public let issue: DesktopIssue?
+    public let latencyMilliseconds: Int?
 
     public var id: String { component.id }
 
@@ -47,13 +48,15 @@ public struct ComponentHealth: Identifiable, Equatable, Sendable {
         level: HealthLevel,
         detail: String,
         checkedAt: Date? = nil,
-        issue: DesktopIssue? = nil
+        issue: DesktopIssue? = nil,
+        latencyMilliseconds: Int? = nil
     ) {
         self.component = component
         self.level = level
         self.detail = detail
         self.checkedAt = checkedAt
         self.issue = issue
+        self.latencyMilliseconds = latencyMilliseconds
     }
 }
 
