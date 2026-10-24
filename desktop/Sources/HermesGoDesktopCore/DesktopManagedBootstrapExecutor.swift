@@ -294,7 +294,7 @@ public actor DesktopManagedBootstrapExecutor {
                 state = .idle
                 do { try acquisition.discard(acquired) }
                 catch { throw DesktopManagedBootstrapExecutorError.cleanupFailed }
-                throw DesktopManagedBootstrapExecutorError.releaseNotNewer
+                throw DesktopMigrationCoordinatorError.invalidStartingState
             }
             guard Self.version(acquired.manifest.releaseVersion, isNewerThan: installed) else {
                 state = .idle

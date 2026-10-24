@@ -168,7 +168,7 @@ public actor DesktopComponentBootstrapExecutor {
             intent = .install
         case .active(let installed, let layout, _, _):
             guard layout == .componentStore else {
-                throw DesktopComponentBootstrapExecutorError.releaseNotNewer
+                throw DesktopMigrationCoordinatorError.invalidStartingState
             }
             guard Self.version(
                 trustedPreflight.result.manifest.releaseVersion,

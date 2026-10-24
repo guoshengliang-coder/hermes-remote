@@ -577,6 +577,29 @@ extension DesktopComponentReleaseInstallerTests {
         try await second.cancel(secondPreparation)
     }
 
+    func testBootstrapExecutorRejectsBundledLayoutWithoutMisreportingVersion() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let migration = RecordingComponentBootstrapMigration()
+        let downloader = FixtureComponentDownloader()
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: downloader), migration: migration
+        )
+        await XCTAssertThrowsErrorAsync(try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(), workspaceRoot: fixture.workspace,
+            runID: "c0000000-0000-4000-8000-000000000011",
+            installation: .active(releaseVersion: "0.3.4", releaseLayout: .bundledRelease,
+                                  bindingID: "test-binding", bindingGeneration: 1),
+            healthProbe: executableProbe
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .invalidStartingState)
+        }
+        let requested = await downloader.requestedKinds()
+        let calls = await migration.recordedCalls()
+        XCTAssertTrue(requested.isEmpty)
+        XCTAssertTrue(calls.isEmpty)
+    }
+
     func testBootstrapExecutorCancelRemovesPrivatePreparationWithoutMigration() async throws {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }

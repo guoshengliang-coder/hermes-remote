@@ -1543,3 +1543,19 @@ shared-device refusal). `swift build` compiles the executable target. The mockup
 `docs/design/desktop-onboarding/`. Not verified: the clean-Mac first run, the two QR codes on real
 phones, and the "services keep running while the window is gated" claim — all three are manual steps
 in `docs/DESKTOP_TEST_PLAN.md`.
+
+### Existing-install update source selection (2026-10-24)
+
+A managed update follows the persisted installation layout: schema-1/bundled installations use
+`/desktop/releases/index.json` and the bundled executor; component-store installations use
+`/desktop/components/index.json` and the component executor. Server component capability applies to
+fresh setup and cannot convert an existing installation. Discovery reads the scoped installation
+first and records the layout in its update offer; confirmation uses that recorded executor even if
+server capabilities refresh. Component update preparation reloads its signed preflight instead of
+using a startup cache. A missing matching source never falls back to the other layout. The executor
+still rejects changed/invalid starting state and non-newer versions, before touching live services.
+
+This fixes a bundled 0.3.4 installation offered 0.4.12 but incorrectly passed to the component
+executor, whose layout guard used to report `releaseNotNewer` (`HR-MIGRATE-001`). App replacement
+continues only after successful background commit/cleanup. An affected old GUI may need one direct
+DMG replacement to acquire this updater fix; do not edit its journal or reinstall/reset Hermes.

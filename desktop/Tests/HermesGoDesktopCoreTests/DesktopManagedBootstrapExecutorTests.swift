@@ -85,6 +85,19 @@ final class DesktopManagedBootstrapExecutorTests: XCTestCase {
         XCTAssertEqual(fixture.migration.events, ["upgrade"])
     }
 
+    func testBundledExecutorRejectsComponentLayoutAndDiscardsPreparation() async throws {
+        let fixture = BootstrapExecutorFixture()
+        await XCTAssertThrowsErrorAsync(try await fixture.executor.prepare(
+            manifestURL: fixture.manifestURL, workspaceRoot: fixture.workspaceRoot, runID: fixture.runID,
+            installation: .active(releaseVersion: "0.3.4", releaseLayout: .componentStore,
+                                  bindingID: "test-binding", bindingGeneration: 1)
+        )) { error in
+            XCTAssertEqual(error as? DesktopMigrationCoordinatorError, .invalidStartingState)
+        }
+        XCTAssertEqual(fixture.migration.events, [])
+        XCTAssertEqual(fixture.acquisition.events, ["acquire", "discard"])
+    }
+
     func testActiveInstallationRejectsSameVersionBeforeMigration() async throws {
         let fixture = BootstrapExecutorFixture()
         await XCTAssertThrowsErrorAsync(try await fixture.executor.prepare(
