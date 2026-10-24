@@ -18,6 +18,8 @@ public struct DesktopUpdateAvailability: Equatable, Sendable {
     public let releaseNotes: [String]
     public let appReference: DesktopAppUpdateReference?
     public let managedReference: DesktopReleaseIndexReference?
+    /// Frozen with discovery so capability refreshes cannot change the executor mid-update.
+    public let managedLayout: DesktopManagedReleaseLayoutKind?
 
     public init(app reference: DesktopAppUpdateReference) {
         kind = .app
@@ -25,24 +27,27 @@ public struct DesktopUpdateAvailability: Equatable, Sendable {
         releaseNotes = reference.releaseNotes
         appReference = reference
         managedReference = nil
+        managedLayout = nil
     }
 
     /// A configured manifest already inspected by the setup preflight. Installation still verifies
     /// that manifest through the existing executor; this is only presentation/discovery metadata.
-    public init(managedVersion: String) {
+    public init(managedVersion: String, layout: DesktopManagedReleaseLayoutKind = .bundledRelease) {
         kind = .managed
         version = managedVersion
         releaseNotes = []
         appReference = nil
         managedReference = nil
+        managedLayout = layout
     }
 
-    public init(managed reference: DesktopReleaseIndexReference) {
+    public init(managed reference: DesktopReleaseIndexReference, layout: DesktopManagedReleaseLayoutKind = .bundledRelease) {
         kind = .managed
         version = reference.releaseVersion
         releaseNotes = reference.releaseNotes
         appReference = nil
         managedReference = reference
+        managedLayout = layout
     }
 }
 
@@ -61,11 +66,14 @@ public struct DesktopUpdateReport: Equatable, Sendable {
         self.managedUpdate = managedUpdate
     }
 
-    public func includingPreparedManagedVersion(_ target: String?, installed: String?) -> Self {
+    public func includingPreparedManagedVersion(
+        _ target: String?, installed: String?,
+        layout: DesktopManagedReleaseLayoutKind = .bundledRelease
+    ) -> Self {
         guard managedUpdate == nil, let target, let installed,
               DesktopSemanticVersion.isNewer(target, than: installed) else { return self }
         return Self(checkedAt: checkedAt, appUpdate: appUpdate,
-                    managedUpdate: DesktopUpdateAvailability(managedVersion: target))
+                    managedUpdate: DesktopUpdateAvailability(managedVersion: target, layout: layout))
     }
 
     public var hasUpdates: Bool { appUpdate != nil || managedUpdate != nil }
@@ -78,6 +86,7 @@ public struct DesktopUpdateSources: Equatable, Sendable {
     public let managedIndexURL: URL?
     public let managedChannel: String?
     public let managedArchitecture: String?
+    public let managedLayout: DesktopManagedReleaseLayoutKind
 
     public init(
         appIndexURL: URL?,
@@ -85,7 +94,8 @@ public struct DesktopUpdateSources: Equatable, Sendable {
         appArchitecture: String?,
         managedIndexURL: URL?,
         managedChannel: String?,
-        managedArchitecture: String?
+        managedArchitecture: String?,
+        managedLayout: DesktopManagedReleaseLayoutKind = .bundledRelease
     ) {
         self.appIndexURL = appIndexURL
         self.appChannel = appChannel
@@ -93,6 +103,7 @@ public struct DesktopUpdateSources: Equatable, Sendable {
         self.managedIndexURL = managedIndexURL
         self.managedChannel = managedChannel
         self.managedArchitecture = managedArchitecture
+        self.managedLayout = managedLayout
     }
 }
 
@@ -160,7 +171,7 @@ public final class DesktopUpdateChecker: @unchecked Sendable {
             }
             if let installedManagedVersion,
                DesktopSemanticVersion.isNewer(reference.releaseVersion, than: installedManagedVersion) {
-                managedUpdate = DesktopUpdateAvailability(managed: reference)
+                managedUpdate = DesktopUpdateAvailability(managed: reference, layout: sources.managedLayout)
             }
         }
 

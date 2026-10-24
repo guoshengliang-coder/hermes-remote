@@ -107,6 +107,100 @@ final class DesktopUpdateCheckerTests: XCTestCase {
         }
     }
 
+    func testBundled034UsesBundledIndexEvenWithComponentCapability() async throws {
+        let source = try XCTUnwrap(DesktopManagedUpdateSource.resolve(
+            installation: installation(.bundledRelease),
+            bundled: bundledConfiguration(), components: componentConfiguration()
+        ))
+        XCTAssertEqual(source.layout, .bundledRelease)
+        XCTAssertEqual(source.manifestURL, managedIndexURL)
+        let report = try await checkSelectedSource(source)
+        XCTAssertEqual(report.appUpdate?.version, "0.2.37")
+        XCTAssertEqual(report.managedUpdate?.version, "0.4.12")
+        XCTAssertEqual(report.managedUpdate?.managedLayout, .bundledRelease)
+        XCTAssertEqual(report.managedUpdate?.managedReference?.manifestURL.path,
+                       "/desktop/releases/0.4.12/Hermes-Desktop-0.4.12-arm64.manifest.json")
+    }
+
+    func testComponentInstallationUsesComponentIndexAndFreezesExecutorLayout() async throws {
+        let source = try XCTUnwrap(DesktopManagedUpdateSource.resolve(
+            installation: installation(.componentStore),
+            bundled: bundledConfiguration(), components: componentConfiguration()
+        ))
+        XCTAssertEqual(source.layout, .componentStore)
+        XCTAssertEqual(source.manifestURL.path, "/desktop/components/index.json")
+        let report = try await checkSelectedSource(source)
+        XCTAssertEqual(report.managedUpdate?.managedLayout, .componentStore)
+        XCTAssertEqual(report.managedUpdate?.managedReference?.manifestURL.path,
+                       "/desktop/components/0.4.12/Hermes-Desktop-0.4.12-arm64.manifest.json")
+        // A prepared hint cannot overwrite a discovered release or its executor identity.
+        XCTAssertEqual(report.includingPreparedManagedVersion("9.0.0", installed: "0.3.4"), report)
+    }
+
+    func testMissingMatchingConfigurationNeverFallsBackToOtherLayout() throws {
+        XCTAssertNil(DesktopManagedUpdateSource.resolve(
+            installation: installation(.bundledRelease), bundled: nil, components: try componentConfiguration()
+        ))
+        XCTAssertNil(DesktopManagedUpdateSource.resolve(
+            installation: installation(.componentStore), bundled: try bundledConfiguration(), components: nil
+        ))
+        for state: DesktopManagedBootstrapInstallationStatus in [.absent, .inconsistent, .attentionRequired] {
+            XCTAssertNil(DesktopManagedUpdateSource.resolve(
+                installation: state, bundled: try bundledConfiguration(), components: try componentConfiguration()
+            ))
+        }
+    }
+
+    func testPreparedComponentHintRetainsComponentLayout() {
+        let report = DesktopUpdateReport(checkedAt: Date(), appUpdate: nil, managedUpdate: nil)
+            .includingPreparedManagedVersion("0.4.12", installed: "0.3.4", layout: .componentStore)
+        XCTAssertEqual(report.managedUpdate?.managedLayout, .componentStore)
+    }
+
+    private func installation(_ layout: DesktopManagedReleaseLayoutKind) -> DesktopManagedBootstrapInstallationStatus {
+        .active(releaseVersion: "0.3.4", releaseLayout: layout, bindingID: "test-binding", bindingGeneration: 1)
+    }
+
+    private func bundledConfiguration() throws -> DesktopManagedBootstrapConfiguration {
+        try DesktopManagedBootstrapConfiguration(
+            manifestURL: managedIndexURL, artifactOrigin: URL(string: "https://mrlgs.net")!,
+            channel: "internal", architecture: "arm64", signingKeyID: "test-key",
+            signingPublicKey: Data(repeating: 1, count: 32), runtimeContract: .serveV1
+        )
+    }
+
+    private func componentConfiguration() throws -> DesktopComponentPreflightConfiguration {
+        try DesktopComponentPreflightConfiguration(
+            manifestURL: URL(string: "https://mrlgs.net/desktop/components/index.json")!,
+            artifactOrigin: URL(string: "https://mrlgs.net")!, channel: "internal", architecture: "arm64",
+            signingKeyID: "test-key", signingPublicKey: Data(repeating: 1, count: 32)
+        )
+    }
+
+    private func checkSelectedSource(_ source: DesktopManagedUpdateSource) async throws -> DesktopUpdateReport {
+        let appData = appIndex(version: "0.2.37")
+        let selectedData = managedIndex(version: "0.4.12")
+        // Build the component fixture from the same index shape, but with its own URL namespace.
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: selectedData) as? [String: Any])
+        object["manifestURL"] = source.manifestURL.deletingLastPathComponent()
+            .appendingPathComponent("0.4.12/Hermes-Desktop-0.4.12-arm64.manifest.json").absoluteString
+        let managedData = try JSONSerialization.data(withJSONObject: object)
+        let appURL = appIndexURL
+        let selectedURL = source.manifestURL
+        UpdateURLProtocol.handler = { request in
+            if request.url == appURL { return (200, [:], appData) }
+            if request.url == selectedURL { return (200, [:], managedData) }
+            return (404, [:], Data()) // Consulting the other layout's index must fail the test.
+        }
+        return try await checker().check(
+            sources: DesktopUpdateSources(
+                appIndexURL: appIndexURL, appChannel: "internal", appArchitecture: "arm64",
+                managedIndexURL: source.manifestURL, managedChannel: source.channel,
+                managedArchitecture: source.architecture, managedLayout: source.layout
+            ), installedAppVersion: "0.2.36", installedManagedVersion: "0.3.4"
+        )
+    }
+
     // MARK: - Fixtures
 
     private func stubIndexes(appVersion: String, managedVersion: String) {

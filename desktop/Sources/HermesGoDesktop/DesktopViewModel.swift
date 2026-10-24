@@ -338,22 +338,29 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         return nil
     }
 
+    private var managedUpdateSource: DesktopManagedUpdateSource? {
+        let bundled: DesktopManagedBootstrapConfiguration? =
+            if case .configured(let value) = effectiveManagedBootstrapConfiguration { value } else { nil }
+        let components: DesktopComponentPreflightConfiguration? =
+            if componentBootstrapAvailability == .ready,
+               case .configured(let value) = componentPreflightConfiguration { value } else { nil }
+        return DesktopManagedUpdateSource.resolve(
+            installation: currentManagedInstallation, bundled: bundled, components: components
+        )
+    }
+
     var updateSources: DesktopUpdateSources {
         let app: DesktopAppUpdateConfiguration? =
             if case .configured(let value) = appUpdateConfiguration { value } else { nil }
-        let managed: DesktopManagedBootstrapConfiguration? =
-            if case .configured(let value) = effectiveManagedBootstrapConfiguration {
-                value
-            } else {
-                nil
-            }
+        let managed = managedUpdateSource
         return DesktopUpdateSources(
             appIndexURL: app?.indexURL,
             appChannel: app?.channel,
             appArchitecture: app?.architecture,
             managedIndexURL: managed?.manifestURL,
             managedChannel: managed?.channel,
-            managedArchitecture: managed?.architecture
+            managedArchitecture: managed?.architecture,
+            managedLayout: managed?.layout ?? .bundledRelease
         )
     }
 
@@ -384,10 +391,25 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     func checkForUpdates(manual: Bool) async {
         guard !desktopUpdateSequence.isRunning, !isManagedBootstrapAccountLocked, !isAppUpdateInstalling else { return }
         if case .checking = updateCheckState { return }
-        let preparedTarget = selectedTargetReleaseVersion
+        // Resolve both discovery and execution from the actual installation, not the monitor's
+        // startup cache or the server's capability for fresh installations.
+        updateCheckState = .checking
+        currentManagedInstallation = await inspectScopedManagedBootstrapInstallation()
+        let source = managedUpdateSource
+        let sources = updateSources
+        // Only a direct manifest needs a prepared hint. An index is authoritative for discovery;
+        // a stale startup preflight must not resurrect a release that index no longer offers.
+        let preparedTarget: String?
+        if let source, source.manifestURL.lastPathComponent != "index.json" {
+            preparedTarget = source.layout == .componentStore
+                ? trustedComponentPreflight?.result.manifest.releaseVersion : managedTargetReleaseVersion
+        } else {
+            preparedTarget = nil
+        }
         guard isUpdateConfigured else {
             let report = DesktopUpdateReport(checkedAt: Date(), appUpdate: nil, managedUpdate: nil)
-                .includingPreparedManagedVersion(preparedTarget, installed: installedManagedVersion)
+                .includingPreparedManagedVersion(preparedTarget, installed: installedManagedVersion,
+                                                 layout: sources.managedLayout)
             if report.hasUpdates {
                 updateCheckState = .available(report)
                 isUpdateSheetPresented = true
@@ -398,18 +420,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             if manual { appUpdateIssue = issue }
             return
         }
-        updateCheckState = .checking
-        let sources = updateSources
         let checker = updateChecker
-        // Inspect the actual scoped install before discovery. At startup the monitor may not have
-        // published its first snapshot yet, so a cached .absent must not suppress an update.
-        let managedInstallation = await inspectScopedManagedBootstrapInstallation()
-        let installedManagedVersion: String? = if case .active(let version, _, _, _) = managedInstallation {
-            version
-        } else {
-            nil
-        }
-        updateCheckState = .checking
+        let installedManagedVersion = self.installedManagedVersion
         appUpdateStatusMessage = nil
         if manual { appUpdateIssue = nil }
         do {
@@ -417,7 +429,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 sources: sources,
                 installedAppVersion: appVersion,
                 installedManagedVersion: installedManagedVersion
-            ).includingPreparedManagedVersion(preparedTarget, installed: installedManagedVersion)
+            ).includingPreparedManagedVersion(preparedTarget, installed: installedManagedVersion,
+                                                 layout: sources.managedLayout)
             lastUpdateCheckAt = report.checkedAt
             updateCheckState = report.hasUpdates ? .available(report) : .upToDate(report)
             // The Account & Devices card reads this discovered version as a preflight hint.
@@ -487,12 +500,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         if desktopUpdateSequence.stage == .background {
             appUpdateStatusMessage = "正在准备 Desktop 更新，验证后将确认重启影响。"
             isUpdateSheetPresented = false
-            if isComponentBootstrapPathSelected {
+            if report.managedUpdate?.managedLayout == .componentStore {
                 await prepareComponentBootstrap(forDesktopUpdate: true)
                 if componentBootstrapOperation != .awaitingConfirmation {
                     desktopUpdateSequence.stop()
                     appUpdateIssue = componentBootstrapIssue ?? DesktopIssue(code: .migrationPreflightFailed)
-                    appUpdateStatusMessage = "Desktop 更新准备未完成，请处理诊断中的问题后重试。"
+                    appUpdateStatusMessage = "Desktop 更新准备失败，尚未重启。请重新检查更新；仍失败可打开诊断并复制报告。"
                     isUpdateSheetPresented = true
                 }
             } else {
@@ -500,7 +513,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 if managedBootstrapOperation != .awaitingConfirmation {
                     desktopUpdateSequence.stop()
                     appUpdateIssue = managedBootstrapIssue ?? DesktopIssue(code: .migrationPreflightFailed)
-                    appUpdateStatusMessage = "Desktop 更新准备未完成，请处理诊断中的问题后重试。"
+                    appUpdateStatusMessage = "Desktop 更新准备失败，尚未重启。请重新检查更新；仍失败可打开诊断并复制报告。"
                     isUpdateSheetPresented = true
                 }
             }
@@ -1587,8 +1600,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     func prepareComponentBootstrap(forDesktopUpdate: Bool = false) async {
         guard !isServiceMutationLocked, (!isDesktopUpdateRunning || forDesktopUpdate),
               !isHermesInstallDecisionPending,
-              let runtime = componentBootstrapRuntime,
-              let trustedPreflight = trustedComponentPreflight
+              let runtime = componentBootstrapRuntime
         else { return }
 
         componentBootstrapIssue = nil
@@ -1597,6 +1609,17 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         do {
             applyAccountState(try await accountController.refresh())
             guard componentBootstrapAvailability == .ready else {
+                throw DesktopComponentBootstrapExecutorError.invalidPreflight
+            }
+            // A cached setup preflight may predate the release discovered by the update check.
+            // Reload and verify the selected component source before preparing its confirmation.
+            let probe = componentEntrypointProbe
+            if forDesktopUpdate {
+                trustedComponentPreflight = try await runtime.preflight.loadTrusted { kind, root, entrypoint in
+                    try probe(kind, root: root, entrypoint: entrypoint)
+                }
+            }
+            guard let trustedPreflight = trustedComponentPreflight else {
                 throw DesktopComponentBootstrapExecutorError.invalidPreflight
             }
             let machine = await componentMachinePreflight()
@@ -1610,7 +1633,6 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 noteFreshInstallBlock()
                 return
             }
-            let probe = componentEntrypointProbe
             let runID = UUID().uuidString.lowercased()
             do {
                 let preparation = try await runtime.executor.prepare(
@@ -1821,6 +1843,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     var isComponentBootstrapPathSelected: Bool {
+        if case .active(_, let layout, _, _) = currentManagedInstallation {
+            return layout == .componentStore
+        }
         guard case .configured = componentPreflightConfiguration,
               case .signedIn(let dashboard) = accountState
         else { return false }

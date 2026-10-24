@@ -850,3 +850,27 @@ Manual, on a real Mac (not reproducible in CI):
 The asset equality gate checks the canonical Android image and Desktop packaging copy. On a
 physical Mac, inspect the built app in the Dock in light and dark appearance; the faceted H should
 retain its colors without an opaque white square. The local ad-hoc build is not a signed release.
+
+### Update source/layout regression (2026-10-24)
+
+Test impact: the defect is at discovery/executor routing, not semantic-version ordering. Automated
+coverage selects the source for bundled 0.3.4 with both configurations available, discovers app
+0.2.37 and backend 0.4.12, and asserts the bundled executor identity. The mirrored component-store
+case accepts only the component index; requesting the other namespace fails. Missing matching
+configuration and absent/inconsistent/attention-required installs cannot cross-fallback. Prepared
+component hints retain their layout and cannot overwrite an existing offer. Both executors reject
+the opposite layout without misreporting a non-newer version or mutating live services. Existing
+same-version refusal and unified update failure/cancel/cleanup tests remain required.
+
+Physical acceptance: on a bundled-layout Mac with server component capability enabled, check and
+prepare the update; confirm the signed bundled-release confirmation appears, then complete the
+explicitly confirmed upgrade and app relaunch. Repeat on a component-store Mac, including a newer
+index published after startup preflight. Verify original Hermes home/profiles/data and account
+binding, no duplicate background services, and mobile access afterwards. These service-changing
+physical steps remain pending; unit/build gates alone do not establish successful on-device upgrade.
+
+Read-only physical evidence on 2026-10-24: the installed 0.2.36/build 39 public configuration and
+schema-1 active 0.3.4 journal resolve to the bundled index/executor with this fix. Public discovery
+finds app 0.2.37 and backend 0.4.12; the backend envelope passes size/hash and Ed25519 verification
+using the installed app's trusted public key. No credentials were printed and no app, service,
+installation journal or Hermes data was changed. Commit/relaunch acceptance remains pending.
