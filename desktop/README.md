@@ -8,9 +8,9 @@ were verified. The installed 0.2.39 client updated and relaunched as 0.2.41/buil
 updater, preserving Hermes/Connector PIDs, Hermes source/config and the absent upgrade record.
 
 Actual clicks found Hermes 0.21.3, upstream stable 0.22.5, no GO-certified recommendation and no upgrade
-record. Conditions returned unknown local changes and correctly blocked execution. Account restoration
-remains at checking; possible macOS Keychain confirmation needs the owner. These are acceptance
-limitations, not a complete account/phone/business acceptance. This is ad-hoc internal distribution,
+record. Conditions returned unknown local changes and correctly blocked execution. After the owner handled the system confirmation, account restoration completed and Overview
+reported local Hermes ready and Cloud connected. Local-change checking remains unknown; phone
+business tasks and clean-machine acceptance are still unverified. This is ad-hoc internal distribution,
 not Developer ID/notarized distribution. Details: `../docs/DESKTOP_RELEASE_CHANNEL.md` and
 `../docs/DESKTOP_TEST_PLAN.md`.
 
