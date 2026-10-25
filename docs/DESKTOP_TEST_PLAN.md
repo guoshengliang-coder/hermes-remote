@@ -2,6 +2,24 @@
 
 ## Hermes compatibility I4: operation intent and process interruption
 
+Recovery-point test impact includes external Python coverage, linked data/config dependencies,
+tree consistency, metadata/receipt tampering, effective private-directory boundaries and source
+preservation. Seven `DesktopHermesRecoveryPointTests` exercise real trees and retained candidate
+writes. A uv-created 0666 venv lock behind a 0700 home is preserved; the regression failed before
+the fix. Exposed writable entries still refuse, and source permissions are never changed to pass.
+The process test additionally captures in one actual-Core helper process and reconstructs in another,
+checking that new candidate history remains untouched. No live-path commit is performed by Core.
+
+`python3 -B scripts/hermes-recovery-point-lab.py --lab <retained-I0-disposable-lab>` independently
+checks the fixed source and uv layout, builds the actual Core helper, and captures/materializes both
+home and external Python. Only its explicit lab controller swaps the synthetic paths, starts old
+Hermes under the existing sandbox plus loopback-only network policy, verifies HTTP version/history
+and configuration, stops it and returns the untouched original trees. The final 2026-10-26 receipt
+is in `docs/evidence/hermes-compatibility/2026-10-26-native-recovery-material.json`. This is not an
+official update, automatic rollback, power-loss/live-commit interruption, new-data downgrade policy,
+installed-app journey or general Python dependency certification. Unsafe cleanup leaves a marker
+and retained trees. Do not apply this lab command to a daily installation.
+
 Test impact: private file/root/lock ownership, symlinks/hardlinks, atomic replacement, synchronization,
 complete-record comparisons, shared maintenance exclusion, interrupted writes and new recovery stages.
 Use HR-HERMESUPDATE-002 for invalid/concurrent operation preflight and -003 for uncertain persistence

@@ -93,7 +93,7 @@ test('offline table-chart assets select both consumers', () => {
 });
 
 test('journal process acceptance changes select the macOS job that executes them', () => {
-  for (const file of ['scripts/hermes-upgrade-journal-helper.swift', 'scripts/test/hermes-upgrade-journal-process.test.py']) {
+  for (const file of ['scripts/hermes-upgrade-journal-helper.swift', 'scripts/hermes-recovery-point-helper.swift', 'scripts/hermes-recovery-point-lab.py', 'scripts/test/hermes-upgrade-journal-process.test.py']) {
     assert.deepEqual(classifyChangedPaths([file]), {node:true, android:false, desktop:true, assets:false, web:false});
   }
 });

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'actual Desktop Core process acceptance requires macOS')
@@ -25,6 +26,45 @@ class JournalProcessTests(unittest.TestCase):
         subprocess.run(['swiftc','-parse-as-library','-I',str(binary/'Modules'),
             str(cls.source/'scripts/hermes-upgrade-journal-helper.swift'),*map(str,objects),'-o',str(cls.helper)],
             check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=120)
+        cls.recovery_helper=Path(cls.workspace.name)/'recovery-helper'
+        subprocess.run(['swiftc','-parse-as-library','-I',str(binary/'Modules'),
+            str(cls.source/'scripts/hermes-recovery-point-helper.swift'),*map(str,objects),'-o',str(cls.recovery_helper)],
+            check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=120)
+
+    def test_recovery_material_survives_process_exit_and_keeps_new_candidate_data(self):
+        with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+            root=Path(directory).resolve();home=root/'user/.hermes'
+            runtime=root/'user/.local/share/uv/python/cpython-synthetic'
+            (home/'hermes-agent/venv/bin').mkdir(parents=True);(runtime/'bin').mkdir(parents=True)
+            python=runtime/'bin/python';python.write_text('#!/bin/sh\nexit 0\n');python.chmod(0o700)
+            (home/'hermes-agent/venv/bin/python').symlink_to(python)
+            (home/'state.db').write_bytes(b'old synthetic history')
+            run=str(uuid.uuid4());env={'PATH':'/usr/bin:/bin','HOME':str(root),'TMPDIR':tempfile.gettempdir()}
+            captured=subprocess.run([str(self.recovery_helper),'capture',str(root),run],env=env,
+                text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=30)
+            self.assertEqual(captured.returncode,0);self.assertEqual(json.loads(captured.stdout),{'status':'captured'})
+            (home/'state.db').write_bytes(b'new synthetic history')
+            restored=subprocess.run([str(self.recovery_helper),'materialize',str(root),run],env=env,
+                text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=30)
+            self.assertEqual(restored.returncode,0);self.assertEqual(json.loads(restored.stdout),{'status':'materialized'})
+            workspace=root/('native-recovery-'+run)
+            plan=json.loads((workspace/'material.json').read_text())
+            self.assertEqual(plan['runID'].lower(),run)
+            self.assertEqual(len(plan['roots']),2)
+            staged=Path(plan['roots'][0]['staged']).resolve()
+            self.assertTrue(staged.is_relative_to(workspace/'points'))
+            self.assertEqual((staged/'state.db').read_bytes(),b'old synthetic history')
+            self.assertEqual((home/'state.db').read_bytes(),b'new synthetic history')
+
+    def test_recovery_lab_refusal_has_registered_bilingual_error_without_private_path(self):
+        with tempfile.TemporaryDirectory(prefix='not-a-hermes-lab-') as directory:
+            result=subprocess.run([sys.executable,'-B',str(self.source/'scripts/hermes-recovery-point-lab.py'),
+                '--lab',directory],text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15)
+            self.assertEqual(result.returncode,2)
+            payload=json.loads(result.stdout);error=payload['error']
+            self.assertEqual(error['code'],'HR-HERMESUPDATE-002')
+            self.assertFalse(error['retryable']);self.assertTrue(error['summaryZh']);self.assertTrue(error['summaryEn'])
+            self.assertEqual(error['action'],'check_case_and_cache');self.assertNotIn(directory,result.stdout)
 
     def test_sigkill_preserves_complete_intent_and_exact_run_can_be_resumed(self):
         for action,phase in [('hold','backingUp'),('before-replace','quiescing'),('after-replace','backingUp')]:

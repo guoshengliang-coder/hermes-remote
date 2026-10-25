@@ -2,6 +2,17 @@
 
 ## Hermes compatibility I4: durable intent (implementation, not an enabled updater)
 
+`DesktopHermesRecoveryPointStore` captures the home and explicitly collected external runtimes
+under the operation lease. It refuses an omitted venv interpreter, uncovered symlink targets,
+overlapping roots, unsafe ownership or special files. Private points bind the exact journal identity,
+root paths, bytes, POSIX modes and links; publication is exclusive/atomic after synchronization.
+Retry accepts an existing point only when its identity and all current source trees still match.
+Recovery validates the receipt and reconstructs into a new private workspace, retaining all current
+installation data. This does not implement the live-path commit, data-write fence or service drain.
+No app action calls it. The fixed legacy uv runtime has been reconstructed and started at its original
+synthetic absolute paths by the separate lab controller; general dependency closure remains a recipe
+responsibility. OS snapshots, arbitrary metadata certification and arbitrary installations are not claimed.
+
 `DesktopHermesUpgradeOperation` now writes private upgrade intent atomically, syncs it, validates
 readback and holds the same `migration-operation.lock` used by installation/repair. Beginning refuses
 pending migration or another pending upgrade; resuming requires the exact persisted record and a free

@@ -46,6 +46,8 @@ export function classifyChangedPaths(paths) {
     if (
       (file.startsWith('desktop/') && file !== 'desktop/Packaging/AppIcon.png') ||
       file === 'scripts/hermes-upgrade-journal-helper.swift' ||
+      file === 'scripts/hermes-recovery-point-helper.swift' ||
+      file === 'scripts/hermes-recovery-point-lab.py' ||
       file === 'scripts/test/hermes-upgrade-journal-process.test.py' ||
       file === 'package.json'
     ) result.desktop = true;

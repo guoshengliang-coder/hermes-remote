@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "kind": "desktop-native-recovery-material",
+  "status": "failed",
+  "compatibilityApproved": false,
+  "sourceCommit": "633dda6d7fdcac7e8340471c9f5ed08cdccbd70c",
+  "sourceVersion": "0.21.3",
+  "coreSourceSha256": "f50678054f9c2ec4939759ca7b88e9376515f1f2f89c1f4391a0ad000a374f9e",
+  "driverSha256": "96792c1949f63fb18b706d831cce4341338d504b6d33ec1481f651d1bd49611b",
+  "helperSourceSha256": "f9f542a73d59b22fd656a424532b259723f636bacfcc761eb861b87cd9d78e14",
+  "checks": {
+    "untouchedOriginalsReturned": {
+      "passed": true
+    },
+    "sourceUnchanged": {
+      "passed": true
+    }
+  },
+  "notExecuted": [
+    "officialUpgrade",
+    "automaticRestoreCommit",
+    "upstreamOwnership",
+    "crashDuringLivePathCommit",
+    "newDataDowngradeAuthorization",
+    "installedDesktopJourney"
+  ],
+  "helperBinarySha256": "a7247c1c2078803ea1ab2774d47c71fa4bce12f9be741c2adec666cedd3862de",
+  "reason": "native_capture_refused"
+}

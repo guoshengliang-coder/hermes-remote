@@ -18,6 +18,32 @@ public final class DesktopHermesUpgradeOperation: @unchecked Sendable {
         mutex.lock(); defer { mutex.unlock() }; return current
     }
 
+    public func captureRecoveryPoint(in recovery: DesktopHermesRecoveryPointStore,
+                                     externalRuntimeRoots: [URL]) throws -> DesktopHermesUpgradeBackup {
+        mutex.lock(); defer { mutex.unlock() }
+        try assertOwnership()
+        guard try store.loadReadOnly() == current, current.phase == .backingUp else {
+            throw DesktopHermesUpgradeError.preflightBlocked
+        }
+        let receipt = try recovery.capture(journal: current, externalRuntimeRoots: externalRuntimeRoots)
+        try assertOwnership()
+        guard try store.loadReadOnly() == current else { throw DesktopHermesUpgradeError.recoveryRequired }
+        return receipt
+    }
+
+    /// Reconstructs private material only. No current installation or new user data is overwritten.
+    public func materializeRecoveryPoint(in recovery: DesktopHermesRecoveryPointStore) throws -> DesktopHermesRecoveryMaterial {
+        mutex.lock(); defer { mutex.unlock() }
+        try assertOwnership()
+        guard try store.loadReadOnly() == current, current.phase == .recovering else {
+            throw DesktopHermesUpgradeError.preflightBlocked
+        }
+        let material = try recovery.materialize(journal: current)
+        try assertOwnership()
+        guard try store.loadReadOnly() == current else { throw DesktopHermesUpgradeError.recoveryRequired }
+        return material
+    }
+
     /// Begin a new operation, or return the identical already-written initial intent. An old
     /// terminal record may be replaced; a pending record requires explicit exact-state resume.
     public static func begin(store: DesktopHermesUpgradeJournalStore, journal: DesktopHermesUpgradeJournal) throws -> Self {
