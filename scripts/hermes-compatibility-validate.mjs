@@ -50,7 +50,8 @@ export function labEvidence(raw, identity, fault = false) {
       || raw.compatibilityApproved !== false || (fault && raw.faultAfter !== 'target_python-deps')) throw new Error('lab_identity_mismatch');
   const names = ['sandbox', 'writeFence', 'evidenceFence', 'clone', 'origin', 'sourceCheckout', 'targetTag',
     'source_venv', 'source_python-deps', 'source_config', 'seedHistory', 'sourceHistory', 'snapshot', 'repository',
-    'exactTarget', 'target_venv', 'target_python-deps', 'target_config', 'target_products', 'target_complete', 'candidateHistory', 'restore', 'restoredHistory'];
+    'exactTarget', 'target_venv', 'target_python-deps', 'target_config', 'target_products', 'target_complete', 'candidateHistory', 'restore', 'restoredHistory',
+    'seedConfiguration','sourceConfiguration','candidateConfiguration','restoredConfiguration'];
   const phases = Object.fromEntries(names.map(name => [name, raw.checks?.[name]?.passed === true]));
   const snapshot = raw.checks?.snapshot?.digest, restored = raw.checks?.restore?.digest;
   return { kind: fault ? 'dependency-failure-recovery' : 'runtime-upgrade-recovery', phases,
@@ -60,7 +61,10 @@ export function labEvidence(raw, identity, fault = false) {
     snapshotRestored: typeof snapshot === 'string' && SHA.test(snapshot) && snapshot === restored,
     originalHistory: raw.checks?.sourceHistory?.historyPresent === true,
     upgradedHistory: raw.checks?.candidateHistory?.historyPresent === true && raw.checks?.candidateHistory?.runningVersion === identity.version,
-    restoredHistory: raw.checks?.restoredHistory?.historyPresent === true };
+    restoredHistory: raw.checks?.restoredHistory?.historyPresent === true,
+    ...(raw.checks?.seedConfiguration ? {configuration:{scope:'seeded-default-profile-and-dotenv',
+      seeded:phases.seedConfiguration,source:phases.sourceConfiguration,
+      candidate:phases.candidateConfiguration,restored:phases.restoredConfiguration}} : {}) };
 }
 export function buildBundle(task, evidence, startedAt, finishedAt = timestamp()) {
   const normal = evidence.normal, fault = evidence.fault;

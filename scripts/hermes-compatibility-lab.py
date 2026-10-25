@@ -39,6 +39,34 @@ db.create_session("go-compat-lab-history", "cli")
 db.append_message("go-compat-lab-history", "user", "Hermes GO 升级前的合成会话")
 db.close()
 '''
+SEED_CONFIGURATION = '''import os, secrets
+from pathlib import Path
+from hermes_cli.config import save_config
+save_config({"model": {"default": "go-compat-synthetic-model", "provider": "openrouter"},
+             "agent": {"max_turns": 23}, "terminal": {"timeout": 47},
+             "display": {"show_reasoning": False}}, merge_existing=True)
+env = Path(os.environ["HERMES_HOME"]) / ".env"
+content = env.read_text() if env.exists() else ""
+# Synthetic credentials only, generated inside the disposable HOME, never copied from the owner.
+assert not any(line.startswith("OPENROUTER_API_KEY=") for line in content.splitlines())
+env.write_text(content.rstrip("\\n") + "\\nOPENROUTER_API_KEY=synthetic-" + secrets.token_hex(24) + "\\n")
+env.chmod(0o600)
+'''
+CHECK_CONFIGURATION = '''import hashlib, os, sys
+from pathlib import Path
+from hermes_cli.config import load_config_readonly
+from dotenv import dotenv_values
+config = load_config_readonly()
+assert config["model"]["default"] == "go-compat-synthetic-model"
+assert config["model"]["provider"] == "openrouter"
+assert config["agent"]["max_turns"] == 23
+assert config["terminal"]["timeout"] == 47
+assert config["display"]["show_reasoning"] is False
+env = Path(os.environ["HERMES_HOME"]) / ".env"
+value = dotenv_values(env).get("OPENROUTER_API_KEY", "")
+assert value.startswith("synthetic-")
+assert hashlib.sha256(value.encode()).hexdigest() == sys.argv[1]
+'''
 
 
 class LabRefusal(Exception):
@@ -322,6 +350,7 @@ def rehearse(cache, case, runtime=False, fault_after=None):
             raise LabRefusal(name + "_failed")
 
     snapshot_digest = None
+    configuration_digest = None
     repo = root / "user/.hermes/hermes-agent"
     try:
         step("sandbox", ["/usr/bin/true"])
@@ -367,6 +396,22 @@ def rehearse(cache, case, runtime=False, fault_after=None):
                      "--non-interactive", "--skip-browser", "--skip-computer-use", "--dir", str(repo),
                      "--hermes-home", env["HERMES_HOME"]])
             step("seedHistory", [str(repo / "venv/bin/python"), "-B", "-c", SEED_HISTORY], cwd=repo)
+            step("seedConfiguration", [str(repo / "venv/bin/python"), "-B", "-c", SEED_CONFIGURATION], cwd=repo)
+            # Only the synthetic credential's digest crosses into process arguments. It is not published.
+            env_lines = (root / "user/.hermes/.env").read_text().splitlines()
+            values = [line.split("=", 1)[1] for line in env_lines if line.startswith("OPENROUTER_API_KEY=")]
+            if len(values) != 1 or not values[0].startswith("synthetic-"):
+                raise LabRefusal("synthetic_configuration_missing")
+            configuration_digest = sha256(values[0].encode())
+            configuration_tests = root / "configuration-check"
+            configuration_tests.mkdir()
+            # Run the same assertions through the target's public module launcher, so PM selects
+            # its own interpreter/dependency generation. Do not guess a target venv path.
+            configuration_code = CHECK_CONFIGURATION.replace("sys.argv[1]", repr(configuration_digest))
+            (configuration_tests / "test_configuration.py").write_text(
+                "import unittest\nclass ConfigurationTest(unittest.TestCase):\n"
+                "    def test_effective_configuration(self):\n        exec(" + repr(configuration_code) + ")\n")
+            step("sourceConfiguration", [str(repo / "venv/bin/python"), "-B", "-c", CHECK_CONFIGURATION, configuration_digest], cwd=repo)
             report["activeStage"] = "sourceHistory"
             save()
             report["checks"]["sourceHistory"] = probe_history(root, profile, env, repo / "venv/bin/hermes", "sourceHistory", "0.21.3")
@@ -405,6 +450,8 @@ def rehearse(cache, case, runtime=False, fault_after=None):
             if git_read(repo, "rev-parse", "HEAD").decode().strip() != case["targetCommit"]:
                 raise LabRefusal("completion_changed_target")
             report["checks"]["candidateHistory"] = probe_history(root, profile, env, repo / ".hermes/bin/hermes", "candidateHistory", "0.22.5")
+            step("candidateConfiguration", [str(repo / ".hermes/bin/hermes"), "--run-module", "unittest", "discover",
+                 "-s", str(configuration_tests), "-p", "test_configuration.py"], cwd=repo)
             report["notExecuted"] = [x for x in UNEXECUTED if x not in ("dependencyUpgrade", "historyMigration")]
         # Model a candidate writing new config/data, then test byte-for-byte
         # pre-use recovery. This does NOT claim to test upstream migrations.
@@ -431,6 +478,7 @@ def rehearse(cache, case, runtime=False, fault_after=None):
                     report["activeStage"] = "restoredHistory"
                     save()
                     report["checks"]["restoredHistory"] = probe_history(root, profile, env, repo / "venv/bin/hermes", "restoredHistory", "0.21.3")
+                    step("restoredConfiguration", [str(repo / "venv/bin/python"), "-B", "-c", CHECK_CONFIGURATION, configuration_digest], cwd=repo)
             except Exception:
                 report["status"] = "recovery_required"
                 report["reason"] = "snapshot_recovery_failed"

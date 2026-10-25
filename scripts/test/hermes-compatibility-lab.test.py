@@ -5,7 +5,9 @@ from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -19,6 +21,26 @@ class LabTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="hermes-lab-tests-")
         self.root = Path(self.temporary.name)
         self.addCleanup(self.temporary.cleanup)
+
+    def test_effective_configuration_probe_rejects_each_lost_setting_and_credential(self):
+        values = {"model": {"default": "go-compat-synthetic-model", "provider": "openrouter"},
+                  "agent": {"max_turns": 23}, "terminal": {"timeout": 47},
+                  "display": {"show_reasoning": False}}
+        credential = {"OPENROUTER_API_KEY": "synthetic-fixture-only"}
+        modules = {"hermes_cli": types.ModuleType("hermes_cli"),
+                   "hermes_cli.config": types.SimpleNamespace(load_config_readonly=lambda: values),
+                   "dotenv": types.SimpleNamespace(dotenv_values=lambda _: credential)}
+        with mock.patch.dict(sys.modules, modules), mock.patch.dict(os.environ, {"HERMES_HOME": str(self.root)}), \
+             mock.patch.object(sys, "argv", ["probe", lab.sha256(credential["OPENROUTER_API_KEY"].encode())]):
+            exec(lab.CHECK_CONFIGURATION, {})
+            for section, key in (("model", "default"), ("model", "provider"), ("agent", "max_turns"),
+                                 ("terminal", "timeout"), ("display", "show_reasoning")):
+                before = values[section][key]
+                values[section][key] = None
+                with self.assertRaises(AssertionError): exec(lab.CHECK_CONFIGURATION, {})
+                values[section][key] = before
+            credential["OPENROUTER_API_KEY"] = "synthetic-changed-value"
+            with self.assertRaises(AssertionError): exec(lab.CHECK_CONFIGURATION, {})
 
     def fixture(self, result="success"):
         repo = self.root / "cache"

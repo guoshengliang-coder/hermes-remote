@@ -42,6 +42,36 @@ test('missing recovery, mismatched suite and failed isolation cannot become pass
   assert.ok(report.checks.every(c => c.status === 'not_run' && c.evidenceSha256 === null));
 });
 
+test('default-profile configuration observations are retained without claiming all configuration support', async () => {
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-runtime-configuration.json',import.meta.url)));
+  const currentTask=parseTask({...task,identity:{...task.identity,suiteSha256:raw.suiteSha256}});
+  for(const phase of ['seedConfiguration','sourceConfiguration','candidateConfiguration','restoredConfiguration']) {
+    assert.equal(raw.checks[phase].passed,true);
+    raw.checks[phase].privateLog='synthetic-private-data';
+  }
+  const evidence=labEvidence(raw,currentTask.identity);
+  assert.deepEqual(evidence.configuration,{scope:'seeded-default-profile-and-dotenv',seeded:true,source:true,candidate:true,restored:true});
+  assert.equal(JSON.stringify(evidence).includes('synthetic-private-data'),false);
+  assert.equal(buildBundle(currentTask,{normal:evidence},'2026-10-25T01:00:00Z').report.checks.find(c=>c.name==='configuration').status,'not_run');
+  raw.checks.candidateConfiguration.passed=false;
+  assert.equal(labEvidence(raw,currentTask.identity).configuration.candidate,false);
+});
+
+test('real configured upgrade and dependency failure both recover with their fixed suite identity', async () => {
+  const upgrade=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-runtime-configuration.json',import.meta.url)));
+  const failure=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-dependency-configuration.json',import.meta.url)));
+  const currentTask=parseTask({...task,identity:{...task.identity,suiteSha256:upgrade.suiteSha256}});
+  const evidence={normal:labEvidence(upgrade,currentTask.identity),fault:labEvidence(failure,currentTask.identity,true)};
+  assert.equal(evidence.fault.configuration.source,true);
+  assert.equal(evidence.fault.configuration.restored,true);
+  assert.equal(evidence.fault.configuration.candidate,false,'fault precedes candidate startup');
+  evidence.recovery={...evidence};
+  const bundle=buildBundle(currentTask,evidence,'2026-10-25T01:00:00Z');
+  assert.equal(bundle.report.checks.find(c=>c.name==='recovery').status,'passed');
+  assert.equal(bundle.report.outcome,'failed','partial verification is not a compatibility approval');
+  assert.deepEqual(validateBundle(currentTask,bundle),bundle.report);
+});
+
 test('observed legacy lock gap is a failed check, never hidden as not-run or approved', async () => {
   const lock = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-update-lock.json', import.meta.url)));
   const { lockEvidence } = await import('../hermes-compatibility-validate.mjs');

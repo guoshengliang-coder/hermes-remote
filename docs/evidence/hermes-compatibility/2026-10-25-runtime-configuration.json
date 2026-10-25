@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "kind": "runtime-rehearsal",
+  "case": {
+    "schemaVersion": 1,
+    "sourceCommit": "633dda6d7fdcac7e8340471c9f5ed08cdccbd70c",
+    "targetCommit": "bf0203a794a07aac3ff764972ab9087baa4e4f4e",
+    "installerSha256": "99cb3691d55019c6973a7acb775a915648666cc24e483ca827a1cdbb3531a674",
+    "branch": "main"
+  },
+  "platform": "Darwin",
+  "arch": "arm64",
+  "suiteSha256": "b89bccdb4f18d97120f8817a104b2ad9effbd4e2bc4d11dfcddddfa6d184cf89",
+  "startedAt": 1792916055,
+  "status": "runtime_stage_passed",
+  "checks": {
+    "sandbox": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "writeFence": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "evidenceFence": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "clone": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "origin": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "sourceCheckout": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "targetTag": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "source_venv": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "source_python-deps": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "source_config": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "seedHistory": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "seedConfiguration": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "sourceConfiguration": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "sourceHistory": {
+      "passed": true,
+      "historyPresent": true,
+      "runningVersion": "0.21.3",
+      "pathCount": 248,
+      "openapiPathsSha256": "b7038ed98a6b9ae2953a33dc2392ab41074878c8afae90652ed284c8f3ef6f36"
+    },
+    "snapshot": {
+      "passed": true,
+      "digest": "dbcc11acbf9cc01c8c2a1c62504562f1deac2e052727ce49a95809a3bc390292"
+    },
+    "repository": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "exactTarget": {
+      "passed": true,
+      "actual": "bf0203a794a07aac3ff764972ab9087baa4e4f4e"
+    },
+    "target_venv": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "target_python-deps": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "target_config": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "target_products": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "target_complete": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "candidateHistory": {
+      "passed": true,
+      "historyPresent": true,
+      "runningVersion": "0.22.5",
+      "pathCount": 263,
+      "openapiPathsSha256": "f76eabbca82a57ce9595e8c6eceb4b79f7274f1b39ed9c069f817c81c9e21052"
+    },
+    "candidateConfiguration": {
+      "passed": true,
+      "exitCode": 0
+    },
+    "restore": {
+      "passed": true,
+      "actual": "633dda6d7fdcac7e8340471c9f5ed08cdccbd70c",
+      "digest": "dbcc11acbf9cc01c8c2a1c62504562f1deac2e052727ce49a95809a3bc390292"
+    },
+    "restoredHistory": {
+      "passed": true,
+      "historyPresent": true,
+      "runningVersion": "0.21.3",
+      "pathCount": 248,
+      "openapiPathsSha256": "b7038ed98a6b9ae2953a33dc2392ab41074878c8afae90652ed284c8f3ef6f36"
+    },
+    "restoredConfiguration": {
+      "passed": true,
+      "exitCode": 0
+    }
+  },
+  "notExecuted": [
+    "restRpc",
+    "connector",
+    "launchAgentRecovery",
+    "concurrentWriters",
+    "crashRecovery"
+  ],
+  "compatibilityApproved": false,
+  "sourceInstallerSha256": "2de7a1d60a7c0edf685d3b7b875b93a99c8006473a55218688a0075a88637045",
+  "finishedAt": 1792917260
+}

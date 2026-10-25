@@ -199,3 +199,21 @@ I3 后续测试影响评审：现有 Web 发布只回读首页，不能证明兼
 测试覆盖修改脚本但首页不变、缺文件、重定向、部分响应、过大响应、归档与清单不一致、部署中途切换、无凭据请求及中英错误序列化/脱敏。另用真实 package → 临时目录 publish → loopback HTTP → readback，证明整个合成 Web 发布可核验，修改已发布 JS 后确实拒绝；不是线上发布证据。首次 loopback 测试被执行沙箱禁止监听，获准测试执行后通过。没有修改 Web 产品代码、现有发布流程、Desktop UI 或部署任何服务。
 
 本轮验证：Web 证据与既有 Web 发布定向测试 11/11；脚本基线 449 通过、2 失败、1 跳过。两项失败仍为已记录的本机 LibreSSL CMS 解密；跳过项因本轮误用了数据库变量名，改用 `ACCOUNT_TEST_DATABASE_URL` 后单独补跑数据库迁移套件 9/9、无跳过。未修改的 Swift/客户端组件沿用前述 CI 结果，不声称本轮本地重跑。
+
+## I0/I2 实际配置保留补验
+
+`b0bb528e` 的 11 项 GitHub 检查全部通过，草稿未合并。随后回到真实升级链路补配置证据：原 `synthetic-config.yaml` 只能证明文件恢复，不能证明 Hermes 会读取升级后的实际配置。本轮在全新合成 HOME 中通过旧版配置保存函数设置模型/provider、最大轮数、终端超时及 reasoning 显示项，随机生成带 synthetic 前缀的虚拟 provider 凭据。检查使用两端实际 `load_config_readonly` 和 dotenv 读取；新版通过官方 `--run-module unittest` 启动器取得 PM 运行环境，不假定存在新版 venv 路径。没有实际模型请求或日常配置/凭据参与。
+
+实施前测试影响评审覆盖上述任一值丢失/变化时拒绝、同一配置在升级和失败恢复后重新读取、脚本身份固定及报告白名单。14 项 Python 工具单测、10 项 worker/lab 定向测试通过；脚本基线 451 通过、2 项既有 LibreSSL CMS 失败、无跳过。配置字段只作为 `seeded-default-profile-and-dotenv` 范围的观察，不能据此把多 profile、环境变量引用等全部配置场景标为通过，configuration 门禁仍保留未验收。
+
+为给新演练留空间，核验旧中间实验 `hermes-compat-lab-i6ubtx9r` 为已结束的固定套件 `f79df50e…` 且无相关进程后，只清理其 user/candidate/snapshot/tmp 合成运行目录，保留原报告、路由清单和私有日志。最终历史证据实验 `jo28st1h` 与 `um46lsn5` 未清理。
+
+固定套件 `b89bccdb4f18d97120f8817a104b2ad9effbd4e2bc4d11dfcddddfa6d184cf89` 的两次真实实验已结束：
+
+- [正常升级/恢复与配置检查](evidence/hermes-compatibility/2026-10-25-runtime-configuration.json) 为 `runtime_stage_passed`；旧版、新版、恢复后旧版的实际配置读取均通过。原历史可读，恢复树摘要与备份相等。运行目录 `hermes-compat-lab-nnkfnvca`，耗时 1205 秒。
+- [依赖落盘后失败与配置恢复](evidence/hermes-compatibility/2026-10-25-dependency-configuration.json) 如期记录 `injected_failure_after_target_dependencies`，整体不会标为升级成功。旧版配置、虚拟凭据及历史恢复检查通过，恢复树摘要与备份相等。候选在故障点后未启动，不能声称候选配置检查通过。运行目录 `hermes-compat-lab-ntjmmgcq`，耗时 866 秒。
+- 正常实验的新环境再执行三阶段接口探针，33 项全部通过；输出与已有 `2026-10-25-live-contracts.json` 字节一致，报告 SHA-256 为 `ed01b9436cdb7ccc7abee565233cbffddd22a9bbbe0a9643e755a4513f9e7d2b`，因此未重复存同一份 JSON。
+
+两份配置报告只保存阶段结果，不含虚拟凭据值、配置正文或个人目录；复制前与三份合成环境中的凭据值比对，确认未包含。该轮加强了已测默认 profile 的真实证据，仍没有解决并发锁、其他配置形态、I4 执行器或 I5 端到端；既有五项通过/并发失败/九项未验收的认证状态未因此扩大。
+
+两份最终真实配置报告绑定后的 worker/lab 定向测试 11/11 通过；`git diff --check` 通过。此轮没有 Gateway/Connector/协议/客户端产品代码变更，未重复跑未受影响的本地 Swift/Android 构建。
