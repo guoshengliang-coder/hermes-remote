@@ -1080,3 +1080,28 @@ an independent outside-write attempt was refused. The selected release was 0.4.1
 0.1.17; full installed content matched the original public archive. No launchd or model commands ran.
 The sanitized report is `evidence/hermes-compatibility/2026-10-25-installed-bundled-connector.json`.
 Running-process identity, ordinary-page integration and end-to-end Hermes upgrade remain pending.
+
+### Desktop app archive identity (2026-10-25)
+
+Test impact: `DesktopAppIdentityTests` covers exact installed content, same-version modification,
+extra files/links, invalid component/version/bundle ID/executable, archive and copy-time modification,
+installation replacement during inspection, workspace overlap, ambiguous mounted apps, mount failure,
+detach failure and cleanup failure. Twelve tests pass. One creates a real synthetic DMG using hdiutil,
+then runs the default inspector through actual read-only mount, comparison and detach; the other
+mount-failure scenarios use a command double and do not claim real failed-mount recovery. Assert the
+existing HR-HERMESCOMPAT-008 Chinese/English summaries/details, retryability, recovery and diagnostic
+redaction. No archived executable is run.
+
+Physical check: the installed app is 0.2.41/build 44, although the current public index advertises
+0.2.42/build 45. The probe used the original 0.2.41 DMG and its digest from the recorded public release,
+not the latest index or a fabricated signed compatibility record. Using the actual Core inspector,
+the whole installed app matched that DMG. An OS sandbox denied network and writes outside the private
+probe workspace; an independent outside-write attempt was refused. Successful detach and cleanup
+left the inspection workspace empty. Evidence:
+`evidence/hermes-compatibility/2026-10-25-installed-desktop-app.json`.
+
+This verifies installed files only. It does not prove the active process uses them, supply a signed
+recommendation or finish ordinary-client matching. Final Desktop baseline: 705 Swift tests, asset
+consistency and local ad-hoc app build pass; no app was installed or published, and no UI change
+required a new visual acceptance claim. The reused command runner has no wall-clock timeout; this
+iteration does not claim a bounded or cancellable production inspection task.

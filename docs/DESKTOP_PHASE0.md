@@ -1,5 +1,19 @@
 # Hermes Go Desktop phase 0
 
+## Hermes compatibility: Desktop app identity (implementation, not released)
+
+`DesktopAppIdentityInspector` compares the installed app's complete content with a private copy of
+the original DMG, whose digest must match the supplied component identity. It mounts that copy
+read-only without opening or executing its contents, checks bundle ID/version/build/executable and
+compares installed content before and after the inspection. It detaches before deleting its own
+workspace; detach failure retains the workspace and returns a structured failure. The current
+link-free bundle layout is supported; unsupported bundle trees are rejected.
+
+The caller must obtain the expected component from a verified recommendation. The observation alone
+does not attest a signature, identify a running process, approve compatibility or enable an upgrade.
+The ordinary-page discovery and five-component collection remain pending. No UI or installer flow
+changes in this iteration. Physical read-only evidence is recorded in the test plan.
+
 ## Hermes compatibility I1: management foundation (implementation, not released)
 
 The new administrator-only “Hermes 兼容版本管理” entry queries server authorization using the existing

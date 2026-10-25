@@ -1,0 +1,16 @@
+{
+  "appVersion": "0.2.41",
+  "artifactSha256": "9f82c98523b8e3bd81a741c48e352e163e588c79ffbb4947abd904f3a85aaa9d",
+  "buildNumber": "44",
+  "compatibilityApproved": false,
+  "contentSha256": "c0b6498e0f5aa30d99da7df77ca20e1ce4165b031874f35e984532adb69bbb84",
+  "dailyInstallationReadOnly": true,
+  "inspectorSha256": "206d3f89d6f3b546998b1f083fffb6065eb3841a7ee26938933c869ab2795648",
+  "observedAt": "2026-10-25T09:30:30Z",
+  "referenceAuthority": "recorded-public-release-digest-not-signed-compatibility",
+  "result": "passed",
+  "runningProcessVerified": false,
+  "sandboxOutsideWriteRejected": true,
+  "schemaVersion": 1,
+  "scope": "installed-desktop-app-files"
+}
