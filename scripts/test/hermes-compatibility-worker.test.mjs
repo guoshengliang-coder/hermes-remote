@@ -175,3 +175,31 @@ test('scoped real core REST evidence requires every stage and binds the contract
   const privateFields=structuredClone(raw);privateFields.stages.candidate.response='synthetic-private-data';
   assert.equal(JSON.stringify(parse(privateFields)).includes('synthetic-private-data'),false);
 });
+
+
+test('real session RPC lifecycle evidence retains partial scope and propagates failures', async () => {
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-session-rpc-contracts.json',import.meta.url)));
+  const parse=value=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256);
+  const normalEvidence=labEvidence(normal,task.identity);
+  const bundle=value=>buildBundle(task,{normal:normalEvidence,contracts:parse(value)},'2026-10-25T01:00:00Z');
+  const success=bundle(raw);
+  assert.equal(success.report.checks.find(c=>c.name==='rpc').status,'not_run','no prompt/tool/server-request coverage yet');
+  assert.equal(success.report.checks.find(c=>c.name==='rest').status,'passed');
+  assert.deepEqual(validateBundle(task,success),success.report);
+  for(const stage of ['source','candidate','restored']) {
+    for(const name of ['rpcReady','rpcCapabilities','rpcCreate','rpcResume','rpcReasoning','rpcActiveIdentity']) {
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[name];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].checks[name]=false;failed.status='contract_gap';
+      const result=bundle(failed);
+      assert.deepEqual(result.report.checks.find(c=>c.name==='rpc'),
+        {name:'rpc',status:'failed',evidenceSha256:compatibilityDigest(result.evidence.contracts)});
+      assert.deepEqual(validateBundle(task,result),result.report);
+    }
+    for(const scope of [undefined,'unknown']) {
+      const changed=structuredClone(raw);changed.stages[stage].rpcScope=scope;assert.throws(()=>parse(changed));
+    }
+  }
+  const noScope=structuredClone(raw);for(const stage of Object.values(noScope.stages))delete stage.rpcScope;
+  assert.throws(()=>parse(noScope));
+});

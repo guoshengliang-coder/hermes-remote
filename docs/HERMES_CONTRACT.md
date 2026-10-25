@@ -1147,3 +1147,15 @@ Its `required-read-surfaces-v1` scope covers default-profile text history, requi
 shapes, numeric Unix-second timestamps and one-row/empty-offset pagination. It does not update the
 adapted-version declaration or certify optional routes, multimodal history, mutation RPCs, clients,
 or the unresolved updater lock transition. The report keeps `compatibilityApproved=false`.
+
+
+### Isolated session lifecycle RPC checks (2026-10-25)
+
+The same fixed source/candidate/restored runtimes now exercise ready → capabilities → create →
+resume → config.get → active_list in one connection, using the parameter shapes emitted by the Web
+client (checked against its actual builders). The synthetic restored transcript is omitted from the
+RPC reply and its live handle maps back to the seeded stored ID in the Connector parser. All 66
+transport/read/session checks passed; see [scoped evidence](evidence/hermes-compatibility/2026-10-25-session-rpc-contracts.json).
+This is no prompt/model inference test, and it does not certify streaming, tool/server requests,
+reconnection or client rendering. Full RPC compatibility remains unverified, even when these
+partial checks pass. Any observed failure is retained as a failed RPC gate.

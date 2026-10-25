@@ -382,3 +382,26 @@ Gateway 272（14 项跳过）、release-server 41 通过；scripts 463 通过、
 不认证可选接口、多模态内容、其他 profile、完整 RPC、Connector 中继或客户端业务。
 真实账号/受保护工作流、可信发布 inventory、其余组件身份、上游锁缺口与 I4/I5 仍待完成。
 本轮没有合并、部署、发布、授予角色或修改日常 Hermes；继续保留草稿和非兼容批准状态。
+
+
+## I2 同连接会话 RPC 实测
+
+`477ed741` 的 11 项 CI 全部通过。本轮按核心业务顺序增加 RPC 局部覆盖：同一连接等待 ready，
+首先声明能力，创建空会话，恢复合成历史，使用恢复句柄读取 reasoning，再核对活动列表的 stored/
+live 身份。参数形状与真实 Web builder 对照，未增加客户端参数或修改上游源码。实施前评审
+响应 ID、协议 envelope、超时/断连、错误传播、历史意外返回和局部证据被错误认证的测试影响。
+
+最终探针对固定旧版 0.21.3、新版 0.22.5、恢复后的旧版三阶段共 66/66 检查通过，包含新增六项
+会话检查；[脱敏证据](evidence/hermes-compatibility/2026-10-25-session-rpc-contracts.json) 与最终
+suite/probe 摘要一致。只创建隔离环境内的合成空会话，不提交 prompt、模型推理或生产账号请求。
+45 秒总期限、1 MiB 单帧上限、连接关闭收尾和布尔白名单结果防止挂起或泄漏原始响应。
+
+定向 23/23 通过；更换最终实测证据后报告回归 11/11 通过。`npm run build` 通过；完整测试
+Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通过，scripts 472 通过、
+0 跳过，仍复现相同两项 macOS LibreSSL CMS legacy-recovery 失败，整体退出非零。一次性
+PostgreSQL 检查执行；未改 Desktop/Android 产品或 UI，因此未重复本地 app/device 验证。
+
+该范围通过仍将完整 `rpc` 保持未执行；任一已测会话路径失败则记为失败并关联接口证据。
+prompt 流式事件、工具/审批、重新连接、中继和真实客户端业务仍需验收。当前总计仍是六项可
+通过、一项并发锁失败、八项未完成；可信发布 inventory、执行器和 I4/I5 等门槛不变。
+本轮未合并、部署、发布、授予角色或修改日常 Hermes。

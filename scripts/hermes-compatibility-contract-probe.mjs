@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Actual Connector adapters against a disposable upstream server. No model calls or mutation RPCs.
+// Actual Connector adapters against a disposable upstream server. Only synthetic session lifecycle operations; no prompt submission or model inference.
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import WebSocket from 'ws';
@@ -39,6 +39,84 @@ export function validateCoreHistory(value, {empty = false, pagination = false, o
   }
   if (pagination && (!object(value.pagination) || value.pagination.limit !== 1 || value.pagination.offset !== offset
       || value.pagination.order !== 'oldest' || value.pagination.returned !== value.messages.length)) throw new Error('history_pagination');
+}
+
+export const SESSION_RPC_SCOPE = 'synthetic-session-lifecycle-v1';
+export const SESSION_RPC_CHECKS = ['rpcReady','rpcCapabilities','rpcCreate','rpcResume','rpcReasoning','rpcActiveIdentity'];
+// Same shapes as web/src/hermes/params.ts; parity is checked against its real builders.
+export const sessionRpcCalls = {
+  capabilities: () => ({method:'client.capabilities',params:{server_requests:true}}),
+  create: () => ({method:'session.create',params:{source:'hermes_remote',profile:'default'}}),
+  resume: () => ({method:'session.resume',params:{session_id:HISTORY_ID,source:'hermes_remote',omit_messages:true,profile:'default'}}),
+  reasoning: sessionId => ({method:'config.get',params:{key:'reasoning',session_id:sessionId}}),
+};
+export function validateSessionHandle(value, resume = false) {
+  if (!object(value) || typeof value.session_id !== 'string' || !value.session_id.trim()) throw new Error('rpc_session');
+  if (value.stored_session_id != null && (typeof value.stored_session_id !== 'string' || !value.stored_session_id.trim()))
+    throw new Error('rpc_stored_session');
+  if (resume) {
+    if (value.running !== undefined && typeof value.running !== 'boolean') throw new Error('rpc_running');
+    if (value.message_count !== undefined && (!Number.isSafeInteger(value.message_count) || value.message_count < 1)) throw new Error('rpc_count');
+    if (value.messages !== undefined && (!Array.isArray(value.messages) || value.messages.length)) throw new Error('rpc_omit_messages');
+    if (value.open_requests !== undefined && (!Array.isArray(value.open_requests) || value.open_requests.length))
+      throw new Error('rpc_unexpected_request'); // seeded history has no outstanding requests
+  }
+  return value.session_id;
+}
+/** One connection, ready before capabilities, matching JSON-RPC IDs, bounded total lifetime. */
+export function probeSessionRPC(url, {timeoutMs = 45_000} = {}) {
+  return new Promise(resolve => {
+    const checks=Object.fromEntries(SESSION_RPC_CHECKS.map(name=>[name,false]));
+    const socket=new WebSocket(url,{handshakeTimeout:10_000,maxPayload:1024*1024});
+    let done=false,started=false,sequence=0,pending;
+    const finish=()=>{
+      if(done)return;done=true;clearTimeout(timer);
+      if(pending){pending.reject(new Error('rpc_closed'));pending=undefined;}
+      socket.terminate();resolve({...checks});
+    };
+    const timer=setTimeout(finish,timeoutMs);
+    const call=({method,params})=>new Promise((accept,reject)=>{
+      if(done){reject(new Error('rpc_closed'));return;}
+      const id=`compat-session-${++sequence}`;pending={id,accept,reject};
+      socket.send(JSON.stringify({jsonrpc:'2.0',id,method,params}),error=>{if(error)finish();});
+    });
+    const check=async(name,fn)=>{try{await fn();if(!done)checks[name]=true;}catch{/* boolean evidence only */}};
+    async function run() {
+      let resumed;
+      await check('rpcCapabilities',async()=>{
+        const v=await call(sessionRpcCalls.capabilities());
+        if(!object(v)||!Array.isArray(v.server_requests)||!v.server_requests.every(x=>typeof x==='string'))throw new Error('rpc_capabilities');
+      });
+      await check('rpcCreate',async()=>validateSessionHandle(await call(sessionRpcCalls.create())));
+      await check('rpcResume',async()=>{resumed=validateSessionHandle(await call(sessionRpcCalls.resume()),true);});
+      await check('rpcReasoning',async()=>{
+        if(!resumed)throw new Error('rpc_no_session');
+        const v=await call(sessionRpcCalls.reasoning(resumed));
+        if(!object(v)||typeof v.value!=='string'||!v.value.trim()||!['show','hide'].includes(v.display))throw new Error('rpc_reasoning');
+      });
+      await check('rpcActiveIdentity',async()=>{
+        if(!resumed)throw new Error('rpc_no_session');
+        const rows=parseActiveList(await call({method:'session.active_list',params:{}}));
+        if(!rows.some(row=>row.id===resumed&&row.sessionKey===HISTORY_ID))throw new Error('rpc_active_identity');
+      });
+      finish();
+    }
+    socket.on('error',finish);socket.on('close',finish);
+    socket.on('unexpected-response',(_request,response)=>{response.resume();finish();});
+    socket.on('message',raw=>{
+      try {
+        const frame=JSON.parse(raw.toString());
+        if(!object(frame)||frame.jsonrpc!=='2.0')throw new Error('rpc_envelope');
+        if(frame.method==='event'&&frame.params?.type==='gateway.ready'&&!started){
+          started=true;checks.rpcReady=true;void run().catch(finish);return;
+        }
+        if(!pending||frame.id!==pending.id)return;
+        const request=pending;pending=undefined;
+        if(Object.hasOwn(frame,'error')||!Object.hasOwn(frame,'result'))request.reject(new Error('rpc_response'));
+        else request.accept(frame.result);
+      }catch{finish();}
+    });
+  });
 }
 
 async function body(response, maximum = 2 * 1024 * 1024) {
@@ -126,7 +204,8 @@ export async function probeContract({port, token, version}) {
   await check('websocketMissingToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws', true));
   await check('websocketWrongToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws?token=deliberately-wrong', true));
   await check('connectorActiveListRPC', async () => websocket(await auth.websocketUrl('/api/ws'), false));
-  return {schemaVersion:1,kind:'live-connector-contract-probe',version,restScope:CORE_REST_SCOPE,checks,compatibilityApproved:false};
+  Object.assign(checks,await probeSessionRPC(await auth.websocketUrl('/api/ws')));
+  return {schemaVersion:1,kind:'live-connector-contract-probe',version,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,checks,compatibilityApproved:false};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {

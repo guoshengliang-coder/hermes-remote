@@ -2279,10 +2279,25 @@ The second command accepts only a private temporary lab created by the runtime r
 fixed old/new checkouts and synthetic history. It starts only those sandboxed processes, reactivates
 the candidate at its original lab path, and restores the old path in finally. Never pass a daily HOME.
 Require all three stages to include `restScope=required-read-surfaces-v1` and five core REST booleans;
-the full probe currently has 16 checks per stage. Record the immutable report and suite/probe hashes.
+the REST-only report has 16 checks per stage; the current probe adds six scoped session RPC checks. Record the immutable report and suite/probe hashes.
 Regression coverage rejects renamed IDs/timestamps, numeric/boolean coercion, ignored pagination,
 missing/mixed scopes and failed stages; old 11-check reports must keep REST `not_run`.
 
 The observed pass covers only default-profile text history on the four required read routes.
 Multimodal transcripts, optional operations, actual Android/Web rendering, relay integration and
 full RPC sessions still need their dedicated acceptance; this does not authorize an upgrade.
+
+
+### Hermes compatibility: session RPC lifecycle
+
+Run `node --test scripts/test/hermes-compatibility-session-rpc.test.mjs` for loopback WebSocket
+regressions and parameter parity against the real Web builders. Repeat the disposable contract lab
+command above for source/candidate/restored upstream execution. Current scope has 22 checks per
+stage, including ready/capabilities, empty-session creation, stored-session resume without transcript,
+reasoning configuration and stored/live identity correlation. Record hashes from the final probe.
+
+Cover missing readiness, wrong response IDs, invalid envelopes, timeouts, disconnects, RPC errors,
+unexpected transcript, mismatched activity identity and invalid configuration shapes. Partial session
+success must leave full RPC acceptance not run; any exercised failure must propagate as failed.
+Prompt streaming, real model/tool/server requests, reconnect/replay and actual Android/Web business
+still require dedicated acceptance. No daily install or production account belongs in this lab.
