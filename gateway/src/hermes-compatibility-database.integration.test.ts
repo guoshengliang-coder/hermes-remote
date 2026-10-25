@@ -117,9 +117,9 @@ test("PostgreSQL compatibility: real grants, revocation, immutable identity, CAS
       await assert.rejects(store.startPublication(waiting.taskId,"12350","1"),hasCode("HR-HERMESCOMPAT-003"));
       const slow = await store.requestRun(owner,await mutation(),{...identity,suiteSha256:"2".repeat(64)});
       await store.startRun(slow.runId,"12346");
-      await pool.query("UPDATE hermes_compatibility_runs SET started_at=now()-interval '100 minutes' WHERE id=$1",[slow.runId]);
-      assert.equal(await store.expireRuns(),0); // prepare + 85-minute validation + reporter still has time.
-      await pool.query("UPDATE hermes_compatibility_runs SET started_at=now()-interval '121 minutes' WHERE id=$1",[slow.runId]);
+      await pool.query("UPDATE hermes_compatibility_runs SET started_at=now()-interval '125 minutes' WHERE id=$1",[slow.runId]);
+      assert.equal(await store.expireRuns(),0); // prepare + 105-minute validation + reporter, plus dispatch/queue margin.
+      await pool.query("UPDATE hermes_compatibility_runs SET started_at=now()-interval '151 minutes' WHERE id=$1",[slow.runId]);
       assert.equal(await store.expireRuns(),1);
       assert.equal((await store.report(owner,slow.runId)).state,"infrastructure_failed");
       assert.equal((await store.report(owner,slow.runId)).report,null);

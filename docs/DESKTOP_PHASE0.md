@@ -11,7 +11,7 @@ No email in Desktop grants authority. Six registered HR-HERMESCOMPAT errors use 
 Gateway schema 21 and its default-off feature must be deployed separately. No live administrator has
 been granted. I2 now connects server-controlled recipes, durable dispatch, isolated CI jobs and
 structured report viewing. Without a configured recipe the page cannot start validation. The current
-isolated suite covers four of fifteen checks and demonstrates a failed concurrent-update check,
+isolated suite covers five of fifteen checks and demonstrates a failed concurrent-update check,
 so it cannot produce an approvable report. I3 implements approval/revocation, protected publishing
 jobs, signed recommendations and a public verification client locally. No actual signing publication
 has run. Normal-page wiring and one-click Hermes execution remain subsequent gated work; the old

@@ -12,6 +12,23 @@ import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/d
 const exec = promisify(execFile);
 const timestamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SHA = /^[a-f0-9]{64}$/;
+export function contractEvidence(raw, identity, suiteSha256, probeSha256) {
+  const names=['httpMissingToken','httpWrongToken','httpValidToken','runningVersion','sessionList','profileSessionList',
+    'historyRead','connectorSchema','websocketMissingToken','websocketWrongToken','connectorActiveListRPC'];
+  if(raw?.schemaVersion!==1||raw.kind!=='live-runtime-contracts'||raw.sourceCommit!==identity.sourceCommit
+    ||raw.targetCommit!==identity.targetCommit||raw.compatibilityApproved!==false||raw.suiteSha256!==suiteSha256
+    ||raw.probeSha256!==probeSha256||!SHA.test(suiteSha256)||!SHA.test(probeSha256))throw new Error('contract_identity_mismatch');
+  const stages={};
+  for(const [name,version] of [['source','0.21.3'],['candidate',identity.version],['restored','0.21.3']]) {
+    const stage=raw.stages?.[name];
+    if(stage?.schemaVersion!==1||stage.kind!=='live-connector-contract-probe'||stage.version!==version
+      ||stage.compatibilityApproved!==false||!names.every(n=>typeof stage.checks?.[n]==='boolean'))throw new Error('contract_stage_mismatch');
+    stages[name]={version,checks:Object.fromEntries(names.map(n=>[n,stage.checks[n]]))};
+  }
+  const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean));
+  if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
+  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',suiteSha256,probeSha256,stages};
+}
 export function lockEvidence(raw, identity, suiteSha256) {
   const names = ['oldRefusesLiveOwner', 'newRefusesLiveOwner', 'childSurvivesOwnerInterruption',
     'newRefusesSurvivingChild', 'oldRefusesSurvivingChild', 'newAcquiresAfterTreeExit'];
@@ -56,6 +73,9 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
     upgrade: normalOK && normal.phases.repository && normal.phases.exactTarget && normal.phases.candidateHistory,
     history: normalOK && normal.originalHistory && normal.upgradedHistory && normal.restoredHistory,
     recovery: recoveryOK,
+    ...(evidence.contracts ? {authentication:normalOK && Object.values(evidence.contracts.stages).every(stage=>
+      ['httpMissingToken','httpWrongToken','httpValidToken','websocketMissingToken','websocketWrongToken','connectorActiveListRPC']
+        .every(name=>stage.checks[name]))} : {}),
   };
   const checks = REQUIRED_COMPATIBILITY_CHECKS.map(name => {
     // A demonstrated collision is enough to reject compatibility. This narrow probe alone
@@ -64,7 +84,7 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
       return {name, status: 'failed', evidenceSha256: compatibilityDigest(evidence.concurrency)};
     }
     const available = Object.hasOwn(conditions, name);
-    const proof = name === 'recovery' ? evidence.recovery : normal;
+    const proof = name === 'recovery' ? evidence.recovery : name === 'authentication' ? evidence.contracts : normal;
     return { name, status: available ? conditions[name] ? 'passed' : 'failed' : 'not_run',
       evidenceSha256: available && proof ? compatibilityDigest(proof) : null };
   });
@@ -114,6 +134,15 @@ async function main() {
         if (!lockPath.startsWith(`${temporary}/hermes-compat-lock-lab-`) || !lockPath.endsWith('/report.json')) throw new Error('lock_path_invalid');
         evidence.concurrency = lockEvidence(await readJSON(lockPath), task.identity,
           createHash('sha256').update(await readFile(lockSuite)).digest('hex'));
+        const contractSuite=resolve('scripts/hermes-compatibility-contract-lab.py');
+        const contractProbe=resolve('scripts/hermes-compatibility-contract-probe.mjs');
+        const contract=await exec('python3',[contractSuite,'--lab-root',labRoot],{timeout:15*60_000,maxBuffer:64*1024});
+        const contractResult=JSON.parse(contract.stdout.trim());
+        const contractPath=await realpath(contractResult.report);
+        if(dirname(contractPath)!==labRoot||!/^contract-report-[0-9]+\.json$/.test(contractPath.slice(labRoot.length+1)))throw new Error('contract_path_invalid');
+        evidence.contracts=contractEvidence(await readJSON(contractPath),task.identity,
+          createHash('sha256').update(await readFile(contractSuite)).digest('hex'),
+          createHash('sha256').update(await readFile(contractProbe)).digest('hex'));
       }
     }
     evidence.recovery = { normal: evidence.normal, fault: evidence.fault };

@@ -47,7 +47,7 @@ jobs:
   validate:
     needs: prepare
     runs-on: macos-26
-    timeout-minutes: 85
+    timeout-minutes: 105
     # Deliberately no OIDC, deployment, signing or account credentials in this job.
     permissions:
       contents: read

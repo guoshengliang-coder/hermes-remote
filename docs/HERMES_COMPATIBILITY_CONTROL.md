@@ -52,7 +52,7 @@ I2 执行边界：使用固定 GitHub workflow 和 macOS 26 arm64 托管测试�
 
 工作流文件为 `.github/workflows/hermes-compatibility.yml`，三个 job 分别 prepare / validate / report；只接收 `run_id`。仓库变量 `HERMES_COMPATIBILITY_GATEWAY_URL` 指向受控 HTTPS origin，不能由任务输入替换。运行时读取 `ACCOUNT_HERMES_COMPATIBILITY_CI_CONFIG_FILE` 和最小权限的 GitHub 派发凭据（`ACCOUNT_HERMES_COMPATIBILITY_GITHUB_TOKEN` 或其受保护文件），无配置不提供验证配方。配置格式见 `hermes-compatibility-config.ts`，GO commit 必须与 main 和实际工作流完全一致。
 
-队列最多派发三次、间隔五分钟；running 保留 120 分钟，覆盖最长 85 分钟验证及前后任务开销。超时只有 infrastructure_failed 状态，不构造通过报告。报告只发布字段白名单与证据摘要，不上传原始安装日志、HOME 路径或凭据。当前 Mac runner 执行完整升级/恢复、依赖落盘失败恢复及真实更新锁探针。四项可通过，并发更新在已测版本存在失败，其余十项仍未验收；这是开发中的覆盖状态，不是支持声明。
+队列最多派发三次、间隔五分钟；running 保留 150 分钟，覆盖最长 105 分钟验证及前后任务/队列开销。超时只有 infrastructure_failed 状态，不构造通过报告。报告只发布字段白名单与证据摘要，不上传原始安装日志、HOME 路径或凭据。当前 Mac runner 执行完整升级/恢复、依赖落盘失败恢复、真实更新锁和运行接口探针。五项可通过（新增 Desktop 托管 loopback token 鉴权），并发更新在已测版本存在失败，其余九项仍未验收。四条核心 REST 读取和 active_list RPC 的局部证据不能直接认证完整 RPC、Connector 或客户端业务；这是开发中的覆盖状态，不是支持声明。
 
 参考：[GitHub 托管执行器](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)、[OIDC claims](https://docs.github.com/en/actions/reference/security/oidc)。执行器系统版本仍从实际环境采集，不能只凭 `macos-26` 标签认证所有 26.x。
 

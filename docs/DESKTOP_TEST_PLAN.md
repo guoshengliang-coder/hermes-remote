@@ -5,8 +5,9 @@
 I2 adds request/run-detail parsing tests: only candidate/recipe IDs and persisted revision/operation
 are sent; cross-run reports, duplicate checks and passing checks without evidence are rejected.
 Native acceptance must also cover the recipe menu and a 15-row report at compact window sizes.
-The CI reporter validates bundle and per-check digests. Isolated runtime evidence proves four checks;
-the real lock probe demonstrates a concurrent-update failure, leaving ten checks unverified.
+The CI reporter validates bundle and per-check digests. Isolated runtime evidence proves five checks
+(including managed loopback-token authentication); the real lock probe demonstrates a concurrent-update
+failure, leaving nine checks unverified. A single active-list RPC is not full Connector/business acceptance.
 No report is eligible for approval on that basis.
 
 I3 local baseline: 679 Swift tests/assets/ad-hoc app build pass. Recommendation tests cover strict

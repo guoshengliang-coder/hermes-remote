@@ -58,6 +58,25 @@ test('observed legacy lock gap is a failed check, never hidden as not-run or app
   assert.equal(partial.report.checks.find(c => c.name === 'concurrentUpdate').status, 'not_run', 'one lock probe cannot certify all concurrency');
 });
 
+test('real transport evidence certifies only the exercised authentication scope', async () => {
+  const { contractEvidence } = await import('../hermes-compatibility-validate.mjs');
+  const raw = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-live-contracts.json', import.meta.url)));
+  const contracts = contractEvidence(raw,task.identity,raw.suiteSha256,raw.probeSha256);
+  const privateFields=structuredClone(raw);privateFields.privateLog='synthetic-secret';privateFields.stages.candidate.token='synthetic-secret';
+  assert.equal(JSON.stringify(contractEvidence(privateFields,task.identity,raw.suiteSha256,raw.probeSha256)).includes('synthetic-secret'),false);
+  const evidence = {normal:labEvidence(normal,task.identity),contracts};
+  const bundle = buildBundle(task,evidence,'2026-10-25T01:00:00Z');
+  assert.equal(bundle.report.checks.find(c=>c.name==='authentication').status,'passed');
+  for(const name of ['rpc','connector','clientBusiness','newDataProtection']) {
+    assert.equal(bundle.report.checks.find(c=>c.name===name).status,'not_run');
+  }
+  assert.deepEqual(validateBundle(task,bundle),bundle.report);
+  assert.throws(()=>contractEvidence({...raw,targetCommit:'0'.repeat(40)},task.identity,raw.suiteSha256,raw.probeSha256));
+  const broken=structuredClone(raw);broken.stages.candidate.checks.websocketWrongToken=false;broken.status='contract_gap';
+  const failed=buildBundle(task,{...evidence,contracts:contractEvidence(broken,task.identity,raw.suiteSha256,raw.probeSha256)},'2026-10-25T01:00:00Z');
+  assert.equal(failed.report.checks.find(c=>c.name==='authentication').status,'failed');
+});
+
 test('evidence publication strips arbitrary lab fields and never includes private logs', () => {
   const evidence = labEvidence({ ...normal, privateLog: 'secret', reason: 'secret', path: '/Users/private' }, task.identity);
   assert.equal(JSON.stringify(evidence).includes('secret'), false);

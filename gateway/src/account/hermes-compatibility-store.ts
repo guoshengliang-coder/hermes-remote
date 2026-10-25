@@ -161,7 +161,7 @@ export class HermesCompatibilityStore {
     return this.transaction(async(db,revision)=>{
       const rows=(await db.query(`SELECT id FROM hermes_compatibility_runs WHERE
         (state='queued' AND dispatch_attempts>=3 AND dispatch_after<=now()) OR
-        (state='running' AND started_at<now()-interval '120 minutes') ORDER BY created_at LIMIT 20`)).rows;
+        (state='running' AND started_at<now()-interval '150 minutes') ORDER BY created_at LIMIT 20`)).rows;
       for(const [index,row] of rows.entries()){
         await db.query("UPDATE hermes_compatibility_runs SET state='infrastructure_failed',finished_at=now() WHERE id=$1",[row.id]);
         await this.advance(db,revision+index,null,"run_completed",row.id);
