@@ -1,6 +1,6 @@
 # 首条 Hermes 升级路径的上游接口缺口
 
-这是 HC-01/HC-02 的实验结论和后续开发输入，不是已提交的上游 issue 或已完成修复。
+这是 HC-01/HC-02 的实验结论和后续开发输入。经负责人明确授权，已于 2026-10-25 提交上游 [hermes-agent #144377](https://github.com/NousResearch/hermes-agent/issues/144377)，尚未修复或重新验收。
 
 ## 已确认的输入与结果
 
@@ -11,7 +11,7 @@
 
 `scripts/hermes-compatibility-lock-lab.py --source <隔离旧版 checkout> --target <隔离新版 checkout>` 使用真实兄弟进程和官方原始锁代码复现。两个目录必须在日常 HOME 外且 HEAD/锁文件与固定 commit 一致。脚本只创建自有临时 marker/repository 和进程；报告没有个人路径、token 或原始日志。它是锁探针，不是生产升级适配器。
 
-实验表明：杀死新版锁 owner 后，继承 flock 的子进程仍存在，新版 contender 拒绝，旧版 contender 成功。证据为 `evidence/hermes-compatibility/2026-10-25-update-lock.json`，`oldRefusesSurvivingChild=false`。旧 reader 还会清理超过 20 分钟的活跃 marker，这是源码观察，尚未进行 20 分钟故障实跑，不能混写为实测。
+实验表明：杀死新版锁 owner 后，继承 flock 的子进程仍存在，新版 contender 拒绝，旧版 contender 成功。探针子进程仅休眠并保留锁描述符，没有执行安装写入；该证据证明互斥缺口，不证明已发生并行安装或数据损坏，也不推断上游当前 main 的行为。证据为 `evidence/hermes-compatibility/2026-10-25-update-lock.json`，`oldRefusesSurvivingChild=false`。旧 reader 还会清理超过 20 分钟的活跃 marker，这是源码观察，尚未进行 20 分钟故障实跑，不能混写为实测。
 
 ## 需要补齐的有界接口
 
