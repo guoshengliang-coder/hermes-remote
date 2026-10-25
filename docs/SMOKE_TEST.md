@@ -2264,3 +2264,25 @@ observations. They do not substitute for the real Linux/Docker workflow. Cover m
 and image IDs, code-path mounts, mutable root, loader overrides, process/container changes, unsafe
 arguments and redacted bilingual errors. No production deployment or live-host acceptance follows
 from a CI success; trusted inventory assembly and public-route binding remain separate gates.
+
+
+### Hermes compatibility: required REST reads
+
+After `npm run build`, run:
+
+```sh
+node --test scripts/test/hermes-compatibility-core-rest.test.mjs scripts/test/hermes-compatibility-worker.test.mjs
+python3 scripts/hermes-compatibility-contract-lab.py --lab-root <successful-disposable-runtime-lab>
+```
+
+The second command accepts only a private temporary lab created by the runtime rehearsal, with the
+fixed old/new checkouts and synthetic history. It starts only those sandboxed processes, reactivates
+the candidate at its original lab path, and restores the old path in finally. Never pass a daily HOME.
+Require all three stages to include `restScope=required-read-surfaces-v1` and five core REST booleans;
+the full probe currently has 16 checks per stage. Record the immutable report and suite/probe hashes.
+Regression coverage rejects renamed IDs/timestamps, numeric/boolean coercion, ignored pagination,
+missing/mixed scopes and failed stages; old 11-check reports must keep REST `not_run`.
+
+The observed pass covers only default-profile text history on the four required read routes.
+Multimodal transcripts, optional operations, actual Android/Web rendering, relay integration and
+full RPC sessions still need their dedicated acceptance; this does not authorize an upgrade.

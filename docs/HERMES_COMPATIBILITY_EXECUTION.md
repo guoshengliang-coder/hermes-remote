@@ -358,3 +358,27 @@ Gateway OCI job：对刚打包的镜像创建自有、无网络容器，验证�
 标记已核对。[脱敏报告](evidence/hermes-compatibility/2026-10-25-gateway-oci-runtime.json) 保留真实
 归档/镜像摘要与上述范围，没有生产配置或凭据。仅证明该 CI 候选的采集链路，不是发布、路由或
 Hermes 兼容批准。上游 #144377 本轮只读复核仍打开、零回复，未声称锁问题已解决。
+
+
+## I2 核心 REST 读取与分阶段证据
+
+`c6202b8f` 的 11 项 CI 全部通过。本轮回到核心接口验收，实施前评审字段改名、类型漂移、消息
+时间戳、分页和旧报告升级误判的测试影响。新增 `required-read-surfaces-v1`，检查四个必需读取
+路由；沿用 `HR-HERMESCOMPAT-004` 和原有脱敏错误出口，没有新增用户可见错误码。
+
+在保留的已成功升级合成环境中，真实启动旧版 0.21.3、新版 0.22.5、恢复后的旧版，48/48 接口
+检查通过。新增部分验证会话字段、秒级时间戳、原始文本以及第一页/越界空页和分页元数据。
+[脱敏报告](evidence/hermes-compatibility/2026-10-25-core-rest-contracts.json) 绑定实际 suite/probe
+源码摘要；旧 33 项证据保留，不能因新测试而自动取得 REST 结论。每一阶段的范围/五项布尔结果
+必需完整，缺项或混用范围拒收，任意失败传导为 REST 失败，其证据摘要指向接口报告。
+
+定向 14/14 测试通过；`npm run build` 通过。完整 `npm test` 中 Protocol 18、Connector 153、
+Gateway 272（14 项跳过）、release-server 41 通过；scripts 463 通过、0 跳过，仍有此前同样的
+两项 macOS LibreSSL CMS legacy-recovery 失败，因此整体命令退出非零，未声称全绿。
+一次性 PostgreSQL 检查实际执行。没有 Desktop、Android 产品或 UI 修改，未重复其本地基线，
+也未声称手机/Web 实际业务验收。`git diff --check` 通过。
+
+当前六项可通过、并发更新一项失败、八项未执行。核心 REST 仅覆盖默认 profile 单条文本历史，
+不认证可选接口、多模态内容、其他 profile、完整 RPC、Connector 中继或客户端业务。
+真实账号/受保护工作流、可信发布 inventory、其余组件身份、上游锁缺口与 I4/I5 仍待完成。
+本轮没有合并、部署、发布、授予角色或修改日常 Hermes；继续保留草稿和非兼容批准状态。

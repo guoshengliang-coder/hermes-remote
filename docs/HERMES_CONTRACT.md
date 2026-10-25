@@ -1135,3 +1135,15 @@ plus endpoint and cron metadata that the Connector must strip. Also checked
 confirmation and deferred flags are pending states, not confirmed model application.
 Web now parses these states and does not update recents before application. No upstream upgrade,
 patch, wire-version change or new Mac credential exposure is part of this work.
+
+
+### Isolated required-read checks (2026-10-25)
+
+`hermes-compatibility-contract-probe.mjs` now validates actual required REST response fields, not only
+OpenAPI presence or a substring of the transcript. Fixed 0.21.3 (`633dda6d7fdcac7e8340471c9f5ed08cdccbd70c`),
+0.22.5 (`bf0203a794a07aac3ff764972ab9087baa4e4f4e`), and restored 0.21.3 passed 48 transport/core-read
+checks in the disposable synthetic lab. See [the scoped report](evidence/hermes-compatibility/2026-10-25-core-rest-contracts.json).
+Its `required-read-surfaces-v1` scope covers default-profile text history, required session/status field
+shapes, numeric Unix-second timestamps and one-row/empty-offset pagination. It does not update the
+adapted-version declaration or certify optional routes, multimodal history, mutation RPCs, clients,
+or the unresolved updater lock transition. The report keeps `compatibilityApproved=false`.

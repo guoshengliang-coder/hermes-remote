@@ -7,6 +7,40 @@ import { HermesAuth } from '../connector/dist/hermes-auth.js';
 import { evaluateHermesContract } from '../connector/dist/hermes-contract.js';
 import { parseActiveList } from '../connector/dist/session-observer.js';
 
+export const CORE_REST_SCOPE = 'required-read-surfaces-v1';
+export const CORE_REST_CHECKS = ['restCoreStatus','restCoreSessions','restCoreProfileSessions','restCoreHistory','restCorePagination'];
+const HISTORY_ID = 'go-compat-lab-history';
+const HISTORY_TEXT = 'Hermes GO 升级前的合成会话';
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const seconds = value => typeof value === 'number' && Number.isFinite(value) && value > 0 && value < 100_000_000_000;
+export function validateCoreStatus(value, version) {
+  if (!object(value) || value.version !== version || typeof value.gateway_running !== 'boolean') throw new Error('status_shape');
+}
+export function validateCoreSessions(value) {
+  if (!object(value) || !Array.isArray(value.sessions)) throw new Error('session_shape');
+  const matches = value.sessions.filter(row => row?.id === HISTORY_ID);
+  if (matches.length !== 1) throw new Error('session_identity');
+  const row = matches[0];
+  if (!seconds(row.last_active) || !Number.isSafeInteger(row.message_count) || row.message_count < 1
+      || typeof row.archived !== 'boolean' || typeof row.is_default_profile !== 'boolean'
+      || row.profile !== 'default') throw new Error('session_fields');
+  for (const key of ['title','model','provider','cwd','source','git_branch','git_repo_root']) {
+    if (row[key] !== undefined && row[key] !== null && typeof row[key] !== 'string') throw new Error('session_field_type');
+  }
+}
+export function validateCoreHistory(value, {empty = false, pagination = false, offset = 0} = {}) {
+  if (!object(value) || !Array.isArray(value.messages)) throw new Error('history_shape');
+  if (empty) { if (value.messages.length !== 0) throw new Error('history_offset'); }
+  else {
+    if (value.messages.length !== 1) throw new Error('history_count');
+    const row=value.messages[0];
+    if (!object(row) || !Number.isSafeInteger(row.id) || row.id < 1 || row.role !== 'user'
+        || row.content !== HISTORY_TEXT || !seconds(row.timestamp)) throw new Error('history_fields');
+  }
+  if (pagination && (!object(value.pagination) || value.pagination.limit !== 1 || value.pagination.offset !== offset
+      || value.pagination.order !== 'oldest' || value.pagination.returned !== value.messages.length)) throw new Error('history_pagination');
+}
+
 async function body(response, maximum = 2 * 1024 * 1024) {
   if (!response.ok || !response.body) throw new Error('response');
   let count = 0; const chunks = [];
@@ -61,11 +95,14 @@ export async function probeContract({port, token, version}) {
     });
   }
   await check('httpValidToken', async () => { await body(await auth.request('/api/profiles/active', {method:'GET'})); });
+  await check('restCoreStatus', async () => validateCoreStatus(JSON.parse(await body(await auth.request('/api/status',{method:'GET'}))),version));
   await check('runningVersion', async () => {
     const status = JSON.parse(await body(await auth.request('/api/status', {method:'GET'})));
     if (status.version !== version) throw new Error('version');
   });
   for (const [name,path] of [['sessionList','/api/sessions?limit=100'], ['profileSessionList','/api/profiles/sessions?limit=100']]) {
+    await check(name === 'sessionList' ? 'restCoreSessions' : 'restCoreProfileSessions', async () =>
+      validateCoreSessions(JSON.parse(await body(await auth.request(path,{method:'GET'})))));
     await check(name, async () => {
       const value = JSON.parse(await body(await auth.request(path,{method:'GET'})));
       if (!Array.isArray(value.sessions) || !value.sessions.some(s=>s.id==='go-compat-lab-history')) throw new Error('history');
@@ -75,6 +112,13 @@ export async function probeContract({port, token, version}) {
     const value = JSON.parse(await body(await auth.request('/api/sessions/go-compat-lab-history/messages',{method:'GET'})));
     if (!JSON.stringify(value).includes('Hermes GO 升级前的合成会话')) throw new Error('history');
   });
+  await check('restCoreHistory', async () => validateCoreHistory(JSON.parse(await body(
+    await auth.request(`/api/sessions/${HISTORY_ID}/messages`,{method:'GET'})))));
+  await check('restCorePagination', async () => {
+    for (const offset of [0,1]) validateCoreHistory(JSON.parse(await body(await auth.request(
+      `/api/sessions/${HISTORY_ID}/messages?limit=1&offset=${offset}&order=oldest`,{method:'GET'}))),
+      {empty:offset===1,pagination:true,offset});
+  });
   await check('connectorSchema', async () => {
     const report = evaluateHermesContract({openapi:{kind:'ok',body:await body(await auth.openApiDocument(),8*1024*1024)},hermesVersion:version,checkedAt:new Date()});
     if (report.status !== 'compatible') throw new Error('contract');
@@ -82,7 +126,7 @@ export async function probeContract({port, token, version}) {
   await check('websocketMissingToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws', true));
   await check('websocketWrongToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws?token=deliberately-wrong', true));
   await check('connectorActiveListRPC', async () => websocket(await auth.websocketUrl('/api/ws'), false));
-  return {schemaVersion:1,kind:'live-connector-contract-probe',version,checks,compatibilityApproved:false};
+  return {schemaVersion:1,kind:'live-connector-contract-probe',version,restScope:CORE_REST_SCOPE,checks,compatibilityApproved:false};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {

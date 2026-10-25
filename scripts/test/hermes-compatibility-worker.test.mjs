@@ -97,7 +97,7 @@ test('real transport evidence certifies only the exercised authentication scope'
   const evidence = {normal:labEvidence(normal,task.identity),contracts};
   const bundle = buildBundle(task,evidence,'2026-10-25T01:00:00Z');
   assert.equal(bundle.report.checks.find(c=>c.name==='authentication').status,'passed');
-  for(const name of ['rpc','connector','clientBusiness','newDataProtection']) {
+  for(const name of ['rest','rpc','connector','clientBusiness','newDataProtection']) {
     assert.equal(bundle.report.checks.find(c=>c.name===name).status,'not_run');
   }
   assert.deepEqual(validateBundle(task,bundle),bundle.report);
@@ -138,4 +138,40 @@ test('workflow isolates upstream execution from OIDC and never accepts scripts o
   assert.match(validator, /persist-credentials: false/);
   assert.equal((workflow.match(/id-token: write/g) || []).length, 2);
   assert.doesNotMatch(workflow, /run:.*\$\{\{/);
+});
+
+
+test('scoped real core REST evidence requires every stage and binds the contract digest', async () => {
+  const { contractEvidence } = await import('../hermes-compatibility-validate.mjs');
+  const raw = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-core-rest-contracts.json', import.meta.url)));
+  const parse = value => contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256);
+  const contracts = parse(raw);
+  const evidence = {normal:labEvidence(normal,task.identity),contracts};
+  const bundle = buildBundle(task,evidence,'2026-10-25T01:00:00Z');
+  assert.deepEqual(bundle.report.checks.find(c=>c.name==='rest'),
+    {name:'rest',status:'passed',evidenceSha256:compatibilityDigest(contracts)});
+  assert.deepEqual(validateBundle(task,bundle),bundle.report);
+  assert.equal(bundle.report.outcome,'failed');
+  for (const name of ['rpc','connector','clientBusiness','newDataProtection'])
+    assert.equal(bundle.report.checks.find(c=>c.name===name).status,'not_run');
+  for (const stage of ['source','candidate','restored']) {
+    for (const name of ['restCoreStatus','restCoreSessions','restCoreProfileSessions','restCoreHistory','restCorePagination']) {
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[name];assert.throws(()=>parse(missing));
+      const wrong=structuredClone(raw);wrong.stages[stage].checks[name]='true';assert.throws(()=>parse(wrong));
+      const failed=structuredClone(raw);failed.stages[stage].checks[name]=false;
+      assert.throws(()=>parse(failed),/status_mismatch/);
+      failed.status='contract_gap';
+      assert.equal(buildBundle(task,{...evidence,contracts:parse(failed)},'2026-10-25T01:00:00Z')
+        .report.checks.find(c=>c.name==='rest').status,'failed');
+    }
+    for (const scope of [undefined,'unknown-scope']) {
+      const changed=structuredClone(raw);changed.stages[stage].restScope=scope;assert.throws(()=>parse(changed));
+    }
+  }
+  const noScope=structuredClone(raw);for(const stage of Object.values(noScope.stages))delete stage.restScope;
+  assert.throws(()=>parse(noScope),'checks without their scope cannot silently disappear');
+  const failedIsolation=structuredClone(evidence);failedIsolation.normal.phases.sandbox=false;
+  assert.equal(buildBundle(task,failedIsolation,'2026-10-25T01:00:00Z').report.checks.find(c=>c.name==='rest').status,'failed');
+  const privateFields=structuredClone(raw);privateFields.stages.candidate.response='synthetic-private-data';
+  assert.equal(JSON.stringify(parse(privateFields)).includes('synthetic-private-data'),false);
 });
