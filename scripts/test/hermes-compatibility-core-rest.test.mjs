@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {validateCoreStatus,validateCoreSessions,validateCoreHistory} from '../hermes-compatibility-contract-probe.mjs';
+import {findSeedSessionPage,validateCoreStatus,validateCoreSessions,validateCoreHistory} from '../hermes-compatibility-contract-probe.mjs';
 const session=()=>({id:'go-compat-lab-history',last_active:1792896000,message_count:1,profile:'default',is_default_profile:true,archived:false});
 const history=()=>({messages:[{id:1,role:'user',content:'Hermes GO 升级前的合成会话',timestamp:1792896000.125}]});
 test('core readers accept the consumed field types and optional metadata',()=>{
@@ -31,4 +31,20 @@ test('ignored offsets and mismatched pagination metadata fail',()=>{
     assert.throws(()=>validateCoreHistory({...history(),pagination},{pagination:true}));
   assert.throws(()=>validateCoreStatus({version:'0.22.5'},'0.22.5'));
   assert.throws(()=>validateCoreStatus({version:'0.21.3',gateway_running:false},'0.22.5'));
+});
+
+const recentPage=offset=>({sessions:Array.from({length:100},(_,i)=>({...session(),id:`recent-${offset+i}`}))});
+test('reused lab seed beyond 100 recent sessions is found without deleting history',async()=>{
+  assert.throws(()=>validateCoreSessions(recentPage(0)),'previous page-one check rejected an intact seed');
+  const offsets=[];
+  const page=await findSeedSessionPage(async offset=>{offsets.push(offset);return offset?{sessions:[session()]}:recentPage(0);});
+  validateCoreSessions(page);assert.deepEqual(offsets,[0,100]);
+});
+test('seed search has bounded pages and rejects ignored offsets or malformed rows',async()=>{
+  const offsets=[];
+  await assert.rejects(findSeedSessionPage(async offset=>{offsets.push(offset);return recentPage(offset);}));
+  assert.deepEqual(offsets,[0,100,200,300,400]);
+  await assert.rejects(findSeedSessionPage(async()=>recentPage(0)),/offset_ignored/);
+  for(const page of [{},{sessions:[null]},{sessions:[{id:1}]},{sessions:[]}])
+    await assert.rejects(findSeedSessionPage(async()=>page));
 });

@@ -36,6 +36,42 @@ class ModelFixtureTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(),b'original synthetic configuration')
             self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o640)
 
+    def test_clarify_requires_exact_correlated_tool_result(self):
+        request={'messages':[{'role':'user','content':fixture.CLARIFY_PROMPT}],
+                 'tools':[{'type':'function','function':{'name':'clarify'}}]}
+        message, reason=fixture.clarify_message(request)
+        self.assertEqual(reason,'tool_calls')
+        self.assertEqual(json.loads(message['tool_calls'][0]['function']['arguments'])['questions'][0]['question'],fixture.CLARIFY_QUESTION)
+        request['messages'] += [message,{'role':'tool','tool_call_id':fixture.CLARIFY_CALL,
+            'content':json.dumps({'responses':[{'question':fixture.CLARIFY_QUESTION,'user_response':fixture.CLARIFY_ANSWER}]})}]
+        self.assertEqual(fixture.clarify_message(request),({'role':'assistant','content':fixture.CLARIFY_REPLY},'stop'))
+        for value in ({'responses':[]},{'responses':[{'question':fixture.CLARIFY_QUESTION,'user_response':'wrong'}]},
+                      {'responses':[{'question':fixture.CLARIFY_QUESTION,'user_response':fixture.CLARIFY_ANSWER}],'timed_out':True}):
+            request['messages'][-1]['content']=json.dumps(value)
+            with self.assertRaises(ValueError):fixture.clarify_message(request)
+
+    def test_clarify_http_roundtrip_in_stream_and_json_modes(self):
+        for stream in [False,True]:
+            with tempfile.TemporaryDirectory() as tmp:
+                path=Path(tmp)/'config.yaml';path.write_text('original');path.chmod(0o600)
+                with fixture.model_fixture(path) as state:
+                    request={'stream':stream,'messages':[{'role':'user','content':fixture.CLARIFY_PROMPT}],
+                             'tools':[{'function':{'name':'clarify'}}]}
+                    def post():
+                        req=urllib.request.Request(f"http://127.0.0.1:{state['port']}/v1/chat/completions",data=json.dumps(request).encode())
+                        with urllib.request.urlopen(req,timeout=2) as response: data=response.read().decode()
+                        if not stream:return json.loads(data)['choices'][0]['message']
+                        chunk=json.loads(next(line[6:] for line in data.splitlines() if line.startswith('data: {')))
+                        value=chunk['choices'][0]['delta']
+                        for call in value.get('tool_calls',[]):call.pop('index')
+                        return value
+                    call=post();self.assertEqual(call['tool_calls'][0]['function']['name'],'clarify')
+                    request['messages'] += [call,{'role':'tool','tool_call_id':fixture.CLARIFY_CALL,
+                        'content':json.dumps({'responses':[{'question':fixture.CLARIFY_QUESTION,'user_response':fixture.CLARIFY_ANSWER}]})}]
+                    self.assertEqual(post()['content'],fixture.CLARIFY_REPLY)
+                    self.assertEqual(state['requests'],2);self.assertEqual(state['clarifyAnswers'],1)
+                self.assertTrue(state['restored'])
+
     def test_failure_restores_bytes_and_mode_and_symlink_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'config.yaml';path.write_bytes(b'synthetic');path.chmod(0o600)

@@ -1306,3 +1306,15 @@ restored. Product UI, real account login and client lifecycle tests remain outst
 ### Component layout migration release gate (2026-10-25)
 
 See `DESKTOP_COMPONENT_MIGRATION.md` for the transaction and physical acceptance matrix. Automated coverage includes opted-in component discovery from an active bundled/local installation; disabled/missing configuration and invalid states stay on their existing paths. Real signed component fixture archives exercise exact preparation confirmation, one-way conversion, retained local Hermes agent/launcher/token and binding, health failure rollback, restart recovery, missing executable refusal before shutdown and refusal to restore bundled Hermes after commit. Publisher fault injection covers complete archive/index bytes, HTTP readback failure, rollback readback failure, current-main movement, downgrade, signed-version mismatch and independent channel signatures. GUI integration calls the explicit preparation only from the unified update flow and labels its final confirmation “迁移并重连”. Physical service-changing migration, fresh install and Android business acceptance remain pending and must be reported separately from package/publication verification.
+
+### Hermes compatibility: one-question clarify tool round trip (2026-10-26)
+
+The isolated contract lab's `--prompt --clarify` exercises the real Hermes tool/server-request path,
+optionally through the actual account relay. Verify one-question batch `clarify.lock` parameter parity
+with the Web builder, empty-array `remaining`, tool identity/result, the exact post-tool paragraph
+separator, completion and persisted user/assistant rows. Test interleaved RPC responses, timeout,
+expired acknowledgements, wrong sessions/IDs/results, bounded event accumulation and missing history.
+The report consumer must retain every scoped check, bind the separate probe hash and reject hidden
+failures. See `HERMES_COMPATIBILITY_EXECUTION.md` and the 2026-10-26 clarify evidence. This does not
+validate approval cards, multi-question/multi-select UI, pending-question reconnect, app lifecycle or
+installed Desktop upgrade interaction; these remain separate acceptance cases.

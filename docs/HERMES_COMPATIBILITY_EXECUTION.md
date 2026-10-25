@@ -856,3 +856,61 @@ Python，退出后另一个进程重读 journal 并重建。Core 全程不修改
 本轮没有 Node 产品变化，之前两项本机 LibreSSL 问题的状态未改变。未重复设备/UI 验收，也没有
 安装或分发本地构建。下一步仍是受控停写与原路径恢复提交、数据写入边界和 worker/UI 生命周期，
 不能据本轮材料重建成功开放普通升级。I4/I5 未完成，继续保留草稿、未合并/部署/发布。
+
+## I2 真实 clarify 工具往返与报告约束（2026-10-26）
+
+I4 原路径替换仍依赖上游更新所有权与受控停写；本轮没有继续添加无法接通的恢复执行框架，
+而是补齐原 I2 核心业务验证中的工具交互。测试影响审查覆盖服务器主动请求、交错 RPC 回包、
+单题批量回答、工具身份、流式/最终输出和历史，及证据遗漏/篡改/失败传播。没有新增产品 API、
+错误码、管理员权限、UI 或版本分配；CLI 前置失败沿用 HR-HERMESCOMPAT-004。
+
+隔离模型新增固定 clarify 工具调用，只问一道合成选择题。必须收到正确 tool_call_id 和工具
+返回的精确答案才生成最终文本，不使用真实供应商。实际 Hermes 发送 server-request，探针
+按现有 Web 参数 builder 的合同调用 `clarify.lock`，验证 `status=ok` 与空 `remaining` 数组。
+同一个 socket 同时保留提交与回答的请求 ID，支持问题早于 prompt.submit 回包、完成消息早于
+回答确认。检查工具 start/complete、工具结果、最终文本及持久化历史；拒绝串会话、缺题 ID、
+错误工具/答案、过期、超时、超量流和中断。套件 `--clarify` 必须同时启用有网络围栏的 `--prompt`。
+
+两项初始失败都属于新探针的断言错误，保留而不当作上游缺陷：
+
+- [回答确认类型失败](evidence/hermes-compatibility/2026-10-26-clarify-ack-type-refusal.json)：
+  最初把 remaining 当数量；两个固定上游源码明确是未回答题目 ID 数组，最终一道题返回空数组。
+- [工具后段落断言失败](evidence/hermes-compatibility/2026-10-26-clarify-paragraph-refusal.json)：
+  工具与回答已完成，历史里的最终文本正确，但流多两个换行。两版 `agent/stream_delivery.py`
+  在工具迭代后的首段加一个段落分隔，Web 完成事件使用最终正文。现仅接受精确正文或这一对
+  前置换行，不用宽泛 trim 掩盖额外正文；有对应正反例。
+
+[最终真实记录](evidence/hermes-compatibility/2026-10-26-clarify-contracts.json)绑定实验驱动、主
+探针、新 clarify 探针、模型夹具和实际中继构建摘要。0.21.3、0.22.5、恢复后的 0.21.3 均经
+直连和实际账号 Gateway/Connector 完成；六条路径各 43 项布尔检查通过，共 258 项，其中
+新增 clarify 60 项。三套合成账号 PostgreSQL 的 12 项检查通过，中继凭据角色分离和停止确认
+均通过。所有临时服务已退出，原实验安装位置恢复，无清理隔离标记。未运行真实模型或日常服务。
+
+worker 默认纳入该场景。证据消费要求三阶段与账号中继的 scope 一致，并绑定独立探针摘要；
+缺字段、缺 scope、错误摘要或“全通过”状态隐藏失败会被拒绝。已测 direct 失败明确使 rpc
+失败，中继失败使 connector 失败。全部通过仍不代表完整 RPC、Connector 或客户端业务通过：
+审批、多题/多选、待答重连、生成中断及实际 Android/Web/Desktop 交互仍需验证。
+本轮未重复 LaunchAgent/后端恢复场景，旧证据保留原源码身份。
+
+复跑：`python3 -B scripts/hermes-compatibility-contract-lab.py --lab-root <隔离 I0 实验目录>
+--prompt --clarify --relay --account-relay --postgres-bin <可信 PostgreSQL 18 bin>`。
+仍是已有实验目录的验证，不会安装或升级日常 Hermes。I4/I5 未完成，普通一键升级继续关闭。
+
+本轮完整 Node 构建通过；Protocol 18、Connector 156、Gateway 273（14 跳过）、release-server
+41 通过，scripts 545 通过、2 失败、0 跳过。两项失败仍是既有本机 LibreSSL CMS legacy-recovery
+解密问题，因此完整命令退出非零。最终定向工具/worker/lab 测试 42/42 通过（包含 Python 子套件）；
+Python 模型夹具单独 4/4 通过。构建后发现中继产物摘要变化，重新实跑后再保存最终记录，不复用
+先前构建的通过声明。没有 Desktop 产品代码或视觉改动，本轮未重复 Swift/app 构建或设备验证。
+仍保持草稿，不合并、部署、发布或操作日常 Hermes。
+
+最终构建的再次实跑还暴露既有 REST 探针的分页假设：多次运行累积超过 100 个合成会话后，
+种子会话在第二页，直接读取其历史仍成功，但旧探针只查第一页。
+[失败记录](evidence/hermes-compatibility/2026-10-26-session-pagination-refusal.json)保留完整检查，
+不能算通过。现按两版端点支持的 offset 每次读取 100 条，上限五页（旧版 profiles 合并窗口上限
+500）；空页、忽略 offset、无效行或窗口内找不到种子均失败。没有删除历史、改会话时间或放宽
+种子字段校验。回归明确复现旧第一页断言失败，再验证第二页成功及有界拒绝。此项在完整基线
+之后补入，因此最终定向回归另行记录。
+
+最终分页修正后的实跑仍为 258/258，全部脚本/模型/中继构建摘要再次逐项核对一致；原路径恢复，
+没有清理标记。最终 core REST、clarify、worker、lab 定向组合 48/48 通过。草稿 PR 的本次提交
+继续等待其精确提交的远程检查，不把此前提交的绿色状态沿用为本次检查结果。

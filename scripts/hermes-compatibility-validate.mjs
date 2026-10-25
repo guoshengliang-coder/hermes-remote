@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS, RESTART_SCOPE, RESTART_CHECKS, RELAY_RECOVERY_SCOPE, RELAY_RECOVERY_CHECKS, ACCOUNT_RECOVERY_SCOPE } from './hermes-compatibility-contract-probe.mjs';
+import {CLARIFY_SCOPE,CLARIFY_CHECKS} from './hermes-compatibility-clarify-probe.mjs';
 import { parseTask, readJSON, infrastructureReport } from './hermes-compatibility-worker.mjs';
 import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/dist/account/hermes-compatibility-model.js';
 
@@ -35,10 +36,10 @@ export async function launchAgentSourceIdentity() {
     fixtureSha256:await hash('scripts/hermes-compatibility-launchagent-fixture.py'),
     coreSourceSha256:createHash('sha256').update(JSON.stringify(records)).digest('hex')};
 }
-export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, launchAgentIdentity, accountIdentity) {
-  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct', launchAgentIdentity, accountIdentity);
+export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, launchAgentIdentity, accountIdentity, clarifyProbeSha256) {
+  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct', launchAgentIdentity, accountIdentity, clarifyProbeSha256);
 }
-function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport, launchAgentIdentity, accountIdentity) {
+function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport, launchAgentIdentity, accountIdentity, clarifyProbeSha256) {
   const names=['httpMissingToken','httpWrongToken','httpValidToken','runningVersion','sessionList','profileSessionList',
     'historyRead','connectorSchema','websocketMissingToken','websocketWrongToken','connectorActiveListRPC'];
   if(raw?.schemaVersion!==1||raw.kind!=='live-runtime-contracts'||raw.sourceCommit!==identity.sourceCommit
@@ -55,8 +56,12 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
     throw new Error('contract_scope_mismatch');
   const reconnectScope=raw.stages?.source?.reconnectScope;
   if (reconnectScope !== undefined && (reconnectScope !== RECONNECT_SCOPE || !promptScope)) throw new Error('contract_scope_mismatch');
+  const clarifyScope=raw.stages?.source?.clarifyScope;
+  if(clarifyScope!==undefined&&(clarifyScope!==CLARIFY_SCOPE||!promptScope||!SHA.test(clarifyProbeSha256??'')
+    ||raw.clarifyProbeSha256!==clarifyProbeSha256))throw new Error('contract_clarify_scope_mismatch');
+  if(!clarifyScope&&raw.clarifyProbeSha256!==undefined)throw new Error('contract_clarify_scope_mismatch');
   const required = [...names, ...(restScope ? CORE_REST_CHECKS : []), ...(rpcScope ? SESSION_RPC_CHECKS : []),
-    ...(promptScope ? PROMPT_CHECKS : []),...(reconnectScope ? RECONNECT_CHECKS : [])];
+    ...(promptScope ? PROMPT_CHECKS : []),...(reconnectScope ? RECONNECT_CHECKS : []),...(clarifyScope ? CLARIFY_CHECKS : [])];
   const stages={},restartStages={};
   const restartScope=raw.stages?.source?.restart?.scope;
   if(restartScope!==undefined&&(restartScope!==RESTART_SCOPE||transport!=='direct'||!promptScope||!reconnectScope))throw new Error('contract_restart_scope_mismatch');
@@ -65,6 +70,7 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
     if(stage?.schemaVersion!==1||stage.kind!=='live-connector-contract-probe'||stage.version!==version
       ||(stage.transport??'direct')!==transport||(!raw.relayScope && stage.relay!==undefined)
       ||stage.compatibilityApproved!==false||stage.restScope!==restScope||stage.rpcScope!==rpcScope||stage.promptScope!==promptScope||stage.reconnectScope!==reconnectScope
+      ||stage.clarifyScope!==clarifyScope||(!clarifyScope&&CLARIFY_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n)))
       ||(!reconnectScope && RECONNECT_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n)))
       ||(promptScope && stage.modelFixtureSha256!==modelFixtureSha256)
       ||(!promptScope && (stage.modelFixtureSha256!==undefined || PROMPT_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n))))
@@ -123,9 +129,9 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
     }
     const nested=parseContracts({...raw,relayScope:undefined,stages:probes,
       status:Object.values(probes).every(p=>Object.values(p.checks).every(v=>v===true))?'passed':'contract_gap'},
-      identity,suiteSha256,probeSha256,modelFixtureSha256,undefined,accountMode?'account-relay':'legacy-relay');
+      identity,suiteSha256,probeSha256,modelFixtureSha256,undefined,accountMode?'account-relay':'legacy-relay',undefined,undefined,clarifyProbeSha256);
     if (!restScope || !rpcScope || !promptScope || !reconnectScope ||
-        ['restScope','rpcScope','promptScope','reconnectScope'].some(k=>nested[k]!==raw.stages.source[k]))
+        ['restScope','rpcScope','promptScope','reconnectScope','clarifyScope'].some(k=>nested[k]!==raw.stages.source[k]))
       throw new Error('contract_relay_scope_mismatch');
     relay={scope:raw.relayScope,fixtureSha256:relayFixtureSha256,...Object.fromEntries(fields.map(k=>[k,first[k]])),
       stages:nested.stages,observations,...(accountMode?{account:{scope:'synthetic-account-routing-v1',
@@ -164,7 +170,7 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
      (!relay.recovery||Object.values(relay.recovery.stages).every(stage=>Object.values(stage.checks).every(Boolean)))))
     && (!launchAgent||Object.values(launchAgent.cycles).every(cycle=>Object.values(cycle).every(checks=>Object.values(checks).every(Boolean))));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
-  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),suiteSha256,probeSha256,stages,...(relay?{relay}:{}),
+  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),...(clarifyScope?{clarifyScope,clarifyProbeSha256}:{}),suiteSha256,probeSha256,stages,...(relay?{relay}:{}),
     ...(restartScope?{restart:{scope:restartScope,stages:restartStages}}:{}),...(launchAgent?{launchAgent}:{})};
 }
 export function lockEvidence(raw, identity, suiteSha256) {
@@ -231,7 +237,7 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
     // Session lifecycle success does not prove prompts/tools/server requests. A failure
     // in an exercised required path does, however, rule out full RPC compatibility.
     if (name === 'rpc' && evidence.contracts?.rpcScope === SESSION_RPC_SCOPE &&
-        ['source','candidate','restored'].some(stage => [...SESSION_RPC_CHECKS,...(evidence.contracts.promptScope===PROMPT_SCOPE?PROMPT_CHECKS:[]),...(evidence.contracts.reconnectScope===RECONNECT_SCOPE?RECONNECT_CHECKS:[])].some(check =>
+        ['source','candidate','restored'].some(stage => [...SESSION_RPC_CHECKS,...(evidence.contracts.promptScope===PROMPT_SCOPE?PROMPT_CHECKS:[]),...(evidence.contracts.reconnectScope===RECONNECT_SCOPE?RECONNECT_CHECKS:[]),...(evidence.contracts.clarifyScope===CLARIFY_SCOPE?CLARIFY_CHECKS:[])].some(check =>
           evidence.contracts.stages[stage]?.checks[check] === false))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }
@@ -311,7 +317,7 @@ async function main() {
           createHash('sha256').update(await readFile(lockSuite)).digest('hex'));
         const contractSuite=resolve('scripts/hermes-compatibility-contract-lab.py');
         const contractProbe=resolve('scripts/hermes-compatibility-contract-probe.mjs');
-        const contract=await exec('python3',[contractSuite,'--prompt','--relay','--restart','--launchagent','--account-relay',
+        const contract=await exec('python3',[contractSuite,'--prompt','--clarify','--relay','--restart','--launchagent','--account-relay',
           '--postgres-bin',postgresBin,'--lab-root',labRoot],{timeout:30*60_000,maxBuffer:64*1024});
         const contractResult=JSON.parse(contract.stdout.trim());
         const contractPath=await realpath(contractResult.report);
@@ -321,7 +327,8 @@ async function main() {
           createHash('sha256').update(await readFile(contractProbe)).digest('hex'),
           createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-model-fixture.py'))).digest('hex'),
           createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-relay-fixture.py'))).digest('hex'),
-          await launchAgentSourceIdentity(),await accountFixtureSourceIdentity());
+          await launchAgentSourceIdentity(),await accountFixtureSourceIdentity(),
+          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-clarify-probe.mjs'))).digest('hex'));
       }
     }
     evidence.recovery = { normal: evidence.normal, fault: evidence.fault };

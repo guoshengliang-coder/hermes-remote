@@ -1265,3 +1265,15 @@ Two later full runs passed without a confirmed root cause. Preserve both
 A pass covers 198 direct/account checks, 45 direct restart, 48 account recovery, 24 Native service,
 12 account fixture and six role/cleanup observations. These observations do not resolve the known
 intermittency or certify actual login, released clients, tools/files, interrupted work or upgrade safety.
+
+### Isolated clarification validation: 0.21.3 / 0.22.5 (2026-10-26)
+
+The fixed commits in `evidence/hermes-compatibility/2026-10-26-clarify-contracts.json` both passed a
+real one-question batch round trip, directly and through the actual synthetic account relay. The
+fixture uses the model's `clarify` tool, not an injected server event. `clarify.lock` returns remaining
+question IDs as an array (`[]` on the last lock), matching `contracts/prompt_voice.py` and
+`methods_prompt.py`. `agent/stream_delivery.py` prefixes the first post-tool text with one paragraph
+break; the final completion/history contains the answer without that separator. The probe accepts
+only these exact synthetic forms and validates the stored answer. This narrow record does not adopt
+either release or certify the rest of the upgrade/approval/client matrix. Details and retained failed
+probe assertions are in `HERMES_COMPATIBILITY_EXECUTION.md`.

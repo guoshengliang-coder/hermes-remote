@@ -3,6 +3,7 @@
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import WebSocket from 'ws';
+import {probeClarifyRPC,CLARIFY_SCOPE} from './hermes-compatibility-clarify-probe.mjs';
 import { HermesAuth } from '../connector/dist/hermes-auth.js';
 import { evaluateHermesContract } from '../connector/dist/hermes-contract.js';
 import { parseActiveList } from '../connector/dist/session-observer.js';
@@ -27,6 +28,21 @@ export function validateCoreSessions(value) {
   for (const key of ['title','model','provider','cwd','source','git_branch','git_repo_root']) {
     if (row[key] !== undefined && row[key] !== null && typeof row[key] !== 'string') throw new Error('session_field_type');
   }
+}
+// Reused synthetic labs accumulate conversations. Both consumed endpoints support offset;
+// the profiles endpoint caps its merged window at 500. Never infer loss from page one alone.
+export async function findSeedSessionPage(readPage) {
+  const seen=new Set();
+  for(let offset=0;offset<500;offset+=100){
+    const page=await readPage(offset);
+    if(!object(page)||!Array.isArray(page.sessions)||page.sessions.length>500
+      ||!page.sessions.every(row=>object(row)&&typeof row.id==='string'&&row.id))throw new Error('session_page');
+    const ids=JSON.stringify(page.sessions.map(row=>row.id));
+    if(seen.has(ids))throw new Error('session_offset_ignored');seen.add(ids);
+    if(page.sessions.some(row=>row.id===HISTORY_ID))return page;
+    if(page.sessions.length<100)break;
+  }
+  throw new Error('seed_outside_bounded_window');
 }
 export function validateCoreHistory(value, {empty = false, pagination = false, offset = 0} = {}) {
   if (!object(value) || !Array.isArray(value.messages)) throw new Error('history_shape');
@@ -293,7 +309,8 @@ function probeAuth(base,token,transport){
       return fetch(base+path,{...init,headers:{...init.headers,authorization:`Bearer ${token}`},redirect:'error',signal:AbortSignal.timeout(15_000)});},
     async websocketUrl(path){if(path!=='/api/ws')throw Error('invalid_account_ws');return base.replace('http:','ws:')+path;}};
 }
-export async function probeContract({port, token, version, prompt = false, transport = 'direct', captureRestart = false}) {
+export async function probeContract({port, token, version, prompt = false, clarify = false, transport = 'direct', captureRestart = false}) {
+  if(typeof clarify!=='boolean'||(clarify&&!prompt))throw new Error('invalid_clarify');
   if(typeof captureRestart!=='boolean'||(captureRestart&&!prompt))throw new Error('invalid_checkpoint_capture');
   if (!['direct','legacy-relay','account-relay'].includes(transport) || typeof prompt !== 'boolean' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string'
       || !/^[A-Za-z0-9_-]{32,128}$/.test(token) || !['0.21.3','0.22.5'].includes(version)) throw new Error('invalid_probe');
@@ -312,13 +329,13 @@ export async function probeContract({port, token, version, prompt = false, trans
     const status = JSON.parse(await body(await auth.request('/api/status', {method:'GET'})));
     if (status.version !== version) throw new Error('version');
   });
-  for (const [name,path] of [['sessionList','/api/sessions?limit=100'], ['profileSessionList','/api/profiles/sessions?limit=100']]) {
-    await check(name === 'sessionList' ? 'restCoreSessions' : 'restCoreProfileSessions', async () =>
-      validateCoreSessions(JSON.parse(await body(await auth.request(path,{method:'GET'})))));
-    await check(name, async () => {
-      const value = JSON.parse(await body(await auth.request(path,{method:'GET'})));
-      if (!Array.isArray(value.sessions) || !value.sessions.some(s=>s.id==='go-compat-lab-history')) throw new Error('history');
+  for (const [name,path] of [['sessionList','/api/sessions'], ['profileSessionList','/api/profiles/sessions']]) {
+    let seeded;
+    await check(name,async()=>{
+      seeded=await findSeedSessionPage(async offset=>JSON.parse(await body(await auth.request(
+        `${path}?limit=100&offset=${offset}`,{method:'GET'}))));
     });
+    await check(name === 'sessionList' ? 'restCoreSessions' : 'restCoreProfileSessions',async()=>validateCoreSessions(seeded));
   }
   await check('historyRead', async () => {
     const value = JSON.parse(await body(await auth.request('/api/sessions/go-compat-lab-history/messages',{method:'GET'})));
@@ -347,8 +364,10 @@ export async function probeContract({port, token, version, prompt = false, trans
   if(prompt)Object.assign(checks,completedTurn
     ? await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...completedTurn,readHistory,headers:auth.headers})
     : Object.fromEntries(RECONNECT_CHECKS.map(n=>[n,false])));
+  let clarifyObservation;
+  if(clarify)Object.assign(checks,await probeClarifyRPC(await auth.websocketUrl('/api/ws'),{headers:auth.headers,readHistory,onObservation:value=>{clarifyObservation=value;}}));
   // Only the private parent process receives this checkpoint; it must strip it before reporting.
-  return {schemaVersion:1,kind:'live-connector-contract-probe',version,transport,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE,reconnectScope:RECONNECT_SCOPE}:{}),checks,compatibilityApproved:false,
+  return {schemaVersion:1,kind:'live-connector-contract-probe',version,transport,...(clarify?{clarifyScope:CLARIFY_SCOPE,clarifyObservation}:{}),restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE,reconnectScope:RECONNECT_SCOPE}:{}),checks,compatibilityApproved:false,
     ...(captureRestart?{restartCheckpoint:completedTurn??null}:{})};
 }
 

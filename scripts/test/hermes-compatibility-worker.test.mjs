@@ -455,3 +455,55 @@ test('recorded account recovery failures remain failed despite successful direct
     assert.equal(validateBundle(task,result).outcome,'failed');
   }
 });
+
+test('clarify evidence binds its probe, rejects missing fields and never certifies full RPC',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const {CLARIFY_SCOPE,CLARIFY_CHECKS}=await import('../hermes-compatibility-clarify-probe.mjs');
+  // Synthetic parser fixture based on an already scoped text-turn report; not runtime evidence.
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-reconnect-contracts.json',import.meta.url)));
+  raw.clarifyProbeSha256='c'.repeat(64);
+  for(const stage of Object.values(raw.stages)){
+    stage.clarifyScope=CLARIFY_SCOPE;
+    Object.assign(stage.checks,Object.fromEntries(CLARIFY_CHECKS.map(key=>[key,true])));
+  }
+  const parse=(value,hash=raw.clarifyProbeSha256)=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,undefined,undefined,undefined,hash);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  assert.equal(parse(raw).clarifyScope,CLARIFY_SCOPE);
+  assert.equal(bundle(raw).report.checks.find(c=>c.name==='rpc').status,'not_run');
+  for(const hash of [null,'0'.repeat(64),'invalid'])assert.throws(()=>parse(raw,hash));
+  for(const stage of ['source','candidate','restored']){
+    for(const key of CLARIFY_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';assert.equal(bundle(failed).report.checks.find(c=>c.name==='rpc').status,'failed');
+    }
+    for(const scope of [null,'unknown',undefined]){
+      const changed=structuredClone(raw);changed.stages[stage].clarifyScope=scope;assert.throws(()=>parse(changed));
+    }
+  }
+  const hidden=structuredClone(raw);delete hidden.clarifyProbeSha256;
+  for(const stage of Object.values(hidden.stages))delete stage.clarifyScope;
+  assert.throws(()=>parse(hidden),'cannot silently drop unscoped clarify results');
+  const diagnostic=structuredClone(raw);diagnostic.stages.source.clarifyObservation={text:'synthetic-private'};
+  assert.equal(JSON.stringify(parse(diagnostic)).includes('synthetic-private'),false);
+});
+
+test('real clarify account-relay evidence retains all checks and rejects a hidden relay failure',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-26-clarify-contracts.json',import.meta.url)));
+  const account=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));
+  const parse=value=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,undefined,account,raw.clarifyProbeSha256);
+  const parsed=parse(raw);
+  assert.equal(parsed.stages.candidate.checks.clarifyHistory,true);
+  assert.equal(parsed.relay.stages.candidate.checks.clarifyHistory,true);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  for(const name of ['rpc','connector','clientBusiness','desktopLifecycle','newDataProtection'])
+    assert.equal(bundle(raw).report.checks.find(c=>c.name===name).status,'not_run');
+  const failed=structuredClone(raw);failed.stages.candidate.relay.probe.checks.clarifyAnswerAcknowledged=false;
+  assert.throws(()=>parse(failed));failed.status='contract_gap';
+  assert.equal(bundle(failed).report.checks.find(c=>c.name==='connector').status,'failed');
+  const omitted=structuredClone(raw);delete omitted.stages.candidate.relay.probe.clarifyScope;
+  assert.throws(()=>parse(omitted));
+});
