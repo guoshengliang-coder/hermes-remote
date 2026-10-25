@@ -82,3 +82,12 @@ through its normal component release gate.
 - L2: attached HONOR is unauthorized; no physical-device result is claimed. Upgrade from the
   incident's actual 0.1.180 credentials, vendor networking and normal-workload recurrence remain
   pending in `ANDROID_SMOKE.md`. No user APK was handed off and no production deploy occurred.
+
+## Owner-authorized release allocation — 2026-10-25
+
+The owner requested publication in the same conversation. The release PR allocates Android
+0.1.183 (code 184), Gateway 0.4.37 and Connector 0.1.18. Android preparation passed 2,761 unit tests
+and lint without release credentials. Cloud schemas, flags, protocols and minimum clients remain
+unchanged. A managed pair 0.4.13 is planned; its CI signing environment currently lacks the required
+inputs, so no signed-component publication is claimed. Actual publication receipts and public
+verification must precede the MissionGo verification handover.
