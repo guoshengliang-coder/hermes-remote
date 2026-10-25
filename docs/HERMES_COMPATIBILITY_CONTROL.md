@@ -141,7 +141,7 @@ user/assistant 内容、行 ID 和秒级时间戳。模型是固定回复的本�
 80 秒连接总期限、1 MiB 帧上限、最多 256 条/64 KiB 文本事件限制测试资源；保存必要字段，
 不上传原始请求或模型响应。只接受预定合成提示，本地 HTTP 请求体最多 4 MiB。
 
-CI 验证 worker 使用 `--prompt --relay --restart` 执行此范围及下述中继、后端重启验证。局部通过仍不能认证完整 RPC 或客户端业务，
+CI 验证 worker 使用 `--prompt --relay --restart --launchagent` 执行此范围及下述中继、后端重启和托管服务验证。局部通过仍不能认证完整 RPC 或客户端业务，
 工具调用/审批、生成中断重放、真实模型、账号模式中继与手机/Web 端到端仍待验收。
 任何已测对话路径失败明确记为 RPC 失败，不因它是模拟模型而忽略。
 
@@ -167,7 +167,7 @@ Gateway 只监听 loopback，两个进程采用相同的外网隔离 sandbox、�
 Gateway 不收到 Hermes 凭据，Connector 不收到 App 凭据；还实际交换两类凭据确认请求被拒绝。
 Connector-owned contract endpoint 替代直接访问 Hermes OpenAPI，保留中继真实鉴权和契约判断。
 
-worker 默认使用 `--prompt --relay --restart`，合同实验期限为 30 分钟。报告保留直接访问和中继访问的
+worker 默认使用 `--prompt --relay --restart --launchagent`，合同实验期限为 30 分钟。报告保留直接访问和中继访问的
 独立结果；分别观察本地模型收到请求，不能用直接访问成功替中继背书。每阶段绑定 fixture、
 Node 二进制、三个组件 dist 树与 lockfile 摘要及 Gateway/Connector 源码版本。它们是本次源码
 构建的身份记录，不是正式发行物验签，也不证明所有 node_modules 文件的完整性。
@@ -278,3 +278,29 @@ RPC 失败，不误报基础设施异常或已执行的重启失败，前置成�
 `serviceRecovery=failed`；全部通过仍不认证完整服务恢复，因为 LaunchAgent、Desktop 退出重开、
 运行中断、账号模式和客户端业务尚需独立验收。已有 legacy relay 检查保持原范围；重启回读
 本身走直接连接，不能声称验证了中继重连。worker 默认加入 `--restart`，合同实验期限为 30 分钟。
+
+## I2 隔离 Desktop LaunchAgent
+
+`temporary-desktop-launchagent-v1` 在 macOS GUI 用户域里验证真实 launchd。实验编译并链接当前
+Desktop Core，复用 `DesktopLocalHermesLauncher`、`DesktopLocalHermesLaunchAgent` 和
+`DesktopLaunchAgentController`。仅在受限临时目录生成文件；适配器把正式标签映射为随机
+`com.hermesgo.compat-lab.<UUID>`，把 9119 映射为随机 loopback 端口，并加上既有 sandbox 和
+干净环境。正式标签永不传给 launchctl，正式端口拒绝作为测试端口。重复标签在 bootstrap 前拒绝。
+
+token 只存 owner-only 的 0600 文件，真实 Desktop launcher 读取它后 exec 官方 Hermes；plist、
+命令参数及报告不含 token。清除继承环境和代理变量后再进入 sandbox，上游仍无日常 HOME
+读写、外网或 launchctl 权限。Native 控制器执行 bootstrap/bootout；实际 launchctl 命令有
+10 秒期限，首次启动取得该随机 job 的 PID，停止后核对 job 卸载、进程退出及端口可重新绑定。
+若停止状态不确定，保存 owner-only 的私有清理记录并冻结该实验目录；不移动可能仍被写入的
+候选路径，不自动重跑。人工核实并清理记录中的精确随机 job 后才可恢复此实验，不扫描或
+停止任意同名 Hermes 进程；该记录不上传管理台。
+
+source/candidate/restored 的初始与重启阶段共有六个循环，各记录 loaded/runningOwned/stopped/
+portReleased。报告绑定 helper 源码/二进制、Core 源码树和 fixture 摘要；验证端重新计算受信
+源码摘要。缺循环、缺布尔结果、身份或范围混用、状态矛盾拒收；明确失败使 serviceRecovery
+失败。前置对话失败而未尝试重启时不伪造第二个循环。
+
+这验证隔离标签/端口下真实 Desktop 生成和控制逻辑，不是日常正式标签的升级，也不证明
+Desktop 退出重开、中继重连、生产凭据、账号模式或新版数据恢复。无 GUI launchd 域、Swift
+工具链或源码构建失败属于基础设施未完成，不能代替通过。没有修改产品 UI、正式 plist 或
+上游代码；首次完整受保护 workflow 仍须独立验收。

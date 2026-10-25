@@ -614,3 +614,38 @@ scripts 508 通过、0 跳过，仍仅复现既有两项 macOS LibreSSL CMS lega
 完整目标仍未交付：上游旧更新器锁缺口未解决，当前依然六项可通过、一项并发锁失败、八项
 未完成；受保护清单任务、实际执行器和 I4/I5 保持待完成。未合并、部署、发布、授予角色或
 修改日常 Hermes，继续保持草稿状态。
+
+## I2 真实 Desktop Core 与隔离 LaunchAgent
+
+`5977d44d` 的 11 项 CI 全部通过。本轮实施前评审正式标签/端口隔离、真实 Native 控制器、
+token-file 合同、环境隔离、bootstrap 不确定结果、进程和端口收尾，以及报告身份/缺项拒收。
+新增 Swift 验收助手链接当前 Desktop Core，复用真实 launcher/plist 生成与启停控制器；只在
+随机临时标签和端口上操作。适配增加原 sandbox/干净环境，正式标签不会到达 launchctl，
+9119 被拒绝，token 保留在 0600 文件，代理变量不继承。
+
+首次实跑在配置生成前被路径预检拒绝，没有加载服务。原因是 Foundation 将 `/private/var`
+规范表示为 `/var`；改为 POSIX realpath 验证调用方路径，保留原临时目录/所有者/权限检查。
+没有放宽到日常目录。随后实跑成功；收尾审查又补上停止不确定时的私有清理标记与实验隔离，
+不再移动可能被存活进程写入的候选路径，后续重跑也会拒绝。该故障路径有回归覆盖。
+
+最终源码再次实跑固定旧版、候选和恢复版，每阶段初始/重启两次，共六次真实 launchd 服务
+循环，24/24 加载、运行归属、卸载/进程退出和端口释放观察通过；45/45 已完成对话重启检查、
+198/198 直接/legacy 中继检查及六项凭据分离/收尾观察也通过。
+[脱敏证据](evidence/hermes-compatibility/2026-10-25-launchagent-contracts.json) 绑定最终 lab、
+probe、Native helper 源码/二进制、Core 源码树与 fixtures 摘要。最后只核对本任务十二个随机
+job（两轮各六个）均已卸载，原绝对路径已恢复，清理标记不存在，实验助手/Node 临时副本已删除。
+
+报告端重新计算受信源码摘要；六次循环缺项、混用身份、错误范围、状态矛盾或已测失败均不能
+形成通过证据。明确失败使 serviceRecovery 失败；前置对话失败时仍遵守 attempted=false，
+不伪造重启循环。worker 默认增加 `--launchagent`，缺 GUI 域/Swift 工具链作为基础设施失败。
+重启后的中继连接、Desktop 重开和实际账号客户端业务仍需继续验收，不能由本轮提升为全通过。
+
+定向 lab/worker 21/21 通过；最终真实报告消费者 16/16 通过。Node 构建通过，最后完整测试
+Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通过；scripts 510
+通过、0 跳过，仅两项既有 macOS LibreSSL CMS legacy-recovery 失败，整体退出非零。
+一次性 PostgreSQL 检查执行。Desktop assets、742 Swift 测试和本地 ad-hoc App 构建通过；
+没有产品 UI 改动，不追加截图或宣称分发验收。`git diff --check` 通过。
+
+上游 issue 此时仍无回复，未确认锁缺口修复。整体仍是六项可通过、一项并发锁失败、八项
+未完成；I4/I5、受保护任务和真实客户端链路尚未交付。未合并、部署、发布、授予角色或
+修改日常 Hermes，也未向上游发送额外消息。

@@ -110,5 +110,27 @@ class ContractLabTests(unittest.TestCase):
                 self.assertFalse(result['restart']['attempted'])
             self.assertEqual(config.read_text(),'synthetic original')
 
+    def test_uncertain_launchd_cleanup_quarantines_candidate_without_moving_its_live_paths(self):
+        with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+            root=Path(directory).resolve();(root/'tmp').mkdir()
+            for name,value in [('user','old'),('candidate-after-experiment','new')]:
+                (root/name).mkdir();(root/name/'identity').write_text(value)
+            (root/'report.json').write_text(json.dumps({'kind':'runtime-rehearsal','status':'runtime_stage_passed'}))
+            installer=types.SimpleNamespace(RUNTIME_SOURCE='old',RUNTIME_TARGET='new',git_read=lambda p,*args:(p.parents[1]/'identity').read_bytes())
+            agent=types.SimpleNamespace(label='com.hermesgo.compat-lab.synthetic',workspace=root/'tmp',pid=123,
+                stop=mock.Mock(side_effect=ValueError('uncertain_cleanup')))
+            def run(_root,_lab,version,*args):
+                if version=='0.22.5':lab.stop_agent(root,agent)
+                return {'checks':{'fixtureOnly':True}}
+            with mock.patch('sys.argv',['probe','--lab-root',str(root)]),mock.patch.object(lab,'load_lab',return_value=installer), \
+                mock.patch.object(lab,'probe',side_effect=run),mock.patch.object(lab.shutil,'which',return_value='/synthetic/node'):
+                with self.assertRaisesRegex(ValueError,'uncertain_cleanup'):lab.main()
+            self.assertEqual((root/'user/identity').read_text(),'new')
+            self.assertEqual((root/'contract-probe-old/identity').read_text(),'old')
+            self.assertEqual(lab.cleanup_marker(root).stat().st_mode&0o777,0o600)
+            with mock.patch('sys.argv',['probe','--lab-root',str(root)]),mock.patch.object(lab,'load_lab') as loader:
+                with self.assertRaisesRegex(ValueError,'previous_launchagent_needs_cleanup'):lab.main()
+                loader.assert_not_called()
+
 
 if __name__ == '__main__': unittest.main()

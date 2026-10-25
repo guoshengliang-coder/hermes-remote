@@ -1218,3 +1218,17 @@ This restart readback is direct and uses the deterministic local model fixture. 
 LaunchAgent supervision, relay reconnect, Desktop reopening, interrupted generation or downgrade
 after new writes. Those gates remain open; no adapted-version declaration or production recommendation
 changes. An observed restart failure fails serviceRecovery; narrow success cannot approve that whole gate.
+
+### Desktop Core / launchd acceptance (2026-10-25)
+
+The same fixed runtimes now run under actual temporary launchd jobs created through Desktop Core's
+real launcher/plist generators and start/stop controller. The adapter replaces the production label
+and 9119 with random test identities and preserves the token-file contract behind the existing OS
+sandbox. Six initial/restarted cycles pass 24/24 service ownership and cleanup observations; all
+45 restart, 198 direct/relay and six role/cleanup checks also pass in this run. See
+[the scoped report](evidence/hermes-compatibility/2026-10-25-launchagent-contracts.json).
+
+The report binds helper source/binary, Core source tree and fixture hashes. This does not exercise
+the daily job label, actual app shutdown/reopen, relay reconnection, account mode or production
+upgrade. A missing GUI launchd domain or toolchain is infrastructure failure, never compatibility
+approval. The production adapted-version declaration and recommendation policy remain unchanged.

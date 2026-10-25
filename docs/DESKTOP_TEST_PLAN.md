@@ -1211,3 +1211,22 @@ It binds source hashes and retains no process IDs, paths, argv or environment va
 restricted writes to the probe/macOS temporary directories; a separate outside write was rejected,
 and collection left no workspace. The daily app was neither launched, stopped, updated nor replaced.
 This proves process/file identity only; compatibility approval remains false.
+
+### Hermes compatibility: isolated launchd acceptance (2026-10-25)
+
+`hermes-compatibility-launchagent-helper.swift` builds against real Desktop Core and reuses its local
+launcher/plist generators and exact-label controller. The fixture maps only the Hermes test target to
+a random label, substitutes a random loopback port, and adds the existing sandbox/clean environment.
+It refuses port 9119, label collisions and non-private/non-lab paths. No daily job is inspected or
+changed; synthetic credentials remain in private files and the original launcher reads them.
+
+On this Mac, fixed 0.21.3 / 0.22.5 / restored-0.21.3 each passed initial and restarted service cycles:
+all 24 loaded/owned-process/unloaded/port-released observations, 45 completed-turn restart checks,
+198 direct/legacy-relay contract checks and six role/cleanup observations passed. The evidence is
+`evidence/hermes-compatibility/2026-10-25-launchagent-contracts.json`. It binds Core/helper/fixture
+identity; no PID, token, path, plist or raw launchctl environment is retained publicly.
+
+This is native service-controller acceptance under substituted test identities, not UI or daily
+installation verification. App lifecycle, actual managed relay reconnect, account mode, interrupted
+generation and data-safe recovery still require their own cases. No product UI or release version
+changed; no new screenshots or distributed artifact are implied.

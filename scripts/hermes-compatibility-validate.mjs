@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile, writeFile, mkdtemp, chmod, realpath } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, chmod, realpath, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -14,10 +14,20 @@ const exec = promisify(execFile);
 const timestamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SHA = /^[a-f0-9]{64}$/;
 export const RELAY_SCOPE = 'legacy-source-build-relay-v1';
-export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256) {
-  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct');
+export const LAUNCH_AGENT_SCOPE = 'temporary-desktop-launchagent-v1';
+export async function launchAgentSourceIdentity() {
+  const hash=async path=>createHash('sha256').update(await readFile(path)).digest('hex');
+  const directory='desktop/Sources/HermesGoDesktopCore';
+  const names=(await readdir(directory)).filter(n=>n.endsWith('.swift')).sort();
+  const records=await Promise.all(names.map(async name=>[`${directory}/${name}`,await hash(`${directory}/${name}`)]));
+  return {helperSourceSha256:await hash('scripts/hermes-compatibility-launchagent-helper.swift'),
+    fixtureSha256:await hash('scripts/hermes-compatibility-launchagent-fixture.py'),
+    coreSourceSha256:createHash('sha256').update(JSON.stringify(records)).digest('hex')};
 }
-function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport) {
+export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, launchAgentIdentity) {
+  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct', launchAgentIdentity);
+}
+function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport, launchAgentIdentity) {
   const names=['httpMissingToken','httpWrongToken','httpValidToken','runningVersion','sessionList','profileSessionList',
     'historyRead','connectorSchema','websocketMissingToken','websocketWrongToken','connectorActiveListRPC'];
   if(raw?.schemaVersion!==1||raw.kind!=='live-runtime-contracts'||raw.sourceCommit!==identity.sourceCommit
@@ -86,13 +96,38 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
     relay={scope:RELAY_SCOPE,fixtureSha256:relayFixtureSha256,...Object.fromEntries(fields.map(k=>[k,first[k]])),
       stages:nested.stages,observations};
   }
+  let launchAgent;
+  const firstNative=raw.stages.source.launchAgent;
+  const nativeChecks=['loaded','runningOwned','stopped','portReleased'];
+  if(firstNative!==undefined){
+    const fields=['helperSourceSha256','helperBinarySha256','coreSourceSha256','fixtureSha256'];
+    if(transport!=='direct'||!restartScope||firstNative?.scope!==LAUNCH_AGENT_SCOPE
+      ||!fields.every(k=>SHA.test(firstNative[k]??''))
+      ||!['helperSourceSha256','coreSourceSha256','fixtureSha256'].every(k=>firstNative[k]===launchAgentIdentity?.[k]))
+      throw new Error('launchagent_identity_mismatch');
+    const cycles={};
+    for(const name of ['source','candidate','restored']){
+      const stage=raw.stages[name];cycles[name]={};
+      for(const [phase,owner] of [['initial',stage],['restarted',stage.restart]]){
+        const item=owner.launchAgent;
+        if(phase==='restarted'&&!owner.attempted){if(item!==undefined)throw new Error('launchagent_unattempted');continue;}
+        if(item?.scope!==LAUNCH_AGENT_SCOPE||!fields.every(k=>item[k]===firstNative[k])
+          ||!nativeChecks.every(k=>typeof item.checks?.[k]==='boolean'))throw new Error('launchagent_cycle_mismatch');
+        cycles[name][phase]=Object.fromEntries(nativeChecks.map(k=>[k,item.checks[k]]));
+      }
+    }
+    launchAgent={scope:LAUNCH_AGENT_SCOPE,...Object.fromEntries(fields.map(k=>[k,firstNative[k]])),cycles};
+  }else if(Object.values(raw.stages).some(stage=>stage.launchAgent!==undefined||stage.restart?.launchAgent!==undefined)){
+    throw new Error('launchagent_scope_missing');
+  }
   const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean))
     && (!restartScope || Object.values(restartStages).every(stage=>Object.values(stage.checks).every(Boolean))) && (!relay ||
     (Object.values(relay.stages).every(stage=>Object.values(stage.checks).every(Boolean)) &&
-     Object.values(relay.observations).every(stage=>stage.roleSeparation && stage.stopped)));
+     Object.values(relay.observations).every(stage=>stage.roleSeparation && stage.stopped)))
+    && (!launchAgent||Object.values(launchAgent.cycles).every(cycle=>Object.values(cycle).every(checks=>Object.values(checks).every(Boolean))));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
   return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),suiteSha256,probeSha256,stages,...(relay?{relay}:{}),
-    ...(restartScope?{restart:{scope:restartScope,stages:restartStages}}:{})};
+    ...(restartScope?{restart:{scope:restartScope,stages:restartStages}}:{}),...(launchAgent?{launchAgent}:{})};
 }
 export function lockEvidence(raw, identity, suiteSha256) {
   const names = ['oldRefusesLiveOwner', 'newRefusesLiveOwner', 'childSurvivesOwnerInterruption',
@@ -173,6 +208,10 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
       Object.values(evidence.contracts.restart.stages).some(stage=>stage.attempted&&Object.values(stage.checks).some(value=>value===false))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }
+    if(name==='serviceRecovery'&&evidence.contracts?.launchAgent&&Object.values(evidence.contracts.launchAgent.cycles)
+      .some(cycle=>Object.values(cycle).some(checks=>Object.values(checks).some(value=>value===false)))){
+      return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
+    }
     const available = Object.hasOwn(conditions, name);
     const proof = name === 'recovery' ? evidence.recovery : ['authentication','rest'].includes(name) ? evidence.contracts : normal;
     return { name, status: available ? conditions[name] ? 'passed' : 'failed' : 'not_run',
@@ -226,7 +265,7 @@ async function main() {
           createHash('sha256').update(await readFile(lockSuite)).digest('hex'));
         const contractSuite=resolve('scripts/hermes-compatibility-contract-lab.py');
         const contractProbe=resolve('scripts/hermes-compatibility-contract-probe.mjs');
-        const contract=await exec('python3',[contractSuite,'--prompt','--relay','--restart','--lab-root',labRoot],{timeout:30*60_000,maxBuffer:64*1024});
+        const contract=await exec('python3',[contractSuite,'--prompt','--relay','--restart','--launchagent','--lab-root',labRoot],{timeout:30*60_000,maxBuffer:64*1024});
         const contractResult=JSON.parse(contract.stdout.trim());
         const contractPath=await realpath(contractResult.report);
         if(dirname(contractPath)!==labRoot||!/^contract-report-[0-9]+\.json$/.test(contractPath.slice(labRoot.length+1)))throw new Error('contract_path_invalid');
@@ -234,7 +273,8 @@ async function main() {
           createHash('sha256').update(await readFile(contractSuite)).digest('hex'),
           createHash('sha256').update(await readFile(contractProbe)).digest('hex'),
           createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-model-fixture.py'))).digest('hex'),
-          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-relay-fixture.py'))).digest('hex'));
+          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-relay-fixture.py'))).digest('hex'),
+          await launchAgentSourceIdentity());
       }
     }
     evidence.recovery = { normal: evidence.normal, fault: evidence.fault };

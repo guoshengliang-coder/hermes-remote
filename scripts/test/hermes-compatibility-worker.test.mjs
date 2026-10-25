@@ -344,3 +344,33 @@ test('backend restart evidence is complete and scoped; every failure blocks serv
   assert.equal(validateBundle(task,result).outcome,'failed');
   skipped.stages.source.restart.checks.restartHistory=true;assert.throws(()=>parse(skipped));
 });
+
+test('Desktop launchd evidence binds actual Core/helper identity and every initial/restarted service cycle',async()=>{
+  const {contractEvidence,LAUNCH_AGENT_SCOPE}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-launchagent-contracts.json',import.meta.url)));
+  const expected=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
+  const parse=(v,native=expected)=>contractEvidence(v,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,native);
+  const bundle=v=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(v)},'2026-10-25T01:00:00Z');
+  assert.equal(parse(raw).launchAgent.scope,LAUNCH_AGENT_SCOPE);
+  assert.equal(bundle(raw).report.checks.find(c=>c.name==='serviceRecovery').status,'not_run');
+  for(const k of Object.keys(expected))assert.throws(()=>parse(raw,{...expected,[k]:'0'.repeat(64)}));
+  assert.throws(()=>parse(raw,{}));
+  for(const name of ['source','candidate','restored'])for(const phase of ['initial','restarted']){
+    const owner=v=>phase==='initial'?v.stages[name]:v.stages[name].restart;
+    const missing=structuredClone(raw);delete owner(missing).launchAgent;assert.throws(()=>parse(missing));
+    for(const key of ['scope','helperSourceSha256','coreSourceSha256','helperBinarySha256','fixtureSha256']){
+      const changed=structuredClone(raw);owner(changed).launchAgent[key]='unknown';assert.throws(()=>parse(changed));
+    }
+    for(const key of ['loaded','runningOwned','stopped','portReleased']){
+      const missing=structuredClone(raw);delete owner(missing).launchAgent.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);owner(failed).launchAgent.checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';const result=bundle(failed);
+      assert.equal(result.report.checks.find(c=>c.name==='serviceRecovery').status,'failed');
+      assert.equal(validateBundle(task,result).outcome,'failed');
+    }
+  }
+  const privateData=structuredClone(raw);privateData.stages.source.launchAgent.path='synthetic-private';
+  privateData.stages.source.restart.launchAgent.token='synthetic-private';
+  assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+});

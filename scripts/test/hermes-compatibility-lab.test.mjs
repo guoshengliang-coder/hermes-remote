@@ -26,3 +26,9 @@ test("relay fixture pins source builds, separates credentials and stops only its
   const result = spawnSync("python3", ["-B", script], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
 });
+
+test("launchd fixture uses isolated labels and ports and preserves the private token-file contract", () => {
+  const script = fileURLToPath(new URL("./hermes-compatibility-launchagent.test.py", import.meta.url));
+  const result = spawnSync("python3", ["-B", script], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+});

@@ -2423,3 +2423,21 @@ in-flight generation recovery, new-data downgrade protection or real Android/Web
 If the preceding prompt fails to produce a checkpoint, retain its RPC failure and record restart
 attempted=false with no checks. Do not turn that product failure into an infrastructure error or
 fabricate a restart result. A successful prerequisite cannot authorize this skip.
+
+### Hermes compatibility: actual Desktop Core with isolated launchd jobs
+
+On a disposable macOS GUI host, add `--launchagent` to `--prompt --relay --restart`. The helper builds
+and links real Desktop Core, generates its launcher/plist and invokes its actual controller. The test
+adapter substitutes a random job label and loopback port, and prepends the existing sandbox/clean
+environment. Never use the production labels, port 9119 or the daily Hermes HOME. Tokens stay in
+0600 files; no token, proxy credentials, raw launchctl output, PID or personal path enters the report.
+
+Require initial and restarted job observations for all three versions: loaded, owned running PID,
+unloaded with process exited, and port released. Bind all six cycles to identical helper source and
+binary, Core source tree and fixture digests. Reject missing cycles/flags, changed identities, false
+skips and contradictory status. After failure inspect only the experiment's exact random labels and
+ensure cleanup; never discover/stop arbitrary Hermes services. The public report must keep broader
+serviceRecovery unverified until managed relay, Desktop lifecycle and remaining acceptance are covered.
+If stop cannot be confirmed, require a private cleanup marker, preserved active/parked paths and
+refusal of another run. Do not swap directories under a potentially live writer or remove the marker
+as a retry shortcut. Cleanup must first verify the exact experiment-owned job is gone.
