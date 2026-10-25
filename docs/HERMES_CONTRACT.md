@@ -1277,3 +1277,16 @@ break; the final completion/history contains the answer without that separator. 
 only these exact synthetic forms and validates the stored answer. This narrow record does not adopt
 either release or certify the rest of the upgrade/approval/client matrix. Details and retained failed
 probe assertions are in `HERMES_COMPATIBILITY_EXECUTION.md`.
+
+### Packaged Web text and clarify browser probe (2026-10-26)
+
+`packaged-web-text-clarify-reload-v1` exercises the actual built Web page in pinned Chrome for
+Testing against the disposable authenticated Gateway/Connector and the two fixed Hermes commits.
+It sends text, reloads persisted history, renders and answers the single clarify question, then
+reloads both replies. Synthetic browser-session refresh and a missing-CSRF rejection use the actual
+Gateway. No Web product parser or upstream code was changed for this probe.
+
+The receipt is `evidence/hermes-compatibility/2026-10-26-web-contracts.json`; all three runtime stages
+must carry the same scope, exact probe/build identities and every check. This narrows the earlier
+unverified Web-rendering scope only for text/single-question clarify. Real login, physical browsers,
+other tools, Android and the installed Desktop upgrade journey remain separate acceptance gates.

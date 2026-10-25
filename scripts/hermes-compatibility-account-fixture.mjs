@@ -8,7 +8,8 @@ import {pathToFileURL} from 'node:url';
 import pg from 'pg';
 import {TokenCodec} from '../gateway/dist/account/token-codec.js';
 const hash=data=>createHash('sha256').update(data).digest('hex');
-export async function seedAccount({url,dataDirectory,workspace}){
+export async function seedAccount({url,dataDirectory,workspace,web=false}){
+  if(typeof web!=='boolean')throw Error('invalid_web_fixture');
   const info=await lstat(workspace),canonical=await realpath(workspace),root=dirname(dirname(canonical));
   const rootInfo=await lstat(root);
   if(dirname(root)!==await realpath(tmpdir())||rootInfo.uid!==process.getuid()||(rootInfo.mode&0o077)||canonical!==workspace||!info.isDirectory()||info.uid!==process.getuid()||(info.mode&0o077)
@@ -47,10 +48,21 @@ export async function seedAccount({url,dataDirectory,workspace}){
     await pool.query(`INSERT INTO connector_bindings (id,account_id,desktop_installation_id,display_name,device_id,public_key,
       key_algorithm,public_key_fingerprint,generation,status,activated_at)
       VALUES ($1,$2,$3,'Synthetic Mac',$4,$5,'Ed25519',$6,1,'active',now())`,[binding,account,desktop,device,publicKey,fingerprint]);
+    let browserSession;
+    if(web){
+      const installation=randomUUID(),id=randomUUID(),access=codec.issueAccessToken(),refresh=codec.issueRefreshToken();
+      await pool.query(`INSERT INTO installations (id,account_id,client_installation_id,kind,platform,display_name,app_version)
+        VALUES ($1,$2,$1,'browser','web','Synthetic browser','test')`,[installation,account]);
+      await pool.query(`INSERT INTO account_sessions (id,account_id,installation_id,refresh_family_id,access_token_hash,access_expires_at)
+        VALUES ($1,$2,$3,$1,$4,now()+interval '1 hour')`,[id,account,installation,codec.hashAccessToken(access)]);
+      await pool.query(`INSERT INTO refresh_tokens (id,session_id,family_id,token_hash,expires_at)
+        VALUES ($1,$2,$2,$3,now()+interval '1 day')`,[randomUUID(),id,codec.hashRefreshToken(refresh)]);
+      browserSession={token:access,refreshToken:refresh,installationId:installation};
+    }
     const credentialPath=resolve(workspace,'account-credential.json');
     await writeFile(credentialPath,JSON.stringify({schemaVersion:1,bindingId:binding,generation:1,publicKeyFingerprint:fingerprint,
       privateKey:keys.privateKey.export({format:'der',type:'pkcs8'}).subarray(-32).toString('base64url')}),{flag:'wx',mode:0o600});
-    return {tokenKey,token,otherToken,device,credentialPath,migrationsSha256:hash(JSON.stringify(records)),
+    return {tokenKey,token,otherToken,device,credentialPath,...(browserSession?{browserSession}:{}),migrationsSha256:hash(JSON.stringify(records)),
       databaseIdentityVerified:true,emptyDatabaseVerified:true};
   }finally{await pool.end();}
 }

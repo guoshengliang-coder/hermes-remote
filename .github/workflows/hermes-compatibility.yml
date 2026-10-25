@@ -66,6 +66,14 @@ jobs:
         run: |
           brew install postgresql@18
           printf 'HERMES_COMPATIBILITY_POSTGRES_BIN=%s/bin\n' "$(brew --prefix postgresql@18)" >> "$GITHUB_ENV"
+      - name: Build the Web client and pinned isolated browser toolchain
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/hermes-compat-browser
+        run: |
+          npm ci --prefix web --ignore-scripts
+          npm run build --prefix web
+          npx --no-install playwright install chromium --no-shell --no-progress
+          node --input-type=module -e 'import {chromium} from "playwright"; console.log("HERMES_COMPATIBILITY_CHROMIUM_PATH=" + chromium.executablePath())' >> "$GITHUB_ENV"
       - name: Validate in disposable homes with OS isolation
         run: node scripts/hermes-compatibility-validate.mjs compatibility-task.json compatibility-result.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

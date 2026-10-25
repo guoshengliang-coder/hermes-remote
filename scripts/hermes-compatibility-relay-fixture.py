@@ -89,14 +89,21 @@ def wait_ready(children, origin, device=None, online=True, account_token=None):
 
 
 @contextmanager
-def relay_fixture(root,node,sandbox,backend_port,backend_token,stage,postgres_bin=None):
+def relay_fixture(root,node,sandbox,backend_port,backend_token,stage,postgres_bin=None,web=None):
     root=Path(root).resolve();sandbox=Path(sandbox)
     if not root.name.startswith('hermes-compat-lab-') or root.stat().st_uid!=os.getuid() or root.stat().st_mode&0o077:
         raise ValueError('unsafe_relay_lab')
     if not sandbox.is_file() or not str(sandbox.resolve()).startswith(str(root)+'/'):
         raise ValueError('unsafe_relay_sandbox')
     if not isinstance(backend_port,int) or not 0<backend_port<65536:raise ValueError('invalid_backend')
+    if web and not postgres_bin:raise ValueError('web_requires_account')
     workspace=root/'tmp'/('relay-'+stage);workspace.mkdir(mode=0o700)
+    web_fixture=None;web_options=None
+    if web:
+        path=Path(__file__).with_name('hermes-compatibility-web-fixture.py')
+        spec=importlib.util.spec_from_file_location('web_fixture',path)
+        web_fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(web_fixture)
+        web_options=web_fixture.prepare(workspace,sandbox,web)
     source=Path(__file__).resolve().parent.parent
     build_sha=build_digest(source)
     # The host toolchain may live under the owner's HOME, which the lab cannot read.
@@ -140,12 +147,13 @@ def relay_fixture(root,node,sandbox,backend_port,backend_token,stage,postgres_bi
             database=database_context.enter_context(postgres.postgres_fixture(workspace,postgres_bin))
             account_path=Path(__file__).with_name('hermes-compatibility-account-fixture.mjs')
             seeded=subprocess.run(['/usr/bin/sandbox-exec','-f',str(sandbox),node,str(account_path)],
-                input=json.dumps({'url':database['url'],'dataDirectory':database['dataDirectory'],'workspace':str(workspace)}),
+                input=json.dumps({'url':database['url'],'dataDirectory':database['dataDirectory'],'workspace':str(workspace),'web':bool(web)}),
                 text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=60,cwd=source,env={**common,'TMPDIR':str(root.parent)})
             if seeded.returncode:raise ValueError('account_fixture_failed')
             account=json.loads(seeded.stdout);app_token=account['token'];account_token=app_token;device=account['device']
             gateway.update(ACCOUNT_AUTH_ENABLED='1',ACCOUNT_BINDING_ENABLED='1',ACCOUNT_DATABASE_URL=database['url'],
                 ACCOUNT_TOKEN_HASH_KEY=account['tokenKey'],ACCOUNT_GATEWAY_ORIGIN=origin)
+            if web_options:gateway.update(web_fixture.gateway_environment(web_options))
             connector.update(CONNECTOR_MODE='account',GATEWAY_URL=origin.replace('http:','ws:')+'/v2/connect',
                 ACCOUNT_CONNECTOR_CREDENTIAL_FILE=account['credentialPath'])
             connector.pop('CONNECTOR_TOKEN');connector.pop('DEVICE_ID')
@@ -186,6 +194,7 @@ def relay_fixture(root,node,sandbox,backend_port,backend_token,stage,postgres_bi
         observation={'port':port,'token':app_token,'roleSeparation':local_status in (401,403) and relay_status in (401,403),
             'reconnect':reconnect,'diagnose':diagnose,'stopped':False,'buildSha256':build_sha,'nodeSha256':node_sha,'gatewayVersion':json.loads((source/'gateway/package.json').read_text())['version'],
             'connectorVersion':json.loads((source/'connector/package.json').read_text())['version']}
+        if web_options:observation['probeWeb']=lambda:web_fixture.probe(shutil.which('node'),web_options,port,account['browserSession'],root)
         if account_evidence is not None:
             status,body=get_json(origin+'/api/status',account['otherToken'],account=True)
             account_evidence['checks']['otherAccountDenied']=status==409 and body.get('error',{}).get('code')=='HR-BIND-001'

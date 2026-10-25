@@ -351,3 +351,28 @@ worker 现在默认使用 `--prompt --relay --restart --launchagent --account-re
 可稳定复现提前返回与随后自行恢复；修正就绪门禁后同一实验和真实 Hermes 三阶段通过。
 正反证据一起保留，见实施记录；历史失败继续使 connector/serviceRecovery 失败，局部成功仍不
 完成这些完整门禁。真实登录、客户端 UI/生命周期、分享和多设备等仍需各自验收。
+
+## I2 真实 Web 页面局部证据
+
+`packaged-web-text-clarify-reload-v1` 使用本次 `web/dist`、固定 Playwright 和其指定的
+Chrome for Testing，实际点击 Web 页面，走一次性账号 Gateway/Connector 到固定官方 Hermes。
+每阶段检查浏览器启动、账号会话和刷新、设备进入、CSRF 拒绝、WebSocket 鉴权、文字提交/显示/
+重载、单题澄清提交/显示/回答/完成/重载及浏览器/代理退出，共 16 项。
+
+账号及访问/刷新 cookie 由新的私有 PostgreSQL 集群生成。刷新走真实 Web 会话端点；登录、
+邮箱及其他 auth 路由被测试代理拒绝。HTTPS 证书只用于 loopback，不写系统信任库。浏览器
+继承实验的日常 HOME 读取拒绝、外部写入拒绝和仅 loopback 网络规则；只额外允许读取固定测试
+浏览器包。`MAC_CHROMIUM_TMPDIR` 指向实验临时目录，不放开系统临时目录。浏览器清理无法
+确认时写入现有隔离标记，拒绝继续交换实验路径。测试浏览器不是签名/公证的产品发布物。
+
+CI 先构建 Web 并安装 lockfile 固定的测试浏览器，再通过
+`HERMES_COMPATIBILITY_CHROMIUM_PATH` 交给 worker。手动复跑在现有一次性实验上使用
+`--prompt --clarify --relay --account-relay --postgres-bin <bin> --web
+--playwright-module <repo>/node_modules/playwright/index.mjs --chromium <测试浏览器可执行文件>`；
+不得把日常 Chrome 或日常 Hermes 目录传入。
+
+报告绑定 Web 构建树、浏览器二进制、探针和 fixture 摘要；三阶段范围和所有布尔项必须齐全。
+全通过还要求完成阶段及问题/完成截图摘要。原始截图和失败诊断留在私有实验目录，不随 CI
+报告自动上传；需要人工审阅时只能另行选取无个人信息的合成截图。任一已测项失败令
+`clientBusiness=failed`；全通过仍保留总项 `not_run`，因为这只是已构建 Web 的文字/单题澄清
+局部验证，不认证原始发布包、真实登录、真实模型、其他客户端或 Desktop 一键升级。

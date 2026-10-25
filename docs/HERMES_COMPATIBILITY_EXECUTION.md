@@ -914,3 +914,53 @@ Python 模型夹具单独 4/4 通过。构建后发现中继产物摘要变化�
 最终分页修正后的实跑仍为 258/258，全部脚本/模型/中继构建摘要再次逐项核对一致；原路径恢复，
 没有清理标记。最终 core REST、clarify、worker、lab 定向组合 48/48 通过。草稿 PR 的本次提交
 继续等待其精确提交的远程检查，不把此前提交的绿色状态沿用为本次检查结果。
+
+## I2 真实 Web 文字与单题澄清交互（2026-10-26）
+
+本轮把“手写 RPC 参数与 Web 相同”推进为实际打开本次构建的 Web 页面，使用 Playwright
+1.62.1 / Chrome for Testing 151.0.7922.34（revision 1234）点击新建、发送文字、刷新历史、
+回答澄清卡片并再次刷新。真实 Gateway、Connector、官方 Hermes 和数据库处理请求；账号、
+历史和模型均为合成数据。未修改产品 Web、上游源码或日常安装。
+
+最终[机器记录](evidence/hermes-compatibility/2026-10-26-web-contracts.json)为 `passed`：
+
+| 运行阶段 | direct / account-relay | 新增 Web 检查 | 私有账号数据库检查 |
+| --- | --- | --- | --- |
+| 原 0.21.3 | 43 / 43 | 16 / 16 | 4 / 4 |
+| 候选 0.22.5 | 43 / 43 | 16 / 16 | 4 / 4 |
+| 恢复原 0.21.3 | 43 / 43 | 16 / 16 | 4 / 4 |
+
+浏览器检查包括真实访问会话和刷新、CSRF 拒绝、WebSocket 鉴权、两次页面输入、卡片选择、
+精确回复和两次重载后的唯一历史，以及浏览器/代理退出。原有接口 258 项、新 Web 48 项及
+数据库 12 项分别保留，不提升为完整兼容认证。临时服务和数据库全部退出，原合成路径恢复，
+没有清理隔离标记。最终 suite/probe/model/relay/account/Web/browser 摘要与当前文件逐项核对，
+完整记录通过正式证据消费函数；不存在复用旧构建通过结果的情况。
+
+已直接检查候选版的[问题卡片](evidence/hermes-compatibility/2026-10-26-web-question.png)和
+[完成后历史](evidence/hermes-compatibility/2026-10-26-web-completed.png)：问题和两个选项可读，
+回答后工具显示完成，刷新后普通回复和澄清回复各一次。截图只含合成内容；截取时结束有限
+动画，避免把淡入中间帧作为视觉证据。这不是 Safari、Android 或日常 Desktop 的设备验收。
+
+开发过程失败均来自新夹具，不是此次发现的上游不兼容：Svix 密钥必须用标准 base64；
+macOS Chromium 的临时目录需设置 `MAC_CHROMIUM_TMPDIR`；合成浏览器需要可刷新的会话；
+实际 socket 路由是 `/v2/devices/{id}/ws`；两个“新建”入口需要明确定位；空输入框在完成后
+显示添加按钮，不能等待“发送”按钮。已按实际源码修正并补相应边界回归，没有放开日常 HOME、
+外网或系统临时目录。Chromium 的临时目录规则见其
+[官方实现](https://raw.githubusercontent.com/chromium/chromium/main/base/files/file_util_apple.mm)。
+日常 Chrome 没有被启动或修改，测试工具链也不被声明为通过产品签名/公证。
+
+测试影响和错误码评审：改变范围是账号测试种子、浏览器/代理夹具、worker 证据校验及隔离 CI
+依赖；复用既有双语 `HR-HERMESCOMPAT-004`，原始错误留在私有诊断。新增回归覆盖不安全浏览器
+拒绝、MAC 临时目录、清理不确定时隔离、无效参数、邮件路由拒绝、真实 socket 路由，以及缺项、
+错摘要、假完成和失败不能伪装为通过。最终 REST/clarify/Web/worker/lab 定向 **53/53** 通过，
+包括真实私有 PostgreSQL 子套件。Web 组件 **1,009/1,009** 通过；根构建和 Web 构建通过。
+完整 Node 基线：Protocol 18、Connector 156、Gateway 273（14 跳过）、release-server 41
+通过；scripts 552 通过、2 失败、0 跳过。两项失败仍为既有 macOS LibreSSL CMS legacy-recovery
+解密路径，故完整 `npm test` 退出非零。随后新增 socket 路由回归及最终消费约束在上述 53 项
+定向检查中通过。没有 Desktop 产品改动，本轮未重复 Swift/app 或真实设备验收。
+
+worker 现在纳入此浏览器范围，但全部局部检查通过仍保持完整 `clientBusiness=not_run`；
+任何已测失败都不能被忽略。真实邮箱登录、其他工具/审批、待答重连、手机，以及完整已安装
+Desktop 升级仍待验收。本轮未重复 LaunchAgent/后端重启范围；此前证据保持其原始身份。
+上游 issue #144377 仍打开且无回复，更新所有权缺口未解决。I4/I5 未完成，普通升级继续关闭。
+没有授予角色、合并、部署、发布、升级或重启日常 Hermes。

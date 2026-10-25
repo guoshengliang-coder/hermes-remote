@@ -507,3 +507,38 @@ test('real clarify account-relay evidence retains all checks and rejects a hidde
   const omitted=structuredClone(raw);delete omitted.stages.candidate.relay.probe.clarifyScope;
   assert.throws(()=>parse(omitted));
 });
+
+test('browser evidence binds packaged Web and engine identities without certifying all client business',async()=>{
+  const {contractEvidence,webEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const {WEB_SCOPE,WEB_CHECKS}=await import('../hermes-compatibility-web-probe.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-26-clarify-contracts.json',import.meta.url)));
+  const identity=Object.fromEntries(['probeSha256','fixtureSha256','webBuildSha256','browserBinarySha256'].map(k=>[k,'e'.repeat(64)]));
+  const fixture={schemaVersion:1,kind:'live-web-browser-probe',scope:WEB_SCOPE,...identity,browserVersion:'151.0.7922.34',
+    stage:'complete',screenshots:{question:'a'.repeat(64),completed:'b'.repeat(64)},compatibilityApproved:false,
+    checks:Object.fromEntries(WEB_CHECKS.map(k=>[k,true]))};
+  // Synthetic parser fixture; these booleans are not runtime evidence.
+  raw.webScope=WEB_SCOPE;for(const stage of Object.values(raw.stages))stage.relay.web=structuredClone(fixture);
+  const account=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));
+  const parse=value=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,undefined,account,raw.clarifyProbeSha256,identity);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  assert.equal(parse(raw).web.scope,WEB_SCOPE);
+  assert.equal(bundle(raw).report.checks.find(c=>c.name==='clientBusiness').status,'not_run');
+  for(const field of Object.keys(identity))assert.throws(()=>webEvidence(fixture,{...identity,[field]:'0'.repeat(64)}));
+  const privateData={...fixture,token:'synthetic-private',error:'synthetic-private'};
+  assert.equal(JSON.stringify(webEvidence(privateData,identity)).includes('synthetic-private'),false);
+  for(const stage of ['source','candidate','restored']){
+    for(const key of WEB_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[stage].relay.web.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].relay.web.checks[key]=false;
+      // A launch refusal cannot retain a browser version it did not observe.
+      if(key==='browserLaunched')failed.stages[stage].relay.web.browserVersion=null;
+      assert.throws(()=>parse(failed));failed.status='contract_gap';
+      assert.equal(bundle(failed).report.checks.find(c=>c.name==='clientBusiness').status,'failed');
+    }
+    const missing=structuredClone(raw);delete missing.stages[stage].relay.web;assert.throws(()=>parse(missing));
+  }
+  const noScope=structuredClone(raw);delete noScope.webScope;assert.throws(()=>parse(noScope));
+  for(const patch of [{scope:'unknown'},{compatibilityApproved:true},{screenshots:{file:'/private/synthetic'}},{stage:'unbounded'},{stage:'text'},{screenshots:{}}])
+    assert.throws(()=>webEvidence({...fixture,...patch},identity));
+});

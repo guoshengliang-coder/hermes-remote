@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile, writeFile, mkdtemp, chmod, realpath, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, chmod, realpath, readdir, lstat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS, RESTART_SCOPE, RESTART_CHECKS, RELAY_RECOVERY_SCOPE, RELAY_RECOVERY_CHECKS, ACCOUNT_RECOVERY_SCOPE } from './hermes-compatibility-contract-probe.mjs';
+import {WEB_SCOPE,WEB_CHECKS} from './hermes-compatibility-web-probe.mjs';
 import {CLARIFY_SCOPE,CLARIFY_CHECKS} from './hermes-compatibility-clarify-probe.mjs';
 import { parseTask, readJSON, infrastructureReport } from './hermes-compatibility-worker.mjs';
 import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/dist/account/hermes-compatibility-model.js';
@@ -36,10 +37,42 @@ export async function launchAgentSourceIdentity() {
     fixtureSha256:await hash('scripts/hermes-compatibility-launchagent-fixture.py'),
     coreSourceSha256:createHash('sha256').update(JSON.stringify(records)).digest('hex')};
 }
-export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, launchAgentIdentity, accountIdentity, clarifyProbeSha256) {
-  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct', launchAgentIdentity, accountIdentity, clarifyProbeSha256);
+export async function webSourceIdentity(browserPath) {
+  const hash=async path=>createHash('sha256').update(await readFile(path)).digest('hex');
+  const records=[];
+  async function visit(path,prefix=''){
+    for(const name of (await readdir(path)).sort()){
+      const file=join(path,name),relative=prefix+name,info=await lstat(file);
+      if(info.isSymbolicLink())throw new Error('unsafe_web_build');
+      if(info.isDirectory())await visit(file,relative+'/');
+      else if(info.isFile())records.push([relative,await hash(file)]);
+      else throw new Error('unsafe_web_build');
+    }
+  }
+  await visit(resolve('web/dist'));records.sort(([a],[b])=>a<b?-1:a>b?1:0);
+  return {probeSha256:await hash('scripts/hermes-compatibility-web-probe.mjs'),
+    fixtureSha256:await hash('scripts/hermes-compatibility-web-fixture.py'),
+    webBuildSha256:createHash('sha256').update(JSON.stringify(records)).digest('hex'),browserBinarySha256:await hash(browserPath)};
 }
-function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport, launchAgentIdentity, accountIdentity, clarifyProbeSha256) {
+export function webEvidence(raw,expected){
+  const fields=['probeSha256','fixtureSha256','webBuildSha256','browserBinarySha256'];
+  if(raw?.schemaVersion!==1||raw.kind!=='live-web-browser-probe'||raw.scope!==WEB_SCOPE||raw.compatibilityApproved!==false
+    ||!fields.every(k=>SHA.test(raw[k]??'')&&raw[k]===expected?.[k])
+    ||!WEB_CHECKS.every(k=>typeof raw.checks?.[k]==='boolean')
+    ||!['prepare','browser','device','csrf','text','text-reload','clarify','clarify-reload','complete'].includes(raw.stage)
+    ||(raw.checks.browserLaunched?!/^[0-9]+(?:\.[0-9]+){1,3}$/.test(raw.browserVersion??''):raw.browserVersion!==null)
+    ||!raw.screenshots||typeof raw.screenshots!=='object'||Array.isArray(raw.screenshots)
+    ||!Object.entries(raw.screenshots).every(([k,v])=>['question','completed','failure'].includes(k)&&SHA.test(v)))
+    throw new Error('web_evidence_mismatch');
+  if(WEB_CHECKS.every(k=>raw.checks[k])&&(raw.stage!=='complete'||!raw.screenshots.question||!raw.screenshots.completed))
+    throw new Error('web_completion_evidence_missing');
+  return {scope:WEB_SCOPE,...Object.fromEntries(fields.map(k=>[k,raw[k]])),browserVersion:raw.browserVersion,
+    stage:raw.stage,screenshots:{...raw.screenshots},checks:Object.fromEntries(WEB_CHECKS.map(k=>[k,raw.checks[k]]))};
+}
+export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, launchAgentIdentity, accountIdentity, clarifyProbeSha256, webIdentity) {
+  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct', launchAgentIdentity, accountIdentity, clarifyProbeSha256, webIdentity);
+}
+function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport, launchAgentIdentity, accountIdentity, clarifyProbeSha256, webIdentity) {
   const names=['httpMissingToken','httpWrongToken','httpValidToken','runningVersion','sessionList','profileSessionList',
     'historyRead','connectorSchema','websocketMissingToken','websocketWrongToken','connectorActiveListRPC'];
   if(raw?.schemaVersion!==1||raw.kind!=='live-runtime-contracts'||raw.sourceCommit!==identity.sourceCommit
@@ -127,7 +160,7 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
           checks:recovery.attempted?Object.fromEntries(RELAY_RECOVERY_CHECKS.map(n=>[n,recovery.checks[n]])):{}};
       }else if(recovery!==undefined)throw new Error('relay_recovery_scope_missing');
     }
-    const nested=parseContracts({...raw,relayScope:undefined,stages:probes,
+    const nested=parseContracts({...raw,relayScope:undefined,webScope:undefined,stages:probes,
       status:Object.values(probes).every(p=>Object.values(p.checks).every(v=>v===true))?'passed':'contract_gap'},
       identity,suiteSha256,probeSha256,modelFixtureSha256,undefined,accountMode?'account-relay':'legacy-relay',undefined,undefined,clarifyProbeSha256);
     if (!restScope || !rpcScope || !promptScope || !reconnectScope ||
@@ -138,6 +171,13 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
         ...Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,first.account[k]])),
         postgresVersion:first.account.postgresVersion,postgresBinarySha256:first.account.postgresBinarySha256,stages:accounts}}:{}),...(recoveryScope?{recovery:{scope:recoveryScope,stages:recoveries}}:{})};
   }
+  let web;
+  if(raw.webScope!==undefined){
+    if(raw.webScope!==WEB_SCOPE||transport!=='direct'||raw.relayScope!==ACCOUNT_RELAY_SCOPE||!promptScope)
+      throw new Error('web_scope_mismatch');
+    web={scope:WEB_SCOPE,stages:Object.fromEntries(['source','candidate','restored'].map(name=>
+      [name,webEvidence(raw.stages[name]?.relay?.web,webIdentity)]))};
+  }else if(Object.values(raw.stages).some(stage=>stage.relay?.web!==undefined))throw new Error('web_scope_missing');
   let launchAgent;
   const firstNative=raw.stages.source.launchAgent;
   const nativeChecks=['loaded','runningOwned','stopped','portReleased'];
@@ -168,10 +208,11 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
      Object.values(relay.observations).every(stage=>stage.roleSeparation && stage.stopped) &&
      (!relay.account||Object.values(relay.account.stages).every(checks=>Object.values(checks).every(Boolean))) &&
      (!relay.recovery||Object.values(relay.recovery.stages).every(stage=>Object.values(stage.checks).every(Boolean)))))
+    && (!web||Object.values(web.stages).every(stage=>Object.values(stage.checks).every(Boolean)))
     && (!launchAgent||Object.values(launchAgent.cycles).every(cycle=>Object.values(cycle).every(checks=>Object.values(checks).every(Boolean))));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
   return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),...(clarifyScope?{clarifyScope,clarifyProbeSha256}:{}),suiteSha256,probeSha256,stages,...(relay?{relay}:{}),
-    ...(restartScope?{restart:{scope:restartScope,stages:restartStages}}:{}),...(launchAgent?{launchAgent}:{})};
+    ...(restartScope?{restart:{scope:restartScope,stages:restartStages}}:{}),...(launchAgent?{launchAgent}:{}),...(web?{web}:{})};
 }
 export function lockEvidence(raw, identity, suiteSha256) {
   const names = ['oldRefusesLiveOwner', 'newRefusesLiveOwner', 'childSurvivesOwnerInterruption',
@@ -241,6 +282,8 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
           evidence.contracts.stages[stage]?.checks[check] === false))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }
+    if(name==='clientBusiness'&&evidence.contracts?.web&&Object.values(evidence.contracts.web.stages).some(stage=>Object.values(stage.checks).some(v=>v===false)))
+      return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts.web)};
     if (name === 'connector' && evidence.contracts?.relay &&
         (Object.values(evidence.contracts.relay.stages).some(stage=>Object.values(stage.checks).some(value=>value===false)) ||
          Object.values(evidence.contracts.relay.observations).some(stage=>!stage.roleSeparation || !stage.stopped))) {
@@ -277,6 +320,8 @@ async function main() {
   try {
     if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) throw new Error('wrong_runner');
     const postgresBin=process.env.HERMES_COMPATIBILITY_POSTGRES_BIN;
+    const browserPath=process.env.HERMES_COMPATIBILITY_CHROMIUM_PATH;
+    if(!browserPath||!browserPath.startsWith('/'))throw new Error('browser_toolchain_missing');
     if(!postgresBin||!postgresBin.startsWith('/'))throw new Error('postgresql_toolchain_missing');
     const osVersion = (await exec('/usr/bin/sw_vers', ['-productVersion'])).stdout.trim();
     const normalizedOS = osVersion.split('.').length === 2 ? `${osVersion}.0` : osVersion;
@@ -318,7 +363,8 @@ async function main() {
         const contractSuite=resolve('scripts/hermes-compatibility-contract-lab.py');
         const contractProbe=resolve('scripts/hermes-compatibility-contract-probe.mjs');
         const contract=await exec('python3',[contractSuite,'--prompt','--clarify','--relay','--restart','--launchagent','--account-relay',
-          '--postgres-bin',postgresBin,'--lab-root',labRoot],{timeout:30*60_000,maxBuffer:64*1024});
+          '--postgres-bin',postgresBin,'--lab-root',labRoot,'--web',
+          '--playwright-module',resolve('node_modules/playwright/index.mjs'),'--chromium',browserPath],{timeout:30*60_000,maxBuffer:64*1024});
         const contractResult=JSON.parse(contract.stdout.trim());
         const contractPath=await realpath(contractResult.report);
         if(dirname(contractPath)!==labRoot||!/^contract-report-[0-9]+\.json$/.test(contractPath.slice(labRoot.length+1)))throw new Error('contract_path_invalid');
@@ -328,7 +374,7 @@ async function main() {
           createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-model-fixture.py'))).digest('hex'),
           createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-relay-fixture.py'))).digest('hex'),
           await launchAgentSourceIdentity(),await accountFixtureSourceIdentity(),
-          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-clarify-probe.mjs'))).digest('hex'));
+          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-clarify-probe.mjs'))).digest('hex'),await webSourceIdentity(browserPath));
       }
     }
     evidence.recovery = { normal: evidence.normal, fault: evidence.fault };

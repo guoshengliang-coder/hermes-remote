@@ -12,6 +12,12 @@ spec.loader.exec_module(lab)
 
 
 class ContractLabTests(unittest.TestCase):
+    def test_web_requires_account_mode_and_explicit_browser_toolchain(self):
+        for args in [['--web'],['--web','--account-relay'],['--playwright-module','/synthetic/module']]:
+            with mock.patch('sys.argv',['probe','--lab-root',str(Path.home()),*args]), mock.patch.object(lab,'probe') as runner:
+                with self.assertRaisesRegex(ValueError,'web_requires_'):lab.main()
+                runner.assert_not_called()
+
     def test_request_diagnostics_stay_private_on_success_and_failure(self):
         for passed in (False,True):
             with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
