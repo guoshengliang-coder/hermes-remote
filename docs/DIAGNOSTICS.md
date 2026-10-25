@@ -22,6 +22,18 @@ HG-215 的 API 37 合成取证确认两条阻塞：缓存重新打开停在
 单段文本还可停在 `LineBreaker.computeLineBreaks / GreedyLineBreaker`。前者需要有界扫描和
 后台准备，后者需要有界纯文本渲染块。仅看 REST/WS 仍正常不能排除这两条 UI 路径。
 
+## HG-237 prompt submission evidence
+
+Android unknown delivery uses `HR-SESS-022`; Check status only reads history/state. It cannot prove
+non-delivery from an absent row, elapsed timeout or equal text. See `HG_237_SEND_RECOVERY.md`.
+After the separate Gateway/Connector rollout, correlate Android connection/RPC ID with Gateway
+`clientConnectionId`, tunnel ID and Connector local RPC ID. Both relay hops now track `prompt.submit`
+in addition to create/switch: receipt, response `ok` and local duration, or unresolved IDs on close.
+Only bounded request frames (256 KiB) are inspected and at most 16 outstanding IDs retained per
+socket. Bodies, params/results, attachments and credentials are not logged. No trace for an old
+release, an oversized frame or an untracked ID is evidence of non-delivery. Cross-machine clocks do
+not justify precise per-hop latency; compare local durations and causal IDs.
+
 ## 三个问题，三个数据源
 
 | # | 问题 | 谁知道答案 | 在哪 |

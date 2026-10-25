@@ -1,6 +1,6 @@
 package com.hermes.client.data.network
 
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import com.hermes.client.domain.ArtifactDownloadDescriptor
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -14,7 +14,7 @@ import java.io.File
 class ArtifactRangeApiTest {
     @get:Rule val server = MockWebServerRule()
     private fun api() = HermesRestApi(testHttpClient(), Json { ignoreUnknownKeys = true }) {
-        GatewayConfig(server.server.url("/").toString().trimEnd('/'), "fixture-secret")
+        testAccountConnection(server.server.url("/").toString().trimEnd('/'), "fixture-secret")
     }
     private val descriptor = ArtifactDownloadDescriptor("a".repeat(64), 6, "\"${"b".repeat(64)}\"", "video/mp4", 1024)
 
@@ -49,7 +49,7 @@ class ArtifactRangeApiTest {
         var reads = 0
         val api = HermesRestApi(testHttpClient(), Json { ignoreUnknownKeys = true }) {
             reads++
-            GatewayConfig(server.server.url("/").toString().trimEnd('/'), if (reads < 3) "owner-a" else "owner-b")
+            testAccountConnection(if (reads < 3) server.server.url("/").toString().trimEnd('/') else "https://different-account.invalid", "owner-bearer")
         }
         val owner = api.artifactOwnerKey("mac-a")!!
         server.server.enqueue(MockResponse.Builder().code(206).addHeader("ETag", descriptor.etag)
@@ -67,7 +67,7 @@ class ArtifactRangeApiTest {
         val request = server.server.takeRequest()
         assertEquals("bytes=4-5", request.headers["Range"])
         assertEquals(descriptor.etag, request.headers["If-Match"])
-        assertEquals("fixture-secret", request.headers["X-Hermes-Session-Token"])
+        assertEquals("Bearer fixture-secret", request.headers["Authorization"])
         for (response in listOf(
             MockResponse.Builder().code(200).body("abcdef").build(),
             MockResponse.Builder().code(206).addHeader("ETag", "wrong").addHeader("Content-Range", "bytes 4-5/6").body("ef").build(),

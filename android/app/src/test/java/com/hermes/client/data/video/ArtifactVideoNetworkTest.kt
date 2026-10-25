@@ -2,7 +2,7 @@ package com.hermes.client.data.video
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import com.hermes.client.data.network.HermesRestApi
 import com.hermes.client.data.network.testHttpClient
 import com.hermes.client.domain.ArtifactDownloadDescriptor
@@ -32,7 +32,7 @@ class ArtifactVideoNetworkTest {
         val both = CountDownLatch(2)
         server.server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                assertEquals("fixture-secret", request.headers["X-Hermes-Session-Token"])
+                assertEquals("Bearer fixture-secret", request.headers["Authorization"])
                 assertEquals(desc.etag, request.headers["If-Match"])
                 val start = request.headers["Range"]!!.substringAfter("bytes=").substringBefore('-').toLong()
                 both.countDown()
@@ -45,7 +45,7 @@ class ArtifactVideoNetworkTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         File(context.cacheDir, "video-ranges").deleteRecursively()
         val rest = HermesRestApi(testHttpClient(), Json { ignoreUnknownKeys = true }) {
-            GatewayConfig(server.server.url("/").toString().trimEnd('/'), "fixture-secret")
+            testAccountConnection(server.server.url("/").toString().trimEnd('/'), "fixture-secret")
         }
         val repository = ArtifactRangeRepository(context, rest)
         val source = ArtifactRangeRepository.Source(rest.artifactOwnerKey(null)!!, null, "/parallel.mp4", desc)

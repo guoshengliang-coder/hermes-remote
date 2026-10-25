@@ -178,7 +178,7 @@ class ChatViewModelTest {
     // profileManager.active is null in these tests, hence "default/…".
     private val draftToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s1")
 
-    @Test fun small_legacy_video_retains_full_download_fallback_and_owner_scoped_position() = runTest {
+    @Test fun small_legacy_video_retains_full_download_fallback_and_owner_scoped_position() = runUnsentComposerTest {
         val downloads = mockk<com.hermes.client.data.downloads.ArtifactDownloadManager>()
         val ranges = mockk<com.hermes.client.data.video.ArtifactRangeRepository>()
         coEvery { downloads.owner(any()) } returns "owner-a"
@@ -202,7 +202,7 @@ class ChatViewModelTest {
         } finally { local.delete() }
     }
 
-    @Test fun cachedHistoryPreparationUsesDefaultDispatcherAndKeepsNavigationResponsive() = runTest {
+    @Test fun cachedHistoryPreparationUsesDefaultDispatcherAndKeepsNavigationResponsive() = runUnsentComposerTest {
         val background = kotlinx.coroutines.test.TestCoroutineScheduler()
         val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(background)
         val pendingNetwork = kotlinx.coroutines.CompletableDeferred<List<ChatMessage>>()
@@ -232,7 +232,7 @@ class ChatViewModelTest {
         pendingNetwork.cancel()
     }
 
-    @Test fun lateMemoryPreparationYieldsToAuthoritativeHistory() = runTest {
+    @Test fun lateMemoryPreparationYieldsToAuthoritativeHistory() = runUnsentComposerTest {
         val background = kotlinx.coroutines.test.TestCoroutineScheduler()
         val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(background)
         val pendingNetwork = kotlinx.coroutines.CompletableDeferred<List<ChatMessage>>()
@@ -255,7 +255,7 @@ class ChatViewModelTest {
         pendingNetwork.cancel()
     }
 
-    @Test fun opening_a_session_with_a_saved_draft_seeds_the_composer() = runTest {
+    @Test fun opening_a_session_with_a_saved_draft_seeds_the_composer() = runUnsentComposerTest {
         drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
             listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "半句话", updatedAt = 1L)),
         )
@@ -265,7 +265,7 @@ class ChatViewModelTest {
         assertEquals("半句话", vm.initialDraft.value)
     }
 
-    @Test fun restoredUiDraftOutranksDiskButStillReceivesAnIncomingShare() = runTest {
+    @Test fun restoredUiDraftOutranksDiskButStillReceivesAnIncomingShare() = runUnsentComposerTest {
         drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
             listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "旧的磁盘草稿", updatedAt = 1L)),
         )
@@ -283,7 +283,7 @@ class ChatViewModelTest {
     // HG-40 changed this: a share used to be dropped when a draft existed. Delivering a transcript
     // into a conversation someone had already started typing in must not delete their half
     // sentence — so the two are joined, the user's own words first.
-    @Test fun a_share_is_appended_to_the_draft_the_user_already_had() = runTest {
+    @Test fun a_share_is_appended_to_the_draft_the_user_already_had() = runUnsentComposerTest {
         drafts = com.hermes.client.data.repository.FakeDraftSnapshot(
             listOf(com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "我自己写的", updatedAt = 1L)),
         )
@@ -294,7 +294,7 @@ class ChatViewModelTest {
         assertEquals("我自己写的\n\n分享进来的", vm.initialDraft.value)
     }
 
-    @Test fun delivered_attachments_are_staged_as_chips_not_sent() = runTest {
+    @Test fun delivered_attachments_are_staged_as_chips_not_sent() = runUnsentComposerTest {
         pendingShareStore.put(
             "s1",
             com.hermes.client.share.PendingShare(
@@ -314,7 +314,7 @@ class ChatViewModelTest {
         assertTrue(vm.state.value.messages.none { it.role == com.hermes.client.domain.Role.USER })
     }
 
-    @Test fun delivering_parks_the_payload_for_the_target_conversation_only() = runTest {
+    @Test fun delivering_parks_the_payload_for_the_target_conversation_only() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -324,7 +324,7 @@ class ChatViewModelTest {
         assertEquals("转录正文", pendingShareStore.take("other")?.text)
     }
 
-    @Test fun a_share_still_seeds_the_composer_when_there_is_no_draft() = runTest {
+    @Test fun a_share_still_seeds_the_composer_when_there_is_no_draft() = runUnsentComposerTest {
         pendingShareStore.put("s1", com.hermes.client.share.PendingShare(text = "分享进来的"))
         val vm = buildVm()
         vm.open("s1")
@@ -332,7 +332,7 @@ class ChatViewModelTest {
         assertEquals("分享进来的", vm.initialDraft.value)
     }
 
-    @Test fun typing_is_debounced_into_a_single_write() = runTest {
+    @Test fun typing_is_debounced_into_a_single_write() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -344,7 +344,7 @@ class ChatViewModelTest {
         assertEquals(1, drafts.saves)
     }
 
-    @Test fun the_empty_composer_at_open_does_not_wipe_the_stored_draft() = runTest {
+    @Test fun the_empty_composer_at_open_does_not_wipe_the_stored_draft() = runUnsentComposerTest {
         // The screen's LaunchedEffect fires once with "" before the stored text has been read;
         // writing that through would delete the draft this whole feature exists to restore.
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
@@ -363,7 +363,7 @@ class ChatViewModelTest {
         assertEquals("半句话", vm.initialDraft.value)
     }
 
-    @Test fun clearing_the_composer_by_hand_drops_the_draft() = runTest {
+    @Test fun clearing_the_composer_by_hand_drops_the_draft() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -374,7 +374,7 @@ class ChatViewModelTest {
         assertNull(drafts.peek(draftToken))
     }
 
-    @Test fun clearDraft_drops_it_without_waiting_for_the_debounce() = runTest {
+    @Test fun clearDraft_drops_it_without_waiting_for_the_debounce() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -396,7 +396,7 @@ class ChatViewModelTest {
         com.hermes.client.domain.ChatMessage(id = "h2", role = com.hermes.client.domain.Role.ASSISTANT, text = "好的"),
     )
 
-    @Test fun picked_conversations_become_one_markdown_attachment_each() = runTest {
+    @Test fun picked_conversations_become_one_markdown_attachment_each() = runUnsentComposerTest {
         coEvery { sessionRepo.fullHistory("a", any(), any(), any()) } returns sourceHistory("甲会话的内容")
         coEvery { sessionRepo.fullHistory("b", any(), any(), any()) } returns sourceHistory("乙会话的内容")
         val vm = buildVm()
@@ -417,7 +417,7 @@ class ChatViewModelTest {
         assertEquals(0, vm.attachingSessions.value)
     }
 
-    @Test fun a_conversation_that_cannot_be_read_does_not_take_the_others_with_it() = runTest {
+    @Test fun a_conversation_that_cannot_be_read_does_not_take_the_others_with_it() = runUnsentComposerTest {
         coEvery { sessionRepo.fullHistory("a", any(), any(), any()) } returns sourceHistory("甲会话的内容")
         coEvery { sessionRepo.fullHistory("b", any(), any(), any()) } throws IllegalStateException("boom")
         val vm = buildVm()
@@ -438,7 +438,7 @@ class ChatViewModelTest {
         collect.cancel()
     }
 
-    @Test fun an_empty_conversation_produces_no_attachment_and_counts_as_a_failure() = runTest {
+    @Test fun an_empty_conversation_produces_no_attachment_and_counts_as_a_failure() = runUnsentComposerTest {
         coEvery { sessionRepo.fullHistory("a", any(), any(), any()) } returns emptyList()
         val vm = buildVm()
         vm.open("s1")
@@ -457,7 +457,7 @@ class ChatViewModelTest {
         collect.cancel()
     }
 
-    @Test fun attaching_nothing_is_a_no_op() = runTest {
+    @Test fun attaching_nothing_is_a_no_op() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -467,7 +467,7 @@ class ChatViewModelTest {
         assertEquals(0, vm.attachingSessions.value)
     }
 
-    @Test fun identical_titles_do_not_produce_identical_file_names() = runTest {
+    @Test fun identical_titles_do_not_produce_identical_file_names() = runUnsentComposerTest {
         coEvery { sessionRepo.fullHistory(any(), any(), any(), any()) } returns sourceHistory("内容")
         val vm = buildVm()
         vm.open("s1")
@@ -481,7 +481,7 @@ class ChatViewModelTest {
         assertTrue(names.any { it.endsWith(" (2).md") })
     }
 
-    @Test fun opening_account_conversation_routes_to_its_original_mac_without_changing_default() = runTest {
+    @Test fun opening_account_conversation_routes_to_its_original_mac_without_changing_default() = runUnsentComposerTest {
         val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>()
         val affinity = mockk<com.hermes.client.data.auth.ConversationDeviceStore>(relaxed = true)
         every { manager.session } returns MutableStateFlow(
@@ -510,7 +510,7 @@ class ChatViewModelTest {
         coVerify { sessionRepo.sessionMeta("session-1", null, "mac-history") }
     }
 
-    @Test fun revoked_conversation_device_surfaces_the_registered_binding_error() = runTest {
+    @Test fun revoked_conversation_device_surfaces_the_registered_binding_error() = runUnsentComposerTest {
         val manager = mockk<com.hermes.client.data.auth.AccountSessionManager>()
         every { manager.session } returns MutableStateFlow(
             com.hermes.client.data.auth.AccountSession(
@@ -541,7 +541,7 @@ class ChatViewModelTest {
     }
 
 
-    @Test fun a_new_unpersisted_conversation_does_not_prefetch_older_history() = runTest {
+    @Test fun a_new_unpersisted_conversation_does_not_prefetch_older_history() = runUnsentComposerTest {
         coEvery { sessionRepo.history("fresh", null, null) } throws
             com.hermes.client.data.network.HermesApiException(404, "Session not found")
         every { sessionRepo.hasOlderHistory("fresh", null, null) } returns null
@@ -557,7 +557,7 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { sessionRepo.olderHistory("fresh", null, null) }
     }
 
-    @Test fun a_new_conversation_must_not_hide_a_revoked_device_404() = runTest {
+    @Test fun a_new_conversation_must_not_hide_a_revoked_device_404() = runUnsentComposerTest {
         coEvery { sessionRepo.history("fresh", null, null) } throws
             com.hermes.client.data.network.HermesApiException(404, "revoked", errorCode = "HR-BIND-011")
         val vm = buildVm()
@@ -566,7 +566,7 @@ class ChatViewModelTest {
         assertTrue(vm.state.value.historyError?.contains("HR-BIND-011") == true)
     }
 
-    @Test fun an_existing_conversation_404_is_still_an_error() = runTest {
+    @Test fun an_existing_conversation_404_is_still_an_error() = runUnsentComposerTest {
         every { sessionRepo.hasOlderHistory("existing", null, null) } returns null
         coEvery { sessionRepo.olderHistory("existing", null, null) } throws
             com.hermes.client.data.network.HermesApiException(404, "Session not found")
@@ -579,7 +579,7 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { sessionRepo.olderHistory("existing", null, null) }
     }
 
-    @Test fun known_persisted_history_still_pages_and_reports_real_failures() = runTest {
+    @Test fun known_persisted_history_still_pages_and_reports_real_failures() = runUnsentComposerTest {
         every { sessionRepo.hasOlderHistory("fresh", null, null) } returns true
         coEvery { sessionRepo.olderHistory("fresh", null, null) } throws
             com.hermes.client.data.network.HermesApiException(500, "upstream failed")
@@ -592,7 +592,7 @@ class ChatViewModelTest {
         assertFalse(vm.olderHistory.value.error!!.retryable)
     }
 
-    @Test fun full_artifact_history_does_not_report_success_when_paging_stalls() = runTest {
+    @Test fun full_artifact_history_does_not_report_success_when_paging_stalls() = runUnsentComposerTest {
         every { sessionRepo.hasOlderHistory("full", null, null) } returns true
         coEvery { sessionRepo.olderHistory("full", null, null) } returns
             com.hermes.client.data.repository.OlderHistoryPage(emptyList(), reachedStart = false, added = 0)
@@ -603,7 +603,7 @@ class ChatViewModelTest {
         assertEquals(com.hermes.client.data.error.AppErrorCode.HISTORY_INCOMPLETE, vm.olderHistory.value.error?.code)
     }
 
-    @Test fun full_artifact_history_completes_after_reaching_the_first_page() = runTest {
+    @Test fun full_artifact_history_completes_after_reaching_the_first_page() = runUnsentComposerTest {
         every { sessionRepo.hasOlderHistory("full", null, null) } returnsMany listOf(true, false)
         coEvery { sessionRepo.olderHistory("full", null, null) } returns
             com.hermes.client.data.repository.OlderHistoryPage(listOf(ChatMessage("early", Role.ASSISTANT, "MEDIA:/tmp/early.md")), reachedStart = true, added = 1)
@@ -617,7 +617,7 @@ class ChatViewModelTest {
 
     // The chat subtitle follows the gateway's session.info (cwd/branch) — the workspace the
     // chat's tools actually run in, not a stale list row.
-    @Test fun session_info_updates_the_workspace_subtitle() = runTest {
+    @Test fun session_info_updates_the_workspace_subtitle() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -635,7 +635,7 @@ class ChatViewModelTest {
         assertEquals("/Users/me/proj", vm.workspace.value?.cwd)
     }
 
-    @Test fun streamed_delta_appears_in_state() = runTest {
+    @Test fun streamed_delta_appears_in_state() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -654,7 +654,7 @@ class ChatViewModelTest {
      * C2: when connectionState transitions Reconnecting → Connected (not the first Connected),
      * chat.resume() must be called a second time to re-attach the agent stream.
      */
-    @Test fun reconnect_triggers_second_resume() = runTest {
+    @Test fun reconnect_triggers_second_resume() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -676,7 +676,7 @@ class ChatViewModelTest {
      * (4007) — which then makes the next prompt.submit fail too. open() must pass the active
      * profile to resume so a session that lives in a non-default profile can be reattached.
      */
-    @Test fun open_resumes_with_active_profile() = runTest {
+    @Test fun open_resumes_with_active_profile() = runUnsentComposerTest {
         every { profileManager.active } returns MutableStateFlow<String?>("personal")
         val vm = buildVm()
         vm.open("s1")
@@ -694,7 +694,7 @@ class ChatViewModelTest {
      * the dashboard process and binds a live handle, which starts process polling — for a
      * conversation another process owns. Reading a log should cost nothing on the Mac.
      */
-    @Test fun opening_a_bot_conversation_does_not_resume_it() = runTest {
+    @Test fun opening_a_bot_conversation_does_not_resume_it() = runUnsentComposerTest {
         every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
         val vm = buildVm()
         vm.open("bot-1")
@@ -704,7 +704,7 @@ class ChatViewModelTest {
         assertEquals("dingtalk", vm.botOrigin.value?.source)
     }
 
-    @Test fun opening_an_ordinary_conversation_still_resumes_it() = runTest {
+    @Test fun opening_an_ordinary_conversation_still_resumes_it() = runUnsentComposerTest {
         every { sessionRepo.cachedSession(any(), any(), any()) } returns null
         val vm = buildVm()
         vm.open("s1")
@@ -720,7 +720,7 @@ class ChatViewModelTest {
      * pin that ladder rather than this behaviour. What matters is that browsing cost nothing and
      * sending resumes.
      */
-    @Test fun sending_into_a_bot_conversation_resumes_it() = runTest {
+    @Test fun sending_into_a_bot_conversation_resumes_it() = runUnsentComposerTest {
         every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
         val vm = buildVm()
         vm.open("bot-1")
@@ -737,7 +737,7 @@ class ChatViewModelTest {
      * The chip used to name the profile's default model as though it had answered on DingTalk.
      * A channel conversation with no model of its own must stay unknown.
      */
-    @Test fun a_bot_conversation_never_adopts_the_profile_default_model() = runTest {
+    @Test fun a_bot_conversation_never_adopts_the_profile_default_model() = runUnsentComposerTest {
         every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
         coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "anthropic/claude-sonnet-4") }
         val vm = buildVm()
@@ -748,7 +748,7 @@ class ChatViewModelTest {
         assertEquals("anthropic/claude-sonnet-4", vm.defaultModel.value)
     }
 
-    @Test fun an_ordinary_conversation_still_falls_back_to_the_profile_default_model() = runTest {
+    @Test fun an_ordinary_conversation_still_falls_back_to_the_profile_default_model() = runUnsentComposerTest {
         every { sessionRepo.cachedSession(any(), any(), any()) } returns null
         coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "anthropic/claude-sonnet-4") }
         val vm = buildVm()
@@ -759,7 +759,7 @@ class ChatViewModelTest {
     }
 
     /** Said once per channel, not once per device: a DingTalk acknowledgement says nothing about Slack. */
-    @Test fun the_send_notice_is_needed_per_channel_and_not_at_all_for_a_local_chat() = runTest {
+    @Test fun the_send_notice_is_needed_per_channel_and_not_at_all_for_a_local_chat() = runUnsentComposerTest {
         every { sessionRepo.cachedSession("bot-1", any(), any()) } returns botSession("bot-1")
         val vm = buildVm()
         vm.open("bot-1")
@@ -776,7 +776,7 @@ class ChatViewModelTest {
         assertTrue(vm.botNoticeNeeded.value)
     }
 
-    @Test fun open_prefers_navigation_profile_and_title_for_existing_session() = runTest {
+    @Test fun open_prefers_navigation_profile_and_title_for_existing_session() = runUnsentComposerTest {
         every { profileManager.active } returns MutableStateFlow<String?>("personal")
         val vm = buildVm()
 
@@ -792,7 +792,7 @@ class ChatViewModelTest {
         coVerify { chatRepo.resume("s2", "odos") }
     }
 
-    @Test fun reopeningSameConversationAfterConfigurationChangeDoesNotReload() = runTest {
+    @Test fun reopeningSameConversationAfterConfigurationChangeDoesNotReload() = runUnsentComposerTest {
         val vm = buildVm()
 
         vm.open("s1")
@@ -805,7 +805,7 @@ class ChatViewModelTest {
         assertFalse(vm.state.value.historyLoading)
     }
 
-    @Test fun manualRefreshSwapsAuthoritativeHistoryWithoutEnteringLoadingState() = runTest {
+    @Test fun manualRefreshSwapsAuthoritativeHistoryWithoutEnteringLoadingState() = runUnsentComposerTest {
         val old = ChatMessage("old", Role.USER, "before")
         val fresh = ChatMessage("fresh", Role.ASSISTANT, "after")
         coEvery { sessionRepo.history("s1", null) } returnsMany listOf(listOf(old), listOf(fresh))
@@ -830,7 +830,7 @@ class ChatViewModelTest {
         coVerify(exactly = 2) { sessionRepo.history("s1", null) }
     }
 
-    @Test fun manualRefreshRechecksOwnershipAndRestoresTheComposerAfterDesktopReleasesIt() = runTest {
+    @Test fun manualRefreshRechecksOwnershipAndRestoresTheComposerAfterDesktopReleasesIt() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.sessionAccess("s1", null, "s1-live") } returnsMany listOf(
             com.hermes.client.data.repository.SessionAccess(
@@ -867,7 +867,7 @@ class ChatViewModelTest {
         coVerify(exactly = 2) { chatRepo.sessionAccess("s1", null, "s1-live") }
     }
 
-    @Test fun manualRefreshDuringARunAsksHermesAndReportsItStillRunning() = runTest {
+    @Test fun manualRefreshDuringARunAsksHermesAndReportsItStillRunning() = runUnsentComposerTest {
         coEvery { sessionRepo.history("s1", null) } returns listOf(ChatMessage("u", Role.USER, "跑起来"))
         coEvery { chatRepo.sessionAccess(any(), any(), any()) } returns
             com.hermes.client.data.repository.SessionAccess(
@@ -896,7 +896,7 @@ class ChatViewModelTest {
         assertTrue(vm.state.value.isGenerating)
     }
 
-    @Test fun manualRefreshDuringAStaleRunLearnsItEndedAndSaysSo() = runTest {
+    @Test fun manualRefreshDuringAStaleRunLearnsItEndedAndSaysSo() = runUnsentComposerTest {
         coEvery { sessionRepo.history("s1", null) } returns listOf(
             ChatMessage("u", Role.USER, "跑起来"), ChatMessage("a", Role.ASSISTANT, "完成内容"),
         )
@@ -920,7 +920,7 @@ class ChatViewModelTest {
         assertEquals("完成内容", vm.state.value.messages.last().text)
     }
 
-    @Test fun identicalManualRefreshDoesNotRequestTranscriptRelayout() = runTest {
+    @Test fun identicalManualRefreshDoesNotRequestTranscriptRelayout() = runUnsentComposerTest {
         val history = listOf(ChatMessage("server", Role.ASSISTANT, "same answer"))
         coEvery { sessionRepo.history("s1", null) } returnsMany listOf(history, history)
         val vm = buildVm()
@@ -938,7 +938,7 @@ class ChatViewModelTest {
         assertFalse(vm.state.value.historyLoading)
     }
 
-    @Test fun manualRefreshRequestedDuringStreamingWaitsForCompletion() = runTest {
+    @Test fun manualRefreshRequestedDuringStreamingWaitsForCompletion() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -963,7 +963,7 @@ class ChatViewModelTest {
      * gateway immediately) — it's flushed on the next send() using whatever the live
      * post-resume sessionId is at that time.
      */
-    @Test fun open_stages_pending_share_image_as_attachment() = runTest {
+    @Test fun open_stages_pending_share_image_as_attachment() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         pendingShareStore.put(
             "s1",
@@ -981,7 +981,7 @@ class ChatViewModelTest {
 
     // Delivery three-state (docs/DESIGN.md §5.4): SENDING from the optimistic insert, SENT once
     // prompt.submit is acknowledged, FAILED on the bubble (never a detached error row) when it raises.
-    @Test fun user_turn_is_sending_until_submit_is_acknowledged() = runTest {
+    @Test fun user_turn_is_sending_until_submit_is_acknowledged() = runUnsentComposerTest {
         val submitted = kotlinx.coroutines.CompletableDeferred<Unit>()
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.submit("s1-live", "hello") } coAnswers { submitted.await() }
@@ -1003,7 +1003,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun a_path_sent_immediately_after_stop_is_a_prompt_not_a_slash_command() = runTest {
+    @Test fun a_path_sent_immediately_after_stop_is_a_prompt_not_a_slash_command() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.commandsCatalog() } returns listOf("/help" to "Show help")
         val vm = buildVm()
@@ -1028,7 +1028,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun a_catalogued_slash_command_still_uses_slash_exec() = runTest {
+    @Test fun a_catalogued_slash_command_still_uses_slash_exec() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.commandsCatalog() } returns listOf("/help" to "Show help")
         val vm = buildVm()
@@ -1044,7 +1044,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun a_slash_command_waits_for_the_catalog_when_it_was_not_loaded_at_open() = runTest {
+    @Test fun a_slash_command_waits_for_the_catalog_when_it_was_not_loaded_at_open() = runUnsentComposerTest {
         val catalog = kotlinx.coroutines.CompletableDeferred<List<Pair<String, String>>>()
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.commandsCatalog() } coAnswers { catalog.await() }
@@ -1069,7 +1069,7 @@ class ChatViewModelTest {
         assertTrue(isKnownSlashCommand("/help topic", commands))
     }
 
-    @Test fun an_unknown_slash_token_is_submitted_as_a_prompt() = runTest {
+    @Test fun an_unknown_slash_token_is_submitted_as_a_prompt() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.commandsCatalog() } returns listOf("/help" to "Show help")
         val vm = buildVm()
@@ -1085,7 +1085,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun failed_submit_marks_the_bubble_not_sent_without_an_error_row_and_retry_resends() = runTest {
+    @Test fun failed_submit_marks_the_bubble_not_sent_without_an_error_row_and_retry_resends() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.submit("s1-live", "hello") } throws
             com.hermes.client.data.network.GatewayRpcException(5000, "mock: submit refused") andThen Unit
@@ -1123,7 +1123,7 @@ class ChatViewModelTest {
     // by then the nav-scoped ViewModel that recorded the failure was gone. The bubble survived in
     // the runtime store, so it still said 未发送, but its code had collapsed to the generic
     // SESS-007 fallback and its tap did nothing at all. Both halves of that are this test.
-    @Test fun a_failed_send_keeps_its_code_and_its_retry_after_leaving_the_chat_and_coming_back() = runTest {
+    @Test fun a_failed_send_keeps_its_code_and_its_retry_after_leaving_the_chat_and_coming_back() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.submit("s1-live", "巨浪事业群呢") } throws
             com.hermes.client.data.network.GatewayRpcException(
@@ -1173,7 +1173,7 @@ class ChatViewModelTest {
     // can never contain this turn, because upstream never accepted it. The record on disk is the
     // only thing left, so the bubble is re-inserted from it — under its stored id, which is what
     // lets the retry remove the same turn it replaces.
-    @Test fun a_refused_send_comes_back_after_a_cold_start_and_can_still_be_retried() = runTest {
+    @Test fun a_refused_send_comes_back_after_a_cold_start_and_can_still_be_retried() = runUnsentComposerTest {
         unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
             listOf(
                 com.hermes.client.data.repository.UnsentRecord(
@@ -1215,7 +1215,7 @@ class ChatViewModelTest {
     // less than the user meant, so the restored turn takes HR-SESS-015 and the tap is withheld —
     // docs/ERROR_HANDLING.md: an offer that cannot work is worse than none. Since HG-208 this is
     // the degradation, not the default; the default is the disk-copy replay above.
-    @Test fun a_restored_send_that_had_attachments_says_so_and_refuses_the_retry() = runTest {
+    @Test fun a_restored_send_that_had_attachments_says_so_and_refuses_the_retry() = runUnsentComposerTest {
         unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
             listOf(
                 com.hermes.client.data.repository.UnsentRecord(
@@ -1244,7 +1244,7 @@ class ChatViewModelTest {
     // up on stayed on screen indefinitely — and the record on disk put it back after a restart.
     // The failure row now carries 撤回, and withdrawing has to be real: the turn goes AND the
     // record goes, or the next cold start quietly undoes it.
-    @Test fun a_withdrawn_failed_send_leaves_the_transcript_and_the_disk_record() = runTest {
+    @Test fun a_withdrawn_failed_send_leaves_the_transcript_and_the_disk_record() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.submit("s1-live", "hello") } throws
             com.hermes.client.data.network.GatewayRpcException(5000, "mock: submit refused")
@@ -1276,7 +1276,7 @@ class ChatViewModelTest {
     // The HG-162 report itself: the send was refused before the app restarted, so the record came
     // back with its attachments gone and the bubble offered a tap that could only ever fail. The
     // retry stays withheld (docs/ERROR_HANDLING.md) — but the user must be able to get rid of it.
-    @Test fun a_restored_send_without_its_attachments_can_be_withdrawn() = runTest {
+    @Test fun a_restored_send_without_its_attachments_can_be_withdrawn() = runUnsentComposerTest {
         unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
             listOf(
                 com.hermes.client.data.repository.UnsentRecord(
@@ -1309,7 +1309,7 @@ class ChatViewModelTest {
     // would have to advanceUntilIdle past a failed send, which hands the runtime store's process
     // polling an endless hasActiveWork budget under virtual time (five minutes of GC storm per
     // run, in practice); the halves are equivalent combined and each stays fast.
-    @Test fun a_failed_image_send_records_where_its_bytes_are_cached() = runTest {
+    @Test fun a_failed_image_send_records_where_its_bytes_are_cached() = runUnsentComposerTest {
         val cached = java.io.File.createTempFile("hg208-image", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
         try {
             coEvery { chatRepo.resume("s1", null) } returns "s1-live"
@@ -1344,7 +1344,7 @@ class ChatViewModelTest {
     // The other half: the record above is what a fresh ViewModel — or a cold-started process —
     // restores from. With every listed file readable the turn replays whole: the original error
     // code survives, the tap is real, and the retry uploads the image and submits the text.
-    @Test fun a_restored_send_whose_attachment_files_survived_replays_with_them() = runTest {
+    @Test fun a_restored_send_whose_attachment_files_survived_replays_with_them() = runUnsentComposerTest {
         val cached = java.io.File.createTempFile("hg208-image", ".jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
         try {
             unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
@@ -1394,7 +1394,7 @@ class ChatViewModelTest {
     // The disk copy is a cache entry, not a promise: the media cache evicts by size and age, and
     // the staged file can be gone for the same reasons. A record whose files did not survive
     // degrades exactly as v1 records do — HR-SESS-015, tap withheld, nothing half-sent.
-    @Test fun a_restored_send_whose_disk_copies_were_evicted_still_refuses_the_retry() = runTest {
+    @Test fun a_restored_send_whose_disk_copies_were_evicted_still_refuses_the_retry() = runUnsentComposerTest {
         unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(
             listOf(
                 com.hermes.client.data.repository.UnsentRecord(
@@ -1425,7 +1425,7 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 
-    @Test fun a_session_owned_by_another_client_says_so_and_keeps_its_retry() = runTest {
+    @Test fun a_session_owned_by_another_client_says_so_and_keeps_its_retry() = runUnsentComposerTest {
         // HG-30: the desktop held the conversation, upstream refused with 4090, and the phone
         // collapsed it into the generic HR-SESS-007 "点按重试" — a retry that repeats the same
         // refusal for as long as the other side is running. The tap is right (the conflict clears
@@ -1467,7 +1467,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun send_waits_for_live_handle_instead_of_using_stored_session_id() = runTest {
+    @Test fun send_waits_for_live_handle_instead_of_using_stored_session_id() = runUnsentComposerTest {
         val resumed = kotlinx.coroutines.CompletableDeferred<String?>()
         coEvery { chatRepo.resume("s1", null) } coAnswers { resumed.await() }
         val vm = buildVm()
@@ -1486,7 +1486,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun file_attachment_uploads_raw_then_attaches_visible_mac_path() = runTest {
+    @Test fun file_attachment_uploads_raw_then_attaches_visible_mac_path() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "notes.txt") } returns
             com.hermes.client.data.repository.AttachedFile(
@@ -1529,7 +1529,7 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { chatRepo.submit("s1-live", "已有文字\n语音问题\n@file:/tmp/uploaded") }
     }
 
-    @Test fun voice_send_retries_the_combined_text_image_and_file() = runTest {
+    @Test fun voice_send_retries_the_combined_text_image_and_file() = runUnsentComposerTest {
         connectionStateFlow.value = ConnectionState.Connected
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { mediaRepo.cacheOutgoing(any(), any(), any()) } answers {
@@ -1541,7 +1541,7 @@ class ChatViewModelTest {
             com.hermes.client.data.repository.AttachedFile("report.pdf", "/tmp/uploaded", "@file:/tmp/uploaded")
         var attempts = 0
         coEvery { chatRepo.submit("s1-live", any()) } coAnswers {
-            if (attempts++ == 0) throw IllegalStateException("temporary submit failure")
+            if (attempts++ == 0) throw com.hermes.client.data.network.GatewayRpcException(5000, "temporary submit refusal")
         }
         val vm = buildVm()
         vm.open("s1")
@@ -1570,7 +1570,7 @@ class ChatViewModelTest {
         runCurrent()
     }
 
-    @Test fun empty_or_offline_voice_final_does_not_consume_the_draft_attachments() = runTest {
+    @Test fun empty_or_offline_voice_final_does_not_consume_the_draft_attachments() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         runCurrent()
@@ -1585,7 +1585,7 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 
-    @Test fun voice_final_cannot_consume_attachments_when_another_client_owns_the_session() = runTest {
+    @Test fun voice_final_cannot_consume_attachments_when_another_client_owns_the_session() = runUnsentComposerTest {
         connectionStateFlow.value = ConnectionState.Connected
         coEvery { chatRepo.sessionAccess(any(), any(), any()) } returns
             com.hermes.client.data.repository.SessionAccess(
@@ -1605,7 +1605,7 @@ class ChatViewModelTest {
     // conversation carrying megabytes of base64 that Hermes re-inlines on every read — 12.59 MiB
     // from one 37-page document, past the relay's frame ceiling on its own. It goes as a file now,
     // like every other document, and the model reads it with its tools.
-    @Test fun pdf_attachment_goes_to_hermes_as_a_file_reference_not_as_page_images() = runTest {
+    @Test fun pdf_attachment_goes_to_hermes_as_a_file_reference_not_as_page_images() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1-live"
         coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", "report.pdf") } returns
             com.hermes.client.data.repository.AttachedFile(
@@ -1631,7 +1631,7 @@ class ChatViewModelTest {
         runCurrent()
     }
 
-    @Test fun shared_pdf_is_staged_on_disk_uploaded_as_a_file_and_removed_after_send() = runTest {
+    @Test fun shared_pdf_is_staged_on_disk_uploaded_as_a_file_and_removed_after_send() = runUnsentComposerTest {
         val file = java.io.File.createTempFile("shared-pdf", ".pending")
         file.writeText("%PDF-1.4")
         try {
@@ -1668,7 +1668,7 @@ class ChatViewModelTest {
         }
     }
 
-    @Test fun leavingAndReturningToChatKeepsItsPendingFileAndDoesNotSubmit() = runTest {
+    @Test fun leavingAndReturningToChatKeepsItsPendingFileAndDoesNotSubmit() = runUnsentComposerTest {
         val file = java.io.File.createTempFile("hg197", ".pending").apply { writeText("unsent") }
         try {
             val runtime = newRuntimeStore()
@@ -1691,7 +1691,7 @@ class ChatViewModelTest {
         } finally { file.delete() }
     }
 
-    @Test fun upload_413_is_the_server_limit_error_and_preserves_the_staged_file() = runTest {
+    @Test fun upload_413_is_the_server_limit_error_and_preserves_the_staged_file() = runUnsentComposerTest {
         val file = java.io.File.createTempFile("upload-rejected", ".pending")
         file.writeText("document")
         try {
@@ -1714,7 +1714,7 @@ class ChatViewModelTest {
         }
     }
 
-    @Test fun stale_submit_resumes_and_retries_once_with_new_handle() = runTest {
+    @Test fun stale_submit_resumes_and_retries_once_with_new_handle() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returnsMany listOf("live-1", "live-2")
         coEvery { chatRepo.submit("live-1", "hello") } throws
             com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
@@ -1734,7 +1734,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun send_retries_resume_when_initial_open_resume_failed() = runTest {
+    @Test fun send_retries_resume_when_initial_open_resume_failed() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returnsMany listOf(null, "live-2")
         val vm = buildVm()
 
@@ -1751,7 +1751,7 @@ class ChatViewModelTest {
     }
 
     /** A text-only pending share (no image) must not trigger an attach call at all. */
-    @Test fun open_with_text_only_pending_share_does_not_attach_image() = runTest {
+    @Test fun open_with_text_only_pending_share_does_not_attach_image() = runUnsentComposerTest {
         pendingShareStore.put("s1", com.hermes.client.share.PendingShare(text = "hello"))
         val vm = buildVm()
         vm.open("s1")
@@ -1761,7 +1761,7 @@ class ChatViewModelTest {
         assertEquals("hello", vm.initialDraft.value)
     }
 
-    @Test fun save_image_to_gallery_delegates_and_reports_completion() = runTest {
+    @Test fun save_image_to_gallery_delegates_and_reports_completion() = runUnsentComposerTest {
         val image = com.hermes.client.domain.ChatImage(
             id = "generated",
             mimeType = "image/png",
@@ -1783,7 +1783,7 @@ class ChatViewModelTest {
      * I3: when connectionState enters Reconnecting while generation is in progress,
      * the in-flight assistant message must be marked interrupted and isGenerating cleared.
      */
-    @Test fun reconnecting_while_generating_keeps_live_snapshot() = runTest {
+    @Test fun reconnecting_while_generating_keeps_live_snapshot() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -1806,7 +1806,7 @@ class ChatViewModelTest {
     /**
      * C2 edge case: the very first Connected (startup) must NOT trigger a second resume.
      */
-    @Test fun initial_connected_does_not_double_resume() = runTest {
+    @Test fun initial_connected_does_not_double_resume() = runUnsentComposerTest {
         val vm = buildVm()
         // Start with Connecting, then transition to Connected (first connect)
         connectionStateFlow.value = ConnectionState.Connecting
@@ -1819,7 +1819,7 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { chatRepo.resume("s1", null) }
     }
 
-    @Test fun sendAfterTransientResumeFailureUsesTheRecoveredSocketAndKeepsHistory() = runTest {
+    @Test fun sendAfterTransientResumeFailureUsesTheRecoveredSocketAndKeepsHistory() = runUnsentComposerTest {
         coEvery { sessionRepo.history("s1", null) } returns listOf(
             ChatMessage("h-1", Role.USER, "earlier user"),
             ChatMessage("h-2", Role.ASSISTANT, "earlier reply"),
@@ -1861,7 +1861,7 @@ class ChatViewModelTest {
     // on a 5s delay while a runtime has active work. advanceUntilIdle() would advance virtual time
     // into that loop forever, so drive the send with runCurrent() and only advance once
     // message.complete has taken the run out of the active phases.
-    @Test fun reaped_empty_session_is_recreated_and_the_message_is_delivered() = runTest {
+    @Test fun reaped_empty_session_is_recreated_and_the_message_is_delivered() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "live-1" andThenThrows
             com.hermes.client.data.network.GatewayRpcException(4007, "session not found")
         coEvery { chatRepo.submit("live-1", "hello") } throws
@@ -1894,7 +1894,7 @@ class ChatViewModelTest {
     // The other half of the same rule: a conversation that may hold history is NEVER silently
     // replaced — that would cut the transcript loose from everything said before. It is terminal,
     // and terminal means HR-SESS-001 with no retry offered, not HR-SESS-007 with one that lies.
-    @Test fun reaped_session_with_history_is_terminal_and_never_recreated() = runTest {
+    @Test fun reaped_session_with_history_is_terminal_and_never_recreated() = runUnsentComposerTest {
         coEvery { sessionRepo.history(any(), any()) } returns listOf(
             ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
             ChatMessage(id = "h2", role = Role.ASSISTANT, text = "earlier reply"),
@@ -1923,7 +1923,7 @@ class ChatViewModelTest {
 
     // Tapping the bubble of a terminal failure must do nothing. The UI already withholds the tap;
     // this is the ViewModel refusing to re-dispatch even if something else asks it to.
-    @Test fun retrySend_ignores_an_undeliverable_bubble() = runTest {
+    @Test fun retrySend_ignores_an_undeliverable_bubble() = runUnsentComposerTest {
         coEvery { sessionRepo.history(any(), any()) } returns listOf(
             ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
         )
@@ -1952,7 +1952,7 @@ class ChatViewModelTest {
     }
 
     // Reclaim removes the live runtime, not the durable transcript. Resume before submitting.
-    @Test fun session_reclaimed_event_recovers_without_a_doomed_submit() = runTest {
+    @Test fun session_reclaimed_event_recovers_without_a_doomed_submit() = runUnsentComposerTest {
         coEvery { sessionRepo.history(any(), any()) } returns listOf(
             ChatMessage(id = "h1", role = Role.USER, text = "earlier"),
         )
@@ -1979,7 +1979,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun leaving_before_submit_settles_the_original_turn_as_unsent() = runTest {
+    @Test fun leaving_before_submit_settles_the_original_turn_as_unsent() = runUnsentComposerTest {
         val resume = kotlinx.coroutines.CompletableDeferred<String>()
         coEvery { chatRepo.resume("s1", null) } coAnswers { resume.await() }
         val runtime = newRuntimeStore()
@@ -2019,7 +2019,7 @@ class ChatViewModelTest {
         assertEquals("first", unsent.read(draftToken)?.text)
     }
 
-    @Test fun clearing_the_chat_before_submit_preserves_an_unsent_turn() = runTest {
+    @Test fun clearing_the_chat_before_submit_preserves_an_unsent_turn() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
         val runtime = newRuntimeStore()
         val vm = buildVm(runtimeStore = runtime)
@@ -2039,7 +2039,7 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 
-    @Test fun waiting_for_a_live_handle_has_a_total_deadline_even_when_resume_hangs() = runTest {
+    @Test fun waiting_for_a_live_handle_has_a_total_deadline_even_when_resume_hangs() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
         val vm = buildVm()
         vm.open("s1")
@@ -2055,7 +2055,7 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 
-    @Test fun clearing_during_submit_keeps_delivery_pending_until_history_confirms_it() = runTest {
+    @Test fun clearing_during_submit_keeps_delivery_pending_until_history_confirms_it() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "live-1"
         coEvery { chatRepo.submit("live-1", "hello") } coAnswers { kotlinx.coroutines.awaitCancellation() }
         val runtime = newRuntimeStore()
@@ -2069,9 +2069,9 @@ class ChatViewModelTest {
         owner.clear()
         runCurrent()
         val key = runtime.runtimes.value.keys.single()
-        assertEquals(com.hermes.client.domain.DeliveryState.SENDING,
+        assertEquals(com.hermes.client.domain.DeliveryState.UNCONFIRMED,
             runtime.runtimes.value.getValue(key).chat.messages.single().delivery)
-        assertNull(unsent.read(draftToken))
+        assertTrue(unsent.read(draftToken)?.deliveryUnconfirmed == true)
         events.emit(event("message.complete", "live-1", "answer"))
         runCurrent()
         runtime.acceptHistory(key, listOf(
@@ -2080,12 +2080,14 @@ class ChatViewModelTest {
         ), Long.MAX_VALUE)
         assertEquals(com.hermes.client.domain.DeliveryState.SENT,
             runtime.runtimes.value.getValue(key).chat.messages.first().delivery)
+        assertEquals(com.hermes.client.domain.DeliveryState.UNCONFIRMED,
+            runtime.runtimes.value.getValue(key).chat.messages.last().delivery)
         assertEquals(com.hermes.client.data.progress.SessionRunPhase.COMPLETED_UNREAD,
             runtime.runtimes.value.getValue(key).phase)
         coVerify(exactly = 1) { chatRepo.submit(any(), "hello") }
     }
 
-    @Test fun an_obsolete_reclaim_does_not_invalidate_a_newly_bound_handle() = runTest {
+    @Test fun an_obsolete_reclaim_does_not_invalidate_a_newly_bound_handle() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "live-2"
         val vm = buildVm()
         vm.open("s1")
@@ -2103,7 +2105,7 @@ class ChatViewModelTest {
         runCurrent()
     }
 
-    @Test fun cancelling_preparation_preserves_staged_attachments_across_a_cold_start() = runTest {
+    @Test fun cancelling_preparation_preserves_staged_attachments_across_a_cold_start() = runUnsentComposerTest {
         val file = java.io.File.createTempFile("cancelled-send", ".pending")
         file.writeText("keep this document")
         try {
@@ -2138,7 +2140,7 @@ class ChatViewModelTest {
         }
     }
 
-    @Test fun optional_access_timeout_does_not_hold_the_live_handle_gate() = runTest {
+    @Test fun optional_access_timeout_does_not_hold_the_live_handle_gate() = runUnsentComposerTest {
         coEvery { chatRepo.sessionAccess(any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
         coEvery { chatRepo.resume("s1", null) } returns "live-1"
         val vm = buildVm()
@@ -2156,7 +2158,7 @@ class ChatViewModelTest {
         owner.clear()
     }
 
-    @Test fun cancelling_an_unsent_turn_does_not_erase_an_authoritative_completion() = runTest {
+    @Test fun cancelling_an_unsent_turn_does_not_erase_an_authoritative_completion() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
         val runtime = newRuntimeStore()
         val vm = buildVm(runtimeStore = runtime)
@@ -2175,7 +2177,7 @@ class ChatViewModelTest {
         assertEquals(com.hermes.client.data.progress.SessionRunPhase.COMPLETED_UNREAD, original.phase)
     }
 
-    @Test fun a_submit_response_timeout_waits_for_history_without_offering_duplicate_retry() = runTest {
+    @Test fun a_submit_response_timeout_waits_for_history_without_offering_duplicate_retry() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "live-1"
         coEvery { chatRepo.submit("live-1", "hello") } throws
             com.hermes.client.data.network.GatewayResponseTimeoutException("gateway response timeout")
@@ -2186,9 +2188,9 @@ class ChatViewModelTest {
         vm.send("hello")
         runCurrent()
         val bubble = vm.state.value.messages.single { it.role == Role.USER }
-        assertEquals(com.hermes.client.domain.DeliveryState.SENDING, bubble.delivery)
-        assertNull(vm.sendErrorCode(bubble.id))
-        assertNull(unsent.read(draftToken))
+        assertEquals(com.hermes.client.domain.DeliveryState.UNCONFIRMED, bubble.delivery)
+        assertEquals("HR-SESS-022", vm.sendErrorCode(bubble.id)?.value)
+        assertTrue(unsent.read(draftToken)?.deliveryUnconfirmed == true)
         vm.retrySend(bubble.id)
         runCurrent()
         coVerify(exactly = 1) { chatRepo.submit(any(), "hello") }
@@ -2199,12 +2201,14 @@ class ChatViewModelTest {
             ChatMessage(id = "h1", role = Role.USER, text = "hello", serverId = 1L),
             ChatMessage(id = "h2", role = Role.ASSISTANT, text = "answer", serverId = 2L),
         ), Long.MAX_VALUE)
-        assertEquals(com.hermes.client.domain.DeliveryState.SENT,
-            runtime.runtimes.value.getValue(key).chat.messages.first().delivery)
+        val messages = runtime.runtimes.value.getValue(key).chat.messages
+        assertEquals(2, messages.count { it.role == Role.USER })
+        assertEquals(com.hermes.client.domain.DeliveryState.UNCONFIRMED, messages.single { it.id == bubble.id }.delivery)
+        assertEquals(1L, messages.single { it.id == "h1" }.serverId)
     }
 
     // The sheet switches this session through config.set; it never changes the profile default.
-    @Test fun onSelectFromSheet_switches_this_session_directly() = runTest {
+    @Test fun onSelectFromSheet_switches_this_session_directly() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -2223,7 +2227,7 @@ class ChatViewModelTest {
 
     // 快捷切换 (docs/DESIGN.md §5.17) is fed by this: every switch that actually took effect goes
     // to the front of the device-local recents list.
-    @Test fun a_successful_switch_is_recorded_for_the_quick_switch_row() = runTest {
+    @Test fun a_successful_switch_is_recorded_for_the_quick_switch_row() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
 
@@ -2234,7 +2238,7 @@ class ChatViewModelTest {
     }
 
     // The other half: a switch that did NOT take effect must not offer itself as a shortcut.
-    @Test fun a_failed_switch_is_not_recorded() = runTest {
+    @Test fun a_failed_switch_is_not_recorded() = runUnsentComposerTest {
         coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } throws
             com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
         val vm = buildVm()
@@ -2247,7 +2251,7 @@ class ChatViewModelTest {
     }
 
     // 恢复默认 changes the model too, so the chip row has to offer the way back as well.
-    @Test fun restoring_the_default_is_recorded_too() = runTest {
+    @Test fun restoring_the_default_is_recorded_too() = runUnsentComposerTest {
         coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
         coEvery { modelRepo.providers(any()) } returns listOf(
             com.hermes.client.data.network.ModelProviderDto(
@@ -2265,7 +2269,7 @@ class ChatViewModelTest {
 
     // A refused switch surfaces in the sheet's error (not the chat transcript), and the sheet stays
     // open (onDone not invoked) so the user can retry or pick a different model.
-    @Test fun onSelectFromSheet_failure_surfaces_sheet_error() = runTest {
+    @Test fun onSelectFromSheet_failure_surfaces_sheet_error() = runUnsentComposerTest {
         coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } throws
             com.hermes.client.data.network.GatewayRpcException(5000, "could not resolve credentials")
         val vm = buildVm()
@@ -2281,7 +2285,7 @@ class ChatViewModelTest {
         assertFalse("the sheet must stay open on failure", onDoneCalled)
     }
 
-    @Test fun model_switch_timeout_is_unconfirmed_not_a_refusal() = runTest {
+    @Test fun model_switch_timeout_is_unconfirmed_not_a_refusal() = runUnsentComposerTest {
         coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } throws
             com.hermes.client.data.network.GatewayResponseTimeoutException("gateway response timeout")
         val vm = buildVm()
@@ -2297,7 +2301,7 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { recentsStore.record(any(), any()) }
     }
 
-    @Test fun malformed_switch_reply_is_unconfirmed_not_a_refusal() = runTest {
+    @Test fun malformed_switch_reply_is_unconfirmed_not_a_refusal() = runUnsentComposerTest {
         coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } throws
             com.hermes.client.data.repository.ModelSwitchUnconfirmedException("no applied value")
         val vm = buildVm()
@@ -2308,7 +2312,7 @@ class ChatViewModelTest {
         assertFalse(vm.modelSheet.value.error?.retryable == true)
     }
 
-    @Test fun confirmation_does_not_claim_success_until_confirmed() = runTest {
+    @Test fun confirmation_does_not_claim_success_until_confirmed() = runUnsentComposerTest {
         coEvery { chatRepo.switchSessionModel("s1", "anthropic", "opus", false) } returns
             ModelSwitchResult.ConfirmationRequired
         val vm = buildVm()
@@ -2326,7 +2330,7 @@ class ChatViewModelTest {
         assertTrue(done)
     }
 
-    @Test fun deferred_switch_does_not_claim_or_record_success() = runTest {
+    @Test fun deferred_switch_does_not_claim_or_record_success() = runUnsentComposerTest {
         coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } returns ModelSwitchResult.Deferred
         val vm = buildVm()
         vm.open("s1"); advanceUntilIdle()
@@ -2339,7 +2343,7 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { recentsStore.record(any(), any()) }
     }
 
-    @Test fun successful_switch_dismisses_before_recent_write_finishes() = runTest {
+    @Test fun successful_switch_dismisses_before_recent_write_finishes() = runUnsentComposerTest {
         coEvery { recentsStore.record("anthropic", "opus") } coAnswers {
             kotlinx.coroutines.delay(5_000)
         }
@@ -2353,7 +2357,7 @@ class ChatViewModelTest {
         advanceUntilIdle()
     }
 
-    @Test fun applied_switch_with_warning_stays_visible() = runTest {
+    @Test fun applied_switch_with_warning_stays_visible() = runUnsentComposerTest {
         coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } returns
             ModelSwitchResult.Applied("opus", "provider warning")
         val vm = buildVm()
@@ -2368,7 +2372,7 @@ class ChatViewModelTest {
 
     // A second tap while a switch is in flight must be ignored — otherwise two writes race and
     // the session lands on whichever finishes last.
-    @Test fun onSelectFromSheet_ignores_taps_while_pending() = runTest {
+    @Test fun onSelectFromSheet_ignores_taps_while_pending() = runUnsentComposerTest {
         coEvery { chatRepo.switchSessionModel("s1", any(), any(), any()) } coAnswers {
             kotlinx.coroutines.delay(5_000); ModelSwitchResult.Applied(thirdArg(), null)
         }
@@ -2385,7 +2389,7 @@ class ChatViewModelTest {
 
     // Chip contract: a successful SESSION switch marks the chat as overridden; "恢复默认" pins the
     // session back to the configured default and clears the override.
-    @Test fun session_override_flag_sets_on_switch_and_clears_on_restore() = runTest {
+    @Test fun session_override_flag_sets_on_switch_and_clears_on_restore() = runUnsentComposerTest {
         coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
         coEvery { modelRepo.providers(any()) } returns listOf(
             com.hermes.client.data.network.ModelProviderDto(
@@ -2416,7 +2420,7 @@ class ChatViewModelTest {
 
     // Changing effort writes a session-scoped override and remembers it as this model's preset
     // (the desktop-client behavior that makes effort FEEL global).
-    @Test fun setReasoning_success_saves_per_model_preset() = runTest {
+    @Test fun setReasoning_success_saves_per_model_preset() = runUnsentComposerTest {
         coEvery { configRepo.get(any()) } returns buildJsonObject { put("model", "def-model") }
         coEvery { modelRepo.providers(any()) } returns listOf(
             com.hermes.client.data.network.ModelProviderDto(
@@ -2435,7 +2439,7 @@ class ChatViewModelTest {
         assertTrue(vm.modelSheet.value.error == null)
     }
 
-    @Test fun setReasoning_failure_rolls_back_and_reports_code() = runTest {
+    @Test fun setReasoning_failure_rolls_back_and_reports_code() = runUnsentComposerTest {
         coEvery { chatRepo.reasoningGet(any()) } returns "medium"
         coEvery { chatRepo.reasoningSet(any(), any()) } throws RuntimeException("rpc down")
         val vm = buildVm()
@@ -2453,7 +2457,7 @@ class ChatViewModelTest {
     }
 
     // Selecting a model re-applies that model's remembered effort to the session.
-    @Test fun model_switch_applies_remembered_preset() = runTest {
+    @Test fun model_switch_applies_remembered_preset() = runUnsentComposerTest {
         presetsFlow.value = mapOf(
             com.hermes.client.data.repository.favKey("anthropic", "opus") to "xhigh",
         )
@@ -2469,7 +2473,7 @@ class ChatViewModelTest {
 
     // The process-wide catalog store keeps providers warm: with a cached catalog, opening the
     // sheet must trigger no new fetch and never show the loading state.
-    @Test fun ensureProviders_uses_warm_cache_without_refetch() = runTest {
+    @Test fun ensureProviders_uses_warm_cache_without_refetch() = runUnsentComposerTest {
         coEvery { modelRepo.providers(any()) } returns listOf(
             com.hermes.client.data.network.ModelProviderDto(slug = "prov", isCurrent = true, models = listOf("m")),
         )
@@ -2490,7 +2494,7 @@ class ChatViewModelTest {
     }
 
     // With NO cache the error state still surfaces, and an explicit retry refetches and clears it.
-    @Test fun providers_error_only_without_cache_and_retry_refetches() = runTest {
+    @Test fun providers_error_only_without_cache_and_retry_refetches() = runUnsentComposerTest {
         coEvery { modelRepo.providers(any()) } throws RuntimeException("catalog down")
         val vm = buildVm()
         val watchers = listOf(
@@ -2516,7 +2520,7 @@ class ChatViewModelTest {
         watchers.forEach { it.cancel() }
     }
 
-    @Test fun selectProfile_calls_profileRepo_setActive() = runTest {
+    @Test fun selectProfile_calls_profileRepo_setActive() = runUnsentComposerTest {
         val vm = buildVm()
         vm.open("s1")
         advanceUntilIdle()
@@ -2656,7 +2660,7 @@ class ChatViewModelTest {
         val id = vm.state.value.messages.single { it.role == Role.USER }.id
         assertEquals("HR-SESS-020", vm.prepareUnsentComposer(id, "", withdraw = true).error?.code?.value)
         assertTrue(vm.state.value.messages.any { it.id == id })
-        assertNull(unsent.peek(draftToken))
+        assertTrue(unsent.peek(draftToken)?.deliveryUnconfirmed == true)
         coVerify(exactly = 1) { chatRepo.submit("s1", "original") }
         vm.stop()
         runCurrent()
@@ -2817,6 +2821,61 @@ class ChatViewModelTest {
         assertEquals("HR-SESS-021", vm.prepareUnsentComposer(sentId, "typed edit").error?.code?.value)
         assertEquals("failed", vm.editingUnsentId.value)
         assertTrue(vm.state.value.messages.any { it.id == sentId })
+    }
+
+    @Test fun post_submit_disconnect_is_unknown_and_cannot_be_replayed_or_withdrawn() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        coEvery { chatRepo.submit("s1", "original") } throws com.hermes.client.data.network.GatewayRpcException(0, "socket disconnected")
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        vm.send("original"); runCurrent()
+        val message = vm.state.value.messages.single { it.role == Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.UNCONFIRMED, message.delivery)
+        assertTrue(unsent.peek(draftToken)?.deliveryUnconfirmed == true)
+        assertEquals("HR-SESS-020", vm.prepareUnsentComposer(message.id, "", withdraw = true).error?.code?.value)
+        vm.retrySend(message.id); vm.checkMessageDelivery(message.id); runCurrent()
+        coVerify(exactly = 1) { chatRepo.submit("s1", "original") }
+        vm.stop(); runCurrent()
+    }
+
+    @Test fun a_restored_unknown_outcome_never_becomes_an_unsent_retry() = runUnsentComposerTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(
+            com.hermes.client.data.repository.UnsentRecord(token = draftToken, messageId = "unknown-id",
+                text = "original", code = "HR-SESS-022", retryable = false, deliveryUnconfirmed = true),
+        ))
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        assertEquals(com.hermes.client.domain.DeliveryState.UNCONFIRMED,
+            vm.state.value.messages.single { it.id == "unknown-id" }.delivery)
+        vm.retrySend("unknown-id"); runCurrent()
+        assertEquals("HR-SESS-020", vm.prepareUnsentComposer("unknown-id", "", withdraw = true).error?.code?.value)
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun a_request_that_never_entered_the_socket_queue_remains_editable() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returns "s1"
+        coEvery { chatRepo.submit("s1", "original") } throws com.hermes.client.data.network.GatewayRequestNotSentException("not connected")
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        vm.send("original"); runCurrent()
+        val message = vm.state.value.messages.single { it.role == Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, message.delivery)
+        assertFalse(unsent.peek(draftToken)?.deliveryUnconfirmed == true)
+        assertEquals("original", vm.prepareUnsentComposer(message.id, "").text)
+    }
+
+    @Test fun an_explicit_refusal_after_safe_handle_recovery_is_still_retryable() = runUnsentComposerTest {
+        coEvery { chatRepo.resume("s1", null) } returnsMany listOf("live-1", "live-2")
+        coEvery { chatRepo.submit("live-1", "hello") } throws com.hermes.client.data.network.GatewayRpcException(4001, "session not found")
+        coEvery { chatRepo.submit("live-2", "hello") } throws com.hermes.client.data.network.GatewayRpcException(4090, "busy")
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        vm.send("hello"); runCurrent()
+        val message = vm.state.value.messages.single { it.role == Role.USER }
+        assertEquals(com.hermes.client.domain.DeliveryState.FAILED, message.delivery)
+        assertFalse(unsent.peek(draftToken)?.deliveryUnconfirmed == true)
+        assertEquals("hello", vm.prepareUnsentComposer(message.id, "").text)
+        coVerify(exactly = 1) { chatRepo.submit("live-2", "hello") }
     }
 
 }

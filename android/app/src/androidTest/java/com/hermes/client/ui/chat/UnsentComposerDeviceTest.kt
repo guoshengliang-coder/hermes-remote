@@ -65,6 +65,43 @@ class UnsentComposerDeviceTest {
         }
     }
 
+    @Test fun unknownOutcomeOffersOnlyStatusQueryAndCopyOnApi37() {
+        val actions = mutableListOf<String>()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.serviceInfo = automation.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
+        activity.scenario.onActivity { host ->
+            host.setContent {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ZH, LocalDeliveryMotionEnabled provides false) {
+                    HermesTheme(darkTheme = false) {
+                        Surface { Column(Modifier.systemBarsPadding().padding(16.dp)) {
+                            UserBubble(ChatMessage("unknown", Role.USER, "等待核对的消息", delivery = DeliveryState.UNCONFIRMED),
+                                onEditResend = { actions += "edit" }, onDiscardSend = { actions += "withdraw" },
+                                onCheckDelivery = { actions += "check:$it" },
+                                onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {})
+                        } }
+                    }
+                }
+            }
+        }
+        tapText("重新核对")
+        tapText("等待核对的消息")
+        org.junit.Assert.assertNull(findText(automation.rootInActiveWindow, "撤回"))
+        org.junit.Assert.assertNull(findText(automation.rootInActiveWindow, "编辑并重新发送"))
+        org.junit.Assert.assertNotNull(findText(automation.rootInActiveWindow, "复制"))
+        activity.scenario.onActivity { assertEquals(listOf("check:unknown"), actions) }
+        val bitmap = checkNotNull(automation.takeScreenshot())
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "hg237-unknown-menu.png")
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/HermesTest")
+        }
+        val resolver = InstrumentationRegistry.getInstrumentation().targetContext.contentResolver
+        val uri = checkNotNull(resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values))
+        checkNotNull(resolver.openOutputStream(uri)).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
     // The Compose test rule itself initializes a pinned Espresso injector that uses a removed
     // private API on Android 36. ActivityScenario + public UiAutomation need no dependency change.
     private fun tapText(text: String) {

@@ -1,3 +1,8 @@
+HG-237 preserves ambiguous prompt outcomes as durable “Delivery unknown” bubbles with Check status
+only. Unknown turns do not block history synchronization and are not matched to a server turn by text.
+Account WebSockets send heartbeat pings; Android legacy connection modes are retired. No version or
+APK is allocated here. Evidence, tests and verification limits: `../docs/HG_237_SEND_RECOVERY.md`.
+
 Video playback now offers 0.5–3× constant speed (each new open defaults to 1×), plus a held
 2/2.5/3× temporary speed with release/cancellation restoration and unchanged pitch. The bottom
 controls separate whole-file disk-cache coverage from contiguous playable time. While the viewer
@@ -135,18 +140,12 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
 
 - Application ID: `com.hermes.remote`
 - Default Relay: `https://mrlgs.net` (standard HTTPS/WSS port 443)
-- Default setup uses Hermes GO email + six-digit verification code when the Gateway advertises that
-  capability. The previous Relay URL + App Token + QR setup remains under the explicit Legacy
-  connection entry; Mac credentials never enter the app.
-- Account access/refresh material and the random per-install installation ID use encrypted storage
-  separate from legacy credentials. Android follows the Gateway capability: the current single-Mac
-  rollout reads `/v2/connector-binding` and uses Bearer on `/api/*` plus `/api/ws`; a future
-  multi-device rollout uses the explicit `/v2/devices/{id}` routes and cloud default selection.
-- When a working Legacy connection opts into account login, Android persists a distinct pending
-  activation state and keeps Legacy authoritative across restart. It switches REST/WebSocket only
-  after the discovered account Mac passes the Bearer end-to-end probe; a missing Mac, failed probe,
-  or invalid pending account session leaves the old connection intact. Invalidation after account
-  transport was already active still fails closed and requires sign-in.
+- Hermes GO email + six-digit verification code is the only connection setup. HG-237 removes
+  URL/App Token/password/ticket/QR setup, migration-pending transport and legacy fallback.
+- Upgrade clears retired secrets and mode flags while preserving the encrypted account session and
+  installation ID. A signed-out phone returns to login; an account without a Mac opens selection.
+- Device requests use the account Bearer and capability-appropriate `/api/*` or
+  `/v2/devices/{id}` routes. No Mac credential enters the app.
 - Email-code challenges use the server's absolute expiry and resend deadlines: Android restores only
   a still-valid encrypted challenge after process death, never persists the entered code, disables
   early resend, and clears locally expired or malformed challenges before verification.
@@ -154,17 +153,12 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   operation; it does not silently substitute a generic page refresh.
 - Durable lifecycle notifications use the Relay-owned account endpoint with the phone Bearer rather
   than a selected-Mac route. Their local cursor is hashed and isolated per Gateway/account/phone
-  installation, while the existing legacy cursor remains compatible.
+  installation; retired legacy cursors are not used by account connections.
 - Startup preserves account error intent: only invalid session families require sign-in; rate
   limiting, disabled accounts, service outages, and an offline Connector keep their own stable codes.
-- Unexpected account invalidation persists a reauthentication gate across restart and blocks REST,
-  lifecycle, WebSocket, share, and new-chat fallback to retained legacy credentials. Successful
-  account login, explicit phone sign-out, or explicitly opening Legacy connection releases it.
-- Connection mode itself is encrypted and explicit: a signed-in account with no selected Mac cannot
-  silently use a retained App Token for REST, WebSocket, startup, or new chats. Opening Legacy
-  connection enables compatibility mode across restart; choosing an account Mac or logging in again
-  returns transport to account mode. Local sign-in/device gates stop WebSocket backoff until a new
-  explicit or foreground recovery cycle.
+- Unexpected account invalidation persists a reauthentication gate across restart and stops REST,
+  lifecycle, WebSocket, share and new-chat traffic until account recovery. Sign-out returns to login.
+  Local sign-in/device gates stop WebSocket backoff until an explicit or foreground recovery cycle.
 - Reauthentication retains only the previous account Gateway origin, never its credentials, and
   prefers it over an unrelated legacy Relay. Repair screens preserve the current navigation stack
   and return to the interrupted chat/page after account and Mac readiness succeed.
@@ -185,7 +179,7 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   Android requires exact `DELETE`, a separate acknowledgement, and a fresh code sent to the current
   account email; it encrypts the challenge/grant/replay keys but never the typed confirmation or OTP.
   An ambiguous DELETE is replayed with the exact key after restart. Once committed, a durable local
-  terminal gate blocks silent App Token fallback, explains the 30-day Cloud cleanup and preserved
+  terminal gate blocks device traffic, explains the 30-day Cloud cleanup and preserved
   Mac data, and can be left only by explicitly choosing another email account or Legacy connection.
 - Account conversations persist their originating Mac per account/profile/session. Lists, search,
   and new chats use the selected Mac; reopening history, startup recovery, and notification actions

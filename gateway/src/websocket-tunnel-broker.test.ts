@@ -71,7 +71,7 @@ test("foreground RPC receipt logs only method and id, never slash command conten
   app.emit("message", Buffer.from(JSON.stringify({ id: 10, method: "session.create", params: { cwd: "/private/workspace" } })), false);
   app.emit("message", Buffer.from(JSON.stringify({ id: 11, method: "prompt.submit", params: { text: "private prompt" } })), false);
   const received = lines.filter((line) => line.kind === "app.rpc.received");
-  assert.deepEqual(received.map((line) => [line.rpcId, line.method]), [[9, "slash.exec"], [10, "session.create"]]);
+  assert.deepEqual(received.map((line) => [line.rpcId, line.method]), [[9, "slash.exec"], [10, "session.create"], [11, "prompt.submit"]]);
   broker.handleConnectorMessage(connector, {
     type: "tunnel.ws.frame", version: 1, id: tunnelId,
     dataBase64: Buffer.from(JSON.stringify({ id: 9, result: { output: "private result" } })).toString("base64"),
@@ -81,9 +81,9 @@ test("foreground RPC receipt logs only method and id, never slash command conten
   assert.deepEqual(returned.map((line) => [line.rpcId, line.method, line.ok]), [[9, "slash.exec", true]]);
   assert.equal(JSON.stringify([...received, ...returned]).includes("private"), false);
   app.close();
-  assert.equal(lines.find((line) => line.kind === "app.tunnel.close")?.unansweredForegroundRpcs, 1);
+  assert.equal(lines.find((line) => line.kind === "app.tunnel.close")?.unansweredForegroundRpcs, 2);
   assert.deepEqual(lines.filter((line) => line.kind === "app.rpc.unanswered").map((line) => [line.rpcId, line.method]),
-    [[10, "session.create"]]);
+    [[10, "session.create"], [11, "prompt.submit"]]);
 });
 
 test("app tunnel correlates a valid client connection id without logging arbitrary header text", () => {
@@ -146,4 +146,18 @@ test("a connector going away closes every tunnel on its route and says how many"
   assert.equal(fail.closed, 2);
   assert.equal(a.closed?.code, 1013);
   assert.equal(b.closed?.code, 1013);
+});
+
+
+test("prompt outcome tracking is bounded while every request still relays once", () => {
+  const { lines, wire, connector, broker } = harness();
+  const app = new FakeSocket();
+  broker.open(app as unknown as WebSocket, connector);
+  for (let id = 0; id < 20; id++) {
+    app.emit("message", Buffer.from(JSON.stringify({ id, method: "prompt.submit", params: { text: "private-prompt" } })), false);
+  }
+  assert.equal(wire.filter((message) => message.type === "tunnel.ws.frame").length, 20);
+  app.close(1006, "lost");
+  assert.equal(lines.filter((line) => line.kind === "app.rpc.unanswered").length, 16);
+  assert.doesNotMatch(JSON.stringify(lines), /private-prompt/);
 });

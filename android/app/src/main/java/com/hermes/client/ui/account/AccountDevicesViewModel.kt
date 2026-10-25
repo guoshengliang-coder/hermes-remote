@@ -311,12 +311,9 @@ class AccountDevicesViewModel @Inject constructor(
                 appVersion = BuildConfig.VERSION_NAME,
                 idempotencyKey = pending.exchangeIdempotencyKey,
             )
-            val keepLegacyTransportUntilProbe = !sessions.requiresAccountReauthentication() &&
-                runCatching { legacyCredentials.load() }.getOrNull() != null
             sessions.activate(
                 pending.baseUrl,
                 response,
-                keepLegacyTransportUntilProbe = keepLegacyTransportUntilProbe,
             )
             challengeTimerJob?.cancel()
             challengeTimerJob = null
@@ -643,10 +640,6 @@ class AccountDevicesViewModel @Inject constructor(
         )
     }
 
-    fun allowExplicitLegacyFallback() {
-        sessions.allowExplicitLegacyFallback()
-    }
-
     fun startNewAccountSignIn() {
         store.setAccountDeletionCommitted(false)
         // Stay fail-closed while the replacement account signs in; retained App Token data must
@@ -796,9 +789,6 @@ class AccountDevicesViewModel @Inject constructor(
     private fun accountBaseUrl(): String = sessions.session.value?.baseUrl
         ?: store.loadPendingEmailChallenge()?.baseUrl
         ?: store.lastAccountBaseUrl()
-        ?: runCatching { legacyCredentials.load()?.baseUrl }
-            .getOrNull()
-            ?.takeUnless(::isLoopbackGatewayBaseUrl)
         ?: DEFAULT_REMOTE_GATEWAY_URL
 
     /** Account-control errors use the same session/device recovery as Hermes REST responses. */

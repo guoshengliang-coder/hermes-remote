@@ -1,6 +1,6 @@
 package com.hermes.client.data.network
 
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.auth.AccountConnection
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.AccountDeviceRouteMode
@@ -52,7 +52,7 @@ class HermesRestApi(
     private val accountSessionManager: AccountSessionManager? = null,
     private val accountOkHttp: OkHttpClient? = null,
     private val routedRestRecoverySignal: RoutedRestRecoverySignal = RoutedRestRecoverySignal(),
-    private val configProvider: () -> GatewayConfig?,
+    private val connectionProvider: suspend () -> AccountConnection? = { null },
 ) {
     private data class RestRequestContext(
         val deviceId: String?,
@@ -60,15 +60,11 @@ class HermesRestApi(
         val connectorRouted: Boolean,
     )
 
-    private val legacyRestOkHttp = okHttp.newBuilder()
-        .addInterceptor { chain -> interceptRest(chain) }
-        .build()
-
-    private val accountRestOkHttp = accountOkHttp?.newBuilder()
-        ?.addInterceptor { chain ->
+    private val accountRestOkHttp = (accountOkHttp ?: okHttp).newBuilder()
+        .addInterceptor { chain ->
             interceptRest(chain)
         }
-        ?.build()
+        .build()
 
     private fun interceptRest(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
         val request = chain.request()
@@ -135,84 +131,37 @@ class HermesRestApi(
         const val CONTRACT_TIMEOUT_SECONDS = 5L
     }
 
-    private fun config(): GatewayConfig =
-        configProvider() ?: throw HermesApiException(0, "no gateway configured")
+    private suspend fun accountConnection(deviceId: String? = null): AccountConnection? =
+        if (accountSessionManager != null) accountSessionManager.connection(deviceId) else connectionProvider()
 
     private suspend fun builder(path: String, deviceIdOverride: String? = null): Request.Builder {
         if (path.startsWith("/api/mobile/events")) {
-            accountSessionManager?.accountControlConnection()?.let { account ->
+            val control = accountSessionManager?.accountControlConnection()
+            val direct = if (accountSessionManager == null) connectionProvider() else null
+            val base = control?.baseUrl ?: direct?.baseUrl
+            val bearer = control?.bearer ?: direct?.bearer
+            if (base != null && bearer != null) return Request.Builder()
+                .url("${base.trimEnd('/')}$path").header("Authorization", "Bearer $bearer")
+                .tag(RestRequestContext::class.java, RestRequestContext(null, path, false))
+        } else {
+            accountConnection(deviceIdOverride)?.let { account ->
                 com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
-                return Request.Builder()
-                    .url("${account.baseUrl.trimEnd('/')}$path")
+                val routedPath = if (path.startsWith("/api/") && account.deviceRouteMode == AccountDeviceRouteMode.EXPLICIT_DEVICE) {
+                    val device = java.net.URLEncoder.encode(account.deviceId, Charsets.UTF_8.name()).replace("+", "%20")
+                    "/v2/devices/$device/api/${path.removePrefix("/api/")}"
+                } else path
+                return Request.Builder().url("${account.baseUrl.trimEnd('/')}$routedPath")
                     .header("Authorization", "Bearer ${account.bearer}")
-                    .tag(
-                        RestRequestContext::class.java,
-                        RestRequestContext(deviceId = null, originalPath = path, connectorRouted = false),
-                    )
-            }
-            if (accountSessionManager?.requiresAccountReauthentication() == true) {
-                throw HermesApiException(401, "HR-AUTH-003", errorCode = "HR-AUTH-003")
+                    .tag(RestRequestContext::class.java, RestRequestContext(account.deviceId, path, path.startsWith("/api/")))
             }
         }
-        if (path.startsWith("/api/")) {
-            accountSessionManager?.connection(deviceIdOverride)?.let { account ->
-                com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(account.bearer)
-                val routedPath = when (account.deviceRouteMode) {
-                    AccountDeviceRouteMode.SINGLE_BINDING -> path
-                    AccountDeviceRouteMode.EXPLICIT_DEVICE -> {
-                        val device = java.net.URLEncoder.encode(account.deviceId, Charsets.UTF_8.name())
-                            .replace("+", "%20")
-                        "/v2/devices/$device/api/${path.removePrefix("/api/")}"
-                    }
-                }
-                return Request.Builder()
-                    .url("${account.baseUrl.trimEnd('/')}$routedPath")
-                    .header("Authorization", "Bearer ${account.bearer}")
-                    .tag(
-                        RestRequestContext::class.java,
-                        RestRequestContext(
-                            deviceId = account.deviceId,
-                            originalPath = path,
-                            connectorRouted = true,
-                        ),
-                    )
-            }
-            if (accountSessionManager?.requiresAccountReauthentication() == true) {
-                throw HermesApiException(401, "HR-AUTH-003", errorCode = "HR-AUTH-003")
-            }
-            if (accountSessionManager?.transportMode() == AccountTransportMode.DEVICE_SELECTION_REQUIRED) {
-                throw HermesApiException(409, "HR-BIND-009", errorCode = "HR-BIND-009")
-            }
+        if (accountSessionManager?.transportMode() == AccountTransportMode.DEVICE_SELECTION_REQUIRED) {
+            throw HermesApiException(409, "HR-BIND-009", errorCode = "HR-BIND-009")
         }
-        val cfg = config().let { it.copy(baseUrl = normalizeGatewayBaseUrl(it.baseUrl)) }
-        // Keep the diagnostic log's redaction current with whatever token is active, so a
-        // shared log can never contain the session token in plain text.
-        com.hermes.client.data.diagnostics.DebugLog.setTokenToRedact(cfg.token)
-        // Trim trailing slashes so a user-entered "http://host:9119/" doesn't produce
-        // "//api/..." — the gateway routes a double slash to its web UI (HTML), not the API.
-        val b = Request.Builder().url("${cfg.baseUrl.trimEnd('/')}$path")
-            .tag(
-                RestRequestContext::class.java,
-                RestRequestContext(
-                    deviceId = null,
-                    originalPath = path,
-                    connectorRouted = path.startsWith("/api/") &&
-                        !path.startsWith("/api/mobile/events"),
-                ),
-            )
-        if (cfg.token.isNotBlank()) b.header("X-Hermes-Session-Token", cfg.token)
-        deviceIdOverride?.takeIf { it.isNotBlank() }?.let { b.header("X-Hermes-Device-Id", it) }
-        return b
+        throw HermesApiException(401, "HR-AUTH-003", errorCode = "HR-AUTH-003")
     }
 
-    /**
-     * Account bearer traffic uses a client with no legacy dashboard cookie jar/authenticator.
-     * This keeps the two authentication modes unambiguous even when they share a hostname.
-     */
-    private fun clientFor(request: Request): OkHttpClient =
-        if (request.header("Authorization")?.startsWith("Bearer ") == true) {
-            checkNotNull(accountRestOkHttp) { "account transport client unavailable" }
-        } else legacyRestOkHttp
+    private fun clientFor(request: Request): OkHttpClient = accountRestOkHttp
 
     /** The shared clients have no REST-wide deadline; every REST call gets one here. */
     private fun restCall(request: Request): Call = clientFor(request).newCall(request).apply {
@@ -299,48 +248,7 @@ class HermesRestApi(
         deviceIdOverride: String? = null,
     ): T = json.decodeFromString(getRaw(path, deviceIdOverride))
 
-    /**
-     * T10b: test connectivity using explicitly supplied credentials WITHOUT reading from
-     * configProvider. Used by SetupViewModel.test() so unverified creds are never persisted.
-     */
-    suspend fun probeStatusFor(baseUrl: String, token: String): GatewayProbeResult =
-        withContext(Dispatchers.IO) {
-        try {
-            val rb = Request.Builder().url("${baseUrl.trimEnd('/')}/api/status").get()
-            if (token.isNotBlank()) rb.header("X-Hermes-Session-Token", token)
-            val call = okHttp.newCall(rb.build())
-            call.timeout().timeout(CONNECTION_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            call.execute().use { response ->
-                when {
-                    response.isSuccessful -> GatewayProbeResult.Reachable
-                    response.code == 401 || response.code == 403 ->
-                        GatewayProbeResult.Unauthorized(response.code)
-                    response.code in 500..599 -> {
-                        val errorCode = runCatching {
-                            val body = response.body.string()
-                            ((json.parseToJsonElement(body) as? JsonObject)?.get("error") as? JsonPrimitive)
-                                ?.content
-                        }.getOrNull()
-                        GatewayProbeResult.ServerFailure(response.code, errorCode)
-                    }
-                    else -> GatewayProbeResult.InvalidEndpoint(response.code)
-                }
-            }
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            GatewayProbeResult.Unreachable(error.javaClass.simpleName)
-        }
-    }
-
-    suspend fun statusFor(baseUrl: String, token: String): Boolean =
-        probeStatusFor(baseUrl, token) is GatewayProbeResult.Reachable
-
-    /** Delegates to [statusFor] using the current stored config. */
-    suspend fun status(): Boolean {
-        val cfg = configProvider() ?: return false
-        return statusFor(cfg.baseUrl, cfg.token)
-    }
+    suspend fun status(): Boolean = runCatching { gatewayStatus(); true }.getOrDefault(false)
 
     /** Public /api/status — gateway version + running state. */
     suspend fun gatewayStatus(): GatewayStatusDto = get("/api/status")
@@ -368,14 +276,8 @@ class HermesRestApi(
             val accountId = accountSessionManager.session.value?.accountId.orEmpty()
             return "account:${account.baseUrl.trimEnd('/')}#$accountId#${account.deviceId}"
         }
-        if (accountSessionManager?.requiresAccountReauthentication() == true) return null
-        if (accountSessionManager?.transportMode() == AccountTransportMode.DEVICE_SELECTION_REQUIRED) return null
-        val cfg = configProvider() ?: return null
-        val base = runCatching { normalizeGatewayBaseUrl(cfg.baseUrl) }.getOrDefault(cfg.baseUrl).trimEnd('/')
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(cfg.token.toByteArray(Charsets.UTF_8))
-            .take(6).joinToString("") { "%02x".format(it) }
-        return "legacy:$base#$digest"
+        val account = accountConnection() ?: return null
+        return "account:${account.baseUrl.trimEnd('/')}#${account.deviceId}"
     }
 
     /** Relay health — which Mac connectors are currently attached (deviceId + online).
@@ -543,13 +445,8 @@ class HermesRestApi(
             val owner = accountSessionManager.session.value ?: return null
             return "account:${account.baseUrl.trimEnd('/')}#${owner.accountId}#${owner.installationId}#${account.deviceId}"
         }
-        if (accountSessionManager?.requiresAccountReauthentication() == true ||
-            accountSessionManager?.transportMode() == AccountTransportMode.DEVICE_SELECTION_REQUIRED ||
-            accountSessionManager?.transportMode() == AccountTransportMode.ACCOUNT_DELETION_COMMITTED) return null
-        val cfg = configProvider() ?: return null
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(cfg.token.toByteArray())
-            .joinToString("") { "%02x".format(it) }
-        return "legacy:${normalizeGatewayBaseUrl(cfg.baseUrl).trimEnd('/')}#$digest#${deviceId.orEmpty()}"
+        val account = accountConnection(deviceId) ?: return null
+        return "account:${normalizeGatewayBaseUrl(account.baseUrl).trimEnd('/')}#${deviceId ?: account.deviceId}"
     }
 
     suspend fun prepareArtifactDownload(path: String, deviceId: String?, owner: String): com.hermes.client.domain.ArtifactDownloadDescriptor =

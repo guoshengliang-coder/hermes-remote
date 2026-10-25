@@ -13,6 +13,13 @@ import org.junit.Test
 class GatewayPingIntervalTest {
     private val edgeProxyReadTimeoutSeconds = 75L
 
+    @Test fun the_actual_account_socket_client_has_the_heartbeat() {
+        val client = AppModule.provideAccountHttpClient()
+        org.junit.Assert.assertEquals(GATEWAY_PING_INTERVAL_SECONDS * 1_000, client.pingIntervalMillis.toLong())
+        org.junit.Assert.assertSame(okhttp3.CookieJar.NO_COOKIES, client.cookieJar)
+        org.junit.Assert.assertSame(okhttp3.Authenticator.NONE, client.authenticator)
+    }
+
     @Test fun pingCadenceStaysUnderTheEdgeProxyIdleTimeout() {
         assertTrue(
             "ping interval ${GATEWAY_PING_INTERVAL_SECONDS}s must stay well under the edge " +

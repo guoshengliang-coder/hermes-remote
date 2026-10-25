@@ -1327,7 +1327,7 @@ class SessionRuntimeStore(
 
     /** A refused local turn has no server row for REST to cover, but must remain visible. */
     private fun ChatMessage.isUnsentLocalTurn(): Boolean =
-        serverId == null && (delivery == DeliveryState.FAILED || delivery == DeliveryState.UNDELIVERABLE)
+        serverId == null && (delivery == DeliveryState.FAILED || delivery == DeliveryState.UNDELIVERABLE || delivery == DeliveryState.UNCONFIRMED)
 
     private fun SessionRuntime.withoutUnsentLocalTurns(): SessionRuntime =
         copy(chat = chat.copy(messages = chat.messages.filterNot { it.isUnsentLocalTurn() }))

@@ -99,7 +99,6 @@ internal class DoubaoVoiceSession(
                 DebugLog.log("voice") { "endpoint ready (${android.os.SystemClock.elapsedRealtime() - startedAt}ms)" }
                 val request = Request.Builder().url(target.url).apply {
                     target.bearerToken?.let { header("Authorization", "Bearer $it") }
-                    target.sessionToken?.let { header("X-Hermes-Session-Token", it) }
                 }.build()
                 socket = client.newWebSocket(request, listener)
                 val ws = withTimeout(10_000) { opened.await() }

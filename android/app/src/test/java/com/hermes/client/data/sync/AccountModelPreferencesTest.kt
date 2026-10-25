@@ -31,7 +31,7 @@ class AccountModelPreferencesTest {
     private val sessions = MutableStateFlow<AccountSession?>(session)
     private val manager = mockk<AccountSessionManager> {
         every { session } returns sessions
-        every { transportMode() } answers { if (sessions.value == null) AccountTransportMode.LEGACY else AccountTransportMode.DEVICE_SELECTION_REQUIRED }
+        every { transportMode() } answers { if (sessions.value == null) AccountTransportMode.SIGNED_OUT else AccountTransportMode.DEVICE_SELECTION_REQUIRED }
         every { accountDataEpoch() } returns 0L
         coEvery { accessToken() } returns "synthetic"
     }

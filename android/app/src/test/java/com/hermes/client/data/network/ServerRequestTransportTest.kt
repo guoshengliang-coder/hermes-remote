@@ -73,7 +73,7 @@ class ServerRequestTransportTest {
         serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(farEnd).build())
         val url = serverRule.server.url("/api/ws").toString().replace("http", "ws")
         val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
-        val client = HermesGatewayClient(okHttp, json, testScope, wsEndpointProvider = { GatewayWebSocketEndpoint(url, "t") })
+        val client = HermesGatewayClient(okHttp, json, testScope, wsEndpointProvider = { GatewayWebSocketEndpoint(url) })
         return client to okHttp
     }
 
@@ -184,7 +184,7 @@ class ServerRequestTransportTest {
         serverRule.server.enqueue(MockResponse.Builder().webSocketUpgrade(far).build())
         val url = serverRule.server.url("/api/ws").toString().replace("http", "ws")
         val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
-        val client = HermesGatewayClient(okHttp, json, testScope, wsEndpointProvider = { GatewayWebSocketEndpoint(url, "t") })
+        val client = HermesGatewayClient(okHttp, json, testScope, wsEndpointProvider = { GatewayWebSocketEndpoint(url) })
         val seen = java.util.Collections.synchronizedList(mutableListOf<ServerEvent>())
         val collecting = testScope.launch(start = CoroutineStart.UNDISPATCHED) { client.events.collect { seen += it } }
         client.connect()

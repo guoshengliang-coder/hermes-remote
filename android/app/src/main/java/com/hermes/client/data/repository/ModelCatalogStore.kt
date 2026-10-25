@@ -129,7 +129,7 @@ class ModelCatalogStore @Inject constructor(
      */
     fun refresh(force: Boolean = false) {
         val profile = profileManager.active.value
-        if (credentials.load() == null && accountSessions?.hasLoadedConnection() != true) return
+        if (accountSessions != null && !accountSessions.hasLoadedConnection()) return
         if (!connectivity.isOnline()) return
         if (!force && cache.value.containsKey(profile)) {
             val last = synchronized(lastSuccessAt) { lastSuccessAt[profile] }

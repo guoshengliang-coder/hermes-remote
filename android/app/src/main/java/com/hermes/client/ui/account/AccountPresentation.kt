@@ -40,7 +40,7 @@ internal fun accountErrorText(
         "HR-AUTH-006" -> localized(language, "为确认是你本人，请重新验证当前账号的登录方式。", "Verify your sign-in identity again to confirm it's you.")
         "HR-AUTH-009" -> localized(language, "邮箱验证码无效或已过期，请重新获取。", "The email code is invalid or expired. Request a new code.")
         "HR-AUTH-010" -> localized(language, "登录邮件发送失败，请稍后重试。", "The sign-in email couldn't be sent. Try again shortly.")
-        "HR-AUTH-011", "HR-ACCOUNT-003" -> localized(language, "此 Relay 尚未启用邮箱登录，可继续使用旧版连接。", "Email sign-in isn't enabled on this Relay yet. You can continue with the legacy connection.")
+        "HR-AUTH-011", "HR-ACCOUNT-003" -> localized(language, "此服务尚未启用邮箱登录，请联系服务管理员。", "Email sign-in isn't enabled on this service. Contact its administrator.")
         "HR-ACCOUNT-012" -> localized(language, "此 Hermes GO 账号正在永久删除，已无法再次登录。", "This Hermes GO account is being permanently deleted and can no longer sign in.")
         "HR-BIND-001" -> localized(language, "这个账号还没有连接 Desktop，请先在 Mac 上打开 Hermes Go Desktop。", "This account has no Desktop connection yet. Open Hermes Go Desktop on the Mac.")
         "HR-BIND-009" -> localized(language, "请先选择要使用的 Mac。", "Choose which Mac to use.")

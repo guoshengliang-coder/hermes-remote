@@ -10,12 +10,9 @@ import com.hermes.client.data.auth.AccountDeviceRouteMode
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.data.auth.AccountClock
 import com.hermes.client.data.auth.ConversationDeviceStore
-import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.feedback.FeedbackReporter
 import com.hermes.client.data.feedback.MissionGoFeedbackReporter
-import com.hermes.client.data.network.GatedAuth
 import com.hermes.client.data.network.AccountApi
-import com.hermes.client.data.network.GatedAuthenticator
 import com.hermes.client.data.network.HermesGatewayClient
 import com.hermes.client.data.network.GatewayWebSocketEndpoint
 import com.hermes.client.data.network.GatewayEndpointException
@@ -42,7 +39,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -119,23 +115,7 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideGatedAuth(json: Json, store: CredentialStore): GatedAuth =
-        GatedAuth(json) { store.load() }
-
-    @Provides
-    @Singleton
-    fun provideOkHttpClient(gatedAuth: GatedAuth): OkHttpClient = OkHttpClient.Builder()
-        // Preserve the pinned DNS fallback for existing installations that still use the legacy
-        // sslip.io URL. The mrlgs.net production URL uses normal Android DNS resolution.
-        .dns(RelayDns())
-        .pingInterval(GATEWAY_PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS)
-        // Gated-dashboard auth: the cookie jar carries the session cookies on every REST call,
-        // and the authenticator re-logs-in and retries on a 401. In loopback/token mode the jar
-        // stays empty and the authenticator is a no-op (no username configured).
-        .cookieJar(gatedAuth.cookieJar)
-        .authenticator(GatedAuthenticator(gatedAuth))
-        .build()
+    fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().dns(RelayDns()).build()
 
     @Provides
     @Singleton
@@ -148,6 +128,7 @@ object AppModule {
     @AccountHttpClient
     fun provideAccountHttpClient(): OkHttpClient = OkHttpClient.Builder()
         .dns(RelayDns())
+        .pingInterval(GATEWAY_PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
         .build()
 
     @Provides
@@ -223,8 +204,6 @@ object AppModule {
         @AccountHttpClient accountOkHttp: OkHttpClient,
         json: Json,
         scope: CoroutineScope,
-        store: CredentialStore,
-        gatedAuth: GatedAuth,
         accountSessions: AccountSessionManager,
     ): HermesGatewayClient = HermesGatewayClient(
         okHttp = okHttp,
@@ -232,9 +211,7 @@ object AppModule {
         json = json,
         scope = scope,
         onAccountHandshakeRejected = accountSessions::handleTransportHandshakeRejection,
-        // Gated mode mints a fresh single-use WS ticket per connect; loopback mode appends the
-        // session token. The ticket POST goes through the authenticated client, so a missing
-        // session is recovered (401 → login → retry) before the socket opens.
+        // Every socket uses the current account bearer and selected Mac; local gates stop reconnect.
         wsEndpointProvider = {
             when (accountSessions.transportMode()) {
                 AccountTransportMode.ACCOUNT -> {
@@ -249,18 +226,8 @@ object AppModule {
                     throw GatewayEndpointException("account sign-in required", retryable = false)
                 AccountTransportMode.ACCOUNT_DELETION_COMMITTED ->
                     throw GatewayEndpointException("account deletion committed", retryable = false)
-                AccountTransportMode.ACCOUNT_PENDING,
-                AccountTransportMode.LEGACY -> {
-                    val stored = store.load() ?: error("no gateway configured")
-                    val cfg = stored.copy(baseUrl = normalizeGatewayBaseUrl(stored.baseUrl))
-                    if (cfg.isGated) {
-                        val ticket = withContext(Dispatchers.IO) { gatedAuth.wsTicket(okHttp) }
-                            ?: error("ws ticket unavailable")
-                        GatewayWebSocketEndpoint("${cfg.wsBase}?ticket=$ticket")
-                    } else {
-                        GatewayWebSocketEndpoint(cfg.wsBase, cfg.token)
-                    }
-                }
+                AccountTransportMode.SIGNED_OUT ->
+                    throw GatewayEndpointException("account sign-in required", retryable = false)
             }
         },
     )
@@ -271,7 +238,6 @@ object AppModule {
         okHttp: OkHttpClient,
         @AccountHttpClient accountOkHttp: OkHttpClient,
         json: Json,
-        store: CredentialStore,
         accountSessions: AccountSessionManager,
         routedRestRecoverySignal: RoutedRestRecoverySignal,
     ): HermesRestApi = HermesRestApi(
@@ -280,7 +246,6 @@ object AppModule {
         json = json,
         accountSessionManager = accountSessions,
         routedRestRecoverySignal = routedRestRecoverySignal,
-        configProvider = { store.load() },
     )
 
     @Provides

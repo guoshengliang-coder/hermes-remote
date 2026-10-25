@@ -50,7 +50,6 @@ import com.hermes.client.ui.localization.localized
 fun DeviceSelectionScreen(
     onBack: (() -> Unit)?,
     onConnected: () -> Unit = {},
-    onOpenLegacy: (() -> Unit)? = null,
     onOpenDiagnostics: (() -> Unit)? = null,
     vm: AccountDevicesViewModel = hiltViewModel(),
 ) {
@@ -122,20 +121,12 @@ fun DeviceSelectionScreen(
                 }
             }
 
-            if (onOpenLegacy != null || onOpenDiagnostics != null) {
+            if (onOpenDiagnostics != null) {
                 Text(
-                    localized(language, "兼容连接", "Compatibility"),
+                    localized(language, "诊断", "Diagnostics"),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                onOpenLegacy?.let { action ->
-                    TextButton(
-                        onClick = { vm.allowExplicitLegacyFallback(); action() },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(localized(language, "旧版 Relay / App Token", "Legacy Relay / App Token"))
-                    }
-                }
                 onOpenDiagnostics?.let { action ->
                     TextButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
                         Text(localized(language, "打开诊断", "Open diagnostics"))
@@ -152,24 +143,6 @@ internal fun DeviceContent(
     vm: AccountDevicesViewModel,
 ) {
     val language = LocalAppLanguage.current
-    if (state.session?.activationPending == true) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.primaryContainer,
-        ) {
-            Text(
-                localized(
-                    language,
-                    "账号已登录，当前仍使用旧版连接。检测到账号 Mac 并通过端到端验证后才会切换。",
-                    "Your account is signed in, but the Legacy connection remains active until an account Mac passes the end-to-end check.",
-                ),
-                modifier = Modifier.padding(16.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        }
-    }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(localized(language, "选择要使用的 Mac", "Choose a Mac"), style = MaterialTheme.typography.headlineSmall)

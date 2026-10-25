@@ -67,7 +67,6 @@ import com.hermes.client.ui.settings.MemorySettingsScreen
 import com.hermes.client.ui.settings.SettingsScreen
 import com.hermes.client.ui.settings.AppUpdateScreen
 import com.hermes.client.ui.settings.LanguageScreen
-import com.hermes.client.ui.setup.SetupScreen
 import com.hermes.client.ui.tools.AgentsToolsScreen
 import com.hermes.client.ui.usage.UsageScreen
 import com.hermes.client.ui.localization.LocalAppLanguage
@@ -98,15 +97,6 @@ internal fun chatRoute(target: ChatLaunch, encode: (String) -> String = { Uri.en
 private fun diagnosticRoute(route: String): String =
     if (route.startsWith("chat/")) "chat#${route.substringAfter("chat/").substringBefore('?').hashCode()}"
     else route.substringBefore('?')
-
-/** Only the configuration-repair destination may consume the repair completion signal. */
-internal fun shouldPopCompletedRepair(
-    route: String?,
-    expectedCompletion: Long,
-    actualCompletion: Long,
-): Boolean = route?.startsWith("settings_connection") == true &&
-    expectedCompletion >= 0L &&
-    actualCompletion >= expectedCompletion
 
 /** Where back from a chat lands; see [chatBackTarget]. */
 internal enum class ChatBackTarget { POP_ONE, POP_TO_SESSIONS }
@@ -143,8 +133,7 @@ internal fun shouldReplaceStackWithSetup(
     !setupRepairInProgress &&
     !accountRepairRequested &&
     route != null &&
-    route != "setup" &&
-    route != "legacy_setup"
+    route != "setup"
 
 /**
  * Root navigation host. The session list is the ONLY main screen; everything else is either a
@@ -267,27 +256,15 @@ fun HermesNav(
             setupRepairInProgress = true
             nav.navigate("setup") { launchSingleTop = true }
         } else {
-            configurationRepair?.let { failure ->
-                if (isAccountSetupRepair(failure)) {
-                    setupRepairInProgress = true
-                    nav.navigate("setup") { launchSingleTop = true }
-                } else {
-                    nav.navigate(
-                        "settings_connection?repair=${failure.name}&completion=${repairCompletion + 1}",
-                    ) { launchSingleTop = true }
-                }
+            configurationRepair?.let {
+                setupRepairInProgress = true
+                nav.navigate("setup") { launchSingleTop = true }
             }
-        }
-    }
-    val expectedRepairCompletion = backStackEntry?.arguments?.getLong("completion", -1L) ?: -1L
-    LaunchedEffect(route, repairCompletion, expectedRepairCompletion) {
-        if (shouldPopCompletedRepair(route, expectedRepairCompletion, repairCompletion)) {
-            nav.popBackStack()
         }
     }
     LaunchedEffect(route, repairCompletion, pendingSetupCompletion) {
         val expected = pendingSetupCompletion
-        if ((route == "setup" || route == "legacy_setup") && expected != null && repairCompletion >= expected) {
+        if (route == "setup" && expected != null && repairCompletion >= expected) {
             pendingSetupCompletion = null
             val restorePrevious = setupRepairInProgress
             setupRepairInProgress = false
@@ -473,17 +450,8 @@ fun HermesNav(
             composable("setup") {
                 com.hermes.client.ui.account.AccountSignInFlow(
                     reasonCode = signInReasonCode,
-                    onOpenLegacy = { nav.navigate("legacy_setup") { launchSingleTop = true } },
                     onOpenDiagnostics = { nav.navigate("settings_diagnostics") { launchSingleTop = true } },
                     onCompleted = {
-                        pendingSetupCompletion = repairCompletion + 1L
-                        onInitialConfigurationSaved()
-                    },
-                )
-            }
-            composable("legacy_setup") {
-                SetupScreen(
-                    onSaved = {
                         pendingSetupCompletion = repairCompletion + 1L
                         onInitialConfigurationSaved()
                     },
@@ -685,8 +653,7 @@ fun HermesNav(
             composable("settings_account") {
                 com.hermes.client.ui.account.AccountSettingsScreen(
                     onBack = { nav.popBackStack() },
-                    // Reachable while signed out: a phone still holding legacy Relay credentials
-                    // has a configuration, so it never passed through the sign-in gate.
+                    // Account repair returns to the interrupted page after sign-in.
                     onSignIn = { nav.navigate("setup") { launchSingleTop = true } },
                     onSignedOut = {
                         if (!onAccountSignedOut()) {
@@ -698,7 +665,6 @@ fun HermesNav(
             composable("remote_devices") {
                 com.hermes.client.ui.account.DeviceSelectionScreen(
                     onBack = { nav.popBackStack() },
-                    onOpenLegacy = { nav.navigate("settings_connection") { launchSingleTop = true } },
                     onOpenDiagnostics = { nav.navigate("settings_diagnostics") { launchSingleTop = true } },
                 )
             }
@@ -711,28 +677,6 @@ fun HermesNav(
             }
             composable("settings_mcp") { McpSettingsScreen(onBack = { nav.popBackStack() }) }
             composable("settings_env") { EnvScreen(onBack = { nav.popBackStack() }) }
-            composable(
-                route = "settings_connection?repair={repair}&completion={completion}",
-                arguments = listOf(
-                    navArgument("repair") {
-                        type = NavType.StringType
-                        nullable = true
-                        defaultValue = null
-                    },
-                    navArgument("completion") {
-                        type = NavType.LongType
-                        defaultValue = -1L
-                    },
-                ),
-            ) { entry ->
-                val repairFailure = entry.arguments?.getString("repair")
-                    ?.let { raw -> runCatching { StartupFailure.valueOf(raw) }.getOrNull() }
-                com.hermes.client.ui.settings.ConnectionSettingsScreen(
-                    onBack = if (repairFailure == null) ({ nav.popBackStack() }) else null,
-                    repairFailure = repairFailure,
-                    onSaved = if (repairFailure == null) ({}) else onConnectionConfigurationSaved,
-                )
-            }
             composable("settings_diagnostics") {
                 com.hermes.client.ui.settings.DiagnosticsScreen(
                     onBack = { nav.popBackStack() },

@@ -19,7 +19,7 @@ class FakeUnsentSnapshot(
         private set
 
     override val tokens: Flow<Set<String>> =
-        records.map { list -> list.filter { it.composer?.withdrawn != true }.mapTo(mutableSetOf()) { it.token } }
+        records.map { list -> list.filter { it.composer?.withdrawn != true && !it.deliveryUnconfirmed }.mapTo(mutableSetOf()) { it.token } }
 
     override suspend fun read(token: String): UnsentRecord? {
         readGate?.await()

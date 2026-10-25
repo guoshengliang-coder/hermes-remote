@@ -1,6 +1,6 @@
 package com.hermes.client.data.network
 
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import com.hermes.client.data.auth.AccountSession
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountSessionStore
@@ -25,7 +25,7 @@ class HermesRestApiTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun api(server: MockWebServer) = HermesRestApi(testHttpClient(), json) {
-        GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
+        testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
     }
 
     @Test fun history_preserves_connector_error_code_and_correlation() = runTest {
@@ -110,7 +110,7 @@ class HermesRestApiTest {
 
         val recorded = serverRule.server.takeRequest()
         assertTrue(recorded.target.startsWith("/api/sessions"))
-        assertEquals("secret", recorded.headers["X-Hermes-Session-Token"])
+        assertEquals("Bearer secret", recorded.headers["Authorization"])
     }
 
     @Test fun successful_routed_rest_emits_recovery_but_status_does_not_recurse() = runTest {
@@ -119,8 +119,8 @@ class HermesRestApiTest {
             okHttp = testHttpClient(),
             json = json,
             routedRestRecoverySignal = signal,
-            configProvider = {
-                GatewayConfig(serverRule.server.url("/").toString().trimEnd('/'), "secret")
+            connectionProvider = {
+                testAccountConnection(serverRule.server.url("/").toString().trimEnd('/'), "secret")
             },
         )
         serverRule.server.enqueue(MockResponse.Builder().code(200).body(
@@ -184,7 +184,7 @@ class HermesRestApiTest {
             }
             .build()
         val accountApi = HermesRestApi(legacyClient, json, manager, isolatedAccountClient) {
-            GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "legacy-secret")
+            testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = "legacy-secret")
         }
 
         accountApi.sessions(limit = 20, offset = 0)
@@ -233,7 +233,7 @@ class HermesRestApiTest {
         )
         val manager = AccountSessionManager(accountStore, AccountApi(testHttpClient(), json))
         val accountApi = HermesRestApi(testHttpClient(), json, manager, testHttpClient()) {
-            GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "legacy-secret")
+            testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = "legacy-secret")
         }
 
         accountApi.sessions(limit = 20, offset = 0)
@@ -269,7 +269,7 @@ class HermesRestApiTest {
             now = { java.time.Instant.parse("2026-09-08T00:00:00Z") },
         )
         val api = HermesRestApi(testHttpClient(), json, manager, testHttpClient()) {
-            GatewayConfig(server.url("/").toString().trimEnd('/'), "legacy-secret")
+            testAccountConnection(server.url("/").toString().trimEnd('/'), "legacy-secret")
         }
 
         val refreshFailure = runCatching { api.sessions(limit = 20, offset = 0) }.exceptionOrNull()
@@ -298,7 +298,7 @@ class HermesRestApiTest {
         )
         val manager = AccountSessionManager(accountStore, AccountApi(testHttpClient(), json))
         val accountApi = HermesRestApi(testHttpClient(), json, manager, testHttpClient()) {
-            GatewayConfig(server.url("/").toString().trimEnd('/'), "legacy-secret")
+            testAccountConnection(server.url("/").toString().trimEnd('/'), "legacy-secret")
         }
 
         server.enqueue(MockResponse.Builder().code(403).addHeader("Content-Type", "application/json").body(
@@ -342,7 +342,7 @@ class HermesRestApiTest {
         )
         val manager = AccountSessionManager(accountStore, AccountApi(testHttpClient(), json))
         val accountApi = HermesRestApi(testHttpClient(), json, manager, testHttpClient()) {
-            GatewayConfig(server.url("/").toString().trimEnd('/'), "legacy-secret")
+            testAccountConnection(server.url("/").toString().trimEnd('/'), "legacy-secret")
         }
         manager.routeToDevice("mac-history")
 
@@ -394,7 +394,7 @@ class HermesRestApiTest {
         )
         val manager = AccountSessionManager(accountStore, AccountApi(testHttpClient(), json))
         val accountApi = HermesRestApi(testHttpClient(), json, manager, testHttpClient()) {
-            GatewayConfig(server.url("/").toString().trimEnd('/'), "legacy-secret")
+            testAccountConnection(server.url("/").toString().trimEnd('/'), "legacy-secret")
         }
 
         val blocked = runCatching {
@@ -404,13 +404,8 @@ class HermesRestApiTest {
         assertEquals("HR-BIND-009", blocked.errorCode)
         assertEquals(0, server.requestCount)
 
-        manager.allowExplicitLegacyFallback()
-        server.enqueue(MockResponse.Builder().code(200).body("""{"sessions":[]}""").build())
-        accountApi.sessions(limit = 20, offset = 0)
+        assertEquals(0, server.requestCount)
 
-        val legacyRequest = server.takeRequest()
-        assertEquals("legacy-secret", legacyRequest.headers["X-Hermes-Session-Token"])
-        assertEquals(null, legacyRequest.headers["Authorization"])
     }
 
     // T1: the cross-profile list tags each session with its true profile and carries
@@ -452,45 +447,6 @@ class HermesRestApiTest {
         assertTrue(api(serverRule.server).status())
     }
 
-    // T10b: statusFor() uses supplied baseUrl+token directly, never touches configProvider
-    @Test fun statusFor_uses_explicit_credentials_not_stored_config() = runTest {
-        val server = serverRule.server
-        server.enqueue(MockResponse.Builder().code(200).body("""{"ok":true}""").build())
-
-        // api() is wired with token="secret", but we call statusFor with a different token
-        val result = api(server).statusFor(
-            baseUrl = server.url("/").toString().trimEnd('/'),
-            token = "explicit-token",
-        )
-        assertTrue(result)
-        val recorded = server.takeRequest()
-        assertEquals("explicit-token", recorded.headers["X-Hermes-Session-Token"])
-    }
-
-    @Test fun statusFor_returns_false_on_non_2xx() = runTest {
-        serverRule.server.enqueue(MockResponse.Builder().code(401).body("Unauthorized").build())
-        val result = api(serverRule.server).statusFor(
-            baseUrl = serverRule.server.url("/").toString().trimEnd('/'),
-            token = "bad-token",
-        )
-        assertFalse(result)
-    }
-
-    @Test fun probeStatusFor_classifies_auth_server_and_wrong_endpoint_failures() = runTest {
-        val server = serverRule.server
-        server.enqueue(MockResponse.Builder().code(403).build())
-        server.enqueue(MockResponse.Builder().code(503).body("{\"error\":\"device_offline\"}").build())
-        server.enqueue(MockResponse.Builder().code(404).build())
-        val base = server.url("/").toString().trimEnd('/')
-
-        assertEquals(GatewayProbeResult.Unauthorized(403), api(server).probeStatusFor(base, "bad"))
-        assertEquals(
-            GatewayProbeResult.ServerFailure(503, "device_offline"),
-            api(server).probeStatusFor(base, "token"),
-        )
-        assertEquals(GatewayProbeResult.InvalidEndpoint(404), api(server).probeStatusFor(base, "token"))
-    }
-
     @Test fun setActiveProfile_posts_to_correct_endpoint_with_token_and_name() = runTest {
         serverRule.server.enqueue(MockResponse.Builder().code(200).body("{}").build())
 
@@ -499,7 +455,7 @@ class HermesRestApiTest {
         val recorded = serverRule.server.takeRequest()
         assertEquals("POST", recorded.method)
         assertTrue(recorded.target.startsWith("/api/profiles/active"))
-        assertEquals("secret", recorded.headers["X-Hermes-Session-Token"])
+        assertEquals("Bearer secret", recorded.headers["Authorization"])
         val body = recorded.body?.utf8().orEmpty()
         assertTrue("body should contain profile name", body.contains("\"personal\""))
     }

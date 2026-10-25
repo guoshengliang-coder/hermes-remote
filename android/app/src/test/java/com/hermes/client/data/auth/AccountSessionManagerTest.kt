@@ -101,28 +101,17 @@ class AccountSessionManagerTest {
         assertEquals(false, manager.requiresAccountReauthentication())
     }
 
-    @Test fun explicitLegacyFallbackClearsThePersistentReauthenticationGate() {
-        store.reauthenticationRequired = true
-        val manager = manager()
-
-        manager.allowExplicitLegacyFallback()
-
-        assertEquals(false, manager.requiresAccountReauthentication())
-    }
-
-    @Test fun committedAccountDeletionBlocksSilentLegacyFallbackUntilExplicitSelection() = runTest {
+    @Test fun retiredLegacySelectionCannotBypassReauthenticationOrDeletion() = runTest {
         store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
-        store.deletionCommitted = true
         store.explicitLegacy = true
         val manager = manager()
-
+        assertEquals(AccountTransportMode.ACCOUNT, manager.transportMode())
+        store.reauthenticationRequired = true
+        assertEquals(AccountTransportMode.REAUTHENTICATION_REQUIRED, manager.transportMode())
+        assertNull(manager.connection())
+        store.deletionCommitted = true
         assertEquals(AccountTransportMode.ACCOUNT_DELETION_COMMITTED, manager.transportMode())
         assertNull(manager.connection())
-
-        manager.allowExplicitLegacyFallback()
-
-        assertEquals(AccountTransportMode.LEGACY, manager.transportMode())
-        assertEquals(false, store.deletionCommitted)
     }
 
     @Test fun completingAccountDeletionAtomicallyClearsSecretsAndEntersTerminalGate() {
@@ -146,34 +135,6 @@ class AccountSessionManagerTest {
         assertNull(store.pendingDeletion)
         assertEquals(true, store.deletionCommitted)
         assertEquals(AccountTransportMode.ACCOUNT_DELETION_COMMITTED, manager.transportMode())
-    }
-
-    @Test fun explicitLegacySelectionPersistsAndOnlyADeviceSelectionReactivatesAccountTransport() = runTest {
-        store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
-        val manager = manager()
-
-        manager.allowExplicitLegacyFallback()
-
-        assertEquals(AccountTransportMode.LEGACY, manager.transportMode())
-        assertNull(manager.connection())
-        assertNull(manager.accountControlConnection())
-        assertEquals(false, manager.routeToDevice("mac-history"))
-        assertEquals(AccountTransportMode.LEGACY, manager().transportMode())
-
-        manager.selectDevice(
-            AccountDeviceDto(
-                id = "binding-2",
-                generation = 1,
-                deviceId = "mac-2",
-                desktopDisplayName = "Home Mac",
-                endToEnd = AccountEndToEndHealthDto(healthy = true),
-                access = "owner",
-            ),
-        )
-
-        assertEquals(AccountTransportMode.ACCOUNT, manager.transportMode())
-        assertEquals("mac-2", manager.connection()?.deviceId)
-        assertEquals(false, store.explicitLegacy)
     }
 
     @Test fun terminalTransportRejectionsChooseAccountOrDeviceRecoveryWithoutCrossDamage() {
@@ -248,10 +209,9 @@ class AccountSessionManagerTest {
                 AccountInstallationDto("installation-1", "phone", "android", "Pixel"),
                 AccountTokensDto("hga", "2099-01-01T00:00:00Z", "hgr", "2099-02-01T00:00:00Z"),
             ),
-            keepLegacyTransportUntilProbe = true,
         )
 
-        assertEquals(AccountTransportMode.ACCOUNT_PENDING, manager.transportMode())
+        assertEquals(AccountTransportMode.DEVICE_SELECTION_REQUIRED, manager.transportMode())
         assertNull(manager.connection())
         manager.selectDevice(
             AccountDeviceDto(
@@ -269,7 +229,7 @@ class AccountSessionManagerTest {
         assertEquals(AccountDeviceRouteMode.SINGLE_BINDING, manager.connection()?.deviceRouteMode)
     }
 
-    @Test fun invalidPendingAccountSessionReturnsToLegacyInsteadOfEnteringAReauthenticationGate() {
+    @Test fun anOldPendingAccountSessionNowRequiresReauthentication() {
         store.account = session(
             accessExpiresAt = "2099-01-01T00:00:00Z",
             selectedDeviceId = null,
@@ -279,8 +239,8 @@ class AccountSessionManagerTest {
         manager.handleRestRejection(401, "HR-AUTH-004", rejectedDeviceId = null)
 
         assertNull(manager.session.value)
-        assertEquals(false, manager.requiresAccountReauthentication())
-        assertEquals(AccountTransportMode.LEGACY, manager.transportMode())
+        assertEquals(true, manager.requiresAccountReauthentication())
+        assertEquals(AccountTransportMode.REAUTHENTICATION_REQUIRED, manager.transportMode())
     }
 
     @Test fun conversation_route_does_not_change_selected_mac_and_can_be_restored() = runTest {
@@ -386,14 +346,11 @@ class AccountSessionManagerTest {
         assertNull(manager.session.value)
     }
 
-    @Test fun aReasonIsNeverReadableOnceTheGateItselfIsReleased() {
+    @Test fun unexpectedInvalidationRetainsItsReasonUntilAccountRecovery() {
         store.account = session(accessExpiresAt = "2099-01-01T00:00:00Z", selectedDeviceId = "mac-1")
         val manager = manager()
         manager.handleRestRejection(401, "HR-AUTH-004", rejectedDeviceId = null)
-
-        manager.allowExplicitLegacyFallback()
-
-        assertNull(manager.accountReauthenticationReason())
+        assertEquals("HR-AUTH-004", manager.accountReauthenticationReason())
     }
 
     @Test fun profileSyncConsumesExactRevisionAndPersistsCloudNameWithoutChangingTheMac() = runTest {

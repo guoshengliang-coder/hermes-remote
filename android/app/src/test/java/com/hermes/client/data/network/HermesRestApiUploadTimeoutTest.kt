@@ -1,6 +1,6 @@
 package com.hermes.client.data.network
 
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import mockwebserver3.MockResponse
@@ -34,7 +34,7 @@ class HermesRestApiUploadTimeoutTest {
     private fun api(server: MockWebServer) = HermesRestApi(
         productionShapedClient(),
         Json { ignoreUnknownKeys = true },
-    ) { GatewayConfig(server.url("/").toString().trimEnd('/'), "secret") }
+    ) { testAccountConnection(server.url("/").toString().trimEnd('/'), "secret") }
 
     /**
      * The gateway accepted the body but the answer (over the VPN, through the connector tunnel)

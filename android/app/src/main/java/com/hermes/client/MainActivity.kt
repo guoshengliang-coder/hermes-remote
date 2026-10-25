@@ -21,7 +21,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
 import com.hermes.client.ui.chat.ChatLaunch
@@ -58,7 +57,6 @@ import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    @Inject lateinit var credentialStore: CredentialStore
     @Inject lateinit var accountSessions: AccountSessionManager
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var profileManager: ProfileManager
@@ -219,10 +217,9 @@ class MainActivity : ComponentActivity() {
                                         when (accountSessions.transportMode()) {
                                             AccountTransportMode.DEVICE_SELECTION_REQUIRED,
                                             AccountTransportMode.REAUTHENTICATION_REQUIRED,
-                                            AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> chat.disconnect()
-                                            AccountTransportMode.ACCOUNT,
-                                            AccountTransportMode.ACCOUNT_PENDING,
-                                            AccountTransportMode.LEGACY -> Unit
+                                            AccountTransportMode.ACCOUNT_DELETION_COMMITTED,
+                                            AccountTransportMode.SIGNED_OUT -> chat.disconnect()
+                                            AccountTransportMode.ACCOUNT -> Unit
                                         }
                                     }
                                     val deepLinkRoute by pendingRoute
@@ -274,7 +271,7 @@ class MainActivity : ComponentActivity() {
                                                 startupViewModel.onInitialConfigurationSaved()
                                             },
                                             onAccountSignedOut = {
-                                                hasConfig = runCatching { credentialStore.load() }.getOrNull() != null
+                                                hasConfig = false
                                                 hasConfig
                                             },
                                             onDestinationChanged = startupViewModel::onActiveDestinationChanged,
@@ -492,9 +489,8 @@ class MainActivity : ComponentActivity() {
     private fun hasConnectionConfiguration(): Boolean =
         when (accountSessions.transportMode()) {
             AccountTransportMode.ACCOUNT -> true
-            AccountTransportMode.ACCOUNT_PENDING,
-            AccountTransportMode.LEGACY ->
-                runCatching { credentialStore.load() }.getOrNull() != null
+            AccountTransportMode.SIGNED_OUT ->
+                false
             AccountTransportMode.DEVICE_SELECTION_REQUIRED,
             AccountTransportMode.REAUTHENTICATION_REQUIRED,
             AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> false

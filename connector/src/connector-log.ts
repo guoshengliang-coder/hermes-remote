@@ -124,12 +124,12 @@ export function summarizeHermesFrame(text: string): FrameSummary {
 
 /** Bounded parsing: never log the command, params, result, or error body. */
 export function trackedForegroundRpcRequest(data: Buffer, isBinary: boolean): { id: number; method: string } | null {
-  if (isBinary || data.length > 4096) return null;
+  if (isBinary || data.length > 256 * 1024) return null;
   try {
     const frame: unknown = JSON.parse(data.toString("utf8"));
     if (typeof frame !== "object" || frame === null || Array.isArray(frame)) return null;
     const request = frame as Record<string, unknown>;
-    if (request.method !== "session.create" && request.method !== "slash.exec") return null;
+    if (request.method !== "session.create" && request.method !== "slash.exec" && request.method !== "prompt.submit") return null;
     if (typeof request.id !== "number" || !Number.isSafeInteger(request.id)) return null;
     return { id: request.id, method: request.method };
   } catch {

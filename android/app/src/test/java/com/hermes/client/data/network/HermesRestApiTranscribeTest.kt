@@ -1,6 +1,6 @@
 package com.hermes.client.data.network
 
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import mockwebserver3.MockResponse
@@ -16,7 +16,7 @@ class HermesRestApiTranscribeTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun api(server: MockWebServer) = HermesRestApi(testHttpClient(), json) {
-        GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
+        testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
     }
 
     @Test fun transcribe_returns_trimmed_transcript_and_posts_data_url() = runTest {
@@ -29,7 +29,7 @@ class HermesRestApiTranscribeTest {
 
         val recorded = serverRule.server.takeRequest()
         assertEquals("/api/audio/transcribe", recorded.target)
-        assertEquals("secret", recorded.headers["X-Hermes-Session-Token"])
+        assertEquals("Bearer secret", recorded.headers["Authorization"])
         val sent = recorded.body?.utf8().orEmpty()
         assertTrue(sent.contains("\"data_url\":\"data:audio/mp4;base64,AAA\""))
         assertTrue(sent.contains("\"mime_type\":\"audio/mp4\""))

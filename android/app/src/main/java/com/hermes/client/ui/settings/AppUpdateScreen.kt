@@ -646,7 +646,7 @@ private fun RollbackHelpDialog(versionName: String, onDismiss: () -> Unit) {
                         "1. Tap “Export APK” to save $versionName into the device's Downloads folder.\n" +
                         "2. Uninstall the current app (this clears the local connection settings; conversations live on the server and are unaffected).\n" +
                         "3. Open the exported APK from the Downloads folder in your file manager and install it.\n" +
-                        "4. Launch the app and re-enter the Relay URL and App Token.\n\n" +
+                        "4. Launch the app and sign in to your Hermes GO account.\n\n" +
                         "If the release itself is broken, it is usually faster to ask the maintainer to publish a fixed build that every device can update to normally.",
                 ),
                 style = MaterialTheme.typography.bodyMedium,
