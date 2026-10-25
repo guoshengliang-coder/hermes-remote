@@ -2242,3 +2242,25 @@ behavior is claimed. L2 was unavailable (no physical device attached).
   bytes from the previous identity. Preserve HR-FILE/HR-AUTH recovery messages.
 - Physical Wi-Fi/cellular/NAT, original HONOR codec and OEM background behavior still require device
   verification; L1 and synthetic L3 results do not establish those outcomes.
+
+### Hermes compatibility: Gateway OCI identity evidence
+
+The Gateway OCI workflow now runs `scripts/test-gateway-compatibility-evidence.mjs outputs/gateway-bundle`
+after packaging the immutable bundle. It creates only disposable network-isolated containers from
+that just-built image, checks health, verifies original archive/runtime association, and confirms
+that an additional `NODE_OPTIONS` setting is rejected. Both containers are removed in finally.
+The success marker is `GATEWAY_COMPATIBILITY_EVIDENCE_ACCEPTANCE_OK`; the emitted report explicitly
+leaves public routing and compatibility approval unverified. The CI origin is synthetic.
+
+Local parser/collector coverage runs with:
+
+```sh
+npm run build
+node --test scripts/test/hermes-compatibility-gateway-evidence.test.mjs scripts/test/gateway-archive-identity.test.mjs
+```
+
+Those tests create a real synthetic OCI tar and use real bounded tar reads, but inject Docker
+observations. They do not substitute for the real Linux/Docker workflow. Cover mismatched archives
+and image IDs, code-path mounts, mutable root, loader overrides, process/container changes, unsafe
+arguments and redacted bilingual errors. No production deployment or live-host acceptance follows
+from a CI success; trusted inventory assembly and public-route binding remain separate gates.

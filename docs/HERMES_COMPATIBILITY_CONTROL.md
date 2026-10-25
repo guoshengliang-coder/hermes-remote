@@ -73,3 +73,24 @@ I2 执行边界：使用固定 GitHub workflow 和 macOS 26 arm64 托管测试�
 - 证据：目标/源/组件/套件任一变化拒绝，未知字段/检查拒绝，失败或未执行不能审批，跨 run 和重复不同结果拒绝。
 - 发布消费：坏签名、错用途、撤回、过期、旧修订、未知组件、陈旧审批和重复操作。
 - 用户错误：新增 HR 码先登记，包含中英文摘要、恢复动作、retryable；不回显原始输入、凭据或 CI 日志。
+
+Gateway 组件的 `artifactSha256` 固定为 `package-gateway-bundle.sh` 保留的原始 OCI tar 摘要。
+`scripts/hermes-compatibility-gateway-evidence.mjs` 复用 schema-3 bundle 校验和 OCI 身份解析：
+在有界私有副本中关联 Docker config ID、containerd descriptor ID、平台、版本和源 commit，然后
+只读核对指定容器的镜像、启动配置、只读根文件系统、代码路径挂载、加载覆盖及两次观察间的稳定性。
+Docker 格式化只返回必要字段、挂载目的地和加载覆盖标记，不输出完整环境或宿主挂载源；格式语法
+遵循 [Docker 官方说明](https://docs.docker.com/engine/cli/formatting/)。采集命令不加载镜像、执行容器
+内命令、创建容器、重启服务或访问生产凭据。
+
+```sh
+node scripts/hermes-compatibility-gateway-evidence.mjs \
+  --manifest /canonical/release/Hermes-Gateway-VERSION-COMMIT-linux-amd64.manifest.json \
+  --container hermes-gateway-blue --origin https://gateway.example \
+  --version VERSION --sha256 ORIGINAL_ARCHIVE_SHA256
+```
+
+输入的路径必须满足既有 ops 无符号链接、不可被组/其他用户写入的要求。输出仍是未签名的时间点
+观察；`publicRouteVerified=false` 明确表示尚未证明公网反向代理选择了此容器，origin 是受控调用者
+提供的关联范围，不能当作网络回读证据。该输出不会被管理员 API 直接接受，也不会自动满足普通
+Desktop 的 Gateway 身份。受保护发布任务仍需绑定部署选择/公网回读、另外四组件并签名及续期。
+无法使用 schema-3 包、Docker、标准启动布局或满足运行约束时，输出 HR-HERMESCOMPAT-004。
