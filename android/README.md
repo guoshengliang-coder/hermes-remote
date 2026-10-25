@@ -423,6 +423,8 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.182 adds video speed selection, held acceleration and foreground whole-file precaching
+  with bounded playback buffers; includes live update progress and adaptive video read-ahead.
 - Version 0.1.181 Updates video playback and shared preview caching (#649): auto-hiding controls,
   buffered timeline, seek target, landscape fullscreen/replay, pause-frame and scoped playback
   recovery; Settings adds a default 3 GiB shared pool with 1/3/5 GiB choices, usage/manual clear,
@@ -1170,7 +1172,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.181-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.182-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
