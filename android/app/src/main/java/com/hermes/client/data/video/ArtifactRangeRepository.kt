@@ -14,21 +14,24 @@ import javax.inject.Singleton
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 
 @Singleton
-class ArtifactRangeRepository @Inject constructor(
+class ArtifactRangeRepository internal constructor(
     @ApplicationContext context: Context,
     private val rest: HermesRestApi,
+    cacheOverride: ArtifactRangeCache?,
 ) {
+    @Inject constructor(@ApplicationContext context: Context, rest: HermesRestApi) : this(context, rest, null)
     val arbiter = ArtifactTransferArbiter()
     private val preferences by lazy { context.getSharedPreferences("video_cache_preferences", Context.MODE_PRIVATE) }
     private val _cacheState = kotlinx.coroutines.flow.MutableStateFlow(VideoCacheStats())
     val cacheState: kotlinx.coroutines.flow.StateFlow<VideoCacheStats> = _cacheState
-    private val cache = ArtifactRangeCache(File(context.cacheDir, "video-ranges"),
+    private val cache = cacheOverride ?: ArtifactRangeCache(File(context.cacheDir, "video-ranges"),
         loadCapacity = { VideoCacheCapacity.from(runCatching { preferences.getInt("capacity_gib", 3) }.getOrDefault(3)) },
         changed = { _cacheState.value = it })
     private val cleanupScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
@@ -64,6 +67,7 @@ class ArtifactRangeRepository @Inject constructor(
         internal val slots = Semaphore(parallel)
         internal val renewal = Mutex()
         @Volatile internal var permitsEarlyRefill = false
+        @Volatile internal var playbackPosition = 0L
     }
 
     suspend fun prepare(file: ChatFile, deviceId: String?): Source {
@@ -82,13 +86,36 @@ class ArtifactRangeRepository @Inject constructor(
     /** Random reads including the tail index of MP4 files. Reference renewal cannot change generation. */
     suspend fun read(source: Source, position: Long, blocks: Int = 1): ByteArray {
         checkOwner(source.owner, source.deviceId)
-        val cacheGeneration = cache.generation()
+        require(position in 0 until source.size)
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        require(blocks in 1..(source.descriptor.maxRangeBytes / block).coerceIn(1, 4))
+        val start = position / block * block
+        val count = minOf(blocks.toLong() * block, source.size - start).toInt()
+        val hit = ByteArray(count)
+        var offset = 0
+        while (offset < count) {
+            val bytes = cachedBlock(source.key, start + offset, minOf(block, count - offset)) ?: break
+            bytes.copyInto(hit, offset); offset += bytes.size
+        }
+        if (offset == count) {
+            // Cache-only demand does not use the channel: don't abort useful background IO for it.
+            currentCoroutineContext().ensureActive()
+            checkOwner(source.owner, source.deviceId)
+            return hit
+        }
+        return arbiter.playback(source.owner) { readBlocks(source, position, blocks) }
+    }
+
+    private suspend fun readBlocks(source: Source, position: Long, blocks: Int = 1,
+        precacheGeneration: Long? = null): ByteArray {
+        checkOwner(source.owner, source.deviceId)
+        val cacheGeneration = precacheGeneration ?: cache.generation()
         require(position in 0 until source.size)
         val start = position / ArtifactRangeCache.BLOCK_BYTES * ArtifactRangeCache.BLOCK_BYTES
         val block = ArtifactRangeCache.BLOCK_BYTES
         require(blocks in 1..(source.descriptor.maxRangeBytes / block).coerceIn(1, 4))
         val count = minOf(blocks.toLong() * block, source.size - start).toInt()
-        return arbiter.playback(source.owner) {
+        return kotlinx.coroutines.coroutineScope {
             checkOwner(source.owner, source.deviceId)
             val result = ByteArray(count)
             var offset = 0
@@ -118,13 +145,91 @@ class ArtifactRangeRepository @Inject constructor(
                             val end = minOf(bytes.size, cursor + block)
                             yield(at + cursor to bytes.copyOfRange(cursor, end)); cursor = end
                         }
-                    }, expectedGeneration = cacheGeneration)
-                } catch (_: IOException) { }
+                    }, expectedGeneration = cacheGeneration, preserveSource = precacheGeneration != null)
+                } catch (failure: IOException) { if (precacheGeneration != null) throw failure }
                 bytes.copyInto(result, offset); offset += bytes.size
             }
             currentCoroutineContext().ensureActive()
             checkOwner(source.owner, source.deviceId)
             result
+        }
+    }
+
+    /** One foreground-visible cache filler, independently cancelled from the Media3 loader.
+     * Never grows the four-request transport budget or replaces this source's cached blocks.
+     */
+    suspend fun precache(source: Source, session: VideoPrecacheSession, mayFill: () -> Boolean) = session.runMutex.withLock {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            if (session.identity != source.key) {
+                session.identity = source.key; session.generation = cache.generation()
+                session.attempted.clear(); session.sawLowSpace = false
+            }
+            var stalled = false
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                var idle = false
+                var observed = cache.revision.value
+                try {
+                    checkOwner(source.owner, source.deviceId)
+                    cache.maintain()
+                    val coverage = cache.coverage(source.key, source.size)
+                    val stats = cache.status()
+                    observed = cache.revision.value
+                    if (stats.lowSpace) session.sawLowSpace = true
+                    else if (session.sawLowSpace) {
+                        // External storage recovery is a new admission opportunity, not self-eviction.
+                        session.sawLowSpace = false; session.attempted.clear(); stalled = false
+                    }
+                    currentCoroutineContext().ensureActive()
+                    val cleared = session.generation != cache.generation() || stats.clearPending
+                    val error = when {
+                        cleared || coverage.complete -> null
+                        stats.lowSpace -> com.hermes.client.data.error.videoCacheLowStorage()
+                        stalled -> com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.VIDEO_CACHE_CAPACITY,
+                            retryable = false, stage = "video_precache_budget")
+                        else -> null
+                    }
+                    session.mutableState.value = VideoPrecacheState(coverage.bytes, coverage.size, cleared, error)
+                    idle = coverage.complete || cleared || stalled
+                    if (!cleared && !stats.lowSpace && !stalled && !coverage.complete && mayFill()) {
+                        val at = coverage.next(source.playbackPosition, session.attempted)
+                        if (at == null) stalled = true
+                        else {
+                            var requested = 1
+                            // Group only missing blocks; remain small on slow/unknown links.
+                            val maximum = if (source.permitsEarlyRefill) (source.descriptor.maxRangeBytes /
+                                ArtifactRangeCache.BLOCK_BYTES).coerceIn(1, 4) else 1
+                            while (requested < maximum) {
+                                val next = at + requested.toLong() * ArtifactRangeCache.BLOCK_BYTES
+                                if (next >= source.size || next in coverage.starts || next in session.attempted) break
+                                requested++
+                            }
+                            val completed = arbiter.precache(source.owner) {
+                                readBlocks(source, at, requested, session.generation)
+                            }
+                            if (completed) {
+                                repeat(requested) { session.attempted += at + it.toLong() * ArtifactRangeCache.BLOCK_BYTES }
+                                val after = cache.coverage(source.key, source.size)
+                                // A failed/pressure-rejected write must not initiate an endless download loop.
+                                if (at !in after.starts && !cache.status().lowSpace) stalled = true
+                                continue
+                            }
+                        }
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (failure: Exception) {
+                    session.mutableState.value = session.mutableState.value.copy(error =
+                        if (failure is IOException) com.hermes.client.data.error.videoCacheError(failure)
+                        else com.hermes.client.data.error.videoPlaybackError(failure))
+                    return@withContext // Retry is explicit; optional cache failure never interrupts playback.
+                }
+                if (idle) {
+                    // No repeated large-file stat walks once full/blocked. Cache mutations wake us;
+                    // sparse reconciliation also notices OS cache reclamation without a wakeup job.
+                    kotlinx.coroutines.withTimeoutOrNull(30_000) { cache.revision.first { it != observed } }
+                } else kotlinx.coroutines.delay(500)
+            }
         }
     }
 

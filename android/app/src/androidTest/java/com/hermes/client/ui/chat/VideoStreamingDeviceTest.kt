@@ -33,7 +33,8 @@ import java.nio.ByteBuffer
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -173,10 +174,10 @@ class VideoStreamingDeviceTest {
         }
     }
 
-    @Test fun actual_dialog_pauses_network_in_background_and_keeps_explicit_download_action(): Unit = runBlocking {
+    @Test fun actual_dialog_precaches_while_paused_stops_in_background_and_on_close(): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
-        val source = VideoFixtureSource(bytes, 2 * 1024 * 1024)
+        val source = VideoFixtureSource(bytes, 24 * 1024 * 1024, latency = 120, bytesPerSecond = 1024 * 1024)
         val previous = credentials.load()
         val show = mutableStateOf(true)
         var downloadClicks = 0
@@ -200,13 +201,33 @@ class VideoStreamingDeviceTest {
                 screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
             }
             assertTrue(node("Pause").isVisibleToUser)
+            click("Playback speed")
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().let { menu ->
+                java.io.File(context.getExternalFilesDir(null), "video-player-speed-menu.png").outputStream().use {
+                    menu.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            click("1.5×")
+            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+            val downAt = android.os.SystemClock.uptimeMillis()
+            val screen = automation.takeScreenshot()
+            fun touch(action: Int) {
+                val event = android.view.MotionEvent.obtain(downAt, android.os.SystemClock.uptimeMillis(), action,
+                    screen.width * .2f, screen.height * .45f, 0)
+                automation.injectInputEvent(event, true); event.recycle()
+            }
+            touch(android.view.MotionEvent.ACTION_DOWN)
+            Thread.sleep(750)
+            assertTrue(node("2× speed boost").isVisibleToUser)
+            touch(android.view.MotionEvent.ACTION_UP)
+            assertTrue(node("1.5×").isVisibleToUser)
             click("More")
             click("Download")
             assertEquals(1, downloadClicks)
             click("Pause")
             assertTrue(node("Play").isVisibleToUser)
             Thread.sleep(500); val pausedBytes = source.sent.get(); Thread.sleep(500)
-            assertEquals(pausedBytes, source.sent.get())
+            assertTrue("paused foreground did not continue caching", source.sent.get() > pausedBytes)
             val paused = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
             var vividPixels = 0
             for (y in 0 until paused.height step 4) for (x in 0 until paused.width step 4) {
@@ -224,6 +245,11 @@ class VideoStreamingDeviceTest {
             assertEquals(backgroundBytes, source.sent.get())
             activity.scenario.moveToState(Lifecycle.State.RESUMED)
             assertTrue(node("Play").isVisibleToUser)
+            val returned = source.sent.get(); Thread.sleep(1_000)
+            assertTrue("foreground did not resume missing cache", source.sent.get() > returned)
+            click("Close")
+            Thread.sleep(750); val closedBytes = source.sent.get(); Thread.sleep(750)
+            assertEquals("closing kept precaching", closedBytes, source.sent.get())
         } finally {
             activity.scenario.onActivity { show.value = false }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
@@ -272,6 +298,7 @@ class VideoStreamingDeviceTest {
             val startedDeadline = android.os.SystemClock.elapsedRealtime() + 30_000
             while (position.get() < 1_000 && android.os.SystemClock.elapsedRealtime() < startedDeadline) Thread.sleep(50)
             click("Pause")
+            click("Playback speed"); click("1.5×")
             Thread.sleep(300)
             val before = position.get()
             assertTrue(before > 0)
@@ -291,8 +318,9 @@ class VideoStreamingDeviceTest {
             java.io.File(context.getExternalFilesDir(null), "video-player-landscape.png").outputStream().use {
                 landscape.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
             }
-            val pausedBytes = source.sent.get(); Thread.sleep(750)
-            assertEquals("paused rotation started loading", pausedBytes, source.sent.get())
+            assertTrue("rotation lost selected constant speed", node("1.5×").isVisibleToUser)
+            Thread.sleep(750)
+            assertTrue("paused rotation started playback", kotlin.math.abs(before - position.get()) < 100)
             InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
             assertTrue(node("Play").isVisibleToUser)
             assertTrue(node("Fullscreen").isVisibleToUser)
@@ -313,7 +341,7 @@ class VideoStreamingDeviceTest {
         }
     }
 
-    @Test fun returning_to_a_cached_page_does_not_autoplay_or_restart_network(): Unit = runBlocking {
+    @Test fun returning_to_a_cached_page_does_not_autoplay_but_may_precache(): Unit = runBlocking {
         val bytes = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
         val source = VideoFixtureSource(bytes, 2 * 1024 * 1024)
         val previous = credentials.load()
@@ -342,12 +370,180 @@ class VideoStreamingDeviceTest {
             activity.scenario.onActivity { visible.value = true }
             assertTrue(node("Play").isVisibleToUser)
             Thread.sleep(500)
-            assertEquals("restored page resumed the network", bytesBefore, source.sent.get())
+            assertTrue("cache progress went backwards", source.sent.get() >= bytesBefore)
+            assertTrue(node("1×").isVisibleToUser)
         } finally {
             visible.value = false
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             if (previous == null) credentials.clear() else credentials.save(previous)
             source.close()
+        }
+    }
+
+
+    @Test fun actual_decoder_applies_all_speeds_preserves_pitch_and_warm_position_rate() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val local = java.io.File(context.cacheDir, "speed-fixture.mp4")
+        InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { input ->
+            local.outputStream().use(input::copyTo)
+        }
+        var player: ExoPlayer? = null
+        val ready = CountDownLatch(1)
+        try {
+            activity.scenario.onActivity { host ->
+                val surface = SurfaceView(host); host.setContentView(surface)
+                player = ExoPlayer.Builder(host).setLoadControl(VideoBufferPolicy.loadControl()).build().also { p ->
+                    p.setVideoSurfaceView(surface)
+                    p.addListener(object : Player.Listener { override fun onRenderedFirstFrame() { ready.countDown() } })
+                    p.setMediaSource(VideoPlayback(localFile = local).mediaSource(host)); p.prepare(); p.play()
+                }
+            }
+            assertTrue(ready.await(30, TimeUnit.SECONDS))
+            for (speed in VIDEO_SPEEDS) activity.scenario.onActivity {
+                player!!.playbackParameters = androidx.media3.common.PlaybackParameters(speed, 1f)
+                assertEquals(speed, player!!.playbackParameters.speed)
+                assertEquals(1f, player!!.playbackParameters.pitch)
+            }
+            var before = 0L
+            activity.scenario.onActivity { player!!.seekTo(1_000); player!!.playbackParameters = androidx.media3.common.PlaybackParameters(2f, 1f) }
+            Thread.sleep(500)
+            activity.scenario.onActivity { before = player!!.currentPosition }
+            Thread.sleep(2_000)
+            activity.scenario.onActivity {
+                val advanced = player!!.currentPosition - before
+                assertTrue("2x renderer clock advanced $advanced", advanced in 3_300..4_700)
+                assertNull(player!!.playerError)
+            }
+        } finally { activity.scenario.onActivity { player?.release() }; local.delete() }
+    }
+
+
+    @Test fun explicit_download_preempts_precache_and_completes_after_filler_closes() = runBlocking {
+        val mp4 = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
+        val fixture = VideoFixtureSource(mp4, 4 * 1024 * 1024, 4, 120, 512 * 1024)
+        val previous = credentials.load()
+        credentials.save(GatewayConfig("http://127.0.0.1:${fixture.port}", "local-video-test"))
+        var filler: Job? = null
+        try {
+            val file = ChatFile("download-priority", "download-priority.mp4", "video/mp4", fixture.size,
+                remotePath = "/fixture/download-priority-${System.nanoTime()}.mp4")
+            val video = VideoPlayback(repository = ranges, source = ranges.prepare(file, null))
+            val session = com.hermes.client.data.video.VideoPrecacheSession()
+            filler = launch { video.precache(session) { true } }
+            withTimeout(10_000) { session.state.first { it.bytes >= 256 * 1024 } }
+            val task = downloads.enqueue(file, null)
+            val transfer = async { downloads.runTask(task.id) {} }
+            delay(250)
+            filler.cancelAndJoin(); filler = null
+            withTimeout(60_000) { assertFalse(transfer.await()) }
+            val complete = downloads.awaitTask(task.id)!!
+            assertEquals(fixture.size, downloads.completedFile(complete)!!.length())
+            assertTrue("cache was downloaded twice", fixture.sent.get() < fixture.size + 1024 * 1024)
+        } finally {
+            filler?.cancelAndJoin()
+            if (previous == null) credentials.clear() else credentials.save(previous)
+            fixture.close()
+        }
+    }
+
+    /** Two real minutes per scenario, repeat the 16s generated fixture; no real account/network.
+     * Reports stalls on weak links without silently changing the user's selected playback speed.
+     */
+    @Test fun speed_buffer_two_minute_matrix_records_rebuffer_bytes_and_peak_memory() = runBlocking {
+        val mp4 = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
+        for ((speed, rate, latency) in listOf(Triple(1f, 128 * 1024, 120L),
+            Triple(1.5f, 512 * 1024, 120L), Triple(2f, 8 * 1024 * 1024, 900L), Triple(3f, 8 * 1024 * 1024, 120L))) {
+            val fixture = VideoFixtureSource(mp4, 24 * 1024 * 1024, 4, latency, rate)
+            val previous = credentials.load()
+            credentials.save(GatewayConfig("http://127.0.0.1:${fixture.port}", "local-video-test"))
+            var player: ExoPlayer? = null
+            var controller: VideoPlayerController? = null
+            var filler: Job? = null
+            val first = CountDownLatch(1); val sought = CountDownLatch(1)
+            val failed = java.util.concurrent.atomic.AtomicReference<String>()
+            val started = android.os.SystemClock.elapsedRealtime()
+            val firstMs = AtomicLong(); val seekMs = AtomicLong(); val seekAt = AtomicLong()
+            val bufferingAt = AtomicLong(); val rebufferMs = AtomicLong()
+            val stalls = java.util.concurrent.atomic.AtomicInteger()
+            var peakPss = 0; var maxRealBuffer = 0L
+            try {
+                val remote = ranges.prepare(ChatFile("matrix", "matrix.mp4", "video/mp4", fixture.size,
+                    remotePath = "/fixture/speed-$speed-${System.nanoTime()}.mp4"), null)
+                val video = VideoPlayback(repository = ranges, source = remote)
+                activity.scenario.onActivity { host ->
+                    val surface = SurfaceView(host); host.setContentView(surface)
+                    player = ExoPlayer.Builder(host).setLoadControl(VideoBufferPolicy.loadControl()).build().also { p ->
+                        p.setVideoSurfaceView(surface); p.repeatMode = Player.REPEAT_MODE_ALL
+                        p.addListener(object : Player.Listener {
+                            override fun onRenderedFirstFrame() {
+                                val now = android.os.SystemClock.elapsedRealtime()
+                                if (first.count > 0) { firstMs.set(now - started); first.countDown() }
+                                else if (seekAt.get() > 0 && sought.count > 0) { seekMs.set(now - seekAt.get()); sought.countDown() }
+                            }
+                            override fun onPlaybackStateChanged(state: Int) {
+                                if (first.count == 0L && state == Player.STATE_BUFFERING) {
+                                    stalls.incrementAndGet(); bufferingAt.compareAndSet(0, android.os.SystemClock.elapsedRealtime())
+                                } else if (state == Player.STATE_READY) {
+                                    val at = bufferingAt.getAndSet(0)
+                                    if (at > 0) rebufferMs.addAndGet(android.os.SystemClock.elapsedRealtime() - at)
+                                }
+                            }
+                            override fun onPlayerError(error: androidx.media3.common.PlaybackException) { failed.set(error.errorCodeName); first.countDown() }
+                        })
+                        p.setMediaSource(video.mediaSource(host))
+                        controller = VideoPlayerController(p, 0, video::lease, {}, {}, { failed.set(it.errorCodeName) }, initialSpeed = speed)
+                        controller!!.play()
+                    }
+                }
+                val session = com.hermes.client.data.video.VideoPrecacheSession()
+                val allow = java.util.concurrent.atomic.AtomicBoolean(false)
+                filler = launch { video.precache(session, allow::get) }
+                assertTrue("first frame speed=$speed ${failed.get()}", first.await(30, TimeUnit.SECONDS))
+                assertNull(failed.get())
+                seekAt.set(android.os.SystemClock.elapsedRealtime())
+                activity.scenario.onActivity { player!!.seekTo(12_000) }
+                assertTrue("seek speed=$speed", sought.await(30, TimeUnit.SECONDS))
+                val until = android.os.SystemClock.elapsedRealtime() + 120_000
+                var reportAt = android.os.SystemClock.elapsedRealtime() + 30_000
+                while (android.os.SystemClock.elapsedRealtime() < until) {
+                    activity.scenario.onActivity {
+                        controller!!.refresh(); allow.set(VideoBufferPolicy.mayPrecache(controller!!.state))
+                        val p = player!!
+                        assertEquals(speed, p.playbackParameters.speed); assertEquals(1f, p.playbackParameters.pitch)
+                        assertNull(p.playerError)
+                        maxRealBuffer = maxOf(maxRealBuffer, ((p.bufferedPosition - p.currentPosition) / speed).toLong())
+                    }
+                    val memory = android.os.Debug.MemoryInfo(); android.os.Debug.getMemoryInfo(memory)
+                    peakPss = maxOf(peakPss, memory.totalPss)
+                    if (android.os.SystemClock.elapsedRealtime() >= reportAt) {
+                        android.util.Log.i("VIDEO_SPEED_PROGRESS", "speed=$speed remainingMs=${until - android.os.SystemClock.elapsedRealtime()} bytes=${fixture.sent.get()} peakPssKiB=$peakPss stalls=${stalls.get()}")
+                        reportAt += 30_000
+                    }
+                    delay(250)
+                }
+                val at = bufferingAt.getAndSet(0)
+                if (at > 0) rebufferMs.addAndGet(android.os.SystemClock.elapsedRealtime() - at)
+                android.util.Log.i("VIDEO_SPEED_MATRIX", "speed=$speed rate=$rate latencyMs=$latency firstFrameMs=${firstMs.get()} seekMs=${seekMs.get()} stalls=${stalls.get()} rebufferMs=${rebufferMs.get()} bytes=${fixture.sent.get()} peakRequests=${fixture.peak.get()} peakPssKiB=$peakPss maxRealBufferMs=$maxRealBuffer cachedPercent=${session.state.value.percent}")
+                assertTrue(fixture.peak.get() <= 4)
+                if (speed == 3f) {
+                    // Full cache must cover the virtual padding too, then reopening causes no ranges.
+                    withTimeout(30_000) { session.state.first { it.percent == 100 } }
+                    filler.cancelAndJoin(); filler = null
+                    activity.scenario.onActivity { controller!!.pause() }
+                    val beforeBytes = fixture.sent.get()
+                    val warm = com.hermes.client.data.video.VideoPrecacheSession()
+                    val warmed = launch { video.precache(warm) { true } }
+                    withTimeout(5_000) { warm.state.first { it.percent == 100 } }
+                    warmed.cancelAndJoin()
+                    assertEquals(beforeBytes, fixture.sent.get())
+                    android.util.Log.i("VIDEO_SPEED_MATRIX", "warm speed=3 cachePercent=100 extraBytes=${fixture.sent.get() - beforeBytes}")
+                }
+            } finally {
+                filler?.cancelAndJoin()
+                activity.scenario.onActivity { controller?.close(); if (controller == null) player?.release() }
+                if (previous == null) credentials.clear() else credentials.save(previous)
+                fixture.close()
+            }
         }
     }
 

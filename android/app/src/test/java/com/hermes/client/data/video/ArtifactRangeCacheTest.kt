@@ -165,4 +165,40 @@ class ArtifactRangeCacheTest {
         assertTrue(directory.listFiles()!!.isEmpty())
     }
 
+    @Test fun precache_can_evict_old_videos_but_never_cycles_its_own_retained_blocks() {
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        val limit = 2L * (block + 36)
+        val cache = ArtifactRangeCache(directory, limit, limit)
+        cache.write(key(owner = "old"), 0, ByteArray(block))
+        val video = key(size = 3L * block)
+        val epoch = cache.generation()
+        repeat(3) { cache.writeBlocks(video, sequenceOf(it.toLong() * block to ByteArray(block)), epoch, preserveSource = true) }
+        val coverage = cache.coverage(video, 3L * block)
+        assertEquals(2L * block, coverage.bytes)
+        assertEquals(setOf(0L, block.toLong()), coverage.starts)
+        assertFalse(coverage.complete)
+        assertNull(cache.read(key(owner = "old"), 0, block))
+        assertEquals(66, VideoPrecacheState(coverage.bytes, coverage.size).percent)
+    }
+    @Test fun coverage_checks_entire_file_including_head_holes_tail_and_reclaimed_or_corrupt_files() {
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        val size = 2L * block + 17
+        val video = key(size = size)
+        val cache = ArtifactRangeCache(directory)
+        cache.write(video, block.toLong(), ByteArray(block))
+        cache.write(video, 2L * block, ByteArray(17))
+        assertFalse(cache.coverage(video, size).complete)
+        assertEquals(0L, cache.coverage(video, size).next(2L * block, emptySet()))
+        cache.write(video, 0, ByteArray(block))
+        assertTrue(cache.coverage(video, size).complete)
+        val tail = directory.listFiles()!!.first { it.name.endsWith("-${2L * block}.block") }
+        java.io.RandomAccessFile(tail, "rw").use { it.seek(36); it.write(9) }
+        val restored = ArtifactRangeCache(directory)
+        assertEquals(2L * block, restored.coverage(video, size).bytes)
+        assertFalse(restored.coverage(video, size).complete)
+        directory.listFiles()!!.first { it.name.endsWith("-0.block") }.delete()
+        assertEquals(block.toLong(), restored.coverage(video, size).bytes)
+        assertEquals(99, VideoPrecacheState(size - 1, size).percent)
+    }
+
 }

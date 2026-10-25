@@ -72,4 +72,42 @@ class ArtifactTransferArbiterTest {
             assertEquals(1, attempts)
         }
     }
+    @Test fun foreground_read_cancels_and_drains_precache_before_demand_and_download_preempts_cache() = runBlocking {
+        withTimeout(5_000) {
+            val a = ArtifactTransferArbiter()
+            val started = CompletableDeferred<Unit>(); var drained = false
+            val prefetch = async { a.precache("mac") {
+                started.complete(Unit)
+                try { awaitCancellation() } finally { delayInCleanup(); drained = true }
+            } }
+            started.await()
+            a.playback("mac") { assertTrue(drained) }
+            assertFalse(prefetch.await())
+            val again = CompletableDeferred<Unit>()
+            val second = async { a.precache("mac") { again.complete(Unit); awaitCancellation() } }
+            again.await()
+            a.download("mac", {}, {}) { assertFalse(a.precache("mac") { fail() }) }
+            assertFalse(second.await())
+            assertTrue(a.precache("mac") {})
+        }
+    }
+    private suspend fun delayInCleanup() = withContext(NonCancellable) { delay(10) }
+
+    @Test fun queued_download_prevents_precache_and_user_cancel_releases_priority() = runBlocking {
+        withTimeout(5_000) {
+            val a = ArtifactTransferArbiter(); val lease = a.playbackLease("mac")
+            val waiting = CompletableDeferred<Unit>()
+            val d = launch { a.download("mac", {}, { if (it) waiting.complete(Unit) }) { fail() } }
+            waiting.await()
+            assertFalse(a.precache("mac") { fail() })
+            assertTrue(a.precache("another-mac") {})
+            d.cancelAndJoin(); lease.close()
+            assertTrue(a.precache("mac") {})
+            val running = CompletableDeferred<Unit>()
+            val job = launch { a.precache("mac") { running.complete(Unit); awaitCancellation() } }
+            running.await(); job.cancelAndJoin()
+            assertTrue(a.precache("mac") {})
+        }
+    }
+
 }

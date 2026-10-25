@@ -20,6 +20,9 @@ class VideoPlayback(
     var positionMs: Long = initialPosition
         set(value) { field = value; rememberPosition(value) }
     fun lease(): AutoCloseable? = source?.let { repository!!.playbackLease(it) }
+    suspend fun precache(session: VideoPrecacheSession, mayFill: () -> Boolean) {
+        source?.let { repository!!.precache(it, session, mayFill) }
+    }
     fun mediaSource(context: Context): ProgressiveMediaSource {
         val factory = if (localFile != null) DefaultDataSource.Factory(context)
             else DataSource.Factory { ArtifactVideoDataSource(repository!!, source!!) }

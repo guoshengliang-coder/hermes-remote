@@ -26,7 +26,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.hermes.client.data.error.AppError
@@ -51,6 +50,9 @@ fun VideoPlayerDialog(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var foreground by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var wantsPlay by rememberSaveable { mutableStateOf(true) }
+    var selectedSpeed by rememberSaveable { mutableFloatStateOf(1f) }
+    val speedPreferences = remember { context.getSharedPreferences("video_player_preferences", Context.MODE_PRIVATE) }
+    var holdSpeed by remember { mutableFloatStateOf(runCatching { speedPreferences.getFloat("hold_speed", 2f) }.getOrDefault(2f).takeIf { it in VIDEO_HOLD_SPEEDS } ?: 2f) }
     var wasOpened by rememberSaveable { mutableStateOf(false) }
     var knownDuration by rememberSaveable { mutableLongStateOf(0) }
     val frameKey = rememberSaveable { java.util.UUID.randomUUID().toString() }
@@ -78,6 +80,8 @@ fun VideoPlayerDialog(
         // Session UI snapshots also survive navigation/process restoration. Only a real rotation
         // may restore autoplay; returning to a page must wait for an explicit Play action.
         if (wasOpened && !frameMemory.configurationRestart) wantsPlay = false
+        if (wasOpened && !frameMemory.configurationChange) selectedSpeed = 1f
+        frameMemory.configurationChange = false
         wasOpened = true
         frameMemory.configurationRestart = false
     }
@@ -90,14 +94,21 @@ fun VideoPlayerDialog(
     }
     val controller = remember(source) {
         source?.let { video ->
-            val player = ExoPlayer.Builder(context).setLoadControl(DefaultLoadControl.Builder()
-                .setBufferDurationsMs(2_000, 8_000, 750, 1_500).build()).build().apply {
+            val player = ExoPlayer.Builder(context).setLoadControl(VideoBufferPolicy.loadControl()).build().apply {
                 setAudioAttributes(androidx.media3.common.AudioAttributes.DEFAULT, true)
                 setHandleAudioBecomingNoisy(true)
                 setMediaSource(video.mediaSource(context))
             }
             VideoPlayerController(player, video.positionMs, video::lease,
-                { video.positionMs = it }, { wantsPlay = it }, { error = videoPlaybackError(it) }, knownDuration)
+                { video.positionMs = it }, { wantsPlay = it }, { error = videoPlaybackError(it) }, knownDuration,
+                selectedSpeed, { selectedSpeed = it })
+        }
+    }
+    val precache by frameMemory.precache.state.collectAsState()
+    var cacheRetry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(source, foreground, cacheRetry) {
+        if (foreground) source?.precache(frameMemory.precache) {
+            controller?.state?.let(VideoBufferPolicy::mayPrecache) == true
         }
     }
     DisposableEffect(controller) { onDispose { controller?.close() } }
@@ -105,6 +116,7 @@ fun VideoPlayerDialog(
         onDispose {
             if (activity?.isChangingConfigurations != true) {
                 frameMemory.frame = null
+                frameMemory.precache = com.hermes.client.data.video.VideoPrecacheSession()
                 frameMemory.configurationRestart = false
             }
         }
@@ -122,6 +134,8 @@ fun VideoPlayerDialog(
             if (event == Lifecycle.Event.ON_STOP) {
                 // A configuration change reattaches the same file and intent; an actual background
                 // transition always pauses, stops loading and requires explicit user continuation.
+                frameMemory.configurationChange = activity?.isChangingConfigurations == true
+                controller?.endBoost()
                 frameMemory.configurationRestart = activity?.isChangingConfigurations == true && wantsPlay
                 if (controller?.state?.hasFrame == true) captureFrame()
                 if (activity?.isChangingConfigurations != true) { wantsPlay = false; controller?.pause() }
@@ -158,6 +172,15 @@ fun VideoPlayerDialog(
             onClose = onDismiss, onFullscreen = { fullscreen = !fullscreen },
             onTogglePlay = { controller?.let { if (it.state.wantsPlay) { if (it.state.hasFrame) captureFrame(); it.pause() } else it.play() } },
             onSeek = { controller?.seek(it) },
+            onSpeed = { controller?.selectSpeed(it) },
+            holdSpeed = holdSpeed,
+            onHoldSpeed = { holdSpeed = it; speedPreferences.edit().putFloat("hold_speed", it).apply() },
+            onBoost = { if (it) controller?.beginBoost(holdSpeed) else controller?.endBoost() },
+            precache = precache, onCacheRetry = { cacheRetry++ },
+            onStatusDiagnostics = { failure ->
+                context.getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("Hermes diagnostics", failure.sanitizedDiagnostic()))
+            },
             onRetry = { error = null; wantsPlay = true; source = null; retry++ },
             onDiagnostics = {
                 error?.let { failure ->
@@ -187,6 +210,8 @@ fun VideoPlayerDialog(
 internal class VideoFrameMemory : ViewModel() {
     var frame by mutableStateOf<android.graphics.Bitmap?>(null)
     var configurationRestart = false
+    var configurationChange = false
+    var precache = com.hermes.client.data.video.VideoPrecacheSession()
 }
 
 private tailrec fun Context.videoActivity(): Activity? = when (this) {

@@ -40,3 +40,18 @@ localization tests cover the testable boundaries. See SMOKE_TEST.md and ANDROID_
 cellular/NAT, OEM background survival and original-player checks. L1/L3 do not certify HONOR behavior.
 Gateway, Connector and Android must be published and verified separately before MissionGo enters
 verification. Deployment and artifact publication require their own authorization.
+
+## Foreground video precaching and speed (2026-10-25)
+
+The current viewer separately fills its verified disk range cache while playing or paused, only while
+foreground-visible. Closing/navigating/backgrounding cancels it; reopening reuses valid blocks and
+fills holes of the same owner/path/ETag/size generation. Explicit durable Download remains independent.
+A single spare-slot request yields to demanded playback reads/seek and queued downloads; it shares the
+same opaque source and negotiated one-to-four slots. Precaching cannot evict its own source to make
+room and records attempted blocks for this viewing so eviction never creates an endless refill loop.
+A manual-clear epoch disables the filler for that viewing. Low-space hysteresis and shared LRU/expiry
+remain. Coverage is retained verified bytes over the entire generation; only complete coverage is 100%.
+Full/blocked fillers await cache changes, with a sparse 30-second OS-reclamation check instead of
+repeated large-file metadata walks. Startup scan validation is bounded to four blocks per lock hold to keep playback cache hits responsive.
+Preview still needs source preparation/identity checks; an evictable full cache is not a durable
+Download or an offline-opening guarantee. `VIDEO_SPEED_PRECACHE.md` records this iteration's tests.
