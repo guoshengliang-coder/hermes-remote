@@ -1,5 +1,18 @@
 # Hermes Go Desktop phase 0
 
+## Hermes compatibility: bundled Connector runtime identity (implementation)
+
+The schema-1 bundled layout now has a read-only continuity check from its signed-archive file
+observation to the active managed Connector job. It checks the exact launchd label/launcher, kernel
+PID/owner/start time/executable/argv, rejects Node/dyld loader overrides, rehashes the installed tree
+and refuses file/directory changes after process start using ctime rather than restorable mtime.
+Process and selected-release identities are checked again at the end. Raw process environment values
+are discarded locally and never logged. No service operation or new Connector wire protocol is used.
+
+This supports the existing bundled Node layout only; the separate Node component layout still needs
+its own identity association. It is not an attestation against privileged process injection or a
+Hermes/client compatibility result. Ordinary-page automatic collection remains pending.
+
 ## Hermes compatibility: Desktop app identity (implementation, not released)
 
 `DesktopAppIdentityInspector` compares the installed app's complete content with a private copy of

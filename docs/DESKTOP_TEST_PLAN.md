@@ -1129,3 +1129,30 @@ An intermediate compile found a missing explicit return in the new presentation 
 fixed. One intermediate app build was rejected because the source changed while it was compiling;
 after source stabilization, the final baseline/build was rerun successfully. Neither failed attempt
 is counted as passing validation.
+
+### Bundled Connector runtime continuity (2026-10-25)
+
+Test impact: extend the signed bundled-file fixture with an inert synthetic runtime tree. Cover
+exact job/process matching, wrong owner/executable/argv, loader injection, PID reuse, selected-release
+switching, content tampering and restoring original bytes/mtime after process start. The last case
+must still fail because ctime changed. Parser tests reject nested/duplicate/negative PIDs and foreign
+launchers, preserve exact argv, reject malformed kernel buffers and retain no environment values.
+A real kernel test starts only its own `/bin/sleep` child, checks identity stability, terminates that
+child and confirms its exited PID is rejected. Synthetic Node bytes are never executed.
+
+Focused runtime/bundled tests pass 18/18. Final baseline: 722 Swift tests, asset consistency and local
+ad-hoc app build pass. The initial SDK probe found that Swift cannot import the expression macro
+PROC_PIDPATHINFO_MAXSIZE; the implementation uses its SDK-defined `4 * MAXPATHLEN` expansion, while
+all struct layouts and process functions come directly from Darwin. No shell parsing of process
+environment, new protocol, Connector source change or remote deployment was needed.
+
+Physical read-only inspection reused the public signed 0.4.12 archive and freshly rechecked its
+selected Connector files. The actual managed process matched Connector 0.1.17, its bundled Node and
+script paths; process identity remained stable and the component tree had not changed since launch.
+OS sandbox denied network and all writes outside the probe workspace; a separate outside-write
+attempt was refused. No daily process was started, stopped or signalled. Report:
+`evidence/hermes-compatibility/2026-10-25-running-bundled-connector.json`; private probe directory:
+`/private/tmp/hermes-connector-runtime-real-wn8k3q4e`. The report omits PID, argv, personal paths and
+environment values. It records process continuity for this layout, not resistance to privileged
+debugger injection or compatibility approval. Separate Node-store layout and automatic collection
+in the ordinary page remain unverified. No UI change required a new visual check.

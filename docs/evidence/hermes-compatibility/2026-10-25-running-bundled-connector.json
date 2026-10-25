@@ -1,0 +1,19 @@
+{
+  "architecture": "arm64",
+  "artifactSha256": "a8733c13302af73b793563f5c7a9d5898626efc8be4c53986dd94366e21e524a",
+  "compatibilityApproved": false,
+  "connectorVersion": "0.1.17",
+  "contentSha256": "e80a994c34654ea1e1b9ead4d89a5ced1d09144ac23c365a4f698a2d11ae4a48",
+  "dailyInstallationReadOnly": true,
+  "fileInspectorSha256": "601b52da0ca133fe121af5b40c154f829cc75c6cd1c827ca9de876fa5bb88308",
+  "manifestSha256": "45ad70aa65199a4853b68b699f916e23e0fe75887ca75515f021bf873ad62996",
+  "observedAt": "2026-10-25T09:56:50Z",
+  "releaseVersion": "0.4.12",
+  "result": "passed",
+  "runningProcessVerified": true,
+  "runtimeInspectorSha256": "40b1777169ccd09bff8d1b5bcf5d483586ecf89678ba0e26c63d6a04cf34cb52",
+  "sandboxOutsideWriteRejected": true,
+  "schemaVersion": 1,
+  "scope": "selected-bundled-connector-process",
+  "scopeLimit": "schema-1-bundled-node-and-connector; excludes privileged process injection and client compatibility"
+}

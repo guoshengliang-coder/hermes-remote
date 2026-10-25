@@ -4,6 +4,91 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopBundledConnectorIdentityTests: XCTestCase {
+    func testRuntimeMatchesSignedFilesExactJobAndStableProcess() throws {
+        let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
+        let observation = try f.inspect()
+        let process = runtimeProcess(f)
+        let runner = RuntimeJobRunner(layout: f.layout, pid: process.pid)
+        let result = try DesktopConnectorRuntimeIdentityInspector(runner: runner, readProcess: { _ in process })
+            .inspect(observation: observation, layout: f.layout)
+        XCTAssertEqual(result.component, observation.component)
+        XCTAssertEqual(result.contentSHA256, observation.contentSHA256)
+        XCTAssertEqual(result.processID, process.pid)
+        XCTAssertEqual(runner.calls, 2)
+    }
+
+    func testRuntimeRejectsWrongExecutableArgumentsUserAndLoaderInjection() throws {
+        let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
+        let observation = try f.inspect(), original = runtimeProcess(f)
+        let variants = [
+            ConnectorKernelIdentity(pid: original.pid, userID: getuid() + 1, startedAt: original.startedAt,
+                executable: original.executable, arguments: original.arguments, injectedEnvironment: false),
+            ConnectorKernelIdentity(pid: original.pid, userID: getuid(), startedAt: original.startedAt,
+                executable: "/different/node", arguments: original.arguments, injectedEnvironment: false),
+            ConnectorKernelIdentity(pid: original.pid, userID: getuid(), startedAt: original.startedAt,
+                executable: original.executable, arguments: original.arguments + ["--extra"], injectedEnvironment: false),
+            ConnectorKernelIdentity(pid: original.pid, userID: getuid(), startedAt: original.startedAt,
+                executable: original.executable, arguments: original.arguments, injectedEnvironment: true)
+        ]
+        for process in variants {
+            assertRuntimeInvalid { _ = try DesktopConnectorRuntimeIdentityInspector(runner: RuntimeJobRunner(layout: f.layout, pid: process.pid),
+                readProcess: { _ in process }).inspect(observation: observation, layout: f.layout) }
+        }
+    }
+
+    func testRuntimeRejectsPIDReuseAndSelectionChangesDuringInspection() throws {
+        let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
+        let observation = try f.inspect(), process = runtimeProcess(f)
+        var reads = 0
+        assertRuntimeInvalid {
+            _ = try DesktopConnectorRuntimeIdentityInspector(runner: RuntimeJobRunner(layout: f.layout, pid: process.pid), readProcess: { _ in
+                reads += 1
+                return reads == 1 ? process : ConnectorKernelIdentity(pid: process.pid, userID: process.userID,
+                    startedAt: process.startedAt.addingTimeInterval(1), executable: process.executable,
+                    arguments: process.arguments, injectedEnvironment: false)
+            }).inspect(observation: observation, layout: f.layout)
+        }
+        reads = 0
+        assertRuntimeInvalid {
+            _ = try DesktopConnectorRuntimeIdentityInspector(runner: RuntimeJobRunner(layout: f.layout, pid: process.pid), readProcess: { _ in
+                reads += 1
+                if reads == 2 { try? f.select("releases/9.9.9") }
+                return process
+            }).inspect(observation: observation, layout: f.layout)
+        }
+    }
+
+    func testRuntimeRejectsChangedContentAndRestoredBytesWithOldMtime() throws {
+        let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
+        let observation = try f.inspect(), process = runtimeProcess(f)
+        let script = f.installed.appendingPathComponent("app/connector/dist/index.js")
+        let original = try Data(contentsOf: script)
+        let attributes = try FileManager.default.attributesOfItem(atPath: script.path)
+        try Data("changed".utf8).write(to: script)
+        let inspector = DesktopConnectorRuntimeIdentityInspector(runner: RuntimeJobRunner(layout: f.layout, pid: process.pid), readProcess: { _ in process })
+        assertRuntimeInvalid { _ = try inspector.inspect(observation: observation, layout: f.layout) }
+        try original.write(to: script)
+        try FileManager.default.setAttributes([.modificationDate: attributes[.modificationDate]!], ofItemAtPath: script.path)
+        XCTAssertEqual(try DesktopManagedComponentContentHasher().identify(directory: f.installed).sha256, observation.contentSHA256)
+        assertRuntimeInvalid { _ = try inspector.inspect(observation: observation, layout: f.layout) }
+    }
+
+    private func runtimeProcess(_ f: BundledIdentityFixture) -> ConnectorKernelIdentity {
+        let node = f.installed.appendingPathComponent("runtime/node").path
+        return .init(pid: 12345, userID: getuid(), startedAt: Date(), executable: node,
+                     arguments: [node, f.installed.appendingPathComponent("app/connector/dist/index.js").path], injectedEnvironment: false)
+    }
+    private func assertRuntimeInvalid(_ operation: () throws -> Void, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
+            guard let issue = error as? DesktopIssue else { return XCTFail("Expected structured issue", file: file, line: line) }
+            XCTAssertEqual(issue.code.rawValue, "HR-HERMESCOMPAT-008", file: file, line: line)
+            XCTAssertEqual(issue.summaryChinese, "无法确认升级推荐", file: file, line: line)
+            XCTAssertEqual(issue.summaryEnglish, "Upgrade recommendation unavailable", file: file, line: line)
+            XCTAssertTrue(issue.retryable, file: file, line: line)
+            XCTAssertEqual(issue.recoveryAction, .retry, file: file, line: line)
+            XCTAssertFalse(issue.sanitizedDiagnostic.contains("/"), file: file, line: line)
+        }
+    }
     func testOriginalSignedArchiveIdentifiesSelectedBundledConnectorWithoutChangingIt() throws {
         let f = try BundledIdentityFixture(); defer { f.remove() }
         let before = try DesktopManagedComponentContentHasher().identify(directory: f.installed)
@@ -142,7 +227,7 @@ private final class BundledIdentityFixture {
     let envelope: Data
     let verifier: DesktopReleaseManifestVerifier
 
-    init() throws {
+    init(runtime: Bool = false) throws {
         root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
             .appendingPathComponent("hermes-bundled-identity-\(UUID().uuidString)")
         layout = try DesktopManagedInstallLayout(root: root.appendingPathComponent("managed"),
@@ -157,6 +242,16 @@ private final class BundledIdentityFixture {
         let executable = installed.appendingPathComponent("bin/hermes-connector")
         try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        if runtime {
+            for relative in ["runtime", "app/connector/dist"] {
+                try FileManager.default.createDirectory(at: installed.appendingPathComponent(relative), withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700])
+            }
+            let node = installed.appendingPathComponent("runtime/node")
+            try Data("synthetic node bytes; never executed".utf8).write(to: node)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: node.path)
+            try Data("// synthetic script; never executed\n".utf8).write(to: installed.appendingPathComponent("app/connector/dist/index.js"))
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["-czf", archive.path, "-C", installed.path, "."]
@@ -205,5 +300,21 @@ private extension Data {
     var bundledBase64URL: String {
         base64EncodedString().replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+}
+
+private final class RuntimeJobRunner: OutputCommandRunning {
+    let layout: DesktopManagedInstallLayout
+    let pid: Int32
+    private(set) var calls = 0
+    init(layout: DesktopManagedInstallLayout, pid: Int32) { self.layout = layout; self.pid = pid }
+    func run(executable: URL, arguments: [String], maximumOutputBytes: Int) -> DesktopCommandOutput {
+        calls += 1
+        let target = "gui/\(getuid())/\(DesktopManagedInstallLayout.connectorLabel)"
+        guard executable.path == "/bin/launchctl", arguments == ["print", target] else {
+            return .init(status: 1, stdout: Data(), outputLimitExceeded: false)
+        }
+        let path = layout.currentRelease.appendingPathComponent("connector/bin/hermes-connector").path
+        return .init(status: 0, stdout: Data("\(target) = {\n\tpid = \(pid)\n\targuments = {\n\t\t\(path)\n\t}\n}\n".utf8), outputLimitExceeded: false)
     }
 }
