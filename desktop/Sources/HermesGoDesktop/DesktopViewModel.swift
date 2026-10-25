@@ -370,7 +370,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             if componentBootstrapAvailability == .ready,
                case .configured(let value) = componentPreflightConfiguration { value } else { nil }
         return DesktopManagedUpdateSource.resolve(
-            installation: currentManagedInstallation, bundled: bundled, components: components
+            installation: currentManagedInstallation, bundled: bundled, components: components,
+            allowBundledComponentMigration: managedRecoveryRuntime?.hermesAgentLooksLocal == true
+                && localHermesDetection?.installation != nil
         )
     }
 
@@ -1875,7 +1877,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                     trustedPreflight: trustedPreflight,
                     workspaceRoot: runtime.workspaceRoot,
                     runID: runID,
-                    installation: machine.installation
+                    installation: machine.installation,
+                    migrateBundledLayout: forDesktopUpdate
+                        && machine.installation.requiresComponentLayoutMigration
                 ) { kind, root, entrypoint in
                     try probe(kind, root: root, entrypoint: entrypoint)
                 }

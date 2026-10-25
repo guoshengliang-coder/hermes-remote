@@ -501,6 +501,7 @@ fun ChatMessageList(
     outputHapticConfig: com.hermes.client.data.haptics.OutputHapticConfig = com.hermes.client.data.haptics.OutputHapticConfig(),
     onEditResend: (String) -> Unit = {},
     onRetrySend: (String) -> Unit = {},
+    onCheckDelivery: (String) -> Unit = {},
     onDiscardSend: (String) -> Unit = {},
     sendDiagnosticFor: (String) -> String? = { null },
     sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode? = { null },
@@ -1296,6 +1297,7 @@ fun ChatMessageList(
                         showAssistantActions,
                         onEditResend,
                         onRetrySend,
+                        onCheckDelivery,
                         onDiscardSend,
                         sendDiagnosticFor,
                         sendErrorCodeFor,
@@ -1559,6 +1561,7 @@ private fun MessageBubble(
     showAssistantActions: Boolean,
     onEditResend: (String) -> Unit,
     onRetrySend: (String) -> Unit,
+    onCheckDelivery: (String) -> Unit,
     onDiscardSend: (String) -> Unit,
     sendDiagnosticFor: (String) -> String?,
     sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode?,
@@ -1586,7 +1589,7 @@ private fun MessageBubble(
         LocalTurnIsCurrentHit provides (searchContext != null && searchContext.currentMessageId == msg.id),
     ) {
         when (msg.role) {
-            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, landingAlpha = landingAlpha, onRetrySend = onRetrySend, onDiscardSend = onDiscardSend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
+            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, landingAlpha = landingAlpha, onRetrySend = onRetrySend, onCheckDelivery = onCheckDelivery, onDiscardSend = onDiscardSend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
             else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onOpenImage, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, landingAlpha = landingAlpha)
     }
     }
@@ -1664,6 +1667,7 @@ internal fun UserBubble(
     onFileShare: (ChatFile) -> Unit,
     landingAlpha: Float = 0f,
     onRetrySend: (String) -> Unit = {},
+    onCheckDelivery: (String) -> Unit = {},
     onDiscardSend: (String) -> Unit = {},
     sendDiagnostic: String? = null,
     sendErrorCode: com.hermes.client.data.error.AppErrorCode? = null,
@@ -1675,6 +1679,7 @@ internal fun UserBubble(
     var selectingText by remember { mutableStateOf(false) }
     // Delivery three-state (docs/DESIGN.md §5.4): the "sending" look is revealed only after
     // 250ms without an ack, so the common sub-300ms send never flickers; "failed" shows at once.
+    val unknown = msg.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED
     val sending = msg.delivery == com.hermes.client.domain.DeliveryState.SENDING
     // Undeliverable looks like failed (dimmed bubble, error marker) but says something different
     // and offers no tap: the conversation is gone upstream, so retrying is not on the table.
@@ -1684,7 +1689,7 @@ internal fun UserBubble(
     LaunchedEffect(msg.id, sending) {
         if (sending) { delay(SENDING_REVEAL_DELAY_MS); revealSending = true } else revealSending = false
     }
-    val dim = revealSending || failed
+    val dim = revealSending || failed || unknown
     val bg by animateColorAsState(
         targetValue = if (msg.isError) MaterialTheme.colorScheme.errorContainer
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (dim) 0.5f else 0.78f),
@@ -1815,13 +1820,13 @@ internal fun UserBubble(
                         add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制", "Copy")) {
                             copyToClipboard(msg.text, clipboard, context, localized(language, "已复制", "Copied"))
                         })
-                        if (!attachmentsLost) {
+                        if (!attachmentsLost && !unknown) {
                             add(MessageAction(Icons.Rounded.Edit, localized(language, "编辑并重新发送", "Edit & resend")) { onEditResend(msg.id) })
                         }
                         if (sending) {
                             add(MessageAction(Icons.Rounded.Undo, localized(language, "撤回", "Withdraw")) { onDiscardSend(msg.id) })
                         }
-                        if (failed && sendDiagnostic != null) {
+                        if ((failed || unknown) && sendDiagnostic != null) {
                             add(MessageAction(Icons.Rounded.ContentCopy, localized(language, "复制诊断信息", "Copy diagnostics")) {
                                 copyToClipboard(sendDiagnostic, clipboard, context, localized(language, "诊断信息已复制", "Diagnostics copied"))
                             })
@@ -1833,6 +1838,19 @@ internal fun UserBubble(
             }
             if (selectingText) {
                 TextSelectionDialog(text = msg.text, onDismiss = { selectingText = false })
+            }
+        }
+        if (unknown) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.widthIn(max = bubbleMaxWidth).padding(top = 4.dp, end = 4.dp)) {
+                Text(localized(language, "投递结果未知", "Delivery unknown"),
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(6.dp))
+                Text(com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN.compact, style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
+                TextButton(onClick = { onCheckDelivery(msg.id) }) {
+                    Text(localized(language, "重新核对", "Check status"))
+                }
             }
         }
         if (failed) {

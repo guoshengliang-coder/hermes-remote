@@ -1,5 +1,16 @@
 # Local relay smoke test
 
+## HG-237 — post-release prompt diagnostics check pending
+
+Isolated real-Connector tests cover acknowledgement success/loss without replay or body logging.
+After separately authorized Gateway and Connector releases, use a disposable account binding to
+correlate one prompt ID and tunnel through both relay logs. Lose an acknowledgement deliberately in
+the isolated fixture only: submit must occur once; Android must retain unknown, query status and accept
+new history. Confirm no prompt/result/token/attachment content in diagnostic records. The original
+incident's stalled hop remains unproven until runtime evidence identifies it; heartbeat configuration
+alone does not establish that cause. Android legacy retirement does not remove server legacy routes.
+
+
 ## HG-219 heartbeat diagnosis — actual M4 recurrence verification pending
 
 This change adds diagnostics, not an established cure for the underlying outage. It changes no

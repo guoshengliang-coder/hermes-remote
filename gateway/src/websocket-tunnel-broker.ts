@@ -55,14 +55,14 @@ export type ScreenAppFrame = (data: Buffer, isBinary: boolean) => {
   violation?: string;
 };
 
-/** Only metadata for the two foreground RPCs whose missing replies strand a spinner. */
+/** Only bounded metadata for foreground actions whose lost replies leave an unknown outcome. */
 export function trackedForegroundRpcRequest(data: Buffer, isBinary: boolean): { id: number; method: string } | null {
-  if (isBinary || data.length > 4096) return null;
+  if (isBinary || data.length > 256 * 1024) return null;
   try {
     const frame: unknown = JSON.parse(data.toString("utf8"));
     if (typeof frame !== "object" || frame === null || Array.isArray(frame)) return null;
     const request = frame as Record<string, unknown>;
-    if (request.method !== "session.create" && request.method !== "slash.exec") return null;
+    if (request.method !== "session.create" && request.method !== "slash.exec" && request.method !== "prompt.submit") return null;
     if (typeof request.id !== "number" || !Number.isSafeInteger(request.id)) return null;
     return { id: request.id, method: request.method };
   } catch {
@@ -316,7 +316,9 @@ export class WebSocketTunnelBroker<TConnector extends WebSocketConnector> {
       }
       const rpc = trackedForegroundRpcRequest(buffer, isBinary);
       if (rpc) {
-        tunnel?.pendingForegroundRpcs.set(rpc.id, { method: rpc.method, startedAt: Date.now() });
+        if (tunnel && tunnel.pendingForegroundRpcs.size < 16) {
+          tunnel.pendingForegroundRpcs.set(rpc.id, { method: rpc.method, startedAt: Date.now() });
+        }
         this.log.info("app.rpc.received", { tunnel: id, rpcId: rpc.id, method: rpc.method });
       }
       this.send(current.socket, {

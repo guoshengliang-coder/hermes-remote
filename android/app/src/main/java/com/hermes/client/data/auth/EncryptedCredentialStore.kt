@@ -19,8 +19,13 @@ class EncryptedCredentialStore(private val context: Context) :
     // is corrupted (e.g. an interrupted write or an app upgrade), create() throws
     // InvalidProtocolBufferException and the app crashes on EVERY launch — before any UI. Recover
     // by wiping the backing file once and regenerating a fresh keyset: the saved credentials are
-    // lost (the user re-enters them on the Setup screen), which is far better than a crash loop.
-    private val prefs by lazy { openOrReset() }
+    // lost (the user signs in again), which is preferable to a crash loop.
+    private val prefs by lazy {
+        openOrReset().also { preferences ->
+            preferences.edit().remove("base_url").remove("token").remove("username").remove("password")
+                .remove(ACCOUNT_EXPLICIT_LEGACY_CONNECTION).remove(ACCOUNT_ACTIVATION_PENDING).commit()
+        }
+    }
 
     private fun create(): SharedPreferences {
         val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
@@ -58,26 +63,10 @@ class EncryptedCredentialStore(private val context: Context) :
             }
         }
 
-    override fun load(): GatewayConfig? {
-        val storedUrl = prefs.getString("base_url", null) ?: return null
-        val url = runCatching { normalizeGatewayBaseUrl(storedUrl) }.getOrDefault(storedUrl)
-        if (url != storedUrl) prefs.edit().putString("base_url", url).apply()
-        return GatewayConfig(
-            baseUrl = url,
-            token = prefs.getString("token", null) ?: "",
-            username = prefs.getString("username", null) ?: "",
-            password = prefs.getString("password", null) ?: "",
-        )
-    }
+    /** Retired credentials are never exposed, including after account logout. */
+    override fun load(): GatewayConfig? = null
 
-    override fun save(config: GatewayConfig) {
-        prefs.edit()
-            .putString("base_url", config.baseUrl)
-            .putString("token", config.token)
-            .putString("username", config.username)
-            .putString("password", config.password)
-            .apply()
-    }
+    override fun save(config: GatewayConfig) = Unit
 
     override fun clear() {
         prefs.edit()

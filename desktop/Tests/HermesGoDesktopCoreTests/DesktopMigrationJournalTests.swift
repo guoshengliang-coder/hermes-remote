@@ -185,6 +185,12 @@ final class DesktopMigrationJournalTests: XCTestCase {
             .candidateHealthy, .commitPending, .accountActive,
         ] { _ = try store.transition(runID: oldRun, to: state) }
 
+        XCTAssertThrowsError(try store.beginUpgrade(
+            runID: newRun, installedReleaseVersion: "0.3.4", targetReleaseVersion: "0.3.5",
+            installedReleaseLayout: .bundledRelease, targetReleaseLayout: .componentStore,
+            bindingID: bindingID, bindingGeneration: 2
+        ))
+        XCTAssertEqual(try store.load()?.state, .accountActive)
         let upgrade = try store.beginUpgrade(
             runID: newRun,
             installedReleaseVersion: "0.3.4",
@@ -192,7 +198,8 @@ final class DesktopMigrationJournalTests: XCTestCase {
             installedReleaseLayout: .bundledRelease,
             targetReleaseLayout: .componentStore,
             bindingID: bindingID,
-            bindingGeneration: 2
+            bindingGeneration: 2,
+            migrateBundledLayout: true
         )
         XCTAssertEqual(upgrade.state, .preflight)
         XCTAssertEqual(upgrade.lastKnownGoodMode, .account)

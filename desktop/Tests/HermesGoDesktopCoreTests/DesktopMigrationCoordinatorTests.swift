@@ -1070,6 +1070,159 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertEqual(confirmCount, 0)
     }
 
+    func testExplicitComponentMigrationPreservesLocalHermesAndCredentials() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false, resumeBoundBinding: true,
+            healthCheckedAtSequence: ["2026-09-07T00:00:00.000Z", "2026-09-07T00:00:00.000Z", "2026-09-07T00:00:01.000Z"],
+            provideLocalHermes: true
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let local = try XCTUnwrap(fixture.providedLocalHermes)
+        try fixture.stageBundledExecutable()
+        _ = try fixture.installer.prepareLocalHermesRuntime(local)
+        let original = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let launcher = try Data(contentsOf: fixture.layout.localHermesLauncher)
+        let token = try Data(contentsOf: fixture.layout.hermesSessionToken)
+        let component = try fixture.componentRelease()
+
+        let outcome = try await fixture.coordinator.migrateBundledInstallationToComponents(
+            manifest: component.manifest, activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            runID: "10000000-0000-4000-8000-000000000012",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .componentMigrationConfirmationText(releaseVersion: "2.0.0")
+        )
+        XCTAssertEqual(outcome.bindingID, fixture.bindingID)
+        XCTAssertEqual(outcome.bindingGeneration, 1)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .componentStore)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), original)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.localHermesLauncher), launcher)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesSessionToken), token)
+        XCTAssertEqual(try fixture.programArguments(at: fixture.layout.connectorLaunchAgent).first,
+                       component.plan.component(.connector)?.entrypoint.path)
+        let begins = await fixture.account.beginCount()
+        let confirms = await fixture.account.confirmCount()
+        XCTAssertEqual(begins, 0)
+        XCTAssertEqual(confirms, 0)
+        let mutations = fixture.serviceMutations().count
+        let settingOff = try await fixture.coordinator.reconcileHermesRuntime {
+            try fixture.runtimeObservation(.usable(local), enabled: false)
+        }
+        XCTAssertEqual(settingOff, .unchanged(.surface(.bundledFallbackUnavailableLocalIntact)))
+        XCTAssertEqual(fixture.serviceMutations().count, mutations)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), original)
+    }
+
+    func testFailedComponentMigrationRestoresBundledLayoutAndExactServices() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false, resumeBoundBinding: true,
+            hermesReadinessResponses: [false, true],
+            healthCheckedAtSequence: ["2026-09-07T00:00:00.000Z", "2026-09-07T00:00:00.000Z", "2026-09-07T00:00:00.000Z", "2026-09-07T00:00:01.000Z"],
+            provideLocalHermes: true
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        _ = try fixture.installer.prepareLocalHermesRuntime(XCTUnwrap(fixture.providedLocalHermes))
+        let originalHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+        let component = try fixture.componentRelease()
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrateBundledInstallationToComponents(
+            manifest: component.manifest, activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            runID: "10000000-0000-4000-8000-000000000013",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .componentMigrationConfirmationText(releaseVersion: "2.0.0")
+        )) { XCTAssertEqual($0 as? DesktopMigrationCoordinatorError, .hermesHealthTimedOut) }
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .bundledRelease)
+        XCTAssertEqual(try fixture.journal.load()?.releaseVersion, "1.2.3")
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), originalConnector)
+        XCTAssertEqual(fixture.runner.loadedLabels(), [DesktopManagedInstallLayout.connectorLabel,
+                                                      DesktopManagedInstallLayout.hermesLabel])
+    }
+
+    func testComponentMigrationRequiresDistinctConfirmationAndExistingLocalRuntime() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let component = try fixture.componentRelease()
+        for (confirmation, expected) in [
+            (DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.confirmationText(releaseVersion: "2.0.0"),
+             DesktopMigrationCoordinatorError.confirmationRequired),
+            (DesktopMigrationCoordinator<InMemoryLaunchctlRunner>.componentMigrationConfirmationText(releaseVersion: "2.0.0"),
+             .invalidStartingState),
+        ] {
+            await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrateBundledInstallationToComponents(
+                manifest: component.manifest, activationPlan: component.plan,
+                hermesLaunchAgentConfiguration: component.agents.hermes,
+                launchAgentConfiguration: component.agents.connector,
+                runID: "10000000-0000-4000-8000-000000000014", confirmation: confirmation
+            )) { XCTAssertEqual($0 as? DesktopMigrationCoordinatorError, expected) }
+        }
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .bundledRelease)
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+    }
+
+    func testLayoutMigrationRefusesMissingLocalExecutableBeforeStoppingServices() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true, provideLocalHermes: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let local = try XCTUnwrap(fixture.providedLocalHermes)
+        _ = try fixture.installer.prepareLocalHermesRuntime(local)
+        try FileManager.default.removeItem(at: local.executable)
+        let component = try fixture.componentRelease()
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrateBundledInstallationToComponents(
+            manifest: component.manifest, activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            runID: "10000000-0000-4000-8000-000000000016",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .componentMigrationConfirmationText(releaseVersion: "2.0.0")
+        )) { XCTAssertEqual($0 as? DesktopMigrationCoordinatorError, .invalidStartingState) }
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .bundledRelease)
+    }
+
+    func testInterruptedLayoutMigrationRestoresPreviousLayoutAndExactFiles() async throws {
+        let fixture = try Fixture(
+            legacyRunning: false, resumeBoundBinding: true,
+            healthCheckedAtSequence: ["2026-09-07T00:00:00.000Z", "2026-09-07T00:00:01.000Z"],
+            provideLocalHermes: true
+        )
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        _ = try fixture.installer.prepareLocalHermesRuntime(XCTUnwrap(fixture.providedLocalHermes))
+        let originalHermes = try Data(contentsOf: fixture.layout.hermesLaunchAgent)
+        let originalConnector = try Data(contentsOf: fixture.layout.connectorLaunchAgent)
+        let component = try fixture.componentRelease()
+        let run = "10000000-0000-4000-8000-000000000015"
+        _ = try fixture.installer.prepareManagedUpgradeSnapshot(
+            runID: run, previousReleaseVersion: "1.2.3", targetReleaseVersion: "2.0.0",
+            previousReleaseLayout: .bundledRelease, targetReleaseLayout: .componentStore
+        )
+        _ = try fixture.journal.beginUpgrade(
+            runID: run, installedReleaseVersion: "1.2.3", targetReleaseVersion: "2.0.0",
+            installedReleaseLayout: .bundledRelease, targetReleaseLayout: .componentStore,
+            bindingID: fixture.bindingID, bindingGeneration: 1, migrateBundledLayout: true
+        )
+        _ = try fixture.installer.writeLaunchAgent(component.agents.connector, activationPlan: component.plan)
+        _ = try fixture.journal.transition(runID: run, to: .accountStaged)
+        _ = try fixture.journal.transition(runID: run, to: .candidateStarting)
+        let recovered = try await fixture.coordinator.recoverInterrupted(runID: run)
+        XCTAssertEqual(recovered, .accountActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .bundledRelease)
+        XCTAssertEqual(try fixture.journal.load()?.releaseVersion, "1.2.3")
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.hermesLaunchAgent), originalHermes)
+        XCTAssertEqual(try Data(contentsOf: fixture.layout.connectorLaunchAgent), originalConnector)
+        XCTAssertNil(try fixture.installer.loadManagedUpgradeSnapshot(runID: run))
+    }
+
     func testRestartRecoveryUsesDurableUpgradeSnapshot() async throws {
         let fixture = try Fixture(
             legacyRunning: false,
@@ -2015,6 +2168,7 @@ private final class Fixture {
     let hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent
     let launchAgentConfiguration: DesktopAccountConnectorLaunchAgent
     let legacy: RetiredConnectorSnapshot
+    let providedLocalHermes: DesktopLocalHermesInstallation?
     let runID = "10000000-0000-4000-8000-000000000001"
     let bindingID = "50000000-0000-4000-8000-000000000001"
 
@@ -2083,6 +2237,7 @@ private final class Fixture {
                 withIntermediateDirectories: true
             )
         }
+        self.providedLocalHermes = providedLocalHermes
         coordinator = try DesktopMigrationCoordinator(
             account: account,
             journal: journal,

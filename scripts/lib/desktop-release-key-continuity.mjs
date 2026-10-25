@@ -55,10 +55,9 @@ export async function verifyDesktopReleaseKeyContinuity({
     }
     observed.push({ kind, releaseVersion: index.releaseVersion, manifestSHA256: index.manifestSHA256 });
   }
-  if (observed[0].releaseVersion !== observed[1].releaseVersion) {
-    throw new Error("desktop_indexes_out_of_sync");
-  }
-  if (nextVersion !== undefined && !isStrictlyNewer(nextVersion, observed[0].releaseVersion)) {
+  // The historical bundled channel is frozen once component-only releases begin. Both public
+  // manifests must still verify under the supported key, but their versions need not advance together.
+  if (nextVersion !== undefined && observed.some((release) => !isStrictlyNewer(nextVersion, release.releaseVersion))) {
     throw new Error("desktop_release_version_not_newer");
   }
   return observed;

@@ -122,6 +122,28 @@ final class DesktopUpdateCheckerTests: XCTestCase {
                        "/desktop/releases/0.4.12/Hermes-Desktop-0.4.12-arm64.manifest.json")
     }
 
+    func testExplicitlyEnabledBundledMigrationDiscoversComponentChannel() async throws {
+        let source = try XCTUnwrap(DesktopManagedUpdateSource.resolve(
+            installation: installation(.bundledRelease),
+            bundled: bundledConfiguration(), components: componentConfiguration(),
+            allowBundledComponentMigration: true
+        ))
+        XCTAssertEqual(source.layout, .componentStore)
+        let report = try await checkSelectedSource(source)
+        XCTAssertEqual(report.managedUpdate?.managedLayout, .componentStore)
+        XCTAssertEqual(report.managedUpdate?.managedReference?.manifestURL.path,
+                       "/desktop/components/0.4.12/Hermes-Desktop-0.4.12-arm64.manifest.json")
+        XCTAssertTrue(installation(.bundledRelease).requiresComponentLayoutMigration)
+        XCTAssertFalse(installation(.componentStore).requiresComponentLayoutMigration)
+        for state: DesktopManagedBootstrapInstallationStatus in [.absent, .inconsistent, .attentionRequired] {
+            XCTAssertFalse(state.requiresComponentLayoutMigration)
+            XCTAssertNil(DesktopManagedUpdateSource.resolve(
+                installation: state, bundled: try bundledConfiguration(), components: try componentConfiguration(),
+                allowBundledComponentMigration: true
+            ))
+        }
+    }
+
     func testComponentInstallationUsesComponentIndexAndFreezesExecutorLayout() async throws {
         let source = try XCTUnwrap(DesktopManagedUpdateSource.resolve(
             installation: installation(.componentStore),

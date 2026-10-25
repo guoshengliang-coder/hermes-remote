@@ -159,7 +159,9 @@ struct SetupConfirmationSheets: ViewModifier {
                 .foregroundStyle(Color.hermesBlue)
             Text("Desktop 安装内容已验证")
                 .font(.system(size: 15, weight: .semibold))
-            Text(preparation.intent.isUpgrade
+            Text(preparation.migratesBundledLayout
+                ? "继续后会将 Desktop 的后台组件迁移到新版管理方式，保留本机 Hermes、模型配置、会话和账号绑定。不会下载或安装另一份 Hermes。手机连接和运行中的任务会短暂中断，请等任务完成后继续。健康检查失败时会恢复原来的连接。"
+                : preparation.intent.isUpgrade
                 ? "继续后会更新 Desktop 的后台运行能力，保留账号、设备绑定和本机数据。手机连接会短暂中断，任务也可能中断，请等任务完成后继续。健康检查未通过时会尝试恢复旧版本，结果可在诊断中查看。"
                 : "继续后会完成 Desktop 设置，启用登录后自动运行并连接当前账号。手机连接会短暂中断，请等任务完成后继续。模型凭据和 Hermes 数据保留在这台 Mac。")
                 .font(.system(size: 12))
@@ -175,7 +177,8 @@ struct SetupConfirmationSheets: ViewModifier {
                     }
                     .keyboardShortcut(.cancelAction)
                     Spacer()
-                    Button(preparation.intent.isUpgrade ? "升级并重连" : "安装并连接") {
+                    Button(preparation.migratesBundledLayout ? "迁移并重连"
+                        : preparation.intent.isUpgrade ? "升级并重连" : "安装并连接") {
                         Task { await model.confirmComponentBootstrap() }
                     }
                     .buttonStyle(.borderedProminent)

@@ -110,17 +110,16 @@ class ChatViewModel @Inject constructor(
     private val artifactDownloads: com.hermes.client.data.downloads.ArtifactDownloadManager? = null,
 ) : ViewModel() {
 
-    private val legacyChartOrigin by lazy { runCatching { tableCredentials?.load()?.baseUrl }.getOrNull().orEmpty() }
     fun chartNamespace(): List<String> {
         val account = accountSessions?.session?.value
-        return listOf(account?.baseUrl ?: legacyChartOrigin, account?.accountId ?: "legacy", currentDeviceId.orEmpty(), currentProfile.orEmpty(), storedSessionId)
+        return listOf(account?.baseUrl.orEmpty(), account?.accountId ?: "signed-out", currentDeviceId.orEmpty(), currentProfile.orEmpty(), storedSessionId)
     }
 
     fun workspaceUiKey(id: String, profile: String?, device: String?): String {
         val account = accountSessions?.session?.value
         val resolvedProfile = profile ?: profileManager.active.value
         val resolvedDevice = device ?: account?.let { conversationDevices?.resolve(it.accountId, resolvedProfile, id) } ?: account?.selectedDeviceId
-        return com.hermes.client.ui.workspace.workspaceSessionKey(listOf(account?.baseUrl ?: legacyChartOrigin, account?.accountId ?: "legacy", resolvedDevice, resolvedProfile, id))
+        return com.hermes.client.ui.workspace.workspaceSessionKey(listOf(account?.baseUrl.orEmpty(), account?.accountId ?: "signed-out", resolvedDevice, resolvedProfile, id))
     }
 
     suspend fun voiceEndpoint(): com.hermes.client.data.network.GatewayWebSocketEndpoint =
@@ -858,7 +857,7 @@ class ChatViewModel @Inject constructor(
             ?: account?.let { conversationDevices?.resolve(it.accountId, profile, id) }
             ?: account?.selectedDeviceId
         val owner = com.hermes.client.ui.workspace.workspaceSessionKey(listOf(
-            account?.baseUrl ?: legacyChartOrigin, account?.accountId ?: "legacy",
+            account?.baseUrl.orEmpty(), account?.accountId ?: "signed-out",
         ))
         runtimeStore.bindPendingAttachmentOwner(owner)
         if (account != null && resolvedDevice != null) {
@@ -1650,6 +1649,9 @@ class ChatViewModel @Inject constructor(
                 _state.value.pendingAttachments.isNotEmpty() || unsentComposer != null) {
                 return@withLock refusal(com.hermes.client.data.error.AppErrorCode.UNSENT_COMPOSER_OCCUPIED)
             }
+            if (message.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED) {
+                return@withLock refusal(com.hermes.client.data.error.AppErrorCode.MESSAGE_DELIVERY_UNCONFIRMED)
+            }
             val pending = pendingSends[messageId]
             if (pending != null && !pending.submitted && !pending.remoteAttachmentStarted) {
                 pending.job?.cancel()
@@ -1715,6 +1717,17 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Persist before submission: process death must never turn ambiguity into a retry. */
+    private fun rememberUnconfirmed(messageId: String, text: String, atts: List<PendingAttachment>, token: String?) =
+        writeUnsent {
+            if (token != null) unsentStore.save(com.hermes.client.data.repository.UnsentRecord(
+                token = token, messageId = messageId, text = text,
+                code = com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN.value,
+                retryable = false, attachments = atts.size, attachmentMeta = stageUnsentAttachments(atts),
+                updatedAt = System.currentTimeMillis(), deliveryUnconfirmed = true,
+            ))
+        }
+
     /**
      * Give each refused attachment a disk copy and describe it for the record (HG-208).
      *
@@ -1774,6 +1787,15 @@ class ChatViewModel @Inject constructor(
             unsentStore.readAll(token).forEach { record ->
                 if (storedSessionId != sessionId || unsentToken != token) return@launch
                 if (failedSends.containsKey(record.messageId)) return@forEach
+                if (record.deliveryUnconfirmed) {
+                    val restore: (ChatUiState) -> ChatUiState = { state ->
+                        val shown = if (state.messages.any { it.id == record.messageId }) state
+                            else state.withUserMessage(record.text, messageId = record.messageId)
+                        shown.withDelivery(record.messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED)
+                    }
+                    key?.let { runtimeStore.updateChat(it, restore) } ?: mutateState(restore)
+                    return@forEach
+                }
                 val restored = withContext(defaultDispatcher) { restoreUnsentAttachments(record) }
                 if (storedSessionId != sessionId || unsentToken != token) return@launch
                 val lost = record.attachments > 0 && restored == null
@@ -1861,6 +1883,9 @@ class ChatViewModel @Inject constructor(
 
     /** Redacted diagnostic for a failed user turn (long-press → copy), null when it did not fail. */
     fun sendDiagnostic(messageId: String): String? = failedSends[messageId]?.error?.sanitizedDiagnostic()
+        ?: if (_state.value.messages.any { it.id == messageId && it.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED })
+            com.hermes.client.data.error.AppError(com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN,
+                retryable = false, stage = "prompt_submit").sanitizedDiagnostic() else null
 
     /**
      * Which failure a failed user turn actually was, so the bubble can say it. Null when the turn
@@ -1868,7 +1893,15 @@ class ChatViewModel @Inject constructor(
      * from the delivery state — several failures share one state and must not share one sentence.
      */
     fun sendErrorCode(messageId: String): com.hermes.client.data.error.AppErrorCode? =
-        failedSends[messageId]?.error?.code
+        if (_state.value.messages.any { it.id == messageId && it.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED })
+            com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN else failedSends[messageId]?.error?.code
+
+    /** A read-only refresh. Never route an unknown outcome through retrySend. */
+    fun checkMessageDelivery(messageId: String) {
+        if (_state.value.messages.any { it.id == messageId && it.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED }) {
+            refreshCurrentConversation()
+        }
+    }
 
     /** Replays a failed turn as a fresh message: the failed bubble is removed, then sent again. */
     fun retrySend(messageId: String) {
@@ -2044,7 +2077,11 @@ class ChatViewModel @Inject constructor(
                     isSlash = isSlash,
                     attachments = atts,
                     messageId = messageId,
-                    onSubmitStarted = { sendContext.ensureActive(); submitStarted = true; pending.submitted = true },
+                    onSubmitStarted = {
+                        sendContext.ensureActive()
+                        submitStarted = true; pending.submitted = true
+                        rememberUnconfirmed(messageId, text, atts, expectedToken).join()
+                    },
                     onSubmitRejected = { submitStarted = false; pending.submitted = false },
                     onRemoteAttachmentStarted = { sendContext.ensureActive(); pending.remoteAttachmentStarted = true },
                 )
@@ -2089,8 +2126,10 @@ class ChatViewModel @Inject constructor(
                         ) runtimeStore.finishLocal(key)
                     }
                 } else {
-                    // A lost acknowledgement cannot prove non-delivery. Keep the coverage fence
-                    // and ask for authoritative history instead of offering a duplicate send.
+                    // A lost acknowledgement cannot prove non-delivery. Preserve the unknown turn
+                    // separately and query history instead of offering a duplicate send.
+                    expectedKey?.let { runtimeStore.updateUserDelivery(it, messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED) }
+                        ?: mutateState { it.withDelivery(messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED) }
                     expectedKey?.let(runtimeStore::requestReuseReconcile)
                 }
                 throw cancelled
@@ -2106,12 +2145,14 @@ class ChatViewModel @Inject constructor(
                 // A second one is retryable but not for the reason the generic copy implies: another
                 // client owns the session (4090). The tap stays — the conflict ends by itself — but
                 // the bubble has to name the cause, or the user just taps into the same refusal.
-                if (submitStarted && e is com.hermes.client.data.network.GatewayResponseTimeoutException) {
+                if (submitStarted) {
                     // The transport confirms the request was written, not whether Hermes accepted
-                    // it. Keep the pending bubble until history confirms delivery; never replay it.
+                    // it. Keep the unknown bubble separate from history; never replay it.
                     com.hermes.client.data.diagnostics.DebugLog.log(
-                        "session", "send($expectedStoredId) acknowledgement timed out; reconciling delivery",
+                        "session", "send($expectedStoredId) outcome unknown; reconciling delivery",
                     )
+                    expectedKey?.let { runtimeStore.updateUserDelivery(it, messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED) }
+                        ?: mutateState { it.withDelivery(messageId, com.hermes.client.domain.DeliveryState.UNCONFIRMED) }
                     expectedKey?.let(runtimeStore::requestReuseReconcile)
                     return@launch
                 }
@@ -2223,10 +2264,22 @@ class ChatViewModel @Inject constructor(
         isSlash: Boolean,
         attachments: List<PendingAttachment>,
         messageId: String,
-        onSubmitStarted: () -> Unit,
+        onSubmitStarted: suspend () -> Unit,
         onSubmitRejected: () -> Unit,
         onRemoteAttachmentStarted: () -> Unit,
     ) {
+        fun recordRefusal(error: GatewayRpcException) {
+            if ((error.code != 0 && error.code != RELAY_RESPONSE_TOO_LARGE_CODE) ||
+                error is com.hermes.client.data.network.GatewayRequestNotSentException ||
+                error is com.hermes.client.data.network.GatewayReadinessTimeoutException) onSubmitRejected()
+        }
+        suspend fun submitAttempt(action: suspend () -> Unit) {
+            onSubmitStarted()
+            try { action() } catch (error: GatewayRpcException) {
+                recordRefusal(error)
+                throw error
+            }
+        }
         suspend fun submitOn(handle: String) {
             com.hermes.client.data.diagnostics.DebugLog.log(
                 "session",
@@ -2279,9 +2332,10 @@ class ChatViewModel @Inject constructor(
                 }
             }
             if (isSlash) {
-                onSubmitStarted()
-                val output = chat.slashExec(handle, text.trim())
-                output?.takeIf { it.isNotBlank() }?.let(::appendSystem)
+                submitAttempt {
+                    val output = chat.slashExec(handle, text.trim())
+                    output?.takeIf { it.isNotBlank() }?.let(::appendSystem)
+                }
                 runtimeKey?.let(runtimeStore::finishLocal)
             } else {
                 val submittedText = buildString {
@@ -2291,8 +2345,7 @@ class ChatViewModel @Inject constructor(
                         append(ref)
                     }
                 }
-                onSubmitStarted()
-                chat.submit(handle, submittedText)
+                submitAttempt { chat.submit(handle, submittedText) }
             }
         }
 
@@ -2306,7 +2359,7 @@ class ChatViewModel @Inject constructor(
             }
             submitOn(initialHandle)
         } catch (error: GatewayRpcException) {
-            if (error.code != 0) onSubmitRejected()
+            recordRefusal(error)
             if (error.code == SESSION_NOT_FOUND_CODE) {
                 submitOn(resumeForSendWithDeadline(storedId, profile))
                 return

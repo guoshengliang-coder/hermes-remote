@@ -797,3 +797,19 @@ rename 前和 rename 后分别 SIGKILL 自有进程：存活期间竞争者均�
 剩余 I4 工作仍包含推荐重验、官方 updater 协调、服务停写、真实备份/恢复及 worker/UI 生命周期；
 GO 操作锁不能替代尚有缺口的上游锁。I4/I5 未完成，普通升级保持关闭。未合并、部署、发布、
 授予角色、安装构建产物或升级日常 Hermes；本轮继续交付到现有草稿 PR。
+
+### 与当前主线整合
+
+`8728f95e` 推送后 PR 因与新主线冲突没有注册检查。先核对 `docs/INTEGRATION.md` 的版本、文件
+交集和跨项目要求，再整合 `ed36884bbb1cc774e16ded39d4a7f33d37f16f6e`：该精确 main 的 CI/SAST
+均通过；双方未修改相同版本真相源，schema 21 保留在兼容分支。冲突仅是 DESKTOP_PHASE0 和
+DESKTOP_TEST_PLAN 追加段落，完整保留双方内容；DesktopViewModel 的组件迁移接入、既有兼容
+管理/推荐查询和 Gateway release 测试的版本/schema 断言逐项核对。主线的组件迁移同样取得
+GO 操作锁，因此新增升级意图不会绕过其互斥。未修改主线已有版本、迁移语义或 Android 行为。
+
+整合后重新执行 Desktop assets、758 项 Swift、实际 Core 三个 SIGKILL 子场景及本地 ad-hoc
+app 构建，全部通过。Node 构建通过；完整 npm test 中 Protocol 18、Connector 156、Gateway
+273（14 跳过）、release-server 41 通过；scripts 529 通过、0 跳过，仍仅两项既有 LibreSSL
+CMS legacy-recovery 解密失败，整体退出非零。Android 代码仅继承主线，没有新增设备验证或
+分发产物。真实 Hermes 报告仍绑定原始源码/版本，不把本次整合当新版本的兼容认证。
+上游 issue #144377 再次只读确认仍开放、零评论，尚无可采用的修复。

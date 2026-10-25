@@ -98,7 +98,7 @@ class AccountModelPreferences(
 
     private fun current(): Owner? {
         val session = sessions.session.value ?: return null
-        if (sessions.transportMode() in setOf(AccountTransportMode.LEGACY, AccountTransportMode.ACCOUNT_PENDING,
+        if (sessions.transportMode() in setOf(AccountTransportMode.SIGNED_OUT,
                 AccountTransportMode.REAUTHENTICATION_REQUIRED, AccountTransportMode.ACCOUNT_DELETION_COMMITTED)) return null
         return Owner(session.baseUrl, session.accountId, session.installationId, session.modelSyncGeneration, sessions.accountDataEpoch())
     }

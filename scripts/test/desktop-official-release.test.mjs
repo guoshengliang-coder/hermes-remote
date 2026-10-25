@@ -88,6 +88,30 @@ test("candidate key must verify both current public manifests and their index ha
   await assert.rejects(verifyDesktopReleaseKeyContinuity(args), /desktop_manifest_index_mismatch/);
 });
 
+test("frozen legacy and advancing component channels verify independently under the supported key", async () => {
+  const { privateKey } = generateKeyPairSync("ed25519");
+  const publicKey = createPublicKey(privateKey).export({ format: "der", type: "spki" }).subarray(-32).toString("base64url");
+  const responses = new Map();
+  for (const [kind, version] of [["releases", "0.4.12"], ["components", "0.4.14"]]) {
+    const payload = Buffer.from(JSON.stringify({ releaseVersion: version, channel: "internal", architecture: "arm64" }));
+    const manifest = Buffer.from(JSON.stringify({ algorithm: "Ed25519", keyId: "test", payload: payload.toString("base64url"),
+      signature: sign(null, payload, privateKey).toString("base64url") }));
+    const manifestURL = `https://example.test/desktop/${kind}/${version}/manifest.json`;
+    responses.set(manifestURL, manifest);
+    responses.set(`https://example.test/desktop/${kind}/index.json`, Buffer.from(JSON.stringify({
+      releaseVersion: version, channel: "internal", architecture: "arm64", manifestURL,
+      manifestSizeBytes: manifest.length, manifestSHA256: createHash("sha256").update(manifest).digest("hex"),
+    })));
+  }
+  const args = { origin: "https://example.test", keyId: "test", publicKey,
+    fetchImpl: async (url) => new Response(responses.get(url)) };
+  assert.equal((await verifyDesktopReleaseKeyContinuity(args)).length, 2);
+  await assert.rejects(verifyDesktopReleaseKeyContinuity({ ...args, nextVersion: "0.4.13" }), /version_not_newer/);
+  assert.equal((await verifyDesktopReleaseKeyContinuity({ ...args, nextVersion: "0.4.15" })).length, 2);
+  responses.set("https://example.test/desktop/releases/0.4.12/manifest.json", Buffer.from("tampered"));
+  await assert.rejects(verifyDesktopReleaseKeyContinuity(args), /manifest_index_mismatch/);
+});
+
 test("signed pair candidate requires protected signing and public-only verification", async () => {
   const workflow = await readFile(".github/workflows/desktop-managed-release-package.yml", "utf8");
   assert.match(workflow, /workflow_dispatch:/);

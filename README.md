@@ -118,12 +118,13 @@ The default-off R5-F4 source operator can now advance an already committed singl
 multi-device route/flag contract with exact rollback before any second binding is created. Its merge does not
 authorize production execution or bind another Mac.
 
-Android now contains a capability-gated email-code account path beside the existing Relay URL +
-`APP_TOKEN` mode. Account mode stores its own encrypted phone session, selects owned/shared Macs by
-opaque device ID, and sends only the Hermes GO bearer to the public Gateway. Legacy credentials are
-kept separately for compatibility and rollback; the Mac Hermes credential remains only on the Mac
-Connector. Each conversation also retains its originating Mac, so changing the default device affects
-new conversations without silently moving or merging existing history.
+Android now uses email-code account sign-in exclusively. HG-237 retires Relay URL/App Token,
+password, ticket and QR setup plus credential fallback. Upgrade removes retired secrets without
+removing the encrypted account session. Device requests use the Hermes GO bearer and the selected
+Mac route; signing out returns to account sign-in. The Mac Hermes credential stays on the Mac.
+Each conversation retains its originating Mac, so changing the default device never moves history.
+Ambiguous prompt delivery is shown as “Delivery unknown” with a status query, remains durable, and
+no longer blocks history synchronization. See `docs/HG_237_SEND_RECOVERY.md` for evidence and limits.
 
 ## Security baseline
 

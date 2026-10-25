@@ -103,7 +103,7 @@ data class ChatFile(
  * timeout, a stale live handle. [UNDELIVERABLE] is not: the conversation no longer exists upstream
  * and could not be replaced, so every retry would repeat the same refusal (see HR-SESS-001).
  */
-enum class DeliveryState { SENDING, SENT, FAILED, UNDELIVERABLE }
+enum class DeliveryState { SENDING, SENT, FAILED, UNDELIVERABLE, UNCONFIRMED }
 
 data class ChatMessage(
     val id: String,

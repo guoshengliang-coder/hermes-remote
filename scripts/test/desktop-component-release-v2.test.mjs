@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -99,6 +99,83 @@ test("v2 independent verifier rejects a changed compressed artifact", async (t) 
       && error.technicalCause === "component_artifact_integrity_invalid",
   );
 });
+
+for (const fault of ["none", "artifact", "index", "index-http", "source", "version", "downgrade"]) {
+  test(`component-only publisher verifies complete public bytes and preserves legacy channel (${fault})`, async (t) => {
+    const fixture = await makeFixture(t);
+    const signed = await packageDesktopComponentReleaseV2({ configPath: fixture.configPath, outputDirectory: fixture.output });
+    const bin = path.join(fixture.root, "bin");
+    const remote = path.join(fixture.root, "remote");
+    const versionRoot = path.join(remote, "0.4.0");
+    await mkdir(bin);
+    await mkdir(versionRoot, { recursive: true });
+    for (const name of await readdir(fixture.output)) await copyFile(path.join(fixture.output, name), path.join(versionRoot, name));
+    const oldIndex = JSON.stringify({ releaseVersion: fault === "downgrade" ? "0.4.1" : "0.3.9",
+      channel: "internal", architecture: "arm64" }) + "\n";
+    await writeFile(path.join(remote, "index.json"), oldIndex);
+    await writeFile(path.join(remote, "legacy-sentinel"), "must stay unchanged");
+    await writeFile(path.join(bin, "git"), `#!/bin/sh
+case "$1" in
+  status) exit 0 ;;
+  fetch) echo x >> "$TEST_ROOT/fetches"; exit 0 ;;
+  rev-parse)
+    [ "$2" = -q ] && exit 1
+    if [ "$2" = origin/main ] && [ "$TEST_FAULT" = source ] && [ "$(wc -l < "$TEST_ROOT/fetches")" -gt 1 ]; then echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; else echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi ;;
+  ls-remote) exit 2 ;;
+  tag|push) echo "$*" >> "$TEST_ROOT/tags" ;;
+  *) exit 70 ;;
+esac
+`, { mode: 0o700 });
+    await writeFile(path.join(bin, "ssh"), `#!/bin/sh
+shift
+if [ "$1" = sudo ]; then exec /bin/bash -s; fi
+exec "$@"
+`, { mode: 0o700 });
+    await writeFile(path.join(bin, "scp"), '#!/bin/sh\nexec /bin/cp "$1" "${2#*:}"\n', { mode: 0o700 });
+    await writeFile(path.join(bin, "curl"), `#!/usr/bin/env python3
+import os, sys, pathlib
+args=sys.argv[1:]
+url=next(x for x in args if x.startswith('https://'))
+out=pathlib.Path(args[args.index('-o')+1])
+with open(os.environ['TEST_ROOT']+'/requests','a') as f: f.write(url+'\\n')
+prefix='https://mrlgs.net/desktop/components/'
+if not url.startswith(prefix): sys.exit(71)
+data=(pathlib.Path(os.environ['TEST_REMOTE'])/url[len(prefix):]).read_bytes()
+if os.environ['TEST_FAULT']=='artifact' and url.endswith('.tar.gz'): data=b'tampered'
+if os.environ['TEST_FAULT']=='index' and url.endswith('/index.json') and b'"releaseVersion":"0.4.0"' in data: data=b'tampered'
+if os.environ['TEST_FAULT']=='index-http' and url.endswith('/index.json') and b'"releaseVersion":"0.4.0"' in data: sys.exit(22)
+out.write_bytes(data)
+`, { mode: 0o700 });
+    const result = spawnSync("scripts/publish-desktop-release.sh", [], {
+      cwd: process.cwd(), encoding: "utf8", shell: false,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`,
+        TEST_ROOT: fixture.root, TEST_REMOTE: remote, TEST_FAULT: fault,
+        DESKTOP_RELEASE_COMPONENTS_ONLY: "1", DESKTOP_RELEASE_PRESTAGED_PROTECTED: "1",
+        DESKTOP_RELEASE_REMOTE_COMPONENT_ROOT: remote, DESKTOP_RELEASE_REMOTE_RELEASE_ROOT: "",
+        DESKTOP_RELEASE_MANIFEST: "", DESKTOP_COMPONENT_MANIFEST: signed.manifestPath,
+        DESKTOP_RELEASE_SSH_TARGET: "release@example.test", DESKTOP_RELEASE_PUBLIC_ORIGIN: "https://mrlgs.net",
+        DESKTOP_RELEASE_VERSION: fault === "version" ? "0.4.1" : "0.4.0",
+        DESKTOP_RELEASE_ARCHITECTURE: "arm64", DESKTOP_RELEASE_CHANNEL: "internal",
+        DESKTOP_RELEASE_SIGNING_KEY_ID: signed.keyId, DESKTOP_RELEASE_SIGNING_PUBLIC_KEY: signed.publicKey,
+      },
+    });
+    assert.equal(await readFile(path.join(remote, "legacy-sentinel"), "utf8"), "must stay unchanged");
+    if (fault === "none") {
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /DESKTOP_COMPONENT_RELEASE_OK/);
+      assert.equal(JSON.parse(await readFile(path.join(remote, "index.json"), "utf8")).releaseVersion, "0.4.0");
+      assert.equal(await readFile(path.join(remote, "index.previous.json"), "utf8"), oldIndex);
+      assert.match(await readFile(path.join(fixture.root, "tags"), "utf8"), /desktop-components-v0.4.0/);
+      const requests = (await readFile(path.join(fixture.root, "requests"), "utf8")).trim().split("\n");
+      assert.equal(requests.length, 5);
+      assert.ok(requests.every((url) => url.includes("/desktop/components/")));
+    } else {
+      assert.notEqual(result.status, 0);
+      assert.equal(await readFile(path.join(remote, "index.json"), "utf8"), oldIndex);
+      assert.ok(!(await readdir(fixture.root)).includes("tags"));
+    }
+  });
+}
 
 async function makeFixture(t) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "hermes-component-v2-test-")));

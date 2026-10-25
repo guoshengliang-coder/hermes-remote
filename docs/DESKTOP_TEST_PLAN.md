@@ -1284,3 +1284,7 @@ failures remain unexplained, so this case is not accepted as reliable yet. The e
 follow-up are in HERMES_COMPATIBILITY_EXECUTION.md. All 24 temporary jobs and 12 database clusters
 from these runs were stopped and their ports checked; temporary executables and original paths were
 restored. Product UI, real account login and client lifecycle tests remain outstanding.
+
+### Component layout migration release gate (2026-10-25)
+
+See `DESKTOP_COMPONENT_MIGRATION.md` for the transaction and physical acceptance matrix. Automated coverage includes opted-in component discovery from an active bundled/local installation; disabled/missing configuration and invalid states stay on their existing paths. Real signed component fixture archives exercise exact preparation confirmation, one-way conversion, retained local Hermes agent/launcher/token and binding, health failure rollback, restart recovery, missing executable refusal before shutdown and refusal to restore bundled Hermes after commit. Publisher fault injection covers complete archive/index bytes, HTTP readback failure, rollback readback failure, current-main movement, downgrade, signed-version mismatch and independent channel signatures. GUI integration calls the explicit preparation only from the unified update flow and labels its final confirmation “迁移并重连”. Physical service-changing migration, fresh install and Android business acceptance remain pending and must be reported separately from package/publication verification.

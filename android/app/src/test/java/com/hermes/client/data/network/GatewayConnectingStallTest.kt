@@ -75,7 +75,7 @@ class GatewayConnectingStallTest {
             wsEndpointProvider = {
                 calls.incrementAndGet()
                 kotlinx.coroutines.delay(Long.MAX_VALUE) // never dials
-                GatewayWebSocketEndpoint("ws://127.0.0.1:1/api/ws", "t")
+                GatewayWebSocketEndpoint("ws://127.0.0.1:1/api/ws")
             },
         )
         return client to okHttp

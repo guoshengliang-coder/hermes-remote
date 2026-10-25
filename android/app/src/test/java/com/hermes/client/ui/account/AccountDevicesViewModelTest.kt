@@ -134,7 +134,7 @@ class AccountDevicesViewModelTest {
             verify(exactly = 1) { chat.reconnect() }
         }
 
-    @Test fun emailLoginKeepsWorkingLegacyTransportWhenAccountMacIsNotReady() = runTest(dispatcher) {
+    @Test fun emailLoginRequiresMacSelectionEvenWhenRetiredCredentialsExist() = runTest(dispatcher) {
         val now = Instant.parse("2026-09-08T08:00:00Z")
         val api = mockk<AccountApi>()
         val store = MemoryAccountStore(null, pendingChallenge(now))
@@ -168,8 +168,8 @@ class AccountDevicesViewModelTest {
         }
         coVerify(exactly = 1) { api.binding(any(), any()) }
         assertNull(vm.state.value.error)
-        assertEquals(AccountTransportMode.ACCOUNT_PENDING, manager.transportMode())
-        assertTrue(manager.session.value?.activationPending == true)
+        assertEquals(AccountTransportMode.DEVICE_SELECTION_REQUIRED, manager.transportMode())
+        assertEquals(false, manager.session.value?.activationPending)
         assertNull(manager.session.value?.selectedDeviceId)
         coVerify(exactly = 0) { api.devices(any(), any()) }
         coVerify(exactly = 0) { api.probeSingleBinding(any(), any()) }

@@ -1237,7 +1237,8 @@ function sendLocalFrame(local: WebSocket, frame: TunnelSocketFrame): void {
   local.send(frame.binary ? data : data.toString("utf8"), { binary: frame.binary });
   const rpc = trackedForegroundRpcRequest(data, frame.binary);
   if (rpc) {
-    pendingForegroundRpcs.get(frame.id)?.set(rpc.id, { method: rpc.method, startedAt: Date.now() });
+    const tracked = pendingForegroundRpcs.get(frame.id);
+    if (tracked && tracked.size < 16) tracked.set(rpc.id, { method: rpc.method, startedAt: Date.now() });
     log.info("tunnel.rpc.local_sent", { tunnel: frame.id, rpcId: rpc.id, method: rpc.method });
   }
 }

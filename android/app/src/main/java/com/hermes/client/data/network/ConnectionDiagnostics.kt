@@ -38,7 +38,7 @@ class ConnectionDiagnostics @Inject constructor(
 ) {
     fun configuredBaseUrl(): String? = when (accountSessions.transportMode()) {
         AccountTransportMode.ACCOUNT -> accountSessions.session.value?.baseUrl
-        else -> runCatching { credentials.load()?.baseUrl }.getOrNull()
+        else -> null
     }
 
     suspend fun diagnose(

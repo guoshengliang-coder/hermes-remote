@@ -46,9 +46,9 @@ test("foreground RPC tracing recognizes only bounded top-level metadata", () => 
   const request = Buffer.from(JSON.stringify({ id: 7, method: "slash.exec", params: { command: "/model private --session" } }));
   assert.deepEqual(trackedForegroundRpcRequest(request, false), { id: 7, method: "slash.exec" });
   assert.equal(trackedForegroundRpcRequest(request, true), null);
-  assert.equal(trackedForegroundRpcRequest(Buffer.from(JSON.stringify({ id: 8, method: "prompt.submit" })), false), null);
+  assert.deepEqual(trackedForegroundRpcRequest(Buffer.from(JSON.stringify({ id: 8, method: "prompt.submit", params: { text: "private prompt".repeat(600) } })), false), { id: 8, method: "prompt.submit" });
   assert.equal(trackedForegroundRpcRequest(Buffer.from("{"), false), null);
-  assert.equal(trackedForegroundRpcRequest(Buffer.alloc(4097), false), null);
+  assert.equal(trackedForegroundRpcRequest(Buffer.alloc(256 * 1024 + 1), false), null);
   assert.deepEqual(rpcResponseIdentity(Buffer.from(JSON.stringify({ id: 7, result: { output: "private" } })), false), { id: 7, ok: true });
   assert.deepEqual(rpcResponseIdentity(Buffer.from(JSON.stringify({ id: 7, error: { message: "private" } })), false), { id: 7, ok: false });
   assert.equal(rpcResponseIdentity(Buffer.from(JSON.stringify({ event: { id: 7, result: "private" } })), false), null);

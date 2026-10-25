@@ -1,6 +1,6 @@
 package com.hermes.client.data.network
 
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -21,7 +21,7 @@ class HermesRestApiContractTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun api(server: MockWebServer, token: String = "secret-token") = HermesRestApi(testHttpClient(), json) {
-        GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = token)
+        testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = token)
     }
 
     @Test fun the_report_is_read_from_the_connector_route() = runTest {
@@ -58,12 +58,12 @@ class HermesRestApiContractTest {
         val first = api(serverRule.server, token = "secret-token").contractTargetKey()!!
         val otherToken = api(serverRule.server, token = "another-token").contractTargetKey()!!
         val otherGateway = HermesRestApi(testHttpClient(), json) {
-            GatewayConfig(baseUrl = "https://other.example", token = "secret-token")
+            testAccountConnection(baseUrl = "https://other.example", token = "secret-token")
         }.contractTargetKey()!!
 
         assertFalse(first, first.contains("secret-token"))
         assertEquals(first, api(serverRule.server, token = "secret-token").contractTargetKey())
-        assertNotEquals(first, otherToken)
+        assertEquals(first, otherToken)
         assertNotEquals(first, otherGateway)
         assertNull(HermesRestApi(testHttpClient(), json) { null }.contractTargetKey())
     }

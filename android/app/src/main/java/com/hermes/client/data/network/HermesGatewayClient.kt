@@ -60,6 +60,9 @@ const val RELAY_RESPONSE_TOO_LARGE_CODE = -32001
  */
 class GatewayReadinessTimeoutException(message: String) : GatewayRpcException(0, message)
 
+/** The request never entered the WebSocket send queue. */
+class GatewayRequestNotSentException(message: String) : GatewayRpcException(0, message)
+
 /** The request was sent, but no answer arrived; its server-side outcome is unknown. */
 class GatewayResponseTimeoutException(message: String) : GatewayRpcException(0, message)
 
@@ -69,7 +72,6 @@ class GatewayEndpointException(message: String, val retryable: Boolean) : Except
 /** WebSocket URL plus optional header authentication. Long-lived tokens never enter URLs/logs. */
 data class GatewayWebSocketEndpoint(
     val url: String,
-    val sessionToken: String? = null,
     val bearerToken: String? = null,
     val accountDeviceId: String? = null,
 )
@@ -289,7 +291,7 @@ open class HermesGatewayClient(
          * which conversation every later line refers to: without the answer, a later "session not
          * found" cannot be told apart from a create that never worked.
          */
-        val OUTCOME_RPC_METHODS = setOf("session.create", "slash.exec")
+        val OUTCOME_RPC_METHODS = setOf("session.create", "slash.exec", "prompt.submit")
 
         /** A quiet RPC this slow is worth a line even though it succeeded. */
         const val SLOW_RPC_MS = 1_000L
@@ -515,20 +517,11 @@ open class HermesGatewayClient(
                     if (manuallyClosed) "closed by the app" else "superseded by gen=${generation.get()}")
                 return@launch
             }
-            val hasLegacyToken = !endpoint.sessionToken.isNullOrBlank()
             val hasBearerToken = !endpoint.bearerToken.isNullOrBlank()
-            if (hasLegacyToken && hasBearerToken) {
-                DebugLog.log("ws", "refusing ambiguous websocket authentication (gen=$gen)")
-                onSocketClosed(gen, "ambiguous websocket authentication")
-                return@launch
-            }
             val request = Request.Builder()
                 .url(endpoint.url)
                 .apply {
                     header("X-Hermes-Connection-Id", socketConnectionId)
-                    endpoint.sessionToken?.takeIf { it.isNotBlank() }?.let {
-                        header("X-Hermes-Session-Token", it)
-                    }
                     endpoint.bearerToken?.takeIf { it.isNotBlank() }?.let {
                         header("Authorization", "Bearer $it")
                     }
@@ -901,6 +894,9 @@ open class HermesGatewayClient(
                 "readiness-timeout", "method=$what ${connectionSnapshot()}",
             )
             throw GatewayReadinessTimeoutException("gateway readiness timeout")
+        } catch (error: GatewayRpcException) {
+            // This wait precedes registration and WebSocket.send: a failed handshake sent no RPC.
+            throw GatewayRequestNotSentException(error.message ?: "gateway not ready")
         }
     }
 
@@ -935,7 +931,7 @@ open class HermesGatewayClient(
             pending.remove(id)
             resumeWindows.remove(id)
             DebugLog.log("ws", "rpc#$id conn=$sentConnectionId $method failed: not connected")
-            throw GatewayRpcException(0, "not connected")
+            throw GatewayRequestNotSentException("not connected")
         }
         return try {
             // Session creation and model switches have an unknown outcome when their reply is lost.

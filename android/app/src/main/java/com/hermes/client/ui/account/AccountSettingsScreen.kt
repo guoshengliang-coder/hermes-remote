@@ -49,9 +49,7 @@ import com.hermes.client.ui.localization.localized
  * Settings > Hermes GO account. Manages the account and THIS phone's session only: §5.0 keeps
  * remote devices on the card page's "remote node" detail and forbids duplicating them here.
  *
- * [onSignIn] exists because this page is reachable while signed out — a phone still holding a
- * working legacy Relay connection has a configuration, so nothing forces it through the sign-in
- * gate first.
+ * [onSignIn] reuses the app's only sign-in destination if account state changes on this page.
  */
 @Composable
 fun AccountSettingsScreen(

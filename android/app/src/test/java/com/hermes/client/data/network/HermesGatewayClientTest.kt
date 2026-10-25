@@ -87,7 +87,7 @@ class HermesGatewayClientTest {
         return HermesGatewayClient(
             okHttp, json, testScope,
             handshakeTimeoutMs = handshakeTimeoutMs,
-            wsEndpointProvider = { GatewayWebSocketEndpoint(base, "t") },
+            wsEndpointProvider = { GatewayWebSocketEndpoint(base) },
         ) to okHttp
     }
 
@@ -174,7 +174,7 @@ class HermesGatewayClientTest {
             assertEquals("true", result.jsonObject["pong"]!!.jsonPrimitive.content)
             val upgrade = serverRule.server.takeRequest(5, TimeUnit.SECONDS)!!
             assertEquals("/api/ws", upgrade.target)
-            assertEquals("t", upgrade.headers["X-Hermes-Session-Token"])
+            assertEquals(null, upgrade.headers["X-Hermes-Session-Token"])
             assertTrue(upgrade.headers["X-Hermes-Connection-Id"].orEmpty().matches(
                 Regex("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"),
             ))
@@ -199,7 +199,7 @@ class HermesGatewayClientTest {
         val base = serverRule.server.url("/api/ws").toString().replace("http", "ws")
         val http = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
         val client = object : HermesGatewayClient(http, json, testScope,
-            wsEndpointProvider = { GatewayWebSocketEndpoint(base, "t") }) {
+            wsEndpointProvider = { GatewayWebSocketEndpoint(base) }) {
             fun deliverOldClose() = super.onSocketClosed(1, "old account authorization changed", retry = false,
                 closeCode = 4403)
         }
@@ -492,7 +492,7 @@ class HermesGatewayClientTest {
             json = json,
             scope = testScope,
             rpcTimeoutMs = 100,
-        ) { GatewayWebSocketEndpoint(base, "t") }
+        ) { GatewayWebSocketEndpoint(base) }
         try {
             client.connect()
             val error = withContext(Dispatchers.Default) {
@@ -532,7 +532,7 @@ class HermesGatewayClientTest {
         val base = serverRule.server.url("/api/ws").toString().replace("http", "ws")
         val okHttp = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
         val client = HermesGatewayClient(okHttp, json, testScope, rpcTimeoutMs = 100) {
-            GatewayWebSocketEndpoint(base, "t")
+            GatewayWebSocketEndpoint(base)
         }
         try {
             client.connect()
@@ -637,7 +637,7 @@ class HermesGatewayClientTest {
         val http = OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build()
         val client = object : HermesGatewayClient(http, json, testScope,
             backoff = BackoffPolicy(baseMs = 10_000, maxMs = 10_000),
-            wsEndpointProvider = { GatewayWebSocketEndpoint(base, "t") }) {
+            wsEndpointProvider = { GatewayWebSocketEndpoint(base) }) {
             fun failCurrentGeneration() = super.onSocketClosed(1, "gateway handshake timeout", true, null)
         }
         client.lifecycleSeam = { name ->
@@ -754,6 +754,18 @@ class HermesGatewayClientTest {
             )
         } finally {
             tearDownClient(client, okHttp)
+        }
+    }
+
+    @Test fun a_closed_readiness_gate_proves_the_prompt_was_not_sent() = runTest {
+        val (client, http) = makeClientAndHttp(serverRule.server)
+        try {
+            client.cancelNow()
+            val failure = runCatching { client.call("prompt.submit", buildJsonObject {}) }.exceptionOrNull()
+            assertTrue(failure is GatewayRequestNotSentException)
+            assertEquals(0, serverRule.server.requestCount)
+        } finally {
+            tearDownClient(client, http)
         }
     }
 

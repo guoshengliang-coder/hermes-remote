@@ -71,7 +71,9 @@ class ModelCatalogStoreTest {
     // no error state (a fresh install shows Setup, not a model-list failure).
     @Test fun refresh_is_silent_noop_without_credentials() = runTest {
         every { credentials.load() } returns null
-        val store = buildStore()
+        val signedOut = mockk<com.hermes.client.data.auth.AccountSessionManager>()
+        every { signedOut.hasLoadedConnection() } returns false
+        val store = buildStore(signedOut)
 
         store.onForeground()
         store.refresh(force = true)
