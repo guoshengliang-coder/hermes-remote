@@ -67,3 +67,11 @@ dd2905f994f5fe00c80e21f8d41d847398271249:scripts/test/production-push-rollout.te
 7afba9604f6624880499ba968be648c4fe549375:docs/evidence/hermes-compatibility/2026-10-25-runtime.json:generic-api-key:66
 7afba9604f6624880499ba968be648c4fe549375:docs/evidence/hermes-compatibility/2026-10-25-runtime.json:generic-api-key:105
 7afba9604f6624880499ba968be648c4fe549375:docs/evidence/hermes-compatibility/2026-10-25-runtime.json:generic-api-key:117
+
+# Same verified public route digests in the configured-runtime rehearsal reports.
+# Each value was recomputed from its route-only inventory; no blanket file exclusion.
+199793ebc999d87054cacdc675caff4cd590368a:docs/evidence/hermes-compatibility/2026-10-25-runtime-configuration.json:generic-api-key:74
+199793ebc999d87054cacdc675caff4cd590368a:docs/evidence/hermes-compatibility/2026-10-25-runtime-configuration.json:generic-api-key:113
+199793ebc999d87054cacdc675caff4cd590368a:docs/evidence/hermes-compatibility/2026-10-25-runtime-configuration.json:generic-api-key:129
+199793ebc999d87054cacdc675caff4cd590368a:docs/evidence/hermes-compatibility/2026-10-25-dependency-configuration.json:generic-api-key:74
+199793ebc999d87054cacdc675caff4cd590368a:docs/evidence/hermes-compatibility/2026-10-25-dependency-configuration.json:generic-api-key:106
