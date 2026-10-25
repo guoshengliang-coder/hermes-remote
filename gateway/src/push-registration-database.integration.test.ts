@@ -32,7 +32,7 @@ test("PostgreSQL push registrations are per live Android phone and vanish on rev
     }
     assert.equal((await pool.query(
       "SELECT version FROM gateway_schema_state WHERE singleton = true",
-    )).rows[0].version, 20);
+    )).rows[0].version, 21);
 
     const codec = new TokenCodec("push-integration-key-with-at-least-thirty-two-bytes");
     accountRepository = new PostgresAccountRepository(pool, codec);

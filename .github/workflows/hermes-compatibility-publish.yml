@@ -1,0 +1,47 @@
+name: Hermes compatibility publication
+run-name: hermes-compatibility-publish-${{ inputs.task_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: Server-created immutable publication task UUID
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: hermes-compatibility-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: desktop-release
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      HERMES_COMPATIBILITY_GATEWAY_URL: ${{ vars.HERMES_COMPATIBILITY_GATEWAY_URL }}
+      HERMES_COMPATIBILITY_TASK_ID: ${{ inputs.task_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts && npm run build
+      - name: Verify existing Desktop release signing trust
+        env:
+          SIGNING_KEY_ID: ${{ vars.DESKTOP_RELEASE_SIGNING_KEY_ID }}
+          SIGNING_PUBLIC_KEY: ${{ vars.DESKTOP_RELEASE_SIGNING_PUBLIC_KEY }}
+        run: node scripts/verify-desktop-release-key-continuity.mjs https://mrlgs.net "$SIGNING_KEY_ID" "$SIGNING_PUBLIC_KEY"
+      - name: Claim approved immutable publication
+        run: node scripts/hermes-compatibility-publish-worker.mjs claim compatibility-publication.json
+      - name: Sign and submit for independent public readback
+        env:
+          SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_RELEASE_SIGNING_PRIVATE_KEY }}
+          SIGNING_KEY_ID: ${{ vars.DESKTOP_RELEASE_SIGNING_KEY_ID }}
+          SIGNING_PUBLIC_KEY: ${{ vars.DESKTOP_RELEASE_SIGNING_PUBLIC_KEY }}
+        run: node scripts/hermes-compatibility-publish-worker.mjs sign-and-report compatibility-publication.json

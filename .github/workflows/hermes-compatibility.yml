@@ -1,0 +1,102 @@
+name: Hermes compatibility
+run-name: hermes-compatibility-${{ inputs.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Server-created compatibility task UUID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-compatibility-${{ inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts && npm run build
+      - name: Claim immutable task using workflow identity
+        env:
+          HERMES_COMPATIBILITY_GATEWAY_URL: ${{ vars.HERMES_COMPATIBILITY_GATEWAY_URL }}
+          HERMES_COMPATIBILITY_RUN_ID: ${{ inputs.run_id }}
+        run: node scripts/hermes-compatibility-worker.mjs claim compatibility-task.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: compatibility-task
+          path: compatibility-task.json
+          if-no-files-found: error
+          retention-days: 30
+
+  validate:
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 85
+    # Deliberately no OIDC, deployment, signing or account credentials in this job.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts && npm run build
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: compatibility-task
+      - name: Validate in disposable homes with OS isolation
+        run: node scripts/hermes-compatibility-validate.mjs compatibility-task.json compatibility-result.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: compatibility-result
+          path: compatibility-result.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    needs: [prepare, validate]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts && npm run build
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: compatibility-task
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        continue-on-error: true
+        with:
+          name: compatibility-result
+      - name: Verify evidence and report using workflow identity
+        env:
+          HERMES_COMPATIBILITY_GATEWAY_URL: ${{ vars.HERMES_COMPATIBILITY_GATEWAY_URL }}
+          HERMES_COMPATIBILITY_RUN_ID: ${{ inputs.run_id }}
+        run: node scripts/hermes-compatibility-worker.mjs report compatibility-task.json compatibility-result.json

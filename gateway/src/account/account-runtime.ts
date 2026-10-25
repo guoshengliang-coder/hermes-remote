@@ -1,5 +1,11 @@
 import { AccountProfileSync, PostgresProfileSyncStore } from "./account-profile-sync.js";
 import { AccountModelSync } from "./account-model-sync.js";
+import { HermesCompatibilityService } from "./hermes-compatibility-service.js";
+import { HermesCompatibilityStore } from "./hermes-compatibility-store.js";
+import { HermesCompatibilityCI } from "./hermes-compatibility-ci.js";
+import { parseCompatibilityCIConfiguration } from "./hermes-compatibility-config.js";
+import { parseCompatibilityPublicationConfiguration,readCompatibilityPublicationFile } from "./hermes-compatibility-publication.js";
+import { HermesCompatibilityPublishCI } from "./hermes-compatibility-publish-ci.js";
 import { readFileSync } from "node:fs";
 import { Pool } from "pg";
 import { AccountHttpController } from "./account-http-controller.js";
@@ -187,6 +193,7 @@ export function createAccountRuntime(
   );
   const profileSyncEnabled = booleanFlag(environment, "ACCOUNT_DATA_SYNC_ENABLED", false);
   const modelSyncEnabled = booleanFlag(environment, "ACCOUNT_MODEL_SYNC_ENABLED", false);
+  const hermesCompatibilityEnabled = booleanFlag(environment, "ACCOUNT_HERMES_COMPATIBILITY_ENABLED", false);
   const accountDeletionEnabled = booleanFlag(environment, "ACCOUNT_DELETION_ENABLED", false);
   const webAccountCenterEnabled = booleanFlag(
     environment,
@@ -405,10 +412,26 @@ export function createAccountRuntime(
       })
     : undefined;
   retention.start();
+  const compatibilityStore = hermesCompatibilityEnabled ? new HermesCompatibilityStore(pool) : undefined;
+  const compatibilityConfig = compatibilityStore && environment.ACCOUNT_HERMES_COMPATIBILITY_CI_CONFIG_FILE
+    ? parseCompatibilityCIConfiguration(readFileSync(environment.ACCOUNT_HERMES_COMPATIBILITY_CI_CONFIG_FILE,"utf8")) : undefined;
+  const compatibilityCI = compatibilityStore && compatibilityConfig
+    ? new HermesCompatibilityCI(compatibilityStore,compatibilityConfig.trust,
+      requireSecret(environment,"ACCOUNT_HERMES_COMPATIBILITY_GITHUB_TOKEN",20)) : undefined;
+  const compatibilityPublication = compatibilityStore && compatibilityConfig && environment.ACCOUNT_HERMES_COMPATIBILITY_PUBLICATION_CONFIG_FILE
+    ? parseCompatibilityPublicationConfiguration(readCompatibilityPublicationFile(environment.ACCOUNT_HERMES_COMPATIBILITY_PUBLICATION_CONFIG_FILE)) : undefined;
+  const compatibilityPublisher = compatibilityStore && compatibilityConfig && compatibilityPublication
+    ? new HermesCompatibilityPublishCI(compatibilityStore,compatibilityConfig.trust,
+      requireSecret(environment,"ACCOUNT_HERMES_COMPATIBILITY_GITHUB_TOKEN",20),compatibilityPublication) : undefined;
+  compatibilityCI?.start();
+  compatibilityPublisher?.start();
   return {
     controller: new AccountHttpController(true, service, {
       ...(profileSyncEnabled ? { profileSync: new AccountProfileSync(new PostgresProfileSyncStore(pool), tokens) } : {}),
       ...(modelSyncEnabled ? { modelSync: new AccountModelSync(pool, tokens) } : {}),
+      ...(compatibilityStore ? { hermesCompatibility: new HermesCompatibilityService(compatibilityStore,compatibilityConfig?.recipes,undefined,undefined,compatibilityPublication),
+        ...(compatibilityCI ? {hermesCompatibilityWorker:compatibilityCI} : {}),
+        ...(compatibilityPublisher ? {hermesCompatibilityPublisher:compatibilityPublisher} : {}) } : {}),
       voiceEnabled,
       trustLoopbackProxy,
       controlEnabled,
@@ -509,6 +532,8 @@ export function createAccountRuntime(
     } : {}),
     readiness: () => checkDatabaseReadiness(pool, release),
     close: async () => {
+      compatibilityCI?.stop();
+      compatibilityPublisher?.stop();
       await retention.close();
       await accessRevocations.close();
       await accessRevocationPool.end();

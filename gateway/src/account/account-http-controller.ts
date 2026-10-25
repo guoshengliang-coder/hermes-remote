@@ -1,5 +1,9 @@
 import { AccountProfileSync, profileSyncErrors } from "./account-profile-sync.js";
 import { AccountModelSync, modelSyncErrors } from "./account-model-sync.js";
+import { HermesCompatibilityService } from "./hermes-compatibility-service.js";
+import { CompatibilityError } from "./hermes-compatibility-model.js";
+import { HermesCompatibilityCI } from "./hermes-compatibility-ci.js";
+import { HermesCompatibilityPublishCI } from "./hermes-compatibility-publish-ci.js";
 import { WEB_DEVICE_FEATURES } from "./web-device-access.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -89,6 +93,9 @@ export class AccountHttpController {
     private readonly options: {
       profileSync?: AccountProfileSync;
       modelSync?: AccountModelSync;
+      hermesCompatibility?: HermesCompatibilityService;
+      hermesCompatibilityWorker?: HermesCompatibilityCI;
+      hermesCompatibilityPublisher?: HermesCompatibilityPublishCI;
       trustLoopbackProxy?: boolean;
       controlEnabled?: boolean;
       controlService?: AccountControlService;
@@ -170,6 +177,42 @@ export class AccountHttpController {
         throw accountErrors.resourceNotFound();
       }
       if (!this.enabled || !this.service) throw accountErrors.featureDisabled();
+
+      if (url.pathname.startsWith("/v2/hermes-compatibility/")) {
+        const compatibility = this.options.hermesCompatibility;
+        if (!compatibility) throw accountErrors.featureDisabled();
+        const path = url.pathname.slice("/v2/hermes-compatibility/".length);
+        if(request.method==="GET"&&(path==="recommendations"||/^snapshots\/[1-9][0-9]{0,15}$/.test(path))){
+          const result=await compatibility.recommendation(path==="recommendations"?undefined:Number(path.slice(10)));
+          sendJson(response,200,result,{"cache-control":"no-store"});return;
+        }
+        const workerPath = /^(worker|publisher)\/([a-f0-9-]{36})\/(claim|report)$/.exec(path);
+        if (workerPath && request.method === "POST") {
+          const worker = workerPath[1]==="publisher"?this.options.hermesCompatibilityPublisher:this.options.hermesCompatibilityWorker;
+          if (!worker) throw accountErrors.featureDisabled();
+          const body = await readJsonObject(request,workerPath[1]==="publisher"?512*1024:MAX_ACCOUNT_BODY_BYTES);
+          let result: unknown;
+          if (workerPath[3] === "claim") {
+            if (Object.keys(body).length) throw accountErrors.invalidRequest();
+            result = await worker.claim(workerPath[2],firstHeader(request,"authorization"));
+          } else result = await worker.complete(workerPath[2],firstHeader(request,"authorization"),body);
+          sendJson(response,200,result,{"cache-control":"no-store"});
+          return;
+        }
+        const principal = await this.service.authenticate(firstHeader(request,"authorization"));
+        let result: unknown;
+        if (request.method === "GET" && path === "access") result = await compatibility.access(principal);
+        else if (request.method === "GET" && path === "snapshot") result = await compatibility.snapshot(principal);
+        else if (request.method === "GET" && /^runs\/[a-f0-9-]{36}$/.test(path)) result = await compatibility.report(principal,path.slice(5));
+        else if (request.method === "POST" && path === "sync") result = await compatibility.sync(principal,await readJsonObject(request));
+        else if (request.method === "POST" && path === "runs") result = await compatibility.requestRun(principal,await readJsonObject(request));
+        else if (request.method === "POST" && path === "approve") result = await compatibility.approve(principal,await readJsonObject(request));
+        else if (request.method === "POST" && path === "publish") result = await compatibility.publish(principal,await readJsonObject(request));
+        else if (request.method === "POST" && path === "revoke") result = await compatibility.revoke(principal,await readJsonObject(request));
+        else throw accountErrors.resourceNotFound();
+        sendJson(response,200,result,{"cache-control":"no-store"});
+        return;
+      }
 
       if (url.pathname.startsWith("/v2/account-data/models/") || url.pathname.startsWith("/v2/web/account-data/models/")) {
         const sync = this.options.modelSync;
@@ -1353,6 +1396,9 @@ export class AccountHttpController {
           retryable: mapped.retryable,
           recoveryAction: mapped.recoveryAction,
           correlationId,
+          ...(mapped instanceof CompatibilityError ? {
+            summaryZh: mapped.message, summaryEn: mapped.summaryEn, action: mapped.action,
+          } : {}),
         },
       }, mapped.code === "HR-AUTH-007" ? { "retry-after": "60" } : {});
     }
@@ -1495,7 +1541,7 @@ function capabilities(
   };
 }
 
-async function readJsonObject(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJsonObject(request: IncomingMessage, maximumBytes=MAX_ACCOUNT_BODY_BYTES): Promise<Record<string, unknown>> {
   const contentType = firstHeader(request, "content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/json") {
     throw accountErrors.invalidRequest("Content-Type must be application/json.");
@@ -1506,7 +1552,7 @@ async function readJsonObject(request: IncomingMessage): Promise<Record<string, 
     for await (const chunk of request) {
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       size += bytes.length;
-      if (size > MAX_ACCOUNT_BODY_BYTES) {
+      if (size > maximumBytes) {
         throw accountErrors.invalidRequest("The account request body is too large.");
       }
       chunks.push(bytes);

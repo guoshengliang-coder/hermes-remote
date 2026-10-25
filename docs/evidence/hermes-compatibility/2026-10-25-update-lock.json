@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "633dda6d7fdcac7e8340471c9f5ed08cdccbd70c",
+  "targetCommit": "bf0203a794a07aac3ff764972ab9087baa4e4f4e",
+  "sourceLockSha256": "efe26d10234904dce52f8fcaff6379c3d1d2fcbcc77a0d3c59781afd0d5d29f5",
+  "targetLockSha256": "45fe832597560cf3139871aaec0a45590a463d0029a8d672a4ee801bf754fc24",
+  "suiteSha256": "dab30cbce419c16ad1f03e7ba719b323372436755e469823cb74c60d8db52d16",
+  "compatibilityApproved": false,
+  "checks": {
+    "oldRefusesLiveOwner": true,
+    "newRefusesLiveOwner": true,
+    "childSurvivesOwnerInterruption": true,
+    "newRefusesSurvivingChild": true,
+    "oldRefusesSurvivingChild": false,
+    "newAcquiresAfterTreeExit": true
+  },
+  "finishedAt": 1792912635,
+  "status": "compatibility_gap"
+}

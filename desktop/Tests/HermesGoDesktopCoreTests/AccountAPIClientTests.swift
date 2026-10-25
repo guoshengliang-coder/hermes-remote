@@ -8,6 +8,102 @@ final class AccountAPIClientTests: XCTestCase {
         super.tearDown()
     }
 
+    func testHermesCompatibilityAccessUsesBearerAndNeverInfersAdministratorFromEmail() async throws {
+        StubURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/v2/hermes-compatibility/access")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer hga_test")
+            return (200, ["Content-Type":"application/json"], Data(#"{"schemaVersion":1,"canManage":false,"revision":4,"email":"guoshengliang@gmail.com"}"#.utf8))
+        }
+        let client = AccountAPIClient(gatewayURL: URL(string: "https://relay.example")!, session: makeStubSession())
+        let access = try await client.hermesCompatibilityAccess(accessToken: "hga_test")
+        XCTAssertFalse(access.canManage)
+        XCTAssertEqual(access.revision, 4)
+    }
+
+    func testHermesCompatibilityMutationBindsPersistedOperationAndRevisionWithoutClientRole() async throws {
+        let key = "40000000-0000-4000-8000-000000000001"
+        StubURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/v2/hermes-compatibility/sync")
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: request.capturedBody()!) as? [String:Any])
+            XCTAssertEqual(Set(object.keys), ["operationId", "expectedRevision"])
+            XCTAssertEqual(object["operationId"] as? String, key)
+            XCTAssertEqual(object["expectedRevision"] as? Int, 4)
+            return (200, ["Content-Type":"application/json"], Data(#"{"revision":5,"candidateId":"50000000-0000-4000-8000-000000000001","identityConflict":false}"#.utf8))
+        }
+        let client = AccountAPIClient(gatewayURL: URL(string: "https://relay.example")!, session: makeStubSession())
+        try await client.syncHermesCompatibility(accessToken:"hga_test",operationID:key,expectedRevision:4)
+    }
+
+    func testHermesCompatibilityErrorsUseRegisteredLocalSummariesWithoutRawServerText() {
+        for index in 1...6 {
+            let code = "HR-HERMESCOMPAT-00\(index)"
+            let issue = DesktopIssue.account(.remote(AccountRemoteError(code:code,message:"raw secret should not be displayed",retryable:false,recoveryAction:"none",correlationId:nil)))
+            XCTAssertEqual(issue.code.rawValue, code)
+            XCTAssertFalse(issue.displayChinese.contains("raw secret"))
+            XCTAssertFalse(issue.detailEnglish.isEmpty)
+            XCTAssertEqual(issue.retryable, index >= 5)
+        }
+    }
+
+    func testHermesCompatibilityRunRequestUsesOnlyServerRecipeAndCandidate() async throws {
+        let candidate = "50000000-0000-4000-8000-000000000001"
+        StubURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/v2/hermes-compatibility/runs")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer hga_test")
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.capturedBody()!) as? [String: Any])
+            XCTAssertEqual(Set(body.keys), ["operationId", "expectedRevision", "candidateId", "recipeId"])
+            XCTAssertEqual(body["candidateId"] as? String, candidate)
+            XCTAssertEqual(body["recipeId"] as? String, "macos-26-arm64")
+            return (200, ["Content-Type":"application/json"], Data(#"{"revision":5,"runId":"60000000-0000-4000-8000-000000000001"}"#.utf8))
+        }
+        let client = AccountAPIClient(gatewayURL: URL(string: "https://relay.example")!, session: makeStubSession())
+        try await client.requestHermesCompatibilityRun(accessToken: "hga_test", operationID: "40000000-0000-4000-8000-000000000001",
+            expectedRevision: 4, candidateID: candidate, recipeID: "macos-26-arm64")
+    }
+
+    func testHermesCompatibilityReportBindsRequestedRunAndRejectsPassingCheckWithoutEvidence() throws {
+        let id = "60000000-0000-4000-8000-000000000001"
+        let identity: [String: Any] = ["version":"0.22.5", "sourceCommit":String(repeating:"a",count:40),
+            "targetCommit":String(repeating:"b",count:40), "goCommit":String(repeating:"c",count:40)]
+        let hash = String(repeating:"d",count:64)
+        var report: [String: Any] = ["schemaVersion":1, "runId":id, "identity":identity, "startedAt":"2026-10-25T01:00:00Z",
+            "finishedAt":"2026-10-25T02:00:00Z", "outcome":"failed", "evidenceBundleSha256":hash,
+            "checks":[["name":"rpc", "status":"not_run", "evidenceSha256":NSNull()]]]
+        func decode() throws -> HermesCompatibilityRunDetail {
+            try JSONDecoder().decode(HermesCompatibilityRunDetail.self, from: JSONSerialization.data(withJSONObject:
+                ["id":id,"state":"failed","identity":identity,"report":report,"reportSha256":hash]))
+        }
+        let detail = try decode().validated(runID: id)
+        XCTAssertFalse(detail.mayRequestApproval)
+        XCTAssertEqual(detail.report?.checks.first?.stateTitle, "未执行")
+        XCTAssertThrowsError(try detail.validated(runID:"60000000-0000-4000-8000-000000000002"))
+        report["checks"] = [["name":"rpc", "status":"passed", "evidenceSha256":NSNull()]]
+        XCTAssertThrowsError(try decode().validated(runID:id))
+        report["checks"] = [["name":"rpc", "status":"not_run", "evidenceSha256":NSNull()], ["name":"rpc", "status":"not_run", "evidenceSha256":NSNull()]]
+        XCTAssertThrowsError(try decode().validated(runID:id))
+    }
+
+    func testHermesCompatibilityApprovalPublicationAndRevocationKeepDistinctWireBodies() async throws {
+        let id="60000000-0000-4000-8000-000000000001",hash=String(repeating:"a",count:64)
+        for action in [HermesCompatibilityManagementAction.approve(runID:id,reportSha256:hash),.publish,.revoke(decisionID:id)] {
+            StubURLProtocol.handler = { request in
+                XCTAssertEqual(request.url?.path,"/v2/hermes-compatibility/\(action.path)")
+                let body=try XCTUnwrap(JSONSerialization.jsonObject(with:request.capturedBody()!) as? [String:Any])
+                let state:String
+                switch action {
+                case .approve:
+                    XCTAssertEqual(Set(body.keys),["operationId","expectedRevision","runId","reportSha256"])
+                    XCTAssertEqual(body["reportSha256"] as? String,hash);state="approved"
+                case .publish: XCTAssertEqual(Set(body.keys),["operationId","expectedRevision"]);state="pending"
+                case .revoke: XCTAssertEqual(Set(body.keys),["operationId","expectedRevision","decisionId"]);state="revoked"
+                }
+                return (200,["Content-Type":"application/json"],try JSONSerialization.data(withJSONObject:["revision":6,"state":state]))
+            }
+            let client=AccountAPIClient(gatewayURL:URL(string:"https://relay.example")!,session:makeStubSession())
+            try await client.manageHermesCompatibility(accessToken:"hga_test",operationID:UUID().uuidString,expectedRevision:4,action:action)
+        }
+    }
+
     func testCapabilitiesDecodeOptionalDesktopBootstrapRuntimeContract() async throws {
         StubURLProtocol.handler = { _ in
             (200, ["Content-Type": "application/json"], Data(#"{"version":1,"accountAuth":{"enabled":true,"providers":["email_otp"],"android":true,"macos":true,"identityManagement":true,"webAccountCenter":false},"binding":{"enabled":true,"replacement":true,"maxActiveConnectorsPerAccount":3},"legacy":{"appTokenAccepted":true,"connectorTokenAccepted":true},"desktopBootstrap":{"runtimeContract":"hermes-serve-v1","componentManifestSchemaVersion":2}}"#.utf8))

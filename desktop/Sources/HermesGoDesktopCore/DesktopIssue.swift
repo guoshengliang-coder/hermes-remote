@@ -17,6 +17,13 @@ public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
     case hermesUpdateCheckFailed = "HR-HERMESUPDATE-001"
     case hermesUpdateBlocked = "HR-HERMESUPDATE-002"
     case hermesUpdateRecoveryRequired = "HR-HERMESUPDATE-003"
+    case hermesCompatibilityForbidden = "HR-HERMESCOMPAT-001"
+    case hermesCompatibilityInvalid = "HR-HERMESCOMPAT-002"
+    case hermesCompatibilityConflict = "HR-HERMESCOMPAT-003"
+    case hermesCompatibilityEvidenceIncomplete = "HR-HERMESCOMPAT-004"
+    case hermesCompatibilityUnavailable = "HR-HERMESCOMPAT-005"
+    case hermesCompatibilityPublicationIncomplete = "HR-HERMESCOMPAT-006"
+    case hermesCompatibilityRecommendationInvalid = "HR-HERMESCOMPAT-008"
 
     case connectionFailed = "HR-CONN-002"
     case connectorOffline = "HR-CONN-005"
@@ -185,6 +192,20 @@ public struct DesktopIssue: Error, Equatable, Sendable {
             ("暂时无法安全升级 Hermes", "Hermes upgrade is blocked", "暂时无法安全升级 Hermes，请查看升级条件后重新检查。", "Hermes cannot be upgraded safely yet. Review the upgrade conditions and check again.", false, .details)
         case .hermesUpdateRecoveryRequired:
             ("Hermes 升级需要恢复", "Hermes upgrade needs recovery", "Hermes 升级未完成，需要恢复上次操作。请查看详情。", "Hermes upgrade did not finish. Recover the previous operation and review the details.", false, .details)
+        case .hermesCompatibilityForbidden:
+            ("无兼容管理权限", "Compatibility access denied", "此账号没有 Hermes 兼容版本管理权限，请刷新账号状态。", "This account cannot manage Hermes compatibility. Refresh the account status.", false, .details)
+        case .hermesCompatibilityInvalid:
+            ("无法处理兼容记录", "Invalid compatibility record", "无法处理这条兼容记录，请刷新页面并检查输入。", "This compatibility record could not be processed. Refresh the page and check the input.", false, .details)
+        case .hermesCompatibilityConflict:
+            ("兼容记录已变化", "Compatibility record changed", "兼容记录已变化，请刷新后重新确认。", "The compatibility record changed. Refresh it before confirming again.", false, .details)
+        case .hermesCompatibilityEvidenceIncomplete:
+            ("验证证据不足", "Validation evidence incomplete", "验证证据尚不满足推荐条件，请查看报告并完成验证。", "The evidence is not sufficient for a recommendation. Review the report and complete validation.", false, .details)
+        case .hermesCompatibilityUnavailable:
+            ("验证服务暂不可用", "Validation service unavailable", "暂时无法连接兼容验证服务，请稍后重试。", "The compatibility validation service is unavailable. Try again later.", true, .retry)
+        case .hermesCompatibilityPublicationIncomplete:
+            ("推荐发布未完成", "Recommendation publication incomplete", "推荐清单尚未发布完成，请查看发布记录后重试。", "The recommendation list has not finished publishing. Review the publication record and retry.", true, .retry)
+        case .hermesCompatibilityRecommendationInvalid:
+            ("无法确认升级推荐", "Upgrade recommendation unavailable", "无法确认可用的 Hermes 升级推荐，请刷新版本信息。", "A valid Hermes upgrade recommendation could not be confirmed. Refresh the version information.", true, .retry)
 
         case .connectionFailed:
             ("无法连接 Relay", "Couldn't connect to the Relay", "连接失败，请检查网络和地址。", "Connection failed. Check the network and URL.", true, .retry)
@@ -336,6 +357,12 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         switch error {
         case .remote(let remote):
             let code: DesktopIssueCode = switch remote.code {
+            case "HR-HERMESCOMPAT-001": .hermesCompatibilityForbidden
+            case "HR-HERMESCOMPAT-002": .hermesCompatibilityInvalid
+            case "HR-HERMESCOMPAT-003": .hermesCompatibilityConflict
+            case "HR-HERMESCOMPAT-004": .hermesCompatibilityEvidenceIncomplete
+            case "HR-HERMESCOMPAT-005": .hermesCompatibilityUnavailable
+            case "HR-HERMESCOMPAT-006": .hermesCompatibilityPublicationIncomplete
             case "HR-AUTH-002": .googleSignInFailed
             case "HR-AUTH-003": .accountSessionExpired
             case "HR-AUTH-004": .accountSessionRevoked

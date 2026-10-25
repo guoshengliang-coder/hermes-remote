@@ -1,5 +1,17 @@
 # Hermes GO account-mode security model
 
+Compatibility administration adds a global role independent of device owner/operator grants.
+The default-off schema-21 service rechecks account/session/installation and role inside each mutation
+transaction, serializing role revocation with management changes. Display email never authorizes a
+request. The operator-only `dist/ops/hermes-compatibility-admin.js` accepts `grant|revoke --account-id
+<uuid> --expected-verified-email <email>` and cross-checks the server's verified identity before a role
+change; no startup/login auto-grant exists. Use only through the normal explicit production-change
+procedure. No real account has been granted by the implementation task.
+
+Discovery has a fixed official origin, redirects disabled, bounded response/deadline and no inherited
+credentials. Report completion is a trusted-worker store operation, absent from the administrator HTTP
+surface. Signing and CI authentication remain separate I2/I3 gates; approval does not publish a list.
+
 Status: I0 threat model. It covers Hermes GO components only and requires no Hermes change.
 
 Rollout profile (2026-09-07): the first account release enables only email OTP. Google-specific

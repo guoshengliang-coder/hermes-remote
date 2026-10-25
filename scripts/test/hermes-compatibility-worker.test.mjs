@@ -1,0 +1,92 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { parseTask, validateBundle, infrastructureReport, workerRequest } from '../hermes-compatibility-worker.mjs';
+import { labEvidence, buildBundle } from '../hermes-compatibility-validate.mjs';
+import { compatibilityDigest } from '../../gateway/dist/account/hermes-compatibility-model.js';
+
+const normal = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-runtime.json', import.meta.url)));
+const fault = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-dependency-failure.json', import.meta.url)));
+const task = parseTask({ schemaVersion: 1, runId: '11111111-1111-4111-8111-111111111111', identity: {
+  schemaVersion: 1, candidateId: '22222222-2222-4222-8222-222222222222', version: '0.22.5',
+  sourceCommit: normal.case.sourceCommit, targetCommit: normal.case.targetCommit, installerSha256: normal.case.installerSha256,
+  goCommit: 'a'.repeat(40), suiteSha256: normal.suiteSha256,
+  environment: { os: 'macos', arch: 'arm64', osVersion: '26.0.0', installation: 'legacy-venv-to-pm' },
+  components: ['desktop', 'connector', 'gateway', 'android', 'web'].map(name => ({ name, version: '1.0.0', artifactSha256: 'b'.repeat(64) })),
+} });
+
+test('real isolated rehearsal evidence proves four checks, never full compatibility', () => {
+  const evidence = { normal: labEvidence(normal, task.identity), fault: labEvidence(fault, task.identity, true) };
+  evidence.recovery = { ...evidence };
+  const bundle = buildBundle(task, evidence, '2026-10-25T01:00:00Z', '2026-10-25T02:00:00Z');
+  assert.equal(bundle.report.outcome, 'failed');
+  assert.deepEqual(bundle.report.checks.filter(c => c.status === 'passed').map(c => c.name), ['installation', 'history', 'upgrade', 'recovery']);
+  assert.equal(bundle.report.checks.filter(c => c.status === 'not_run').length, 11);
+  assert.deepEqual(validateBundle(task, bundle), bundle.report);
+  const changed = structuredClone(bundle); changed.evidence.normal.snapshotRestored = false;
+  assert.throws(() => validateBundle(task, changed), /evidence_mismatch/);
+  const otherTask = structuredClone(task); otherTask.identity.targetCommit = 'c'.repeat(40);
+  assert.throws(() => validateBundle(otherTask, bundle), /evidence_mismatch/);
+  changed.evidence = bundle.evidence; changed.report.checks[0].evidenceSha256 = 'd'.repeat(64);
+  assert.throws(() => validateBundle(task, changed), /missing_evidence/);
+});
+
+test('missing recovery, mismatched suite and failed isolation cannot become passing evidence', () => {
+  const evidence = { normal: labEvidence(normal, task.identity) };
+  assert.equal(buildBundle(task, evidence, '2026-10-25T01:00:00Z').report.checks.find(c => c.name === 'recovery').status, 'failed');
+  evidence.normal.phases.evidenceFence = false;
+  assert.equal(buildBundle(task, evidence, '2026-10-25T01:00:00Z').report.checks.filter(c => c.status === 'passed').length, 0);
+  assert.throws(() => labEvidence({ ...normal, suiteSha256: '0'.repeat(64) }, task.identity), /identity/);
+  const report = infrastructureReport(task);
+  assert.equal(report.outcome, 'infrastructure_failed');
+  assert.ok(report.checks.every(c => c.status === 'not_run' && c.evidenceSha256 === null));
+});
+
+test('observed legacy lock gap is a failed check, never hidden as not-run or approved', async () => {
+  const lock = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-update-lock.json', import.meta.url)));
+  const { lockEvidence } = await import('../hermes-compatibility-validate.mjs');
+  const evidence = { concurrency: lockEvidence(lock, task.identity, lock.suiteSha256) };
+  const bundle = buildBundle(task, evidence, '2026-10-25T01:00:00Z');
+  assert.equal(bundle.report.checks.find(c => c.name === 'concurrentUpdate').status, 'failed');
+  assert.equal(bundle.report.outcome, 'failed');
+  assert.deepEqual(validateBundle(task, bundle), bundle.report);
+  assert.throws(() => lockEvidence({...lock, targetCommit: '0'.repeat(40)}, task.identity, lock.suiteSha256));
+  const success = structuredClone(lock);
+  success.checks.oldRefusesSurvivingChild = true;
+  success.status = 'passed';
+  const partial = buildBundle(task, {concurrency: lockEvidence(success, task.identity, lock.suiteSha256)}, '2026-10-25T01:00:00Z');
+  assert.equal(partial.report.checks.find(c => c.name === 'concurrentUpdate').status, 'not_run', 'one lock probe cannot certify all concurrency');
+});
+
+test('evidence publication strips arbitrary lab fields and never includes private logs', () => {
+  const evidence = labEvidence({ ...normal, privateLog: 'secret', reason: 'secret', path: '/Users/private' }, task.identity);
+  assert.equal(JSON.stringify(evidence).includes('secret'), false);
+  assert.equal(JSON.stringify(evidence).includes('/Users'), false);
+  assert.equal(compatibilityDigest(evidence).length, 64);
+});
+
+test('worker uses runner OIDC and fixed HTTPS origin without redirects', async () => {
+  const calls = [];
+  const env = { HERMES_COMPATIBILITY_GATEWAY_URL: 'https://relay.example', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://example.actions.githubusercontent.com/token?x=1', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-only' };
+  const fetcher = async (url, options) => { calls.push([String(url), options]); return new Response(JSON.stringify(calls.length === 1 ? { value: 'workflow-proof' } : task)); };
+  assert.deepEqual(await workerRequest('claim', task.runId, {}, env, fetcher), task);
+  assert.equal(new URL(calls[0][0]).searchParams.get('audience'), 'https://relay.example/hermes-compatibility');
+  assert.equal(calls[1][0], `https://relay.example/v2/hermes-compatibility/worker/${task.runId}/claim`);
+  assert.equal(calls[1][1].headers.authorization, 'Bearer workflow-proof');
+  assert.ok(calls.every(c => c[1].redirect === 'error'));
+  for (const origin of ['http://relay.example', 'https://relay.example/private', 'https://user:pass@relay.example', 'https://relay.example/?q=x']) {
+    await assert.rejects(workerRequest('claim', task.runId, {}, { ...env, HERMES_COMPATIBILITY_GATEWAY_URL: origin }, fetcher), /origin/);
+  }
+  await assert.rejects(workerRequest('claim', task.runId, {}, { ...env, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://evil.example/token' }, fetcher), /oidc_endpoint/);
+  assert.equal(calls.length, 2);
+});
+
+test('workflow isolates upstream execution from OIDC and never accepts scripts or versions as inputs', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/hermes-compatibility.yml', import.meta.url), 'utf8');
+  const validator = workflow.split('  validate:\n')[1].split('  report:\n')[0];
+  assert.match(validator, /runs-on: macos-26/);
+  assert.doesNotMatch(validator, /id-token: write|secrets\./);
+  assert.match(validator, /persist-credentials: false/);
+  assert.equal((workflow.match(/id-token: write/g) || []).length, 2);
+  assert.doesNotMatch(workflow, /run:.*\$\{\{/);
+});

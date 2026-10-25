@@ -1,5 +1,33 @@
 # Hermes Go Desktop phase 0
 
+## Hermes compatibility I1: management foundation (implementation, not released)
+
+The new administrator-only “Hermes 兼容版本管理” entry queries server authorization using the existing
+account session. It lists recent official candidates, verification runs, recommendation decisions and
+audit events; refresh and official discovery are available when the server feature is enabled.
+Changing account, signing out or receiving a permission rejection clears prior management data.
+No email in Desktop grants authority. Six registered HR-HERMESCOMPAT errors use local bilingual text.
+
+Gateway schema 21 and its default-off feature must be deployed separately. No live administrator has
+been granted. I2 now connects server-controlled recipes, durable dispatch, isolated CI jobs and
+structured report viewing. Without a configured recipe the page cannot start validation. The current
+isolated suite covers four of fifteen checks and demonstrates a failed concurrent-update check,
+so it cannot produce an approvable report. I3 implements approval/revocation, protected publishing
+jobs, signed recommendations and a public verification client locally. No actual signing publication
+has run. Normal-page wiring and one-click Hermes execution remain subsequent gated work; the old
+updater lock gap must be resolved before the tested migration can become supported.
+See HERMES_COMPATIBILITY_EXECUTION.md for real upgrade/recovery evidence and remaining gates.
+
+## Hermes compatibility I0: stamped source identity (2026-10-25, implementation)
+
+Hermes v0.22.5 no longer declares a literal Python `__version__`. Local detection keeps the
+legacy literal first, then reads upstream's schema-2 `install-stamp.json` only when its full commit
+matches Git HEAD and its source/self/bootstrap identity matches the standard source installation.
+The stamp must be an owner-controlled regular file with a bounded canonical base version; missing,
+stale, malformed, unsafe and foreign-distribution stamps remain `unreadableIdentity`. No Python is
+imported, and an adoption stamp is not considered evidence that an update or dependency sync finished.
+Service startup and HTTP health checks remain separate. This code does not enable an upgrade button.
+
 ## HG-199：只读版本管理拆分
 
 本次从 #560 提取版本检测、升级条件检查和升级记录，接入本机 Hermes 页。

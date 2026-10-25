@@ -1,5 +1,44 @@
 # Hermes Go Desktop test plan
 
+## Hermes compatibility I1: administrator management
+
+I2 adds request/run-detail parsing tests: only candidate/recipe IDs and persisted revision/operation
+are sent; cross-run reports, duplicate checks and passing checks without evidence are rejected.
+Native acceptance must also cover the recipe menu and a 15-row report at compact window sizes.
+The CI reporter validates bundle and per-check digests. Isolated runtime evidence proves four checks;
+the real lock probe demonstrates a concurrent-update failure, leaving ten checks unverified.
+No report is eligible for approval on that basis.
+
+I3 local baseline: 679 Swift tests/assets/ad-hoc app build pass. Recommendation tests cover strict
+signature/purpose/origin/expiry, duplicate JSON keys, public bounded credential-free HTTP, persistence
+across client recreation, same-revision equivocation and offline/persistence failure without cache
+authorization. The duplicate-key regression failed before its fix. Approval/publish/revoke and task
+states were inspected in light/dark native fixture windows with scrolling. A synthetic 15/15 preview
+is visual test data only. Actual protected publication, account-role interaction, local component
+identity collection and the ordinary page/executor integration remain unverified/unimplemented.
+
+Automated checks cover bearer-only access, no client email authority, schema validation, stable
+mutation ID/revision and all six local bilingual errors. Real PostgreSQL checks cover grant/revoke,
+stale sessions, concurrent idempotency, immutable target conflicts, report identity and approval gates.
+667 Swift tests/assets/local app build passed on 2026-10-25. The light and dark native page was inspected using
+synthetic records in a separate fixture process; this does not prove account or production workflow.
+
+Pending native acceptance: sign in as an ordinary account (entry absent), granted account (entry
+present), revoke while page is open (management rejected/data cleared), switch account during refresh,
+retry a discovery after response loss, display failed/infrastructure/queued runs, and compact
+layout. Runtime recipes remain empty without an explicit CI configuration; no fabricated validation
+or approval is offered. The feature has not been enabled in production.
+
+## Hermes compatibility I0: source stamp regression
+
+测试影响：v0.22.5 的 lazy `__version__` 在旧 detector 下无法识别；新增聚焦回归已先运行并失败。
+修正读取与 HEAD 一致的 schema-2 source/self/bootstrap stamp，同时覆盖旧版声明优先、错误 commit、
+未知 schema、布尔/字符串 schema、包分发标记、非法版本、占位版本、可被其他用户写入文件、损坏文件和软链接。
+采用 `adoptedAt` 样本证明它仅用于磁盘身份，不把它作为完成安装的证据；样本 Python 包含抛错语句，
+检测必须只读文件、不执行上游代码。无布局变化，无新增错误码；真实 venv→PM 演练和正式版本发布另记。
+验证结果：30 项 detector 聚焦测试、664 项 Swift 全量测试、assets 检查和本地 ad-hoc app 构建通过。
+未安装该构建、未升版、未发布；真实 v0.22.5 产物下的识别仍随运行时演练确认。
+
 ## 0.2.42：发布与实际客户端检查（2026-10-25）
 
 从干净发布提交 `e8e2559f` 构建，assets、660 Swift、15 发布/更新工具测试、release app/DMG、

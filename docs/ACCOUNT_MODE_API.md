@@ -1,5 +1,32 @@
 # Hermes GO account-mode API and data contract
 
+## Hermes compatibility administration (schema 21, default off, implementation)
+
+`ACCOUNT_HERMES_COMPATIBILITY_ENABLED=1` enables native bearer-session routes under
+`/v2/hermes-compatibility/`: GET `access`, GET `snapshot`, GET `runs/:runId`, POST `sync`,
+POST `runs`, POST `approve`, POST `publish`, POST `revoke`. Cookie sessions are not accepted on these routes. `access` returns
+`schemaVersion:1`, `canManage`, and the current revision; every other operation checks the dedicated
+server-side role. Snapshot lists the latest 25 candidates/runs/decisions, 10 publication tasks and 50 audit events.
+
+POST bodies require `operationId` (UUID) and `expectedRevision`; `runs` additionally requires
+`candidateId`/`recipeId`, `approve` requires `runId`/`reportSha256`, and `revoke` requires `decisionId`. Unknown fields are rejected.
+Recipes are server-controlled exact identities, never commands or client-supplied compatibility
+claims. Empty recipes mean validation is not configured. Approval remains pending publication and
+requires a trusted published component inventory; the initial empty inventory rejects approvals.
+There is no administrator report-ingestion endpoint. I2 adds POST `worker/:runId/claim` and
+`worker/:runId/report`, enabled only with explicit CI configuration. These require fixed GitHub OIDC
+and independently checked workflow-run metadata; account bearer tokens cannot authenticate them.
+POST `publisher/:taskId/claim` and `publisher/:taskId/report` instead require the dedicated publication
+workflow identity in the existing protected `desktop-release` environment. `publish` returns pending,
+not published. No private signing key is configured in Gateway. Publisher report bodies are bounded
+to 512 KiB; other account/worker bodies retain the existing 32 KiB bound.
+GET `recommendations` and GET `snapshots/:revision` are public, default-off, no-store signed-envelope reads;
+they expose no administrator/account data. A pending immutable snapshot is available by revision for
+public readback but never via the latest recommendation endpoint. Publication verifies that public
+snapshot before committing the published state. Live revocation blocks reads of older affected snapshots.
+Errors use HR-HERMESCOMPAT-001–008, including local
+Chinese/English summaries and recovery action. See HERMES_COMPATIBILITY_CONTROL.md.
+
 Status: provider-neutral API/data contract with a default-off local E0-E9 implementation across
 Gateway, Web, Desktop, and Android. No account endpoint in this document is enabled in production.
 The account surface is versioned separately from the existing Hermes-compatible `/api/*` facade and
