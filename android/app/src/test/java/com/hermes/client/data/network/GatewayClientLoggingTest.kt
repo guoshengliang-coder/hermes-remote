@@ -75,7 +75,7 @@ class GatewayClientLoggingTest {
         return HermesGatewayClient(
             okHttp, json, testScope,
             handshakeTimeoutMs = handshakeTimeoutMs,
-            wsEndpointProvider = { GatewayWebSocketEndpoint(url, "t") },
+            wsEndpointProvider = { GatewayWebSocketEndpoint(url) },
         ) to okHttp
     }
 
@@ -177,7 +177,7 @@ class GatewayClientLoggingTest {
             handshakeTimeoutMs = 300L,
             wsEndpointProvider = {
                 kotlinx.coroutines.delay(3_000)
-                GatewayWebSocketEndpoint(DEAD_URL, "t")
+                GatewayWebSocketEndpoint(DEAD_URL)
             },
         )
         try {
@@ -204,7 +204,7 @@ class GatewayClientLoggingTest {
             handshakeTimeoutMs = 20_000L,
             wsEndpointProvider = {
                 kotlinx.coroutines.delay(300)
-                GatewayWebSocketEndpoint(DEAD_URL, "t")
+                GatewayWebSocketEndpoint(DEAD_URL)
             },
         )
         try {

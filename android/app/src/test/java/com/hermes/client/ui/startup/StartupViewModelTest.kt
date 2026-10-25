@@ -52,15 +52,19 @@ class StartupViewModelTest {
     private val foregroundRecovery = mockk<ForegroundRecoveryCoordinator>()
     private val diagnostics = mockk<ConnectionDiagnostics>()
     private val connection = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+    private val activeAccount = mockk<AccountSessionManager>(relaxed = true)
+    private val readyStatus = com.hermes.client.data.network.GatewayStatusDto(version = "test", gatewayRunning = true)
     private val config = GatewayConfig("https://relay.example", "token")
 
     @Before fun setUp() {
         Dispatchers.setMain(StandardTestDispatcher())
+        every { activeAccount.transportMode() } returns AccountTransportMode.ACCOUNT
+        every { activeAccount.session } returns MutableStateFlow(accountSession())
         every { credentials.load() } returns config
         every { connectivity.isOnline() } returns true
         every { chat.connectionState } returns connection
         coEvery { sessions.listAllProfiles() } returns emptyList()
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns GatewayProbeResult.Reachable
+        coEvery { rest.gatewayStatus() } returns readyStatus
         coEvery { foregroundRecovery.recoverActive() } returns null
         every { diagnostics.configuredBaseUrl() } returns config.baseUrl
         coEvery { diagnostics.diagnose(any(), any(), any()) } returns ConnectionDiagnosis.UNKNOWN
@@ -68,7 +72,7 @@ class StartupViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun vm(accountSessions: AccountSessionManager? = null) = StartupViewModel(
+    private fun vm(accountSessions: AccountSessionManager? = activeAccount) = StartupViewModel(
         credentials,
         connectivity,
         chat,
@@ -99,24 +103,16 @@ class StartupViewModelTest {
 
         verify(exactly = 1) { chat.connect() }
         coVerify(exactly = 1) { rest.gatewayStatus() }
-        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+
     }
 
-    @Test fun pendingAccountActivationKeepsUsingTheRetainedLegacyConfiguration() = runTest {
-        val accountSessions = mockk<AccountSessionManager>()
-        every { accountSessions.session } returns MutableStateFlow(
-            accountSession().copy(activationPending = true, selectedDeviceId = null),
-        )
-        every { accountSessions.transportMode() } returns AccountTransportMode.ACCOUNT_PENDING
-        every { accountSessions.requiresAccountReauthentication() } returns false
-        val vm = vm(accountSessions)
-
-        vm.onActivityCreated(processColdStart = true)
-        runCurrent()
-
-        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+    @Test fun oldPendingActivationRequiresMacSelectionAndNeverUsesRetainedCredentials() = runTest {
+        every { activeAccount.transportMode() } returns AccountTransportMode.DEVICE_SELECTION_REQUIRED
+        val vm = vm()
+        vm.onActivityCreated(processColdStart = true); runCurrent()
+        assertEquals(StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE, (vm.state.value as StartupUiState.RepairRequired).failure)
         coVerify(exactly = 0) { rest.gatewayStatus() }
-        verify(exactly = 1) { chat.connect() }
+        verify(exactly = 0) { credentials.load() }
     }
 
     @Test fun persistedAccountReauthenticationGateBlocksLegacyColdStartFallback() = runTest {
@@ -132,7 +128,7 @@ class StartupViewModelTest {
 
         val repair = vm.state.value as StartupUiState.RepairRequired
         assertEquals(StartupFailure.ACCOUNT_AUTHENTICATION_FAILED, repair.failure)
-        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+
         coVerify(exactly = 0) { rest.gatewayStatus() }
         verify(exactly = 0) { chat.connect() }
     }
@@ -149,7 +145,7 @@ class StartupViewModelTest {
 
         val repair = vm.state.value as StartupUiState.RepairRequired
         assertEquals(StartupFailure.ACCOUNT_DELETION_COMMITTED, repair.failure)
-        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+
         coVerify(exactly = 0) { rest.gatewayStatus() }
         verify(exactly = 0) { chat.connect() }
     }
@@ -192,7 +188,7 @@ class StartupViewModelTest {
         val repair = vm.state.value as StartupUiState.RepairRequired
         assertEquals(StartupFailure.ACCOUNT_SERVICE_UNAVAILABLE, repair.failure)
         verify(exactly = 0) { accountSessions.clearDeviceSelection() }
-        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+
         verify(exactly = 0) { chat.connect() }
     }
 
@@ -215,7 +211,7 @@ class StartupViewModelTest {
         val failed = vm.state.value as StartupUiState.Failed
         assertEquals(StartupFailure.ACCOUNT_RATE_LIMITED, failed.failure)
         verify(exactly = 0) { accountSessions.clearLocal() }
-        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+
     }
 
     @Test fun accountConnectorOfflinePreservesItsStableRecoveryCode() = runTest {
@@ -269,7 +265,7 @@ class StartupViewModelTest {
 
         val repair = vm.state.value as StartupUiState.RepairRequired
         assertEquals(StartupFailure.ACCOUNT_DEVICE_UNAVAILABLE, repair.failure)
-        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+
         coVerify(exactly = 0) { rest.gatewayStatus() }
         verify(exactly = 0) { chat.connect() }
     }
@@ -287,6 +283,7 @@ class StartupViewModelTest {
     )
 
     @Test fun firstLaunchWithoutConfigurationSkipsStartupScreen() = runTest {
+        every { activeAccount.transportMode() } returns AccountTransportMode.SIGNED_OUT
         every { credentials.load() } returns null
         val vm = vm()
 
@@ -525,8 +522,8 @@ class StartupViewModelTest {
      */
     @Test fun offlineStartupShowsRegisteredRetryableError() = runTest {
         every { connectivity.isOnline() } returns false
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unreachable("no route to host")
+        coEvery { rest.gatewayStatus() } throws
+            java.io.IOException("no route to host")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -561,8 +558,8 @@ class StartupViewModelTest {
     /** A failed status probe does not establish which side of the connection was at fault. */
     @Test fun anUnreachableGatewayOnAHealthyNetworkKeepsTheRelayCode() = runTest {
         every { connectivity.isOnline() } returns true
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unreachable("connection refused")
+        coEvery { rest.gatewayStatus() } throws
+            java.io.IOException("connection refused")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -579,8 +576,8 @@ class StartupViewModelTest {
     @Test fun failedLoopbackRelayRepairOpensAccountSetupInsteadOfLegacySettings() = runTest {
         val loopback = GatewayConfig("http://127.0.0.1:8787", "dev-app-token")
         every { credentials.load() } returns loopback
-        coEvery { rest.probeStatusFor(loopback.baseUrl, loopback.token) } returns
-            GatewayProbeResult.Unreachable("connection refused")
+        coEvery { rest.gatewayStatus() } throws
+            java.io.IOException("connection refused")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -594,9 +591,9 @@ class StartupViewModelTest {
         assertTrue(repair.accountSetup)
     }
 
-    @Test fun failedPublicRelayRepairStillOpensLegacyConnectionSettings() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unreachable("connection refused")
+    @Test fun accountConnectionRepairAlwaysOpensAccountSettings() = runTest {
+        coEvery { rest.gatewayStatus() } throws
+            java.io.IOException("connection refused")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -607,7 +604,7 @@ class StartupViewModelTest {
 
         val repair = vm.state.value as StartupUiState.RepairRequired
         assertEquals(StartupFailure.CONNECTION_FAILED, repair.failure)
-        assertTrue(!repair.accountSetup)
+        assertTrue(repair.accountSetup)
     }
 
     @Test fun gatewayReadyTimeoutOffersRecoveryInsteadOfBlockingForever() = runTest {
@@ -641,24 +638,22 @@ class StartupViewModelTest {
     }
 
     @Test fun rejectedTokenRoutesToConfigurationRepair() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unauthorized(401)
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.HermesApiException(401, "unauthorized")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
         runCurrent()
 
         val repair = vm.state.value as StartupUiState.RepairRequired
-        assertEquals(StartupFailure.AUTHENTICATION_FAILED, repair.failure)
+        assertEquals(StartupFailure.ACCOUNT_AUTHENTICATION_FAILED, repair.failure)
         assertEquals(StartupReason.COLD_START, repair.reason)
-        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 1) { rest.gatewayStatus() }
         coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
         verify(exactly = 0) { chat.connect() }
     }
 
     @Test fun savedRepairRerunsStartupAndReturnsToOriginalRouteOnlyAfterReady() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unauthorized(401) andThen GatewayProbeResult.Reachable
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.HermesApiException(401, "unauthorized") andThen readyStatus
         val vm = vm()
         vm.onActivityCreated(processColdStart = true)
         runCurrent()
@@ -678,8 +673,7 @@ class StartupViewModelTest {
     }
 
     @Test fun relayServerFailureStaysOnStartupInsteadOfOpeningConfiguration() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.ServerFailure(503)
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.HermesApiException(503, "server unavailable")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -692,8 +686,7 @@ class StartupViewModelTest {
     }
 
     @Test fun oneTransientStatusFailureRetriesWithoutShowingAnError() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unreachable("SocketTimeoutException") andThen GatewayProbeResult.Reachable
+        coEvery { rest.gatewayStatus() } throws java.io.IOException("SocketTimeoutException") andThen readyStatus
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -704,14 +697,14 @@ class StartupViewModelTest {
 
         advanceTimeBy(StartupViewModel.RETRY_DELAY_MS)
         runCurrent()
-        coVerify(exactly = 2) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 2) { rest.gatewayStatus() }
         verify(exactly = 1) { chat.connect() }
         coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
     }
 
     @Test fun leavingTheStartupGateCancelsScheduledRetriesAndDiagnostics() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unreachable("SocketTimeoutException")
+        coEvery { rest.gatewayStatus() } throws
+            java.io.IOException("SocketTimeoutException")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -722,13 +715,13 @@ class StartupViewModelTest {
         runCurrent()
 
         assertTrue(vm.state.value is StartupUiState.RepairRequired)
-        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 1) { rest.gatewayStatus() }
         coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
     }
 
     @Test fun repeatedResolutionFailureShowsSpecificCodeOnlyAfterTwoRetries() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unreachable("UnknownHostException")
+        coEvery { rest.gatewayStatus() } throws
+            java.io.IOException("UnknownHostException")
         coEvery { diagnostics.diagnose(any(), any(), any()) } returns ConnectionDiagnosis.ADDRESS_NOT_FOUND
         val vm = vm()
 
@@ -742,13 +735,13 @@ class StartupViewModelTest {
         runCurrent()
 
         assertEquals(StartupFailure.ADDRESS_NOT_FOUND, (vm.state.value as StartupUiState.Failed).failure)
-        coVerify(exactly = 3) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 3) { rest.gatewayStatus() }
         coVerify(exactly = 1) { diagnostics.diagnose(any(), any(), any()) }
     }
 
     @Test fun persistentForegroundFailureRunsDiagnosticsWithoutCoveringTheScreen() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unreachable("SocketTimeoutException")
+        coEvery { rest.gatewayStatus() } throws
+            java.io.IOException("SocketTimeoutException")
         val vm = vm()
 
         vm.onForeground()
@@ -760,8 +753,8 @@ class StartupViewModelTest {
     }
 
     @Test fun backgroundingCancelsForegroundRetryBeforeDiagnostics() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.Unreachable("SocketTimeoutException")
+        coEvery { rest.gatewayStatus() } throws
+            java.io.IOException("SocketTimeoutException")
         val vm = vm()
 
         vm.onForeground()
@@ -773,13 +766,12 @@ class StartupViewModelTest {
         runCurrent()
 
         assertEquals(StartupUiState.Hidden, vm.state.value)
-        coVerify(exactly = 1) { rest.probeStatusFor(config.baseUrl, config.token) }
+        coVerify(exactly = 1) { rest.gatewayStatus() }
         coVerify(exactly = 0) { diagnostics.diagnose(any(), any(), any()) }
     }
 
     @Test fun connectorOfflineHasItsOwnRecoveryMessageAndCode() = runTest {
-        coEvery { rest.probeStatusFor(config.baseUrl, config.token) } returns
-            GatewayProbeResult.ServerFailure(503, "device_offline")
+        coEvery { rest.gatewayStatus() } throws com.hermes.client.data.network.HermesApiException(503, "offline", errorCode = "device_offline")
         val vm = vm()
 
         vm.onActivityCreated(processColdStart = true)
@@ -790,16 +782,14 @@ class StartupViewModelTest {
         assertEquals("HR-CONN-005", failed.failure.code)
     }
 
-    @Test fun invalidStoredUrlRoutesToConfigurationRepairBeforeNetworkCalls() = runTest {
-        every { credentials.load() } returns GatewayConfig("not a URL", "token")
+    @Test fun retiredStoredCredentialsAreIgnoredAtColdStart() = runTest {
+        every { activeAccount.transportMode() } returns AccountTransportMode.SIGNED_OUT
+        every { credentials.load() } returns GatewayConfig("not a URL", "old-token")
         val vm = vm()
-
-        vm.onActivityCreated(processColdStart = true)
-        runCurrent()
-
-        val repair = vm.state.value as StartupUiState.RepairRequired
-        assertEquals(StartupFailure.INVALID_URL, repair.failure)
-        coVerify(exactly = 0) { rest.probeStatusFor(any(), any()) }
+        vm.onActivityCreated(processColdStart = true); runCurrent()
+        assertEquals(StartupUiState.Hidden, vm.state.value)
+        verify(exactly = 0) { credentials.load() }
+        coVerify(exactly = 0) { rest.gatewayStatus() }
         verify(exactly = 0) { chat.connect() }
     }
 }

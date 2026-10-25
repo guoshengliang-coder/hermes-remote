@@ -13,6 +13,7 @@ class AppErrorTest {
         val cases = listOf(
             AppErrorCode.MESSAGE_DELIVERY_UNCONFIRMED to "HR-SESS-020",
             AppErrorCode.UNSENT_COMPOSER_OCCUPIED to "HR-SESS-021",
+            AppErrorCode.MESSAGE_OUTCOME_UNKNOWN to "HR-SESS-022",
         )
         for ((code, value) in cases) {
             val error = AppError(code, retryable = false, technicalCause = "token=secret Authorization: Bearer private")

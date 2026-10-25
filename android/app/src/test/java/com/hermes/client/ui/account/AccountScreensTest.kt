@@ -64,16 +64,13 @@ class AccountScreensTest {
         compose.onRoot().captureRoboImage("/tmp/hermes-signin-light.png")
     }
 
-    @Test fun legacyEntryIsReachableAndExplicitlyReleasesTheAccountRecoveryGate() {
+    @Test fun signedOutPageHasDiagnosticsAndNoLegacyConnectionEntry() {
         var opened = false
-        val vm = show(AccountDevicesUiState(stage = AccountStage.SIGNED_OUT)) { vm ->
-            SignInScreen(onOpenLegacy = { opened = true }, vm = vm)
+        show(AccountDevicesUiState(stage = AccountStage.SIGNED_OUT)) { vm ->
+            SignInScreen(onOpenDiagnostics = { opened = true }, vm = vm)
         }
-
-        compose.onNodeWithTag("signin-other-options").performClick()
-        compose.onNodeWithText("旧版 Relay / App Token").performClick()
-
-        verify(exactly = 1) { vm.allowExplicitLegacyFallback() }
+        compose.onNodeWithText("旧版 Relay / App Token").assertDoesNotExist()
+        compose.onNodeWithText("打开诊断").performClick()
         assertEquals(true, opened)
     }
 
@@ -152,7 +149,7 @@ class AccountScreensTest {
         compose.onRoot().captureRoboImage("/tmp/hermes-signin-dark-large.png")
     }
 
-    @Test fun anUnavailableRelayStillOffersTheCompatibilityPath() {
+    @Test fun anUnavailableRelayOffersDiagnosticsWithoutLegacyAuthentication() {
         show(
             AccountDevicesUiState(
                 stage = AccountStage.UNAVAILABLE,
@@ -161,7 +158,7 @@ class AccountScreensTest {
         ) { vm -> SignInScreen(vm = vm) }
 
         compose.onNodeWithText("发送验证码").assertIsNotEnabled()
-        compose.onNodeWithTag("signin-other-options").assertIsDisplayed()
+        compose.onNodeWithText("打开诊断").assertIsDisplayed()
         compose.onRoot().captureRoboImage("/tmp/hermes-signin-unavailable-light.png")
     }
 
@@ -200,7 +197,7 @@ class AccountScreensTest {
         compose.onRoot().captureRoboImage("/tmp/hermes-account-no-device-light.png")
     }
 
-    @Test fun singularPendingMigrationExplainsThatLegacyStaysActive() {
+    @Test fun retiredPendingMigrationOnlyOffersMacSelection() {
         show(
             AccountDevicesUiState(
                 stage = AccountStage.SIGNED_IN,
@@ -209,7 +206,7 @@ class AccountScreensTest {
             ),
         ) { vm -> DeviceSelectionScreen(onBack = {}, vm = vm) }
 
-        compose.onNodeWithText("账号已登录，当前仍使用旧版连接", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("账号已登录，当前仍使用旧版连接", substring = true).assertDoesNotExist()
         compose.onNodeWithText("当前账号可连接 1 台 Mac。").assertIsDisplayed()
         compose.onNodeWithText("让设备所有者分享给你", substring = true).assertDoesNotExist()
     }

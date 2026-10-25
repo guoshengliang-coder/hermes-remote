@@ -86,7 +86,7 @@ class FlappingConnectionBackoffTest {
         val okHttp = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
         return HermesGatewayClient(
             okHttp, json, testScope,
-            wsEndpointProvider = { GatewayWebSocketEndpoint(url, "t") },
+            wsEndpointProvider = { GatewayWebSocketEndpoint(url) },
         ) to okHttp
     }
 

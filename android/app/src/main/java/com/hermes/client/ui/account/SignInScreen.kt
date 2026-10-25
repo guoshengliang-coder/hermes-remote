@@ -66,7 +66,6 @@ import com.hermes.client.ui.localization.localized
 @Composable
 fun SignInScreen(
     reasonCode: String? = null,
-    onOpenLegacy: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
     vm: AccountDevicesViewModel = hiltViewModel(),
 ) {
@@ -88,7 +87,6 @@ fun SignInScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 OtherConnectionOptions(
-                    onOpenLegacy = { vm.allowExplicitLegacyFallback(); onOpenLegacy() },
                     onOpenDiagnostics = onOpenDiagnostics,
                 )
                 Button(
@@ -265,7 +263,6 @@ fun SignInScreen(
 fun AccountSignInFlow(
     reasonCode: String? = null,
     onCompleted: () -> Unit = {},
-    onOpenLegacy: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
     vm: AccountDevicesViewModel = hiltViewModel(),
 ) {
@@ -288,7 +285,6 @@ fun AccountSignInFlow(
         }
         else -> SignInScreen(
             reasonCode = reasonCode,
-            onOpenLegacy = onOpenLegacy,
             onOpenDiagnostics = onOpenDiagnostics,
             vm = vm,
         )
@@ -368,39 +364,11 @@ private fun SessionEndedBanner(code: String) {
     }
 }
 
-/** Migration-era escape hatches, kept per §5.0 but off the main path. */
+/** Diagnostics remain accessible without introducing a second authentication mode. */
 @Composable
-private fun OtherConnectionOptions(onOpenLegacy: () -> Unit, onOpenDiagnostics: () -> Unit) {
-    val language = LocalAppLanguage.current
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    if (!expanded) {
-        TextButton(
-            onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth().testTag("signin-other-options"),
-        ) {
-            Text(
-                localized(language, "其他连接方式", "Other ways to connect"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    } else {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                localized(language, "兼容连接", "Compatibility"),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedButton(onClick = onOpenLegacy, modifier = Modifier.fillMaxWidth()) {
-                Text(localized(language, "旧版 Relay / App Token", "Legacy Relay / App Token"))
-            }
-            TextButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
-                Text(localized(language, "打开诊断", "Open diagnostics"))
-            }
-        }
+private fun OtherConnectionOptions(onOpenDiagnostics: () -> Unit) {
+    TextButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
+        Text(localized(LocalAppLanguage.current, "打开诊断", "Open diagnostics"))
     }
 }
 

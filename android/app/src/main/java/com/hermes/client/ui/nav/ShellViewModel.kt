@@ -46,7 +46,7 @@ class ShellViewModel @Inject constructor(
     private fun syncWorkspaceIdentity(account: com.hermes.client.data.auth.AccountSession?) {
         defaultDevice.value = account?.selectedDeviceId
         val identity = com.hermes.client.ui.workspace.workspaceSessionKey(listOf(
-            account?.baseUrl ?: runCatching { credentials.load()?.baseUrl }.getOrNull(), account?.accountId ?: "legacy",
+            account?.baseUrl, account?.accountId ?: "signed-out",
         ))
         runtimeStore.bindPendingAttachmentOwner(identity)
         drafts.bindOwner(identity)

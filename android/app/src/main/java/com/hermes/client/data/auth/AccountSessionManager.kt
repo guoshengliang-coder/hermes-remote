@@ -33,12 +33,10 @@ data class AccountRoutingContext(
 
 enum class AccountTransportMode {
     ACCOUNT,
-    /** A verified account exists beside the still-authoritative, working Legacy transport. */
-    ACCOUNT_PENDING,
     DEVICE_SELECTION_REQUIRED,
     REAUTHENTICATION_REQUIRED,
     ACCOUNT_DELETION_COMMITTED,
-    LEGACY,
+    SIGNED_OUT,
 }
 
 /**
@@ -90,13 +88,11 @@ class AccountSessionManager(
     fun hasLoadedConnection(): Boolean = sessionDelegate.isInitialized() &&
         transportMode() == AccountTransportMode.ACCOUNT
 
-    /** Single source of truth for whether transport may use account or retained legacy credentials. */
+    /** Single source of truth for account transport and terminal login/device gates. */
     fun transportMode(): AccountTransportMode {
         if (store.accountDeletionCommitted()) return AccountTransportMode.ACCOUNT_DELETION_COMMITTED
         if (store.accountReauthenticationRequired()) return AccountTransportMode.REAUTHENTICATION_REQUIRED
-        if (store.explicitLegacyConnectionSelected()) return AccountTransportMode.LEGACY
-        val current = _session.value ?: return AccountTransportMode.LEGACY
-        if (current.activationPending) return AccountTransportMode.ACCOUNT_PENDING
+        val current = _session.value ?: return AccountTransportMode.SIGNED_OUT
         return if (current.selectedDeviceId == null) {
             AccountTransportMode.DEVICE_SELECTION_REQUIRED
         } else {
@@ -107,7 +103,6 @@ class AccountSessionManager(
     fun activate(
         baseUrl: String,
         response: AccountExchangeResponseDto,
-        keepLegacyTransportUntilProbe: Boolean = false,
     ) {
         synchronized(profileOwnerLock) {
             profileOwnerEpoch.incrementAndGet()
@@ -125,7 +120,7 @@ class AccountSessionManager(
                 accessExpiresAt = response.session.accessExpiresAt,
                 refreshToken = response.session.refreshToken,
                 refreshExpiresAt = response.session.refreshExpiresAt,
-                activationPending = keepLegacyTransportUntilProbe,
+                activationPending = false,
             )
             store.saveAccountSession(value)
             // Fail closed across a process crash: commit the new account first, then activate it.
@@ -204,7 +199,7 @@ class AccountSessionManager(
     /** Quiet foreground refresh: cached values survive offline; no task/profile identity is changed. */
     suspend fun refreshAccountProfile() = profileSyncMutex.withLock {
         val before = loadedSession() ?: return@withLock
-        if (transportMode() == AccountTransportMode.LEGACY || before.activationPending) return@withLock
+        if (transportMode() == AccountTransportMode.SIGNED_OUT) return@withLock
         val epoch = profileOwnerEpoch.get()
         fun stillOwner(): Boolean = epoch == profileOwnerEpoch.get() && _session.value?.let {
             it.baseUrl == before.baseUrl && it.accountId == before.accountId && it.installationId == before.installationId
@@ -326,15 +321,6 @@ class AccountSessionManager(
     fun accountReauthenticationReason(): String? =
         store.accountReauthenticationReason()?.takeIf { store.accountReauthenticationRequired() }
 
-    /** Called only from the explicit Legacy connection action. */
-    fun allowExplicitLegacyFallback() {
-        store.setAccountReauthenticationRequired(false)
-        store.setAccountDeletionCommitted(false)
-        store.clearPendingAccountDeletion()
-        store.setExplicitLegacyConnectionSelected(true)
-        transportDeviceId = null
-    }
-
     /** Called only after the server committed permanent account deletion (or confirmed it did). */
     fun completeAccountDeletion() {
         synchronized(profileOwnerLock) {
@@ -419,10 +405,10 @@ class AccountSessionManager(
         }
     }
 
-    /** A failed opt-in probe restores Legacy; an already-active account still fails closed. */
+    /** Any invalidated account fails closed; retired migration flags cannot select a transport. */
     private fun invalidateAccountSession(reason: String? = null) {
         clearLocal(
-            requireReauthentication = _session.value?.activationPending != true,
+            requireReauthentication = true,
             reason = normalizeReauthenticationReason(reason),
         )
     }

@@ -150,7 +150,7 @@ class LifecycleMonitoringCoordinator @Inject constructor(
                 // retained Activity/ViewModel is not recreated when the user comes back,
                 // so foreground ownership must explicitly restore the singleton client.
                 // connect() is idempotent and will not duplicate an already-live socket.
-                if (credentials.load() != null || accountSessions?.hasLoadedConnection() == true) {
+                if (accountSessions?.hasLoadedConnection() == true) {
                     gatewayClient.connect()
                 }
                 GatewayConnectionService.stop(context)

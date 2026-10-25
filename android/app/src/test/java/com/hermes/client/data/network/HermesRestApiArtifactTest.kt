@@ -1,6 +1,6 @@
 package com.hermes.client.data.network
 
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import com.hermes.client.data.diagnostics.DebugLog
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -28,12 +28,12 @@ class HermesRestApiArtifactTest {
     private fun api(server: MockWebServer) = HermesRestApi(
         testHttpClient(),
         Json { ignoreUnknownKeys = true },
-    ) { GatewayConfig(server.url("/").toString().trimEnd('/'), "secret") }
+    ) { testAccountConnection(server.url("/").toString().trimEnd('/'), "secret") }
 
     private fun apiAt(baseUrl: String) = HermesRestApi(
         testHttpClient(),
         Json { ignoreUnknownKeys = true },
-    ) { GatewayConfig(baseUrl, "secret") }
+    ) { testAccountConnection(baseUrl, "secret") }
 
     private fun restLines(): List<String> =
         DebugLog.entries.value.filter { it.category == "rest" }.map { it.message }
@@ -51,7 +51,7 @@ class HermesRestApiArtifactTest {
         assertEquals("/tmp/uploaded.txt", result.path)
         val request = serverRule.server.takeRequest()
         assertEquals("/api/files/upload?name=notes.txt", request.target)
-        assertEquals("secret", request.headers["X-Hermes-Session-Token"])
+        assertEquals("Bearer secret", request.headers["Authorization"])
         assertEquals("abc", request.body?.utf8())
     }
 
@@ -174,7 +174,7 @@ class HermesRestApiArtifactTest {
         assertEquals(52428800L, info.maxBytes)
         val request = serverRule.server.takeRequest()
         assertEquals("HEAD", request.method)
-        assertEquals("secret", request.headers["X-Hermes-Session-Token"])
+        assertEquals("Bearer secret", request.headers["Authorization"])
         assertTrue(request.target!!.startsWith("/api/files?path="))
         assertEquals(1, serverRule.server.requestCount)
     }
@@ -223,7 +223,7 @@ class HermesRestApiArtifactTest {
             com.hermes.client.data.auth.AccountDeviceRouteMode.EXPLICIT_DEVICE,
         )
         val api = HermesRestApi(testHttpClient(), Json { ignoreUnknownKeys = true }, manager, testHttpClient()) {
-            GatewayConfig("https://unrelated-legacy.invalid", "legacy-secret")
+            testAccountConnection("https://unrelated-legacy.invalid", "legacy-secret")
         }
         serverRule.server.enqueue(MockResponse.Builder().code(200).addHeader("Content-Length", "3").build())
         serverRule.server.enqueue(MockResponse.Builder().code(200).body("mp4").build())

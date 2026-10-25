@@ -1,6 +1,6 @@
 package com.hermes.client.data.network
 
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import mockwebserver3.MockResponse
@@ -19,7 +19,7 @@ class HermesRestApiSearchTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun api(server: MockWebServer) = HermesRestApi(testHttpClient(), json) {
-        GatewayConfig(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
+        testAccountConnection(baseUrl = server.url("/").toString().trimEnd('/'), token = "secret")
     }
 
     // The enriched hit (title / archived / last_active / source / message_count) parses, and the

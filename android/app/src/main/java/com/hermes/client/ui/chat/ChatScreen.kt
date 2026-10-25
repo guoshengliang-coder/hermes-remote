@@ -1709,6 +1709,7 @@ fun ChatScreen(
                         isGenerating = state.isGenerating,
                         onEditResend = { editUnsent(it) },
                         onRetrySend = { if (editingUnsentId == it) editUnsent(it) else vm.retrySend(it) },
+                        onCheckDelivery = vm::checkMessageDelivery,
                         onDiscardSend = {
                             if (vm.sendErrorCode(it) == AppErrorCode.UNSENT_ATTACHMENTS_LOST) vm.discardFailedSend(it)
                             else editUnsent(it, withdraw = true)

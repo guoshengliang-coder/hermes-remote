@@ -42,7 +42,7 @@ class GatewayLivenessTest {
     private fun client(
         okHttp: OkHttpClient,
         stallDeadlineMs: Long = 60_000L,
-        endpoint: suspend () -> GatewayWebSocketEndpoint = { GatewayWebSocketEndpoint(deadUrl, "t") },
+        endpoint: suspend () -> GatewayWebSocketEndpoint = { GatewayWebSocketEndpoint(deadUrl) },
     ) = HermesGatewayClient(
         okHttp, json, scope,
         backoff = BackoffPolicy(baseMs = 1, factor = 1.0, maxMs = 2),
@@ -66,7 +66,7 @@ class GatewayLivenessTest {
         // leaving no socket whose death could rescue the state machine.
         val c = client(okHttp, endpoint = {
             kotlinx.coroutines.delay(Random.nextLong(0, 25))
-            GatewayWebSocketEndpoint(deadUrl, "t")
+            GatewayWebSocketEndpoint(deadUrl)
         })
         val violations = mutableListOf<String>()
         // Land a close() on the seams themselves. Without this the fuzz measured zero entries into
@@ -162,7 +162,7 @@ class GatewayLivenessTest {
         val okHttp = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build()
         val c = client(okHttp, endpoint = {
             kotlinx.coroutines.delay(Random.nextLong(0, 25))
-            GatewayWebSocketEndpoint(deadUrl, "t")
+            GatewayWebSocketEndpoint(deadUrl)
         })
         try {
             withContext(Dispatchers.Default) {
@@ -220,7 +220,7 @@ class GatewayLivenessTest {
             wsEndpointProvider = {
                 dials.incrementAndGet()
                 kotlinx.coroutines.delay(Long.MAX_VALUE) // never dials
-                GatewayWebSocketEndpoint(deadUrl, "t")
+                GatewayWebSocketEndpoint(deadUrl)
             },
         ) {
             // Stands in for the machinery excusing itself, which is what left HG-42's client in

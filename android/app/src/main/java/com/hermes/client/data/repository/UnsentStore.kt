@@ -41,11 +41,11 @@ data class UnsentComposer(
 )
 
 /**
- * One conversation's message that was typed, submitted, and refused. [token] is a
+ * One conversation's refused or delivery-unconfirmed message. [token] is a
  * [SessionReadStore.token].
  *
- * This is NOT a draft. A draft was never sent; this one was, and upstream said no — which is why it
- * carries the error code that explains the refusal and whether trying again can work.
+ * This is not a draft. A refusal has a retry policy; [deliveryUnconfirmed] retains an ambiguous
+ * submission with no replay permission. Both survive navigation/process restoration.
  */
 @Serializable
 data class UnsentRecord(
@@ -72,9 +72,11 @@ data class UnsentRecord(
     val updatedAt: Long = 0L,
     /** HG-220: the original remains recoverable until editing is confirmed or cancelled. */
     val composer: UnsentComposer? = null,
+    /** HG-237: outcome is unknown, never a refused/retryable send. */
+    val deliveryUnconfirmed: Boolean = false,
 )
 
-const val UNSENT_RECORD_VERSION = 2
+const val UNSENT_RECORD_VERSION = 3
 
 /** Bounds copied from [DraftStore]: same file, same rewrite-everything cost. */
 const val MAX_PERSISTED_UNSENT = 50
@@ -185,7 +187,7 @@ class UnsentStore(private val context: Context) : UnsentSnapshot {
         .map { decodeUnsent(it[key]) }
 
     override val tokens: Flow<Set<String>> = records.map { list ->
-        list.filter { it.composer?.withdrawn != true }.mapTo(mutableSetOf()) { it.token }
+        list.filter { it.composer?.withdrawn != true && !it.deliveryUnconfirmed }.mapTo(mutableSetOf()) { it.token }
     }
 
     override suspend fun read(token: String): UnsentRecord? = runCatching {

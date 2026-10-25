@@ -1,5 +1,21 @@
 # Android 待设备验证清单
 
+## HG-237 — HONOR natural-network and upgrade verification pending
+
+L1 regression tests cover unknown outcomes/history/restoration and account-only routing. API 37
+instrumentation checks allowed actions. The attached HONOR is unauthorized, so vendor/network
+behavior and the original 0.1.180 upgrade need a separately authorized device session and released APK:
+
+- Upgrade a phone carrying retired URL/Token/password and valid/invalid account states. Verify login
+  or Mac selection, no legacy setup or outbound token fallback, and preservation of the valid account.
+- On an isolated binding, drop only the submit acknowledgement, then restore connectivity. Confirm
+  unknown + SESS-022 survives restart, Check status never sends, history/answers update, and no
+  withdrawal/edit/retry is offered without authoritative non-delivery evidence.
+- Under the phone's ordinary network and screen/background transitions, capture causal IDs at all
+  hops. Do not interrupt the user's live Hermes/Connector. Loopback fixtures and API 37 cannot
+  establish the original stalled hop or HONOR's network/ROM behavior.
+
+
 `AGENTS.md` 要求：**当一个有意义的用例无法自动化时，把它写进冒烟文档并明示它仍需设备或生产
 验证** —— 这份文件就是那个落点。`docs/SMOKE_TEST.md` 是网关／连接器的，不覆盖 Android UI；
 `docs/DESIGN.md §7` 定的是验证**规程**（跑什么、怎么跑），这里记的是规程**跑不到的地方**。

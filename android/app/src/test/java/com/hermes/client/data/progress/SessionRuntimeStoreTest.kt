@@ -50,6 +50,22 @@ class SessionRuntimeStoreTest : SessionRuntimeTest() {
         val chat: ChatRepository,
     )
 
+    @Test fun an_unknown_local_turn_does_not_block_history_or_steal_same_text_identity() = runTest {
+        val store = fixture().store
+        val key = store.register("unknown", "personal")
+        val history = (1..10).map { ChatMessage(id = "h$it", serverId = it.toLong(), role = Role.USER, text = "same") }
+        store.acceptHistory(key, history, Long.MAX_VALUE)
+        store.beginPrompt(key, "same", messageId = "local-unknown")
+        store.updateUserDelivery(key, "local-unknown", com.hermes.client.domain.DeliveryState.UNCONFIRMED)
+        store.finishLocal(key)
+        store.acceptHistory(key, history + ChatMessage(id = "answer", serverId = 11L, role = Role.ASSISTANT, text = "new answer"), Long.MAX_VALUE)
+        val messages = store.runtimes.value.getValue(key).chat.messages
+        assertTrue(messages.any { it.text == "new answer" })
+        assertEquals(11, messages.count { it.role == Role.USER })
+        assertEquals(null, messages.single { it.id == "local-unknown" }.serverId)
+        assertEquals(com.hermes.client.domain.DeliveryState.UNCONFIRMED, messages.last().delivery)
+    }
+
     @Test fun childRemainsVisibleAfterParentAnswerAndClearsOnNextTurn() = runTest {
         val fixture = fixture()
         val key = fixture.store.register("s1", "personal")

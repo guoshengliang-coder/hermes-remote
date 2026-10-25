@@ -3,7 +3,7 @@ package com.hermes.client.data.network
 import com.hermes.client.data.auth.AccountSession
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountSessionStore
-import com.hermes.client.data.auth.GatewayConfig
+import com.hermes.client.data.network.testAccountConnection
 import com.hermes.client.data.auth.PendingEmailChallenge
 import kotlinx.coroutines.test.runTest
 import com.hermes.client.data.diagnostics.DebugLog
@@ -22,7 +22,7 @@ class HermesRestApiLifecycleTest {
     private fun api(server: MockWebServer) = HermesRestApi(
         testHttpClient(),
         Json { ignoreUnknownKeys = true },
-    ) { GatewayConfig(server.url("/").toString().trimEnd('/'), "app-token") }
+    ) { testAccountConnection(server.url("/").toString().trimEnd('/'), "app-token") }
 
     /**
      * The inbox poll runs every two seconds in the foreground. Logging a request and a response
@@ -119,7 +119,7 @@ class HermesRestApiLifecycleTest {
         assertEquals(8L, page.nextCursor)
         val request = serverRule.server.takeRequest()
         assertEquals("/api/mobile/events?after=7&limit=20", request.target)
-        assertEquals("app-token", request.headers["X-Hermes-Session-Token"])
+        assertEquals("Bearer app-token", request.headers["Authorization"])
     }
 
     @Test fun lifecycleDeliveryAck_postsBoundedJsonIds() = runTest {
@@ -155,7 +155,7 @@ class HermesRestApiLifecycleTest {
             Json { ignoreUnknownKeys = true },
             manager,
             testHttpClient(),
-        ) { GatewayConfig(server.url("/").toString().trimEnd('/'), "legacy-secret") }
+        ) { testAccountConnection(server.url("/").toString().trimEnd('/'), "legacy-secret") }
         server.enqueue(MockResponse.Builder().code(200).body(
             """{"events":[],"nextCursor":7,"hasMore":false}""",
         ).build())

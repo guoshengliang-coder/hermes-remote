@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.hermes.client.data.auth.CredentialStore
 import com.hermes.client.data.auth.AccountSessionManager
 import com.hermes.client.data.auth.AccountTransportMode
-import com.hermes.client.data.auth.GatewayConfig
 import com.hermes.client.data.auth.isLoopbackGatewayBaseUrl
 import com.hermes.client.data.auth.normalizeGatewayBaseUrl
 import com.hermes.client.data.diagnostics.DebugLog
@@ -178,9 +177,7 @@ class StartupViewModel @Inject constructor(
             startAttempt(StartupReason.COLD_START, debounceMs = 0L)
             return
         }
-        val config = loadConfiguration(StartupReason.COLD_START) ?: return
-        if (!isUsableConfiguration(config, StartupReason.COLD_START)) return
-        startAttempt(StartupReason.COLD_START, debounceMs = 0L)
+
     }
 
     /** Re-evaluates connection readiness whenever the process returns to the foreground. */
@@ -189,13 +186,7 @@ class StartupViewModel @Inject constructor(
         if (attemptJob?.isActive == true) return
         if (_state.value is StartupUiState.RepairRequired) return
         if (requireAccountRepair(StartupReason.CONNECTION_RECOVERY)) return
-        if (!hasAccountConnection()) {
-            val config = loadConfiguration(StartupReason.CONNECTION_RECOVERY) ?: run {
-                _state.value = StartupUiState.Hidden
-                return
-            }
-            if (!isUsableConfiguration(config, StartupReason.CONNECTION_RECOVERY)) return
-        }
+        if (!hasAccountConnection()) { _state.value = StartupUiState.Hidden; return }
         val failed = _state.value as? StartupUiState.Failed
         if (chat.connectionState.value is ConnectionState.Connected && connectivity.isOnline()) {
             if (failed != null) {
@@ -227,13 +218,7 @@ class StartupViewModel @Inject constructor(
         val failed = _state.value as? StartupUiState.Failed
         val reason = failed?.reason ?: StartupReason.CONNECTION_RECOVERY
         if (requireAccountRepair(reason)) return
-        if (!hasAccountConnection()) {
-            val config = loadConfiguration(reason) ?: run {
-                _state.value = StartupUiState.Hidden
-                return
-            }
-            if (!isUsableConfiguration(config, reason)) return
-        }
+        if (!hasAccountConnection()) { _state.value = StartupUiState.Hidden; return }
         startAttempt(
             reason = reason,
             debounceMs = 0L,
@@ -255,10 +240,7 @@ class StartupViewModel @Inject constructor(
         attemptJob?.cancel()
         attemptJob = null
         repairReason = reason
-        val accountSetup = failure == StartupFailure.CONNECTION_FAILED &&
-            runCatching { credentials.load()?.baseUrl }
-                .getOrNull()
-                ?.let(::isLoopbackGatewayBaseUrl) == true
+        val accountSetup = true
         _state.value = StartupUiState.RepairRequired(reason, failure, accountSetup)
     }
 
@@ -304,13 +286,9 @@ class StartupViewModel @Inject constructor(
                 } else null
 
                 val accountMode = hasAccountConnection()
-                val config = if (accountMode) null else loadConfiguration(reason) ?: run {
+                if (!accountMode) {
                     minimumDisplay?.cancel()
                     _state.value = StartupUiState.Hidden
-                    return@coroutineScope
-                }
-                if (!accountMode && !isUsableConfiguration(checkNotNull(config), reason)) {
-                    minimumDisplay?.cancel()
                     return@coroutineScope
                 }
 
@@ -324,8 +302,7 @@ class StartupViewModel @Inject constructor(
 
                 _state.value = StartupUiState.Loading(reason, StartupPhase.AUTHENTICATION)
                 val causes = mutableListOf<String?>()
-                suspend fun statusProbe(): GatewayProbeResult = if (accountMode) probeAccountConnection()
-                    else checkNotNull(config).let { rest.probeStatusFor(it.baseUrl, it.token) }
+                suspend fun statusProbe(): GatewayProbeResult = probeAccountConnection()
                 var probe = statusProbe()
                 if (probe is GatewayProbeResult.Unreachable) causes += probe.cause
                 for (retryNumber in 1..MAX_AUTO_RETRIES) {
@@ -514,13 +491,6 @@ class StartupViewModel @Inject constructor(
         _state.value = StartupUiState.Failed(reason, failure)
     }
 
-    private fun loadConfiguration(reason: StartupReason): GatewayConfig? = try {
-        credentials.load()
-    } catch (_: Exception) {
-        requireConfigurationRepair(reason, StartupFailure.CONFIGURATION_FAILED)
-        null
-    }
-
     private fun hasAccountConnection(): Boolean =
         accountSessions?.transportMode() == AccountTransportMode.ACCOUNT
 
@@ -540,9 +510,8 @@ class StartupViewModel @Inject constructor(
         AccountTransportMode.DEVICE_SELECTION_REQUIRED,
         AccountTransportMode.REAUTHENTICATION_REQUIRED,
         AccountTransportMode.ACCOUNT_DELETION_COMMITTED -> true
-        AccountTransportMode.ACCOUNT_PENDING,
-        AccountTransportMode.LEGACY,
-        null -> runCatching { credentials.load() }.getOrNull() != null
+        AccountTransportMode.SIGNED_OUT,
+        null -> false
     }
 
     private suspend fun probeAccountConnection(): GatewayProbeResult = try {
@@ -572,18 +541,6 @@ class StartupViewModel @Inject constructor(
         }
     } catch (error: Exception) {
         GatewayProbeResult.Unreachable(error.javaClass.simpleName)
-    }
-
-    private fun isUsableConfiguration(config: GatewayConfig, reason: StartupReason): Boolean {
-        if (runCatching { normalizeGatewayBaseUrl(config.baseUrl) }.isFailure) {
-            requireConfigurationRepair(reason, StartupFailure.INVALID_URL)
-            return false
-        }
-        if (config.token.isBlank() && !config.isGated) {
-            requireConfigurationRepair(reason, StartupFailure.AUTHENTICATION_FAILED)
-            return false
-        }
-        return true
     }
 
     private fun requireConfigurationRepair(reason: StartupReason, failure: StartupFailure) {

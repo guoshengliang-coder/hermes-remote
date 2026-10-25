@@ -63,6 +63,36 @@ class UnsentComposerScreenshotTest {
         assertTrue(cancelled)
     }
 
+    private fun unknown(name: String, dark: Boolean, language: AppLanguage) {
+        var checked = false
+        compose.setContent {
+            HermesTheme(darkTheme = dark) {
+                val density = LocalDensity.current
+                CompositionLocalProvider(LocalAppLanguage provides language,
+                    LocalDensity provides Density(density.density, 1.3f)) {
+                    Surface {
+                        Column(Modifier.padding(14.dp)) {
+                            UserBubble(ChatMessage("unknown", Role.USER, "A message with an unknown delivery result", delivery = DeliveryState.UNCONFIRMED),
+                                onEditResend = { error("must not edit") }, onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {},
+                                onCheckDelivery = { checked = true }, onDiscardSend = { error("must not withdraw") })
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText(if (language == AppLanguage.ZH) "撤回" else "Withdraw").assertDoesNotExist()
+        compose.onNodeWithText(if (language == AppLanguage.ZH) "编辑并重新发送" else "Edit & resend").assertDoesNotExist()
+        compose.onRoot().captureRoboImage("screenshots/$name.png", roborazziOptions = RoborazziOptions(
+            compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.01f)))
+        compose.onNodeWithText(if (language == AppLanguage.ZH) "重新核对" else "Check status").performClick()
+        assertTrue(checked)
+    }
+
+    @Test fun unknownLightLargeFont() = unknown("unknown-delivery-zh-360-fs13", false, AppLanguage.ZH)
+    @Test fun unknownDarkLargeFont() = unknown("unknown-delivery-dark-zh-360-fs13", true, AppLanguage.ZH)
+    @Test fun unknownEnglishLargeFont() = unknown("unknown-delivery-en-360-fs13", false, AppLanguage.EN)
+
     @Test fun lightLargeFont() = snap("unsent-composer-zh-360-fs13", false, AppLanguage.ZH)
     @Test fun darkLargeFont() = snap("unsent-composer-dark-zh-360-fs13", true, AppLanguage.ZH)
     @Test fun englishLargeFont() = snap("unsent-composer-en-360-fs13", false, AppLanguage.EN)
