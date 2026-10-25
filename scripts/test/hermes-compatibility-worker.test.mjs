@@ -308,3 +308,39 @@ test('real legacy relay evidence is scoped, identity-bound and rejects every obs
     }
   }
 });
+
+test('backend restart evidence is complete and scoped; every failure blocks service recovery',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const {RESTART_SCOPE,RESTART_CHECKS}=await import('../hermes-compatibility-contract-probe.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-backend-restart-contracts.json',import.meta.url)));
+  const parse=v=>contractEvidence(v,task.identity,raw.suiteSha256,raw.probeSha256,raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256);
+  const bundle=v=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(v)},'2026-10-25T01:00:00Z');
+  const passed=bundle(raw);assert.deepEqual(validateBundle(task,passed),passed.report);
+  assert.equal(passed.evidence.contracts.restart.scope,RESTART_SCOPE);
+  for(const name of ['serviceRecovery','processInterruption','desktopLifecycle','clientBusiness','newDataProtection'])
+    assert.equal(passed.report.checks.find(c=>c.name===name).status,'not_run');
+  for(const stage of ['source','candidate','restored']){
+    for(const key of RESTART_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[stage].restart.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].restart.checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';const result=bundle(failed);
+      assert.equal(result.report.checks.find(c=>c.name==='serviceRecovery').status,'failed');
+      assert.equal(validateBundle(task,result).outcome,'failed');
+    }
+    for(const patch of [{scope:'unknown'},{scope:undefined},{version:'9.9.9'},{compatibilityApproved:true},{attempted:undefined},{attempted:'true'}]){
+      const invalid=structuredClone(raw);Object.assign(invalid.stages[stage].restart,patch);assert.throws(()=>parse(invalid));
+    }
+    const missing=structuredClone(raw);delete missing.stages[stage].restart;assert.throws(()=>parse(missing));
+  }
+  const privateData=structuredClone(raw);privateData.stages.source.restart.token='synthetic-private';
+  privateData.stages.source.restart.checkpoint={storedId:'synthetic-private'};
+  assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+  const skipped=structuredClone(raw);skipped.stages.source.restart.attempted=false;skipped.stages.source.restart.checks={};
+  assert.throws(()=>parse(skipped),'cannot hide a restart behind a successful prerequisite');
+  skipped.stages.source.checks.promptHistory=false;skipped.status='contract_gap';
+  const result=bundle(skipped);
+  assert.equal(result.report.checks.find(c=>c.name==='rpc').status,'failed');
+  assert.equal(result.report.checks.find(c=>c.name==='serviceRecovery').status,'not_run');
+  assert.equal(validateBundle(task,result).outcome,'failed');
+  skipped.stages.source.restart.checks.restartHistory=true;assert.throws(()=>parse(skipped));
+});

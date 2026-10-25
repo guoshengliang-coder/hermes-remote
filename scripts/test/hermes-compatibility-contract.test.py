@@ -55,5 +55,60 @@ class ContractLabTests(unittest.TestCase):
                 runner.assert_not_called()
             self.assertFalse((root/'user').exists())
 
+    def test_restart_keeps_checkpoint_private_and_restores_configuration(self):
+        for failure in (False, True):
+            with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+                root=Path(directory);(root/'tmp').mkdir();(root/'isolation.sb').write_text('(version 1)\n(allow default)\n')
+                config=root/'user/.hermes/config.yaml';config.parent.mkdir(parents=True);config.write_text('synthetic original');config.chmod(0o600)
+                installer=types.SimpleNamespace(isolated_environment=lambda root:{},sha256=lambda data:'a'*64)
+                calls=[]
+                def run(*args, **kwargs):
+                    calls.append(kwargs)
+                    if kwargs.get('restart_state'):
+                        self.assertTrue(kwargs['restart_state']['stopped'])
+                        self.assertEqual(kwargs['restart_state']['token'],'synthetic-private')
+                        self.assertNotEqual(config.read_text(),'synthetic original')
+                        if failure:raise TimeoutError('synthetic restart failure')
+                        return {'attempted':True,'checks':{'restartHistory':True}}
+                    self.assertTrue(kwargs['capture_restart'])
+                    return {'checks':{'promptHistory':True},'_restart':{'stopped':True,'token':'synthetic-private',
+                        'port':12345,'pid':123,'checkpoint':{'storedId':'synthetic-private'}}}
+                with mock.patch.object(lab.subprocess,'run',return_value=types.SimpleNamespace(returncode=0)), \
+                    mock.patch.object(lab,'runtime_probe',side_effect=run):
+                    if failure:
+                        with self.assertRaises(TimeoutError):lab.prompt_probe(root,installer,'0.21.3','fixture','/synthetic/node',restart=True)
+                    else:
+                        result=lab.prompt_probe(root,installer,'0.21.3','fixture','/synthetic/node',restart=True)
+                        self.assertNotIn('synthetic-private',json.dumps(result))
+                        self.assertTrue(result['restart']['checks']['restartConfigurationRestored'])
+                self.assertEqual(len(calls),2)
+                self.assertEqual(config.read_text(),'synthetic original')
+
+    def test_restart_rejects_live_previous_backend_before_starting_another(self):
+        with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+            root=Path(directory);(root/'tmp').mkdir();(root/'isolation.sb').write_text('(version 1)\n(allow default)\n')
+            config=root/'user/.hermes/config.yaml';config.parent.mkdir(parents=True);config.write_text('synthetic original')
+            installer=types.SimpleNamespace(isolated_environment=lambda root:{})
+            with mock.patch.object(lab.subprocess,'run',return_value=types.SimpleNamespace(returncode=0)), \
+                mock.patch.object(lab,'runtime_probe',return_value={'checks':{},'_restart':{'stopped':False}}) as runner:
+                with self.assertRaisesRegex(ValueError,'previous_backend_alive'):
+                    lab.prompt_probe(root,installer,'0.21.3','fixture','/synthetic/node',restart=True)
+                self.assertEqual(runner.call_count,1)
+            self.assertEqual(config.read_text(),'synthetic original')
+
+    def test_missing_completed_turn_preserves_rpc_failure_and_does_not_start_restart(self):
+        with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+            root=Path(directory);(root/'tmp').mkdir();(root/'isolation.sb').write_text('(version 1)\n(allow default)\n')
+            config=root/'user/.hermes/config.yaml';config.parent.mkdir(parents=True);config.write_text('synthetic original')
+            installer=types.SimpleNamespace(isolated_environment=lambda root:{},sha256=lambda data:'a'*64)
+            with mock.patch.object(lab.subprocess,'run',return_value=types.SimpleNamespace(returncode=0)), \
+                mock.patch.object(lab,'runtime_probe',return_value={'checks':{'promptHistory':False},'_restart':{'stopped':True,'checkpoint':None}}) as runner:
+                result=lab.prompt_probe(root,installer,'0.21.3','fixture','/synthetic/node',restart=True)
+                self.assertEqual(runner.call_count,1)
+                self.assertFalse(result['checks']['promptHistory'])
+                self.assertEqual(result['restart']['checks'],{})
+                self.assertFalse(result['restart']['attempted'])
+            self.assertEqual(config.read_text(),'synthetic original')
+
 
 if __name__ == '__main__': unittest.main()

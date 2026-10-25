@@ -43,6 +43,11 @@ export function validateCoreHistory(value, {empty = false, pagination = false, o
 
 export const RECONNECT_SCOPE = 'completed-text-turn-reconnect-v1';
 export const RECONNECT_CHECKS = ['reconnectReady','reconnectCapabilities','reconnectResume','reconnectIdentity','reconnectHistory'];
+export const RESTART_SCOPE = 'completed-text-turn-backend-restart-v1';
+export const RESTART_CHECKS = ['restartPreviousStopped','restartFreshProcess','restartSamePort','restartStopped',
+  'restartOldTokenRejected','restartVersion','restartSeedHistory','restartNoModelRequest',
+  'restartReady','restartCapabilities','restartResume','restartIdentity','restartHistory',
+  'restartConfigurationRestored','restartNetworkFence'];
 export const PROMPT_SCOPE = 'loopback-model-text-turn-v1';
 export const PROMPT_TEXT = 'Hermes GO compatibility synthetic turn';
 export const PROMPT_ANSWER = 'Hermes GO synthetic model reply';
@@ -275,7 +280,8 @@ function websocket(url, rejectExpected) {
     socket.on('close', () => { if (!done) finish(false); });
   });
 }
-export async function probeContract({port, token, version, prompt = false, transport = 'direct'}) {
+export async function probeContract({port, token, version, prompt = false, transport = 'direct', captureRestart = false}) {
+  if(typeof captureRestart!=='boolean'||(captureRestart&&(!prompt||transport!=='direct')))throw new Error('invalid_checkpoint_capture');
   if (!['direct','legacy-relay'].includes(transport) || typeof prompt !== 'boolean' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string'
       || !/^[A-Za-z0-9_-]{32,128}$/.test(token) || !['0.21.3','0.22.5'].includes(version)) throw new Error('invalid_probe');
   const base = `http://127.0.0.1:${port}`, auth = new HermesAuth({baseUrl:base,sessionToken:token,requestTimeoutMs:15_000});
@@ -328,11 +334,37 @@ export async function probeContract({port, token, version, prompt = false, trans
   if(prompt)Object.assign(checks,completedTurn
     ? await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...completedTurn,readHistory})
     : Object.fromEntries(RECONNECT_CHECKS.map(n=>[n,false])));
-  return {schemaVersion:1,kind:'live-connector-contract-probe',version,transport,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE,reconnectScope:RECONNECT_SCOPE}:{}),checks,compatibilityApproved:false};
+  // Only the private parent process receives this checkpoint; it must strip it before reporting.
+  return {schemaVersion:1,kind:'live-connector-contract-probe',version,transport,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE,reconnectScope:RECONNECT_SCOPE}:{}),checks,compatibilityApproved:false,
+    ...(captureRestart?{restartCheckpoint:completedTurn??null}:{})};
+}
+
+/** Read an already completed synthetic turn after the owning backend has actually restarted. */
+export async function probeBackendRestart({port,token,previousToken,version,checkpoint}) {
+  if(!Number.isInteger(port)||port<1||port>65535||!['0.21.3','0.22.5'].includes(version)
+    ||![token,previousToken].every(v=>typeof v==='string'&&/^[A-Za-z0-9_-]{32,128}$/.test(v))||token===previousToken
+    ||!object(checkpoint)||typeof checkpoint.storedId!=='string'||!checkpoint.storedId||checkpoint.storedId.length>256
+    ||!Array.isArray(checkpoint.history)||checkpoint.history.length!==2
+    ||JSON.stringify(validatePromptHistory({messages:checkpoint.history}))!==JSON.stringify(checkpoint.history))throw new Error('invalid_restart');
+  const base=`http://127.0.0.1:${port}`,auth=new HermesAuth({baseUrl:base,sessionToken:token,requestTimeoutMs:15_000});
+  const checks={};
+  async function check(name,fn){try{await fn();checks[name]=true;}catch{checks[name]=false;}}
+  await check('restartOldTokenRejected',async()=>{
+    const response=await fetch(base+'/api/profiles/active',{headers:{'X-Hermes-Session-Token':previousToken},redirect:'error',signal:AbortSignal.timeout(15_000)});
+    await response.body?.cancel();if(![401,403].includes(response.status))throw new Error('old_token_accepted');
+  });
+  await check('restartVersion',async()=>validateCoreStatus(JSON.parse(await body(await auth.request('/api/status',{method:'GET'}))),version));
+  await check('restartSeedHistory',async()=>validateCoreHistory(JSON.parse(await body(await auth.request(`/api/sessions/${HISTORY_ID}/messages`,{method:'GET'})))));
+  const readHistory=async id=>JSON.parse(await body(await auth.request(`/api/sessions/${encodeURIComponent(id)}/messages`,{method:'GET'})));
+  const resumed=await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...checkpoint,readHistory});
+  for(const [name,passed] of Object.entries(resumed))checks[name.replace('reconnect','restart')]=passed;
+  return {schemaVersion:1,kind:'live-backend-restart-probe',scope:RESTART_SCOPE,version,attempted:true,checks,compatibilityApproved:false};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     let input=''; for await (const chunk of process.stdin) { input+=chunk; if(input.length>4096)throw new Error('input'); }
-    console.log(JSON.stringify(await probeContract(JSON.parse(input))));
+    const value=JSON.parse(input);
+    if(value.operation!==undefined&&value.operation!=='restart')throw new Error('operation');
+    console.log(JSON.stringify(await (value.operation==='restart'?probeBackendRestart(value):probeContract(value))));
   } catch { console.error('HR-HERMESCOMPAT-004：接口验证未完成，请查看测试记录。 / Contract verification incomplete; review the test record.'); process.exitCode=1; }
 }

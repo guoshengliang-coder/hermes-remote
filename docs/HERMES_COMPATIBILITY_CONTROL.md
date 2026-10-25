@@ -141,7 +141,7 @@ user/assistant 内容、行 ID 和秒级时间戳。模型是固定回复的本�
 80 秒连接总期限、1 MiB 帧上限、最多 256 条/64 KiB 文本事件限制测试资源；保存必要字段，
 不上传原始请求或模型响应。只接受预定合成提示，本地 HTTP 请求体最多 4 MiB。
 
-CI 验证 worker 使用 `--prompt --relay` 执行此范围及下述中继验证。局部通过仍不能认证完整 RPC 或客户端业务，
+CI 验证 worker 使用 `--prompt --relay --restart` 执行此范围及下述中继、后端重启验证。局部通过仍不能认证完整 RPC 或客户端业务，
 工具调用/审批、生成中断重放、真实模型、账号模式中继与手机/Web 端到端仍待验收。
 任何已测对话路径失败明确记为 RPC 失败，不因它是模拟模型而忽略。
 
@@ -167,7 +167,7 @@ Gateway 只监听 loopback，两个进程采用相同的外网隔离 sandbox、�
 Gateway 不收到 Hermes 凭据，Connector 不收到 App 凭据；还实际交换两类凭据确认请求被拒绝。
 Connector-owned contract endpoint 替代直接访问 Hermes OpenAPI，保留中继真实鉴权和契约判断。
 
-worker 默认使用 `--prompt --relay`，合同实验期限为 20 分钟。报告保留直接访问和中继访问的
+worker 默认使用 `--prompt --relay --restart`，合同实验期限为 30 分钟。报告保留直接访问和中继访问的
 独立结果；分别观察本地模型收到请求，不能用直接访问成功替中继背书。每阶段绑定 fixture、
 Node 二进制、三个组件 dist 树与 lockfile 摘要及 Gateway/Connector 源码版本。它们是本次源码
 构建的身份记录，不是正式发行物验签，也不证明所有 node_modules 文件的完整性。
@@ -261,3 +261,20 @@ update 不自动修复缺失库存。已安装内容必须仍可用受信公钥�
 
 新故障沿用库存读取端的双语 HR-HERMESCOMPAT-006，不回显输入、路径或异常原文。隔离测试
 包含真实并发排斥、强杀前后恢复和空库存更新；正式受保护签名/交付任务、配置及续期尚未接通。
+
+## I2 完成文本对话后的后端重启
+
+`completed-text-turn-backend-restart-v1` 在同一隔离安装的 source/candidate/restored 阶段各执行
+一次真实后端停止和重新启动。先通过直接连接完成合成文本对话，将 stored ID 和已核对的两条
+消息保存在父进程内存；确认自有旧后端进程退出后，以新进程、新凭据、原 loopback 端口启动。
+用真实 Connector 鉴权适配器核对运行版本、升级前种子历史、旧 HTTP 凭据拒绝，然后建立新的
+RPC 连接恢复刚完成的对话，核对 live/stored 关系和两条消息的 ID、正文、角色及秒级时间戳。
+不重新提交提示；本地模型请求计数必须不增加。重启前后的进程均由实验收尾，配置在 fixture
+退出后恢复。端口/PID/凭据/会话 ID/正文仅在私有内存和子进程 stdin/stdout 管道传递，不进入报告。
+
+已执行的重启包含 15 项明确布尔检查，三阶段缺项、错版本/范围或状态矛盾拒收。只有前置
+promptHistory 失败、未产生 checkpoint 时，才允许 `attempted=false` 且 checks 为空；保留原
+RPC 失败，不误报基础设施异常或已执行的重启失败，前置成功不能用此方式跳过。任何已测失败使
+`serviceRecovery=failed`；全部通过仍不认证完整服务恢复，因为 LaunchAgent、Desktop 退出重开、
+运行中断、账号模式和客户端业务尚需独立验收。已有 legacy relay 检查保持原范围；重启回读
+本身走直接连接，不能声称验证了中继重连。worker 默认加入 `--restart`，合同实验期限为 30 分钟。

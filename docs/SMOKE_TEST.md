@@ -2404,3 +2404,22 @@ file reader: initialize, retry unchanged, install a later empty inventory and re
 Require all four receipt booleans and the final cleanup marker. Abruptly abandoned random `.next` files
 are never promoted. This is process-crash testing, not hardware power-loss or production deployment
 certification; protected workflow delivery, signing-key rotation and scheduled renewal need acceptance.
+
+### Hermes compatibility: completed-turn backend restart
+
+Run the disposable contract lab with `--prompt --relay --restart`. Each old/candidate/restored runtime
+must complete a synthetic turn, stop its owned backend, start a new process at the same loopback port
+with a fresh token, reject the previous HTTP token and resume the persisted turn over a new socket.
+Require unchanged expected message IDs/roles/text/timestamps, the original seeded history, exact running
+version, no new model request, stopped owned backend and restored configuration. The checkpoint and
+credentials remain in private memory/pipes and must never enter evidence JSON or command arguments.
+
+Require all 15 scoped checks in all three stages; reject missing/mixed scopes and contradictory status.
+Fault tests cover old-token acceptance, wrong version, changed rows, missing/duplicate checkpoints,
+restart failure cleanup and refusal to start before the previous backend stops. A failed observed
+restart fails serviceRecovery; success alone leaves it unverified pending LaunchAgent and Desktop
+lifecycle acceptance. This path reads directly after restart: it does not certify relay reconnection,
+in-flight generation recovery, new-data downgrade protection or real Android/Web user journeys.
+If the preceding prompt fails to produce a checkpoint, retain its RPC failure and record restart
+attempted=false with no checks. Do not turn that product failure into an infrastructure error or
+fabricate a restart result. A successful prerequisite cannot authorize this skip.

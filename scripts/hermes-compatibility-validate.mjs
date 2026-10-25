@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS } from './hermes-compatibility-contract-probe.mjs';
+import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS, RESTART_SCOPE, RESTART_CHECKS } from './hermes-compatibility-contract-probe.mjs';
 import { parseTask, readJSON, infrastructureReport } from './hermes-compatibility-worker.mjs';
 import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/dist/account/hermes-compatibility-model.js';
 
@@ -36,7 +36,9 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
   if (reconnectScope !== undefined && (reconnectScope !== RECONNECT_SCOPE || !promptScope)) throw new Error('contract_scope_mismatch');
   const required = [...names, ...(restScope ? CORE_REST_CHECKS : []), ...(rpcScope ? SESSION_RPC_CHECKS : []),
     ...(promptScope ? PROMPT_CHECKS : []),...(reconnectScope ? RECONNECT_CHECKS : [])];
-  const stages={};
+  const stages={},restartStages={};
+  const restartScope=raw.stages?.source?.restart?.scope;
+  if(restartScope!==undefined&&(restartScope!==RESTART_SCOPE||transport!=='direct'||!promptScope||!reconnectScope))throw new Error('contract_restart_scope_mismatch');
   for(const [name,version] of [['source','0.21.3'],['candidate',identity.version],['restored','0.21.3']]) {
     const stage=raw.stages?.[name];
     if(stage?.schemaVersion!==1||stage.kind!=='live-connector-contract-probe'||stage.version!==version
@@ -49,6 +51,15 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
       ||(!rpcScope && SESSION_RPC_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n)))
       ||!required.every(n=>typeof stage.checks?.[n]==='boolean'))throw new Error('contract_stage_mismatch');
     stages[name]={version,checks:Object.fromEntries(required.map(n=>[n,stage.checks[n]]))};
+    const restarted=stage.restart;
+    if(restartScope){
+      if(restarted?.schemaVersion!==1||restarted.kind!=='live-backend-restart-probe'||restarted.scope!==restartScope
+        ||restarted.version!==version||restarted.compatibilityApproved!==false||typeof restarted.attempted!=='boolean'
+        ||(restarted.attempted?!RESTART_CHECKS.every(n=>typeof restarted.checks?.[n]==='boolean'):
+          (stage.checks.promptHistory!==false||!restarted.checks||Object.keys(restarted.checks).length!==0)))throw new Error('contract_restart_mismatch');
+      restartStages[name]={version,attempted:restarted.attempted,checks:restarted.attempted?
+        Object.fromEntries(RESTART_CHECKS.map(n=>[n,restarted.checks[n]])):{}};
+    }else if(restarted!==undefined)throw new Error('contract_restart_scope_mismatch');
   }
   let relay;
   if (raw.relayScope) {
@@ -75,11 +86,13 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
     relay={scope:RELAY_SCOPE,fixtureSha256:relayFixtureSha256,...Object.fromEntries(fields.map(k=>[k,first[k]])),
       stages:nested.stages,observations};
   }
-  const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean)) && (!relay ||
+  const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean))
+    && (!restartScope || Object.values(restartStages).every(stage=>Object.values(stage.checks).every(Boolean))) && (!relay ||
     (Object.values(relay.stages).every(stage=>Object.values(stage.checks).every(Boolean)) &&
      Object.values(relay.observations).every(stage=>stage.roleSeparation && stage.stopped)));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
-  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),suiteSha256,probeSha256,stages,...(relay?{relay}:{})};
+  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),suiteSha256,probeSha256,stages,...(relay?{relay}:{}),
+    ...(restartScope?{restart:{scope:restartScope,stages:restartStages}}:{})};
 }
 export function lockEvidence(raw, identity, suiteSha256) {
   const names = ['oldRefusesLiveOwner', 'newRefusesLiveOwner', 'childSurvivesOwnerInterruption',
@@ -154,6 +167,12 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
          Object.values(evidence.contracts.relay.observations).some(stage=>!stage.roleSeparation || !stage.stopped))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }
+    // Backend restart does not cover LaunchAgent ownership or the Desktop lifecycle. A failed
+    // completed-turn recovery is nevertheless a concrete service recovery incompatibility.
+    if(name==='serviceRecovery'&&evidence.contracts?.restart?.scope===RESTART_SCOPE&&
+      Object.values(evidence.contracts.restart.stages).some(stage=>stage.attempted&&Object.values(stage.checks).some(value=>value===false))) {
+      return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
+    }
     const available = Object.hasOwn(conditions, name);
     const proof = name === 'recovery' ? evidence.recovery : ['authentication','rest'].includes(name) ? evidence.contracts : normal;
     return { name, status: available ? conditions[name] ? 'passed' : 'failed' : 'not_run',
@@ -207,7 +226,7 @@ async function main() {
           createHash('sha256').update(await readFile(lockSuite)).digest('hex'));
         const contractSuite=resolve('scripts/hermes-compatibility-contract-lab.py');
         const contractProbe=resolve('scripts/hermes-compatibility-contract-probe.mjs');
-        const contract=await exec('python3',[contractSuite,'--prompt','--relay','--lab-root',labRoot],{timeout:20*60_000,maxBuffer:64*1024});
+        const contract=await exec('python3',[contractSuite,'--prompt','--relay','--restart','--lab-root',labRoot],{timeout:30*60_000,maxBuffer:64*1024});
         const contractResult=JSON.parse(contract.stdout.trim());
         const contractPath=await realpath(contractResult.report);
         if(dirname(contractPath)!==labRoot||!/^contract-report-[0-9]+\.json$/.test(contractPath.slice(labRoot.length+1)))throw new Error('contract_path_invalid');

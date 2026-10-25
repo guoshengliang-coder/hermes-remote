@@ -1202,3 +1202,19 @@ The report binds source build trees, lockfile and Node executable, not signed re
 all installed dependency bytes. Source versions are Gateway 0.4.36 and Connector 0.1.17. This scoped
 legacy-channel result does not certify account mode, file transfer, service recovery or client UI.
 A demonstrated relay failure rejects Connector compatibility; success alone cannot approve it.
+
+### Completed-turn backend restart (2026-10-25)
+
+The fixed 0.21.3 / 0.22.5 / restored-0.21.3 runtimes pass 45/45 additional scoped checks: stop the
+owned backend, launch a fresh process with a fresh token at the same loopback port, reject the old
+HTTP token, verify running version and seeded history, then resume the completed synthetic turn over
+a new authenticated connection. Its expected user/assistant message IDs, roles, text and timestamps
+remain unchanged, without another model request. The fixture restores configuration and stops its
+owned processes; private checkpoints never enter evidence. See
+[the report](evidence/hermes-compatibility/2026-10-25-backend-restart-contracts.json), which also retains
+198 passed direct/relay checks and six credential-separation/cleanup observations from the same run.
+
+This restart readback is direct and uses the deterministic local model fixture. It does not certify
+LaunchAgent supervision, relay reconnect, Desktop reopening, interrupted generation or downgrade
+after new writes. Those gates remain open; no adapted-version declaration or production recommendation
+changes. An observed restart failure fails serviceRecovery; narrow success cannot approve that whole gate.
