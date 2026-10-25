@@ -1,11 +1,15 @@
 # Hermes Go Desktop
 
-Prepared **0.2.42 / build 45** (owner-authorized merge/publication, 2026-10-25): Hermes conditions
-now distinguish unsupported custom Git configuration from an unknown inspection failure (#666).
-Existing SSH/filter/include configuration remains untouched and blocked, with a fixed redacted
-HR-HERMESUPDATE-002 diagnostic. One-click upgrade/recovery stays disabled. Retain the installed public
-trust/update settings and existing ad-hoc internal channel; verify publication and the updated real
-client separately. Physical phone history/send/receive acceptance remains pending: device unavailable.
+Published **0.2.42 / build 45** on 2026-10-25 on the owner-authorized ad-hoc internal channel.
+Hermes conditions now explain custom Git configuration refusal (#666), preserving the existing
+configuration and safety boundary. Website/app discovery and both complete public DMGs passed
+size/hash verification. The installed 0.2.41 client updated and relaunched as 0.2.42/build 45.
+Actual clicks showed the explicit configuration-blocked reason, version discovery and no upgrade
+record. One-click Hermes upgrade/recovery remains disabled. Hermes/Connector PIDs, source, Git
+config/index and Hermes config stayed unchanged. After the owner handled the system confirmation,
+account restoration completed and Overview showed local Hermes ready and Cloud connected. Physical
+phone acceptance remains blocked by the unavailable device. See
+`../docs/DESKTOP_RELEASE_CHANNEL.md` and `../docs/DESKTOP_TEST_PLAN.md` for the exact evidence/limits.
 
 ## Previous distribution: 0.2.41
 
