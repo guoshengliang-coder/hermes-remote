@@ -228,5 +228,36 @@ Connector 签名发布依据到期时间的最小值，按整秒向下取整；�
 `parseReleaseInventory` 为生成和消费共用格式验证，拒绝重复组合；`CompatibilitySigner.signInventory`
 只签专用 released-components 用途并验证实际序列化签名。受保护调用方仍须保证输入来自本次
 完整采集，而非管理员替换的载荷。库存不能作为 Hermes 测试通过或推荐批准，推荐验收仍要求
-全部核心检查。这里没有启用正式签名、原子替换 Gateway 库存文件或定时续期；这些生产接线
+全部核心检查。这里没有启用正式签名、生产 Gateway 库存交付或定时续期；这些生产接线
 以及正式五组件原始资料/受信发布主机配置仍须完成。
+
+## I3 签名库存的原子交付
+
+受信主机使用以下入口安装已经签名的库存；该入口没有签名私钥、网络请求或服务重启：
+
+```sh
+python3 -I -B scripts/hermes-compatibility-inventory-install.py \
+  initialize /canonical/protected/publication.json /canonical/protected/candidate.json
+python3 -I -B scripts/hermes-compatibility-inventory-install.py \
+  update /canonical/protected/publication.json /canonical/protected/candidate.json
+```
+
+配置沿用 Gateway publication config，目标为其 `inventoryFile`。输入和目标父目录必须是
+规范绝对路径、当前执行账号所有且不可被组或其他用户写入；拒绝符号链接和硬链接文件。
+Node 构建依赖须已准备好。Python 入口取得持久 `.目标文件名.lock` 的内核排他锁后，直接
+exec Node 写入器并继承锁描述符；实际写入进程持锁，不按时间抢占，不删除锁文件。
+写权限与受控主机是信任边界；描述符检查不是针对能任意改写目录的特权调用者的授权机制。
+
+写入前验证专用用途、origin、有效期及 `releaseKeys` 签名。初始化必须显式使用 initialize；
+update 不自动修复缺失库存。已安装内容必须仍可用受信公钥认证；过期库存只作为顺序记录，
+不能继续授权。不同载荷的 issuedAt 必须严格递增，同一时间不同载荷或旧载荷拒绝；完全相同
+载荷可幂等重试。密钥轮换期间应保留旧库存的验证公钥，不能通过删文件绕过顺序约束。
+
+新内容写到同目录独占临时文件，设为公开可读的 0644，完成文件 fsync，再复核配置、目录、
+锁身份、旧内容及有效期后 rename，随后目录 fsync 并回读验签。Gateway 已打开的旧文件即使
+因替换失去目录链接，仍可读完其完整快照；签名和期限检查继续生效，多重硬链接仍拒绝。
+替换前失败保留旧库存；替换后响应不确定时用同一签名载荷重试。强杀可能留下随机 `.next`
+文件，它不被消费或自动提升；内核释放锁后允许重试。测试覆盖进程强杀，不宣称设备掉电认证。
+
+新故障沿用库存读取端的双语 HR-HERMESCOMPAT-006，不回显输入、路径或异常原文。隔离测试
+包含真实并发排斥、强杀前后恢复和空库存更新；正式受保护签名/交付任务、配置及续期尚未接通。

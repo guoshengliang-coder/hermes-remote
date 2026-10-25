@@ -2,17 +2,19 @@
 // Client archives are inert fixture bytes; no claim about APK/DMG executability is made.
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { packageWebApp } from '../package-web-app.mjs';
 import { prepareReleaseInventory } from '../hermes-compatibility-inventory.mjs';
-import { CompatibilitySigner, releasedInventory } from '../../gateway/dist/account/hermes-compatibility-publication.js';
+import { CompatibilitySigner, releasedInventory, parseCompatibilityPublicationConfiguration } from '../../gateway/dist/account/hermes-compatibility-publication.js';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 export async function verifyInventoryAcceptance({manifestPath,containerName,gateway}) {
-  const root=await mkdtemp(join(tmpdir(),'hermes-inventory-acceptance-'));let server;
+  const root=await realpath(await mkdtemp(join(tmpdir(),'hermes-inventory-acceptance-')));let server;
   try {
     const origin='https://mrlgs.net',version='1.0.0',sourceCommit='a'.repeat(40);
     const createdAt=new Date().toISOString().replace(/\.\d{3}Z$/,'Z');
@@ -60,10 +62,29 @@ export async function verifyInventoryAcceptance({manifestPath,containerName,gate
     const signer=new CompatibilitySigner('synthetic-inventory',signerPair.privateKey.export({format:'pem',type:'pkcs8'}),origin);
     const inventory=signer.signInventory(draft.payload);
     assert.deepEqual(releasedInventory(inventory,new Map([[signer.id,signer.publicKey]]),origin,{components}),components);
+    const configurationPath=join(root,'publication.json'),envelopePath=join(root,'candidate.json');
+    const trust={id:signer.id,publicKeyPem:signer.publicKey.export({format:'pem',type:'spki'})};
+    const configuration={schemaVersion:1,origin,goCommit:sourceCommit,signingKeys:[trust],releaseKeys:[trust],inventoryFile:join(root,'inventory.json')};
+    await writeFile(configurationPath,JSON.stringify(configuration),{mode:0o600});
+    await writeFile(envelopePath,JSON.stringify(inventory),{mode:0o600});
+    const install=action=>spawnSync('python3',['-I','-B',resolve('scripts/hermes-compatibility-inventory-install.py'),action,configurationPath,envelopePath],
+      {encoding:'utf8',timeout:15_000,maxBuffer:64*1024});
+    const initial=install('initialize');assert.equal(initial.status,0);assert.equal(JSON.parse(initial.stdout).status,'installed');
+    const policyReader=parseCompatibilityPublicationConfiguration(configuration);
+    assert.deepEqual(releasedInventory(policyReader.readInventory(),policyReader.releaseKeys,origin,{components}),components);
+    assert.equal(JSON.parse(install('update').stdout).status,'unchanged');
+    await delay(1100); // issuedAt is canonical whole seconds; a distinct generation must be later.
+    const empty=await prepareReleaseInventory({schemaVersion:1,origin,combinations:[]});
+    await writeFile(envelopePath,JSON.stringify(signer.signInventory(empty.payload)),{mode:0o600});
+    assert.equal(install('update').status,0);
+    assert.deepEqual(releasedInventory(policyReader.readInventory(),policyReader.releaseKeys,origin,{components}),[]);
+    await writeFile(envelopePath,JSON.stringify(inventory),{mode:0o600});assert.equal(install('update').status,1);
+    assert.deepEqual(releasedInventory(policyReader.readInventory(),policyReader.releaseKeys,origin,{components}),[]);
     routes.set(new URL(desktop.downloadURL).pathname,Buffer.from('changed fixture'));
     await assert.rejects(prepareReleaseInventory(policy,{fetcher}),error=>error.code==='HR-HERMESCOMPAT-004');
     return {schemaVersion:1,kind:'inventory-producer-acceptance',scope:'real-disposable-gateway-and-synthetic-public-client-records',
-      collectedComponents:5,signAndVerifyPassed:true,changedClientRejected:true,compatibilityApproved:false};
+      collectedComponents:5,signAndVerifyPassed:true,changedClientRejected:true,atomicInstallPassed:true,
+      retryIdempotent:true,emptyInventoryApplied:true,oldInventoryRejected:true,compatibilityApproved:false};
   }finally{
     if(server)await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});
     await rm(root,{recursive:true,force:true});

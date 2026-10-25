@@ -2387,3 +2387,20 @@ a temporary key, verifies the exact combination through Gateway's real consumer,
 one client archive changes. This tests producer plumbing; the client blobs are not executable APKs
 or DMGs, and no production inventory is signed or installed. The existing public Desktop/Android
 archives are separately read back by digest; their package gates/runtime identity are separate proofs.
+
+### Hermes compatibility: atomic signed inventory installation
+
+Run `node --test scripts/test/hermes-compatibility-inventory-install.test.mjs` after building. Use only
+temporary keys, protected temporary directories and synthetic inventories. The Python CLI must hold
+the kernel lock in the actual exec'd writer. A second writer must refuse while it is live; SIGKILL
+before/after rename must leave complete old/new bytes, release the lock, and permit an idempotent retry.
+Missing state requires explicit initialization. Reject older or same-time changed payloads, invalid
+signatures, expired candidates, symlinks, hardlinks, writable state and changed configuration/lock inode.
+An expired but authentic previous inventory still orders a fresh update. A reader that opened the old
+file before replacement must finish its signed snapshot, including when its link count becomes zero.
+
+Disposable image CI extends the five-collector test through the real Python installer and Gateway
+file reader: initialize, retry unchanged, install a later empty inventory and refuse the old inventory.
+Require all four receipt booleans and the final cleanup marker. Abruptly abandoned random `.next` files
+are never promoted. This is process-crash testing, not hardware power-loss or production deployment
+certification; protected workflow delivery, signing-key rotation and scheduled renewal need acceptance.

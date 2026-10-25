@@ -167,7 +167,8 @@ export function readCompatibilityPublicationFile(path:string):unknown {
   try {
     fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
     const stat=fstatSync(fd);
-    if(!stat.isFile()||stat.size>512*1024||stat.nlink!==1||(stat.mode&0o022)!==0)throw compatibilityErrors.invalid();
+    // Atomic replacement can unlink the old inode after open; its held descriptor is still a complete snapshot.
+    if(!stat.isFile()||stat.size>512*1024||stat.nlink>1||(stat.mode&0o022)!==0)throw compatibilityErrors.invalid();
     return JSON.parse(readFileSync(fd,"utf8"));
   }catch{throw compatibilityErrors.publicationIncomplete();}
   finally{if(fd!==undefined)closeSync(fd);}
