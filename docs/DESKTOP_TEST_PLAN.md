@@ -1006,3 +1006,7 @@ schema-1 active 0.3.4 journal resolve to the bundled index/executor with this fi
 finds app 0.2.37 and backend 0.4.12; the backend envelope passes size/hash and Ed25519 verification
 using the installed app's trusted public key. No credentials were printed and no app, service,
 installation journal or Hermes data was changed. Commit/relaunch acceptance remains pending.
+
+### Component layout migration release gate (2026-10-25)
+
+See `DESKTOP_COMPONENT_MIGRATION.md` for the transaction and physical acceptance matrix. Automated coverage includes opted-in component discovery from an active bundled/local installation; disabled/missing configuration and invalid states stay on their existing paths. Real signed component fixture archives exercise exact preparation confirmation, one-way conversion, retained local Hermes agent/launcher/token and binding, health failure rollback, restart recovery, missing executable refusal before shutdown and refusal to restore bundled Hermes after commit. Publisher fault injection covers complete archive/index bytes, HTTP readback failure, rollback readback failure, current-main movement, downgrade, signed-version mismatch and independent channel signatures. GUI integration calls the explicit preparation only from the unified update flow and labels its final confirmation “迁移并重连”. Physical service-changing migration, fresh install and Android business acceptance remain pending and must be reported separately from package/publication verification.

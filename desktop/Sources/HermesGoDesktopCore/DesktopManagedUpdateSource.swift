@@ -11,11 +11,16 @@ public struct DesktopManagedUpdateSource: Equatable, Sendable {
     public static func resolve(
         installation: DesktopManagedBootstrapInstallationStatus,
         bundled: DesktopManagedBootstrapConfiguration?,
-        components: DesktopComponentPreflightConfiguration?
+        components: DesktopComponentPreflightConfiguration?,
+        allowBundledComponentMigration: Bool = false
     ) -> Self? {
         guard case .active(_, let layout, _, _) = installation else { return nil }
         switch layout {
         case .bundledRelease:
+            if allowBundledComponentMigration, let components {
+                return Self(layout: .componentStore, manifestURL: components.manifestURL,
+                            channel: components.channel, architecture: components.architecture)
+            }
             guard let bundled else { return nil }
             return Self(layout: layout, manifestURL: bundled.manifestURL,
                         channel: bundled.channel, architecture: bundled.architecture)
@@ -24,5 +29,12 @@ public struct DesktopManagedUpdateSource: Equatable, Sendable {
             return Self(layout: layout, manifestURL: components.manifestURL,
                         channel: components.channel, architecture: components.architecture)
         }
+    }
+}
+
+public extension DesktopManagedBootstrapInstallationStatus {
+    var requiresComponentLayoutMigration: Bool {
+        if case .active(_, .bundledRelease, _, _) = self { return true }
+        return false
     }
 }

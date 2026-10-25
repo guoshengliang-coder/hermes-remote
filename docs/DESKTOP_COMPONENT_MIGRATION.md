@@ -1,6 +1,6 @@
 # Desktop component layout migration
 
-Status: implementation in progress; no client migration or component release has been activated.
+Status: GUI and transaction implementation complete; publication and physical migration are separate gates.
 Owner approved this direction in the HG-237 dispatch conversation on 2026-10-25.
 
 ## Delivery model
@@ -85,10 +85,7 @@ component-only publication, full-byte archive mismatch, index readback mismatch,
 movement, signed-version mismatch, downgrade refusal, independent channel key verification and
 component-only rollback. No production services are touched by those tests.
 
-The GUI source-selection/confirmation integration and shared Desktop documentation must follow
-the concurrent compatibility PR #673, which currently edits those same files. Until that
-coordination is resolved the new migration API is not exposed by the GUI, no release version is
-allocated, and the production component indexes stay unchanged.
+The GUI now discovers the component channel for a bundled installation only with usable local Hermes and a recognized local managed agent. The unified update flow issues the explicit migration preparation and shows the distinct migration confirmation. The owner authorized completion and merge/publication after reviewing the earlier shared-file coordination note; draft compatibility PR #673 remains independent.
 
 Manual acceptance remains required on a real Mac: cancel before commit; migrate bundled/local
 installation; verify the same binding, home, token and conversations; confirm single managed

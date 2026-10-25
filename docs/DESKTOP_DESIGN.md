@@ -502,3 +502,7 @@ opens the same Hermes Go Desktop menu; it is a status affordance, not a replacem
 
 These are direction references, not pixel specifications. Generated placeholder QR codes are not
 functional, and generated approximations of the H mark must be replaced by the canonical app icon.
+
+## Explicit component migration (2026-10-25)
+
+For a committed bundled-layout installation already running the Mac’s own usable Hermes, the unified Desktop updater discovers the signed component channel when the existing component capability/configuration is ready. Preparation remains private and cancellable. Its confirmation names the change to the managed component layout, preservation of Hermes/model configuration/conversations/account binding, temporary connection/task interruption and health-gated rollback. The action reads “迁移并重连”. Only that confirmed preparation authorizes conversion; setup, ordinary upgrades and inconsistent installations cannot silently cross layouts. See `DESKTOP_COMPONENT_MIGRATION.md`.
