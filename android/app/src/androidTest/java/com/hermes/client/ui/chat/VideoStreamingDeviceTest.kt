@@ -202,6 +202,8 @@ class VideoStreamingDeviceTest {
             }
             assertTrue(node("Pause").isVisibleToUser)
             click("Playback speed")
+            assertTrue(node("1.5×").isVisibleToUser)
+            Thread.sleep(500) // Popup animation/RenderThread settle before visual evidence.
             InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().let { menu ->
                 java.io.File(context.getExternalFilesDir(null), "video-player-speed-menu.png").outputStream().use {
                     menu.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -308,6 +310,7 @@ class VideoStreamingDeviceTest {
             assertTrue(node("Exit fullscreen").isVisibleToUser)
             assertTrue(node("Play").isVisibleToUser)
             assertTrue("rotation changed paused position", kotlin.math.abs(before - position.get()) < 100)
+            Thread.sleep(750) // Window rotation can outlive accessibility-tree reattachment.
             val landscape = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
             assertTrue("fullscreen did not enter landscape", landscape.width > landscape.height)
             var vivid = 0
