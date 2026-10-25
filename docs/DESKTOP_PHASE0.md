@@ -1692,3 +1692,16 @@ A read-only physical check matched selected release 0.4.12 / Connector 0.1.17 to
 archive; see the execution record. This does not identify a running process. The inspector requires
 the original signed inputs and is not yet wired to ordinary recommendation discovery. No download
 or service action is triggered automatically by adding this API.
+
+
+### I3 ordinary recommendation: automatic Connector collection
+
+When a freshly signed recommendation has a newer path matching the local source and environment,
+Desktop resolves the currently selected bundled release's original manifest from its configured
+public release endpoint. It verifies the signature before downloading the Connector archive, then
+reuses full installed-file and process-continuity checks. Successful identity participates in the
+existing recommendation assessment; failed or unavailable identity remains unknown. No candidate
+means no archive download. Other four component identities remain unknown; no execution is enabled.
+Public collection uses an isolated ephemeral session without credentials/cookies, bounded downloads
+and 30-second request / 120-second resource timeouts, with its own disposable workspace. Hermes is
+re-detected after collection; an installation change invalidates the earlier environment assessment.

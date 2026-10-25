@@ -4,6 +4,129 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopBundledConnectorIdentityTests: XCTestCase {
+    func testCollectorFetchesSelectedReleaseAndReturnsVerifiedRuntimeWithWorkspaceRemoved() async throws {
+        let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
+        let process = runtimeProcess(f), downloads = IdentityDownloads()
+        let collector = DesktopConnectorIdentityCollector(fetch: { url in
+            XCTAssertEqual(url.absoluteString, "https://downloads.example/desktop/releases/1.2.3/Hermes-Desktop-1.2.3-arm64.manifest.json")
+            return f.envelope
+        }, download: { artifact, root in
+            let destination = root.appendingPathComponent(artifact.fileName)
+            try FileManager.default.copyItem(at: f.archive, to: destination)
+            await downloads.record(destination)
+            return destination
+        }, runtime: { files, layout in
+            try DesktopConnectorRuntimeIdentityInspector(runner: RuntimeJobRunner(layout: layout, pid: process.pid),
+                readProcess: { _ in process }).inspect(observation: files, layout: layout)
+        })
+        let result = try await collector.collect(configuration: f.configuration, layout: f.layout)
+        XCTAssertEqual(result.component, .init(name: "connector", version: "0.2.0", artifactSha256: f.archiveHash))
+        let paths = await downloads.paths
+        XCTAssertEqual(paths.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0].deletingLastPathComponent().path))
+        XCTAssertEqual(try DesktopConnectorIdentityCollector.selectedVersion(f.layout), "1.2.3")
+    }
+
+    func testCollectorRejectsBadSignatureAndChangedSelectionBeforeArchiveDownload() async throws {
+        for changeSelection in [false, true] {
+            let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
+            let collector = DesktopConnectorIdentityCollector(fetch: { _ in
+                if changeSelection { try f.select("releases/9.9.9"); return f.envelope }
+                var object = try JSONSerialization.jsonObject(with: f.envelope) as! [String: Any]
+                object["signature"] = Data(repeating: 0, count: 64).bundledBase64URL
+                return try JSONSerialization.data(withJSONObject: object)
+            }, download: { _, _ in XCTFail("Unverified manifest must not download"); throw CocoaError(.fileReadUnknown) },
+            runtime: { _, _ in XCTFail("Unverified manifest must not inspect"); throw CocoaError(.fileReadUnknown) })
+            do { _ = try await collector.collect(configuration: f.configuration, layout: f.layout); XCTFail("Expected failure") }
+            catch { assertCollectorIssue(error) }
+        }
+    }
+
+    func testCollectorCleansWorkspaceAfterDownloadOrRuntimeFailure() async throws {
+        for failDownload in [true, false] {
+            let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
+            let downloads = IdentityDownloads()
+            let collector = DesktopConnectorIdentityCollector(fetch: { _ in f.envelope }, download: { artifact, root in
+                let destination = root.appendingPathComponent(artifact.fileName)
+                await downloads.record(destination)
+                if failDownload { throw CocoaError(.fileReadUnknown) }
+                try FileManager.default.copyItem(at: f.archive, to: destination)
+                return destination
+            }, runtime: { _, _ in throw CocoaError(.fileReadUnknown) })
+            do { _ = try await collector.collect(configuration: f.configuration, layout: f.layout); XCTFail("Expected failure") }
+            catch { assertCollectorIssue(error) }
+            let paths = await downloads.paths
+            XCTAssertEqual(paths.count, 1)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0].deletingLastPathComponent().path))
+        }
+    }
+
+    func testCollectorRejectsSelectionChangeDuringArchiveDownload() async throws {
+        let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
+        let collector = DesktopConnectorIdentityCollector(fetch: { _ in f.envelope }, download: { artifact, root in
+            let destination = root.appendingPathComponent(artifact.fileName)
+            try FileManager.default.copyItem(at: f.archive, to: destination)
+            try f.select("releases/9.9.9")
+            return destination
+        }, runtime: { _, _ in XCTFail("Changed installation cannot reach runtime inspection"); throw CocoaError(.fileReadUnknown) })
+        do { _ = try await collector.collect(configuration: f.configuration, layout: f.layout); XCTFail("Expected failure") }
+        catch { assertCollectorIssue(error) }
+    }
+
+    func testCollectorRejectsNoncanonicalSelectionWithoutNetwork() async throws {
+        let f = try BundledIdentityFixture(); defer { f.remove() }
+        let collector = DesktopConnectorIdentityCollector(fetch: { _ in XCTFail("Unexpected network"); return Data() },
+            download: { _, _ in throw CocoaError(.fileReadUnknown) }, runtime: { _, _ in throw CocoaError(.fileReadUnknown) })
+        for target in ["releases/../1.2.3", "components/1.2.3", "/releases/1.2.3", "releases/1.2.3/extra"] {
+            try f.select(target)
+            do { _ = try await collector.collect(configuration: f.configuration, layout: f.layout); XCTFail("Expected failure") }
+            catch { assertCollectorIssue(error) }
+        }
+    }
+
+    func testCollectorPublicTransportHasNoAccountStateAndFiniteTimeouts() {
+        let configuration = DesktopConnectorIdentityCollector.publicSessionConfiguration()
+        XCTAssertNil(configuration.httpCookieStorage)
+        XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertNil(configuration.urlCredentialStorage)
+        XCTAssertNil(configuration.httpAdditionalHeaders)
+        XCTAssertNil(configuration.urlCache)
+        XCTAssertEqual(configuration.timeoutIntervalForRequest, 30)
+        XCTAssertEqual(configuration.timeoutIntervalForResource, 120)
+        XCTAssertFalse(configuration.waitsForConnectivity)
+    }
+
+    func testCollectorPinnedDiscoveryCannotSubstituteDifferentSelectedRelease() throws {
+        let f = try BundledIdentityFixture(); defer { f.remove() }
+        let url = URL(string: "https://downloads.example/desktop/releases/1.2.3/Hermes-Desktop-1.2.3-arm64.manifest.json")!
+        let pinned = try DesktopManagedBootstrapConfiguration(manifestURL: url,
+            artifactOrigin: f.configuration.artifactOrigin, channel: "internal", architecture: "arm64",
+            signingKeys: f.configuration.signingKeys, runtimeContract: .serveV1)
+        XCTAssertEqual(try DesktopConnectorIdentityCollector.manifestURL(pinned, version: "1.2.3"), url)
+        XCTAssertThrowsError(try DesktopConnectorIdentityCollector.manifestURL(pinned, version: "9.9.9"))
+        XCTAssertThrowsError(try DesktopConnectorIdentityCollector.manifestURL(f.configuration, version: "../other"))
+    }
+
+    func testCollectorRejectsValidManifestForDifferentSelectedVersion() async throws {
+        let f = try BundledIdentityFixture(); defer { f.remove() }
+        try f.select("releases/9.9.9")
+        let collector = DesktopConnectorIdentityCollector(fetch: { _ in f.envelope },
+            download: { _, _ in XCTFail("Wrong signed release must not download"); throw CocoaError(.fileReadUnknown) },
+            runtime: { _, _ in throw CocoaError(.fileReadUnknown) })
+        do { _ = try await collector.collect(configuration: f.configuration, layout: f.layout); XCTFail("Expected failure") }
+        catch { assertCollectorIssue(error) }
+    }
+
+    private func assertCollectorIssue(_ error: Error, file: StaticString = #filePath, line: UInt = #line) {
+        guard let issue = error as? DesktopIssue else { return XCTFail("Expected structured issue", file: file, line: line) }
+        XCTAssertEqual(issue.code.rawValue, "HR-HERMESCOMPAT-008", file: file, line: line)
+        XCTAssertEqual(issue.summaryChinese, "无法确认升级推荐", file: file, line: line)
+        XCTAssertEqual(issue.summaryEnglish, "Upgrade recommendation unavailable", file: file, line: line)
+        XCTAssertTrue(issue.retryable, file: file, line: line)
+        XCTAssertEqual(issue.recoveryAction, .retry, file: file, line: line)
+        XCTAssertFalse(issue.sanitizedDiagnostic.contains("/"), file: file, line: line)
+    }
+
     func testRuntimeMatchesSignedFilesExactJobAndStableProcess() throws {
         let f = try BundledIdentityFixture(runtime: true); defer { f.remove() }
         let observation = try f.inspect()
@@ -226,6 +349,7 @@ private final class BundledIdentityFixture {
     let archiveHash: String
     let envelope: Data
     let verifier: DesktopReleaseManifestVerifier
+    let configuration: DesktopManagedBootstrapConfiguration
 
     init(runtime: Bool = false) throws {
         root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
@@ -272,6 +396,10 @@ private final class BundledIdentityFixture {
                       sizeBytes: Int64(bytes.count), sha256: archiveHash)
             ])
         let key = Curve25519.Signing.PrivateKey()
+        configuration = try DesktopManagedBootstrapConfiguration(
+            manifestURL: URL(string: "https://downloads.example/desktop/releases/index.json")!,
+            artifactOrigin: URL(string: "https://downloads.example")!, channel: "internal", architecture: "arm64",
+            signingKeyID: "test", signingPublicKey: key.publicKey.rawRepresentation, runtimeContract: .serveV1)
         let payload = try JSONEncoder().encode(manifest)
         envelope = try JSONSerialization.data(withJSONObject: ["payload": payload.bundledBase64URL,
             "keyId": "test", "algorithm": "Ed25519", "signature": key.signature(for: payload).bundledBase64URL])
@@ -317,4 +445,9 @@ private final class RuntimeJobRunner: OutputCommandRunning {
         let path = layout.currentRelease.appendingPathComponent("connector/bin/hermes-connector").path
         return .init(status: 0, stdout: Data("\(target) = {\n\tpid = \(pid)\n\targuments = {\n\t\t\(path)\n\t}\n}\n".utf8), outputLimitExceeded: false)
     }
+}
+
+private actor IdentityDownloads {
+    private(set) var paths: [URL] = []
+    func record(_ url: URL) { paths.append(url) }
 }

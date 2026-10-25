@@ -1156,3 +1156,31 @@ attempt was refused. No daily process was started, stopped or signalled. Report:
 environment values. It records process continuity for this layout, not resistance to privileged
 debugger injection or compatibility approval. Separate Node-store layout and automatic collection
 in the ordinary page remain unverified. No UI change required a new visual check.
+
+
+### Ordinary recommendation Connector collection (2026-10-25)
+
+Test impact: automatic collection must use the selected release, never the latest index. Synthetic
+signed archives exercise the actual file inspector and fake-kernel runtime inspector together;
+wrong signatures/releases, pointer changes before/after download, invalid layouts, download and
+runtime failures return no identity. Private download workspaces are removed on success and failure.
+Pinned configuration cannot substitute a different selected release. Public transport configuration
+has no cookie/credential/cache state and finite 30/120-second network timeouts; existing downloader
+redirect/size tests remain applicable. Eight new tests; first focused run 24/24, final full baseline
+730 Swift tests, assets and local ad-hoc app build pass. An initial sandboxed Swift invocation failed
+to access its compiler cache; the successful full run used the usual build permissions.
+
+The ordinary query skips collection without a source/environment candidate, re-detects Hermes after
+the download, and includes only a successful fresh Connector identity. Other four identities remain
+unknown. No UI controls/layout changed; the prior native previews still cover these presentation
+states. Real published-recommendation clicks, complete component matching and upgrade/recovery remain
+unverified. Network requests are bounded, but existing local tar/launchctl command runners do not yet
+provide a wall-clock deadline; this is not evidence for a bounded production upgrade transaction.
+
+Actual automatic collection passed against the installed bundled Connector 0.1.17 using fresh public
+manifest/archive downloads. The report in `evidence/hermes-compatibility/2026-10-25-automatic-connector-collection.json`
+binds source hashes and omits local paths/PIDs/argv/environment. The first probe sandbox disallowed
+Foundation's real temporary directory despite TMPDIR; permitting only the probe and macOS temporary
+directories resolved that test harness failure. A separate outside-write attempt was rejected and
+no collection workspace remained. Installed files and daily services were never modified. This is
+Connector identity evidence, not a published compatibility verdict or end-to-end UI acceptance.

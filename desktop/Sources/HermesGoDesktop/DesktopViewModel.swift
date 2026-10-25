@@ -512,9 +512,22 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 return HermesCompatibilityEnvironment(arch: architecture,
                     osVersion: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)", installation: "legacy-venv-to-pm")
             }
-            // Installation-file observations alone do not prove active Connector/client
-            // identities. Leave these unknown until actual collection is connected.
-            hermesRecommendation = .evaluate(snapshot, installation: current, environment: environment, components: [])
+            let initial = HermesRecommendationAssessment.evaluate(snapshot, installation: current,
+                environment: environment, components: [])
+            var components: [HermesCompatibilityComponent] = []
+            // Avoid downloading an original archive when no source/environment path exists.
+            if initial.status == .requirements,
+               case .configured(let configuration) = managedBootstrapConfiguration,
+               let paths = managedPaths,
+               let layout = try? DesktopManagedInstallLayout(root: paths.managedRoot, launchAgentsRoot: paths.launchAgentsRoot),
+               let identity = try? await DesktopConnectorIdentityCollector().collect(configuration: configuration, layout: layout) {
+                components = [identity.component]
+            }
+            // A download can outlast a local Hermes change. Re-detect before using the result;
+            // absent/failed component observations remain unknown, never reused from a prior query.
+            let finalDetection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
+            hermesRecommendation = .evaluate(snapshot, installation: finalDetection,
+                environment: finalDetection == current ? environment : nil, components: components)
         }
         await refreshHermesUpgradeRecord()
         if let issue = hermesUpgradeRecord.issue { hermesUpgradeIssue = issue }

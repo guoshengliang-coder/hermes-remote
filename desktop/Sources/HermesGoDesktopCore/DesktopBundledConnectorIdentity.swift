@@ -39,13 +39,7 @@ public struct DesktopBundledConnectorIdentityInspector {
         do {
             // The normal release verifier supplies signature/origin/architecture checks. Reject
             // JSON ambiguity here too, before using the manifest to establish local identity.
-            guard DesktopHermesUpgradeJSON.isUnambiguous(signedManifest, maximumBytes: 256 * 1024),
-                  let envelope = try JSONSerialization.jsonObject(with: signedManifest) as? [String: Any],
-                  let encoded = envelope["payload"] as? String,
-                  let payload = Data(desktopCanonicalBase64URL: encoded),
-                  DesktopHermesUpgradeJSON.isUnambiguous(payload, maximumBytes: 128 * 1024)
-            else { throw Self.issue }
-            let manifest = try verifier.verify(signedManifest)
+            let manifest = try Self.verifiedManifest(signedManifest, verifier: verifier)
             guard let artifact = manifest.artifacts.first(where: { $0.component == .connector })
             else { throw Self.issue }
             stage = "inspect_installation"
@@ -106,6 +100,16 @@ public struct DesktopBundledConnectorIdentityInspector {
             throw DesktopIssue(code: .hermesCompatibilityRecommendationInvalid,
                                technicalCause: "bundled_connector_identity=\(stage) reason=\(reason)")
         }
+    }
+
+    static func verifiedManifest(_ data: Data, verifier: DesktopReleaseManifestVerifier) throws -> DesktopReleaseManifest {
+        guard DesktopHermesUpgradeJSON.isUnambiguous(data, maximumBytes: 256 * 1024),
+              let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let encoded = envelope["payload"] as? String,
+              let payload = Data(desktopCanonicalBase64URL: encoded),
+              DesktopHermesUpgradeJSON.isUnambiguous(payload, maximumBytes: 128 * 1024)
+        else { throw issue }
+        return try verifier.verify(data)
     }
 
     private func requireCurrent(_ layout: DesktopManagedInstallLayout, releaseVersion: String) throws {

@@ -1,0 +1,22 @@
+{
+  "artifactSha256": "a8733c13302af73b793563f5c7a9d5898626efc8be4c53986dd94366e21e524a",
+  "compatibilityApproved": false,
+  "connectorVersion": "0.1.17",
+  "contentSha256": "e80a994c34654ea1e1b9ead4d89a5ced1d09144ac23c365a4f698a2d11ae4a48",
+  "dailyInstallationReadOnly": true,
+  "freshPublicDownload": true,
+  "result": "passed",
+  "runningProcessVerified": true,
+  "schemaVersion": 1,
+  "scope": "automatic-selected-bundled-connector-collection",
+  "collectedAt": "2026-10-25T10:12:38.160276+00:00",
+  "sandboxOutsideWriteRejected": true,
+  "collectorWorkspaceRemoved": true,
+  "writeScope": "probe directory and macOS temporary directory",
+  "scopeLimit": "Bundled Connector identity observation only; other components and compatibility approval remain unverified.",
+  "sourceSha256": {
+    "DesktopConnectorIdentityCollector.swift": "3913840b719776bf1610553e9e4c87339ce86d1050cc8f243c42f4a810e5caed",
+    "DesktopBundledConnectorIdentity.swift": "103998f43bf1f0ef2e74a11f32fd44f0f7d31309ea882a2fd0d7d2533036e614",
+    "DesktopConnectorRuntimeIdentity.swift": "40b1777169ccd09bff8d1b5bcf5d483586ecf89678ba0e26c63d6a04cf34cb52"
+  }
+}
