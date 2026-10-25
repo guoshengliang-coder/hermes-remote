@@ -21,4 +21,16 @@ class VideoCacheErrorsTest {
         assertTrue(failure.localizedMessage(AppLanguage.EN).contains("resumes"))
         assertEquals(AppErrorCode.VIDEO_CACHE_LOW_STORAGE, AppErrorCode.fromValue(failure.code.value))
     }
+    @Test fun new_speed_and_capacity_statuses_are_bilingual_nonretryable_and_redacted() {
+        for ((code, value) in listOf(AppErrorCode.VIDEO_SPEED_UNSUPPORTED to "HR-FILE-018",
+            AppErrorCode.VIDEO_CACHE_CAPACITY to "HR-CACHE-003")) {
+            val error = AppError(code, retryable = false, technicalCause = "token=private")
+            assertEquals(value, code.value); assertEquals(code, AppErrorCode.fromValue(value))
+            assertFalse(error.retryable)
+            for (language in AppLanguage.entries) assertTrue(error.localizedMessage(language).contains(value))
+            assertNotEquals(error.localizedSummary(AppLanguage.ZH), error.localizedSummary(AppLanguage.EN))
+            assertFalse(error.sanitizedDiagnostic().contains("private"))
+        }
+    }
+
 }

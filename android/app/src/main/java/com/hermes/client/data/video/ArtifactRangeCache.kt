@@ -18,7 +18,7 @@ class ArtifactRangeCache(
     private val loadCapacity: (() -> VideoCacheCapacity)? = null,
     private val changed: (VideoCacheStats) -> Unit = {},
 ) {
-    private data class Entry(val file: File, val size: Long, var usedAt: Long)
+    private data class Entry(val file: File, val size: Long, var usedAt: Long, var verified: Boolean = false)
     private val entries = LinkedHashMap<String, Entry>()
     private val active = mutableMapOf<String, Int>()
     private val hot = mutableMapOf<String, LinkedHashSet<String>>()
@@ -30,7 +30,10 @@ class ArtifactRangeCache(
     private var lowSpace = false
     private var clearing = false
     private var epoch = 0L
+    internal val revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    private var published: Pair<VideoCacheStats, Long>? = null
     @Synchronized fun generation(): Long = epoch
+    @Synchronized internal fun status(): VideoCacheStats { ensureIndex(); return snapshot() }
     internal var directoryScans = 0
         private set
 
@@ -47,7 +50,7 @@ class ArtifactRangeCache(
         } }
     }
 
-    @Synchronized fun read(key: String, start: Long, expected: Int): ByteArray? {
+    @Synchronized fun read(key: String, start: Long, expected: Int, markHot: Boolean = true): ByteArray? {
         ensureIndex()
         val file = block(key, start)
         val entry = entries[file.name] ?: return null
@@ -60,16 +63,17 @@ class ArtifactRangeCache(
                 if (!MessageDigest.isEqual(digest, hash(result))) throw IOException("invalid cached digest")
                 result
             }
+            entry.verified = true
             entry.usedAt = clock(); file.setLastModified(entry.usedAt)
             entries.remove(file.name); entries[file.name] = entry
-            rememberHot(key, file.name)
+            if (markHot) rememberHot(key, file.name)
             data
         } catch (_: IOException) { remove(file.name); publish(); null }
     }
 
     @Synchronized fun write(key: String, start: Long, data: ByteArray) = writeBlocks(key, sequenceOf(start to data))
 
-    @Synchronized fun writeBlocks(key: String, blocks: Sequence<Pair<Long, ByteArray>>, expectedGeneration: Long? = null) {
+    @Synchronized fun writeBlocks(key: String, blocks: Sequence<Pair<Long, ByteArray>>, expectedGeneration: Long? = null, preserveSource: Boolean = false) {
         ensureIndex()
         if (expectedGeneration != null && expectedGeneration != epoch) return
         maintain()
@@ -82,7 +86,7 @@ class ArtifactRangeCache(
                 val previous = entries[file.name]?.size ?: 0
                 var incoming = data.size + HEADER - previous
                 if (bytes + incoming > limit) {
-                    evictTo((target - incoming).coerceAtLeast(0))
+                    evictTo((target - incoming).coerceAtLeast(0), if (preserveSource) key else null)
                     incoming = data.size + HEADER - (entries[file.name]?.size ?: 0)
                 }
                 if (bytes + incoming > limit) continue // Protected hot blocks never cause unbounded growth.
@@ -93,13 +97,35 @@ class ArtifactRangeCache(
                     }
                     if (!temp.renameTo(file)) throw IOException("cache commit failed")
                     entries.remove(file.name)?.let { bytes -= it.size }
-                    val entry = Entry(file, data.size.toLong() + HEADER, clock())
+                    val entry = Entry(file, data.size.toLong() + HEADER, clock(), verified = true)
                     file.setLastModified(entry.usedAt)
                     entries[file.name] = entry; bytes += entry.size
-                    rememberHot(key, file.name)
+                    if (!preserveSource) rememberHot(key, file.name)
                 } finally { temp.delete() }
             }
         } finally { publish() }
+    }
+
+    /** Counts retained, verified blocks of this exact file generation, including holes before playhead.
+     * Unknown entries from the startup scan are validated once, never inferred from file names alone.
+     */
+    @Synchronized internal fun coverage(key: String, size: Long): VideoCacheCoverage {
+        ensureIndex()
+        val covered = sortedSetOf<Long>()
+        var total = 0L
+        var validations = 4 // At most 1MiB under this lock; foreground cache hits must stay responsive.
+        entries.keys.filter { it.startsWith("$key-") }.forEach { name ->
+            val start = name.substringAfter('-').substringBefore('.').toLongOrNull() ?: return@forEach
+            if (start !in 0 until size || start % BLOCK_BYTES != 0L) return@forEach
+            val count = minOf(BLOCK_BYTES.toLong(), size - start).toInt()
+            val entry = entries[name] ?: return@forEach
+            if (entry.file.length() != count.toLong() + HEADER) { remove(name); return@forEach }
+            if (!entry.verified) {
+                if (validations-- <= 0 || read(key, start, count, markHot = false) == null) return@forEach
+            }
+            covered += start; total += count
+        }
+        return VideoCacheCoverage(total, size, covered)
     }
 
     /** Explicit settings refresh also reconciles files Android may have reclaimed externally. */
@@ -180,12 +206,12 @@ class ArtifactRangeCache(
         while (names.size > HOT_BLOCKS) names.remove(names.first())
     }
     private fun protected(name: String) = hot[name.substringBefore('-')]?.contains(name) == true
-    private fun evictTo(wanted: Long) {
+    private fun evictTo(wanted: Long, preserveKey: String? = null) {
         val candidates = entries.keys.iterator()
         // A full clear must also visit empty blocks left by an interrupted older write.
         while (candidates.hasNext() && (wanted == 0L || bytes > wanted)) {
             val name = candidates.next()
-            if (protected(name)) continue
+            if (protected(name) || preserveKey != null && name.startsWith("$preserveKey-")) continue
             val entry = entries.getValue(name)
             if (!entry.file.exists() || entry.file.delete()) { candidates.remove(); bytes -= entry.size }
         }
@@ -195,7 +221,11 @@ class ArtifactRangeCache(
         if (!entry.file.exists() || entry.file.delete()) { entries.remove(name); bytes -= entry.size }
     }
     private fun snapshot() = VideoCacheStats(indexed, bytes, limit, lowSpace, clearing)
-    private fun publish() { changed(snapshot()) }
+    private fun publish() {
+        val value = snapshot() to epoch
+        if (published != value) { published = value; revision.value++ }
+        changed(value.first)
+    }
     private fun block(key: String, start: Long): File {
         requireKey(key); require(start >= 0)
         return File(directory, "$key-$start.block")

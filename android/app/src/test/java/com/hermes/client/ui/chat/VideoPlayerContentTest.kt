@@ -94,6 +94,85 @@ class VideoPlayerContentTest {
         compose.runOnIdle { assertNull(selected) }
     }
 
+
+    @Test fun speed_menu_selects_every_speed_and_hold_preference_is_independent() {
+        var state by mutableStateOf(playing.copy(wantsPlay = false))
+        var hold by mutableFloatStateOf(2f)
+        compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+            VideoPlayerContent("fixture.mp4", state, onSpeed = { state = state.copy(speed = it) },
+                holdSpeed = hold, onHoldSpeed = { hold = it })
+        } } }
+        VIDEO_SPEEDS.forEach { speed ->
+            compose.onNodeWithContentDescription("Playback speed").performClick()
+            compose.onAllNodesWithText(speedLabel(speed)).onLast().performScrollTo().performClick()
+            compose.runOnIdle { assertEquals(speed, state.speed) }
+        }
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onNodeWithText("Hold speed: 2×").performClick()
+        compose.onNodeWithText("Hold 2.5×").performClick()
+        compose.runOnIdle { assertEquals(2.5f, hold); assertEquals(3f, state.speed) }
+    }
+    @Test fun held_picture_releases_on_up_multitouch_cancel_and_pause_without_clicking() {
+        val calls = mutableListOf<Boolean>()
+        var state by mutableStateOf(playing)
+        compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+            VideoPlayerContent("fixture.mp4", state, onBoost = { calls += it })
+        } } }
+        val picture = compose.onNodeWithTag("video-touch-surface")
+        picture.performTouchInput { down(Offset(width * .2f, height * .45f)) }
+        compose.mainClock.advanceTimeBy(650)
+        compose.runOnIdle { assertEquals(listOf(true), calls) }
+        picture.performTouchInput { up() }
+        compose.runOnIdle { assertEquals(listOf(true, false), calls) }
+        compose.onNodeWithContentDescription("More").assertIsDisplayed() // release was not a tap
+        picture.performTouchInput { down(Offset(width * .2f, height * .45f)) }
+        compose.mainClock.advanceTimeBy(650)
+        picture.performTouchInput { down(1, Offset(width * .3f, height * .4f)); up(1); up(0) }
+        compose.runOnIdle { assertEquals(listOf(true, false, true, false), calls) }
+        picture.performTouchInput { down(Offset(width * .2f, height * .45f)) }
+        compose.mainClock.advanceTimeBy(650)
+        compose.runOnIdle { state = state.copy(wantsPlay = false) }
+        picture.performTouchInput { up() }
+        compose.runOnIdle { assertEquals(listOf(true, false, true, false, true, false), calls); calls.clear() }
+        picture.performTouchInput { longClick(Offset(width * .2f, height * .45f)) }
+        compose.runOnIdle { assertFalse(calls.contains(true)) }
+    }
+    @Test fun controls_and_seek_never_start_acceleration_and_cache_is_not_timeline_buffer() {
+        val boosts = mutableListOf<Boolean>()
+        compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+            VideoPlayerContent("fixture.mp4", playing.copy(wantsPlay = false), onBoost = { boosts += it },
+                precache = com.hermes.client.data.video.VideoPrecacheState(999, 1_000))
+        } } }
+        compose.onNodeWithTag("video-cache-progress").assertTextContains("99%", substring = true)
+        compose.onNodeWithContentDescription("Playback speed").performTouchInput { longClick() }
+        compose.onNodeWithTag("video-timeline").performTouchInput { longClick() }
+        compose.runOnIdle { assertTrue(boosts.isEmpty()) }
+    }
+    @Test @Config(qualifiers = "w320dp-h720dp-420dpi")
+    fun narrow_speed_and_cache_large_text() {
+        compose.setContent { HermesTheme(darkTheme = true) {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ZH, LocalDensity provides Density(density.density, 1.3f)) {
+                VideoPlayerContent("长片.mp4", playing.copy(wantsPlay = false, duration = 7_200_000, speed = 1.75f),
+                    precache = com.hermes.client.data.video.VideoPrecacheState(100_000_000, 3_000_000_000))
+            }
+        } }
+        compose.onNodeWithContentDescription("播放倍速").assertIsDisplayed()
+        compose.onNodeWithContentDescription("横屏全屏").assertIsDisplayed()
+        compose.onNodeWithTag("video-cache-progress").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("screenshots/video-player-speed-cache-narrow-fs13.png")
+    }
+    @Test fun speed_menu_large_text() {
+        compose.setContent { HermesTheme(darkTheme = false) {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN, LocalDensity provides Density(density.density, 1.3f)) {
+                VideoPlayerContent("movie.mp4", playing.copy(wantsPlay = false, speed = 1.5f))
+            }
+        } }
+        compose.onNodeWithContentDescription("Playback speed").performClick()
+        compose.onAllNodesWithText("1.5×").onLast().assertIsDisplayed()
+        compose.onNodeWithText("0.5×").assertIsDisplayed()
+    }
     private fun capture(dark: Boolean, language: AppLanguage, scale: Float, state: VideoPlayerState, name: String) {
         compose.setContent { HermesTheme(darkTheme = dark) {
             val density = LocalDensity.current

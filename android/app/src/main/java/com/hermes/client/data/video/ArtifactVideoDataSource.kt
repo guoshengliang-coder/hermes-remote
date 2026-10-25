@@ -60,6 +60,7 @@ class ArtifactVideoDataSource(
         val count = minOf(length.toLong(), remaining, (block.size - blockOffset).toLong()).toInt()
         block.copyInto(buffer, offset, blockOffset, blockOffset + count)
         position += count; remaining -= count
+        source.playbackPosition = position
         bytesTransferred(count)
         return count
     }

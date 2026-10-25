@@ -2,6 +2,7 @@ package com.hermes.client.ui.chat
 
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import io.mockk.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -13,12 +14,16 @@ class VideoPlayerControllerTest {
     private var saved = -1L
     private var intent = false
     private var failure: PlaybackException? = null
-    private fun controller(): VideoPlayerController {
+    private fun controller(initialSpeed: Float = 1f): VideoPlayerController {
+        var parameters = PlaybackParameters.DEFAULT
+        every { player.playbackParameters } answers { parameters }
+        every { player.playbackParameters = any() } answers { parameters = firstArg() }
+        every { player.isPlaying } returns true
         every { player.addListener(capture(listener)) } just Runs
         every { player.currentPosition } returns 4_500
         every { player.duration } returns 60_000
         every { player.bufferedPosition } returns 12_000
-        return VideoPlayerController(player, 4_000, { priority }, { saved = it }, { intent = it }, { failure = it })
+        return VideoPlayerController(player, 4_000, { priority }, { saved = it }, { intent = it }, { failure = it }, initialSpeed = initialSpeed)
     }
     @Test fun pause_stops_loading_and_releases_priority_without_releasing_player_or_losing_frame() {
         val c = controller(); c.play(); listener.captured.onRenderedFirstFrame(); c.refresh()
@@ -64,4 +69,49 @@ class VideoPlayerControllerTest {
         assertEquals("0:00", videoTime(-1)); assertEquals("1:05", videoTime(65_000))
         assertEquals("1:02:03", videoTime(3_723_000))
     }
+    @Test fun normal_speed_defaults_to_one_and_all_nine_choices_preserve_pitch() {
+        val c = controller()
+        assertEquals(1f, c.state.speed)
+        VIDEO_SPEEDS.forEach { speed ->
+            c.selectSpeed(speed)
+            assertEquals(speed, c.state.speed)
+            assertEquals(1f, player.playbackParameters.pitch)
+            assertNull(c.state.speedError)
+        }
+        c.pause(); c.play(); assertEquals(3f, c.state.speed)
+        c.close()
+        assertEquals(1f, controller().state.speed)
+        assertEquals(1.5f, controller(1.5f).state.speed)
+    }
+    @Test fun held_speed_is_absolute_never_slows_and_releases_to_selected_speed() {
+        val c = controller(); c.play(); c.selectSpeed(1.5f)
+        c.beginBoost(2f); assertEquals(2f, c.state.speed); assertTrue(c.state.boosting)
+        c.endBoost(); assertEquals(1.5f, c.state.speed); assertFalse(c.state.boosting)
+        c.selectSpeed(3f); c.beginBoost(2f); assertEquals(3f, c.state.speed); assertFalse(c.state.boosting)
+        c.endBoost(); c.selectSpeed(1.25f); c.beginBoost(3f); c.pause()
+        assertEquals(1.25f, c.state.speed); assertFalse(c.state.boosting)
+        every { player.isPlaying } returns false
+        c.beginBoost(2.5f); assertEquals(1.25f, c.state.speed)
+    }
+    @Test fun cancellation_seek_end_and_close_restore_constant_speed() {
+        val c = controller(); c.play(); c.selectSpeed(.75f)
+        c.beginBoost(2.5f); c.seek(1_000); assertEquals(.75f, c.state.speed)
+        c.beginBoost(2f); listener.captured.onPlaybackStateChanged(Player.STATE_ENDED)
+        assertEquals(.75f, c.state.speed)
+        c.play(); c.beginBoost(3f); c.close()
+        assertEquals(.75f, player.playbackParameters.speed)
+    }
+    @Test fun rejected_speed_reports_actual_parameters_and_keeps_playing() {
+        val c = controller(); c.play()
+        every { player.playbackParameters = any() } just Runs // Engine declines the change.
+        c.selectSpeed(2f)
+        assertEquals(1f, c.state.speed)
+        assertEquals("HR-FILE-018", c.state.speedError!!.code.value)
+        assertTrue(c.state.wantsPlay)
+        every { player.playbackParameters = any() } throws IllegalArgumentException("private")
+        c.selectSpeed(3f)
+        assertEquals(1f, c.state.speed)
+        assertFalse(c.state.speedError!!.sanitizedDiagnostic().contains("private"))
+    }
+
 }

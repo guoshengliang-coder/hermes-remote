@@ -1,3 +1,13 @@
+Video playback now offers 0.5–3× constant speed (each new open defaults to 1×), plus a held
+2/2.5/3× temporary speed with release/cancellation restoration and unchanged pitch. The bottom
+controls separate whole-file disk-cache coverage from contiguous playable time. While the viewer
+is foreground-visible, both playing and paused video fill missing verified ranges; close/navigation/
+background cancels precaching. Reopening reuses the same-generation cache. Playback/seek and explicit
+downloads preempt this low-priority filler. Capacity, low storage and manual-clear rules bound work;
+one viewing never cycles through self-evicted ranges. The Media3 maximum buffer follows roughly eight
+seconds of real playback, with a separate 24MiB compressed-sample target ceiling. See
+`../docs/VIDEO_SPEED_PRECACHE.md` for validation and physical-device limits.
+
 # Hermes Remote Android
 
 On measured fast links, sequential video read-ahead refills its bounded window before awaiting
@@ -24,14 +34,15 @@ change does not allocate or publish an APK.
 
 The video preview uses an immersive black media surface with auto-hiding controls, buffered and
 played timeline segments, drag target time, landscape fullscreen and explicit replay. Pause stops
-loading while retaining a bounded last-frame image; rotation restores the scoped file, playback
+the Media3 loader (foreground disk precaching remains active) while retaining a bounded last-frame image; rotation restores the scoped file, playback
 position and intent. Real backgrounding still requires manual Play. Download/external playback
 live in More, with the existing bilingual HR recovery actions preserved. This UI iteration does
 not allocate or publish an APK.
 
 HG-236 expands sequential video read-ahead to a negotiated, bounded window: start with up to two
 256 KiB ranges, grow to at most four 1 MiB requests on fast reads, and shrink on slow reads.
-Initial/index and seek reads stay small; close, pause and background cancel the window. Legacy peers
+Initial/index and seek reads stay small; close, pause and background cancel the Media3 window.
+The newer independent disk filler continues while foreground-paused. Legacy peers
 stay single-range readers. Original quality, generation/owner checks, download priority and the
 generation-bound shared block cache are preserved (capacity/cleanup policy is described above). See `../docs/ATTACHMENT_PERFORMANCE.md` for evidence and limits.
 This source change does not allocate or publish an APK.

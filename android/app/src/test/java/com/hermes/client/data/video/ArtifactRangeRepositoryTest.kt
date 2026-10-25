@@ -10,6 +10,7 @@ import io.mockk.*
 import java.io.File
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.first
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -170,6 +171,125 @@ class ArtifactRangeRepositoryTest {
         }
         assertEquals(9, repository.read(source, 0).first().toInt())
         assertNull(repository.cached("owner", "/video.mp4", descriptor, 0))
+    }
+
+    @Test fun foreground_precache_fills_whole_file_then_reopen_reuses_it_without_network() = runBlocking {
+        withTimeout(5_000) {
+            val source = repository.prepare(file, "mac")
+            source.playbackPosition = ArtifactRangeCache.BLOCK_BYTES.toLong()
+            val offsets = mutableListOf<Long>()
+            coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } answers {
+                offsets += secondArg<Long>(); ByteArray(thirdArg())
+            }
+            val session = VideoPrecacheSession()
+            val fill = launch { repository.precache(source, session) { true } }
+            session.state.first { it.percent == 100 }
+            fill.cancelAndJoin()
+            assertEquals(listOf(ArtifactRangeCache.BLOCK_BYTES.toLong(), 2L * ArtifactRangeCache.BLOCK_BYTES, 0L), offsets)
+            val reopened = VideoPrecacheSession()
+            val again = launch { repository.precache(repository.prepare(file, "mac"), reopened) { true } }
+            reopened.state.first { it.percent == 100 }
+            again.cancelAndJoin()
+            assertEquals(3, offsets.size)
+        }
+    }
+    @Test fun cancellation_stops_inflight_fill_and_reopen_only_fetches_missing_blocks() = runBlocking {
+        withTimeout(5_000) {
+            val source = repository.prepare(file, "mac")
+            repository.read(source, 0)
+            val started = CompletableDeferred<Unit>(); var cancelled = false
+            coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } coAnswers {
+                started.complete(Unit)
+                try { awaitCancellation() } finally { cancelled = true }
+            }
+            val fill = launch { repository.precache(source, VideoPrecacheSession()) { true } }
+            started.await(); fill.cancelAndJoin(); assertTrue(cancelled)
+            clearMocks(rest, answers = false)
+            coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } answers { ByteArray(thirdArg()) }
+            val session = VideoPrecacheSession()
+            val again = launch { repository.precache(repository.prepare(file, "mac"), session) { true } }
+            session.state.first { it.percent == 100 }; again.cancelAndJoin()
+            coVerify(exactly = 0) { rest.readArtifactRangeWithProgress(any(), 0, any(), any(), any(), any()) }
+            coVerify(exactly = 2) { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) }
+        }
+    }
+    @Test fun budget_and_manual_clear_bound_work_without_cycling_or_rotation_refill() = runBlocking {
+        withTimeout(5_000) {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val block = ArtifactRangeCache.BLOCK_BYTES
+            File(context.cacheDir, "tiny-cache").deleteRecursively()
+            var calls = 0
+            coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } answers { calls++; ByteArray(thirdArg()) }
+            val cache = ArtifactRangeCache(File(context.cacheDir, "tiny-cache"), 2L * (block + 36))
+            val small = ArtifactRangeRepository(context, rest, cache)
+            val source = small.prepare(file, "mac")
+            val session = VideoPrecacheSession()
+            val fill = launch { small.precache(source, session) { true } }
+            session.state.first { it.error?.code?.value == "HR-CACHE-003" }
+            val reads = calls
+            delay(600)
+            assertEquals(reads, calls)
+            assertEquals(66, session.state.value.percent)
+            small.clearCache()
+            session.state.first { it.cleared }
+            fill.cancelAndJoin()
+            val rotated = launch { small.precache(source, session) { true } }
+            delay(600); rotated.cancelAndJoin()
+            assertEquals(reads, calls)
+            assertEquals(0, session.state.value.percent)
+        }
+    }
+
+    @Test fun storage_recovery_resumes_fill_and_demand_headroom_gate_does_not_start_requests() = runBlocking {
+        withTimeout(5_000) {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val directory = File(context.cacheDir, "low-cache"); directory.deleteRecursively()
+            var available = 50L
+            val cache = ArtifactRangeCache(directory, freeBytes = { available }, lowSpaceBytes = 100, resumeSpaceBytes = 200)
+            val low = ArtifactRangeRepository(context, rest, cache)
+            val source = low.prepare(file, "mac")
+            val session = VideoPrecacheSession()
+            var allow = false
+            val filler = launch { low.precache(source, session) { allow } }
+            session.state.first { it.error?.code?.value == "HR-CACHE-002" }
+            coVerify(exactly = 0) { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) }
+            available = 250; delay(600)
+            coVerify(exactly = 0) { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) }
+            allow = true
+            session.state.first { it.percent == 100 }; filler.cancelAndJoin()
+            assertNull(session.state.value.error)
+        }
+    }
+
+    @Test fun fully_cached_playback_read_does_not_cancel_a_useful_background_range() = runBlocking {
+        withTimeout(5_000) {
+            val source = repository.prepare(file, "mac")
+            repository.read(source, 0)
+            val started = CompletableDeferred<Unit>(); val cancelled = java.util.concurrent.atomic.AtomicBoolean()
+            coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } coAnswers {
+                started.complete(Unit)
+                try { awaitCancellation() } finally { cancelled.set(true) }
+            }
+            val fill = launch { repository.precache(source, VideoPrecacheSession()) { true } }
+            try {
+                started.await()
+                assertEquals(ArtifactRangeCache.BLOCK_BYTES, repository.read(source, 0).size)
+                assertFalse("cache hit unnecessarily cancelled an in-flight range", cancelled.get())
+            } finally { fill.cancelAndJoin() }
+        }
+    }
+
+    @Test fun completed_idle_fill_observes_manual_clear_immediately_without_refilling() = runBlocking {
+        withTimeout(5_000) {
+            val source = repository.prepare(file, "mac")
+            val session = VideoPrecacheSession()
+            val fill = launch { repository.precache(source, session) { true } }
+            session.state.first { it.percent == 100 }
+            repository.clearCache()
+            session.state.first { it.cleared && it.percent == 0 }
+            delay(100); fill.cancelAndJoin()
+            coVerify(exactly = 3) { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) }
+        }
     }
 
 }

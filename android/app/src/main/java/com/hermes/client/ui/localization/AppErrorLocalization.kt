@@ -149,6 +149,10 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "手机存储空间不足，请清理空间后继续下载。", "Phone storage is full. Free some space, then resume.")
         AppErrorCode.ARTIFACT_REFERENCE_EXPIRED ->
             localized(language, "下载引用已失效，请重新获取文件后继续。", "The download reference expired. Fetch the file again to continue.")
+        AppErrorCode.VIDEO_SPEED_UNSUPPORTED ->
+            localized(language, "此设备未能应用该倍速，已保留实际播放速度。请选择其他倍速。", "This device could not apply that speed. The actual playback speed is retained. Choose another speed.")
+        AppErrorCode.VIDEO_CACHE_CAPACITY ->
+            localized(language, "已达到预览缓存容量，暂停继续缓存。可在设置中调大上限，或下载完整视频。", "Preview caching reached its capacity and has stopped. Increase the limit in Settings, or download the full video.")
         AppErrorCode.VIDEO_UNSUPPORTED ->
             localized(language, "此设备无法播放该视频，请下载后用其他播放器打开。", "This device cannot play this video. Download it and open it in another player.")
         AppErrorCode.VIDEO_CACHE_FAILED ->

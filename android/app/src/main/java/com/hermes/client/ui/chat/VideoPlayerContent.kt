@@ -2,8 +2,6 @@ package com.hermes.client.ui.chat
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.error.AppError
+import com.hermes.client.data.video.VideoPrecacheState
 import com.hermes.client.ui.localization.*
 import kotlinx.coroutines.delay
 
@@ -44,14 +43,24 @@ internal fun VideoPlayerContent(
     onSeek: (Long) -> Unit = {},
     onRetry: () -> Unit = {},
     onDiagnostics: () -> Unit = {},
+    onSpeed: (Float) -> Unit = {},
+    onBoost: (Boolean) -> Unit = {},
+    holdSpeed: Float = 2f,
+    onHoldSpeed: (Float) -> Unit = {},
+    precache: VideoPrecacheState = VideoPrecacheState(),
+    onCacheRetry: () -> Unit = {},
+    onStatusDiagnostics: (AppError) -> Unit = {},
     video: @Composable () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
     var controls by remember { mutableStateOf(true) }
     var menu by remember { mutableStateOf(false) }
+    var speedMenu by remember { mutableStateOf(false) }
+    var holdMenu by remember { mutableStateOf(false) }
+    val boost by rememberUpdatedState(onBoost)
     var seeking by remember { mutableStateOf<Float?>(null) }
     var interaction by remember { mutableIntStateOf(0) }
-    val pinned = !state.wantsPlay || state.buffering || error != null || menu || seeking != null
+    val pinned = !state.wantsPlay || state.buffering || error != null || menu || speedMenu || holdMenu || seeking != null
     LaunchedEffect(pinned, interaction) {
         controls = true
         if (!pinned) { delay(3_000); controls = false }
@@ -65,11 +74,14 @@ internal fun VideoPlayerContent(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         video()
         Box(Modifier.fillMaxSize().testTag("video-touch-surface")
-            .clickable(onClickLabel = localized(language, "显示或隐藏播放控件", "Show or hide playback controls"), interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                controls = !visible
-                // Restart the timer only when revealing; hiding is immediate.
-                if (controls) interaction++
-            })
+            .videoSpeedGesture(state.wantsPlay && !state.buffering && error == null,
+                localized(language, "显示或隐藏播放控件", "Show or hide playback controls"),
+                tap = { controls = !controls; if (controls) interaction++ }, hold = { boost(it) }))
+        if (state.boosting) Text(
+            localized(language, "${speedLabel(state.speed)} 加速播放", "${speedLabel(state.speed)} speed boost"),
+            Modifier.align(Alignment.TopCenter).padding(top = 80.dp)
+                .background(Color.Black.copy(alpha = .7f), MaterialTheme.shapes.small).padding(12.dp),
+            color = Color.White, style = MaterialTheme.typography.labelLarge)
         if (visible) {
             Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .68f))
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
@@ -82,9 +94,18 @@ internal fun VideoPlayerContent(
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false; interaction++ }) {
                         DropdownMenuItem(text = { Text(if (downloaded) localized(language, "已下载", "Downloaded") else localized(language, "下载", "Download")) },
                             enabled = !downloaded, onClick = { menu = false; interaction++; download() })
+                        DropdownMenuItem(text = { Text(localized(language, "长按加速：${speedLabel(holdSpeed)}", "Hold speed: ${speedLabel(holdSpeed)}")) },
+                            onClick = { menu = false; holdMenu = true; interaction++ })
                         openExternally?.let { open ->
                             DropdownMenuItem(text = { Text(localized(language, "其他播放器", "Other player")) },
                                 onClick = { menu = false; open() })
+                        }
+                    }
+                    DropdownMenu(expanded = holdMenu, onDismissRequest = { holdMenu = false; interaction++ }) {
+                        VIDEO_HOLD_SPEEDS.forEach { speed ->
+                            DropdownMenuItem(text = { Text(localized(language, "长按 ${speedLabel(speed)}", "Hold ${speedLabel(speed)}")) },
+                                leadingIcon = { if (holdSpeed == speed) Icon(Icons.Rounded.Check, null) },
+                                onClick = { onHoldSpeed(speed); holdMenu = false; interaction++ })
                         }
                     }
                 }
@@ -132,14 +153,46 @@ internal fun VideoPlayerContent(
                         playLabel, enabled = canPlay, onClick = { interaction++; onTogglePlay() })
                     Text(if (state.duration > 0) "${videoTime(seeking?.toLong() ?: state.position)} / ${videoTime(state.duration)}" else "—:—", // l10n-allow: language-neutral media time.
                         Modifier.weight(1f).padding(horizontal = 8.dp), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                    Box {
+                        TextButton(onClick = { speedMenu = true; interaction++ }, enabled = canPlay,
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                .semantics { contentDescription = localized(language, "播放倍速", "Playback speed") }) {
+                            Text(speedLabel(state.speed), color = Color.White)
+                        }
+                        DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false; interaction++ },
+                            modifier = Modifier.heightIn(max = 360.dp)) {
+                            VIDEO_SPEEDS.forEach { speed ->
+                                DropdownMenuItem(text = { Text(speedLabel(speed)) },
+                                    leadingIcon = { if (state.speed == speed) Icon(Icons.Rounded.Check, null) },
+                                    onClick = { onSpeed(speed); speedMenu = false; interaction++ })
+                            }
+                        }
+                    }
                     MediaButton(if (fullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
                         if (fullscreen) localized(language, "退出全屏", "Exit fullscreen") else localized(language, "横屏全屏", "Fullscreen"),
                         onClick = { interaction++; onFullscreen() })
+                }
+                if (precache.size > 0) Text(
+                    if (precache.cleared) localized(language, "本次观看已停止预缓存；重新打开视频可恢复", "Precaching stopped for this viewing; reopen to resume")
+                    else localized(language, "预览缓存 ${precache.percent}% · ${cacheBytes(precache.bytes)} / ${cacheBytes(precache.size)}",
+                        "Preview cache ${precache.percent}% · ${cacheBytes(precache.bytes)} / ${cacheBytes(precache.size)}"),
+                    Modifier.testTag("video-cache-progress"), color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall)
+                val status = state.speedError ?: precache.error
+                status?.let { failure ->
+                    Text(failure.localizedMessage(language), color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    FlowRow {
+                        if (failure.retryable) TextButton(onClick = onCacheRetry) { Text(localized(language, "重试缓存", "Retry caching"), color = Color.White) }
+                        TextButton(onClick = { onStatusDiagnostics(failure) }) { Text(localized(language, "复制诊断", "Copy diagnostics"), color = Color.White) }
+                    }
                 }
             }
         }
     }
 }
+
+private fun cacheBytes(value: Long): String = if (value >= 1024L * 1024 * 1024)
+    java.lang.String.format(java.util.Locale.ROOT, "%.2f GiB", value / (1024.0 * 1024 * 1024))
+else java.lang.String.format(java.util.Locale.ROOT, "%.1f MiB", value / (1024.0 * 1024))
 
 @Composable
 private fun MediaButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
