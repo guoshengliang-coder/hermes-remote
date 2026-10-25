@@ -8,6 +8,7 @@ import { resolve, join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { loadBundleManifest } from '../ops/lib/config.mjs';
 import { collectGatewayReleaseEvidence } from './hermes-compatibility-gateway-evidence.mjs';
+import { verifyInventoryAcceptance } from './lib/hermes-inventory-acceptance.mjs';
 import { compatibilityErrors } from '../gateway/dist/account/hermes-compatibility-model.js';
 
 function docker(args, env=process.env){
@@ -51,6 +52,7 @@ async function main(){
         assert.deepEqual(evidence.component,expected);
         assert.equal(evidence.runningImageVerified,true);assert.equal(evidence.publicRouteVerified,false);
         console.log(JSON.stringify({...evidence,scope:'disposable-ci-container'}));
+        console.log(JSON.stringify(await verifyInventoryAcceptance({manifestPath,containerName:name,gateway:expected})));
       }
     }finally{if(created)docker(['rm','--force',name]);}
   }

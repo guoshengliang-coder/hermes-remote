@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "scope": "public-client-artifact-readback-only",
+  "collectorSha256": "a8c48ff457f47570c7de401632a2f6f3bcaddff3f9cd3ea7f0a0246a58ff5cec",
+  "releaseMetadataSource": "public-index-snapshot",
+  "originalPublicationProvenanceVerified": false,
+  "packageSignatureReverified": false,
+  "observations": [
+    {
+      "schemaVersion": 1,
+      "kind": "pinned-public-client-archive",
+      "origin": "https://mrlgs.net",
+      "component": {
+        "name": "desktop",
+        "version": "0.2.42",
+        "artifactSha256": "8c1bf3230ace9e3b7538ff1ad918648c8133ec2a74e27e9f8b8aa3fc39529c37"
+      },
+      "sourceCommit": "e8e2559f82b63db5c9095dd1da0414819066682d",
+      "manifestSha256": "3d61a9a5b5e212f664bfcd9145a7c5bd650f631e14a80a3b1c1d3a2076f45a13",
+      "observedAt": "2026-10-25T12:10:31Z",
+      "compatibilityApproved": false
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "pinned-public-client-archive",
+      "origin": "https://mrlgs.net",
+      "component": {
+        "name": "android",
+        "version": "0.1.183",
+        "artifactSha256": "f6c30fe7b8f68219b3b2590d20f8f45d93c9116a7f4c6ba28738640819b1f815"
+      },
+      "sourceCommit": "ba096688b82ae081b05751c1aa74008f816b0205",
+      "manifestSha256": "7f58eab68790321bfde24588d2d85e0eb5179338ae8e294d2577575beb62704c",
+      "observedAt": "2026-10-25T12:10:37Z",
+      "compatibilityApproved": false
+    }
+  ],
+  "compatibilityApproved": false
+}

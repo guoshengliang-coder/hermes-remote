@@ -100,14 +100,24 @@ function unambiguousPayload(text:string):unknown {
   }
   walk(0);if(index!==tokens.length)throw compatibilityErrors.invalid();return value;
 }
-export function releasedInventory(raw: unknown, keys: ReadonlyMap<string,KeyObject>, origin: string,
-  identity: ValidationIdentity, now = new Date()): TestedComponent[] {
-  const v = exact(verifyCompatibilityEnvelope(raw,keys),["schemaVersion","purpose","origin","issuedAt","expiresAt","combinations"]);
-  if (v.schemaVersion !== 1 || v.purpose !== RELEASE_INVENTORY_PURPOSE || v.origin !== compatibilityOrigin(origin)
-      || !Array.isArray(v.combinations) || v.combinations.length > 100) throw compatibilityErrors.evidenceIncomplete();
+export interface CompatibilityReleaseInventory {
+  schemaVersion:1; purpose:typeof RELEASE_INVENTORY_PURPOSE; origin:string;
+  issuedAt:string; expiresAt:string; combinations:TestedComponent[][];
+}
+export function parseReleaseInventory(raw:unknown,origin:string,now=new Date()):CompatibilityReleaseInventory {
+  if(!(now instanceof Date)||!Number.isFinite(now.getTime()))throw compatibilityErrors.invalid();
+  const v=exact(raw,["schemaVersion","purpose","origin","issuedAt","expiresAt","combinations"]);
+  if(v.schemaVersion!==1||v.purpose!==RELEASE_INVENTORY_PURPOSE||v.origin!==compatibilityOrigin(origin)
+    ||!Array.isArray(v.combinations)||v.combinations.length>100)throw compatibilityErrors.evidenceIncomplete();
   lifetime(v,now);
-  const combinations = v.combinations.map(parseTestedComponents);
-  return combinations.find(c=>compatibilityDigest(c)===compatibilityDigest(identity.components)) ?? [];
+  const combinations=v.combinations.map(parseTestedComponents);
+  if(new Set(combinations.map(compatibilityDigest)).size!==combinations.length)throw compatibilityErrors.invalid();
+  return {...v,combinations} as unknown as CompatibilityReleaseInventory;
+}
+export function releasedInventory(raw:unknown,keys:ReadonlyMap<string,KeyObject>,origin:string,
+  identity:ValidationIdentity,now=new Date()):TestedComponent[] {
+  const inventory=parseReleaseInventory(verifyCompatibilityEnvelope(raw,keys),origin,now);
+  return inventory.combinations.find(c=>compatibilityDigest(c)===compatibilityDigest(identity.components))??[];
 }
 export class CompatibilitySigner {
   readonly publicKey: KeyObject;
@@ -120,6 +130,16 @@ export class CompatibilitySigner {
   recommendation(revision: number, rawEntries: unknown[], now = new Date()): {payload:CompatibilityRecommendation;envelope:CompatibilityEnvelope} {
     const payload = makeCompatibilityRecommendation(this.origin,revision,rawEntries,now);
     return {payload,envelope:this.signRecommendation(payload,now)};
+  }
+  // Only a protected release producer may supply this payload, after collecting all release evidence.
+  // This method signs a release inventory, never a Hermes compatibility approval.
+  signInventory(raw:unknown,now=new Date()):CompatibilityEnvelope {
+    const payload=parseReleaseInventory(raw,this.origin,now),bytes=Buffer.from(JSON.stringify(payload));
+    if(bytes.length>256*1024)throw compatibilityErrors.publicationIncomplete();
+    const envelope:CompatibilityEnvelope={payload:bytes.toString("base64url"),keyId:this.id,algorithm:"Ed25519",
+      signature:sign(null,bytes,this.privateKey).toString("base64url")};
+    parseReleaseInventory(verifyCompatibilityEnvelope(envelope,new Map([[this.id,this.publicKey]])),this.origin,now);
+    return envelope;
   }
   signRecommendation(raw:unknown,now=new Date()):CompatibilityEnvelope {
     const payload=parseRecommendation(raw,this.origin,now);

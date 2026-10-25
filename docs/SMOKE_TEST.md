@@ -2370,3 +2370,20 @@ redacted transport errors. A loopback HTTP test checks actual transfer and detec
 The retained public experiment verifies both real 0.4.12 records and Connector 0.1.17 archives. It does
 not install or execute either archive, certify v2 runtime dependencies or sign an inventory. Protected
 five-component assembly/signing/renewal and actual installed-client matching remain separate gates.
+
+### Hermes compatibility: five-component inventory preparation
+
+Prepare from protected original release records, never administrator-supplied pass/fail reports.
+Require all five exact components and fresh native collector results. Missing source, wrong identity,
+expired Connector authority, observations older than 15 minutes, duplicate combination or unknown
+policy fields must refuse the entire draft. A second preparation must recollect evidence; it cannot
+renew a saved observation. Bound inventory expiry by every source's observation and signed lifetime.
+An explicit empty policy may prepare an empty inventory without publishing or revoking anything.
+
+CI's disposable Gateway image acceptance additionally runs all default collectors: a real isolated
+Gateway, a packaged synthetic Web archive, temporary signing keys for a synthetic Connector manifest,
+and inert synthetic client bytes served through loopback HTTP. It signs the resulting inventory with
+a temporary key, verifies the exact combination through Gateway's real consumer, and refuses after
+one client archive changes. This tests producer plumbing; the client blobs are not executable APKs
+or DMGs, and no production inventory is signed or installed. The existing public Desktop/Android
+archives are separately read back by digest; their package gates/runtime identity are separate proofs.

@@ -196,3 +196,37 @@ HR-HERMESCOMPAT-004，不公开响应正文或传输错误。
 0.4.12 当成 Connector 版本。这项检查证明特定签名记录及对应归档在观察时公开可读，不证明
 v2 Node 依赖已安装、当前进程身份、归档可执行性或 Hermes 兼容。五组件汇总、签名及续期仍待
 受保护产出路径联调；新签名库存的有效期也不得超过其发布依据的有效期。
+
+## I3 五组件库存生成原语
+
+`scripts/hermes-compatibility-inventory.mjs prepare <protected-policy.json> <new-draft.json>` 读取
+受控发布输入，重新调用五类采集器，生成未签名的库存载荷、策略摘要及证据摘要。CLI 没有
+签名密钥、上传或管理员接口；不能把管理员提交的 JSON 报告当成受控策略或采集结果。
+策略为 `schemaVersion:1`、固定 HTTPS `origin` 和最多 100 个 `combinations`；每项有严格排序的
+`components`（desktop/connector/gateway/android/web 的 name/version/artifactSha256）及同名
+`sources`。重复组合、未知字段、缺组件或源失败拒绝整份输出；空组合列表可准备清空库存的
+载荷，但不会自行激活撤回。
+
+| source | 受控发布输入 |
+|---|---|
+| desktop | 原始 app 更新 `manifest`，含精确 DMG、版本、build 和源 commit |
+| connector | releaseVersion/layout/architecture/channel/keyId/publicKey，使用既有签名发布信任 |
+| gateway | 原始 `manifestPath` 和可信发布主机上要核验的 `containerName` |
+| android | 原始 APK 发布 `manifest`，沿用现有包名/通道/证书元数据合同 |
+| web | 原始 `manifestPath` 和 `archivePath`，完整回读公开文件 |
+
+Desktop/Android 采集器按受控原始记录读取版本化公开归档，完整核对长度和固定摘要，无账号
+凭据、无跳转、有大小/时间上限。不执行或安装包，不重新声明 DMG notarization、APK 签名或
+运行身份；发布时的 package gate 与原始记录来源仍是前提，公共索引本身不能创造发布信任。
+Gateway 的运行镜像观察仍不证明公网路由。依赖注入仅供受信代码和测试使用，不是 CLI/API 参数。
+
+同一次准备可复用完全相同的组件/来源观察；再次准备必须重新采集，不能续签旧报告。所有观察
+在结束时须不超过 15 分钟且不能超前 30 秒。载荷有效期取结束时 24 小时、各观察时间 24 小时、
+Connector 签名发布依据到期时间的最小值，按整秒向下取整；过期/未知依据无法生成库存。
+公开 draft 只保留组件、来源类型、时间及摘要，不保留本机路径、原始发布元数据或采集诊断。
+
+`parseReleaseInventory` 为生成和消费共用格式验证，拒绝重复组合；`CompatibilitySigner.signInventory`
+只签专用 released-components 用途并验证实际序列化签名。受保护调用方仍须保证输入来自本次
+完整采集，而非管理员替换的载荷。库存不能作为 Hermes 测试通过或推荐批准，推荐验收仍要求
+全部核心检查。这里没有启用正式签名、原子替换 Gateway 库存文件或定时续期；这些生产接线
+以及正式五组件原始资料/受信发布主机配置仍须完成。
