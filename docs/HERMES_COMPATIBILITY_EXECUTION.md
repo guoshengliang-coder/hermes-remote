@@ -189,3 +189,13 @@ CI 已复用同一探针：发现冲突时 concurrentUpdate 明确 failed；即�
 本轮最终基线：Protocol 18/18、Connector 153/153、Gateway 272 通过/14 跳过/0 失败、release-server 41/41；脚本 444 通过/2 失败，仍为已记录的本机 LibreSSL CMS 问题。本轮没有 Desktop 源码改动，沿用上一轮 679 项 Swift 与原生页面检查，不声称重跑。最终探针字节再次实跑三阶段通过。
 
 用户随后明确授权将本任务分支推送到 `guoshengliang-coder/hermes-remote` 并创建草稿 PR；该授权不包括合并、部署或升级日常 Hermes。此前推送拒绝已获得所需补充授权，后续仍按独立门禁执行。
+
+## 草稿 CI 与发布组件证据
+
+已创建 [草稿 PR #673](https://github.com/guoshengliang-coder/hermes-remote/pull/673)。首轮 gitleaks 将两个实验报告的五个 `openapiPathsSha256` 识别为 generic-api-key；逐一用原始仅含路径/方法的文件重新计算，五个摘要全部一致，确认为公开路由摘要。沿用仓库规则，仅排除这五个精确历史 commit/file/line 指纹。提交 `229143e7` 的 11 项 GitHub 检查全部通过，包括 Node、Desktop、Android、Web、密钥扫描及独立恢复流水线。`merge-when-green --no-merge` 拒绝草稿，随后使用只读 `gh pr checks --watch` 等待，未改变草稿、合并或发布。
+
+I3 后续测试影响评审：现有 Web 发布只回读首页，不能证明兼容记录里的整个 Web 组件包已经可取得。本轮新增只读 Web 证据采集器，复用真实 package/manifest/tar 解析，绑定原始归档摘要、版本及公开文件全集；首尾两次回读首页以发现检查期间切换。它只生成未签名组件观察，尚未接入受保护 inventory 汇总，不冒充完整 I3 或 Web/Hermes 业务验证。其余四类发布证据来源、inventory 签名/续期仍待完成。
+
+测试覆盖修改脚本但首页不变、缺文件、重定向、部分响应、过大响应、归档与清单不一致、部署中途切换、无凭据请求及中英错误序列化/脱敏。另用真实 package → 临时目录 publish → loopback HTTP → readback，证明整个合成 Web 发布可核验，修改已发布 JS 后确实拒绝；不是线上发布证据。首次 loopback 测试被执行沙箱禁止监听，获准测试执行后通过。没有修改 Web 产品代码、现有发布流程、Desktop UI 或部署任何服务。
+
+本轮验证：Web 证据与既有 Web 发布定向测试 11/11；脚本基线 449 通过、2 失败、1 跳过。两项失败仍为已记录的本机 LibreSSL CMS 解密；跳过项因本轮误用了数据库变量名，改用 `ACCOUNT_TEST_DATABASE_URL` 后单独补跑数据库迁移套件 9/9、无跳过。未修改的 Swift/客户端组件沿用前述 CI 结果，不声称本轮本地重跑。

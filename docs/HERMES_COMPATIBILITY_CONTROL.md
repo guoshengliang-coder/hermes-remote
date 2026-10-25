@@ -42,6 +42,18 @@ I3 载荷使用 `purpose=hermes-go.compatibility.recommendations.v1`，绑定 HT
 
 Gateway 的 `ACCOUNT_HERMES_COMPATIBILITY_PUBLICATION_CONFIG_FILE` 只包含 schemaVersion=1、origin、goCommit、signingKeys/releaseKeys（id/publicKeyPem）和 inventoryFile，不含私钥。组件发布证据是另一用途 `hermes-go.compatibility.released-components.v1` 的受信签名清单，包含 origin、issuedAt/expiresAt 和精确 combinations；不能拿推荐清单替代，不能由管理员直接填写。该证据的真实发布流水线产出与续期仍属 I3/I5 待联调项。
 
+Web 组件的 `artifactSha256` 固定为 `package-web-app.mjs` 生成的原始 tar.gz 摘要，不能用首页、Git commit 或重新压缩后的文件替代。`hermes-compatibility-web-evidence.mjs` 接收发布流水线保留的包、清单和待验证的精确组件身份，先核对归档及每个条目，再从受信部署 origin 的 `/app/` 回读全部文件并复核首页。输出是未签名的时间点观察，不是发布权限、兼容批准或未来持续有效的保证；后续受保护 inventory 任务仍需核实输入来源、汇总另外四类组件并完成签名/续期。普通管理员 API 不接收该输出。只读调用示例：
+
+```bash
+node scripts/hermes-compatibility-web-evidence.mjs \
+  --manifest /path/to/original-web.manifest.json \
+  --archive /path/to/original-web.tar.gz \
+  --origin https://deployment.example \
+  --version 0.1.1 --sha256 <expected-original-archive-sha256>
+```
+
+上面的路径、origin 和摘要由受信发布配置及验证身份提供；不能仅对管理员手填的包签名。工具不上传文件、不发送账号凭据、不跟随跳转，归档/响应均有大小上限；失败使用 `HR-HERMESCOMPAT-004`，不输出正文或异常原文。现有 Web 发布脚本和生产服务未因该工具改变。
+
 Swift 消费者只在验签后生成内部构造的 verified 对象，精确匹配源 commit、平台、系统版本、安装类型和五个组件的版本/产物摘要，在匹配结果里选择最高稳定版。更高已装版本、缺失组件、未知环境、旧修订、过期及跨用途清单都不产生升级推荐。公开 HTTP 客户端每次 refresh 都联网，无账号凭据或缓存回退；验签后持久保存每个 origin 的最高修订和载荷摘要，同修订不同内容也拒绝。该客户端仍需接入普通页面和 I4 开始变更前复核，单独调用纯匹配器不能授权执行。
 
 ## 实施测试门禁
