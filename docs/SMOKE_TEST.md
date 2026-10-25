@@ -2355,3 +2355,18 @@ results. The real experiment separately proves the actual loopback chain. Source
 be presented as installed releases. Account-mode relay, released-component verification, file
 transfer, restart recovery and actual Android/Web business remain pending; a green narrow report
 must leave full Connector compatibility unapproved.
+
+### Hermes compatibility: signed published Connector evidence
+
+With the existing trusted public key, run `hermes-compatibility-connector-evidence.mjs` for a fixed
+versioned bundled or v2 release and exact Connector version/archive digest. Require signature and
+manifest identity/freshness before archive access, full public bytes matching the signed length/hash,
+and identical manifest bytes on readback. Do not substitute a package version for the Connector
+version or use a bundled archive digest for the v2 artifact at the same semantic version.
+
+Automated fixtures cover both layouts, wrong signatures, duplicate signed JSON keys, expired/future
+manifests, wrong scope/target/directory, partial/oversized/redirected downloads, changing manifests and
+redacted transport errors. A loopback HTTP test checks actual transfer and detects artifact replacement.
+The retained public experiment verifies both real 0.4.12 records and Connector 0.1.17 archives. It does
+not install or execute either archive, certify v2 runtime dependencies or sign an inventory. Protected
+five-component assembly/signing/renewal and actual installed-client matching remain separate gates.

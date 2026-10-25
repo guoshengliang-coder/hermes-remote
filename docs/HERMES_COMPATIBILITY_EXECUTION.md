@@ -488,3 +488,31 @@ scripts 484 通过、0 跳过，仍仅复现既有两项 macOS LibreSSL CMS lega
 
 当前仍是六项可通过、一项并发锁失败、八项未完成，I4/I5 未交付。未合并、部署、发布、
 授予角色或修改日常 Hermes；保留草稿 PR，继续按既定规划补齐验证与执行路径。
+
+## I3 Connector 发布证据输入
+
+`c5c0efb6` 的 11 项 CI 全部通过。本轮梳理可信 inventory 产出端时确认，组件是否已正式发布
+与用户是否正在运行该组件是两个独立要求；已有运行身份观察不能取代发布依据。实施前评审
+签名/公钥来源、两种布局身份、有效期、跨版本 URL、完整包回读、资源上限、变更检测及错误脱敏。
+
+新增只读 Connector 发布采集器，复用既有 v1/v2 payload 校验，不改变原发布器行为。先使用
+受信公钥认证原始签名 payload、拒绝重复键和过期/未来记录，再完整读取目标归档核对长度/摘要，
+最后复核同一版本化清单未变化。没有执行归档、安装组件或持有发布私钥。受保护调用方仍须
+控制信任配置与预期组合，普通管理员不能将自行填写的通过观察送进发布授权。
+
+已对现有公开发布包 0.4.12 的两种布局实测：bundled Connector 0.1.17 原归档
+`a8733c13302af73b793563f5c7a9d5898626efc8be4c53986dd94366e21e524a` 和 v2 原归档
+`95db00fe236a35945a5ee713ed99bbfaeee1fa8a05a5e5be4ba11fbee5863475` 均验签/全量回读通过。
+验签公钥来自本机已安装 Desktop 的公开信任配置；未读取账号或发布凭据。
+[证据](evidence/hermes-compatibility/2026-10-25-published-connector-artifacts.json) 绑定采集器、
+payload 校验器与验签源码摘要。两者版本相同而归档不同，精确组合不能按版本号合并。
+
+新增六项采集器测试，并与既有签名发布测试一起 18/18 通过；包含合成签名包的真实 HTTP
+回读和包被替换后的拒绝。`npm run build` 通过；完整 `npm test` 中 Protocol 18、Connector
+153、Gateway 272（14 跳过）、release-server 41 通过，scripts 490 通过、0 跳过；仍是两项
+既有 macOS LibreSSL CMS legacy-recovery 失败，整体非全绿。一次性 PostgreSQL 检查执行。
+未修改 Desktop/Android 产品或 UI，未重复本机 app/设备测试；`git diff --check` 通过。
+
+此证据仅覆盖 Connector 的签名发布记录及对应公共归档；v2 运行依赖、当前进程、完整五组件
+汇总/签名/续期、真实发布链路仍待完成。I4/I5 和上游并发锁缺口没有因此解决。未合并、部署、
+发布、授予角色、修改日常 Hermes 或创建额外上游消息，继续保留草稿 PR。

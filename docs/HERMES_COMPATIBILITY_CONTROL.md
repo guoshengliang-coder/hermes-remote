@@ -176,3 +176,23 @@ Node 二进制、三个组件 dist 树与 lockfile 摘要及 Gateway/Connector �
 白名单只输出检查和摘要，不输出地址、令牌、请求正文或私有日志。任一已测中继检查、凭据隔离
 或清理失败，明确令 `connector=failed`。全部通过仍保持总 Connector 项 `not_run`：账号模式、
 正式发布组件、文件通道、服务恢复及 Android/Web 客户端业务仍需各自验收。
+
+## I3 Connector 正式发布输入
+
+`scripts/hermes-compatibility-connector-evidence.mjs` 为受保护 inventory 产出端核验 Connector
+的公开发布记录。调用方提供固定 origin、发布包版本、bundled/components 布局、架构、通道、
+既有受信公钥与精确目标版本/归档摘要；这些输入应由发布配置提供，不能接受普通管理员提交的
+公钥或任意“通过”报告。公开采集结果仍是未签名观察，不直接作为 Gateway 的 release inventory。
+
+采集器构造版本化清单 URL，先验证 Ed25519 原始 payload 签名，拒绝重复 JSON key，再复用
+既有 v1/v2 payload 结构、组件图和 URL 校验；额外拒绝过期、未来创建时间、错目标或跨发布目录。
+只对目标 Connector 归档进行完整公共回读，流式核对签名长度与 SHA-256；结束时再次读取清单，
+原始字节变化即失败。请求不携带账号凭据、不跟随重定向，清单最多 256 KiB，归档大小受签名
+字段及既有 2 GiB 上限约束，整个观察有 120 秒期限。低层异常仅输出固定阶段，沿用双语
+HR-HERMESCOMPAT-004，不公开响应正文或传输错误。
+
+现用发布包 0.4.12 中，bundled 与 components 均声明 Connector 0.1.17，但归档分别为
+`a8733c…e524a` 与 `95db00…63475`。因此两个组合不能仅按版本号互换，也不能把发布包版本
+0.4.12 当成 Connector 版本。这项检查证明特定签名记录及对应归档在观察时公开可读，不证明
+v2 Node 依赖已安装、当前进程身份、归档可执行性或 Hermes 兼容。五组件汇总、签名及续期仍待
+受保护产出路径联调；新签名库存的有效期也不得超过其发布依据的有效期。
