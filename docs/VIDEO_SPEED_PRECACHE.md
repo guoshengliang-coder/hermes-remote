@@ -27,3 +27,14 @@ HR-FILE-018 与 HR-CACHE-003 只在 Android 本地状态使用，其他消费者
 低空间恢复可重新准入；手动清理在本次观看持有旧 epoch，不因重试/旋转/前后台切换重新填满。
 预缓存记录本次已尝试位置；容量已满或落盘未保留即停止，不能靠反复淘汰当前视频制造虚假的缓存进度。
 首帧/seek 仍为已验证的小范围交付，没有实现未经测量的半片流式交付或 Mac 转码。
+
+## 长片测量夹具
+
+基础资产只有 16 秒；不传额外参数时两分钟用例是循环 smoke，不能作为持续长片吞吐结论。
+按 `android/app/src/androidTest/assets/video/README.md` 的 ffmpeg 命令生成自有 H264/AAC 内容，
+将时长改为 390 秒（留出 12 秒 seek 和 3× 两分钟的余量），不把约 64MiB 二进制加入仓库。
+将文件 push 到测试 App 的 external files 目录后，向 instrumentation 传入
+`-e videoSpeedFixture /sdcard/Android/data/com.hermes.remote/files/hermes-video-speed-continuous.mp4`。
+仅矩阵读取该文件，限制为 App 自己的 external files 目录且不超过 128MiB；其余真实 UI/解码用例
+继续使用较小的内置资产。记录源时长/大小、单一共享限速和 RTT；PSS 包括测试夹具和整个 App，
+不能与 24MiB 的播放器压缩采样目标混为一谈。完成后删除本次夹具，不清理设备其他数据。

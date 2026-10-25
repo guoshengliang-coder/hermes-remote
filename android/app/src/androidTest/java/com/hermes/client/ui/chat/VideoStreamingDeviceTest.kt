@@ -213,7 +213,9 @@ class VideoStreamingDeviceTest {
             val screen = automation.takeScreenshot()
             fun touch(action: Int) {
                 val event = android.view.MotionEvent.obtain(downAt, android.os.SystemClock.uptimeMillis(), action,
-                    screen.width * .2f, screen.height * .45f, 0)
+                    screen.width * .2f, screen.height * .45f, 0).apply {
+                    this.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                }
                 automation.injectInputEvent(event, true); event.recycle()
             }
             touch(android.view.MotionEvent.ACTION_DOWN)
@@ -381,7 +383,7 @@ class VideoStreamingDeviceTest {
     }
 
 
-    @Test fun actual_decoder_applies_all_speeds_preserves_pitch_and_warm_position_rate() = runBlocking {
+    @Test fun actual_decoder_applies_all_speeds_preserves_pitch_and_warm_position_rate(): Unit = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val local = java.io.File(context.cacheDir, "speed-fixture.mp4")
         InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { input ->
@@ -418,7 +420,7 @@ class VideoStreamingDeviceTest {
     }
 
 
-    @Test fun explicit_download_preempts_precache_and_completes_after_filler_closes() = runBlocking {
+    @Test fun explicit_download_preempts_precache_and_completes_after_filler_closes(): Unit = runBlocking {
         val mp4 = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
         val fixture = VideoFixtureSource(mp4, 4 * 1024 * 1024, 4, 120, 512 * 1024)
         val previous = credentials.load()
@@ -446,11 +448,19 @@ class VideoStreamingDeviceTest {
         }
     }
 
-    /** Two real minutes per scenario, repeat the 16s generated fixture; no real account/network.
-     * Reports stalls on weak links without silently changing the user's selected playback speed.
+    /** Two real minutes per scenario; pass videoSpeedFixture (generated >=360s H264/AAC in the
+     * app's external files directory) for continuous cold footage. Without it this is explicitly
+     * a 16s looping smoke, not a long-video throughput measurement. No real account/network.
      */
-    @Test fun speed_buffer_two_minute_matrix_records_rebuffer_bytes_and_peak_memory() = runBlocking {
-        val mp4 = InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
+    @Test fun speed_buffer_two_minute_matrix_records_rebuffer_bytes_and_peak_memory(): Unit = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val fixturePath = InstrumentationRegistry.getArguments().getString("videoSpeedFixture")
+        val continuous = fixturePath != null
+        val mp4 = if (fixturePath != null) {
+            val file = java.io.File(fixturePath).canonicalFile
+            require(file.parentFile == context.getExternalFilesDir(null)!!.canonicalFile && file.length() in 1..(128L * 1024 * 1024))
+            file.readBytes()
+        } else InstrumentationRegistry.getInstrumentation().context.assets.open("video/generated-h264-aac.mp4").use { it.readBytes() }
         for ((speed, rate, latency) in listOf(Triple(1f, 128 * 1024, 120L),
             Triple(1.5f, 512 * 1024, 120L), Triple(2f, 8 * 1024 * 1024, 900L), Triple(3f, 8 * 1024 * 1024, 120L))) {
             val fixture = VideoFixtureSource(mp4, 24 * 1024 * 1024, 4, latency, rate)
@@ -500,6 +510,9 @@ class VideoStreamingDeviceTest {
                 filler = launch { video.precache(session, allow::get) }
                 assertTrue("first frame speed=$speed ${failed.get()}", first.await(30, TimeUnit.SECONDS))
                 assertNull(failed.get())
+                activity.scenario.onActivity {
+                    if (continuous) assertTrue("continuous fixture must span 120s at 3x", player!!.duration >= 360_000)
+                }
                 seekAt.set(android.os.SystemClock.elapsedRealtime())
                 activity.scenario.onActivity { player!!.seekTo(12_000) }
                 assertTrue("seek speed=$speed", sought.await(30, TimeUnit.SECONDS))
@@ -523,7 +536,7 @@ class VideoStreamingDeviceTest {
                 }
                 val at = bufferingAt.getAndSet(0)
                 if (at > 0) rebufferMs.addAndGet(android.os.SystemClock.elapsedRealtime() - at)
-                android.util.Log.i("VIDEO_SPEED_MATRIX", "speed=$speed rate=$rate latencyMs=$latency firstFrameMs=${firstMs.get()} seekMs=${seekMs.get()} stalls=${stalls.get()} rebufferMs=${rebufferMs.get()} bytes=${fixture.sent.get()} peakRequests=${fixture.peak.get()} peakPssKiB=$peakPss maxRealBufferMs=$maxRealBuffer cachedPercent=${session.state.value.percent}")
+                android.util.Log.i("VIDEO_SPEED_MATRIX", "continuous=$continuous speed=$speed rate=$rate latencyMs=$latency firstFrameMs=${firstMs.get()} seekMs=${seekMs.get()} stalls=${stalls.get()} rebufferMs=${rebufferMs.get()} bytes=${fixture.sent.get()} peakRequests=${fixture.peak.get()} peakPssKiB=$peakPss maxRealBufferMs=$maxRealBuffer cachedPercent=${session.state.value.percent}")
                 assertTrue(fixture.peak.get() <= 4)
                 if (speed == 3f) {
                     // Full cache must cover the virtual padding too, then reopening causes no ranges.
