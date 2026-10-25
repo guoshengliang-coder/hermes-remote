@@ -1,160 +1,2341 @@
-# Hermes 兼容管理控制面合同
+# Local relay smoke test
 
-对应 HC-03。本文冻结首版实现边界；接口尚未部署，不能据本文授予权限或认为版本已经受支持。
+## HG-219 heartbeat diagnosis — actual M4 recurrence verification pending
 
-## 授权和所有权
+This change adds diagnostics, not an established cure for the underlying outage. It changes no
+heartbeat deadline or reconnect backoff. After separately authorized Gateway and Connector releases:
 
-兼容管理角色绑定 `accounts.id`，不绑定客户端邮箱、设备 owner 或 installation。每次管理请求先验证现有账号 session，再查询数据库中的有效角色；修改在同一事务内重新验证 session、账号和角色。角色撤销与修改共用兼容管理事务锁，撤销提交之后旧 session 的新管理操作被拒绝。
+1. On an isolated test binding, suppress pong responses while retaining inbound application messages
+   and ping frames. A real Connector must still time out and reconnect; `relay.heartbeat_timeout`
+   must show recent inbound activity, `pingWriteState=written`, and no invented `lastPongAgoMs`.
+   Its following `relay.disconnected` must carry the same local `controlConnectionId`.
+2. In the local test stack, delay the ping write callback and separately delay the timer callback.
+   Expect `pending` plus the local buffer size for the former and a larger `tickDelayMs` or
+   `sweepDelayMs` for the latter. Fake clocks cover these classifications; actual network congestion,
+   compression starvation and OS scheduling require runtime evidence, not merely that test passing.
+3. Observe M4 naturally under its normal workload. Correlate Android `conn` with Gateway
+   `clientConnectionId`, then align Connector timeout/disconnect, Gateway timeout/offline and HTTP
+   failures. Capture buffer sizes, write state, inbound ages and timer delay without collecting
+   frames, endpoints, tokens or other request content. Do not pause a live user process to reproduce.
+4. Keep the case unresolved unless the resulting evidence identifies the blocking layer and a
+   subsequent fix is verified on that Mac and phone. A successful public health check alone does
+   not exercise the M4 control connection. See `HG_219_CONNECTION_DIAGNOSTICS.md` for the incident.
 
-初始授予工具要求显式 account ID 和期望的已验证邮箱；二者必须在服务端现有 `external_identities` 中匹配且账号有效。邮箱仅用于核对授予对象，不能持续自动授予角色。授予、撤销写审计；Desktop 不提供自行提权 API。首次生产授予仍是单独的受控启用步骤。
+## Account Connector health resilience — production verification pending
 
-默认关闭 `ACCOUNT_HERMES_COMPATIBILITY_ENABLED`。关闭时不显示管理入口，保留本机已有版本检查。启用后 `GET /v2/hermes-compatibility/access` 对已登录账号返回是否有管理权限；其他 `/v2/hermes-compatibility/*` 管理路由逐请求鉴权。Android/Web 没有新增调用，原有账号和设备合同保持兼容。
+Automated tests cover the local deadline, auth cancellation, credential proof, stale replies,
+degraded routing and recovery, including a real Connector process on loopback. After a separately
+authorized Connector/Gateway rollout, use a disposable account binding to verify:
 
-## 固定身份与证据
+1. Delay the protected Hermes health read by 6 seconds. Proof still completes within 5 seconds;
+   the health result succeeds within the Connector's 10-second / Gateway's 15-second budget,
+   without a `4408` disconnect. Do not delay the key-possession handshake.
+2. Stall that read past 10 seconds, or return 401 while public `/api/health` still returns 200.
+   Expect `connectorOnline=true`, `hermesReachable=false`, new REST/WS requests returning retryable
+   HTTP 502 `HR-CONN-006`, and no control reconnect loop. Existing tunnels retain authorization
+   checks. A pending binding must not activate on this result.
+3. Restore the protected read. The next non-overlapping probe starts 20 seconds after the previous
+   health write completes; successful health restores new routing on the same socket. Observe
+   `connector.hermes_health` state changes and request latency without collecting response bodies.
+4. Close control during a stalled read. Confirm the local request closes promptly, no old result
+   revives health, and normal reconnect/backoff remains active. Separately verify heartbeat failure
+   still reconnects; Hermes degradation does not replace transport failure detection.
+5. Check mixed versions with disposable fixtures: an old Connector can answer the unchanged v2
+   probe after 15 seconds; Gateway must ignore that stale ID, retain control and recheck. A new
+   Connector on an old Gateway still has the old 5-second cutoff. Exercise 404/405 fallback for
+   older Hermes without permitting fallback on 401/5xx.
 
-候选仅来自官方稳定 release，保存版本、tag、tag 对象及解引用 commit。相同 tag 指向发生变化时记录异常，不能原地替换已验证目标。
+On the actual Mac, record probe latency/timeout rate under representative load and after sleep/wake.
+Loopback and fake clocks do not verify CPU starvation, packet loss or the production rollout.
 
-验证输入固定：候选 ID、源 Hermes commit、目标 commit、GO 源 commit、测试套件摘要、平台/架构/系统版本、安装路径类型和组件产物组合。首版不接受 shell、任意仓库、路径、workflow 名称或脚本参数。
+## HG-196 complete voice message — real browser/device check pending
 
-测试报告分开保存基础设施失败、检查失败和未执行。通过的检查必须有证据摘要；报告与 run 的固定输入完全匹配。结果只能由受信验证执行边界提交，管理员 API 不能填写检查结果。每个 run 最多接受一份最终报告，重复相同结果幂等，不同结果冲突。
+On Android, Safari/Home Screen and Chrome, stage text, an image and a PDF, switch to voice,
+record a question and release. One message must contain the typed text, final transcript and both
+attachments; the composer must clear. Force an upload/submit failure and retry the failed bubble:
+all content must still reach Hermes. Cancel and convert-to-text must retain attachments without
+auto-sending. Empty final results, interrupted recognition and unavailable connections must never
+send an old draft. While a selected attachment is still preparing, keep the speech in the draft
+for review instead of sending a partial attachment set. In a bot conversation, cancel the initial
+send notice and confirm all text/attachments are restored; send again and check the full payload.
+Leave the conversation during recognition: a late result must not send into the next conversation.
+Automated coverage uses simulated final events and mock transport, so it does not prove real
+microphone capture, provider final timing or vendor/browser gestures.
 
-首版核心验收项：安装身份、鉴权、REST、RPC、历史、配置、Connector、服务恢复、升级、恢复、外部更新互斥、进程中断、Desktop 退出重开、客户端核心业务和新版数据保护。所有项都通过才可审批。某项未执行仍是未验证，不能用“有限支持”绕过。范围扩展必须新建验证输入并重验。
+## Doubao speech relay
 
-组件组合使用已测试的精确版本及产物摘要，首版不推断未来版本兼容。源 commit、架构、系统和安装类型也精确匹配。已安装更高 Hermes 不自动降级。
+With `DOUBAO_ASR_API_KEY_FILE` unset, an authenticated phone upgrade to `/api/voice` or
+`/v2/devices/{id}/voice` returns 503. With the private key configured, the same phone credential
+opens the route and binary V3 frames travel to/from Doubao; neither the key nor audio content
+appears in Gateway logs. A missing/invalid phone credential is rejected before upstream dialing.
+The local proxy test uses a mock upstream; final transcript timing still needs A-17's real service
+and device check.
 
-## 状态与并发
+Start the gateway and mock connector as described in the root README. Connect a WebSocket client to `ws://127.0.0.1:8787/v1/connect` and send:
 
-候选、验证任务、决策、发布快照分别保存。验证任务状态为 queued/running/passed/failed/infrastructure_failed/cancelled；审批不修改任务状态。决策绑定固定报告摘要和范围摘要，不能在审批后修改内容。
-
-所有管理副作用需要 UUID 操作 ID 和预期修订号。服务端在一个事务内校验权限、操作摘要、修订号、业务门禁，写入结果和审计。同一操作 ID、相同输入返回原结果；不同输入拒绝；旧修订拒绝，不自动覆盖。
-
-批准产生待发布决策；发布服务拿到审批快照后再次校验证据。签名系统与运行上游代码的验证系统分离。公网回读验签和内容摘要成功后才标为 published。撤回产生更高修订的快照，不修改旧快照、不强制降级已安装版本。
-
-## 推荐消费
-
-兼容清单是独立的 Ed25519 签名 envelope，复用已有 payload/keyId/algorithm/signature 形式，不混用 app 或组件更新清单。签名载荷必须包含专用类型、schema、单调修订、有效期和精确决策记录，防止跨用途替换。
-
-客户端先验签、检查类型/修订/期限，再排除撤回目标并匹配固定环境与组件组合。开始变更前重新取有效清单；网络不可用时可查看缓存，但不能新启动升级。目标升版排序只在已经通过所有匹配条件的候选间进行。
-
-I3 载荷使用 `purpose=hermes-go.compatibility.recommendations.v1`，绑定 HTTPS origin、最多 100 条精确决策、24 小时有效期和单调 revision。准备发布在一个事务内重新验证通过报告、组件证据和候选身份，保存不可变未签名载荷及 pending 任务。受保护工作流签名回传后，公开 `snapshots/:revision` 回读验签/摘要通过且决策和组件证据仍有效，事务才更新 published。`recommendations` 只返回已发布快照。撤回立即禁止提供含该决策的旧快照；随后发布更高修订的清单移除它，不改写旧签名字节。
-
-签名复用 `.github/workflows/hermes-compatibility-publish.yml` 中现有 `desktop-release` 环境及审批门禁；Gateway、Desktop 和验证 job 都不配置签名私钥。工作流先检查现有 Desktop 签名信任连续性，再用专用 OIDC 身份领取固定 task；私钥只注入最后签名步骤。服务端必须核实发布 workflow、main 精确 commit、task UUID、`desktop-release` environment/sub 和首次 run attempt；验证 workflow 不能冒充发布 workflow。成功派发后等待环境审批，不重复派发；24 小时未完成或三次派发失败记为发布失败。
-
-Gateway 的 `ACCOUNT_HERMES_COMPATIBILITY_PUBLICATION_CONFIG_FILE` 只包含 schemaVersion=1、origin、goCommit、signingKeys/releaseKeys（id/publicKeyPem）和 inventoryFile，不含私钥。组件发布证据是另一用途 `hermes-go.compatibility.released-components.v1` 的受信签名清单，包含 origin、issuedAt/expiresAt 和精确 combinations；不能拿推荐清单替代，不能由管理员直接填写。该证据的真实发布流水线产出与续期仍属 I3/I5 待联调项。
-
-Web 组件的 `artifactSha256` 固定为 `package-web-app.mjs` 生成的原始 tar.gz 摘要，不能用首页、Git commit 或重新压缩后的文件替代。`hermes-compatibility-web-evidence.mjs` 接收发布流水线保留的包、清单和待验证的精确组件身份，先核对归档及每个条目，再从受信部署 origin 的 `/app/` 回读全部文件并复核首页。输出是未签名的时间点观察，不是发布权限、兼容批准或未来持续有效的保证；后续受保护 inventory 任务仍需核实输入来源、汇总另外四类组件并完成签名/续期。普通管理员 API 不接收该输出。只读调用示例：
+Before opening the Connector, verify the release probes. With account mode disabled, both requests
+return `200`; `/readyz` reports the database and migration checks as `disabled`/`not_required`:
 
 ```bash
-node scripts/hermes-compatibility-web-evidence.mjs \
-  --manifest /path/to/original-web.manifest.json \
-  --archive /path/to/original-web.tar.gz \
-  --origin https://deployment.example \
-  --version 0.1.1 --sha256 <expected-original-archive-sha256>
+curl --fail http://127.0.0.1:8787/healthz
+curl --fail http://127.0.0.1:8787/readyz
 ```
 
-上面的路径、origin 和摘要由受信发布配置及验证身份提供；不能仅对管理员手填的包签名。工具不上传文件、不发送账号凭据、不跟随跳转，归档/响应均有大小上限；失败使用 `HR-HERMESCOMPAT-004`，不输出正文或异常原文。现有 Web 发布脚本和生产服务未因该工具改变。
+```json
+{"type":"hello","version":1,"role":"app","deviceId":"android-dev","token":"dev-app"}
+```
 
-Swift 消费者只在验签后生成内部构造的 verified 对象，精确匹配源 commit、平台、系统版本、安装类型和五个组件的版本/产物摘要，在匹配结果里选择最高稳定版。更高已装版本、缺失组件、未知环境、旧修订、过期及跨用途清单都不产生升级推荐。公开 HTTP 客户端每次 refresh 都联网，无账号凭据或缓存回退；验签后持久保存每个 origin 的最高修订和载荷摘要，同修订不同内容也拒绝。该客户端仍需接入普通页面和 I4 开始变更前复核，单独调用纯匹配器不能授权执行。
+Then send:
 
-## 实施测试门禁
+```json
+{"type":"command","version":1,"id":"request-1","targetDeviceId":"mac-mini","payload":{"kind":"chat","input":"hello"}}
+```
 
-I2 执行边界：使用固定 GitHub workflow 和 macOS 26 arm64 托管测试机。准备/结果回收在独立的受信任务里用 GitHub OIDC 认证，实际运行上游代码的 macOS 任务没有 OIDC 写权限或发布密钥。固定官方 issuer/JWKS、audience、稳定 repository ID、workflow 路径、main ref、精确 workflow/GO commit、run ID 和 run attempt 都要核验。管理员账号 token 不能作为 runner 身份。派发仅传 run UUID，完整测试输入从受信控制面取得，禁止客户端提供脚本、checkout 路径、Gateway URL 或 workflow。
+Expected terminal event:
 
-新增验收：错误签名/issuer/audience/repository/workflow/commit/run 被拒绝；过期结果、跨 run 回传、重复不同报告不能覆盖；故障环境与明确检查失败分别记录。GitHub 未启动任务、超时或报告不齐保持可解释的非通过状态，不能由管理员强制通过。
+```json
+{"type":"event","version":1,"requestId":"request-1","event":"complete","data":{"sessionId":"request-1"}}
+```
 
-工作流文件为 `.github/workflows/hermes-compatibility.yml`，三个 job 分别 prepare / validate / report；只接收 `run_id`。仓库变量 `HERMES_COMPATIBILITY_GATEWAY_URL` 指向受控 HTTPS origin，不能由任务输入替换。运行时读取 `ACCOUNT_HERMES_COMPATIBILITY_CI_CONFIG_FILE` 和最小权限的 GitHub 派发凭据（`ACCOUNT_HERMES_COMPATIBILITY_GITHUB_TOKEN` 或其受保护文件），无配置不提供验证配方。配置格式见 `hermes-compatibility-config.ts`，GO commit 必须与 main 和实际工作流完全一致。
+## Hermes compatibility smoke test
 
-队列最多派发三次、间隔五分钟；running 保留 150 分钟，覆盖最长 105 分钟验证及前后任务/队列开销。超时只有 infrastructure_failed 状态，不构造通过报告。报告只发布字段白名单与证据摘要，不上传原始安装日志、HOME 路径或凭据。当前 Mac runner 执行完整升级/恢复、依赖落盘失败恢复、真实更新锁和运行接口探针。六项可通过（含 Desktop 托管 loopback token 鉴权及下述核心 REST 读取），并发更新在已测版本存在失败，其余八项仍未验收。四条核心 REST 读取和 active_list RPC 的局部证据不能直接认证完整 RPC、Connector 或客户端业务；这是开发中的覆盖状态，不是支持声明。
+The repository also includes a protocol-shaped Mock Hermes server that requires the same Basic Auth → Cookie → WS Ticket sequence as the real dashboard.
 
-参考：[GitHub 托管执行器](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)、[OIDC claims](https://docs.github.com/en/actions/reference/security/oidc)。执行器系统版本仍从实际环境采集，不能只凭 `macos-26` 标签认证所有 26.x。
+Run the Mock Hermes server, Gateway, and Connector on separate terminals, then run:
 
-- 授权：普通账号、伪造邮箱、角色撤销后的旧 session、不同 account ID、账号删除或 session 撤销。
-- 数据库：真实 PostgreSQL 18 验证原子幂等、修订冲突、并发撤销和审计；模拟 store 测试不代替此项。
-- 证据：目标/源/组件/套件任一变化拒绝，未知字段/检查拒绝，失败或未执行不能审批，跨 run 和重复不同结果拒绝。
-- 发布消费：坏签名、错用途、撤回、过期、旧修订、未知组件、陈旧审批和重复操作。
-- 用户错误：新增 HR 码先登记，包含中英文摘要、恢复动作、retryable；不回显原始输入、凭据或 CI 日志。
+```bash
+npm run smoke:compat
+```
 
-Gateway 组件的 `artifactSha256` 固定为 `package-gateway-bundle.sh` 保留的原始 OCI tar 摘要。
-`scripts/hermes-compatibility-gateway-evidence.mjs` 复用 schema-3 bundle 校验和 OCI 身份解析：
-在有界私有副本中关联 Docker config ID、containerd descriptor ID、平台、版本和源 commit，然后
-只读核对指定容器的镜像、启动配置、只读根文件系统、代码路径挂载、加载覆盖及两次观察间的稳定性。
-Docker 格式化只返回必要字段、挂载目的地和加载覆盖标记，不输出完整环境或宿主挂载源；格式语法
-遵循 [Docker 官方说明](https://docs.docker.com/engine/cli/formatting/)。采集命令不加载镜像、执行容器
-内命令、创建容器、重启服务或访问生产凭据。
+The test passes only after `/api/status` traverses the REST tunnel and a JSON-RPC request traverses `/api/ws` in both directions.
+
+### Stalled control-channel recovery (HG-90)
+
+Automated unit and loopback tests cover the cancellation wire message and the Gateway heartbeat.
+For an end-to-end fault injection, run the local stack and verify all three boundaries:
+
+1. Pause the Connector process longer than `CONTROL_HEARTBEAT_TIMEOUT_MS`. The Gateway must log
+   `connector.heartbeat_timeout`, close the stale control socket, and report the device offline;
+   after the process resumes, the Connector must reconnect without a Gateway restart.
+2. Start a slow `/api/*` request and abort its HTTP client. The Connector must receive exactly one
+   `tunnel.http.cancel` with `client_aborted`, log `http.cancelled`, and stop the local Hermes fetch
+   or response-chunk ACK wait. Repeat by letting `REQUEST_TIMEOUT_MS` expire; the reason must be
+   `gateway_timeout`, with no late response forwarded to the abandoned client.
+3. While Android shows the unhealthy strip, allow a different Connector-routed `/api/*` request to
+   return 2xx. Android must immediately re-probe `/api/status`; only a successful probe clears the
+   strip, and the WebSocket state must remain unchanged. Relay-owned `/api/mobile/events`,
+   `/relay-health`, and `/health` must not trigger this recovery probe.
+
+During a rolling upgrade, deploy the new Connector before relying on request cancellation. The
+additive message is safe with an old Connector, but only the new Connector consumes it.
+
+With `HERMES_MODE=live`, the Connector also opens a private observer socket. An account-mode
+Connector (`CONNECTOR_MODE=account`, which is what Desktop's managed LaunchAgent runs) defaults to
+`live` when `HERMES_MODE` is unset; a legacy Connector still defaults to `mock`, which echoes commands
+and never starts the observer (HG-101). Confirm its log contains
+`Hermes lifecycle observer connected`, then query the Relay inbox without exposing the token in the
+URL:
+
+```bash
+curl -H "X-Hermes-Session-Token: $APP_TOKEN" \
+  "http://127.0.0.1:8787/api/mobile/events?after=0&limit=20"
+```
+
+Start and finish a Hermes task from another local client. Expect exactly one ordered set of lifecycle
+transitions, no prompt/tool/file content in the JSON, and no duplicates after restarting the
+Connector. Stop the Mac Connector and repeat the GET: persisted events must still be available.
+Open an already-read, idle conversation on Android without sending a prompt. Its agent may briefly
+appear as `starting` in the Connector's `lifecycle.observed` log, then `idle`, with the same message
+count and `decision: "none"` on both rows. The Relay inbox must gain no lifecycle event and the
+Android row must stay read after background/foreground and a cold restart. For a real new turn,
+expect `working` and then `idle` with `run.started` and `run.completed` decisions; match each
+Connector event ID to the Android `lifecycle` diagnostic receipt. Collect both logs if a badge
+appears again: the phone log alone cannot show Hermes' `active_list` status or message count.
+After noting an event ID, verify both idempotent state routes:
+
+```bash
+curl -X POST -H "X-Hermes-Session-Token: $APP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"event_ids":["EVENT_ID"]}' \
+  http://127.0.0.1:8787/api/mobile/events/ack
+curl -X POST -H "X-Hermes-Session-Token: $APP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"event_ids":["EVENT_ID"]}' \
+  http://127.0.0.1:8787/api/mobile/events/read
+```
+
+### Connector contract check against a real Hermes (added 2026-09-21)
+
+Automated coverage stops at fixtures (`connector/src/hermes-contract*.test.ts`) and Android JVM
+tests. Against a live stack:
+
+1. Start the Connector against the real local Hermes. Its log carries exactly one
+   `"kind":"hermes.contract"` line with `"status":"compatible"` and the Hermes version.
+2. Read the report through the Relay, as the phone does:
+
+   ```bash
+   curl -s -H "X-Hermes-Session-Token: $APP_TOKEN" http://127.0.0.1:8787/api/hermes-remote/contract
+   ```
+
+   Expect `"schema":1,"status":"compatible","missing":[]`. Repeat it: the Connector must not log a
+   second `hermes.contract` line (the result is cached).
+3. Restart Hermes (not in production without the owner): the observer reconnects and the check runs
+   again; an unchanged result still logs nothing new.
+4. Breaking path, dev stack only: point the Connector at a mock whose `/openapi.json` omits
+   `/api/sessions/{session_id}/messages` (for example serve
+   `connector/fixtures/hermes-openapi/hermes-missing-required.json`). The report turns `breaking`
+   with `HR-COMPAT-001`; the phone's health strip turns red with 「Mac 上的 Hermes 不兼容」, its sheet
+   lists 历史记录 and shows `HR-COMPAT-001` on its own line; chat and every other route still relay.
+5. Unknown path: make `/openapi.json` answer 404. The report is `unknown`, the phone shows nothing.
+
+Device status: **not yet run on a device** (L2) as of 2026-09-21 — only L1 (JVM) covers the strip.
+
+### Approval and clarify against a real Hermes
+
+Automated coverage stops at a mock: the question protocol changed between Hermes f159e581 (events +
+`*.respond`) and 17b5df02 (server→client requests; `docs/HERMES_CONTRACT.md` section 3), and each
+way it can break is silent — no card appears. Run this against every Hermes the phone is about to
+talk to, on a device or emulator connected through the real Gateway and Connector:
+
+1. Open the in-app diagnostic log after connecting. On a new Hermes it must show
+   `server requests advertised (gen=…); Hermes may ask: approval,clarify,…`; on f159e581
+   `client.capabilities unsupported (…, code=-32601); questions arrive as events`. Neither may be
+   missing.
+2. Ask the agent to run a command that needs approval (e.g. `rm -rf /tmp/hr-approval-probe`). The
+   approval sheet must appear in the chat and, with the app in the background, as a notification.
+   Approve once from the **notification shade**; the command must run. Repeat and deny from the
+   sheet; the agent must report the denial.
+3. Ask for something that makes the agent use clarify with one question, answer it; then with
+   several questions (a batch), answer the first, force-stop the app, reopen the conversation: the
+   batch card must come back with the first answer already ticked. Finish it; the agent must quote
+   every answer.
+4. Leave an approval unanswered until Hermes times it out (or press stop): the card and its
+   notification must disappear by themselves (`request.cancel` on the new protocol).
+5. New Hermes only: with the phone disconnected (airplane mode) while the agent asks, reconnect and
+   open the conversation — the card must be there (`open_requests`), and answering it must work.
+
+The same flow runs locally against the dev mock with `HR_MOCK_SERVER_REQUESTS=1` (every run also asks
+one `sudo`, which the app must refuse with -32601 — the mock logs `answered with error`), and without
+the flag for the old protocol. With that flag (or `HR_MOCK_STRICT_PARAMS=1` alone) the mock also
+refuses any params key 17b5df02 does not declare with 4000, from `docs/hermes-rpc-params.json`, and
+logs `refused 4000` — a line that must never appear while using the app.
+
+### Android notification and battery checks
+
+1. Enable notifications and keep **Smart** selected. While the app is open, create and complete a
+   task from another client; the event should appear within a few seconds without a permanent
+   foreground-service notification. Its session row should move through running, waiting (when
+   applicable), and completed/unread states.
+2. Start a task from Android, put the app in the background, and confirm one ongoing service
+   notification ("后台保持连接 · 正在监控 1 个任务") plus one silent per-session progress card
+   (session title, "运行中", elapsed timer, tool name) remain while the run is active. Complete the
+   task and confirm the SAME card turns into "已完成" with the reply snippet and duration, and the
+   service stops without removing that card.
+3. With no Android-started task active, leave the app in the background. Confirm there is no
+   persistent service and no idle gateway ping loop. A task completed elsewhere should be found by
+   the next OS-managed periodic check; Android may defer that check beyond 15 minutes.
+4. Repeat a delivered Relay batch or restart Android between notification delivery and cursor
+   persistence. Confirm the session's single card is updated rather than duplicated, and that a
+   completion already delivered by the live socket (and already read) does not come back as a
+   second "已完成" card.
+5. Select **Real-time** and confirm the background service remains present. Select **Power saving**
+   and confirm the service stops even when a locally started run is still active.
+6. Deny notification permission and verify chat remains functional. On Android 13+, re-enable the
+   permission in system settings and repeat the lock-screen and heads-up checks for each channel.
+7. Card rules (2026-09 one-card-per-session rework): trigger an approval while the app is in the
+   background — expect a heads-up card titled with the session name, header "需要审批", the command
+   in the body, and Allow once / This session / Deny buttons. Approve it inside the app instead and
+   confirm the card disappears immediately. Trigger a clarify with two choices — expect the two
+   choices as buttons plus "回复…"; tap one and confirm the card shows "处理中…" then moves on.
+8. While viewing the chat that is running, confirm no card for that session is showing; navigate
+   to the session list (app still foreground) and confirm its card appears silently (no sound, no
+   heads-up). Lock the phone with the chat still open and confirm the card is posted normally.
+9. Run two sessions from two profiles at once: expect two progress cards with different accent
+   colours matching the in-app avatars, the profile name in each header, and a group summary line
+   ("2 个运行中"). On a ROM that replaces the small icon with the launcher icon, the header text
+   must still identify the profile.
+10. Swipe a running card away: it must not return until the run finishes; the "已完成" card must
+    then appear. Open that chat and leave it: the card must not come back.
+11. Put the phone in airplane mode, press Deny on an approval card: expect the card to show
+    "发送失败，请重试" with HR-NOTIF-001 and the buttons restored; restore the network and retry.
+12. On Android 16, confirm the running card is promoted to a status-bar Live Update with the
+    "n/m" chip when the run reports todos; with two runs the system picks one — no crash, no
+    cross-overwrite.
+13. Foreground-service stop race (2026-09 branch claude/fgs-stop-race): with a locally started
+    run active, swipe the app to the background and back to the foreground as fast as possible,
+    ten times in a row; also background the app in the last second before the run completes.
+    The app must never crash with `ForegroundServiceDidNotStartInTimeException`. In the debug
+    log, a `stop deferred: startForeground still pending` line followed by `stop deferred past
+    startForeground; stopping now` shows the gate handled the race. The service notification
+    may flash for an instant in that case; afterwards it must be gone while the app is in the
+    foreground.
+
+For a deployed relay, set `PUBLIC_GATEWAY_URL` and `APP_TOKEN` in the invoking shell before running the same script. Keep the token out of command history and source control. A successful real-Hermes run accepts `gateway.ready` and any non-error result from `session.create`.
+
+## Android conversation re-entry (2026-10-11, 0.1.170 recording)
+
+L1 covers paused real Markdown parsing, saved reading positions and the actual reveal executor.
+The following navigation/visual checks still need a physical device; the attached phone was USB
+unauthorized on the development host, so no L2 result is claimed.
+
+1. Open a long completed answer with headings, a table and lists. Scroll into its middle, return
+   to the chat list and reopen it repeatedly. The first visible transcript must keep the saved
+   reading position, with no short placeholder, height collapse or replay of completed text.
+2. Repeat while the answer is streaming. Stay on the list while more text arrives, then reopen:
+   all text already present on return appears together; only subsequent output is paced.
+3. Leave while a large burst is still being visually revealed, let the run finish on the list,
+   then reopen. The completed answer must appear in full rather than drain the old reveal cursor.
+4. Send another prompt without leaving the page. New text still uses typewriter pacing, and
+   completion drains that current reveal without hiding the transcript. Repeat in app dark mode
+   with the system light and enlarged text.
+
+## Attachment and large-response smoke test
+
+With Gateway and Connector running locally and `FILES_ROOT` pointing at a dedicated test directory:
+
+1. Upload a small text, PDF, and processed photo through the Android attachment sheet. Confirm each
+   appears on the outgoing user turn and Hermes receives the attachment before the prompt. A PDF
+   must use `file.attach`, so the Mac does not need PDF rasterization dependencies.
+2. Capture a photo with the system camera, cancel once, then capture successfully. Confirm cancel is
+   harmless and the successful capture produces a thumbnail.
+3. Have Hermes return `@image:/absolute/path/to/image.png` and `@file:/absolute/path/to/report.pdf`.
+   Confirm the image opens full screen and the file card opens/shares through the Android system UI.
+4. Download a file larger than the former whole-message ceiling (for example 24 MiB but below
+   `MAX_FILE_BYTES`). Confirm the download completes and the Connector remains online afterward.
+5. Attempt a path outside both `FILES_ROOT` and the permitted temporary directories, an upload
+   above `MAX_UPLOAD_BYTES`, and a download above
+   `MAX_FILE_BYTES`. Expect request-scoped 403/413 errors with no control-WebSocket disconnect.
+6. From both the in-chat picker and Android share sheet, send a file above 6 MiB and another close
+   to 50 MiB. Check the Mac file's size and SHA-256, the correct model's receipt of the full file,
+   and the reopened conversation history. Repeat while another chat is active; that chat must
+   recover normal responses when the upload completes. Watch phone/Gateway/Connector memory and
+   connection health during the 50 MiB attempt.
+7. Try an ordinary file above 50 MiB from both entry points. Expect `HR-FILE-008` before upload.
+   If the server is configured with a lower limit, expect `HR-FILE-010`. Cancel an upload or drop
+   the connection mid-transfer, retry, and verify that no `.part` file or abandoned phone staging
+   file remains after cleanup. Keep image compression and thumbnails working.
+
+### HG-217: desktop-generated temporary attachments
+
+After a separately authorized Connector publication and installation on the target Mac:
+
+1. In a desktop Hermes conversation, generate a harmless HTML report under `/tmp` and deliver
+   its file reference. Open the same existing conversation in Android (0.1.173 is compatible).
+   Tap the attachment and share it; compare the received bytes with the Mac original. Repeat
+   with its `/private/tmp` canonical path and a report under the Connector user's system temporary
+   directory. Do not move files to `FILES_ROOT` as a workaround for this check.
+2. Repeat with an ordinary `FILES_ROOT` attachment. Confirm large downloads still use bounded
+   streaming and the control connection stays online.
+3. On a disposable local test setup, try a different user's temporary file, a symlink outside
+   the matching temporary root, a hard link, and a file beneath a group/world-writable child
+   directory. Expect 403 / Android `HR-FILE-003`. A missing temporary file must produce 404 /
+   `HR-FILE-005`; an oversized one must produce 413 / `HR-FILE-004`. An escape symlink inside
+   `FILES_ROOT` remains forbidden even if its target is a permitted temporary file.
+4. Reopen an older desktop conversation's existing report reference, if its file still exists.
+   Confirm open/share on a named physical phone; record the phone, Connector source/version and
+   any missing viewer (`HR-FILE-007`). System cleanup is not recoverable by this change: removed
+   reports still require regeneration.
+
+Automated coverage: `connector/src/artifact-file.test.ts` (ownership, directories, links,
+traversal and file-replacement checks) and `artifact-download.integration.test.ts` (real Connector,
+legacy file URL and acknowledged streamed bytes). These do not prove an installed production
+Connector or an Android viewer. The physical open/share steps remain pending until rollout.
+
+## Single-screen navigation and profile-scope smoke test (2026-08 redesign)
+
+These flows need a device or emulator against a running Gateway/Connector; JVM unit tests cover the
+logic but not the interaction feel.
+
+1. **Card page and profile switch.** From the session list tap the top-left avatar. Confirm the
+   card page opens with the current identity hero, other profiles (with running/waiting sub-lines
+   when applicable), usage/remote-device tiles, and the cron/settings/update entry rows. Switch to
+   another profile: the list, projects, archived, cron, usage, models, skills, and messaging
+   screens must all show ONLY that profile's data afterwards.
+2. **Switch failure.** Stop the Connector (or drop the network) and attempt a switch. Confirm a
+   "couldn't switch" toast, the avatar and list stay on the previous profile, and nothing renders
+   the target profile's data.
+3. **Needs-you and collapsing.** Drive a session into an approval wait. Confirm it jumps to the
+   需要你处理 group at the top; collapse each group header and confirm counts stay visible and the
+   state survives rotation.
+4. **Cron alert strip.** Make a cron job fail (or overdue). Confirm the strip appears above the
+   list, opens the cron screen, and disappears once resolved.
+5. **Archived segment.** Archive a session, switch the segment control to 已归档, unarchive it, and
+   confirm it returns to the list without a restart.
+6. **Search.** Open search from the top-right icon: title matches must appear instantly (archived
+   rows tagged 已归档), and the keyboard search action must return message-content matches. All
+   results stay within the active profile.
+7. **Legacy deep links.** Send `hermes://tab/activity` and `hermes://tab/you` (e.g. via `adb shell
+   am start -a android.intent.action.VIEW -d ...`). Both must land on the session list, never
+   crash. The launcher widget must show only New chat and Chats.
+8. **Remote device tile.** With the Connector attached, confirm the card page shows its DEVICE_ID
+   and Connected · latency; kill the Connector and confirm the tile flips to offline.
+
+## Startup recovery and navigation smoke test (0.1.66)
+
+Run these flows on a device or emulator against a real Gateway/Connector. They guard the startup
+and navigation regression that could pass JVM tests while making every pushed screen unusable.
+
+1. **All entry points stay open.** From Chats, open an existing conversation and create a new one
+   with the add button. Then open Search, Models, Cron and Settings. Every destination must remain
+   visible until Back is pressed; none may flash and immediately return to Chats.
+2. **Unread transition.** Complete a conversation while it is off-screen and confirm its blue unread
+   dot appears. Tap the row: the conversation must open, its history must finish loading, and the dot
+   must clear rather than reappearing because navigation was rejected.
+3. **First pairing readiness.** Clear app data and open the app. The setup page must appear directly,
+   without a decorative startup delay. After a valid Relay URL and App Token are saved, the startup
+   page must complete connection, profile loading, and the initial session snapshot before Chats is
+   revealed; Chats must not show another full-screen loading state.
+4. **Healthy warm return.** Background the connected app from a conversation and return without
+   interrupting the connection. No startup page should appear and the same conversation/scroll
+   position should remain visible.
+5. **Interrupted warm return.** Background the app, interrupt its connection, then return. The
+   startup page must remain until the exact visible destination is refreshed. Repeat from an open
+   chat, flat Chats, an open project, Archived, Search and Models; no destination should show a second
+   full-screen loading state after the startup page disappears.
+6. **Failure routing.** With phone networking disabled, the startup page must show the network error
+   and Retry. With the Connector stopped but Relay reachable, it must report that the Mac/Desktop is
+   offline (HR-CONN-005). With an invalid URL or rejected token, it must open the prefilled connection
+   repair page; saving valid values must rerun readiness and return to the page that was interrupted.
+7. **Connection-test race.** Start a connection test, edit the URL or token before it completes, and
+   confirm the obsolete result is discarded. While a test is active, Test and Save stay disabled.
+
+## Model selector smoke test (2026-09-12 Stitch 基线-模型选择 重做)
+
+JVM unit tests cover the grouping/collapse logic, the recents ordering, override tracking and error
+codes, and seven Roborazzi goldens cover the light/dark/switching/bare/failed/large-type looks
+(`app/screenshots/model-select*.png`). What is below still needs a device or an emulator against a
+running Gateway/Connector, and all of it is pending device verification for the current iteration —
+the 2026-09-11 attempt could not reach a Relay from either phone, so no model catalogue loaded.
+
+1. **Default open state.** In a chat, tap the model chip. The sheet must open on: the status card
+   (6dp blue stripe, model name, 「当前使用」 pill, `提供商 · 跟随默认`/`此对话覆盖` subline,
+   推理强度 dropdown row), the 快捷切换 chip row, then the 收藏模型 card and one card per provider.
+   The current model's row is filled and ringed in blue with NO check mark — the highlight is the
+   check mark. The current model's provider card is expanded; the others are collapsed to a
+   「name + N 项 + chevron」 bar. There is **no search box** — it was removed on 2026-09-12.
+2. **Collapse.** Toggle a few provider cards: a collapsed card keeps its bar and its 「N 项」 count
+   and drops its rows. Favourites never collapse. Leave and re-enter the sheet: collapse state is
+   per-visit (`rememberSaveable`), not persisted across launches.
+2b. **快捷切换 (new 2026-09-12).** Switch models three or four times, then reopen the sheet: the chip
+   row lists the most recent five, newest first, with no duplicates. Tap one — while the switch is
+   in flight that chip rings blue and spins, every other chip dims and goes inert, the title says
+   「正在切换至 X」, the target row in the list shows 「切换中…」 and the row that was in force shows
+   「前次生效」. The chip for the model already in force is present but not tappable.
+3. **Session override loop.** Switch the model with scope 此对话. The chip stays in its plain
+   style (name + caret — no tag, no tonal background); reopen the sheet and confirm the summary
+   strip reads 此对话覆盖 with a 恢复默认 action. Tap 恢复默认: the session returns to the default
+   model and the summary flips back to 跟随默认.
+4. **Spaced model names.** Pick a model whose name contains spaces or parentheses (OpenRouter often
+   has them) with scope 此对话. Confirm the switch succeeds — the app quotes `/model` arguments,
+   and the upstream slash parser's handling of quoted arguments has NOT yet been verified against a
+   live Hermes.
+5. **Scope separation (2026-09).** The chat sheet has NO scope control — selecting a model always
+   switches only the current chat. The profile default is edited only on 设置 › 模型: change it
+   there and confirm the top summary card and row highlight update; already-open chats keep their
+   model until reopened.
+6. **Failure surfaces.** Drop the Connector and attempt a switch: the sheet must stay open showing
+   HR-RPC-004 (session) or HR-RPC-005 (default); the model list failure state must show HR-RPC-003
+   with a working Retry.
+7. **Composer chip layout.** With a very long model name active (e.g. an OpenRouter
+   `vendor/model:variant`), the mic, attach (+), and send controls must keep their exact size and
+   position — the chip ellipsizes inside the leftover width instead of displacing them. Also check
+   the short-name state (chip hugs left) and the pre-load state (默认模型 placeholder).
+8. **Warm catalog (2026-09 startup prefetch).** Cold-start the app, wait a few seconds, then tap
+   the model chip: the sheet must show the list immediately — no loading spinner. Background the
+   app, return (warm start), open the sheet again: still instant. Airplane-mode cold start: the
+   sheet falls back to the old loading→error+Retry path, and reconnecting refreshes the catalog
+   automatically. After changing the default in Settings › Models, the chat sheet's 当前 markers
+   must reflect it without a manual reload.
+9. **Manual refresh (2026-09).** Add/remove a model upstream, then tap the refresh icon in the
+   sheet's title row (or the 设置 › 模型 top bar): the list must update and the icon must be
+   replaced in place by the **working ring** (`RunSpinner` — a blue arc over a faint full circle),
+   NOT the brand H mark. Same ring on the row and chip being switched to. The brand mark is only
+   correct on the first-load 「正在加载模型列表…」 state, where the sheet is otherwise empty.
+   Offline, the tap is a silent no-op (no crash, no error toast).
+10. **Reasoning effort (dropdown since 2026-09-12).** In the status card, open the 推理强度
+   dropdown: it lists 关 plus the seven levels, with the session's effective level
+   (`config.get key=reasoning`) marked and the scope note 「仅当前对话；该模型的选择会被记住」
+   at the foot of the menu. 关 is the upstream `none` level — there is no separate 思考 toggle
+   any more. Pick a level:
+   the chip suffix in the composer updates (e.g. `fable-5 · 高`), and the choice is remembered for
+   that model — switch to another model and back, and the remembered level is re-applied to the
+   session (each row shows its remembered level as a small badge beside the name). Turning 思考 off maps to `none`;
+   a failed change must roll back and show HR-RPC-006 in the sheet. The upstream `config.get/set
+   {key:"reasoning"}` RPC has NOT yet been verified against a live Hermes from this app.
+
+## Sheet polish smoke test (2026-09 branch claude/ui-polish-sheet-scroll)
+
+Device/emulator flows for the surface-token, sheet-layout, gesture, and list-reveal changes.
+All pending device verification.
+
+1. **No purple cast anywhere.** Open every bottom sheet (model, approval, persona, attach,
+   prompt, theme, session menu, health, clarify, notification onboarding, avatar color) plus
+   menus/dialogs, in BOTH light and dark theme: containers must read as the cool blue-tinted
+   neutrals, never the old reddish/purple cast.
+2. **Model sheet layout.** Title 选择模型 centered with the refresh icon at the right; ONE
+   status card holds the current model (scope line, 恢复默认 when overridden) above a hairline
+   and the 推理强度 row below it, expanding inside the card; the search field is a filled
+   rounded box.
+3. **Model sheet gestures.** Scroll the model list up and down aggressively — the sheet must
+   never collapse or close. Closing works only via: tapping or short-dragging the top grab bar,
+   tapping the scrim, or Back.
+4. **Sheets open full.** Approval, persona and saved-prompt sheets with tall content must open
+   fully expanded — no half-open state that needs a manual pull-up. The approval sheet still
+   refuses swipe-dismiss.
+5. **Needs-you reveal.** With the list at top, drive an off-screen session into an approval
+   wait: the list must auto-scroll so the 需要你处理 header and row are visible. Repeat while
+   scrolled deep into the list: no yank — a ↑ pill appears; tapping it jumps to top; scrolling
+   to top yourself dissolves it.
+
+## Turn navigation smoke test (2026-09 branch claude/turn-jump)
+
+Device/emulator flows for the turn-jump pill and the 我的提问 list (docs/DESIGN.md §5.4). The
+grouping, visibility and list-row logic is covered by `TurnJumpTest`; the pill and rows have
+Roborazzi goldens. Items 1–4 were exercised on the Pixel 9 API 36 emulator against the mock
+Hermes stack on 2026-09-02 (three long exchanges); items 5–7 and a real device still need
+verification.
+
+1. **Pill appears only in history.** Open a chat with at least three exchanges whose answers are
+   taller than the screen. At the bottom, while an answer streams, no pill. Scroll up into the
+   latest answer until its question leaves the screen: a pill with that question's first line
+   fades in at the top of the list. Keep scrolling into the previous exchange: the pill text
+   changes to that question. Scroll back down until a question bubble is on screen: the pill fades
+   out. Direction never matters — stop mid-answer and scroll a little either way.
+2. **Tap aligns the question to the top.** Tap the pill: the list animates (when the bubble was
+   already near) or snaps so that the question bubble sits just below the top of the list, then
+   the pill disappears because the bubble is visible. Repeat from far away (five screens of
+   answer) — the landing position must be the same, and the newest-message edge must not be
+   overshot when the target is the latest exchange.
+3. **Split pill deep in history.** Scroll up past the second exchange from the end: the pill
+   grows a right segment with a list icon (150ms). Tap it: the 我的提问 sheet opens with the
+   current exchange highlighted and scrolled into view. Scroll back into the last two exchanges:
+   the segment collapses.
+4. **Menu entry.** From the top-right ⋮ menu, 我的提问 is the first item and opens the same
+   sheet anywhere, including while pinned to the bottom (the current row is then the exchange
+   under the top of the screen). Pick a row: the sheet closes and the list lands with that
+   question at the top, exactly like the pill.
+5. **Leading content.** In a chat that starts with a Hermes message (greeting, scheduled task
+   output) before any question, scrolling into that block shows a 会话开始 pill; tapping it goes to
+   the very top. The sheet lists 会话开始 as a grey first row without a time.
+6. **Search and rotation.** Open in-chat search: the pill sits below the search row and still
+   works; search-hit navigation does not leave the pill flickering. Rotate while the pill is
+   showing: the pill reflects the new viewport within a frame or two.
+7. **Attachment-only prompts.** A question that is only an image or a file shows 图片 / 文件：<name>
+   in both the pill and the sheet.
+
+## Profile identity smoke test (2026-09 branch claude/identity)
+
+Device-only checks for per-profile display name, avatar photo, colour, and style
+(`docs/DESIGN.md` §2.4 and §5.10). The JVM suite covers the store, migration, resolver, contrast
+invariants, and the edit view model; the items below still need a phone or emulator with a working
+Relay connection.
+
+1. Card page → identity card → 身份: every row shows a pencil button; tapping the row still
+   switches profile, tapping the pencil opens 身份设置 for that profile without switching.
+2. In 身份设置, type a display name and save. The card page shows the name as the big line and
+   the profile name underneath; the picker row shows the name with `profile · 当前身份`. Clear the
+   name with × (the field shows the profile name as placeholder), save, and confirm both surfaces
+   read exactly as before the change. Chat and session-list surfaces never show the display name.
+3. Choose a photo through the system picker (no storage permission prompt may appear). The 96dp
+   preview updates immediately; 保存 becomes enabled; after saving, the 36/44/48dp avatars on the
+   session list, card page, and picker all show the cropped square photo. Pick a portrait and a
+   landscape photo and confirm both are centre-cropped, and an EXIF-rotated camera photo appears
+   upright on Android 9+.
+4. Pick a photo, then press back: the 放弃更改？ dialog appears; 放弃 returns without changes and
+   the temporary file is gone (`run-as com.hermes.remote ls files/avatars`).
+5. With a lettered avatar, switch 实心 / 空心 and drag the hue slider: the preview follows live;
+   the swatch check moves to the first (default) circle only when no custom colour is set. In the
+   dark theme the outline ring and initial stay clearly visible (lifted colour), and the solid
+   fill looks identical to light.
+6. Start a run on a profile with a custom colour and confirm the notification accent uses it.
+7. Upgrade from a build that stored avatar colours in the old `avatar_colors` DataStore: the
+   previously chosen colours appear as the selected swatch on first open of 身份设置.
+8. Break the photo pipeline (pick a non-image or corrupt file if the picker allows it) and confirm
+   the toast reads 无法读取所选照片，请换一张再试。 (HR-MEDIA-002) and the previous avatar stays.
+
+## Share transcript smoke test (2026-09, three formats)
+
+Device flows for the share-format picker. Pending device verification.
+
+1. **Picker appears.** 更多 › 分享对话 opens the format sheet (not the system share sheet) with
+   three rows: 文字 / Markdown 文件 / 长图. An empty conversation still shows the
+   "暂无可导出的内容" toast instead of the picker.
+2. **Plain text.** Unchanged behaviour: shares as text into WeChat/mail.
+3. **Markdown file.** Share to a file-capable target (mail, cloud drive, Obsidian). The received
+   file is `HermesGO-<title>-<stamp>.md`; opening it shows the title, the metadata line (time,
+   model, Hermes GO) and `## 你` / `## 助手` sections, with code fences and tables intact. Try a
+   session whose title contains `/`, `:` or emoji — the file must still save.
+4. **Image, short conversation.** Shares one PNG containing the whole conversation, rendered in
+   the LIGHT theme even when the app is in dark mode, with the footer showing title + date.
+   Cached inline images appear; images never downloaded show a placeholder box.
+5. **Image, long conversation.** A long transcript must NOT render: the picker closes and a toast
+   suggests the Markdown file instead. Nothing crashes and no partial image is shared.
+6. **Failure surfaces.** If file creation or rendering fails, the toast carries HR-FILE-002 or
+   HR-MEDIA-003 respectively.
+
+## Search smoke test (2026-09 branch claude/search-v1)
+
+Automated: `SearchQueryTest`, `HermesRestApiSearchTest`, `SearchTextTest`, `RecentSearchesTest`,
+`SearchViewModelTest`, `ChatSearchHighlightTest`, `ChatRouteTest`, `AppErrorTest`. The items below
+need a phone with a working Relay connection.
+
+### Production probe record (Mac mini, 2026-09-03, read-only)
+
+- Store: `~/.hermes/state.db`, 43k messages. FTS tables present: `messages_fts` (unicode61) and
+  `messages_fts_trigram`; **no `messages_fts_cjk`** (the loadable CJK tokenizer is not built on the
+  mini), so CJK queries take the trigram path (≥ 3 CJK chars) or the LIKE full scan (1–2 chars).
+- `SessionDB.search_messages` direct calls: `的历史记录` → 1 row in 2 ms (trigram);
+  `的历史记录*` → **0 rows** (the gateway route appends `*` to every unquoted token);
+  `"的历史记录"` → 1 row; `的历` → 50 rows in ~1.5 s (LIKE scan); `的历*` → 0 rows;
+  `gradle` → 50 rows in 4 ms (fts5). This is why the client quotes CJK tokens.
+- Snippet shape varies by path: ~22–51 chars around the match (trigram), 120 chars starting 40
+  before the match (LIKE), ~330 chars with an ellipsis (fts5). No markup markers. The client
+  re-centres to ±40 chars.
+- The HTTP route (`/api/sessions/search`) enriches each hit with `title`, `last_active`,
+  `archived`, `source`, `message_count`, `preview`. Gateway round-trip from the phone was not
+  measured (needs the app on a configured device); server-side search is single-digit ms except
+  the 1–2 char CJK LIKE scan.
+
+### Device cases
+
+1. Open search from the list. With an empty field the recent searches (if any) are listed with
+   ×; type one character and confirm the hint 输入至少 2 个字符可搜索消息正文 appears when no
+   title matches. Type a two-character **mid-sentence Chinese fragment** from a known chat and
+   wait: within ~1 s the 消息匹配 section shows the hit with the title as the first line, a
+   relative time on the right, and the fragment highlighted in the two-line snippet. Repeat with
+   an English word (prefix, e.g. `grad` for `gradle`).
+2. Edit the query (append characters): the previous query's message rows disappear at once and
+   the header reads 搜索中… until the new results land. Press the keyboard Search key mid-debounce:
+   results arrive without waiting.
+3. Turn off Wi-Fi and mobile data, search: the message section shows the error strip 消息搜索失败，
+   请重试。 (HR-SEARCH-001) with 重试 while title matches remain. Long-press the strip and paste
+   somewhere: the diagnostic contains the code and no token. Restore the network and tap 重试:
+   results appear.
+4. Tap a message hit: the chat opens with the search bar in the top bar's place, the query filled,
+   the counter at 1/N, and the matching words marked inside the text (Markdown body, user bubble).
+   The turn itself carries NO outline, fill or shadow (HG-46) — the marks are the only marking.
+   Tap ↓ repeatedly: the counter advances, the transcript follows, and within a turn that has
+   several marks the solid brand-coloured one moves from mark to mark (HG-45). A hit is never
+   inside 查看思考过程 or a tool card: those are out of the search scope and draw no marks.
+4a. With the search bar open, the message composer at the bottom is gone (HG-46) and the transcript
+   still sits above the keyboard rather than under it; the 「内容由 AI 生成」 footer goes with it.
+   Type a draft first, then open search, then close it: the composer comes back with the draft
+   intact. Neither the turn-jump pill nor the 回到最新消息 button appears while search is open.
+5. In a chat, search for a word that does not occur: the bar reads 此会话中没有匹配 with
+   在全部会话中搜索; tap it and confirm the search screen opens with the query filled and the
+   message search running by itself.
+6. Rotate the phone with the search bar open, then press back: the bar closes first (chat stays);
+   press back again to leave. Re-enter the chat from the list: the search bar is not re-opened.
+
+## Usage figures smoke test (2026-09 branch claude/usage-data-correctness)
+
+Automated: `UsageMathTest` (calendar filling, the week window against sparse rows, main/auxiliary
+reconciliation, empty-vs-failed, error mapping, wire parsing with null aggregates), `ErrorColorsTest`.
+Verified on the Pixel 9 emulator against `scripts/dev/dev-stack.sh`: empty state, a populated page
+whose figures reconciled to the fixture, and the drawer stat cell. The cases below need a phone with
+a working Relay connection and a profile that has real history — the emulator path cannot produce
+sparse real-world data, a genuinely offline Mac, or a stalled tunnel.
+
+### Device cases
+
+1. Open 用量 from the drawer's 本周用量 cell. Confirm 主对话 / 辅助 is a real split (not `x / 0`
+   unless the profile truly has no auxiliary traffic) and that the model rows' token figures add up
+   to at least the 主对话 figure — `by_model` includes auxiliary spend, `totals` does not, so the
+   rows summing higher is correct and the reverse is a regression.
+2. Check the drawer cell against the page: 本周用量 covers seven calendar days, the page covers the
+   window named in the footnote, so the cell should be the smaller number. On a profile used once a
+   month the cell must read 0 for a quiet week rather than reaching back to the last active day.
+3. Confirm the daily chart's bars sit on real dates: a profile with gaps should show blank slots,
+   not a run of adjacent bars. Compare the busiest bar against the same day in Hermes's own
+   dashboard.
+4. Quit Hermes Go Desktop on the Mac and reopen 用量: the page must show Mac 端当前离线，请启动
+   Hermes Go Desktop with `HR-CONN-005` and a working 重试, not the generic Relay failure. Restart
+   the Desktop app and retry: the page loads.
+5. Switch to a profile that has never run a session: the empty state 这个身份还没有用量记录 appears
+   — not zeros. Switch back and confirm the figures return.
+6. Confirm the footnote reads 统计窗口 N 天 · 按会话开始日归集 · 日界为 UTC, and that a session
+   started between 00:00 and 08:00 local time (UTC+8) is attributed to the previous day in the
+   chart. This is upstream behaviour, not a client bug; the footnote exists to state it.
+7. Both themes: the error state's code line and the empty state's icon must be legible in dark mode
+   (the error colour family is now explicit — see `ErrorColorsTest`).
+
+## Background connection smoke test (2026-09 branch claude/background-connection, R1)
+
+R1 changes when the app is allowed to keep its socket while backgrounded. Everything below is
+reproducible on the emulator against the local dev stack — no production access and no real device
+are needed for cases 1–5.
+
+Environment (build and boot separately; the emulator on the dev host starves under concurrent
+Gradle work — see the header of `scripts/dev/emulator.sh`):
+
+```bash
+./scripts/dev/emulator.sh start Pixel_9_API_36_1
+./scripts/dev/dev-stack.sh start
+# logs: $TMPDIR/hermes-dev-stack/{mock,gateway,connector}.log
+```
+
+The gateway itself logs only startup and shutdown, so its log proves nothing about a socket. The
+decisive evidence is the app's own diagnostic log, which mirrors to logcat once 设置 → 诊断 →
+诊断日志 is on:
+
+```bash
+adb logcat -s HermesDebug | grep -E "\[(ws|service|lifecycle)\]"
+```
+
+`socket closed (gen=N): client closing` is the client deciding to disconnect; `opening socket` marks
+a reconnect. A window containing neither means the connection was never dropped — which is the
+distinction that matters here, because the R3 banner grace deliberately hides a fast reconnect and
+would otherwise make a dropped socket look like a socket that survived.
+
+### Emulator cases
+
+1. **The reported bug.** Turn every notification switch off. Send a prompt, and while the answer is
+   still streaming switch to the launcher for ~90 seconds (longer than the 45s grace), then return.
+   Expected: no reconnect banner, the stream continues, and the gateway log shows no close. Before
+   R1 this closed the socket at 45s and the session came back as 正在恢复连接….
+2. **Ownership survives an intermediate completion.** With notifications still off, run a prompt
+   that leaves a background process running, wait for the assistant message to complete, then
+   background the app for ~90s. Expected: still connected — `message.complete` no longer releases
+   phone ownership while work continues.
+3. **Idle still disconnects.** Notifications off, nothing running: background the app for ~90s.
+   Expected: the socket closes after the grace period (`1000 / client closing` in the gateway log)
+   and no foreground-service card appears. R1 must not turn into "always connected".
+4. **Power saving still wins.** Set 监控策略 to 省电, start a run, background the app. Expected: the
+   socket closes after the grace period — an explicit instruction outranks the run.
+5. **The service card.** With notifications off and a run in flight, the MIN `service` card appears
+   while backgrounded and disappears when the run ends (docs/DESIGN.md §5.10). Confirm it is silent
+   and cannot be dismissed while the run is live.
+
+### Emulator cases — banner and reconnect cost (R3)
+
+6. **A blip says nothing.** With a run streaming, switch to the launcher and back within ~2 seconds.
+   Expected: no banner at any point, and no 连接已恢复 strip either — if the user was never told it
+   broke, there is nothing to repair. Repeat a few times; a flash of red on the first frame back is
+   the regression.
+7. **A real outage still reports promptly.** Stop the dev stack (`./scripts/dev/dev-stack.sh stop`)
+   while the chat is open. Expected: within ~2.5s the banner appears in the calm progress style
+   (spinner, 正在重新连接…), not the red failure style, and it keeps updating through the backoff
+   rather than staying hidden. Restart the stack: the banner disappears and 连接已恢复，正在同步会话…
+   appears for three seconds.
+8. **Failure still looks like failure.** Point the app at an unreachable gateway. Expected: the red
+   `errorContainer` banner with HR-CONN-002, 详情 and 重试.
+9. **No transcript storm.** With diagnostic logging on, open an idle chat (nothing running), drop
+   and restore the connection. Expected: the `history` channel shows no reconcile pass for that
+   chat — an idle chat has no gap to recover. Repeat with a chat that is mid-answer: that one must
+   reconcile.
+10. **Notification settings copy.** Turn 启用通知 off: the explanation about the silent 后台保持连接
+    card appears under the switch and disappears when the switch is back on.
+
+### Emulator pass, 2026-09-04 (branch claude/background-connection)
+
+Cases 1–5, 9 and 10 were run on Pixel_9_API_36_1 against the local stack and passed. Two findings
+came out of the pass rather than out of review, and both are fixed on the branch:
+
+- The 「连接已恢复」 strip still appeared after a *deliberate* idle disconnect. The outage had burned
+  its grace while the app was backgrounded, so the first frame back was already "interrupted". The
+  grace now only runs while the chat is on screen (see docs/DESIGN.md, connection visual grading).
+- With notifications off the 后台监控方式 group was greyed out, which after R1 left those users no
+  way to opt out of the keep-alive at all — 省电 is now the only control that does that. The group
+  is reachable regardless of the notification switch.
+
+Ports: the stack was run on 8788 rather than the script's 8787, which was held by an unrelated
+project. Note that `dev-stack.sh stop` kills whatever holds its ports.
+
+### Device cases (still unverified — no real device on the dev host)
+
+11. **Screen-off survival.** Start a run, lock the phone for 5–10 minutes, unlock. Record whether the
+   socket survived and, if not, the close code and the elapsed time. This is the M1 item: the
+   emulator reaches the gateway over `adb reverse` on loopback, which never drops and never passes
+   through the edge nginx `proxy_read_timeout 75s`, so it cannot answer this question. The result
+   decides whether the 45s ping cadence R2 settled on is enough tolerance. If sockets still die with
+   the screen off, the next step is an application-level heartbeat that can forgive a single missed
+   beat — OkHttp's own ping treats one late pong as a dead connection and offers no leniency knob,
+   which is why R2 could only widen the window rather than add tolerance.
+12. **Reaching the real edge.** Because loopback bypasses nginx, at least one run should be observed
+   against the production gateway to confirm the 45s ping actually keeps the proxy's 75s idle timer
+   from firing. Ordinary use of the app is enough; no deployment is involved.
+13. **Vendor battery management.** On a Chinese OEM ROM, confirm the foreground service is not killed
+   during a run, and whether the app needs to be added to the battery whitelist.
+
+## Session state consistency smoke test (2026-09 branch claude/session-state-desync-tests)
+
+HG-6, HG-7 and HG-8 were one incident on one conversation (2026-09-05, session
+`20260905_102612_6d5fd4`), reconstructed from the Mac mini `messages` table, the Gateway's
+`lifecycle-events.json` and the edge Nginx access log. The mechanism is fully covered by unit
+tests (`SessionStateDesyncRegressionTest`, `HistoryReasoningAndToolsMappingTest`,
+`SessionRunIndicatorTest`); the cases below exist because the trigger — the phone asleep when the
+run ends — is not something a JVM test can produce. Across 180 observed completions, 26% reached the
+phone more than 30s late, so ordinary use reproduces this several times a day.
+
+Diagnostic log as in the background-connection section (设置 → 诊断 → 诊断日志, then
+`adb logcat -s HermesDebug`). The gateway log proves nothing here either.
+
+### Device cases (need a real device — the emulator never sleeps)
+
+1. **Finished while asleep (HG-6).** Send a prompt that runs for 2–3 minutes, immediately switch
+   apps and lock the phone, return after the run has finished. Expected: the list row shows 已完成
+   (or nothing, once the chat has been opened); the answer bubble shows the action row, **not**
+   「生成中」 with a running timer; the composer offers 发送, not 停止. Before the fix the bubble kept
+   counting for as long as the process lived.
+2. **Follow-up after that (HG-7).** From case 1, send a follow-up. Expected: exactly one bubble is
+   live; the previous answer keeps its action row. Before the fix two 「生成中」 rows stacked.
+3. **Reasoning and tool cards survive (HG-8, second half).** Open a conversation whose last turn
+   used tools and reasoning, wait for the run to finish, background and return so a history
+   reconcile runs (watch for `history reconcile ... accepted=true` in the log). Expected: 查看思考过程
+   and the tool timeline are still there. Before the fix both vanished on the first reconcile.
+4. **Waiting is reported as waiting (HG-8, first half).** Trigger a clarify/approval while the
+   phone is on a flaky network (toggle airplane mode for ~10s and back). Expected: the list row
+   still says 等待你的确认 / 等待你的回答 / 等待你处理 after the reconnect, never 思考中.
+5. **Run active, no bubble yet.** Start a run from the Mac (or let a scheduled run start) and open
+   the chat before its first token. Expected: the mark renders alone in the bottom slot of the
+   transcript; the list row and the chat agree that something is running.
+
+Report each case with the diagnostic log window around the reconnect or the observed
+`run.completed`. Nothing in this branch changes the transport: a completion still arrives late
+when the phone is asleep — the fix only guarantees that what is shown is true once it arrives.
+
+6. **Tool timeline after completion (0.1.94, docs/DESIGN.md §5.4).** Watch a tool-heavy run to
+   the end without leaving the chat: the timeline stays open and gains a summary row. Leave the
+   chat and reopen it: the timeline is folded to「N 次工具调用 · 耗时」; tap to unfold; every row
+   now carries the real target name (`mcp__…`, not `tool_call`), its output and exit code —
+   identical to what streamed live.
+7. **Refresh as a truth check (0.1.96).** With a run that finished while the phone slept (case 1),
+   press the chat refresh button *before* the list row updates on its own. Expected: within about a
+   second the bubble closes and the toast says「已同步 · 运行已结束」; the composer offers 发送. On a
+   run that is genuinely still going, the toast says「已同步 · 仍在运行 · 已运行 N 分钟」 and nothing
+   is queued. On the list, pull to refresh while a row says 思考中: the row corrects itself without
+   opening the chat. Stop the Mac's Hermes entirely, wait 30 minutes with a run showing 思考中, bring
+   the app to the foreground twice a minute apart: the row turns 已中断 instead of spinning forever.
+8. **Failed send beside recovered history (HG-148).** On a real phone, open a conversation with
+   several older turns, briefly cut its network during a new send, and restore it after the bubble
+   shows `SESS-007`. Leave and reopen the conversation, including a cold app start. Once the REST
+   history request succeeds, the older turns and the one unsent bubble must both be visible without
+   pressing Refresh. After the socket reconnects, tap the unsent bubble: it must send once and leave
+   the older turns intact. Record the `history(...)`, `[phase]`, socket close/reconnect, and send
+   lines; this device check is still needed for the timing and visual result beyond the JVM tests.
+9. **Account WebSocket renewal and foreground return (HG-148 follow-up).** On a real account-mode
+   phone after the Gateway and Android releases are separately authorized, keep one chat open and
+   active across an access-token refresh and the original token's expiry. Its socket must keep
+   carrying RPCs; a refresh or expiry of the bearer used at upgrade must not produce a `4403` while
+   the same account session and Mac binding remain live. Then background the app until its socket
+   closes, bring it forward, and send once: the new socket must reach `gateway.ready`, resume the
+   existing session and accept the prompt without requiring manual Refresh. Record the app's socket
+   generations, state transitions, RPC and send lines alongside Gateway `app.tunnel.revalidation_*`
+   and close events. Verify a separate explicit sign-out/revocation still closes that account tunnel
+   promptly. Do not perform the revocation half on a production account without an approved test
+   session. JVM and Gateway tests do not replace this real-device timing check.
+
+
+### Emulator pass, 2026-09-06 (0.1.98, Pixel 9 API 36 against the local dev stack)
+
+Build `Hermes-Remote-0.1.98-debug.apk` from `main` b9751e1, mock Hermes via
+`scripts/dev/dev-stack.sh` (gateway on 8788, connector 0.1.2), diagnostics switch on. The mock
+answers every prompt with the same tool-using turn, so it exercises the state machine but not
+the sleep trigger. What the pass proved:
+
+- **Events before the session is bound are kept.** The first prompt's `session.info` arrived
+  before the chat was bound to the new id; the log shows `[event] buffered` and then `replaying`
+  once the id was known, and the transcript never lost the turn.
+- **Phase trail.** `[phase]` lines run `IDLE→THINKING→STREAMING→COMPLETED→IDLE`, each with its
+  `cause`, and the session-level mark plus the running footer stay in the bottom slot for the whole
+  run (screens 03, 14, 16).
+- **Completion closes the bubble** (cases 1 and 2 without the sleep). After `message.complete`
+  the answer keeps its action row, the composer offers 发送, and a second prompt gives exactly one
+  live bubble.
+- **Refresh as a truth check** (case 7, finished-run half). 更多 → 刷新对话 on a finished run: the
+  toast reads 「已同步 · 运行已结束」 within about a second (screens 12/13).
+- **Reasoning survives reopen** (case 3, reasoning half). 查看思考过程 is still there after
+  leaving and reopening the chat; the `[history] reconcile s=… 4 rows cover the local turns` line
+  confirms the reconcile ran and was accepted.
+- **List row.** The row reads 已完成 after the run; no 思考中 residue.
+- **Diagnostics page.** The session chips (全部 / `stored-mock-1`) appear; selecting the session
+  chip leaves only lines carrying `s=stored-mock-1` / `session=stored-mock-1` (screen 25).
+
+What the mock cannot show and still needs a real device or production Hermes:
+
+- Folding the tool timeline on reopen (case 6): the mock turn has fewer than three tool calls and
+  its history rows carry no persisted `tool_calls` / `reasoning`, so the fold threshold and the
+  `tool_call → arguments.name` label resolution were only covered by unit tests.
+- Cases 1, 2, 4 with the phone actually asleep (Doze latency), the 30-minute hard cap, and the
+  list pull-to-refresh probe (no row was active when the pull was tried).
+
+Found during the pass, not fixed in 0.1.98 (**stale approval sheet**): after answering the
+mock's `approval.request` with 拒绝 and letting the run finish, reopening the chat shows the
+modal 需要审批 sheet again (screens 07/08/17); BACK does not dismiss it, and answering again
+flips the finished session to a phantom 思考中 (`IDLE→THINKING cause=input-answered`). The
+reducer clears `pendingClarify` on the next `message.delta` but never clears `pendingApproval`,
+and neither was cleared when the phase left the active set. Fixed on branch
+`claude/stale-approval-clear`: `normalized()` drops both cards once the phase leaves the active
+set, and answering a card on a run the store has already seen end no longer restarts it
+(`StalePendingCardTest`). Still to confirm on a device: open a conversation whose approval you
+let time out — no sheet, no 思考中.
+
+## Diagnostic observability and HG-1 / HG-10 (2026-09 branch claude/diagnostic-observability)
+
+### Verified on the emulator, 2026-09-05
+
+Captured from `adb logcat -s HermesDebug` while the gateway was deliberately unreachable:
+
+```text
+[startup] CONNECTION_RECOVERY · CONFIGURATION → NETWORK → AUTHENTICATION
+[startup] hot start HR-CONN-002 — leaving the app visible
+[health]  unknown → unreachable(unreachable)
+[rest]    GET /api/mobile/events?after=0&limit=100 ← 502 (3096ms)
+```
+
+That covers: the startup trail carries reason, phases and outcome; a hot-start failure no longer
+blocks (the sessions list and health strip stayed visible, with no full-screen error); health
+resolves to *unreachable* rather than *device-offline* on a device whose network works; and a REST
+call is one line with a duration, with failures logged where they previously were not.
+
+### Still unverified — the emulator on the dev host degraded mid-pass
+
+System UI began ANR-ing repeatedly (the failure mode `scripts/dev/emulator.sh` documents), which
+blocked UI taps and prevented the WebSocket from establishing. These need another pass:
+
+1. **Share produces a file.** Settings → 诊断 → 分享 must hand the share sheet a
+   `hermes-diagnostic-*.txt` attachment, not a wall of pasted text, and the file must contain more
+   than 500 entries after a long session.
+2. **「标记现场」** inserts a visible divider, and the button is disabled while logging is off.
+3. **A quiet poll writes nothing.** With the gateway reachable, an idle foreground minute must
+   produce no `rest` line for `/api/mobile/events`. (Only the failing case was observable in the
+   pass above — failures are logged by design.)
+4. **HG-1 end to end.** Let a run finish while the app is backgrounded, then reopen that chat: the
+   transcript restores with no full-screen error. Unit-covered, not yet seen on a device.
+5. **HG-10 end to end.** Requires a network whose `NET_CAPABILITY_VALIDATED` is absent while
+   traffic flows — the emulator cannot produce it. On a real device, a `[net] connectivity check
+   says offline · …` line naming the missing capability, with the app still working, is the
+   confirmation that the diagnosis was right.
+
+## HG-9 / HG-11 / HG-12 / HG-13 / HG-14 (2026-09-06 branch claude/hg9-14-ui-fixes)
+
+All five are Compose behaviours — coroutine-scope lifetime, LazyColumn scroll anchoring, hit
+targets and cross-cell alignment — that JVM unit tests cannot observe. What *is* unit-covered is
+stated per item. This branch also carries the previously unreleased HG-1 / HG-10 fixes, so the pass
+in the section above still applies and item 5 there (a network missing `NET_CAPABILITY_VALIDATED`)
+remains the only way to confirm HG-10.
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+Driven against `scripts/dev/dev-stack.sh` (mock Hermes → connector → gateway, development tokens
+only — no production credentials were used). The mock gained an opt-in
+`MOCK_HERMES_EXTRA_SESSIONS=40`, because the five fixture sessions never fill a phone viewport and
+scroll-anchoring bugs need a list long enough to scroll.
+
+- **HG-11 cold start** — with 43 sessions, a force-stop and relaunch put 已置顶 at the top of the
+  first painted frame, no scrolling. Confirmed twice (5-session and 43-session lists).
+- **HG-11 pin from depth** — scrolled to 填充会话 38, long-press → 置顶: the list carried itself to
+  the top with that session visible in 已置顶. This is the case the user reported as "it disappears
+  and you have to drag it back".
+- **HG-13a** — checked against the real public index. 版本记录 now begins with **0.1.98 「当前」**
+  and its notes open; before the fix the record began at 0.1.96 and the running build's notes were
+  unreachable.
+- **HG-14** — 本周用量 and 远程设备 line up on all three rows, chevrons on the value line. With a
+  three-digit latency (`已连接 · 915 ms` — the exact shape from the report) the sub now fits on ONE
+  line, because the sub reclaimed the 20dp the chevron reserves.
+
+### Still needs a device
+
+- **HG-9** — the mock has no transcript worth exporting and the share sheet is a system surface;
+  the coroutine-scope race is also timing-dependent, so ten taps on a real device is the test.
+- **HG-12** — the mock emits no `MEDIA:` file attachments, so no file card could be rendered. The
+  READY / UPLOADING / FAILED hit-target matrix is entirely unverified.
+- **HG-14 wrapped sub** — `settings put system font_scale 1.3` did not change rendering on this
+  emulator, so the two-line-sub fallback (the state that originally misaligned the card) was never
+  actually reproduced. Only the now-single-line case is confirmed.
+- **HG-10** — unchanged: needs a network whose `NET_CAPABILITY_VALIDATED` is absent.
+
+1. **HG-9 — Markdown share actually opens.** In a chat, 分享对话 → 「Markdown 文件」. The system
+   share sheet must appear every time, with a `.md` attachment. Repeat ten times, including
+   immediately after opening the chat and on a long transcript; a single silent no-op is a
+   regression. Then check the failure path is audible again: with the transcript cache dir made
+   unwritable, the same tap must show the 无法导出 toast rather than nothing.
+2. **HG-11 — pins are visible without scrolling.** Pin a session, force-stop the app, cold start it.
+   The 已置顶 section must be on screen at the top of the list without any scrolling. Then, while
+   scrolled part-way down, long-press a session → 置顶: the list must carry you to the pinned
+   session rather than leaving it above the viewport. Unpinning must NOT jump the list. Unit-covered:
+   the unread-vs-empty pin seed and the pin-only reveal request.
+3. **HG-12 — the whole file card opens.** Tap a file card's name, its icon, and its empty space:
+   all three open the file. The card shows one trailing button (分享) and no 打开 button. A card
+   still uploading, and one that failed, must not ripple and must not react to a tap.
+4. **HG-13 — the running version's notes are readable.** Settings → 检查更新 while on the newest
+   published build: the 版本记录 list must start with the installed version, carrying the 「当前」
+   badge, and expand to its full notes. With an update available, that newer version must appear in
+   the card at the top and NOT be repeated in the record. Unit-covered as `historyRows`.
+5. **HG-14 — the stat card halves line up.** Card page, with a device whose latency reads three
+   digits (`已连接 · 231 ms`): 本周用量 and 远程设备 must have their titles on one line, their values
+   on one line, and their sub-lines starting on one line, whether or not the right sub wraps. Check
+   again at font scale 1.3 and with a long device name, where both cells shrink together.
+
+## HG-15 / HG-16 (2026-09-06 branch claude/hg15-16-chat-noise)
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+- **HG-15 reasoning row.** In a real chat, dark theme: 「查看思考过程」renders as a quiet grey line
+  with a 12dp chevron — no chip, no border — and tapping it still expands the reasoning and flips
+  the label to 「收起思考过程」. A lone tool call still renders as its own card, which is the
+  documented exception (`docs/DESIGN.md` §5.4: a single call was never folded).
+
+Two Roborazzi goldens pin the rest: `turn-fold-quiet` (the quiet reasoning + folded tool-timeline
+summary sitting above an answer) and `task-list-settled` (a finished turn whose third item Hermes
+left `in_progress`). Both were recorded and eyeballed as §5.4 requires.
+
+### Still needs a device
+
+1. **HG-15 with a real tool timeline.** The dev mock streams reasoning but no tool calls, so the
+   「N 次工具调用」summary was only seen in the golden, never in a live transcript above a long
+   answer. Check that folded it reads as one quiet line and that tapping still unfolds the rows.
+2. **HG-16a end to end.** Needs a run that leaves a task list at 2/3: the third item must be an
+   ordinary unfinished row (no bold, no filled marker) and the card header must not wear the
+   running marker either. While the run is still going, the in-progress item must look exactly as
+   it did before — this fix must not quiet a live list.
+3. **HG-16b end to end.** Needs a session long enough for Hermes to compress its context. Expected:
+   a one-line 「上下文已压缩」note that expands to the original text, never a user bubble. The case
+   worth hunting for is the other one — a compression that lands on a turn where you also typed
+   something: your text must survive intact with the scaffolding cut off it.
+
+## HG-3 / HG-4 / HG-5 (2026-09-06 branch claude/hg3-4-5-chat-entries)
+
+### Verified on the emulator, 2026-09-06 (Pixel_9_API_36_1, local dev stack)
+
+- **HG-5 top bar and menu.** The chat top bar reads `[←] 标题 [＋] [⋮]` — the search icon is gone,
+  replaced by 新建对话. The 「更多」menu lists 搜索对话 → 我的提问 → 刷新对话 → 复制对话 → 分享对话
+  → 归档对话 → 切换人格, exactly the order `docs/DESIGN.md` §5.4 now specifies.
+- **HG-5 archive.** 归档对话 opens the confirm dialog (「归档这个对话？归档后它会从会话列表移到
+  「已归档」，随时可以恢复。」/ 取消 · 归档), neutral coloured, not error-red. Confirming archived
+  the conversation and returned to the sessions list.
+
+The dev mock now emits Hermes' own `timestamp` field on history messages
+(`scripts/dev/mock-hermes-stream.mjs`), so HG-4 is reproducible locally — a mock without it looked
+identical to the bug.
+
+### Still needs a device
+
+1. **HG-3 with two tool calls.** The dev mock emits at most one tool call per run, so the new
+   two-call grouping was only exercised by unit tests. On a device: a turn that used exactly two
+   tools must show ONE timeline (a single quiet 「2 次工具调用」line once the turn completes), not
+   two separately bordered cards. A turn with exactly one tool must still show its own card.
+2. **HG-4 in a real transcript.** Open a conversation with history from before this build:
+   **every** prompt in 我的提问 must now carry a time, not just the ones sent in this session, and
+   the times must match when they were actually asked. This is the whole point of the fix — the
+   unit test proves the mapping, only a real transcript proves the data arrives.
+3. **HG-5 archive failure path.** With the Mac unreachable, confirming 归档 must leave you in the
+   chat with the `HR-SESS-008` message — not bounce you to the list as if it had worked.
+4. **HG-5 ＋ button.** Tapping ＋ in a chat must create a new conversation in the default project
+   and open it; a second tap while it is still creating must do nothing (the button shows the
+   brand mark and disables). Emulator taps kept landing off-target here, so this went unverified.
+
+## Transcript disk cache (2026-09-07 branch claude/transcript-disk-cache)
+
+Unit tests cover the store (round trip, LRU-by-use eviction, oversize skip, corrupt file, unusable
+directory, path-safe keys), the fact that a payload off the disk maps to a byte-identical
+transcript through the same mapper as a fresh fetch, the runtime store's refusal to let a stored
+copy overwrite the network or a live run, and the presentation gate that used to mask a cached
+transcript. What none of them can prove is what a person actually sees, so on a device:
+
+1. **The point of the whole change.** Open a conversation, force-stop the app, reopen it and open
+   the same conversation. The transcript must appear **immediately** — no skeleton — with a 2dp
+   line at the top while the refresh runs. Before this change that path showed the chat skeleton
+   for as long as the round trip took, which after an app update was every session.
+2. **A session this device has never opened** must still show the skeleton, not a blank screen.
+   The cache is not a substitute for the first fetch.
+3. **Nothing stale is shown.** Send a message from the desktop while the phone is closed, then
+   open that conversation on the phone: the cached copy paints first, and the new turn must appear
+   a moment later without a jump in scroll position or a visible remount.
+4. **Changing the Relay drops it.** In 设置 → 连接, save a different Relay URL or token, then open
+   a conversation that was cached: it must fetch fresh rather than show the previous account's
+   history. This is the privacy case and it is the one worth doing carefully.
+5. **Storage stays bounded.** After browsing many conversations, the app's storage figure in system
+   settings must not grow without limit — the cache prunes to 32 MB / 300 entries.
+
+Emulator-only checks (1) and (2) were exercised during development; (3), (4) and (5) still need a
+real device with a real Mac at the other end.
+
+## HG-58 / HG-57 / HG-56 (2026-09-18 branch claude/hg-58-57-56-send-and-run-state)
+
+Three reports from one HONOR MBH-AN10 (Android 16 / API 36) on 0.1.127–0.1.128. All three were
+diagnosed from the attached diagnostic logs; the parts below are the ones no JVM test can settle.
+
+### Automated here (L1)
+
+- The `SESS-016` bubble: copy, compact code, and **no tap** — `DeliveryStateTest`, plus the
+  `user-bubble-delivery*` goldens (including 360dp / fontScale 1.3, where the sentence has to yield
+  and the code must not wrap).
+- `TERMINAL_SEND_ERROR_CODES` holds exactly the three codes that withhold the tap, and not the two
+  that clear by themselves — `DeliveryStateTest`.
+- `sessions.changed` reaches a probe instead of being dropped, is throttled to one round per burst,
+  is never credited to whichever run happens to be active, and a curiosity probe that fails never
+  writes a verdict — `SessionsChangedProbeTest`.
+- The run-wait label: silent under five seconds, `已运行 4分28秒` at the duration HG-56 actually sat
+  through, and nothing at all without a start time — `SessionRunIndicatorTest`.
+- Desktop: the written bundled-layout LaunchAgent carries the search path, an agent written without
+  one is repaired by startup reconciliation, and a malformed `PATH` is refused —
+  `DesktopManagedBootstrapConfigurationTests`, `DesktopMigrationCoordinatorTests`.
+
+### Still needs a device or a real Mac
+
+1. **HG-58 end to end — unverified.** Attach a PDF from the phone and send it. Requires Hermes Go
+   Desktop rebuilt from this branch **and the managed Hermes service restarted** so the rewritten
+   agent takes effect; no machine has done that. Read-only precondition check on the Mac: the
+   managed `hermes-server` process's `PATH` contains `/opt/homebrew/bin`. Expected afterwards: the
+   PDF sends. Expected if the dependency is genuinely absent: the bubble reads
+   「Mac 缺少 PDF 渲染依赖 SESS-016」and **does not respond to a tap**.
+2. **HG-57 on a device.** Start a conversation on the Mac (Desktop or a cron job), leave it running,
+   then open it on the phone. Expected: the running state appears without the user doing anything,
+   and pressing refresh on an apparently-finished conversation reports 「仍在运行」rather than
+   「当前对话已刷新」. The diagnostic log should no longer contain runs of
+   `unmatched sessions.changed without session id`.
+3. **HG-56 on a device.** Send a prompt to a conversation whose first token is slow (a long tool
+   chain). Expected: after five seconds the indicator starts reading 「已运行 N 秒」and keeps
+   counting, so the wait is legible instead of being read as a failed send.
+4. **Vendor spread.** The reporting phone (HONOR MBH-AN10, API 36) is not attached to the build
+   host. The devices here are vivo V2166BA (SDK 33) and HONOR CLK-AN00 (SDK 34); neither reaches
+   `targetSdk` 37. Name the device in any result rather than writing "verified on device".
+
+5. **HG-155 shared Gateway status.** On the same Gateway, start a turn on PC while its conversation
+   is open on the phone; confirm the phone shows running, then waiting if Hermes needs input. Finish
+   on PC and confirm the phone stops its timer and streaming bubble without a local send. Repeat
+   with the phone backgrounded and reopened, and with a new prompt submitted while a status query
+   is in flight. Check the phone's phase log for `active_list` and no completed-to-thinking
+   transition caused only by a delayed delta. This still needs physical cross-client verification.
+
+## Web app on iPhone (2026-09-21 branch claude/web-app)
+
+Local reproduction: `./scripts/dev/web-stack.sh up` (Postgres, mock Hermes, TLS Gateway on
+`https://localhost:18443`, account-mode Connector), then `./scripts/dev/web-stack.sh code` prints
+the email code for `dev@example.test`. `HR_WEB_STACK_LEGACY_PROTOCOL=1` switches the mock to the
+older approval/clarify events. Mock prompt prefixes pin one run: `!clarify-single`,
+`!clarify-multi`, `!clarify-batch`, `!quick`, `!media <absolute path>…` (several paths give one
+message several images), `!table` (ends with a Markdown table); `!owned` and `!gone` make
+`prompt.submit` answer 4090 and 4007. The Connector runs its lifecycle observer against the mock's
+`session.active_list`, so a run left waiting on an approval raises `run.waiting` in the inbox.
+
+### Verified locally, 2026-09-22 (Playwright WebKit, iPhone 15 Pro viewport)
+
+Both protocols, end to end: sign-in, Mac auto-selection, list and search, a new chat streaming,
+tool rows, approval, single / multi-select / three-question batch clarify, interrupt, a `MEDIA:`
+image, an uploaded attachment, reconnect after going offline, history after reload, dark mode,
+sign-out clearing every cache. Also: a run left waiting puts its session under "需要你处理" with a
+foreground toast and a title count, and answering clears it; leaving and reopening a conversation
+brings its pending approval back from `open_requests`; `!owned` shows `HR-SESS-013` once with
+Retry; `!gone` shows `HR-SESS-001` once and disables the composer; the service worker registers
+with scope `/app/`; sending immediately after a reload succeeds (it failed about half the time
+before the boot-refresh fix). The login page also renders in iOS 26.5 Simulator Safari, light and
+dark. None of this replaces the device items below.
+
+Batch 1 (branch `claude/web-batch1`, 23 checks, same harness): the project sheet lists derived
+projects; filtering keeps only that folder's sessions (needs-you excepted) with branch · model
+sublines; a new chat from a filtered list is created in that folder; code blocks carry their
+language and copy verbatim; a table copies as tab-separated cells; "copy reply" confirms; tapping
+one of two images opens the viewer at `1 / 2`, a swipe pages to `2 / 2`, double tap zooms to 2.5×
+and a drag then pans instead of paging; pinning from the chat's "more" menu puts the chat under
+「已置顶 · 仅此设备」 with a pin mark, stores `default/<id>` for that Mac, and unpinning removes the
+group; a collapsed group stays collapsed across opening a chat; sign-out removes every pin.
+
+Batch 2 (branch `claude/web-batch2`, 23 checks): a non-default-profile session names its profile on
+resume and history (unit-tested; the mock has one profile); the top bar shows `project · branch`,
+＋ and ⋮ (both hidden on an empty new chat, which shows the greeting); a streaming turn shows the
+running line; three tools fold into 「3 次工具调用 · 1 次失败」 with a task-list card; embedded JSON
+leaves the prose; a diff card shows `+1 −1`; the action row has copy / thumbs / read aloud /
+regenerate / ⋯, and regenerate appears on the latest answer only and appends a new one; ⋯ opens
+readable text with a source toggle; tapping the user bubble → edit & resend fills the composer;
+in-chat search counts `5/5`, hides the composer and offers "search all chats" on no match; your
+prompts lists and jumps; jump-to-latest appears when scrolled up; refresh confirms; Markdown export
+goes to the share sheet when the browser can share files, else downloads `HermesGO-….md`, and text
+falls back to the clipboard; a draft survives a reload; after reload the history shows one turn per
+answer.
+
+Batch 3 (branch `claude/web-batch3`, 20 checks; the mock gained a DingTalk fixture and a real
+`/api/sessions/search`): the title reads 会话 and the 会话 / 机器人 segments appear; the bot
+conversation leaves 会话 and sits under 钉钉 with 模型未知 and `<time> · 4 条`, no FAB; its chat
+says 「来自钉钉 · 运维值班群」 and the first send asks once, cancel restoring the text; a waiting run
+shows under 需要你处理 with 等待你处理 and an amber dot (seen from a second tab — the mock ends a run
+when its socket closes, real Hermes does not); the default project's folder is dropped from
+sublines and named 默认项目 in the project sheet; a draft shows 草稿; the archived page lists the
+archived fixture; title matches highlight instantly, message hits arrive with centred snippets and
+open the chat with in-chat search pre-filled; recent searches remember the query; the top bar stays
+pinned while scrolling; sign-out leaves no `hermes-go.*` key behind.
+
+Batch 4 (branch `claude/web-batch4`, Gateway + Web, 22 checks; the mock gained PATCH/DELETE,
+a model list, `/model` switching, reasoning and a `!proc` background task): the composer chip reads
+`claude-opus-5 · 中`; the model sheet reads the session's reasoning, a change to 高 updates the chip,
+switching to `gpt-5.6-sol` confirms; "retry with another model" switches then regenerates; `!proc`
+shows 「后台任务运行中 · 1」 with the command and output tail; tapping the project subtitle moves the
+chat to `hermes-remote`; ⋮ → 归档对话 asks (not red), returns to the list with 「已归档」 and the row
+leaves; on the archived page press-and-hold → 取消归档 restores it; press-and-hold on a list row
+opens pin / rename / move / archive / delete without opening the chat; rename shows in the list;
+delete asks in red naming the conversation and removes the row; no request the UI sent was refused
+by the Gateway. Gateway unit and integration tests cover every refused shape.
+
+Batch 5 (branch `claude/web-batch5`, Web only, 23 checks, `/tmp` drive script against
+`scripts/dev/web-stack.sh`; the share sheet is stubbed away so the download fallback is what runs):
+the table card head offers 保存为图片 and 全屏查看; fullscreen shows the whole table; saving
+downloads `HermesGO-Table-<stamp>.png` (light palette, 170px columns) and flashes 已保存表格图片.
+Scrolling past a prompt shows the turn pill with its summary and the ≡ list; tapping it lands on
+the bubble with the outline. ＋ opens 拍照 / 照片 / 文件 + 常用提示 / 添加会话; a prompt created in
+the library is inserted and kept in `hermes-go.prompts`; picking a conversation counts down
+「最多再选 8 个」 and attaches `<title>.md`. A picked PNG opens in the preview with 移除 / 编辑; a
+stroke enables undo; 取消 with edits asks 放弃这些修改？; ink, mosaic and a corner-dragged crop
+(1:1 squares it, undo restores) bake to `batch5-shot-edited.jpg` in the same strip position;
+完成 with no edits leaves it alone; the edited image is sent with no error notice. The 4007
+recreate of an empty conversation is covered by `session.test.ts` (the mock cannot reclaim).
+
+Batch 6 (branch `claude/web-batch6`, Web only: rotation, foldables, keyboard, system back). Local
+drive against `scripts/dev/web-stack.sh`, 29 checks in Chromium (Android Chrome profile) and WebKit
+(iPhone profile), plus the batch 5 drive re-run as a regression (23/23):
+- Back (browser back = the system back gesture): closes the ＋ sheet and stays in the chat; unwinds
+  prompt form → library → saved-prompts sheet → chat one level at a time; closes the ⋮ menu, the
+  image viewer, the fullscreen table and in-chat search. With edits in the image editor it asks
+  放弃这些修改？ and stays open; back on that question closes only the question; 放弃 returns to
+  the preview, back from the preview to the chat with the chip kept. After all of that, one back
+  goes to the list — closing overlays with ✕ left no dead history steps.
+- Short screens (915×412 landscape, 412×360 standing in for the keyboard, 852×393 iPhone
+  landscape): the input stops at three lines (76px), the model chip and project line hide (the
+  chip side of this is superseded by HG-178 below — it now stays), the top
+  bar is 40px and the message list keeps 55–67% of the height. A normal portrait input still grows
+  to 200px.
+- 344px foldable cover: the crop preset row starts 8px from the left edge and scrolls to its last
+  control. Unfolded (829px): the 会话 / 机器人 switch is 688px, the list column's width. Rotating
+  with the turn pill showing re-measures it to the group now at the top.
+
+Real Chrome 145 on the Android emulator (Pixel 9 image, API 37; Playwright `_android`), 2026-09-23:
+the system back key with the ＋ sheet or the image viewer open closes only that and stays in the
+chat; with the keyboard up in portrait the layout viewport shrinks to the space above it (792 →
+456px) and the top bar stays on screen; Chrome reports the manifest installable with no errors;
+switching the display to an unfolded size (690×680) and back keeps the chat and its input; the page
+follows system dark mode. Landscape with the keyboard up leaves the page about 30px on this
+emulator (status bar, Chrome's toolbar and the keyboard take the rest): only the caret line of the
+input shows. That is the browser's limit, not something the page can reclaim.
+
+HG-131 physical foldable check (not yet verified on a device): install `/app/` from Android Chrome
+to the Home Screen. Record phone model, Android and Chrome versions, Chrome's Page zoom and Force
+enable zoom settings, and the system text size. Set Page zoom to 100% and turn Force enable zoom
+off for the normal app check. Open the conversation list on the cover screen, then unfold without
+reloading. The cover list should use the viewport width with 16px side gutters;
+on an inner screen at least 45rem wide, the top bar and list should span the available width, the
+segments should retain 16px gutters, and the menu and new-chat button should stay near the right
+safe edge. Fold again: the list position and selected segment should remain. Try pinching the list
+both ways: the page's `visualViewport.scale` should remain 1 with Force enable zoom off; an image
+opened in the viewer should still zoom independently. If the typography or width remains abnormal,
+record `innerWidth`, `document.documentElement.clientWidth`, `visualViewport.width` and `.scale`,
+the computed font size of `.row-title` and `.row-subline`, and whether Chrome's Desktop site setting
+is enabled. Compare those values with a fresh Chrome profile before attributing the problem to the
+Web stylesheet.
+
+HG-164 chat table slide (not yet verified on a device): on Android Chrome — the only Android
+browser in scope — open a conversation with a five-column table at a phone width. Expected: every
+column holds a 110px floor, cells wrap inside their column, and the table slides left and right
+inside its card; a two- or three-column table that still fits keeps filling the card width. Off
+device the same stylesheet was measured in headless Chrome at a 353px viewport with a 321px card:
+the five-column table went from 305px wide with 42–79px columns (`scrollWidth == clientWidth`, so
+nothing to drag) to 551px with 110px columns (`scrollWidth 567 > clientWidth 321`).
+
+HG-178 expanded-composer uniformity (branch `opencode/hg-178-composer-chip`, Web only): with the
+keyboard up the expanded composer lost its model chip and the control row was right-aligned, so the
+same expanded state looked like two different composers. Both stylesheets that did this
+(`.chat-page.compact-viewport` for the iOS visual viewport, `@media (max-height: 30rem)` for
+landscape and for Chrome shrinking the layout viewport above the keyboard) now leave the chip alone
+and no longer re-align the row. Reproduced and re-checked off device by rendering the real
+`web/src/styles.css` in headless Chromium (Google Chrome, `--headless=new`, 353px-wide composer) in
+three states — 600px viewport (keyboard down), 600px + `.compact-viewport`, and 400px viewport
+(Chrome's shrunken layout viewport). Before: state 1 showed `[mic] [gpt-6.1-sol · 高 ⌄] [＋] [↑]`
+and states 2–3 dropped the chip and clustered `[mic] [＋] [↑]` to the right; after: all three are
+identical. The declarations are pinned by `web/src/ui/ComposerChip.test.ts` (media queries are not
+applied in happy-dom, so the test reads the sheet). **Still needs a real phone**: that Android Chrome
+keeps the chip, unclipped, with the keyboard up at 353px, and that a long model name still ellipsizes
+instead of pushing ＋ / send off screen; the iOS compact path also needs Safari. The composer page
+itself (`scripts/dev/web-stack.sh up`) was not driven for this change.
+
+HG-109 (branch `claude/hg-109-open-latest`, Web only): the mock now pages
+`GET /api/sessions/{id}/messages` the way upstream does (`order=latest` counts back from the newest
+row, each page ascending) and lists a 260-row fixture, 「长会话 · 260 条历史」. Before the fix, opening
+it from the list landed 1,032px short of the bottom in 3 of 8 Chromium runs and **8 of 8 WebKit runs**
+(8,600px short); after it, 8/8 in both, and reload, "scrolled up stays up", 「回到最新」 and an older
+page loading while reading all hold. Batch 5 (23/23) and batch 6 (29/29) drives re-ran green.
+Still open and pre-existing on `main`: in WebKit, the page of older turns that loads while scrolling
+up leaves the reader 9,000px further down than the prompt they were on (Chromium keeps it through
+native scroll anchoring, which Safari lacks).
+
+### Still needs a real iPhone — none of this has been verified on a device
+
+**HG-202 file picker (required before publishing this change).** In both physical iPhone Safari
+and the installed Home Screen WebApp, open a chat and tap **+ → Files**. Expect the Files picker
+directly, without the Photos/Camera/Choose Files source menu. Record the model, iOS version,
+browser/standalone mode and tested commit for each result. Repeat on iPadOS with desktop browsing
+enabled when an iPad is available. Check all of the following in each iPhone mode:
+
+- Pick PNG, TXT, ZIP and a non-executable unknown-extension file together using multiple selection.
+  Expect four pending chips; the PNG is an image, and the other three keep their filenames/types.
+  Send and confirm the actual attachments reach the conversation through the real Connector.
+- Cancel an empty pick, then cancel with an existing text draft and pending attachment. Nothing
+  sends, disappears or raises an error. Remove/send a file, then pick the exact same file again;
+  it must stage again. Repeat opening and closing the picker.
+- Pick an iCloud Drive file that is not downloaded locally. Wait for its provider download and
+  confirm it stages and sends with intact bytes, filename and MIME type.
+- **+ → Photos** still offers the system sources and opens Photos Library with image multi-select;
+  **+ → Camera** still captures one image. Confirm both stage and send normally. No new video entry.
+- Smoke Android Chrome and desktop Files: their unrestricted picker and multi-select are unchanged.
+
+Evidence boundary: the prior iPhone 17 Pro / iOS 26.5 Simulator Safari experiment verified a plain
+`application/octet-stream` multiple input opens Files directly and returns PNG/TXT/ZIP/unknown files.
+Composer DOM tests verify the shipped configuration and attachment staging, not native system UI,
+iCloud access or successful transport on a physical phone. Physical Safari/Home Screen results remain
+pending until recorded here; do not publish based on the simulator experiment alone.
+
+Every item below needs a physical iPhone against a Gateway reachable over real HTTPS; the iOS
+simulator and Playwright WebKit do not exercise them faithfully. Record the iPhone model and iOS
+version with each result.
+
+1. **Add to Home Screen from Safari.** Share → Add to Home Screen. Expected: the launcher icon and
+   name are Hermes GO, and it opens standalone (no Safari chrome) at `/app/`.
+2. **Separate sign-in state in Safari and on the Home Screen.** iOS gives a Home Screen web app its
+   own cookie jar. Sign in inside Safari, then open the Home Screen app. Expected: the Home Screen
+   app asks for its own sign-in, and signing out of one leaves the other signed in.
+3. **Background, then foreground.** Open a running conversation in the Home Screen app, lock the
+   phone for more than 20 minutes (longer than the access token plus the Gateway's 5-minute grace),
+   then unlock. Expected: the app refreshes the session, reconnects the socket and resumes the
+   conversation without asking to sign in again. It should show at most a brief "reconnecting"
+   state and no `HR-AUTH-*` error.
+4. **iOS Chrome.** Repeat 1–3 in Chrome for iOS (its Add to Home Screen needs iOS 16.4+). Expected:
+   the same results as Safari.
+5. **Safe areas and keyboard (HG-133).** On a notched or Dynamic Island iPhone, in portrait and
+   landscape, light and dark, open a chat in the Home Screen app and focus its composer with the
+   Sogou keyboard; repeat with the system keyboard and in Safari. Record the phone model, iOS and
+   keyboard versions. Expected: nothing sits under the island, home indicator or rounded corners;
+   while typing, the top bar and message area remain visible, messages still scroll, and the composer
+   stays directly above the keyboard's own controls without an extra page-sized blank region. Dismiss
+   and reopen the keyboard, rotate, then switch chats; the layout must recover without a jump or
+   clipped input. iOS may show its native Previous / Next / Done form assistant above the keyboard;
+   the Web app cannot reliably remove that system control.
+6. **Download from the Mac.** Tap a `MEDIA:` file that is not an image, such as `.html` or `.pdf`.
+   Expected: iOS offers to download or preview it. It never renders inside the app's origin.
+7. **Sign out on a shared device.** Sign out, then reopen the app offline. Expected: no conversation
+   content is shown from cache, only the sign-in page.
+8. **Copy.** In Safari and in the Home Screen app, tap "copy reply", a code block's copy button and
+   a table's copy button, then paste into Notes. Expected: 「已复制」-style confirmation, the Markdown
+   source / exact code / cells land in Notes. If iOS refuses, the app shows `HR-WEB-007` and the text
+   can still be selected by pressing and holding.
+9. **Image viewer gestures.** Open an image from a message with several. Expected: pinch zooms
+   smoothly without Safari zooming the page, double tap toggles, a zoomed image cannot be dragged
+   off screen, a swipe at 1× pages within the message only, and "save image" offers Save to Photos
+   or Share.
+10. **Pins and project filter.** Pin a chat, force-quit the Home Screen app and reopen it. Expected:
+    the pin is still there (it is per browser, so Safari and the Home Screen app keep separate pins),
+    and it is gone after signing out. Filter by a project and start a new chat. Expected: the chat
+    appears under that project on the Android app too.
+11. **Chat parity (batch 2).** Read aloud a reply (Safari speech voice, stop by tapping again);
+    share a transcript as text and as a Markdown file through the iOS share sheet; write half a
+    message, force-quit the Home Screen app and reopen the chat (the draft is back), then sign out
+    and in again (it is gone); search inside a long chat and step through hits (highlights need
+    iOS 17.2+, older iOS only scrolls to the turn).
+12. **List parity (batch 3).** With a real DingTalk / Feishu channel: the 机器人 segment appears and a
+    bot chat asks once before the first send. Leave a run waiting on an approval and go back to the
+    list: 需要你处理 shows it with 等待你处理; a run that finishes while you are on the list shows
+    已完成 with an unread dot until opened. Scroll down, have a run start waiting, and the
+    「N 个会话需要处理」 pill appears.
+13. **Session management and model (batch 4).** On the iPhone: press and hold a row (the sheet opens,
+    iOS shows no callout and the chat does not open); rename, archive (confirmation not red), restore
+    from Archived, delete (red confirmation). Open a chat, switch the model from the chip and change
+    the reasoning effort; confirm on Android that the same conversation shows the new model. Move a
+    chat via its project subtitle. While Android runs a turn in the same conversation, open it on the
+    Web: the composer is replaced by `HR-SESS-013` with Retry.
+14. **Font size and the merged card page (2026-09-27; card page merged HG-168).** Open the drawer
+    from the session list's menu icon (HG-170: a three-line glyph in chrome tone, no longer the
+    account avatar). Expected: the header is only the Hermes GO wordmark — no gear
+    button and no settings sub-page behind it; the rows are 主题 / 默认模型 / 语言 / 字体大小,
+    followed by a Hermes GO account card (email, 退出登录, 删除账号) — **HG-171 removed the About
+    card**, which only repeated static Web/Gateway versions. Tap 语言 or 字体大小: a bottom sheet
+    opens with one radio per option, using
+    the same rule as 主题 — picking only moves the pending item, 当前使用 keeps marking the value in
+    force, and 「保存」 is what writes it; scrim, Escape, the close button and system back cancel the
+    pending item and leave the setting alone. Then pick 大 / 特大 / 超大 in Safari and in
+    the Home Screen app. Expected: text, line height, spacing and the 44px touch targets grow
+    together, the page reflows without overlap or clipping, and the choice survives a force-quit
+    (it is per browser, like pins and theme). At 超大 the drawer scrolls to the bottom so 删除账号
+    stays reachable; 标准 hands the root size back to the browser's own default. **Known at
+    超大, pre-existing and untouched by HG-168:** the remote-node card squeezes its title and name
+    into `远…` / `LGS-` / `MA…`, so read that card's state there before treating 超大 as clean.
+    Confirm this is the only way to enlarge the page: the Home Screen app blocks Safari's pinch
+    zoom (`noZoom.ts`).
+    For HG-114 on an isolated stack with a Connector backed by Hermes, check the side drawer's
+    read-only default model for two Macs and two profiles. In a conversation using another model,
+    tap “恢复默认模型”; only that conversation changes, and the upstream global model stays put.
+    Disconnect the Mac and retry: show `HR-WEB-009`, no previous Mac's value or restore button.
+    A same-origin authenticated `GET /api/hermes-remote/default-model?profile=work` returns exactly
+    `model` and `provider` with `Cache-Control: private, no-store`; direct `/api/config`, an extra
+    query key, a duplicate profile, a body, and a write method are refused before the Connector.
+14. **Composer and chat extras (batch 5).** Save a table as an image: the iOS share sheet opens and
+    Save Image puts it in Photos (legible, light background even in dark mode). ＋ → 拍照 opens the
+    camera. Edit a photo: two fingers zoom without drawing or zooming the page, one finger draws,
+    the crop handles are easy to grab, 完成 replaces the chip and the sent image is the edited one.
+    Add a conversation and confirm Hermes on the Mac receives a readable `.md`. Scroll a long chat:
+    the turn pill appears, fades 1.5 s after scrolling stops, and a tap lands on the prompt.
+15. **Staying signed in.** Use the app, close it, wait more than 15 minutes (the access cookie's
+    life), and open it again — from the Home Screen app and from a browser tab. Expected: the
+    conversation list, no email code. Repeat after a day and after a week (the refresh cookie lasts
+    30 days). Sign out explicitly and reopen: the login page, and it stays.
+16. **Rotation, keyboard and back (batch 6).** On the iPhone: rotate a chat to landscape (compact top
+    bar, three-line input, messages still readable) and back; swipe back from the left edge in the
+    Home Screen app with a sheet or the image viewer open (only that closes). On an Android phone in
+    **Chrome** (the only Android browser in scope): the system back gesture closes sheets, the
+    viewer, the editor (asking first when there are edits) and in-chat search one at a time; the
+    keyboard keeps the top bar visible in portrait; Add to Home Screen gives a full-bleed icon (the
+    maskable one, not a small icon in a white frame). On a foldable, open and close it on a chat and
+    in the image editor. None of this has been checked on a physical phone: Chrome is not installed
+    on the HONOR test phone, so Android results so far come from the emulator only.
+17. **List top bar icons (HG-170, 2026-09-30; needs a browser — the DOM test cannot see colour).**
+    On the session list, the left slot is a three-line menu glyph in the top bar's own colour
+    (`currentColor`, same tone as the search glyph beside it) — no round coloured block and no
+    account initial — and it opens the same drawer as before. The right-hand overflow is
+    **vertical** dots ⋮ on the list **and** on a chat page's top bar, while the per-answer 「⋯」
+    action line stays horizontal: that split matches Android `MoreVert` / `MoreHoriz`. Check both
+    themes on the iPhone and in Android Chrome; the top bar must not grow taller than before, and the
+    ⋮ must read as three distinguishable dots at the smallest supported width (344px, folded
+    outer screen).
+18. **Drawer chrome and voice long-press (HG-171, HG-172, 2026-09-30; needs a browser and a phone
+    — the DOM tests cannot see the OS sheet).** With the drawer open from the session list, the
+    bottom-right new-chat FAB is gone instead of floating over the scrim; closing the drawer brings
+    it back, and the drawer's card page ends at the Hermes GO account card (no About tile).
+    On the iPhone (Safari and the Home Screen app) open a chat, switch the composer to voice and
+    hold 按住说话 for a couple of seconds: the recording sheet must stay up, no iOS text selection
+    or callout may appear, and releasing still sends. On Android Chrome and in the Hermes GO
+    WebView the same hold must not raise the selection / 「点按即可查看搜索结果」 sheet, and the
+    recording must not be cancelled by the browser. The event-level fix (`contextmenu`
+    preventDefault on the button and its overlay) is pinned by `Composer.test.tsx` and the
+    unselectable declarations by `voiceLongPress.test.ts`; only a real engine proves the OS gesture
+    is actually suppressed.
+19. **Voice entry from the two-row composer (HG-174, 2026-09-30; needs a real engine — a DOM test
+    cannot see the browser's own focus behaviour).** In a chat whose Mac advertises `voice-input`,
+    tap the input so it grows to two rows (content on top; microphone, model chip, ＋ and
+    send/stop below). One tap on the microphone must reach the voice bar (keyboard / 按住说话 / ＋)
+    on the first try, with no visible intermediate collapsed keyboard row, in both themes and from
+    both the two-row and the single-row composer. Repeat with the keyboard up on the iPhone
+    (Safari and the Home Screen app): the tap must still land the first time. Then deny the
+    microphone permission: the two-row composer keeps its layout and its draft, with `HR-PERM-006`
+    and Retry. `Composer.test.tsx` pins the event order (press → blur with no `relatedTarget` →
+    click); only a real engine proves how the browser moves focus and what the OS permission sheet
+    does to it.
+20. **The page cannot be pulled down (HG-173, 2026-09-30; needs a real iPhone — the point is the OS
+    gesture, which no DOM test can hold).** In the Home Screen app and in Safari, on the session
+    list and on the archived list, put a finger near the top of the list and drag down past it.
+    Expected: the top bar, the 会话/机器人 segments and the status-bar area stay exactly where they
+    are; only the rows move, with the short native bounce at the edge. Repeat on the Mac picker and
+    on the sign-in page — the submit button must not travel with the fields. Then pull down at the
+    top of a chat's message list: the top bar and the composer stay put. Also confirm the list still
+    scrolls normally, the 「N 个会话需要处理」 pill still appears when you are scrolled down and
+    clears when you return to the top, the FAB does not cover the last row, and the search field
+    still scrolls into view when the keyboard opens. `pageFrame.test.ts` pins the frame and port
+    declarations and `WebAlignment.test.tsx` pins the pill following the port; neither can prove
+    that iOS stopped rubber-banding the document.
+
+## HG-94 FCM push wake hints (2026-09-22 branch claude/hg-94-fcm-push)
+
+### Automated here (L1)
+
+- Gateway: only `run.waiting`, `run.completed`, `run.interrupted` and `run.unknown` wake phones; the
+  FCM body is data-only, `HIGH` priority and never contains the session title; FCM responses map to
+  sent / token dropped / failed; a failed send never throws into the Connector ack path
+  (`gateway/src/push.test.ts`).
+- Gateway: registration routes accept only Android phone installations and advertised providers,
+  and answer 404 when no provider is configured; `capabilities.push` appears only when configured.
+- PostgreSQL 18: one registration per live phone, account isolation, a rotated token is not deleted
+  by a stale "unregistered" report, and revoking the installation deletes the registration while a
+  revoked installation cannot register again (`gateway/src/push-registration-database.integration.test.ts`).
+
+### Still needs a Firebase project, a deployed Gateway and a phone with Google Play services
+
+None of this has been run: no Firebase project exists yet, the Gateway was not deployed, and the
+attached HONOR CLK-AN00 has no Google Play services.
+
+1. Put the service-account key at the path in `ACCOUNT_FCM_SERVICE_ACCOUNT_FILE`, restart, and check
+   `GET /v2/capabilities` shows `"push": {"providers": ["fcm"]}`.
+2. Build the APK with the four Firebase client values (`android/README.md`), sign in with an
+   account, enable notifications. Expected: one `account_push_registrations` row for that phone.
+3. Swipe the app away (do not force-stop). Start a run from Desktop and let it finish. Expected: the
+   completion card appears within seconds, not after the 15-minute job; the same for a run that
+   waits for approval.
+4. Put the phone into Doze (`adb shell dumpsys deviceidle force-idle`) and repeat. Expected: the
+   high-priority message still wakes it.
+5. Sign out on the phone. Expected: the row is gone and no further pushes arrive.
+
+## HG-104 payload size: device API gzip, tunnel deflate and history paging (2026-09-23 branch claude/hg-104-payload-perf)
+
+### Automated here
+
+- Nginx: `renderMultiDeviceNginxRoutes()` puts the five JSON-only gzip directives inside the
+  `/v2/devices/<id>/api` location and nowhere else — in particular not in `/v2/devices/<id>/ws` or
+  `/v2/connect` (`scripts/test/production-multi-device-rollout.test.mjs`). The later rollouts compare
+  the live route file against the same renderer, so their fixtures follow automatically.
+- Gateway: the Connector WebSocketServers negotiate `permessage-deflate` with both
+  no-context-takeover flags, a client that does not offer it still connects, the inflated size is
+  still bounded by `maxPayload` (close `1009`), and the app WebSocketServer never negotiates it
+  (`gateway/src/gateway-server.test.ts`; with `RUN_NETWORK_TESTS=1`,
+  `legacy-routing.integration.test.ts` checks the same on a spawned Gateway).
+- Gateway: `http.tunnel` lines carry `status`, `bytes`, `chunks` and `ttfbMs` for buffered,
+  streamed, failed-mid-stream, out-of-order and client-aborted requests
+  (`gateway/src/http-tunnel-broker.test.ts`).
+
+### Still needs a deployed edge (production application is not yet authorized)
+
+Run against the edge once the regenerated `binding-routes.conf` is live (docs/DEPLOYMENT.md,
+"HG-104"). `<device-id>` is a bound device and `$COOKIE` a signed-in Web session cookie (a cookie read
+must carry the exact `Origin`); keep it out of shell history.
+
+1. **Device API is compressed.**
+
+   ```bash
+   curl -sS -o /dev/null -D - -H 'Accept-Encoding: gzip' -H 'Origin: https://<host>' -H "Cookie: $COOKIE" \
+     "https://<host>/v2/devices/<device-id>/api/sessions?limit=100"
+   ```
+
+   Expect `200`, `Content-Encoding: gzip` and `Vary: Accept-Encoding`. Repeat without the
+   `Accept-Encoding` header: no `Content-Encoding`, and the decoded body is identical. A body below
+   1 KB (for example `/api/status`) stays uncompressed.
+2. **Device WebSocket is untouched.** Open a conversation in the Web app or on the phone and send a
+   prompt: the answer still streams token by token (gzip never applies to the `/ws` location).
+   Unauthenticated, `curl -sS -o /dev/null -w '%{http_code}\n' -H 'Connection: Upgrade' -H 'Upgrade:
+   websocket' -H 'Sec-WebSocket-Version: 13' -H "Sec-WebSocket-Key: $(openssl rand -base64 16)"
+   "https://<host>/v2/devices/<device-id>/ws"` still answers `401`, as before.
+3. **Connector hop is deflated.** After the Gateway release carrying this change, the Connector's
+   reconnect succeeds and `/relay-health` (legacy) or `/internal/account-connectors` (account) shows
+   it online; no Connector or Desktop update is needed because the `ws` client offers the extension
+   by default.
+
+### History paging (Android and Web; needs the real client against a long conversation)
+
+HG-151 diagnostic check: with a test Mac's Hermes stopped while its Connector stays online,
+open a history page on Android. The failure must show retryable `HR-CONN-006`; its copyable
+diagnostic contains a request UUID. The Connector `http.local_failure` and Gateway `http.tunnel`
+lines should have that same `requestId`, while the Connector line contains no local URL, request
+path, exception message, token, or response body. After Hermes resumes, Retry should load history.
+For a Hermes-originated 5xx, history must still show nonretryable `HR-SYNC-003`. Do this only on a
+test stack; stopping the production Mac service is not part of this check.
+
+4. **First page is 100 rows.** Open a conversation with more than 100 stored messages. The first
+   history request (Gateway `http.tunnel` line, or the edge timing log from docs/DEPLOYMENT.md) is
+   `GET …/api/sessions/<id>/messages?order=latest&limit=100&offset=0`, and the chat shows the newest
+   turns in the normal top-to-bottom order.
+5. **Scrolling up loads the next older page.** Scroll to the top of the loaded history: exactly one
+   request with `offset=100` follows, older turns appear above without the scroll position jumping,
+   and no turn is shown twice. Continue until a page returns fewer than 100 rows: no further
+   request is made.
+6. **Session list fallback.** When a client falls back from `/api/profiles/sessions` to
+   `/api/sessions`, the request is `GET /api/sessions?limit=100` and answers `200` (a limit above 100
+   is `422` upstream — docs/HERMES_CONTRACT.md §1c).
+
+### HG-107 folded history (Android and Web; real Connector required)
+
+7. Open a long tool-heavy conversation on both clients. The 100-row page includes `hr_preview=1`
+   and is markedly smaller than the ordinary response; the visible answer and tool count remain
+   intact. Open a folded tool result and reasoning card: one `hr_full_message_id` request per row
+   returns the complete content, and copy obtains the full result. Reopen a previously cached
+   Android transcript and repeat. A legacy request without `hr_preview` still receives the original
+   upstream bytes.
+8. While viewing an older page, add new messages from another client, then expand an old result.
+   The row ID must match despite the latest-page offset drift; if it has moved beyond the bounded
+   lookup, the card shows retryable `HR-SYNC-005` and never offers a truncated copy. Attach that
+   conversation to another prompt: the attached document contains the full tool and reasoning text.
+
+### HG-126 user URL token (Android device)
+
+9. Send `@url:` followed by a backtick-wrapped HTTPS link. The bubble shows “链接 · 域名”; tapping
+   opens the safe external handler, while Copy and Edit/Resend preserve the literal original.
+   A plain URL and a token in a fenced code block remain literal. Check at large font scale.
+
+## HG-158: child-agent status on Android (real Hermes and a device)
+
+1. In a PC conversation, delegate work to a child. Open the **same parent conversation** on Android
+   after the child starts. The status card should show the child count, goal, and most recent tool
+   from `subagent.list`; the existing background-process card must remain independent.
+2. Delegate another child while Android is already watching. Verify its goal and tool/progress
+   arrive without reopening. Let the parent answer finish while a child still runs: the child
+   must remain visible and must not make the parent answer appear to be generating.
+3. Let a child finish. Verify the result and terminal state remain visible across navigation away
+   and back, then send the next parent prompt. Completed child rows disappear; any still-running
+   child stays. Make a child fail and check the localized `SESS-019` recovery hint without raw
+   backend error text. Check a second conversation to ensure no child crosses session boundaries.
+4. Reconnect Android while a child runs and verify that the roster returns without a duplicate.
+   Repeat after the child finishes: an empty roster must not invent a running child. Record the
+   Hermes version, phone model, and whether `subagent.list` was available. A cold open cannot
+   reconstruct children that finished before Android ever observed them.
+
+## Web / Android alignment follow-up (2026-10-01)
+
+Automated coverage lives in `web/src/chat/attachments.test.ts`, `ui/Composer.test.tsx`,
+`app/routerReturn.test.ts`, `app/useListReturn.test.tsx`, `ui/PromptsSheet.test.tsx`,
+`chat/usePromptHistory.test.tsx`, `chat/model.test.ts` and `errors/errors.test.ts`.
+DOM tests verify behavior and accessible states, not browser layout or physical gestures.
+The browser automation inventory was empty on this host; the following checks remain unverified.
+Use an isolated local stack or explicitly authorized staging, with disposable fixture conversations.
+
+1. Pick and send ordinary PDF/text files at 7 MiB and exactly 50 MiB; bytes reach the Mac unchanged
+   and `file.attach` succeeds. Pick 50 MiB + 1 byte: local `HR-FILE-008`, nothing uploaded. Images
+   remain limited to 6 MiB after processing, at most 9 attachments total. A competing Connector
+   upload shows localized `HR-FILE-009` with Retry. Repeat on Safari/PWA and Android Chrome.
+2. Type text, then immediately tap toolbar Back within 400 ms. Reopen: the latest text remains.
+   Repeat by switching conversation, hiding the tab, backgrounding the PWA, and closing/reopening
+   the browser. Send then leave: no old draft. Sign out then sign in: no old draft restored.
+3. Open a chat from a scrolled archive, then return by toolbar Back and by the system gesture:
+   the archive and position remain. Repeat from title and message search: the original query and
+   result-list position return. Repeat with a focused composer and chat → new chat → first send.
+   A directly opened chat link falls back to the conversation list via toolbar Back.
+4. In a conversation with more than 100 stored messages, scroll to an old turn and open prompts:
+   all prompts are counted, the current row is neutral with a reversed index disc, and two rows
+   remain above it when space permits. Latest and Close stay in the fixed header. Jump to an
+   originally unloaded prompt, an attachment-only prompt and the conversation-start row.
+   Verify bot menu and sheet both say “对方的提问” / “Their prompts”. Test full-history failure
+   and Retry while live responses continue; late partial pages cannot revert the full count.
+5. Check the prompt sheet in light/dark mode, Chinese/English and enlarged text at a narrow mobile
+   width: two-line summaries, time below, neutral active row, accessible current-location state,
+   44 px minimum targets and reachable Latest. Compare against Android `docs/DESIGN.md` §5.4.
+
+## HG-165 Web composer and Doubao acceptance
+
+Automated tests cover capability gating, microphone policy, PCM conversion and V3 framing, bounded
+gzip parsing, session teardown, partial/final/timeout/cancel paths, draft isolation and composer focus.
+The following still require a real browser/device and configured provider; mocked PCM is not
+production or microphone verification. Use non-sensitive test speech.
+
+1. On Android WebView, iPhone Safari/PWA and desktop, check empty, focused, multiline and attachment
+   drafts, long model names, generating Stop and blocked input in light/dark themes and large text.
+   Core buttons stay visible at 353 px; Send closes the keyboard, opening model/attachment sheets
+   releases focus, IME Enter never submits and touch Enter inserts a line break.
+2. Without an ASR key or browser APIs, microphone entry stays hidden. With the key, allow/deny/reset
+   microphone permission; denial shows bilingual `HR-PERM-006` with Retry and preserves the draft.
+   An unanswered prompt times out without locking the UI; late permission cannot affect a new chat.
+3. Hold and speak: timer and partial text update without submission. Release sends only the final
+   transcript, preserving a pre-existing text/attachment draft. Slide above the actual left/right
+   circles to cancel/edit; test short holds, pointer cancellation, rotation and finger returning to
+   the center. Desktop Space/Enter holds, left/right/down choose action and Escape cancels.
+4. Disconnect the provider or wait for timeout: partial text returns to the draft under
+   `HR-VOICE-003` (disconnect) or `HR-VOICE-004` (final timeout); cancel waiting also keeps partial text, gesture cancel discards it. Verify the
+   microphone indicator disappears on release, background, navigation, sign-out and device switch.
+   At the 5-minute actual-audio limit, stop capture, await the final result and place it in the draft without submission; late results cannot write to another conversation.
+5. Confirm cookie upgrade accepts the exact Origin only; no token/key is present in URLs or JS.
+   Revoke the browser session or device share while recording and confirm the speech socket closes
+   and no prompt submits. Refreshing access credentials alone must not close a live session.
+6. Check Safari permission and AudioContext resume after switching back from the keyboard, including
+   a second recording. Confirm neither raw audio nor transcript content is in Gateway diagnostics.
+
+## HG-206 · Five-minute voice input — physical/provider verification pending
+
+On iPhone Safari, Home Screen WebApp and Android, with a configured speech service:
+
+1. Prepare text plus image/file attachments. Hold through 60 seconds: recording continues. The
+   clock starts with actual capture and shows elapsed / 05:00. At 04:45 the remaining seconds and
+   “then save to draft” appear; check Chinese/English, light/dark and large text at narrow widths.
+2. Hold a full five minutes. The microphone stops, final recognition completes, and the complete
+   text joins the existing draft. No message/confirmation opens automatically; attachments remain.
+   The limit notice is normal, with no error code. Empty recognition says no text was recognized.
+3. Release near 04:59: the independent eight-second final wait is available and normal release sends.
+   Gesture cancel/edit, final-wait cancellation, background/foreground, lock screen, navigation,
+   sign-out and connection loss must release microphone/socket and retain only appropriate text.
+   Late release or duplicate/late final packets cannot send twice or write into another conversation.
+4. Disconnect -> HR-VOICE-003; final timeout -> HR-VOICE-004; provider recognition failure ->
+   HR-VOICE-002; empty normal final -> HR-VOICE-005. Verify primary copy explains cause, actual
+   retention and retry/keyboard recovery in both languages; the code is secondary.
+5. Start a second recording immediately. Confirm no old deadline, live microphone or stale socket
+   remains. Gateway closes an abandoned session at 330 seconds and retains revocation enforcement.
+
+Automated coverage uses synthetic PCM, provider frames and virtual clocks. It does not establish
+that the configured provider supports five continuous minutes on a physical device. Release Gateway
+before the new clients so the previous 90-second relay deadline cannot interrupt their recordings.
+
+
+## HG-189 · Web voice vibration (Android browser / PWA)
+
+Automated tests cover successful capture plus first nonempty PCM, failed initialization, early
+release/cancel and late callbacks; target entry/exit hysteresis; matching highlights/copy/pulses;
+browser refusal/exception/missing API, preference persistence and Save/cancel; release, background,
+pagehide, conversation change and unmount cleanup. They do not prove physical vibration or audio
+quality. No physical Android device was attached on LGS-MACMINI.local during implementation.
+
+1. On a physical Android Chrome page and separately its installed PWA, allow microphone access,
+   hold and speak. One short cue follows actual capture; permission denial or capture failure has
+   no start cue. Slide to cancel/edit: one cue accompanies the selected target and action text.
+   Stay still: no repeated cues. Return to send: a shorter cue. Exit and re-enter both targets:
+   each real transition cues once. Repeat on the target's lower and lateral edges with small jitter:
+   selection remains stable within the 12 CSS px exit buffer; release executes the displayed action.
+2. In the card page, open Voice vibration, choose Off without saving, then cancel by Close, scrim,
+   Escape or system Back: On remains effective. Save Off, reopen/reload/sign out and back in:
+   Off remains, recording and visuals work without pulses. Save On again. Page/PWA storage may be
+   separate; inspect the actual stored choice in each environment, not assumed sharing.
+3. Release, cancel, navigate away, switch conversations, background, close and reopen the page/PWA:
+   no stale cue and no microphone left open. Repeat while startup is delayed and while awaiting final
+   recognition. Disable site/system vibration: recording, visual cues and sending still work;
+   API availability and a true return value are not proof that hardware vibrated.
+4. On iPhone Safari and Home Screen WebApp, Android Firefox and desktop without a vibration API,
+   the card row is hidden and cannot open a selection sheet (HG-194); voice remains
+   usable where its separate capture requirements are met. Verify light/dark, Chinese/English and
+   large text at narrow widths. Test Android WebView separately and record its host/version.
+5. Record device, OS, browser version and page/PWA/WebView mode for each result. Assess whether
+   cues are perceptible and whether motor noise affects capture/transcription with non-sensitive
+   speech. Timing is 25ms at start, 30ms on cancel/edit entry, 10ms on return to send; amplitude is
+   not configurable. Physical tactile/audio acceptance remains pending until these checks run.
+
+## HG-166 · Web model alignment
+
+Use the isolated local Web stack or an explicitly authorized staging setup, never a real model
+mutation against production merely to test this change. Automated coverage: precise Gateway route
+and RPC validators, same-origin/CSRF/device checks, Connector metadata stripping, Web session result
+parser and dialog actions. Browser/device acceptance still must prove real Hermes persistence:
+
+1. Card page → default model: current default/provider; select another provider/model. Reopen and
+   verify the new default, create a new chat and verify it uses that default. Existing chats retain
+   their own model. Default picker has no reasoning effort or restore-default action.
+2. Chat → composer model chip: switch, confirm expensive selection or cancel it. Cancel leaves the
+   old model and recent list unchanged. While a reply runs, deferred notice stays visible and current
+   model/recents do not pretend application; next send checks actual session.info.
+3. Change reasoning, switch away/back and verify per-model preset; favorite a model and verify the
+   pinned section; recent chips stay newest-first, maximum five. Restore default changes only this chat.
+4. Model warning or timeout: keep panel open. Timeout displays HR-RPC-008 and no auto retry. A
+   failed default write displays HR-RPC-005 with retry; never show upstream endpoint or warning text.
+5. Switch Mac/profile while reading/saving: old replies do not change the new view. Missing feature
+   flags keep the default row read-only and preserve old session switching. Verify narrow/wide screens,
+   light/dark themes, keyboard and sheet close/back behavior. Model prefs are browser local.
+6. Before release deploy Connector, Gateway, then Web. Verify public source commits separately for
+   each required artifact; merging alone does not establish availability.
+
+## HG-185 · Web composer bottom margin on iOS
+
+Automated coverage: `web/src/ui/composerBottom.test.ts` pins the `.composer-wrap` rule to no bottom
+padding and leaves the safe-area inset to `.chat-bottom`. A stylesheet test can hold the rule but
+cannot show where the pill lands on a phone, so the layout itself still needs a real iPhone:
+
+1. Open a conversation on an iPhone (Safari and the Home Screen app) in portrait, keyboard down.
+   The input pill's bottom edge sits about 56 px above the screen bottom — the 34 px home-indicator
+   inset plus the disclaimer line and its 6 px gap — the same gap the Android client shows, and
+   roughly 8 px lower than before this change. The disclaimer never overlaps the home indicator.
+2. Focus the composer and open the keyboard: the compact layout is unchanged and the pill still
+   clears the keyboard. Rotate to landscape: the short-screen rule keeps its own smaller padding.
+3. With the generator line ("正在生成 N 份对话记录…") or an attachment strip above the composer, the
+   composer is pushed up by that row as usual and returns to the same bottom gap once it clears.
+
+
+## HG-187 · Android output haptics (physical phone acceptance)
+
+1. On the same Android phone, stream a short answer and a several-minute long answer in Hermes GO
+   and Grok. Record phone model/ROM/SDK, system haptics setting, subjective strength/comfort and
+   chosen spacing. Start Hermes GO at the 100ms minimum interval; tune only with physical evidence.
+   Neither JVM tests nor emulator screenshots prove this sensory comparison.
+2. Confirm Settings → Output haptics defaults on, can be switched off immediately and survives
+   app restart/profile switching. Disable system touch feedback: no output ticks despite app toggle
+   being on. Re-enable system feedback and confirm only subsequent output ticks resume.
+3. Use a bursty stream, then silence, thinking-only output and a running tool. Ticks follow the
+   paced visible answer, with none on silence, reasoning, tools or receiving placeholders. Test
+   a code block/table too. Send a large final burst followed immediately by completion: ticks
+   continue with newly painted tail text through the async Markdown renderer, then stop when that
+   text finishes. No independent pulse queue or ticks on later completed-history corrections.
+4. While streaming a long answer, scroll until its growing end is offscreen (even if the earlier
+   prose is still visible). No ticks. Return to latest: no replay; only further new text ticks.
+5. Open a sheet/fullscreen image/table, leave the chat, switch chats/profiles, switch apps and lock
+   the phone during output. All suspend ticks. Return/reopen: existing content is silent. Fail,
+   interrupt from another client, press Stop (including an offline/slow interrupt RPC), or enter approval/clarification:
+   no further output ticks for that run, even while the visual buffer drains after its terminal
+   event. Start another run: only its subsequent visible prose can resume feedback.
+6. On API 34+ check SEGMENT_TICK; on 26–33 check CONTEXT_CLICK. Compare the same phone with
+   0.1.160 and Grok: ordinary ticks must remain light and short without the old texture tick's
+   silent omission. Check supported vendor ROMs for strength/system-disable behaviour. A rejected
+   effect must not become a strong or continuous fallback vibration. If feedback is absent, enable
+   diagnostics and collect `haptics` gate/request lines: `result=REQUESTED` only means the system
+   accepted a request, not that the motor physically ran. No answer text is logged.
+7. Check the setting in Chinese and English, effective light/dark theme (including system light
+   with app dark), and fontScale 1.3. Check switch semantics and full-row toggling. Inject a
+   preference read/write failure: HR-STORE-002 is localized, Retry repeats the read/exact requested
+   write, diagnostics are only behind Details/Copy and redact credentials. Do not present a failed
+   save as a successful switch.
+
+8. Open Diagnostics → Output haptics tuning in Chinese/English, app light/dark and fontScale 1.3.
+   Scroll to all controls/actions. Check default system tick/100ms, soft tick and keyboard tap.
+   If amplitude control is absent, custom pulse is disabled and never falls back to full strength.
+   On a capable physical phone choose custom pulse; tune 40–500ms spacing, 1–30ms duration and
+   1–255 strength. Preview once and Preview 1 second; compare comfort with Grok on the same phone.
+9. During a one-second preview press Stop, change a slider/type, navigate back, switch apps and lock
+   the phone. No queued requests continue. Disable system touch feedback: custom and system previews
+   are suppressed with localized HR-HAPTIC-001 and a working Retry/choose-effect recovery.
+   Details must redact credentials. System effects have no independent duration/strength controls.
+10. Change a draft and leave without saving: chat keeps its previous parameters. Save, force-stop
+    and relaunch (this case does not inspect notifications), then switch profiles: the values persist.
+    Inject a write failure: HR-STORE-002, old chat settings preserved, Retry saves the exact failed
+    choice. Reset only changes the draft. Copy JSON: schemaVersion=1 plus type/interval/duration/
+    amplitude only. Record chosen values for a future built-in-default change; this release must not
+    guess them or enable output for a user who explicitly switched it off.
+
+Automated evidence covers the real list's paced reveal/async Markdown/visible tail producing system
+requests, disabled output silence, pacing/no replay, visible-tail geometry, API selection, persistent choice,
+read/write failure recovery, versioned parameter persistence/copy, capability gating, finite preview
+cancellation/replacement, saved interval application, scrollable light/dark/large-font controls and
+bilingual/redacted errors. Physical haptics and Grok comparison remain
+manual acceptance; test against a locally built APK only, restore local dev routing afterwards.
+
+## HG-190/HG-191 · Web Mac return and PWA push — device/production verification pending
+
+Automated coverage: picker toolbar/history-back and first-selection rules; Origin/CSRF/browser
+and stale-account registration rejection; provider endpoint validation; payload privacy;
+404/410 cleanup; worker deduplication, channel reset, routing and badges. The PostgreSQL
+integration test runs with `ACCOUNT_TEST_DATABASE_URL` (CI uses disposable PostgreSQL 18),
+covering all migrations, owner/shared/unrelated accounts, revoked grants/sessions/installations,
+refreshable access-cookie expiry and stale-channel cleanup. Local tests without that variable
+skip the database test; they do not prove SQL execution.
+
+On iOS 16.4+ with a production HTTPS PWA and explicitly enabled Gateway/VAPID configuration:
+
+1. In ordinary Safari, notification settings must explain Add to Home Screen without prompting.
+   Install, log in and open settings: no prompt until Enable. Test granted, dismissed, denied,
+   Settings re-enable, unsupported environment, server-off and failed/retried registration.
+2. With Mac A active, open another chat/account/list page and Choose Mac; toolbar back and
+   system back return to the exact prior page, retaining A and its drafts. Select B to switch.
+   First login with no active Mac cannot back into chat. Remove/revoke A while picker is open;
+   refresh must require a valid selection rather than restore A.
+3. With the PWA locked/backgrounded, produce completed/waiting/interrupted/unknown on owned
+   and shared Macs, including two profiles and two sessions. Confirm generic text, sound/banner
+   according to OS/Focus settings, and per-session unread badge. Confirm no title or transcript.
+   Repeat an event: one reminder. Foreground receipt must not duplicate its system notification.
+4. Tap each notification while logged in and after access-cookie expiry/login. Verify actual
+   account, Mac, profile and stored session. Invalid/unauthorized/removed Mac must not open.
+   Read one conversation: only that conversation's unread badge clears.
+5. Disable, log out offline, switch accounts, revoke installation/session/grant, and inject a
+   queued old-channel delivery. No old-account banner/click or unread badge may survive. Check
+   provider 410 cleanup; transient provider failure must keep registration for later events.
+
+Actual Apple delivery, background waking, system sound and permission/badge behavior cannot be
+certified by a Service Worker unit test or desktop browser fixture.
+
+## HG-194 · Web notification and voice-vibration settings
+
+Automated tests cover missing-API row hiding, iOS installation guidance, right-side state slots,
+Save/cancel, permission requests originating from Save, and failed/retried state changes.
+Real OS prompts, push delivery and physical vibration still need the actual browser/device.
+
+1. In Android WebView/Firefox and desktop environments without Push/Vibration APIs, unsupported
+   rows are absent. In ordinary iOS Safari the notification row remains, says Add to Home Screen,
+   and opens installation guidance without requesting permission. Record browser, OS and mode.
+2. In a supported browser/PWA, compare notification and voice-vibration rows with Theme in light/dark,
+   Chinese/English, 353px width and enlarged text: values sit right, arrows align at the far edge.
+3. Pick On/Off without Save, cancel via close/scrim/Escape/system Back, reopen: actual state is unchanged.
+   Save On requests OS permission directly; granting, dismissing and denying show their actual states.
+   iOS denial guides system notification settings; Android/desktop guides browser/site settings.
+4. Save Off, reopen and verify state. Fail/retry GET, registration and DELETE: HR-WEB-012 is bilingual,
+   raw provider data is absent, no success close occurs on failure, and repeated Save is blocked while busy.
+   Recheck after changing permissions and inspect server-off guidance.
+5. Actual background notification delivery follows HG-191; actual tactile/audio acceptance follows HG-189.
+   DOM fixtures do not prove either. No production push mutation is authorized by this task.
+
+# HG-204 · Web cold-start brand gate
+
+Use the deployed `/app/` in iPhone Safari and Home Screen, Android Chrome, and a desktop browser.
+Local mocked browser runs do not replace physical-device or production acceptance.
+
+Local evidence on 2026-10-11: Web typecheck, all 879 Vitest cases and build passed. The built bundle
+ran with the production CSP in headless Chromium 156.0.8078.4 and WebKit 27.2: phone 390×844,
+landscape 844×390, desktop 1280×900, light/dark and 150% text; delayed capabilities/history, stored
+chat/list/new/archive/account routes, signed-out login, warm visibility/online changes, history
+failure and missing-main-script timeout/reload passed without page errors. These use local fixture
+responses, not production accounts or physical iPhone/Android devices. Screenshots and the QA report
+are local session artifacts; the physical matrix below remains open.
+
+1. Open a fresh document in light/dark/system themes, Chinese/English and standard/extra-large font.
+   The first content is the transparent Hermes mark and wordmark, with the selected background;
+   no blank application frame or theme flash. Check phone portrait, short landscape and desktop;
+   brand and Retry fit or scroll without crossing safe areas.
+2. On a fast connection, entry does not wait for the status or a brand animation. Throttle a cold
+   request: status and the indeterminate strip appear after 700ms, never a fictitious percentage.
+3. Test `/app/`, `/app/s/<known-id>`, `/app/new`, `/app/archived` and `/app/account`. Entry waits
+   only for that screen's first usable content; a ready split sidebar cannot dismiss a chat gate.
+   The visible chat has already painted its first history. Background model/inbox/older history
+   loading does not hold entry. The target stays mounted through the transition.
+4. Signed out, cold-open a chat URL: enter login. Sign in and select a Mac; return to that target.
+   With no Mac, enter the usable device picker. Test expired access/valid refresh cookies as well.
+5. Block the main app JS while allowing the tiny `assets/startup-*.js`: after 15s, see the localized
+   `HR-WEB-013` and Reload/Retry. Unblock and retry. Also hang an API/first-history request, retry,
+   then release the old response: it must not dismiss the new gate or overwrite its target.
+6. Fail a first API/history request: retain its original localized HR code; hide the progress strip,
+   and use Retry or Reload where offered. Details stay collapsed and credentials remain redacted.
+7. After entry, type a draft, switch tabs, return and briefly disconnect/reconnect. Keep the chat,
+   reading position and draft; the brand gate must not reappear. Navigate within the app similarly.
+8. With reduced motion enabled, the strip is static and entry switches directly. Keyboard/screen
+   reader focus cannot reach the page hidden underneath; loading is announced only after the delay.
+   Failure focuses its recovery action; recovery exposes the target's controls.
+
+# HG-197 · Hermes GO Web adaptive workspace
+
+Target is `https://mrlgs.net/app/`, confirmed by the owner on 2026-10-09. Use the existing
+authenticated browser; URLs only select a conversation. Do not send a real prompt just to test layout.
+
+1. On Android Chrome (including the HONOR Magic V5 inner/outer screen), iPad/iPhone Safari and
+   Home Screen mode, record device, OS, browser version, root text size and CSS viewport dimensions.
+   At the default root size, a 624px usable container permits two panes; smaller windows use one.
+   Raise browser/app text size and confirm the budget increases, without clipped controls.
+2. Open a long conversation, load older pages and read halfway through a long answer. Type an
+   unsent draft and stage an image plus a file. Fold/unfold, rotate, resize OS split-screen, drag
+   the divider and collapse/reopen the list. Verify the same answer and in-answer offset remain,
+   text/files stay staged, and layout changes do not reconnect, send or interrupt a task.
+3. Select another conversation while the composer is focused, type a different draft, then return.
+   Each conversation must recover its own text, files, search and reading point. Wait for Markdown
+   and images to settle; a short loading placeholder must not move the offset into the next turn.
+   Let an image finish preparing while a different chat is selected; it must return to its owner.
+4. Settings are in the list's sidebar: “Large screen layout” → Automatic / Always single column.
+   Choice changes only on Save; cancel leaves the previous setting. Reload to check mode/width
+   persistence; unsent files and reading/search snapshots are page-memory only. A temporarily
+   narrow window must not overwrite the preferred wide-screen list width. Reset list width there.
+5. Test mouse and touch dragging at both limits, keyboard Left/Right/Shift/Home/End and
+   TalkBack/VoiceOver separator range announcements. Check active-row indication, new-chat FAB and
+   menu placement in the list pane. Each pane scrolls independently; tables/code may scroll inside
+   their own blocks without making the document scroll sideways.
+   HG-203: in light/dark themes and single/split layouts, compare the new-chat FAB with Android:
+   a 56px rounded square with 22px corners at the default root size, retaining the dark outline.
+   Increase text size and confirm the size/corners scale together. Click/tap it to open the new-chat
+   composer; the route itself must not send a prompt. Record physical Android Chrome and
+   iPhone Safari/PWA results separately from desktop browser emulation.
+6. On iPad Safari with the soft keyboard and a large screen, ensure only the chat pane fits the
+   visual viewport; it must not expand across the list. Verify IME composition, attachments,
+   approval/question sheets, models, image viewer and input remain reachable with safe-area insets.
+7. Browser Back first closes the top overlay or focused composer, then returns to the original
+   list/archive. Rapid selection while the composer blurs must land in the clicked conversation.
+   Check notification/deep links and Forward/Back in both one- and two-pane states.
+8. Sign out or revoke the browser session and switch accounts: files/search/reading memory clears,
+   stale async work cannot write into the next owner. Block localStorage and ensure layout choices
+   still work in memory. Browsers without a physical hinge report use the ordinary viewport;
+   real hinge/half-fold behavior remains a device acceptance item.
+
+Automated DOM tests cover pane budgets, saved preferences, stable mounting, dragging/keyboard,
+attachment/draft ownership, reading/search restoration and navigation races. Desktop Chromium and
+WebKit size/keyboard emulation is useful evidence, but does not count as physical Android/iOS,
+TalkBack/VoiceOver or an actual folding gesture.
+
+# HG-231 · Web recording release and interruption recovery
+
+Primary acceptance target: the **iPhone Home Screen installed Web App** reported by the owner.
+Record iPhone model, iOS version, Web build and entry mode; record Safari-tab and Android Chrome
+results separately. DOM tests in `VoiceComposer.test.tsx` and `Composer.test.tsx` prove event
+routing, terminal-action deduplication, partial-text/attachment retention and late-callback rejection.
+They do not prove WebKit's physical touch sequence or that the system microphone indicator clears.
+Physical iPhone acceptance has not been performed for this change.
+
+1. In a disposable chat, prepare draft text and an attachment. Hold to talk, speak, slide away from
+   the original button (including beyond the overlay's central card), then release. The microphone
+   must stop promptly. Ordinary release sends the draft, final speech and attachment exactly once;
+   release in the left cancel or right edit target follows the drawn action even on a fast slide
+   without pausing. Cancel discards only this speech; Edit appends the final text to the draft.
+2. Repeat while moving near the screen edge, using another finger to tap/release outside the
+   targets, and with rapid press/release (under 250ms). Another finger must not finish the original
+   hold; a short original press cancels. Repeated end/cancel signals must not send twice.
+3. While recording with partial text visible, open Control Center, switch apps, lock the phone or
+   otherwise interrupt the gesture. Capture and the connection must close immediately; on return,
+   partial text is appended once to the existing draft, attachments remain, and nothing is sent.
+   If the OS never reports an interruption until the page resumes, record that sequence and delay
+   explicitly rather than calling it verified. Check the OS microphone indicator as well as the UI.
+4. If the recording becomes stuck after a missed release, independently tap Cancel or Edit.
+   Cancel must stop/discard this recording; Edit must stop capture, wait for the bounded final
+   result and put it in the draft. Neither operation may require a fresh slide. Repeat with
+   VoiceOver activation. Keep partial/final text, attachments and submitted messages under review.
+5. Confirm normal keyboard Space/Enter holds, arrow target selection, Escape, Cancel waiting,
+   five-minute-to-draft completion, chat switching, sign-out and network/final-result errors still
+   work. On desktop also release beyond the button and outside the browser window, then re-enter;
+   no live microphone may remain after a detected window blur or a move reporting no pressed button.
+
+# HG-201 · Web session long-press release isolation
+
+Automated: `web/src/ui/useLongPress.test.tsx` exercises the real SessionRow/SessionActionSheet
+with compatibility clicks targeting the row, menu and scrim; ordinary/bot/archived actions,
+slow release, source-row unmount, a second finger, fresh taps, keyboard/assistive activation,
+native context menus, short taps and scroll/cancel/timer cleanup. These are supplied DOM events,
+not proof of an iPhone's actual event sequence. No physical iPhone result is recorded yet.
+
+1. On an iPhone, record the model, iOS version, Web build and Safari vs Home Screen PWA mode.
+   Use disposable ordinary, bot and archived conversations. Long-press rows both above and within
+   the area the bottom sheet covers. Keep holding for at least five seconds, then release without
+   a second tap: no pin/unarchive, rename/move/confirmation screen, scrim dismissal or chat opening.
+2. Repeat with a small finger movement after the sheet appears, and with release following the
+   browser's context-menu/pointer cancellation path. A source list refresh must not remove the
+   release-click protection. Scroll before 500ms: no sheet. A short tap still opens the chat.
+3. After each hold, tap an action or the scrim immediately: that independent tap works even if
+   the opening gesture produced no click. Recheck ordinary, bot and archived sheets; archive and
+   delete still require their separate confirmation. Never confirm deletion on valuable sessions.
+4. Recheck VoiceOver activation and keyboard Enter/Space, Escape/system Back, and desktop right
+   click followed by a normal menu click. The menu must remain reachable with these inputs.
+
+## HG-205 — Web fullscreen charts
+
+Run the HG-205 cases in `ANDROID_SMOKE.md` in Chrome and mobile Safari/Home Screen: source-only
+chat, fullscreen recommendation, collapsed Adjust, filter/reset, complete source and exact values,
+100-point page navigation, long labels, resizing, close/reopen and scroll restore. Unsuitable tables
+must expand without required setup. Verify live Gateway CSP, storage denial, renderer retry and
+account/session isolation. DOM and local Chrome checks do not prove Safari or live-account behavior.
+
+## HG-216 · P1a accountProfile enablement (pending release verification)
+
+Use an isolated staging Gateway/schema19 and compatible Web/Android; no production flag changes
+are implied. Full implementation contract: [ACCOUNT_DATA_SYNC_P1A.md](ACCOUNT_DATA_SYNC_P1A.md).
+
+1. With the capability absent/off, sign in on both clients. The old Web editor and native account
+   routing still work, and neither client calls a sync endpoint. Pins/read/model/prompt behavior stays local.
+2. With the explicit version-1 accountProfile capability, sign in to the same test account in Web
+   and Android. Change name and a square avatar in Web. Within one visible 30s refresh, both account
+   cards show the cloud values. The Hermes identity avatar and selected Mac do not change. Check
+   light and app-dark themes with large text; name/email stay readable.
+3. After an initial snapshot, take Web offline and save a name or image. It says waiting to sync,
+   not saved to cloud. Reload: the bounded queue survives. Reconnect: the original operation settles
+   once. Change the same field on another client before delivery: show HR-SYNC-006, retain the typed
+   name, show the cloud name, and require a new explicit Save. Different fields do not conflict.
+4. Interrupt a successful mutation response and restore the connection. Replays keep the original
+   opId/base/issuedAt; no stale ACK replaces newer cloud state. Disable browser storage: an attempted
+   edit shows HR-SYNC-011 and sends no mutation. Never copy tokens/image bodies into diagnostics.
+5. Leave an edit pending in one tab, sign out/switch accounts in another, then reconnect the old tab.
+   No old edit reaches the new account, no old queue returns on a later sign-in, and private avatar
+   responses are not in the Service Worker cache. Hold an Android avatar response across sign-out:
+   the name/photo and session must not return.
+   Block the second tab's network before signing out in the first: it must immediately hide its
+   account/chat content and show ordinary login, without waiting for a server 401 or rebroadcasting.
+6. Revoke the installation, then replay a previously successful sync operation. It is rejected even
+   if the idempotency metadata still exists. On a disposable database, exercise the 30-day deletion
+   deadline and bounded retries: account_profiles bytes and sync operations are removed before the
+   account is marked cleaned. No Mac history or other account is removed.
+
+Automated PostgreSQL/HTTP/queue/DTO/L1 regressions cover these boundaries separately. Local live
+browser/Android consumer evidence and repeatable isolated smoke drivers are recorded in
+[ACCOUNT_DATA_SYNC_VALIDATION.md](ACCOUNT_DATA_SYNC_VALIDATION.md). Physical phone interaction,
+device appearance, Service Worker behavior and production recovery still require their own gates;
+an emulator cannot certify vendor behavior, and local source verification is not a published artifact.
+
+## HG-222 independent attachment channel
+
+After separately authorized Gateway/Connector/Android rollout:
+
+- HEAD ordinary/large files returns exact original metadata without a body. New capability requires
+  both Gateway and the selected Mac; legacy GET retains MAX_FILE_BYTES and thumbnail behavior.
+- POST prepare returns opaque IDs, never original paths. New GET URLs contain only opaque IDs.
+  Verify Range/ETag/Content-Range and cancellation. A wrong/replayed return ticket is refused.
+- Transfer a 1 GiB fixture while chatting. Observe bounded Mac/Gateway memory, progress, heartbeat
+  health, latency and cancellation. Public HTTPS Nginx routes must disable request/response buffering
+  in both legacy and device-scoped paths. This is a real-network gate, not proof from loopback.
+- Interrupt the phone and the Mac independently. Resume the exact generation, invalidate replaced
+  sources, and reject access after account/session/installation/binding revocation or Mac replacement.
+- Verify actual-cap HR-FILE-004, changed-source HR-FILE-011, unavailable-channel HR-FILE-012,
+  capacity HR-FILE-013, storage HR-FILE-014 and expired-reference HR-FILE-015, with recovery actions.
+- Roll back one component: small legacy opening remains; large independent downloads must not
+  silently use control-stream bodies. No directory listing or public unauthenticated file access.
+
+Local 2026-10-21 real-process loopback transferred 1,073,741,824 bytes in about 21.4 seconds with
+paced 128 MiB/s fixture configuration. Observed RSS peaks: Mac 109,664 KiB, Gateway 126,864 KiB;
+maximum concurrent mock-command response was 26 ms. This proves neither mobile-network throughput
+nor real Hermes/OEM latency; production defaults pace file output at 4 MiB/s.
+
+For an edge-backed download, prepare with `POST /api/files/downloads` and redirects disabled:
+it must respond directly with the descriptor, without a 301/302/307/308 or appended slash. Nginx
+automatically redirects a bare path when only a proxied trailing-slash prefix exists, so every
+edge template must retain its exact preparation location. The authenticated production-edge
+synthetic smoke on 2026-10-21 first reproduced this 301→GET→400 failure, then passed preparation,
+134,217,735 bytes of resumed Range responses, full SHA-256, legacy cap, missing-auth rejection
+and stale-ETag rejection after the exact route was installed. Concurrent control REST latency
+peaked at 29 ms. It used a disposable synthetic Connector, not the user's bound Mac or phone.
+
+
+## HG-224 — compaction-archived conversation history
+
+Use a disposable conversation with at least 13 distinct user prompts and enough tool rows to cross
+three pages. Record the prompts before forcing upstream context compaction. Do not edit the DB.
+
+1. On Android and Web, reopen after at least two compactions. Scroll to the oldest question;
+   open 我的提问, select that question and search for its unique text. All original questions and
+   answers must remain ordered once; machine summaries must not become extra questions.
+2. Reopen Android after process restart (including an old active-only cache from the previous
+   version). Reopen Web. Repeat the prompt count/jump checks. Rebuilt history must reach the true
+   beginning rather than preserving a stale reached-start marker.
+3. While another client adds more than one page, load older history. Inspect requests: initial tail
+   is 100 rows, older pages request 101 with one overlapping boundary row, all with
+   `include_compacted=true`. No skipped or duplicated turns; refreshing keeps the reading anchor.
+4. Delay an older response, then refresh after Undo/Rewind. Releasing that response must not revive
+   removed turns. If compaction replaced the boundary meanwhile, HR-SYNC-001 retains the shown
+   transcript; Retry first resynchronizes the tail and permits further paging.
+5. Export/share/attach the whole conversation and open an archived tool result/reasoning card.
+   Original text must be complete; preview bytes must not be copied as full content. The selected
+   profile/Mac must remain unchanged. Repeat against older Hermes without `display_content`.
+
+Automated coverage: Android REST, mapping, raw windows, repository/disk, runtime alignment and
+error tests; Web paths, mapping, page merges/session/reducer; Connector projection pass-through.
+The API 36 `CompactedHistoryDeviceTest` exercises the prompt sheet and an archived first-question
+selection in both themes using synthetic history. This is not incident-Mac or physical-HONOR proof.
+
+Still required: identify the Mac serving incident session `20261018_222453_598255`, verify that its
+archived rows survive and compare Android/Web with the official upstream transcript. No production
+service, database, or installed Hermes source is modified by this change.
+
+Local HG-224 evidence (2026-10-22): Android 2,602 JVM tests and `:app:assembleDebug` passed,
+including canonical debug certificate verification; Web 938 tests and its type-checked production
+build passed. Pixel_9_API_36_1 / Android 16 ran both `CompactedHistoryDeviceTest` cases: the sheet
+showed 13 prompts and the archived first prompt was selectable. Both screenshots were inspected.
+No physical device was attached. Root `npm run build` passed; root `npm test` passed protocol
+(18), Connector (151), Gateway (222 passed / 32 skipped) and release server (37). Its scripts suite
+had 432 passed / 1 skipped / 2 failures in unchanged `legacy-recovery.test.mjs` CMS decryption
+under this Mac's LibreSSL 3.3.6; the same two failures reproduced when run alone. CI remains a
+separate merge gate. No APK distribution, version allocation or production deployment occurred.
+
+
+## HG-222 original-quality video streaming follow-up
+
+- On compatible Gateway/Mac versions, tap both a <100 MiB and a >100 MiB MP4: a first frame must
+  appear before the entire body transfers, with a separate Download action. Repeat with moov at
+  the tail and seek near the end; verify closed bounded ranges, not a growing full-file download.
+- Start Download, then play that video: the current uncommitted range is cancelled, progress rolls
+  back only to its durable checkpoint, and the task says Waiting for playback. Pause/close the
+  player; the download resumes and reuses validated playback blocks. A user-paused/cancelled task
+  must remain paused/cancelled, including while leaving the Activity/backgrounding the phone.
+- Complete a download, disconnect the Mac and play locally. Share/Open externally only complete
+  large files; a playback cache hit alone must not enable large-file sharing.
+- Force reference expiry and reconnect the Mac: unchanged size/ETag resumes. Replace the source
+  or switch account/Mac: stop with the appropriate stable HR code, with no mixed-generation bytes.
+- Interrupt cellular/Wi-Fi mid-playback: retry from the saved position, preserving generation.
+  Concurrent second-phone playback may show HR-FILE-013 and Retry; it must not starve control RPCs.
+- Background and return: no playback/network loader in background; position retained, tap Play to
+  continue. Explicit download still uses the existing transfer job and completion notification.
+- Try unsupported/corrupt codec/container: HR-FILE-016, localized text, Download and Copy diagnostics;
+  no raw exception. Verify light/dark, Chinese/English, enlarged text and portrait/landscape controls.
+
+The synthetic decoder/Range device tests do not replace real HONOR/Xiaomi ROM, original user MP4,
+cellular/home-NAT and targetSdk-level checks. Record the actual available layers with the result.
+
+## HG-228 Web chat running state (2026-10-22)
+
+1. On iPhone Safari/Home Screen and Android Chrome, send a long task. While Hermes is accepting it
+   and before the first token, expect one three-dot status line and the Stop button, then the same
+   single status line under live reasoning/tools/text. Completing must clear both running controls.
+2. Leave a running conversation for the list and return; repeat a cold-open URL and reload.
+   `session.resume.running` must restore the chat status even without a `session.info` push.
+   Returning after the task finished must show its final transcript and idle composer.
+3. Disconnect/reconnect while running, including a completion during the gap. The resumed snapshot
+   must clear an ended run and refresh history, retaining one final answer. Stop during reconnect
+   must send `session.interrupt` after restoring the handle, not only hide the status locally.
+4. Delay inbox delivery and the `prompt.submit` reply. Old run.started/run.completed notifications
+   must trigger a current-state check rather than resurrect/stop a newer run; notifications during
+   submission must be checked afterwards. A reply arriving after completion must not revive Stop.
+5. Force a refused submit/upload failure, retry, then stop. Keep the localized existing HR error and
+   its recovery action; no empty assistant bubble or stuck dots. An already active run must survive
+   a refused extra submit. Approval/clarify cards must still restore and remain answerable.
+6. Switch conversations and Macs, and repeat both themes at phone and split-pane widths. Status
+   must stay with the selected conversation; no duplicate waiting/streaming status, misplaced scroll
+   anchor, empty-chat greeting during a run, or newly exposed raw diagnostic text.
+
+Automated: fake-WebSocket + real reducer cases cover silent resume, pre-ack state, failed/late submit,
+reader ordering, lifecycle invalidation/deferral/serialization, reconnect, real Stop RPC and older
+Hermes without a running field. DOM cases cover dots/Stop, completion, interrupt and selected-session
+invalidation. Three regression cases failed on the old implementation before the repair.
+Local Chrome/Playwright checks passed at 393×852 (light/dark) and 1100×800 (split): silent running
+resume, Stop, submit wait, streaming, completion and late acknowledgement, with no page errors.
+Screenshots after startup dismissal were visually inspected. These use mocked API/WebSocket traffic,
+not production or a physical phone. Safari/WebKit is unavailable in this host's Playwright installation;
+iPhone Safari/Home Screen, Android Chrome on a physical device and the original incident conversation
+still need verification. No production deployment or version allocation occurred.
+
+## HG-229 · iOS chat blank frame after keyboard dismissal
+
+Target: Hermes GO Web `/app/`, in physical iPhone Safari and its Home Screen WebApp. Record the
+phone, iOS, keyboard/provider and Web source commit. Use existing history and an unsent draft;
+layout verification must not send a real prompt.
+
+1. Read halfway through a long reply, focus the composer, type a multiline draft, and dismiss via
+   the system Done control, a tap outside, and text-to-voice switching. Repeat several times.
+   Expected: the chat header stays visible, no blank band replaces the top of the chat, and the
+   composer returns to the bottom without a keyboard-sized blank region underneath. Do not scroll
+   to repair the screen. The system keyboard assistant and safe-area inset remain system-owned.
+2. While reading, switch to another app and return, then use browser Back/Forward and reopen the
+   conversation. Rotate portrait/landscape and repeat both themes. The frame should recover by
+   itself; text, pending attachments and the reading point remain scoped to that conversation.
+3. In an iPad/split workspace, verify the keyboard adapts only the chat pane. Open search or a
+   text-entry sheet: moving focus there must not reset the document under an active keyboard.
+   Check Android Chrome and desktop retain their usual layout. In ordinary Safari, pinch zoom
+   and pan must remain under the reader's control.
+
+Local evidence (2026-10-23): an iPhone 17 / iOS 26.5 Simulator Safari fixture using the real Web CSS
+and viewport follower recorded layout height 714, keyboard visual height 377 and offsetTop 245.
+After blur, the document had already returned to scrollY=0 while the visual viewport still reported
+377/245: the old frame therefore occupied y=245..622, producing top and bottom blank bands until
+the later viewport update. A second fixture with the real Composer confirmed the repair: after
+blur the frame was y=0..714 even while visualViewport still reported 377/233. Keyboard-up,
+keyboard-down and landscape screenshots were inspected. These local fixtures contain synthetic
+history and do not prove the incident's production conversation, Home Screen mode or a physical
+keyboard provider; those checks remain required above.
+
+Automated regressions replay the measured stale-viewport interval, delayed resize after blur,
+refocus, root-document pan on scroll/pageshow/visibilitychange, cleanup, non-text/read-only controls,
+other text fields, zoom, and the real Composer's typing-to-voice transition. The stale-viewport and
+root-pan regressions failed before the fix. The helper leaves draft values and inner message scroll
+positions alone. No new user-visible failure or error code is introduced.
+
+Local Web baseline passed: `npm run typecheck`, `npm test` (96 files / 968 cases),
+`npm run build`, and `git diff --check`. No production deployment or version allocation occurred.
+Integration with `ef4d5d1b` preserved the HG-230/HG-231 behavior and documentation; the Web baseline
+passed again with 97 files / 994 cases. Only additive documentation conflicts required resolution.
+
+## HG-230 · live reasoning, tools and status (Android / Web)
+
+Use a scripted local run with long multiline reasoning, four sequential tools (including one failure),
+then prose and completion. Check both clients in light/dark, narrow widths and fontScale 1.3 / browser zoom:
+
+1. Reasoning starts folded during the run and when reopening settled history. Later reasoning,
+   tools and prose never open it automatically. An explicit Expand shows all reasoning and survives
+   completion; an explicit Hide
+   remains hidden through later tokens. Opening historical reasoning still loads its full content.
+2. A running tool group shows only its newest call with total/failure counts. Expand shows all calls;
+   new calls do not undo that choice. Collapse returns to one latest call. Completion folds only
+   groups that were not manually expanded; each call's output is still accessible.
+3. Before visible prose starts, running status has no line limit and retains the full latest nonblank reasoning line
+   or active tool command (including >64-character/multiline commands), and opens a selectable full
+   snapshot on tap. Updates do not change the snapshot being read; close/Escape/back returns to the
+   same transcript position. Text is plain text, never executed HTML/Markdown.
+4. Grow the status beyond three lines, then start the final prose while the run is still streaming:
+   status text must disappear immediately, the dots remain, and the footer releases the text's height
+   instead of leaving a large blank. Tool-only structured payloads and whitespace must not hide status.
+   Later reasoning does not bring status back over visible prose. Completion replaces dots with actions.
+   While browsing older content, tokens/completion must not steal the
+   reading position. Exercise entering/reentering a running conversation and interrupted/reconnected runs.
+
+JVM/DOM tests cover disclosure transitions, preview rows and status text/snapshots. Actual device,
+Safari/PWA, gesture, text-selection and scroll behavior requires the visual/manual pass above.
+
+Historical evidence for the superseded initial behavior (2026-10-22): Android L1 has disclosure/footer regressions and
+light / app-dark-on-light-system / fontScale 1.3 screenshots. The complete JVM suite passed
+(2645 tests) and `:app:assembleDebug` passed its canonical signing-key check. Web typecheck,
+959 tests and production build passed. Local Chrome component checks at 393px light/dark,
+393px with 1.3x text, and 1100px verified five-line preview tail-follow, three-line status,
+Escape dismissal, automatic completion folding and unchanged footer height. This is component
+verification; physical Android and Safari/PWA plus full-conversation reading/gesture acceptance
+remain manual. No version bump, distributed APK or production deployment is part of this change.
+L3: `MessageProgressDeviceTest` passed on Pixel_9_API_36_1 (Android 16 / SDK 36);
+its preview and full-status screenshots were pulled as nonempty PNGs and visually inspected.
+It covers native touch, manual disclosure through completion, newest-tool visibility and dialog
+open/close. This is an emulator result, not a physical-device result; no SDK-37-gated platform
+behavior is claimed. L2 was unavailable (no physical device attached).
+## HG-233 · Web conversation artifacts (physical browser acceptance pending)
+
+- In More → Artifacts, complete an old paged conversation, exclude original uploads and tool-only
+  outputs (including flattened envelopes), distinguish same-name files, and keep one latest source
+  for a repeated path. A failed initial read or failed/stalled older-page read must show the actual
+  structured failure and retry rather than claim no artifacts exist.
+- Preview Markdown/text, sandboxed static HTML, generated images and a browser-supported video.
+  Use the actual hosted shell CSP, including the Gateway's `media-src blob:` policy; a Vite page
+  without production headers is not evidence that video playback works after publication.
+  HTML must have no script, parent-origin, network, form or navigation privilege; the original file
+  remains downloadable. Unsupported formats and text above the preview bound offer download.
+- Scroll the list, open and close a preview, then navigate to the source assistant turn. Check the
+  landing outline and restore list scroll using Back to artifacts or browser/system Back. Opening
+  chat search from context must let Back close search first. Keep composer text and attachments.
+- Switch conversation, profile, account and Mac; reject late work from the old scope. Verify empty,
+  loading, unreadable/missing-file and offline states. Existing media/download caches retain their
+  prior semantics; this change creates no immutable history copies or global library.
+- Local DOM tests, build and real in-app-browser fixture inspection cover the implementable paths.
+  Physical Android Chrome and iPhone Safari/Home Screen, codec support, real download UI and offline
+  transitions still require acceptance on those browsers before publication.
+
+### HG-236 video read-ahead regression (Android)
+
+- On compatible peers, cold-open an original video and confirm a first frame before full download;
+  tail-index MP4 must still fetch its index on demand. Then play continuously and seek rapidly in
+  both directions; delivered frames must match the target and no superseded range may keep running.
+- Compare cold-cache first frame, seek recovery p50/p95, rebuffer count/time and transferred bytes
+  with the same video/network. Include a slow link and fast/slow transitions. Max four requests of
+  <=1 MiB, bounded prefetch and server aggregate rate must hold; legacy peers must remain serial.
+- Pause, background and close during an active window; network traffic stops. Resume preserves
+  position; a user-paused download stays paused and playing priority drains before download resumes.
+- Repeat playback/download to verify cached block reuse. Reconnect/expire references during parallel
+  reads; renew one generation only. Account/Mac or source-generation changes must not deliver/cache
+  bytes from the previous identity. Preserve HR-FILE/HR-AUTH recovery messages.
+- Physical Wi-Fi/cellular/NAT, original HONOR codec and OEM background behavior still require device
+  verification; L1 and synthetic L3 results do not establish those outcomes.
+
+### Hermes compatibility: Gateway OCI identity evidence
+
+The Gateway OCI workflow now runs `scripts/test-gateway-compatibility-evidence.mjs outputs/gateway-bundle`
+after packaging the immutable bundle. It creates only disposable network-isolated containers from
+that just-built image, checks health, verifies original archive/runtime association, and confirms
+that an additional `NODE_OPTIONS` setting is rejected. Both containers are removed in finally.
+The success marker is `GATEWAY_COMPATIBILITY_EVIDENCE_ACCEPTANCE_OK`; the emitted report explicitly
+leaves public routing and compatibility approval unverified. The CI origin is synthetic.
+
+Local parser/collector coverage runs with:
 
 ```sh
-node scripts/hermes-compatibility-gateway-evidence.mjs \
-  --manifest /canonical/release/Hermes-Gateway-VERSION-COMMIT-linux-amd64.manifest.json \
-  --container hermes-gateway-blue --origin https://gateway.example \
-  --version VERSION --sha256 ORIGINAL_ARCHIVE_SHA256
+npm run build
+node --test scripts/test/hermes-compatibility-gateway-evidence.test.mjs scripts/test/gateway-archive-identity.test.mjs
 ```
 
-输入的路径必须满足既有 ops 无符号链接、不可被组/其他用户写入的要求。输出仍是未签名的时间点
-观察；`publicRouteVerified=false` 明确表示尚未证明公网反向代理选择了此容器，origin 是受控调用者
-提供的关联范围，不能当作网络回读证据。该输出不会被管理员 API 直接接受，也不会自动满足普通
-Desktop 的 Gateway 身份。受保护发布任务仍需绑定部署选择/公网回读、另外四组件并签名及续期。
-无法使用 schema-3 包、Docker、标准启动布局或满足运行约束时，输出 HR-HERMESCOMPAT-004。
+Those tests create a real synthetic OCI tar and use real bounded tar reads, but inject Docker
+observations. They do not substitute for the real Linux/Docker workflow. Cover mismatched archives
+and image IDs, code-path mounts, mutable root, loader overrides, process/container changes, unsafe
+arguments and redacted bilingual errors. No production deployment or live-host acceptance follows
+from a CI success; trusted inventory assembly and public-route binding remain separate gates.
 
 
-## I2 核心 REST 读取证据范围
+### Hermes compatibility: required REST reads
 
-`required-read-surfaces-v1` 对应 Connector 合同的四个必需 GET 路由：`/api/status`、
-`/api/sessions`、`/api/profiles/sessions`、`/api/sessions/{id}/messages`。在 source、candidate、
-restored 三阶段检查实际版本/状态类型、合成会话 ID 和消费字段类型、数值秒级消息时间戳、原始文本，
-以及历史 `limit=1&offset=0/1&order=oldest` 的结果和分页元数据。验证使用真实 Connector 鉴权适配器。
-这是默认 profile 的单条文本合成历史范围；多模态内容、其他 profile、可选端点、写操作和真实客户端
-业务继续由其他验收覆盖，不能从这个 `rest=passed` 推断已支持全部 REST 功能。
+After `npm run build`, run:
 
-报告必须在三个阶段声明同一范围，包含五项明确布尔结果，并绑定实际 suite/probe 摘要；任一失败
-使 REST 失败，缺项、未知范围或范围混用拒收。旧的无范围报告仍可验证原鉴权证据，但 REST 保持
-`not_run`。REST 检查引用接口证据摘要，不能借用安装成功的摘要。历史证据不因测试代码更新而升级。
+```sh
+node --test scripts/test/hermes-compatibility-core-rest.test.mjs scripts/test/hermes-compatibility-worker.test.mjs
+python3 scripts/hermes-compatibility-contract-lab.py --lab-root <successful-disposable-runtime-lab>
+```
 
+The second command accepts only a private temporary lab created by the runtime rehearsal, with the
+fixed old/new checkouts and synthetic history. It starts only those sandboxed processes, reactivates
+the candidate at its original lab path, and restores the old path in finally. Never pass a daily HOME.
+Require all three stages to include `restScope=required-read-surfaces-v1` and five core REST booleans;
+the REST-only report has 16 checks per stage; the current probe adds six scoped session RPC checks. Record the immutable report and suite/probe hashes.
+Regression coverage rejects renamed IDs/timestamps, numeric/boolean coercion, ignored pagination,
+missing/mixed scopes and failed stages; old 11-check reports must keep REST `not_run`.
 
-## I2 会话 RPC 局部证据
-
-`synthetic-session-lifecycle-v1` 在同一 WebSocket 上等待 `gateway.ready` 后先声明客户端能力，再
-按真实 Web 客户端的参数形状创建空会话、恢复合成历史、读取恢复句柄的 reasoning 配置，最后用
-真实 Connector 活动列表解析器核对 live handle 与 stored ID 的关系。恢复请求使用
-`omit_messages=true`，不得收到完整历史；此局部范围不包含 `prompt.submit`、附件或模型推理，对话验证见下节。
-
-连接有 45 秒总期限和 1 MiB 单帧上限，匹配 JSON-RPC 版本和响应 ID，断连会失败当前等待；结果
-只保留固定布尔检查，不记录句柄、原始响应或错误正文。三个阶段必须声明相同范围和全部六项
-布尔结果；缺项、混合范围或状态矛盾拒收。局部全部通过仍不把总 `rpc` 项标为通过，因为尚未
-覆盖完整 prompt 流式事件、工具/审批、生成中断重放与完整客户端协议；任何已测路径失败则明确记作
-`rpc=failed` 并引用接口证据，不能隐藏成未执行。
+The observed pass covers only default-profile text history on the four required read routes.
+Multimodal transcripts, optional operations, actual Android/Web rendering, relay integration and
+full RPC sessions still need their dedicated acceptance; this does not authorize an upgrade.
 
 
-## I2 本地模型文本对话证据
+### Hermes compatibility: session RPC lifecycle
 
-`loopback-model-text-turn-v1` 在上述会话范围之外新增 `prompt.submit`，要求 streaming 接受结果、
-匹配新建会话的 `message.delta` 拼接和 `message.complete` 正文，以及历史接口中真实落盘的
-user/assistant 内容、行 ID 和秒级时间戳。模型是固定回复的本地 HTTP fixture；Hermes 安装、
-模型客户端、RPC 处理、流式事件和数据库仍使用固定官方原版。
+Run `node --test scripts/test/hermes-compatibility-session-rpc.test.mjs` for loopback WebSocket
+regressions and parameter parity against the real Web builders. Repeat the disposable contract lab
+command above for source/candidate/restored upstream execution. Current scope has 22 checks per
+stage, including ready/capabilities, empty-session creation, stored-session resume without transcript,
+reasoning configuration and stored/live identity correlation. Record hashes from the final probe.
 
-执行器在每个合成运行环境里临时替换默认配置，使用 loopback custom provider 和无效于任何
-真实服务的合成凭据；在后端进程停止后恢复原配置字节/权限。OS sandbox 只允许 loopback 外连，
-先验证保留测试地址连接因权限被拒绝才创建 fixture 或启动 Hermes。原始外网访问、生产模型
-凭据及日常安装不参与。配置恢复是正常/异常收尾保证，不认证进程被强杀后的恢复门槛。
-
-每阶段新增六项：提交接受、流式回复、历史落盘、本地模型请求实际到达、配置恢复、外网隔离。
-报告绑定 fixture SHA-256 与既有 suite/probe 摘要，缺项、混合范围、错误摘要或状态矛盾拒收。
-80 秒连接总期限、1 MiB 帧上限、最多 256 条/64 KiB 文本事件限制测试资源；保存必要字段，
-不上传原始请求或模型响应。只接受预定合成提示，本地 HTTP 请求体最多 4 MiB。
-
-CI 验证 worker 使用 `--prompt` 执行此范围。局部通过仍不能认证完整 RPC 或客户端业务，
-工具调用/审批、生成中断重放、真实模型、Connector/Gateway 中继与手机/Web 端到端仍待验收。
-任何已测对话路径失败明确记为 RPC 失败，不因它是模拟模型而忽略。
+Cover missing readiness, wrong response IDs, invalid envelopes, timeouts, disconnects, RPC errors,
+unexpected transcript, mismatched activity identity and invalid configuration shapes. Partial session
+success must leave full RPC acceptance not run; any exercised failure must propagate as failed.
+Prompt streaming, real model/tool/server requests, reconnect/replay and actual Android/Web business
+still require dedicated acceptance. No daily install or production account belongs in this lab.
 
 
-## I2 已完成文本对话的重连证据
+### Hermes compatibility: fenced local-model text turn
 
-`completed-text-turn-reconnect-v1` 必须附着于上述本地模型文本对话范围。首次连接关闭后才新建
-独立 WebSocket；新连接重新等待 ready、声明能力，用刚完成对话的 stored ID 恢复，再核对
-live/stored 映射并回读历史。恢复不能夹带完整历史；两条预期消息的行 ID、角色、正文和数值
-时间戳必须与断开前一致。缺失、重复或被重写的预期消息均不通过。运行句柄可按上游规则变化，
-不能假设句柄字符串相同就代表恢复成功，也不重新提交原提示。
+```sh
+node --test scripts/test/hermes-compatibility-session-rpc.test.mjs scripts/test/hermes-compatibility-lab.test.mjs scripts/test/hermes-compatibility-worker.test.mjs
+python3 -B scripts/hermes-compatibility-contract-lab.py --prompt --lab-root <successful-disposable-runtime-lab>
+```
 
-新增五项布尔检查在 source/candidate/restored 都必需完整，范围缺失或混用拒收；任何失败
-明确记为 RPC 失败。重连连接有 15 秒期限和 1 MiB 帧上限，错误和句柄不进入公开证据。
-该范围不认证服务进程重启、生成中断/重放、Desktop 生命周期、升级恢复覆盖新版数据或手机/Web
-业务；这些独立检查仍保持未执行。完整 RPC 也不能由这份局部成功提升为通过。
+The explicit prompt mode adds a deterministic loopback model and six checks per stage (28 total).
+Require external-network PermissionError before starting the model/backend, then verify a fresh
+session accepts the exact synthetic prompt, emits matching deltas/completion and persists both roles.
+After stopping the synthetic backend, original configuration bytes and mode must be restored. Pin the
+model fixture, probe and suite hashes in the immutable report. The default no-prompt mode remains useful
+for the narrower lifecycle checks; the CI worker invokes prompt mode.
+
+Tests cover early events before the RPC acknowledgement, unrelated session events, missing persisted
+assistant text, bounded event accumulation, rejected nonfixture prompts, configuration restoration on
+exceptions and failed network preflight before any model/configuration change. A simulated model pass
+must not turn full RPC/client business into passed. Real models, tools/server requests, reconnects,
+relay and device E2E remain outstanding. Never use the daily installation or actual provider secrets.
+
+
+### Hermes compatibility: completed-turn reconnect
+
+The `--prompt` contract lab now follows its stored text turn with a fresh authenticated WebSocket
+and five reconnect checks (33 checks per stage). Require ready and capabilities again, resume the
+stored conversation with omit_messages, correlate the returned runtime handle through active_list,
+and compare expected user/assistant row IDs, roles, contents and timestamps to the first connection.
+No second prompt should be sent. Missing, duplicate or changed rows must fail.
+
+`hermes-compatibility-session-rpc.test.mjs` checks distinct connections, the exact stored-ID request,
+changed/missing/duplicate history, identity mismatch, absent readiness, wrong response IDs, errors,
+connection loss and bounded timeouts. Worker tests require all five fields in every stage and reject
+scope mixing; a pass leaves service recovery, process interruption, Desktop lifecycle, client business
+and new-data protection unverified. Repeat the real source/candidate/restored lab for evidence; mock
+socket tests alone do not establish compatibility. Interrupted-generation replay and backend restart
+remain separate acceptance scenarios.
