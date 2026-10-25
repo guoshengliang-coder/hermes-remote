@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "kind": "inventory-install-ci-acceptance",
+  "repository": "guoshengliang-coder/hermes-remote",
+  "runId": 40194748670,
+  "jobId": 121173062695,
+  "branchCommit": "4f42769e527ed7957b6d320e2b012d3f17a808f0",
+  "mergeCommit": "c15cfa28a89c84c561b3a94576ae7566114f8c03",
+  "gateway": {
+    "schemaVersion": 1,
+    "kind": "gateway-oci-runtime-observation",
+    "origin": "https://ci-gateway.example",
+    "component": {
+      "name": "gateway",
+      "version": "0.4.37",
+      "artifactSha256": "66f5b17c581693d21a510b33e5e42821fb45a85d41db9cfb92cc982f7ebad2fa"
+    },
+    "sourceCommit": "c15cfa28a89c84c561b3a94576ae7566114f8c03",
+    "imageId": "sha256:92b4007b31c5790b141940cd6215baba624523292a01e30511ff4351383c5117",
+    "containerdImageId": "sha256:3d9dbcda1b20eba832030cb4eba0139409292645da6936bc32e938c4c82b4ecd",
+    "architecture": "amd64",
+    "observedAt": "2026-10-25T12:49:51Z",
+    "runningImageVerified": true,
+    "publicRouteVerified": false,
+    "compatibilityApproved": false,
+    "scope": "disposable-ci-container"
+  },
+  "inventory": {
+    "schemaVersion": 1,
+    "kind": "inventory-producer-acceptance",
+    "scope": "real-disposable-gateway-and-synthetic-public-client-records",
+    "collectedComponents": 5,
+    "signAndVerifyPassed": true,
+    "changedClientRejected": true,
+    "atomicInstallPassed": true,
+    "retryIdempotent": true,
+    "emptyInventoryApplied": true,
+    "oldInventoryRejected": true,
+    "compatibilityApproved": false
+  },
+  "acceptanceMarkerObserved": true,
+  "compatibilityApproved": false
+}
