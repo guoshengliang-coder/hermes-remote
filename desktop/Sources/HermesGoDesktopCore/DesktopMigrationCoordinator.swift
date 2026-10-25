@@ -184,6 +184,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         "升级到 \(releaseVersion) 并短暂重启 Hermes Server 与 Connector"
     }
 
+    public static func componentMigrationConfirmationText(releaseVersion: String) -> String {
+        "迁移到组件布局 \(releaseVersion)，保留本机 Hermes 与账号，并短暂重连"
+    }
+
     public func migrate(
         manifest: DesktopReleaseManifest,
         sources: [DesktopManagedReleaseSource],
@@ -262,14 +266,39 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         )
     }
 
-    private func upgrade(
-        candidate: ReleaseCandidate,
+    /// A separately confirmed, one-way layout conversion. Ordinary upgrades keep their layout.
+    /// The existing local Hermes agent is retained byte-for-byte, including its home and token.
+    public func migrateBundledInstallationToComponents(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
         hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
         launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
         runID: String,
         confirmation: String
     ) async throws -> DesktopMigrationOutcome {
-        guard confirmation == Self.confirmationText(releaseVersion: candidate.releaseVersion) else {
+        guard Self.validComponentCandidate(manifest: manifest, activationPlan: activationPlan) else {
+            throw DesktopComponentReleaseActivationError.invalidManifest
+        }
+        return try await upgrade(
+            candidate: .components(manifest: manifest, activationPlan: activationPlan),
+            hermesLaunchAgentConfiguration: hermesLaunchAgentConfiguration,
+            launchAgentConfiguration: launchAgentConfiguration,
+            runID: runID, confirmation: confirmation, migrateBundledLayout: true
+        )
+    }
+
+    private func upgrade(
+        candidate: ReleaseCandidate,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String,
+        migrateBundledLayout: Bool = false
+    ) async throws -> DesktopMigrationOutcome {
+        let expectedConfirmation = migrateBundledLayout
+            ? Self.componentMigrationConfirmationText(releaseVersion: candidate.releaseVersion)
+            : Self.confirmationText(releaseVersion: candidate.releaseVersion)
+        guard confirmation == expectedConfirmation else {
             throw DesktopMigrationCoordinatorError.confirmationRequired
         }
         let operationLease = try journal.acquireOperationLease()
@@ -279,11 +308,20 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
               installed.lastKnownGoodMode == .account,
               let bindingID = installed.bindingID,
               let bindingGeneration = installed.bindingGeneration,
-              installed.releaseLayout == candidate.releaseLayout,
+              (migrateBundledLayout
+                ? installed.releaseLayout == .bundledRelease && candidate.releaseLayout == .componentStore
+                : installed.releaseLayout == candidate.releaseLayout),
               Self.version(candidate.releaseVersion, isNewerThan: installed.releaseVersion),
               launchAgentConfiguration.hermesBaseURL
                 == hermesLaunchAgentConfiguration.runtimeContract.baseURL
         else { throw DesktopMigrationCoordinatorError.releaseNotNewer }
+        if migrateBundledLayout {
+            guard try installer.currentHermesRuntimeMode().isLocal else {
+                throw DesktopMigrationCoordinatorError.invalidStartingState
+            }
+            // Validate the existing private token contract before saving or stopping anything.
+            _ = try installer.loadLocalHermesLaunchAgent()
+        }
         let services = try launchAgent.inspect()
         let currentAccount = try await account.refresh()
         guard services.accountLoaded, services.hermesLoaded, !services.legacyLoaded,
@@ -310,7 +348,8 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 installedReleaseLayout: installed.releaseLayout,
                 targetReleaseLayout: candidate.releaseLayout,
                 bindingID: bindingID,
-                bindingGeneration: bindingGeneration
+                bindingGeneration: bindingGeneration,
+                migrateBundledLayout: migrateBundledLayout
             )
         } catch {
             try? installer.discardManagedUpgradeSnapshot(snapshot)
@@ -340,10 +379,15 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                     manifest: manifest
                 )
             case .components(_, let activationPlan):
-                guard let localHermes = localHermesForFreshInstall() else {
-                    throw DesktopMigrationCoordinatorError.invalidStartingState
+                if keepLocalHermes {
+                    _ = try installer.loadLocalHermesLaunchAgent()
+                    hermesLaunchAgentURL = installer.managedHermesLaunchAgentURL
+                } else {
+                    guard let localHermes = localHermesForFreshInstall() else {
+                        throw DesktopMigrationCoordinatorError.invalidStartingState
+                    }
+                    hermesLaunchAgentURL = try installer.writeLocalHermesLaunchAgent(localHermes)
                 }
-                hermesLaunchAgentURL = try installer.writeLocalHermesLaunchAgent(localHermes)
                 accountLaunchAgentURL = try installer.writeLaunchAgent(
                     launchAgentConfiguration,
                     activationPlan: activationPlan
@@ -930,7 +974,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         else { return .notInstalled }
         let previewObservation = try observe()
         forgetFailuresTheSettingResets(previewObservation)
-        let previewPlan = DesktopHermesRuntimePlanner.plan(previewObservation)
+        let previewPlan = runtimePlan(previewObservation, layout: preview.releaseLayout)
         if case .adopt(let record) = previewPlan {
             try? installer.writeLocalHermesRuntimeRecord(record)
             return .unchanged(.keep)
@@ -951,7 +995,7 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         else { return .unchanged(.keep) }
 
         let observation = try observe()
-        let plan = DesktopHermesRuntimePlanner.plan(observation)
+        let plan = runtimePlan(observation, layout: recorded.releaseLayout)
         switch plan {
         case .switchToLocal(let installation):
             let runtimeSwitch = try installer.prepareLocalHermesRuntime(installation)
@@ -1212,6 +1256,19 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
         )
         operationLog?.record(failure.description)
         return failure
+    }
+
+    private func runtimePlan(
+        _ observation: DesktopHermesRuntimeObservation,
+        layout: DesktopManagedReleaseLayoutKind
+    ) -> DesktopHermesRuntimePlan {
+        let plan = DesktopHermesRuntimePlanner.plan(observation)
+        if layout == .componentStore, case .restoreBundled(let localUsable) = plan {
+            // The old archive remains available for transaction recovery, never for a silent
+            // runtime downgrade after migration has committed.
+            return .surface(localUsable ? .bundledFallbackUnavailableLocalIntact : .localHermesMissingWithoutFallback)
+        }
+        return plan
     }
 
     private func rollbackUpgrade(

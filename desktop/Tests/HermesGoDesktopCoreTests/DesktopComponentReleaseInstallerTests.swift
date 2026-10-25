@@ -600,6 +600,38 @@ extension DesktopComponentReleaseInstallerTests {
         XCTAssertTrue(calls.isEmpty)
     }
 
+    func testExplicitLayoutMigrationUsesDistinctConfirmationAndMigrationBoundary() async throws {
+        let fixture = try ComponentInstallFixture()
+        defer { fixture.remove() }
+        let migration = RecordingComponentBootstrapMigration()
+        let executor = DesktopComponentBootstrapExecutor(
+            installer: try fixture.installer(downloader: FixtureComponentDownloader()), migration: migration
+        )
+        let preparation = try await executor.prepare(
+            trustedPreflight: try fixture.trustedPreflight(), workspaceRoot: fixture.workspace,
+            runID: "c0000000-0000-4000-8000-000000000012",
+            installation: .active(releaseVersion: "0.3.4", releaseLayout: .bundledRelease,
+                                  bindingID: "test-binding", bindingGeneration: 1),
+            migrateBundledLayout: true, healthProbe: executableProbe
+        )
+        XCTAssertTrue(preparation.migratesBundledLayout)
+        XCTAssertNotEqual(preparation.confirmationText,
+            DesktopMigrationCoordinator<SystemCommandRunner>.confirmationText(releaseVersion: preparation.releaseVersion))
+        await XCTAssertThrowsErrorAsync(try await executor.commit(
+            preparation, configuration: try fixture.commitConfiguration(), legacy: fixture.legacySnapshot,
+            confirmation: DesktopMigrationCoordinator<SystemCommandRunner>.confirmationText(releaseVersion: preparation.releaseVersion)
+        )) { XCTAssertEqual($0 as? DesktopComponentBootstrapExecutorError, .confirmationRequired) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.referenceURL.path))
+        _ = try await executor.commit(
+            preparation, configuration: try fixture.commitConfiguration(), legacy: fixture.legacySnapshot,
+            confirmation: preparation.confirmationText
+        )
+        let migrations = await migration.recordedLayoutMigrationCount()
+        let upgrades = await migration.recordedUpgradeCount()
+        XCTAssertEqual(migrations, 1)
+        XCTAssertEqual(upgrades, 0)
+    }
+
     func testBootstrapExecutorCancelRemovesPrivatePreparationWithoutMigration() async throws {
         let fixture = try ComponentInstallFixture()
         defer { fixture.remove() }
@@ -1110,6 +1142,7 @@ private actor RecordingComponentBootstrapMigration: DesktopComponentBootstrapMig
     private let failure: ComponentBootstrapMigrationFixtureError?
     private var calls: [RecordedComponentBootstrapMigration] = []
     private var upgrades = 0
+    private var layoutMigrations = 0
 
     init(failure: ComponentBootstrapMigrationFixtureError? = nil) {
         self.failure = failure
@@ -1163,6 +1196,22 @@ private actor RecordingComponentBootstrapMigration: DesktopComponentBootstrapMig
     }
 
     func recordedUpgradeCount() -> Int { upgrades }
+
+    func migrateBundledInstallationToComponents(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        layoutMigrations += 1
+        if let failure { throw failure }
+        return DesktopMigrationOutcome(runID: runID, releaseVersion: manifest.releaseVersion,
+                                       bindingID: "binding-1", bindingGeneration: 1)
+    }
+
+    func recordedLayoutMigrationCount() -> Int { layoutMigrations }
 }
 
 private final class FailOnceInstalledDiscardComponentInstaller:
