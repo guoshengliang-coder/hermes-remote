@@ -71,8 +71,34 @@ export function verifyCompatibilityEnvelope(raw: unknown, keys: ReadonlyMap<stri
   if (envelope.algorithm !== "Ed25519") throw compatibilityErrors.invalid();
   const key = keys.get(keyID(envelope.keyId)), payload = decode(envelope.payload,256*1024), signature = decode(envelope.signature,64);
   if (!key || key.asymmetricKeyType !== "ed25519" || signature.length !== 64 || !verify(null,payload,key,signature)) throw compatibilityErrors.evidenceIncomplete();
-  try { return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(payload)); }
+  try { return unambiguousPayload(new TextDecoder("utf-8",{fatal:true}).decode(payload)); }
   catch { throw compatibilityErrors.invalid(); }
+}
+/** JSON.parse keeps the last duplicate key; Swift must never interpret the same signed bytes differently. */
+function unambiguousPayload(text:string):unknown {
+  const value:unknown=JSON.parse(text); // Validate JSON grammar before walking its key tokens.
+  const tokens=text.match(/"(?:\\[\s\S]|[^"\\])*"|true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g)??[];
+  if(tokens.length>32768)throw compatibilityErrors.invalid();
+  let index=0;
+  function take(expected:string){if(tokens[index++]!==expected)throw compatibilityErrors.invalid();}
+  function walk(depth:number){
+    if(depth>32)throw compatibilityErrors.invalid();
+    const token=tokens[index++];
+    if(token==="{"){
+      const keys=new Set<string>();
+      if(tokens[index]!=="}")while(true){
+        const key:unknown=JSON.parse(tokens[index++]);
+        if(typeof key!=="string"||keys.has(key))throw compatibilityErrors.invalid();
+        keys.add(key);take(":");walk(depth+1);
+        if(tokens[index]!==",")break;index++;
+      }
+      take("}");
+    }else if(token==="["){
+      if(tokens[index]!=="]")while(true){walk(depth+1);if(tokens[index]!==",")break;index++;}
+      take("]");
+    }else if(token===undefined||["}","]",",",":"].includes(token))throw compatibilityErrors.invalid();
+  }
+  walk(0);if(index!==tokens.length)throw compatibilityErrors.invalid();return value;
 }
 export function releasedInventory(raw: unknown, keys: ReadonlyMap<string,KeyObject>, origin: string,
   identity: ValidationIdentity, now = new Date()): TestedComponent[] {

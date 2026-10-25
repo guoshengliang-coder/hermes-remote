@@ -47,6 +47,15 @@ test("release inventory has independent purpose and requires an exact published 
   assert.throws(()=>releasedInventory(envelope({...inventory,combinations:[identity.components.slice(1)]}),keys,signer.origin,identity,now));
 });
 
+test("signed duplicate JSON keys are rejected consistently with the Swift consumer",()=>{
+  const payload=signer.recommendation(7,[decision],now).payload;
+  const raw=Buffer.from(JSON.stringify(payload).replace('"revision":7','"revision":1,"revision":7'));
+  const ambiguous={payload:raw.toString("base64url"),keyId:signer.id,algorithm:"Ed25519",signature:sign(null,raw,pair.privateKey).toString("base64url")};
+  assert.throws(()=>verifyCompatibilityEnvelope(ambiguous,keys));
+  const nested=Buffer.from(JSON.stringify(payload).replace('"schemaVersion":1','"schemaVersion":1,"schema\\u0056ersion":1'));
+  assert.throws(()=>verifyCompatibilityEnvelope({...ambiguous,payload:nested.toString("base64url"),signature:sign(null,nested,pair.privateKey).toString("base64url")},keys));
+});
+
 test("public readback verifies exact envelope before publication and rejects redirects/errors/mismatches",async()=>{
   const signed=signer.recommendation(9,[decision]);
   const requests:string[]=[];
