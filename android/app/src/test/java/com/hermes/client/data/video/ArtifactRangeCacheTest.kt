@@ -201,4 +201,22 @@ class ArtifactRangeCacheTest {
         assertEquals(99, VideoPrecacheState(size - 1, size).percent)
     }
 
+    @Test fun background_coverage_validation_keeps_the_actual_playback_block_protected() {
+        val block = ArtifactRangeCache.BLOCK_BYTES
+        val size = 69L * block
+        val video = key(size = size)
+        val cache = ArtifactRangeCache(directory)
+        cache.writeBlocks(video, (0..68).asSequence().map { it.toLong() * block to ByteArray(block) },
+            preserveSource = true)
+        val lease = cache.protect(video)
+        try {
+            assertNotNull(cache.read(video, 0, block))
+            cache.refresh() // Startup-style unverified entries, while actual playback protects block zero.
+            repeat(18) { cache.coverage(video, size) }
+            val cleared = cache.clear()
+            assertEquals("background verification replaced playback's hot set", block + 36L, cleared.usedBytes)
+            assertNotNull(cache.read(video, 0, block))
+        } finally { lease.close(); cache.maintain(force = true) }
+    }
+
 }

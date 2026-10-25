@@ -670,10 +670,10 @@ class VideoStreamingDeviceTest {
     }
 }
 
-private class VideoFixtureSource(mp4: ByteArray, private val padding: Int,
+private class VideoFixtureSource(private val mp4: ByteArray, private val padding: Int,
     private val parallel: Int = 4, private val latency: Long = 0,
     private val bytesPerSecond: Int = 4 * 1024 * 1024) : AutoCloseable {
-    private val prefix: ByteArray
+    private val prefixSize: Int
     private val moov: ByteArray
     val size: Long
     val sent = AtomicLong()
@@ -691,13 +691,15 @@ private class VideoFixtureSource(mp4: ByteArray, private val padding: Int,
     init {
         var at = 0
         while (String(mp4, at + 4, 4, Charsets.US_ASCII) != "moov") at += ByteBuffer.wrap(mp4, at, 4).int
-        prefix = mp4.copyOfRange(0, at); moov = mp4.copyOfRange(at, mp4.size)
+        // All scenarios share the immutable generated MP4; copying its mdat per scenario
+        // would measure fixture allocation/OOM rather than the bounded player range buffers.
+        prefixSize = at; moov = mp4.copyOfRange(at, mp4.size)
         size = mp4.size.toLong() + padding
         workers.execute {
             while (!server.isClosed) {
                 val socket = try { server.accept() } catch (_: Exception) { break }
                 workers.execute {
-                    var rangeActive = false
+                    val rangeActive = java.util.concurrent.atomic.AtomicBoolean()
                     socket.use {
                         try {
                             val input = it.getInputStream().bufferedReader()
@@ -717,20 +719,30 @@ private class VideoFixtureSource(mp4: ByteArray, private val padding: Int,
                                 val range = Regex("bytes=(\\d+)-(\\d+)").matchEntire(headers["range"].orEmpty())!!
                                 val start = range.groupValues[1].toLong(); val end = range.groupValues[2].toLong()
                                 offsets.add(start)
-                                rangeActive = true
+                                rangeActive.set(true)
                                 peak.accumulateAndGet(active.incrementAndGet(), ::maxOf)
+                                // A client abort must be observed even during simulated response
+                                // latency; closed sockets are no longer active range requests.
+                                workers.execute {
+                                    try {
+                                        if (socket.getInputStream().read() == -1) {
+                                            if (rangeActive.compareAndSet(true, false)) active.decrementAndGet()
+                                            socket.close()
+                                        }
+                                    } catch (_: Exception) { /* Normal response teardown closes the socket. */ }
+                                }
                                 Thread.sleep(latency)
                                 output.write(("HTTP/1.1 206 Partial Content\r\nContent-Length: ${end - start + 1}\r\nContent-Range: bytes $start-$end/$size\r\nETag: $etag\r\nConnection: close\r\n\r\n").toByteArray())
                                 var atByte = start
                                 val header = ByteBuffer.allocate(8).putInt(padding).put("free".toByteArray()).array()
-                                while (atByte <= end) {
+                                while (atByte <= end && rangeActive.get()) {
                                     val count = minOf(8192L, end - atByte + 1).toInt()
                                     val data = ByteArray(count) { i ->
                                         val pos = atByte + i
                                         when {
-                                            pos < prefix.size -> prefix[pos.toInt()]
-                                            pos < prefix.size + 8 -> header[(pos - prefix.size).toInt()]
-                                            pos >= prefix.size.toLong() + padding -> moov[(pos - prefix.size - padding).toInt()]
+                                            pos < prefixSize -> mp4[pos.toInt()]
+                                            pos < prefixSize + 8 -> header[(pos - prefixSize).toInt()]
+                                            pos >= prefixSize.toLong() + padding -> moov[(pos - prefixSize - padding).toInt()]
                                             else -> 0
                                         }
                                     }
@@ -746,7 +758,7 @@ private class VideoFixtureSource(mp4: ByteArray, private val padding: Int,
                             }
                             output.flush()
                         } catch (_: Exception) { /* Fixture cancellation closes its socket. */ }
-                        finally { if (rangeActive) active.decrementAndGet() }
+                        finally { if (rangeActive.compareAndSet(true, false)) active.decrementAndGet() }
                     }
                 }
             }

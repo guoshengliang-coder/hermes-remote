@@ -50,7 +50,7 @@ class ArtifactRangeCache(
         } }
     }
 
-    @Synchronized fun read(key: String, start: Long, expected: Int): ByteArray? {
+    @Synchronized fun read(key: String, start: Long, expected: Int, markHot: Boolean = true): ByteArray? {
         ensureIndex()
         val file = block(key, start)
         val entry = entries[file.name] ?: return null
@@ -66,7 +66,7 @@ class ArtifactRangeCache(
             entry.verified = true
             entry.usedAt = clock(); file.setLastModified(entry.usedAt)
             entries.remove(file.name); entries[file.name] = entry
-            rememberHot(key, file.name)
+            if (markHot) rememberHot(key, file.name)
             data
         } catch (_: IOException) { remove(file.name); publish(); null }
     }
@@ -121,7 +121,7 @@ class ArtifactRangeCache(
             val entry = entries[name] ?: return@forEach
             if (entry.file.length() != count.toLong() + HEADER) { remove(name); return@forEach }
             if (!entry.verified) {
-                if (validations-- <= 0 || read(key, start, count) == null) return@forEach
+                if (validations-- <= 0 || read(key, start, count, markHot = false) == null) return@forEach
             }
             covered += start; total += count
         }

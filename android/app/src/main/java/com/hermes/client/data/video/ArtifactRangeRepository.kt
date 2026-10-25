@@ -122,7 +122,7 @@ class ArtifactRangeRepository internal constructor(
             while (offset < count) {
                 currentCoroutineContext().ensureActive()
                 val at = start + offset
-                val cached = cachedBlock(source.key, at, minOf(block, count - offset))
+                val cached = cachedBlock(source.key, at, minOf(block, count - offset), markHot = precacheGeneration == null)
                 if (cached != null) {
                     cached.copyInto(result, offset); offset += cached.size
                     continue
@@ -130,7 +130,7 @@ class ArtifactRangeRepository internal constructor(
                 var missing = minOf(block, count - offset)
                 // Stop at cached blocks instead of re-downloading bytes from a previous preview.
                 while (offset + missing < count && cachedBlock(source.key, at + missing,
-                        minOf(block, count - offset - missing)) == null) {
+                        minOf(block, count - offset - missing), markHot = precacheGeneration == null) == null) {
                     missing += minOf(block, count - offset - missing)
                 }
                 val bytes = fetch(source, at, missing)
@@ -273,8 +273,8 @@ class ArtifactRangeRepository internal constructor(
         return cachedBlock(ArtifactRangeCache.identity(owner, path, descriptor.etag, descriptor.sizeBytes), position, count)
     }
 
-    private fun cachedBlock(key: String, start: Long, count: Int): ByteArray? =
-        try { cache.read(key, start, count) } catch (_: IOException) { null }
+    private fun cachedBlock(key: String, start: Long, count: Int, markHot: Boolean = true): ByteArray? =
+        try { cache.read(key, start, count, markHot) } catch (_: IOException) { null }
 
     /** Download data becomes cache-visible only after HTTP validation and the durable checkpoint. */
     fun publish(owner: String, path: String, descriptor: ArtifactDownloadDescriptor, file: File, from: Long) {
