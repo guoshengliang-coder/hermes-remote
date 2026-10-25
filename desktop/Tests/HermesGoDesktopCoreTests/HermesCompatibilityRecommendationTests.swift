@@ -30,6 +30,122 @@ final class HermesCompatibilityRecommendationTests: XCTestCase {
         try HermesCompatibilityRecommendationVerifier(origin:origin,keys:["test":key.publicKey.rawRepresentation])
     }
 
+    private func local(version: String = "0.21.3", commit: String = String(repeating: "a", count: 40)) -> DesktopLocalHermesDetection {
+        let root = URL(fileURLWithPath: "/synthetic/hermes-agent")
+        return .usable(.init(executable: root.appendingPathComponent("venv/bin/hermes"), checkoutRoot: root,
+            hermesHome: root.deletingLastPathComponent(), commit: commit, version: version, identityChangedAt: now))
+    }
+    private var localEnvironment: HermesCompatibilityEnvironment {
+        .init(arch: "arm64", osVersion: "26.0.0", installation: "legacy-venv-to-pm")
+    }
+    private var localComponents: [HermesCompatibilityComponent] {
+        components.map { .init(name: $0["name"] as! String, version: "1.0.0", artifactSha256: String(repeating: "f", count: 64)) }
+    }
+
+    func testOrdinaryAssessmentKeepsAllUnknownComponentsExplicit() throws {
+        let snapshot = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
+        let result = HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,
+                                                             components: [], now: now)
+        XCTAssertEqual(result.status, .requirements)
+        XCTAssertEqual(result.entry?.identity.version, "0.22.5")
+        XCTAssertEqual(result.unknownComponents, ["desktop", "connector", "gateway", "android", "web"])
+        XCTAssertTrue(result.mismatchedComponents.isEmpty)
+        XCTAssertTrue(result.summaryChinese.contains("条件待确认"))
+        XCTAssertTrue(result.detailChinese.contains("尚未核验"))
+    }
+
+    func testOrdinaryAssessmentSelectsOlderMatchingRecordInsteadOfHighestIncompatibleTarget() throws {
+        var value = payload()
+        var newer = entry(version: "0.23.0")
+        var identity = newer["identity"] as! [String: Any]
+        var requirements = components; requirements[0]["version"] = "2.0.0"
+        identity["components"] = requirements; newer["identity"] = identity
+        value["entries"] = [newer, entry()]
+        let snapshot = try verifier().verify(envelope(value), minimumRevision: 0, now: now)
+        let result = HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,
+            components: localComponents.reversed(), now: now)
+        XCTAssertEqual(result.status, .matched)
+        XCTAssertEqual(result.entry?.identity.version, "0.22.5")
+        XCTAssertTrue(result.detailChinese.contains("一键升级尚未开放"))
+    }
+
+    func testOrdinaryAssessmentDistinguishesUnknownFromKnownMismatch() throws {
+        let snapshot = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
+        let wrong = HermesCompatibilityComponent(name: "desktop", version: "1.0.0", artifactSha256: String(repeating: "0", count: 64))
+        let result = HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,
+            components: [wrong], now: now)
+        XCTAssertEqual(result.status, .requirements)
+        XCTAssertEqual(result.mismatchedComponents, ["desktop"])
+        XCTAssertEqual(result.unknownComponents, ["connector", "gateway", "android", "web"])
+    }
+
+    func testOrdinaryAssessmentRejectsExpiredOrAmbiguousLocalObservations() throws {
+        let snapshot = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
+        let matched = HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,
+            components: localComponents, now: now)
+        let expired = matched.current(at: now.addingTimeInterval(86_400))
+        XCTAssertEqual(expired.status, .failed)
+        XCTAssertNil(expired.entry)
+        XCTAssertEqual(expired.issue?.code, .hermesCompatibilityRecommendationInvalid)
+        XCTAssertEqual(HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,
+            components: [localComponents[0], localComponents[0]], now: now).status, .failed)
+        XCTAssertEqual(HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,
+            components: localComponents, now: now.addingTimeInterval(86_400)).status, .failed)
+    }
+
+    func testOrdinaryAssessmentDoesNotDowngradeOrGuessSourceAndEnvironment() throws {
+        let snapshot = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
+        for detection in [local(version: "0.23.0"), local(version: "0.22.5"), local(commit: String(repeating: "e", count: 40))] {
+            XCTAssertEqual(HermesRecommendationAssessment.evaluate(snapshot, installation: detection, environment: localEnvironment,
+                components: localComponents, now: now).status, .noPath)
+        }
+        XCTAssertEqual(HermesRecommendationAssessment.evaluate(snapshot, installation: local(),
+            environment: .init(arch: "arm64", osVersion: "26.0.1", installation: "legacy-venv-to-pm"),
+            components: localComponents, now: now).status, .noPath)
+        XCTAssertEqual(HermesRecommendationAssessment.evaluate(snapshot, installation: .absent(hermesDataPresent: false),
+            environment: localEnvironment, components: [], now: now).status, .installationUnknown)
+        XCTAssertEqual(HermesRecommendationAssessment.evaluate(snapshot, installation: local(),
+            environment: nil, components: [], now: now).status, .installationUnsupported)
+    }
+
+    func testOrdinaryAssessmentEmptyPublishedSnapshotIsNotAQueryFailure() throws {
+        var value = payload(); value["entries"] = []
+        let snapshot = try verifier().verify(envelope(value), minimumRevision: 0, now: now)
+        let result = HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,
+            components: localComponents, now: now)
+        XCTAssertEqual(result.status, .noPath)
+        XCTAssertNil(result.issue)
+        XCTAssertEqual(result.revision, 7)
+        XCTAssertEqual(HermesRecommendationAssessment.failed.issue?.code.rawValue, "HR-HERMESCOMPAT-008")
+    }
+
+    func testDesktopRecommendationConfigurationDistinguishesMissingAndInvalidTrust() throws {
+        XCTAssertNil(try HermesCompatibilityRecommendationClient.desktop(gatewayURL: URL(string: origin)!, release: .disabled))
+        XCTAssertThrowsError(try HermesCompatibilityRecommendationClient.desktop(gatewayURL: URL(string: origin)!, release: .invalid))
+    }
+
+    func testVersionSourcesPreserveSignedRecommendationsWhenUpstreamFails() async throws {
+        let snapshot = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
+        let sources = await DesktopHermesUpgradeChecker(fetcher: VersionSourceRelease(fails: true))
+            .checkSources(installation: local(), recommendation: .success(VersionSourceRecommendation(snapshot: snapshot)))
+        XCTAssertThrowsError(try sources.upstream.get())
+        XCTAssertEqual(try sources.recommendation.get()?.revision, snapshot.revision)
+    }
+
+    func testVersionSourcesPreserveUpstreamWhenRecommendationFailsAndDoNotReusePriorResults() async throws {
+        let snapshot = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
+        let checker = DesktopHermesUpgradeChecker(fetcher: VersionSourceRelease(fails: false))
+        let first = await checker.checkSources(installation: local(), recommendation: .success(VersionSourceRecommendation(snapshot: snapshot)))
+        XCTAssertEqual(try first.recommendation.get()?.revision, 7)
+        let failed = await checker.checkSources(installation: local(), recommendation: .success(VersionSourceRecommendation(snapshot: nil)))
+        XCTAssertEqual(try failed.upstream.get().latestStable.version, "0.23.0")
+        XCTAssertThrowsError(try failed.recommendation.get()) { error in
+            XCTAssertEqual((error as? DesktopIssue)?.code, .hermesCompatibilityRecommendationInvalid)
+        }
+        let disabled = await checker.checkSources(installation: local(), recommendation: .success(nil))
+        XCTAssertNil(try disabled.recommendation.get())
+    }
+
     func testSharedTypeScriptSignedFixtureVerifiesInSwift() throws {
         let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data=try Data(contentsOf:root.appendingPathComponent("scripts/fixtures/hermes-compatibility/signed-recommendation.json"))
@@ -204,4 +320,19 @@ private final class RecommendationURLProtocol: URLProtocol {
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
     override func stopLoading() {}
+}
+
+private struct VersionSourceRelease: DesktopHermesReleaseFetching {
+    let fails: Bool
+    func latestStable() async throws -> DesktopHermesUpgradeTarget {
+        if fails { throw DesktopHermesUpgradeError.checkFailed }
+        return try .init(version: "0.23.0", commit: String(repeating: "e", count: 40))
+    }
+}
+private struct VersionSourceRecommendation: HermesRecommendationRefreshing {
+    let snapshot: VerifiedHermesRecommendation?
+    func refresh() async throws -> VerifiedHermesRecommendation {
+        guard let snapshot else { throw DesktopIssue(code: .hermesCompatibilityRecommendationInvalid) }
+        return snapshot
+    }
 }

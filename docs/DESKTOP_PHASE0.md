@@ -11,7 +11,7 @@ link-free bundle layout is supported; unsupported bundle trees are rejected.
 
 The caller must obtain the expected component from a verified recommendation. The observation alone
 does not attest a signature, identify a running process, approve compatibility or enable an upgrade.
-The ordinary-page discovery and five-component collection remain pending. No UI or installer flow
+Original package discovery and active five-component collection remain pending. No UI or installer flow
 changes in this iteration. Physical read-only evidence is recorded in the test plan.
 
 ## Hermes compatibility I1: management foundation (implementation, not released)
@@ -28,9 +28,23 @@ structured report viewing. Without a configured recipe the page cannot start val
 isolated suite covers five of fifteen checks and demonstrates a failed concurrent-update check,
 so it cannot produce an approvable report. I3 implements approval/revocation, protected publishing
 jobs, signed recommendations and a public verification client locally. No actual signing publication
-has run. Normal-page wiring and one-click Hermes execution remain subsequent gated work; the old
+has run. Normal-page recommendation querying is now wired; active component collection and one-click Hermes execution remain subsequent gated work; the old
 updater lock gap must be resolved before the tested migration can become supported.
 See HERMES_COMPATIBILITY_EXECUTION.md for real upgrade/recovery evidence and remaining gates.
+
+### Ordinary recommendation query (implementation, not released)
+
+“检查 Hermes 版本” now runs upstream discovery and signed recommendation retrieval independently,
+using the account Gateway origin and existing pinned release public keys without an account session.
+It removes the old injected `verifiedTargets` shortcut. The card distinguishes missing trust, failed
+retrieval, unknown installation, unsupported installation conditions, no matching upgrade path,
+unknown/mismatched components and a complete match. A lower supported version can be selected even
+when a newer upstream version exists. Expiry invalidates the displayed assessment on its periodic
+refresh; mutations would still require a fresh online check.
+
+Active component collection is not yet wired: production supplies no unverified archive identities,
+so a published candidate remains conditional until all five observations are established. Synthetic
+complete-match previews do not certify any production combination. The card has no upgrade button.
 
 ## Hermes compatibility I0: stamped source identity (2026-10-25, implementation)
 

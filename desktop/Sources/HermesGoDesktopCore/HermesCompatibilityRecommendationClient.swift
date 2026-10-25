@@ -92,7 +92,29 @@ public final class HermesRecommendationRevisionStore: HermesRecommendationRevisi
 
 /// Each refresh contacts the public endpoint. Failed refreshes never return cached authorization.
 /// The caller must refresh again immediately before starting a mutation, then recheck local identity.
-public actor HermesCompatibilityRecommendationClient {
+public protocol HermesRecommendationRefreshing: Sendable {
+    func refresh() async throws -> VerifiedHermesRecommendation
+}
+
+public actor HermesCompatibilityRecommendationClient: HermesRecommendationRefreshing {
+    /// Public recommendation requests use the account service origin and existing pinned release
+    /// keys, but never its session. A build without release trust keeps this feature unavailable.
+    public static func desktop(gatewayURL: URL, release: DesktopManagedBootstrapConfigurationState) throws
+        -> HermesCompatibilityRecommendationClient? {
+        switch release {
+        case .disabled: return nil
+        case .invalid: throw DesktopIssue(code: .hermesCompatibilityRecommendationInvalid)
+        case .configured(let configuration):
+            guard var origin = URLComponents(url: gatewayURL, resolvingAgainstBaseURL: false),
+                  origin.path.isEmpty || origin.path == "/" else {
+                throw DesktopIssue(code: .hermesCompatibilityRecommendationInvalid)
+            }
+            origin.path = ""
+            guard let value = origin.string else { throw DesktopIssue(code: .hermesCompatibilityRecommendationInvalid) }
+            return try HermesCompatibilityRecommendationClient(origin: value, keys: configuration.signingKeys)
+        }
+    }
+
     private let origin: String
     private let fetcher: any HermesRecommendationFetching
     private let verifier: HermesCompatibilityRecommendationVerifier

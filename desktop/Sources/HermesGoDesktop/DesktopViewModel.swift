@@ -122,6 +122,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var isRefreshingHermesUpgradeRecord = false
     @Published private(set) var isCheckingHermesUpgrade = false
     private let hermesUpgradeChecker = DesktopHermesUpgradeChecker()
+    @Published private(set) var hermesRecommendation = HermesRecommendationAssessment.unchecked
+    private let hermesRecommendationClient: Result<(any HermesRecommendationRefreshing)?, DesktopIssue>
 
     @Published private(set) var updateCheckState: DesktopUpdateCheckState = .idle
     @Published var isUpdateSheetPresented = false
@@ -182,6 +184,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let bootstrapConfiguration = DesktopManagedBootstrapConfigurationState.load()
         let componentConfiguration = DesktopComponentPreflightConfigurationState.load()
         managedBootstrapConfiguration = bootstrapConfiguration
+        do {
+            hermesRecommendationClient = .success(try HermesCompatibilityRecommendationClient.desktop(
+                gatewayURL: configuration.gatewayURL, release: bootstrapConfiguration))
+        } catch {
+            hermesRecommendationClient = .failure(DesktopIssue(code: .hermesCompatibilityRecommendationInvalid))
+        }
         componentPreflightConfiguration = componentConfiguration
         componentEntrypointProbe = DesktopManagedComponentEntrypointProbe(
             currentUserID: getuid()
@@ -475,14 +483,38 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         isCheckingHermesUpgrade = true
         hermesUpgradeIssue = nil
         hermesUpgradeReadiness = nil
+        hermesRecommendation = .checking
         defer { isCheckingHermesUpgrade = false }
         let detection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
-        do {
-            hermesUpgradeReport = try await hermesUpgradeChecker.check(installation: detection)
-        } catch {
+        let sources = await hermesUpgradeChecker.checkSources(installation: detection, recommendation: hermesRecommendationClient)
+        switch sources.upstream {
+        case .success(let report): hermesUpgradeReport = report
+        case .failure(let issue):
             // A failed check cannot keep advertising an earlier successful verdict.
             hermesUpgradeReport = nil
-            hermesUpgradeIssue = (error as? DesktopHermesUpgradeError ?? .checkFailed).issue
+            hermesUpgradeIssue = issue
+        }
+        // The two public sources are independent: upstream failure must not suppress the signed
+        // recommendation result, and a failed recommendation must not hide the upstream version.
+        switch sources.recommendation {
+        case .failure: hermesRecommendation = .failed
+        case .success(nil): hermesRecommendation = .unconfigured
+        case .success(let snapshot?):
+            let current = await Task.detached(priority: .userInitiated) { detector.detect() }.value
+            let os = ProcessInfo.processInfo.operatingSystemVersion
+            #if arch(arm64)
+            let architecture = "arm64"
+            #else
+            let architecture = "x86_64"
+            #endif
+            let environment = current.installation.flatMap { local -> HermesCompatibilityEnvironment? in
+                guard !local.usesPackageManager, local.dependenciesConsistent else { return nil }
+                return HermesCompatibilityEnvironment(arch: architecture,
+                    osVersion: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)", installation: "legacy-venv-to-pm")
+            }
+            // Installation-file observations alone do not prove active Connector/client
+            // identities. Leave these unknown until actual collection is connected.
+            hermesRecommendation = .evaluate(snapshot, installation: current, environment: environment, components: [])
         }
         await refreshHermesUpgradeRecord()
         if let issue = hermesUpgradeRecord.issue { hermesUpgradeIssue = issue }

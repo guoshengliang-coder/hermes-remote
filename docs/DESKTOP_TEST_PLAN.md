@@ -1105,3 +1105,27 @@ recommendation or finish ordinary-client matching. Final Desktop baseline: 705 S
 consistency and local ad-hoc app build pass; no app was installed or published, and no UI change
 required a new visual acceptance claim. The reused command runner has no wall-clock timeout; this
 iteration does not claim a bounded or cancellable production inspection task.
+
+### Ordinary signed recommendation query (2026-10-25)
+
+Test impact: remove the old hard-coded verified-target path and its stale assertions. New tests cover
+all five unknown components, known archive mismatch versus unknown identity, a lower fully matching
+recommendation, source/environment mismatch, no downgrade, missing/unsupported installations, empty
+published snapshots, expiry, duplicate local observations and missing/invalid trust configuration.
+The actual two-source coordinator is tested with independent upstream/recommendation failures, no
+reuse after a previous success and disabled recommendation lookup. Focused recommendation/version
+tests pass 22/22; the complete Desktop baseline passes 714 Swift tests, assets and local ad-hoc build.
+
+Native inspection used the actual `HermesVersionCard`, design modifier and issue banner with a
+no-op model in an isolated NSHostingView process. Four synthetic states (unknown components, full
+match, failure, unconfigured), each in light/dark appearance at 660 pt width, were rendered and
+visually inspected. Text and HR-HERMESCOMPAT-008 remain readable with no clipping; complete-match
+copy explicitly says one-click upgrade is unavailable. Preview source/images are retained locally
+at `/private/tmp/hermes-recommendation-ui-px57ajse`. No daily app was launched, and no account,
+network or service calls were made by the fixture. Expanded-detail clicks and a real published
+recommendation flow still need acceptance; these fixtures are not production compatibility evidence.
+
+An intermediate compile found a missing explicit return in the new presentation getter and was
+fixed. One intermediate app build was rejected because the source changed while it was compiling;
+after source stabilization, the final baseline/build was rerun successfully. Neither failed attempt
+is counted as passing validation.

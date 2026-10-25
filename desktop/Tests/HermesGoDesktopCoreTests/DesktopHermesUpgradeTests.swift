@@ -12,20 +12,15 @@ final class DesktopHermesUpgradeTests: XCTestCase {
         XCTAssertThrowsError(try DesktopHermesUpgradeTarget(version: "0.21.6", commit: target.commit, channel: "main"))
     }
 
-    func testLatestIsNeverAutomaticallyRecommended() async throws {
+    func testUpstreamDiscoveryReturnsVersionFactsIndependentlyOfRecommendation() async throws {
         let target = try DesktopHermesUpgradeTarget(version: "0.21.6", commit: String(repeating: "a", count: 40))
         let checker = DesktopHermesUpgradeChecker(fetcher: ReleaseFixture(target: target))
         let report = try await checker.check(installation: .absent(hermesDataPresent: false))
         XCTAssertEqual(report.latestStable, target)
-        XCTAssertNil(report.verifiedRecommendation)
-        XCTAssertFalse(report.latestStableIsVerified)
-        let verified = try await DesktopHermesUpgradeChecker(fetcher: ReleaseFixture(target: target), verifiedTargets: [target])
-            .check(installation: .absent(hermesDataPresent: false))
-        XCTAssertTrue(verified.latestStableIsVerified)
         let other = try DesktopHermesUpgradeTarget(version: target.version, commit: String(repeating: "b", count: 40))
-        let replaced = try await DesktopHermesUpgradeChecker(fetcher: ReleaseFixture(target: other), verifiedTargets: [target])
+        let replaced = try await DesktopHermesUpgradeChecker(fetcher: ReleaseFixture(target: other))
             .check(installation: .absent(hermesDataPresent: false))
-        XCTAssertFalse(replaced.latestStableIsVerified)
+        XCTAssertEqual(replaced.latestStable, other)
     }
 
     func testOfficialReleaseResolvesAnnotatedTagInsteadOfMovingMain() async throws {
