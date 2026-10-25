@@ -1168,6 +1168,27 @@ final class DesktopMigrationCoordinatorTests: XCTestCase {
         XCTAssertTrue(fixture.serviceMutations().isEmpty)
     }
 
+    func testLayoutMigrationRefusesMissingLocalExecutableBeforeStoppingServices() async throws {
+        let fixture = try Fixture(legacyRunning: false, resumeBoundBinding: true, provideLocalHermes: true)
+        defer { fixture.cleanup() }
+        try fixture.installCommittedManagedServices(inlineToken: nil)
+        let local = try XCTUnwrap(fixture.providedLocalHermes)
+        _ = try fixture.installer.prepareLocalHermesRuntime(local)
+        try FileManager.default.removeItem(at: local.executable)
+        let component = try fixture.componentRelease()
+        await XCTAssertThrowsErrorAsync(try await fixture.coordinator.migrateBundledInstallationToComponents(
+            manifest: component.manifest, activationPlan: component.plan,
+            hermesLaunchAgentConfiguration: component.agents.hermes,
+            launchAgentConfiguration: component.agents.connector,
+            runID: "10000000-0000-4000-8000-000000000016",
+            confirmation: DesktopMigrationCoordinator<InMemoryLaunchctlRunner>
+                .componentMigrationConfirmationText(releaseVersion: "2.0.0")
+        )) { XCTAssertEqual($0 as? DesktopMigrationCoordinatorError, .invalidStartingState) }
+        XCTAssertTrue(fixture.serviceMutations().isEmpty)
+        XCTAssertEqual(try fixture.journal.load()?.state, .accountActive)
+        XCTAssertEqual(try fixture.journal.load()?.releaseLayout, .bundledRelease)
+    }
+
     func testInterruptedLayoutMigrationRestoresPreviousLayoutAndExactFiles() async throws {
         let fixture = try Fixture(
             legacyRunning: false, resumeBoundBinding: true,

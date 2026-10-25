@@ -320,7 +320,10 @@ public final class DesktopMigrationCoordinator<Runner: CommandRunning>: @uncheck
                 throw DesktopMigrationCoordinatorError.invalidStartingState
             }
             // Validate the existing private token contract before saving or stopping anything.
-            _ = try installer.loadLocalHermesLaunchAgent()
+            let local = try installer.loadLocalHermesLaunchAgent()
+            guard FileManager.default.isExecutableFile(atPath: local.executable.path) else {
+                throw DesktopMigrationCoordinatorError.invalidStartingState
+            }
         }
         let services = try launchAgent.inspect()
         let currentAccount = try await account.refresh()

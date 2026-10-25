@@ -22,6 +22,8 @@ an exact committed account binding, both managed services loaded, no retired Con
 recognized local Hermes agent using the private session-token file. A Mac still running bundled
 Hermes must first complete the existing local-runtime switch; this migration never installs or
 selects a replacement Hermes. Normal upgrade confirmation cannot authorize layout conversion.
+The local entrypoint must still be executable before any snapshot, journal write or service stop;
+a loaded process alone cannot prove it could be restarted.
 
 Preparation verifies the signed component preflight and downloads to the private workspace. The
 executor records the explicit migration intent in the issued preparation. Cancel or wrong
@@ -67,6 +69,9 @@ The standard entry remains `scripts/publish-desktop-release.sh`.
 The protected signed-candidate workflow defaults to `components_only: true`; explicitly choosing
 false retains historical pair generation for recovery. Normal candidates do not fetch the old
 Hermes archive. This does not replace environment approval or authorize release-key provisioning.
+The paused HG-237 attempt already exposed immutable versioned 0.4.13 files. A future candidate
+with different bytes must use a newly allocated version; do not overwrite or reactivate that pair
+as an incidental part of implementing migration.
 
 ## Validation and remaining integration
 
