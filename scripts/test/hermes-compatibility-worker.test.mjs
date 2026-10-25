@@ -374,3 +374,37 @@ test('Desktop launchd evidence binds actual Core/helper identity and every initi
   privateData.stages.source.restart.launchAgent.token='synthetic-private';
   assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
 });
+
+test('relay recovery evidence requires all three stages and cannot certify full service or client recovery',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const {RELAY_RECOVERY_SCOPE,RELAY_RECOVERY_CHECKS}=await import('../hermes-compatibility-contract-probe.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-relay-recovery-contracts.json',import.meta.url)));
+  const native=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
+  assert.equal(raw.stages.source.relay.recovery.scope,RELAY_RECOVERY_SCOPE);
+  const parse=v=>contractEvidence(v,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,native);
+  const bundle=v=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(v)},'2026-10-25T01:00:00Z');
+  for(const name of ['connector','serviceRecovery','clientBusiness','desktopLifecycle','newDataProtection'])
+    assert.equal(bundle(raw).report.checks.find(c=>c.name===name).status,'not_run');
+  for(const name of ['source','candidate','restored']){
+    const missing=structuredClone(raw);delete missing.stages[name].relay.recovery;assert.throws(()=>parse(missing));
+    for(const key of RELAY_RECOVERY_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[name].relay.recovery.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[name].relay.recovery.checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';const result=bundle(failed);
+      for(const check of ['connector','serviceRecovery'])assert.equal(result.report.checks.find(c=>c.name===check).status,'failed');
+      assert.equal(validateBundle(task,result).outcome,'failed');
+    }
+    for(const patch of [{schemaVersion:2},{kind:'other'},{scope:'account-mode'},{version:'0.0.0'},
+      {compatibilityApproved:true},{attempted:'true'},{attempted:false,checks:{}}]){
+      const wrong=structuredClone(raw);Object.assign(wrong.stages[name].relay.recovery,patch);assert.throws(()=>parse(wrong));
+    }
+    const skipped=structuredClone(raw);Object.assign(skipped.stages[name].relay.recovery,{attempted:false,checks:{}});
+    skipped.stages[name].relay.probe.checks.promptHistory=false;skipped.status='contract_gap';
+    assert.equal(bundle(skipped).report.checks.find(c=>c.name==='connector').status,'failed');
+    skipped.stages[name].relay.recovery.checks.recoveryHistory=true;assert.throws(()=>parse(skipped));
+  }
+  const privateData=structuredClone(raw);privateData.stages.source.relay.recovery.checkpoint={storedId:'synthetic-private'};
+  privateData.stages.source.relay.recovery.token='synthetic-private';
+  assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+});

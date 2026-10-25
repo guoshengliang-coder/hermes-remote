@@ -5,6 +5,7 @@ No installation, user data, external service or production account is involved.
 --prompt uses a fenced loopback model fixture and restores the synthetic configuration.
 The candidate is temporarily reactivated only inside a successful synthetic installation lab.
 """
+from contextlib import ExitStack
 import argparse
 import fcntl
 import importlib.util
@@ -50,7 +51,7 @@ def probe(root, lab, version, stage, node, prompt=False, relay=False, restart=Fa
 
 
 def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, relay=False, model_observation=None,
-                  capture_restart=False, restart_state=None, launchagent=None):
+                  capture_restart=False, restart_state=None, launchagent=None, relay_context=None, relay_state=None):
     env = lab.isolated_environment(root)
     token = secrets.token_urlsafe(32)
     env.update(HERMES_DESKTOP='1', HERMES_DASHBOARD_SESSION_TOKEN=token)
@@ -86,10 +87,13 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, r
             if port is None:
                 raise ValueError('startup_timeout')
             # Tokens travel through stdin, never command arguments, evidence or printed logs.
-            def call_probe(active_port,active_token,transport='direct'):
+            def call_probe(active_port,active_token,transport='direct',recovery=False):
                 data={'port':active_port,'token':active_token,'version':version,'prompt':prompt,'transport':transport,
-                      'captureRestart':capture_restart and transport=='direct'}
-                if restart_state:
+                      'captureRestart':capture_restart}
+                if recovery:
+                    data={'port':active_port,'token':active_token,'version':version,'operation':'relay-recovery',
+                          'checkpoint':relay_state['checkpoint']}
+                elif restart_state:
                     data={'port':active_port,'token':active_token,'version':version,'operation':'restart',
                           'previousToken':restart_state['token'],'checkpoint':restart_state['checkpoint']}
                 runtime = subprocess.run([node, str(Path(__file__).with_name('hermes-compatibility-contract-probe.mjs'))],
@@ -114,13 +118,23 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, r
             if relay:
                 spec=importlib.util.spec_from_file_location('relay_fixture',Path(__file__).with_name('hermes-compatibility-relay-fixture.py'))
                 fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
-                with fixture.relay_fixture(root,node,sandbox,port,token,stage) as observation:
+                with ExitStack() as local_context:
+                    observation=(relay_context or local_context).enter_context(fixture.relay_fixture(root,node,sandbox,port,token,stage))
                     model_before=model_observation['requests']
                     relayed=call_probe(observation['port'],observation['token'],'legacy-relay')
                     relayed['checks']['promptModelObserved']=model_observation['requests']>model_before
+                    if capture_restart:relay_state.update(observation=observation,checkpoint=relayed.pop('restartCheckpoint'))
                 result['relay']={'probe':relayed,'roleSeparation':observation['roleSeparation'],'stopped':observation['stopped'],
                     'gatewayVersion':observation['gatewayVersion'],'connectorVersion':observation['connectorVersion'],'nodeSha256':observation['nodeSha256'],'buildSha256':observation['buildSha256'],
                     'fixtureSha256':lab.sha256(Path(__file__).with_name('hermes-compatibility-relay-fixture.py').read_bytes())}
+                if capture_restart:relay_state['record']=result['relay']
+            if restart_state and relay_state is not None and relay_state['checkpoint'] is not None:
+                observation=relay_state['observation']
+                model_before=model_observation['requests']
+                lifecycle=observation['reconnect'](token)
+                recovered=call_probe(observation['port'],observation['token'],recovery=True)
+                recovered['checks'].update(lifecycle,recoveryNoModelRequest=model_observation['requests']==model_before)
+                relay_state['record']['recovery']=recovered
             return result
         finally:
             # Stop all processes belonging to this synthetic backend before swapping paths.
@@ -150,21 +164,31 @@ def prompt_probe(root, lab, version, stage, node, relay=False, restart=False, la
         'import socket; s=socket.socket(); s.settimeout(1);\ntry: s.connect(("192.0.2.1",9))\nexcept PermissionError: raise SystemExit(0)\nexcept OSError: raise SystemExit(2)\nraise SystemExit(3)'],
         env=lab.isolated_environment(root),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
     if fence.returncode: raise ValueError('network_fence_failed')
-    with fixture.model_fixture(root/'user/.hermes/config.yaml') as observation:
-        result=runtime_probe(root,lab,version,stage,node,prompt=True,sandbox=sandbox,relay=relay,model_observation=observation,capture_restart=restart,launchagent=launchagent)
+    relay_state={} if relay and restart else None
+    with fixture.model_fixture(root/'user/.hermes/config.yaml') as observation, ExitStack() as relay_context:
+        result=runtime_probe(root,lab,version,stage,node,prompt=True,sandbox=sandbox,relay=relay,model_observation=observation,capture_restart=restart,launchagent=launchagent,
+            relay_context=relay_context if relay_state is not None else None,relay_state=relay_state)
         if restart:
             # Keep token, PID, port, stored ID and transcript in memory only; never serialize them to the report.
             previous=result.pop('_restart')
             if not previous['stopped']:raise ValueError('previous_backend_alive')
             if previous['checkpoint'] is not None:
                 result['restart']=runtime_probe(root,lab,version,stage+'-restart',node,sandbox=sandbox,
-                    model_observation=observation,restart_state=previous,launchagent=launchagent)
+                    model_observation=observation,restart_state=previous,launchagent=launchagent,relay_state=relay_state)
             else:
                 # Preserve the actual prompt failure; missing prerequisite is not an infrastructure error
                 # or a claim that a restart was attempted. The consumer rejects a false skip.
                 result['restart']={'schemaVersion':1,'kind':'live-backend-restart-probe',
                     'scope':'completed-text-turn-backend-restart-v1','version':version,'attempted':False,
                     'checks':{},'compatibilityApproved':False}
+        if relay_state is not None and 'recovery' not in result['relay']:
+            result['relay']['recovery']={'schemaVersion':1,'kind':'live-relay-recovery-probe',
+                'scope':'legacy-relay-completed-turn-recovery-v1','version':version,'attempted':False,
+                'checks':{},'compatibilityApproved':False}
+    if relay_state is not None:
+        result['relay']['stopped']=relay_state['observation']['stopped']
+        if result['relay']['recovery']['attempted']:
+            result['relay']['recovery']['checks'].update(recoveryConfigurationRestored=observation['restored'],recoveryNetworkFence=True)
     for item in [result]+([result['relay']['probe']] if relay else []):
         item['checks']['promptConfigurationRestored']=observation['restored']
         item['checks']['promptNetworkFence']=True
@@ -230,7 +254,8 @@ def main():
         output['probeSha256']=lab.sha256(Path(__file__).with_name('hermes-compatibility-contract-probe.mjs').read_bytes())
         output['status']='passed' if all(all(s['checks'].values()) and (not args.relay or
             (all(s['relay']['probe']['checks'].values()) and s['relay']['roleSeparation'] and s['relay']['stopped']))
-            and (not args.restart or all(s['restart']['checks'].values())) for s in output['stages'].values()) else 'contract_gap'
+            and (not args.restart or all(s['restart']['checks'].values()))
+            and (not (args.restart and args.relay) or all(s['relay']['recovery']['checks'].values())) for s in output['stages'].values()) else 'contract_gap'
         if args.relay:output['relayScope']='legacy-source-build-relay-v1'
         path=root/('contract-report-'+stamp+'.json')
         path.write_text(json.dumps(output,indent=2)+'\n');path.chmod(0o600)

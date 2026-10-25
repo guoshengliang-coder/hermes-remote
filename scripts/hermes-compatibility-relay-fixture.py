@@ -52,14 +52,14 @@ def get_json(url, token=None):
         status=error.code;error.close();return status,None
 
 
-def wait_ready(children, origin, device=None):
+def wait_ready(children, origin, device=None, online=True):
     deadline=time.monotonic()+20
     while time.monotonic()<deadline:
         if any(child.poll() is not None for child in children):raise ValueError('relay_process_exited')
         try:
             status,body=get_json(origin+'/health')
             if status==200 and body.get('ok') is True and (device is None or
-                any(row.get('deviceId')==device and row.get('online') is True for row in body.get('devices',[]))):return
+                any(row.get('deviceId')==device and row.get('online') is True for row in body.get('devices',[])) is online):return
         except (OSError,ValueError):pass
         time.sleep(0.1)
     raise ValueError('relay_start_timeout')
@@ -100,25 +100,42 @@ def relay_fixture(root,node,sandbox,backend_port,backend_token,stage):
         'DEVICE_ID':device,'HERMES_BASE_URL':f'http://127.0.0.1:{backend_port}',
         'HERMES_SESSION_TOKEN':backend_token,'CONNECTOR_LOG_LEVEL':'off','FILES_ROOT':str(workspace),
         'OBSERVER_STATE_FILE':str(workspace/'observer.json')}
-    children=[];logs=[]
+    children=[];logs=[];active=[]
+    def start(component, env, suffix=''):
+        fd=os.open(str(workspace/(component+suffix+'.private.log')),os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
+        log=os.fdopen(fd,'wb');logs.append(log)
+        child=subprocess.Popen(['/usr/bin/sandbox-exec','-f',str(sandbox),node,str(source/component/'dist/index.js')],
+            cwd=source,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)
+        children.append(child);active.append(child)
+        wait_ready(active,origin,device if component=='connector' else None)
+        return child
     try:
-        for component,env in [('gateway',gateway),('connector',connector)]:
-            fd=os.open(str(workspace/(component+'.private.log')),os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
-            log=os.fdopen(fd,'wb');logs.append(log)
-            child=subprocess.Popen(['/usr/bin/sandbox-exec','-f',str(sandbox),node,str(source/component/'dist/index.js')],
-                cwd=source,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)
-            children.append(child)
-            wait_ready(children,origin,device if component=='connector' else None)
+        gateway_child=start('gateway',gateway)
+        connector_child=start('connector',connector)
+        recovered=False
+        def reconnect(new_backend_token):
+            nonlocal connector_child,recovered
+            if recovered or new_backend_token==backend_token or not isinstance(new_backend_token,str) or len(new_backend_token)!=43:
+                raise ValueError('invalid_relay_recovery')
+            recovered=True
+            previous=connector_child
+            stop_child(previous);active.remove(previous)
+            wait_ready(active,origin,device,online=False)
+            connector_child=start('connector',{**connector,'HERMES_SESSION_TOKEN':new_backend_token},'-restarted')
+            return {'gatewaySameProcess':gateway_child.poll() is None,
+                'connectorPreviousStopped':previous.poll() is not None,'connectorFreshProcess':connector_child.pid!=previous.pid,
+                'connectorOfflineObserved':True,'connectorOnline':True,
+                'clientCredentialPreserved':observation['token']==app_token and observation['port']==port}
         local_status,_=get_json(f'http://127.0.0.1:{backend_port}/api/profiles/active',app_token)
         relay_status,_=get_json(origin+'/api/profiles/active',backend_token)
         observation={'port':port,'token':app_token,'roleSeparation':local_status in (401,403) and relay_status in (401,403),
-            'stopped':False,'buildSha256':build_sha,'nodeSha256':node_sha,'gatewayVersion':json.loads((source/'gateway/package.json').read_text())['version'],
+            'reconnect':reconnect,'stopped':False,'buildSha256':build_sha,'nodeSha256':node_sha,'gatewayVersion':json.loads((source/'gateway/package.json').read_text())['version'],
             'connectorVersion':json.loads((source/'connector/package.json').read_text())['version']}
         yield observation
-        if any(child.poll() is not None for child in children):raise ValueError('relay_process_exited')
+        if any(child.poll() is not None for child in active):raise ValueError('relay_process_exited')
         if build_digest(source)!=build_sha or digest(local_node)!=node_sha:raise ValueError('relay_build_changed')
     finally:
-        for child in reversed(children):stop_child(child)
+        for child in reversed(active):stop_child(child)
         for log in logs:log.close()
         local_node.unlink(missing_ok=True)
         if 'observation' in locals():observation['stopped']=all(child.poll() is not None for child in children)

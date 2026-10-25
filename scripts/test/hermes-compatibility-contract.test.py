@@ -110,6 +110,37 @@ class ContractLabTests(unittest.TestCase):
                 self.assertFalse(result['restart']['attempted'])
             self.assertEqual(config.read_text(),'synthetic original')
 
+    def test_relay_lifetime_spans_backend_restart_and_cleanup_survives_failure(self):
+        for failure in (False,True):
+            with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+                root=Path(directory);(root/'tmp').mkdir();(root/'isolation.sb').write_text('(version 1)\n(allow default)\n')
+                config=root/'user/.hermes/config.yaml';config.parent.mkdir(parents=True);config.write_text('synthetic original')
+                installer=types.SimpleNamespace(isolated_environment=lambda root:{},sha256=lambda data:'a'*64)
+                relay={'stopped':False}
+                def run(*args,**kwargs):
+                    state=kwargs['relay_state']
+                    if kwargs.get('restart_state'):
+                        self.assertFalse(relay['stopped'])
+                        self.assertIs(state['observation'],relay)
+                        if failure:raise TimeoutError('injected recovery failure')
+                        state['record']['recovery']={'attempted':True,'checks':{'recoveryHistory':True}}
+                        return {'attempted':True,'checks':{'restartHistory':True}}
+                    kwargs['relay_context'].callback(lambda:relay.update(stopped=True))
+                    record={'probe':{'checks':{'promptHistory':True}},'stopped':False}
+                    state.update(observation=relay,checkpoint={'storedId':'synthetic-private'},record=record)
+                    return {'checks':{'promptHistory':True},'relay':record,
+                        '_restart':{'stopped':True,'checkpoint':{'storedId':'synthetic-private'}}}
+                with mock.patch.object(lab.subprocess,'run',return_value=types.SimpleNamespace(returncode=0)), \
+                    mock.patch.object(lab,'runtime_probe',side_effect=run):
+                    if failure:
+                        with self.assertRaises(TimeoutError):lab.prompt_probe(root,installer,'0.21.3','fixture','/synthetic/node',relay=True,restart=True)
+                    else:
+                        result=lab.prompt_probe(root,installer,'0.21.3','fixture','/synthetic/node',relay=True,restart=True)
+                        self.assertTrue(result['relay']['stopped'])
+                        self.assertTrue(result['relay']['recovery']['checks']['recoveryConfigurationRestored'])
+                        self.assertNotIn('synthetic-private',json.dumps(result))
+                self.assertTrue(relay['stopped']);self.assertEqual(config.read_text(),'synthetic original')
+
     def test_uncertain_launchd_cleanup_quarantines_candidate_without_moving_its_live_paths(self):
         with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
             root=Path(directory).resolve();(root/'tmp').mkdir()

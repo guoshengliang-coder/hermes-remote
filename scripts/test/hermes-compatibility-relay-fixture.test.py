@@ -72,6 +72,36 @@ class RelayFixtureTests(unittest.TestCase):
                 self.assertEqual(child.code,0);self.assertTrue(all(c.args[0]==13000 for c in kill.call_args_list))
                 self.assertFalse((root/'tmp/relay-failed/node').exists())
 
+    def test_recovery_keeps_gateway_and_public_credentials_but_replaces_only_connector(self):
+        for fail in (False,True):
+            with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+                root,sandbox,node=self.prepare(directory);children=[];envs=[]
+                def launch(command,**options):
+                    if fail and len(children)==2:raise OSError('injected restart failure')
+                    child=types.SimpleNamespace(pid=14000+len(children),code=None)
+                    child.poll=lambda:child.code
+                    def wait(timeout):child.code=0
+                    child.wait=wait;children.append(child);envs.append(options['env'])
+                    return child
+                with mock.patch.object(fixture,'build_digest',return_value='a'*64),mock.patch.object(fixture,'wait_ready') as ready, \
+                    mock.patch.object(fixture,'get_json',return_value=(403,None)),mock.patch.object(fixture.subprocess,'Popen',side_effect=launch), \
+                    mock.patch.object(fixture.os,'killpg'):
+                    with fixture.relay_fixture(root,str(node),sandbox,12345,'a'*43,'recovery') as report:
+                        original=(report['port'],report['token'])
+                        if fail:
+                            with self.assertRaises(OSError):report['reconnect']('b'*43)
+                        else:
+                            self.assertTrue(all(report['reconnect']('b'*43).values()))
+                            self.assertEqual(envs[1]|{'HERMES_SESSION_TOKEN':'b'*43},envs[2])
+                            self.assertEqual(original,(report['port'],report['token']))
+                            self.assertIsNone(children[0].poll())
+                            self.assertEqual(children[1].poll(),0)
+                            self.assertTrue(any(c.kwargs.get('online') is False for c in ready.call_args_list))
+                            with self.assertRaises(ValueError):report['reconnect']('c'*43)
+                    self.assertTrue(report['stopped'])
+                    self.assertTrue(all(c.poll() is not None for c in children))
+                    self.assertFalse((root/'tmp/relay-recovery/node').exists())
+
     def test_exited_child_fails_readiness_before_network_access(self):
         child=types.SimpleNamespace(poll=lambda:1)
         with mock.patch.object(fixture,'get_json') as read:

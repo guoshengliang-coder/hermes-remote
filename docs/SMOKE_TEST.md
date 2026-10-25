@@ -2441,3 +2441,15 @@ serviceRecovery unverified until managed relay, Desktop lifecycle and remaining 
 If stop cannot be confirmed, require a private cleanup marker, preserved active/parked paths and
 refusal of another run. Do not swap directories under a potentially live writer or remove the marker
 as a retry shortcut. Cleanup must first verify the exact experiment-owned job is gone.
+
+### Isolated Hermes relay recovery (2026-10-25)
+
+Run the existing private contract lab with `--prompt --relay --restart --launchagent` against its
+previously verified disposable lab root. It now also retains the legacy source-built Gateway while
+restarting Hermes and its Connector, reuses the original app credential and verifies the same completed
+relayed turn. Expect source/candidate/restored `relay.recovery.scope` to be
+`legacy-relay-completed-turn-recovery-v1`, each with 16 boolean checks and no credential/checkpoint
+fields. Verify the model request count stays unchanged, six test LaunchAgents are unloaded, both
+installation paths are restored, and no cleanup-required marker or temporary Node/helper remains.
+Never substitute a daily installation root. A successful isolated result still needs account-mode,
+actual-client and release-artifact acceptance before full upgrade compatibility can be approved.

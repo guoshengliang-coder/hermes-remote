@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
 import {WebSocketServer} from 'ws';
-import {probeBackendRestart,validatePromptHistory,PROMPT_TEXT,PROMPT_ANSWER} from '../hermes-compatibility-contract-probe.mjs';
+import {probeBackendRestart,probeRelayRecovery,RELAY_RECOVERY_SCOPE,validatePromptHistory,PROMPT_TEXT,PROMPT_ANSWER} from '../hermes-compatibility-contract-probe.mjs';
 
 const token='n'.repeat(40),previousToken='o'.repeat(40),storedId='synthetic-stored';
 const messages=()=>[{id:2,role:'user',content:PROMPT_TEXT,timestamp:1792926000},
@@ -55,4 +55,17 @@ test('missing, invalid or duplicate checkpoints and unchanged credentials fail b
   for(const patch of [{checkpoint:null},{checkpoint:{storedId,history:[]}},{previousToken:token},
     {checkpoint:{storedId,history:[input.checkpoint.history[0],input.checkpoint.history[0]]}}])
     await assert.rejects(probeBackendRestart({...input,...patch}));
+});
+
+test('relay recovery preserves client authentication and reads the exact completed turn without a new prompt',async t=>{
+  const {input,state}=await fixture(t);delete input.previousToken;
+  const result=await probeRelayRecovery(input);
+  assert.equal(result.scope,RELAY_RECOVERY_SCOPE);
+  assert.ok(Object.values(result.checks).every(Boolean));
+  assert.equal(Object.hasOwn(result.checks,'recoveryOldTokenRejected'),false);
+  assert.equal(state.requests.find(r=>r.method==='session.resume').params.session_id,storedId);
+  for(const value of [token,storedId,PROMPT_TEXT,PROMPT_ANSWER])assert.equal(JSON.stringify(result).includes(value),false);
+  state.messages[1].id++;
+  assert.equal((await probeRelayRecovery(input)).checks.recoveryHistory,false);
+  await assert.rejects(probeRelayRecovery({...input,previousToken}));
 });

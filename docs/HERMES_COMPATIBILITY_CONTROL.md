@@ -304,3 +304,22 @@ portReleased。报告绑定 helper 源码/二进制、Core 源码树和 fixture 
 Desktop 退出重开、中继重连、生产凭据、账号模式或新版数据恢复。无 GUI launchd 域、Swift
 工具链或源码构建失败属于基础设施未完成，不能代替通过。没有修改产品 UI、正式 plist 或
 上游代码；首次完整受保护 workflow 仍须独立验收。
+
+## I2 后端重启后的 legacy 中继恢复
+
+`legacy-relay-completed-turn-recovery-v1` 扩展上述隔离合同实验。每个阶段先通过真实源码构建的
+Gateway/Connector 完成一轮合成对话，保留其 checkpoint；Gateway 跨 Hermes 停止/重启保持
+运行，端口、设备身份、app/connector 凭据不变。确认旧 Connector 退出且 Gateway 观察到离线，
+再仅替换 Connector 进程，使用新 Hermes 本机凭据，等待同一设备重新在线。原 app 凭据经中继
+读取版本、种子历史，并恢复重启前同一 stored ID；两条消息的 ID、正文、角色和时间戳必须
+完全一致，本地模型请求数不得增加。此处不会创建新对话或发送新提示。
+
+三阶段各有 16 项布尔检查。证据与既有中继 build/Node/fixture、lab/probe 和 Native 身份绑定；
+缺阶段、缺检查、错误范围/版本、失败却标通过都拒收。只有前置直接或中继对话失败，才可跳过
+并记录 attempted=false/空 checks；已测失败使 connector 和 serviceRecovery 失败。即使全部
+通过，这两个完整门禁仍保持 not_run：这是 legacy 源码构建、已完成文本对话的恢复范围，
+不是已发布组件、账号模式、实际客户端、运行中断或升级执行器的完整认证。
+
+ExitStack 保证异常时先清理本任务中继，再恢复模型配置；只停止由 fixture 创建的进程组。
+凭据、checkpoint、进程号和路径仅在本机私有状态，不进入公开报告。现有 worker 选项组合
+`--prompt --relay --restart --launchagent` 自动执行本范围；无新增产品错误码或管理授权。

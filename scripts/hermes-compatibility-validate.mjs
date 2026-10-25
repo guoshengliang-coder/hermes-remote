@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS, RESTART_SCOPE, RESTART_CHECKS } from './hermes-compatibility-contract-probe.mjs';
+import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS, RESTART_SCOPE, RESTART_CHECKS, RELAY_RECOVERY_SCOPE, RELAY_RECOVERY_CHECKS } from './hermes-compatibility-contract-probe.mjs';
 import { parseTask, readJSON, infrastructureReport } from './hermes-compatibility-worker.mjs';
 import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/dist/account/hermes-compatibility-model.js';
 
@@ -78,7 +78,9 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
     const fields=['gatewayVersion','connectorVersion','nodeSha256','buildSha256'];
     if (!first || !['gatewayVersion','connectorVersion'].every(k=>/^[0-9]+\.[0-9]+\.[0-9]+$/.test(first[k]??''))
         || !['nodeSha256','buildSha256'].every(k=>SHA.test(first[k]??''))) throw new Error('contract_relay_identity_mismatch');
-    const probes={}, observations={};
+    const probes={}, observations={},recoveries={};
+    const recoveryScope=first.recovery?.scope;
+    if(recoveryScope!==undefined&&(recoveryScope!==RELAY_RECOVERY_SCOPE||!restartScope))throw new Error('relay_recovery_scope_mismatch');
     for (const name of ['source','candidate','restored']) {
       const item=raw.stages[name].relay;
       if (!item || item.fixtureSha256!==relayFixtureSha256 || !fields.every(k=>item[k]===first[k])
@@ -86,6 +88,17 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
           || item.probe?.relay!==undefined || !item.probe?.checks) throw new Error('contract_relay_identity_mismatch');
       probes[name]=item.probe;
       observations[name]={roleSeparation:item.roleSeparation,stopped:item.stopped};
+      const recovery=item.recovery;
+      if(recoveryScope){
+        if(recovery?.schemaVersion!==1||recovery.kind!=='live-relay-recovery-probe'||recovery.scope!==recoveryScope
+          ||recovery.version!==raw.stages[name].version||recovery.compatibilityApproved!==false||typeof recovery.attempted!=='boolean'
+          ||(recovery.attempted?(!raw.stages[name].restart.attempted||item.probe.checks.promptHistory!==true||
+            !RELAY_RECOVERY_CHECKS.every(n=>typeof recovery.checks?.[n]==='boolean')):
+            ((item.probe.checks.promptHistory!==false&&raw.stages[name].checks.promptHistory!==false)||
+             !recovery.checks||Object.keys(recovery.checks).length!==0)))throw new Error('relay_recovery_mismatch');
+        recoveries[name]={version:recovery.version,attempted:recovery.attempted,
+          checks:recovery.attempted?Object.fromEntries(RELAY_RECOVERY_CHECKS.map(n=>[n,recovery.checks[n]])):{}};
+      }else if(recovery!==undefined)throw new Error('relay_recovery_scope_missing');
     }
     const nested=parseContracts({...raw,relayScope:undefined,stages:probes,
       status:Object.values(probes).every(p=>Object.values(p.checks).every(v=>v===true))?'passed':'contract_gap'},
@@ -94,7 +107,7 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
         ['restScope','rpcScope','promptScope','reconnectScope'].some(k=>nested[k]!==raw.stages.source[k]))
       throw new Error('contract_relay_scope_mismatch');
     relay={scope:RELAY_SCOPE,fixtureSha256:relayFixtureSha256,...Object.fromEntries(fields.map(k=>[k,first[k]])),
-      stages:nested.stages,observations};
+      stages:nested.stages,observations,...(recoveryScope?{recovery:{scope:recoveryScope,stages:recoveries}}:{})};
   }
   let launchAgent;
   const firstNative=raw.stages.source.launchAgent;
@@ -123,7 +136,8 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
   const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean))
     && (!restartScope || Object.values(restartStages).every(stage=>Object.values(stage.checks).every(Boolean))) && (!relay ||
     (Object.values(relay.stages).every(stage=>Object.values(stage.checks).every(Boolean)) &&
-     Object.values(relay.observations).every(stage=>stage.roleSeparation && stage.stopped)))
+     Object.values(relay.observations).every(stage=>stage.roleSeparation && stage.stopped) &&
+     (!relay.recovery||Object.values(relay.recovery.stages).every(stage=>Object.values(stage.checks).every(Boolean)))))
     && (!launchAgent||Object.values(launchAgent.cycles).every(cycle=>Object.values(cycle).every(checks=>Object.values(checks).every(Boolean))));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
   return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),suiteSha256,probeSha256,stages,...(relay?{relay}:{}),
@@ -202,7 +216,11 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
          Object.values(evidence.contracts.relay.observations).some(stage=>!stage.roleSeparation || !stage.stopped))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }
-    // Backend restart does not cover LaunchAgent ownership or the Desktop lifecycle. A failed
+    if(['serviceRecovery','connector'].includes(name)&&evidence.contracts?.relay?.recovery&&
+      Object.values(evidence.contracts.relay.recovery.stages).some(stage=>stage.attempted&&Object.values(stage.checks).some(v=>v===false))){
+      return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
+    }
+    // Backend restart alone does not cover the full Desktop lifecycle. A failed
     // completed-turn recovery is nevertheless a concrete service recovery incompatibility.
     if(name==='serviceRecovery'&&evidence.contracts?.restart?.scope===RESTART_SCOPE&&
       Object.values(evidence.contracts.restart.stages).some(stage=>stage.attempted&&Object.values(stage.checks).some(value=>value===false))) {

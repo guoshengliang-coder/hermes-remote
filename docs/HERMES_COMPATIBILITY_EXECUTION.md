@@ -649,3 +649,35 @@ Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通
 上游 issue 此时仍无回复，未确认锁缺口修复。整体仍是六项可通过、一项并发锁失败、八项
 未完成；I4/I5、受保护任务和真实客户端链路尚未交付。未合并、部署、发布、授予角色或
 修改日常 Hermes，也未向上游发送额外消息。
+
+## I2 保持 Gateway 运行的中继恢复
+
+`1c42c240` 的 11 项 PR 检查全部通过。本轮先评审恢复范围与测试影响：此前中继在后端重启
+前已关闭，因此不能证明原客户端连接路径仍可使用。新增范围保持 Gateway 进程、端口、设备
+身份和 app/connector 凭据不变，后端用新本机 token 启动后，仅替换自有 Connector；Gateway
+必须先观察到旧连接离线，再确认新连接上线。用原 app 凭据恢复重启前通过中继完成的对话，
+核对运行版本、种子历史、同一 stored ID 和两条消息的 ID/正文/角色/时间戳，无新增模型请求。
+
+实际固定旧版、候选、恢复版三阶段共 48/48 新增检查通过；原有 198 直接/中继、45 后端重启、
+24 Native 服务与六项凭据/清理检查仍通过。证据见
+[中继恢复报告](evidence/hermes-compatibility/2026-10-25-relay-recovery-contracts.json)，绑定
+最终 lab/probe/fixtures、源码构建及 Native 身份。六个本轮随机 LaunchAgent 均已卸载，两个
+实验安装路径恢复，无清理标记，临时 Native 助手与 Node 副本已删除。
+
+报告解析新增三阶段完整性、版本/范围、布尔类型与状态一致性验证。已测失败使 connector 和
+serviceRecovery 失败；前置对话失败只能记录未尝试/空 checks，不能隐藏成功前置后的漏测。
+checkpoint、令牌、进程号、路径和正文只在私有实验状态，报告白名单排除这些字段。
+ExitStack 故障测试覆盖重启抛错时保留的中继仍被清理、原模型配置仍被恢复。复用既有
+HR-HERMESCOMPAT-004 失败边界，无新增产品错误码、权限或 UI 行为。
+
+定向 26/26 通过（首次沙箱禁止监听回环端口；获运行权限后重跑通过）；真实报告替换构造
+fixture 后，完整基线再次覆盖消费者。`npm run build` 通过；`npm test` 中 Protocol 18、
+Connector 153、Gateway 272（14 跳过）、release-server 41 通过；scripts 512 通过、0 跳过，
+仅复现既有两项 macOS LibreSSL CMS legacy-recovery 解密失败，整体退出非零。一次性
+PostgreSQL 测试执行。未修改 Desktop 产品源或 UI；上轮 assets/742 Swift/ad-hoc 构建记录
+不冒充本轮重新执行。`git diff --check` 通过。
+
+本轮只证明 legacy 源码构建、已完成文本对话的恢复；账号模式、发布产物、实际客户端、
+运行中断和完整升级执行器仍待验收。整体继续为六项可通过、一项并发锁失败、八项未完成，
+没有将局部成功升级为兼容推荐。未合并、部署、发布、授予角色或修改日常 Hermes；继续保持
+现有草稿 PR，不向上游发送额外消息。

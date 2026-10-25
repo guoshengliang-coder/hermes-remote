@@ -1232,3 +1232,18 @@ The report binds helper source/binary, Core source tree and fixture hashes. This
 the daily job label, actual app shutdown/reopen, relay reconnection, account mode or production
 upgrade. A missing GUI launchd domain or toolchain is infrastructure failure, never compatibility
 approval. The production adapted-version declaration and recommendation policy remain unchanged.
+
+### Completed-turn relay recovery after backend restart (2026-10-25)
+
+The isolated lab now retains its source-built legacy Gateway across the backend restart. It replaces
+only the owned Connector, observes offline then online for the same device, supplies the new local
+Hermes token and reuses the unchanged public app credential. Readback resumes the exact relayed
+completed conversation, verifies both persisted rows and the seeded history, and makes no new model
+request. Old/candidate/restored each pass 16 checks (48 total), in addition to the existing direct,
+relay, backend-restart and Native service checks. See
+[the scoped receipt](evidence/hermes-compatibility/2026-10-25-relay-recovery-contracts.json).
+
+This adds `legacy-relay-completed-turn-recovery-v1`; it does not expand the earlier direct restart
+scope. Missing or failed recovery checks cannot become passing evidence. Full connector/service
+recovery remains unapproved: account mode, released clients/components, interrupted generation and
+actual upgrade orchestration require independent acceptance. No upstream or product code changed.

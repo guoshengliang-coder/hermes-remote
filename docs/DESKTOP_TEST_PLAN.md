@@ -1230,3 +1230,18 @@ This is native service-controller acceptance under substituted test identities, 
 installation verification. App lifecycle, actual managed relay reconnect, account mode, interrupted
 generation and data-safe recovery still require their own cases. No product UI or release version
 changed; no new screenshots or distributed artifact are implied.
+
+### Hermes compatibility: relay retained across backend restart (2026-10-25)
+
+Using the same temporary Desktop Core LaunchAgent harness, keep the source-built legacy Gateway
+alive while Hermes is stopped and started on its original test port with a new local token. Stop only
+the owned Connector, observe its device go offline, then start a new Connector using the new local
+token. Keep the Gateway PID, device identity, public endpoint and client/connector credentials.
+Through the original app credential, resume the relayed completed turn and compare exact persisted
+rows without another prompt. Three fixed-version stages pass 48/48 new checks; the evidence is
+`evidence/hermes-compatibility/2026-10-25-relay-recovery-contracts.json`.
+
+The exception-path tests require the retained relay to close even when backend recovery throws.
+Real runs also require all six temporary launchd jobs unloaded and all owned processes/copies cleaned
+up before moving installation paths. No app UI, production labels, credentials or daily data are used.
+Account-mode and actual Desktop/Android/Web lifecycle acceptance remain outstanding.
