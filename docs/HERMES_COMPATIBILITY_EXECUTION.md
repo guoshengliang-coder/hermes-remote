@@ -229,3 +229,17 @@ I3 后续测试影响评审：现有 Web 发布只回读首页，不能证明兼
 该观察仍不是正在运行的 Connector 身份。当前 bundle 布局、Desktop DMG 到已安装 app 的可信映射、其他客户端与 Gateway 的实际身份、普通推荐页接线仍待实现；不能据此标记 I3 完成或开放升级。没有新增用户可见错误或视觉变化，现有预检错误映射不变。
 
 本轮 Desktop 基线：683 项 Swift 测试、资产一致性和本地 ad-hoc app 构建全部通过；`git diff --check` 通过。没有安装或发布构建产物，没有 UI 变化，因此没有新增原生视觉验收声明。Gateway/Connector/Android 产品源码未变，未重复其本地基线。
+
+## I3 旧布局 Connector 身份补验
+
+`6da23374` 的 11 项 GitHub 检查全部通过，PR 仍为草稿。本轮继续为 schema-1 旧布局补身份采集：签名清单绑定原始归档；归档复制到私有工作目录后再次验摘要并复用安全解包器；完整比对当前所选 Connector 树，前后核对 current 指向。返回值明确是所选安装文件的观察，不是运行进程或升级许可。未改写 receipt、安装目录或服务配置，未强制迁移用户布局。
+
+实施前测试影响评审覆盖安装文件/归档被改、复制期间归档变化、签名与 JSON 歧义、检查期间切换发布、工作目录边界及清理失败；错误沿用 HR-HERMESCOMPAT-008，技术详情仅保留固定阶段及闭集枚举，不传递系统错误中的个人路径。10 项定向测试通过。初始编译修正了私有 Base64 helper 的调用，初始错误文案断言修正为分别检查 summary/detail，没有改变现有文案。
+
+实机只读观察发现当前 selected release 已是 0.4.12，不能继续沿用旧记录的 0.3.4。从安装 app 的公开索引/公钥出发核验 0.4.12 清单和 37,087,174 字节 Connector 包，选中组件版本为 0.1.17。探针使用本轮实际 Core 代码，OS sandbox 禁止网络及自有临时目录外写入；独立的外部空目录写入尝试确实被拒绝。没有运行归档内程序、模型请求或 launchd 操作。
+
+第一次实验的 sandbox 布尔条件误拒绝了自有临时写入，修正后保留目录外拒绝。随后实机发现已有工作目录的 URL directory hint 导致临时参考包被判为 outsideManagedRoot；新增回归在修复前失败，给新 run URL 明确 isDirectory 后通过。最终 [实机身份报告](evidence/hermes-compatibility/2026-10-25-installed-bundled-connector.json) 为 passed，安装树内容与签名包一致；报告绑定 inspector 源文件摘要，保留 runningProcessVerified=false 和 compatibilityApproved=false。临时探针、公开下载与诊断位于 `/private/tmp/hermes-bundled-identity-real-rxej62h7`，不含账号凭据。
+
+仍需普通页面的原始清单/包发现接线、正在运行的组件身份、Desktop/Gateway/客户端身份及完整升级执行。已请求用户单独授权向上游提交已准备的锁缺陷报告；未收到授权前没有发送消息或创建上游 issue。本轮未合并、部署或升级日常 Hermes。
+
+最终 Desktop 基线为 693 项 Swift 测试、资产一致性与本地 ad-hoc app 构建通过；10 项定向测试通过，`git diff --check` 通过。新增证据只涉及当前选中组件文件；没有重复未改动 Gateway/Connector/Android 的本地套件，没有 UI 变化或新增视觉验收声明。

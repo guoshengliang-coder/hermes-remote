@@ -1635,6 +1635,19 @@ cannot acquire an archive identity, and constructing a presentation result does 
 
 This is a read-only observation of the component store at scan time, not the identity of a running
 Connector and not Hermes upgrade permission. A newer manifest may not describe the installed older
-component; that case remains unknown. Bundled installations, the installed Desktop app's DMG mapping,
+component; that case remains unknown. The installed Desktop app's DMG mapping, running-process and
 remote/client identities, freshness at execution and ordinary-page wiring still need implementation.
 No component migration, service restart, UI change or one-click Hermes execution is enabled here.
+
+For schema-1 bundled installations, `DesktopBundledConnectorIdentityInspector` can now reconstruct
+the content/archive mapping from the original signed release manifest and archive. It verifies the
+currently selected release, copies and re-verifies the archive in a private temporary workspace,
+extracts through the existing safe extractor, compares the complete installed tree before/after,
+and rechecks the selected release before returning. It neither edits the old receipt nor migrates
+the installation. Temporary cleanup failure prevents a successful identity result. Errors retain
+only fixed stages and closed error enums behind `HR-HERMESCOMPAT-008`.
+
+A read-only physical check matched selected release 0.4.12 / Connector 0.1.17 to its signed public
+archive; see the execution record. This does not identify a running process. The inspector requires
+the original signed inputs and is not yet wired to ordinary recommendation discovery. No download
+or service action is triggered automatically by adding this API.

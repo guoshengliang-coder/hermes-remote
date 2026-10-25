@@ -1058,6 +1058,25 @@ A failed Connector health probe must abort instead of returning identity evidenc
 signature and preflight runtime tests continue to cover rejection before scanning.
 
 These observations do not establish which Connector process is running. Physical active-process
-matching, bundled-layout identity, installed Desktop archive provenance and the five-component
+matching, installed Desktop archive provenance and the five-component
 recommendation flow remain unverified. This core-only change introduces no new user-visible error
 or visual state; existing preflight error mapping is unchanged.
+
+### Bundled Connector identity (2026-10-25)
+
+`DesktopBundledConnectorIdentityTests` creates actual tar.gz archives and signed schema-1 manifests
+in temporary directories. It covers full content comparison, added files/links, archive modification,
+copy-time archive replacement, invalid signatures/ambiguous envelopes, selected-release changes during
+inspection, unsafe workspaces and cleanup failure. The existing-directory URL case failed before
+the run directory was explicitly marked `isDirectory: true`; it passes after the fix. Tests assert
+`HR-HERMESCOMPAT-008`, both localized summaries/details, retry/recovery and path-free diagnostics.
+Archive contents are never executed by the inspector.
+
+Physical observation: use the installed app's public signing key and release-index configuration,
+resolve and verify the public schema-1 envelope, download the exact Connector archive, then call
+`DesktopBundledConnectorIdentityInspector.inspect` with the actual managed layout and a separate
+private workspace. In this run an OS sandbox denied network and every write outside that workspace;
+an independent outside-write attempt was refused. The selected release was 0.4.12 and Connector
+0.1.17; full installed content matched the original public archive. No launchd or model commands ran.
+The sanitized report is `evidence/hermes-compatibility/2026-10-25-installed-bundled-connector.json`.
+Running-process identity, ordinary-page integration and end-to-end Hermes upgrade remain pending.
