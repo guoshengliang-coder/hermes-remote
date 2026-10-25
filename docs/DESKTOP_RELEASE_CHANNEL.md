@@ -1,16 +1,39 @@
 # Desktop release channel
 
-## Authorized preparation: 0.2.42
+## Published internal test distribution: 0.2.42
 
-On 2026-10-25 the owner authorized merge and publication of the next Desktop patch, including #666.
-Allocate **0.2.42/build 45** on the existing ad-hoc internal channel. Explain custom Git configuration
-refusal while preserving the config, sandbox and fixed redacted diagnostic. One-click upgrade/recovery
-remains disabled. Build from clean current main after version PR/main checks pass; preserve installed
-public trust/update settings, publish through the unified internal publisher, verify full public DMGs
-and both discovery indexes, and keep signed managed-component pointers unchanged. Run actual client
-update/relaunch and condition/record/health checks without restarting Hermes. Physical phone business
-acceptance remains blocked by the unavailable device; this is not Apple notarization or clean-Mac
-acceptance.
+Owner-authorized publication completed on 2026-10-25 after #666 and version PR #668 and their
+main checks passed. Built from clean main `e8e2559f82b63db5c9095dd1da0414819066682d`.
+This patch explains custom Git configuration refusal with the existing HR-HERMESUPDATE-002 and a
+fixed redacted diagnostic. No configuration is executed/changed, no safety restriction is relaxed,
+and one-click Hermes upgrade/recovery remains disabled.
+
+Both public DMGs match **4,013,043 bytes**, SHA-256
+`8c1bf3230ace9e3b7538ff1ad918648c8133ec2a74e27e9f8b8aa3fc39529c37`.
+Website and app-update discovery report **0.2.42/build 45**. Signed managed-component pointers
+remain byte-identical at 0.4.12, and all packaged public trust/update settings match the installed
+0.2.41 app. Assets, **660 Swift tests**, **15 publication/update tooling tests**, release app/DMG
+build, strict ad-hoc signature, mounted bundle identity/version/build/arm64 and image integrity passed.
+The first publisher attempt returned HR-SITE-004 with old app/website pointers unchanged; server and
+both full public artifact hashes were then reconciled. One retry using the same package, receipt and
+notes passed both unified-publisher success markers. No immutable file was overwritten; the precise
+initial failure stage was not established.
+
+The actual installed 0.2.41 client discovered the notes, installed and relaunched as 0.2.42/build 45;
+the installed app passed strict signature verification. Actual clicks read Hermes 0.21.3/commit
+`17b5df02f2a7`, upstream stable 0.22.5, empty GO recommendation and no upgrade record. Conditions now
+show the explicit custom-Git-configuration block rather than generic unknown, with no pending recovery
+or official update. No upgrade/recovery execution button is present. Hermes/Connector PIDs, source,
+Git config/index and Hermes config remain unchanged; no Hermes upgrade or service restart occurred.
+Account restoration initially remained checking. After the owner reported handling the system
+confirmation, the account restored and actual Overview showed Desktop 0.2.42 running, local Hermes
+ready, Cloud connected and the existing phone-access health passed. This health display does not
+replace a physical phone business test; actual phone history/send/receive acceptance remains blocked
+by the owner's unavailable device. Live database/WAL metadata changed while Hermes continued
+running, so database immutability and full business acceptance are not claimed. This is temporary
+ad-hoc internal distribution, not Apple notarization or clean-machine acceptance.
+
+Download: `https://mrlgs.net/desktop/apps/0.2.42/Hermes-Go-Desktop-0.2.42-dev.dmg`.
 
 ## Published internal test distribution: 0.2.41
 
