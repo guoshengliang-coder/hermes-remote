@@ -210,6 +210,7 @@ class VideoStreamingDeviceTest {
                 }
             }
             click("1.5×")
+            Thread.sleep(500) // Do not inject the next gesture into the dismissing Popup window.
             val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
             val downAt = android.os.SystemClock.uptimeMillis()
             val screen = automation.takeScreenshot()
@@ -221,9 +222,10 @@ class VideoStreamingDeviceTest {
                 automation.injectInputEvent(event, true); event.recycle()
             }
             touch(android.view.MotionEvent.ACTION_DOWN)
-            Thread.sleep(750)
-            assertTrue(node("2× speed boost").isVisibleToUser)
-            touch(android.view.MotionEvent.ACTION_UP)
+            try {
+                Thread.sleep(750)
+                assertTrue(node("2× speed boost").isVisibleToUser)
+            } finally { touch(android.view.MotionEvent.ACTION_UP) }
             assertTrue(node("1.5×").isVisibleToUser)
             click("More")
             click("Download")
