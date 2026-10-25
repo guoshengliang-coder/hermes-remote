@@ -2301,3 +2301,24 @@ unexpected transcript, mismatched activity identity and invalid configuration sh
 success must leave full RPC acceptance not run; any exercised failure must propagate as failed.
 Prompt streaming, real model/tool/server requests, reconnect/replay and actual Android/Web business
 still require dedicated acceptance. No daily install or production account belongs in this lab.
+
+
+### Hermes compatibility: fenced local-model text turn
+
+```sh
+node --test scripts/test/hermes-compatibility-session-rpc.test.mjs scripts/test/hermes-compatibility-lab.test.mjs scripts/test/hermes-compatibility-worker.test.mjs
+python3 -B scripts/hermes-compatibility-contract-lab.py --prompt --lab-root <successful-disposable-runtime-lab>
+```
+
+The explicit prompt mode adds a deterministic loopback model and six checks per stage (28 total).
+Require external-network PermissionError before starting the model/backend, then verify a fresh
+session accepts the exact synthetic prompt, emits matching deltas/completion and persists both roles.
+After stopping the synthetic backend, original configuration bytes and mode must be restored. Pin the
+model fixture, probe and suite hashes in the immutable report. The default no-prompt mode remains useful
+for the narrower lifecycle checks; the CI worker invokes prompt mode.
+
+Tests cover early events before the RPC acknowledgement, unrelated session events, missing persisted
+assistant text, bounded event accumulation, rejected nonfixture prompts, configuration restoration on
+exceptions and failed network preflight before any model/configuration change. A simulated model pass
+must not turn full RPC/client business into passed. Real models, tools/server requests, reconnects,
+relay and device E2E remain outstanding. Never use the daily installation or actual provider secrets.

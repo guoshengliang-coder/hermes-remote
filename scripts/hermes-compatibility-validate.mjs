@@ -6,14 +6,14 @@ import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS } from './hermes-compatibility-contract-probe.mjs';
+import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS } from './hermes-compatibility-contract-probe.mjs';
 import { parseTask, readJSON, infrastructureReport } from './hermes-compatibility-worker.mjs';
 import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/dist/account/hermes-compatibility-model.js';
 
 const exec = promisify(execFile);
 const timestamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SHA = /^[a-f0-9]{64}$/;
-export function contractEvidence(raw, identity, suiteSha256, probeSha256) {
+export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256) {
   const names=['httpMissingToken','httpWrongToken','httpValidToken','runningVersion','sessionList','profileSessionList',
     'historyRead','connectorSchema','websocketMissingToken','websocketWrongToken','connectorActiveListRPC'];
   if(raw?.schemaVersion!==1||raw.kind!=='live-runtime-contracts'||raw.sourceCommit!==identity.sourceCommit
@@ -23,12 +23,18 @@ export function contractEvidence(raw, identity, suiteSha256, probeSha256) {
   if (restScope !== undefined && restScope !== CORE_REST_SCOPE) throw new Error('contract_scope_mismatch');
   const rpcScope=raw.stages?.source?.rpcScope;
   if (rpcScope !== undefined && rpcScope !== SESSION_RPC_SCOPE) throw new Error('contract_scope_mismatch');
-  const required = [...names, ...(restScope ? CORE_REST_CHECKS : []), ...(rpcScope ? SESSION_RPC_CHECKS : [])];
+  const promptScope=raw.stages?.source?.promptScope;
+  if (promptScope !== undefined && (promptScope !== PROMPT_SCOPE || !restScope || !rpcScope || !SHA.test(modelFixtureSha256??'')))
+    throw new Error('contract_scope_mismatch');
+  const required = [...names, ...(restScope ? CORE_REST_CHECKS : []), ...(rpcScope ? SESSION_RPC_CHECKS : []),
+    ...(promptScope ? PROMPT_CHECKS : [])];
   const stages={};
   for(const [name,version] of [['source','0.21.3'],['candidate',identity.version],['restored','0.21.3']]) {
     const stage=raw.stages?.[name];
     if(stage?.schemaVersion!==1||stage.kind!=='live-connector-contract-probe'||stage.version!==version
-      ||stage.compatibilityApproved!==false||stage.restScope!==restScope||stage.rpcScope!==rpcScope
+      ||stage.compatibilityApproved!==false||stage.restScope!==restScope||stage.rpcScope!==rpcScope||stage.promptScope!==promptScope
+      ||(promptScope && stage.modelFixtureSha256!==modelFixtureSha256)
+      ||(!promptScope && (stage.modelFixtureSha256!==undefined || PROMPT_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n))))
       ||(!restScope && CORE_REST_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n)))
       ||(!rpcScope && SESSION_RPC_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n)))
       ||!required.every(n=>typeof stage.checks?.[n]==='boolean'))throw new Error('contract_stage_mismatch');
@@ -36,7 +42,7 @@ export function contractEvidence(raw, identity, suiteSha256, probeSha256) {
   }
   const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
-  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),suiteSha256,probeSha256,stages};
+  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),suiteSha256,probeSha256,stages};
 }
 export function lockEvidence(raw, identity, suiteSha256) {
   const names = ['oldRefusesLiveOwner', 'newRefusesLiveOwner', 'childSurvivesOwnerInterruption',
@@ -102,7 +108,7 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
     // Session lifecycle success does not prove prompts/tools/server requests. A failure
     // in an exercised required path does, however, rule out full RPC compatibility.
     if (name === 'rpc' && evidence.contracts?.rpcScope === SESSION_RPC_SCOPE &&
-        ['source','candidate','restored'].some(stage => SESSION_RPC_CHECKS.some(check =>
+        ['source','candidate','restored'].some(stage => [...SESSION_RPC_CHECKS,...(evidence.contracts.promptScope===PROMPT_SCOPE?PROMPT_CHECKS:[])].some(check =>
           evidence.contracts.stages[stage]?.checks[check] === false))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }
@@ -159,13 +165,14 @@ async function main() {
           createHash('sha256').update(await readFile(lockSuite)).digest('hex'));
         const contractSuite=resolve('scripts/hermes-compatibility-contract-lab.py');
         const contractProbe=resolve('scripts/hermes-compatibility-contract-probe.mjs');
-        const contract=await exec('python3',[contractSuite,'--lab-root',labRoot],{timeout:15*60_000,maxBuffer:64*1024});
+        const contract=await exec('python3',[contractSuite,'--prompt','--lab-root',labRoot],{timeout:15*60_000,maxBuffer:64*1024});
         const contractResult=JSON.parse(contract.stdout.trim());
         const contractPath=await realpath(contractResult.report);
         if(dirname(contractPath)!==labRoot||!/^contract-report-[0-9]+\.json$/.test(contractPath.slice(labRoot.length+1)))throw new Error('contract_path_invalid');
         evidence.contracts=contractEvidence(await readJSON(contractPath),task.identity,
           createHash('sha256').update(await readFile(contractSuite)).digest('hex'),
-          createHash('sha256').update(await readFile(contractProbe)).digest('hex'));
+          createHash('sha256').update(await readFile(contractProbe)).digest('hex'),
+          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-model-fixture.py'))).digest('hex'));
       }
     }
     evidence.recovery = { normal: evidence.normal, fault: evidence.fault };

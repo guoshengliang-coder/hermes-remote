@@ -44,5 +44,16 @@ class ContractLabTests(unittest.TestCase):
             self.assertEqual((root/'candidate-after-experiment/new-synthetic-data').read_text(),'preserve')
             self.assertFalse((root/'contract-probe-old').exists())
 
+    def test_prompt_network_fence_precedes_model_config_and_upstream_execution(self):
+        with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+            root=Path(directory);(root/'tmp').mkdir();(root/'isolation.sb').write_text('(version 1)\n(allow default)\n')
+            installer=types.SimpleNamespace(isolated_environment=lambda root:{})
+            with mock.patch.object(lab.subprocess,'run',return_value=types.SimpleNamespace(returncode=2)), \
+                    mock.patch.object(lab,'runtime_probe') as runner:
+                with self.assertRaisesRegex(ValueError,'network_fence_failed'):
+                    lab.prompt_probe(root,installer,'0.21.3','fixture-stage','/synthetic/node')
+                runner.assert_not_called()
+            self.assertFalse((root/'user').exists())
+
 
 if __name__ == '__main__': unittest.main()

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Actual Connector adapters against a disposable upstream server. Only synthetic session lifecycle operations; no prompt submission or model inference.
+// Actual Connector adapters against a disposable server; optional prompts use a fenced local model fixture.
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import WebSocket from 'ws';
@@ -41,6 +41,10 @@ export function validateCoreHistory(value, {empty = false, pagination = false, o
       || value.pagination.order !== 'oldest' || value.pagination.returned !== value.messages.length)) throw new Error('history_pagination');
 }
 
+export const PROMPT_SCOPE = 'loopback-model-text-turn-v1';
+export const PROMPT_TEXT = 'Hermes GO compatibility synthetic turn';
+export const PROMPT_ANSWER = 'Hermes GO synthetic model reply';
+export const PROMPT_CHECKS = ['promptAccepted','promptStream','promptHistory','promptModelObserved','promptConfigurationRestored','promptNetworkFence'];
 export const SESSION_RPC_SCOPE = 'synthetic-session-lifecycle-v1';
 export const SESSION_RPC_CHECKS = ['rpcReady','rpcCapabilities','rpcCreate','rpcResume','rpcReasoning','rpcActiveIdentity'];
 // Same shapes as web/src/hermes/params.ts; parity is checked against its real builders.
@@ -64,15 +68,17 @@ export function validateSessionHandle(value, resume = false) {
   return value.session_id;
 }
 /** One connection, ready before capabilities, matching JSON-RPC IDs, bounded total lifetime. */
-export function probeSessionRPC(url, {timeoutMs = 45_000} = {}) {
+export function probeSessionRPC(url, {timeoutMs = 45_000, prompt = false, readHistory} = {}) {
   return new Promise(resolve => {
-    const checks=Object.fromEntries(SESSION_RPC_CHECKS.map(name=>[name,false]));
+    const checks=Object.fromEntries([...SESSION_RPC_CHECKS,...(prompt?PROMPT_CHECKS.slice(0,3):[])].map(name=>[name,false]));
     const socket=new WebSocket(url,{handshakeTimeout:10_000,maxPayload:1024*1024});
-    let done=false,started=false,sequence=0,pending;
+    let done=false,started=false,sequence=0,pending,created;
+    const turnEvents=[];let endTurn,turnBytes=0;
+    const turnComplete=new Promise(resolve=>{endTurn=resolve;});
     const finish=()=>{
       if(done)return;done=true;clearTimeout(timer);
       if(pending){pending.reject(new Error('rpc_closed'));pending=undefined;}
-      socket.terminate();resolve({...checks});
+      endTurn(false);socket.terminate();resolve({...checks});
     };
     const timer=setTimeout(finish,timeoutMs);
     const call=({method,params})=>new Promise((accept,reject)=>{
@@ -87,7 +93,7 @@ export function probeSessionRPC(url, {timeoutMs = 45_000} = {}) {
         const v=await call(sessionRpcCalls.capabilities());
         if(!object(v)||!Array.isArray(v.server_requests)||!v.server_requests.every(x=>typeof x==='string'))throw new Error('rpc_capabilities');
       });
-      await check('rpcCreate',async()=>validateSessionHandle(await call(sessionRpcCalls.create())));
+      await check('rpcCreate',async()=>{created=await call(sessionRpcCalls.create());validateSessionHandle(created);});
       await check('rpcResume',async()=>{resumed=validateSessionHandle(await call(sessionRpcCalls.resume()),true);});
       await check('rpcReasoning',async()=>{
         if(!resumed)throw new Error('rpc_no_session');
@@ -99,6 +105,31 @@ export function probeSessionRPC(url, {timeoutMs = 45_000} = {}) {
         const rows=parseActiveList(await call({method:'session.active_list',params:{}}));
         if(!rows.some(row=>row.id===resumed&&row.sessionKey===HISTORY_ID))throw new Error('rpc_active_identity');
       });
+      if(prompt) {
+        await check('promptAccepted',async()=>{
+          if(!checks.rpcCreate)throw new Error('no_created_session');
+          const v=await call({method:'prompt.submit',params:{session_id:created.session_id,text:PROMPT_TEXT}});
+          if(v?.status!=='streaming')throw new Error('prompt_rejected');
+        });
+        if(checks.promptAccepted)await check('promptStream',async()=>{
+          if(!await turnComplete)throw new Error('turn_incomplete');
+          const delta=turnEvents.filter(e=>e.type==='message.delta').map(e=>e.payload?.text??'').join('');
+          const complete=turnEvents.find(e=>e.type==='message.complete');
+          if(delta!==PROMPT_ANSWER||complete?.payload?.text!==PROMPT_ANSWER
+            ||['error','interrupted'].includes(complete.payload.status))throw new Error('turn_content');
+        });
+        await check('promptHistory',async()=>{
+          if(!checks.promptStream||typeof readHistory!=='function')throw new Error('turn_unverified');
+          const stored=created.stored_session_id??turnEvents.find(e=>e.payload?.stored_session_id)?.payload.stored_session_id;
+          if(typeof stored!=='string'||!stored)throw new Error('turn_stored_id');
+          const value=await readHistory(stored);
+          if(!Array.isArray(value.messages))throw new Error('turn_history');
+          for(const [role,content] of [['user',PROMPT_TEXT],['assistant',PROMPT_ANSWER]]) {
+            if(!value.messages.some(m=>m.role===role&&m.content===content&&seconds(m.timestamp)&&Number.isSafeInteger(m.id)))
+              throw new Error('turn_history');
+          }
+        });
+      }
       finish();
     }
     socket.on('error',finish);socket.on('close',finish);
@@ -109,6 +140,16 @@ export function probeSessionRPC(url, {timeoutMs = 45_000} = {}) {
         if(!object(frame)||frame.jsonrpc!=='2.0')throw new Error('rpc_envelope');
         if(frame.method==='event'&&frame.params?.type==='gateway.ready'&&!started){
           started=true;checks.rpcReady=true;void run().catch(finish);return;
+        }
+        if(prompt&&created&&frame.method==='event'&&frame.params?.session_id===created.session_id
+            &&['message.delta','message.complete'].includes(frame.params.type)) {
+          const {text,status,stored_session_id}=frame.params.payload??{};
+          if(typeof text!=='string'||(stored_session_id!==undefined&&(typeof stored_session_id!=='string'||stored_session_id.length>256)))
+            throw new Error('turn_event_shape');
+          turnBytes+=Buffer.byteLength(text);
+          if(turnEvents.length>=256||turnBytes>64*1024)throw new Error('turn_events');
+          turnEvents.push({type:frame.params.type,payload:{text,status:typeof status==='string'?status.slice(0,64):undefined,stored_session_id}});
+          if(frame.params.type==='message.complete')endTurn(true);
         }
         if(!pending||frame.id!==pending.id)return;
         const request=pending;pending=undefined;
@@ -160,8 +201,8 @@ function websocket(url, rejectExpected) {
     socket.on('close', () => { if (!done) finish(false); });
   });
 }
-export async function probeContract({port, token, version}) {
-  if (!Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string'
+export async function probeContract({port, token, version, prompt = false}) {
+  if (typeof prompt !== 'boolean' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string'
       || !/^[A-Za-z0-9_-]{32,128}$/.test(token) || !['0.21.3','0.22.5'].includes(version)) throw new Error('invalid_probe');
   const base = `http://127.0.0.1:${port}`, auth = new HermesAuth({baseUrl:base,sessionToken:token,requestTimeoutMs:15_000});
   const checks = {};
@@ -204,8 +245,9 @@ export async function probeContract({port, token, version}) {
   await check('websocketMissingToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws', true));
   await check('websocketWrongToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws?token=deliberately-wrong', true));
   await check('connectorActiveListRPC', async () => websocket(await auth.websocketUrl('/api/ws'), false));
-  Object.assign(checks,await probeSessionRPC(await auth.websocketUrl('/api/ws')));
-  return {schemaVersion:1,kind:'live-connector-contract-probe',version,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,checks,compatibilityApproved:false};
+  Object.assign(checks,await probeSessionRPC(await auth.websocketUrl('/api/ws'),{prompt,timeoutMs:prompt?80_000:45_000,
+    readHistory:async id=>JSON.parse(await body(await auth.request(`/api/sessions/${encodeURIComponent(id)}/messages`,{method:'GET'})))}));
+  return {schemaVersion:1,kind:'live-connector-contract-probe',version,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE}:{}),checks,compatibilityApproved:false};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {

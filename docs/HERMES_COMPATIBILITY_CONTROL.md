@@ -115,10 +115,32 @@ restored 三阶段检查实际版本/状态类型、合成会话 ID 和消费字
 `synthetic-session-lifecycle-v1` 在同一 WebSocket 上等待 `gateway.ready` 后先声明客户端能力，再
 按真实 Web 客户端的参数形状创建空会话、恢复合成历史、读取恢复句柄的 reasoning 配置，最后用
 真实 Connector 活动列表解析器核对 live handle 与 stored ID 的关系。恢复请求使用
-`omit_messages=true`，不得收到完整历史；不发送 `prompt.submit`、附件或模型推理请求。
+`omit_messages=true`，不得收到完整历史；此局部范围不包含 `prompt.submit`、附件或模型推理，对话验证见下节。
 
 连接有 45 秒总期限和 1 MiB 单帧上限，匹配 JSON-RPC 版本和响应 ID，断连会失败当前等待；结果
 只保留固定布尔检查，不记录句柄、原始响应或错误正文。三个阶段必须声明相同范围和全部六项
 布尔结果；缺项、混合范围或状态矛盾拒收。局部全部通过仍不把总 `rpc` 项标为通过，因为尚未
 覆盖 prompt 流式事件、工具/审批、重新连接与完整客户端协议；任何已测路径失败则明确记作
 `rpc=failed` 并引用接口证据，不能隐藏成未执行。
+
+
+## I2 本地模型文本对话证据
+
+`loopback-model-text-turn-v1` 在上述会话范围之外新增 `prompt.submit`，要求 streaming 接受结果、
+匹配新建会话的 `message.delta` 拼接和 `message.complete` 正文，以及历史接口中真实落盘的
+user/assistant 内容、行 ID 和秒级时间戳。模型是固定回复的本地 HTTP fixture；Hermes 安装、
+模型客户端、RPC 处理、流式事件和数据库仍使用固定官方原版。
+
+执行器在每个合成运行环境里临时替换默认配置，使用 loopback custom provider 和无效于任何
+真实服务的合成凭据；在后端进程停止后恢复原配置字节/权限。OS sandbox 只允许 loopback 外连，
+先验证保留测试地址连接因权限被拒绝才创建 fixture 或启动 Hermes。原始外网访问、生产模型
+凭据及日常安装不参与。配置恢复是正常/异常收尾保证，不认证进程被强杀后的恢复门槛。
+
+每阶段新增六项：提交接受、流式回复、历史落盘、本地模型请求实际到达、配置恢复、外网隔离。
+报告绑定 fixture SHA-256 与既有 suite/probe 摘要，缺项、混合范围、错误摘要或状态矛盾拒收。
+80 秒连接总期限、1 MiB 帧上限、最多 256 条/64 KiB 文本事件限制测试资源；保存必要字段，
+不上传原始请求或模型响应。只接受预定合成提示，本地 HTTP 请求体最多 4 MiB。
+
+CI 验证 worker 使用 `--prompt` 执行此范围。局部通过仍不能认证完整 RPC 或客户端业务，
+工具调用/审批、重连恢复、真实模型、Connector/Gateway 中继与手机/Web 端到端仍待验收。
+任何已测对话路径失败明确记为 RPC 失败，不因它是模拟模型而忽略。

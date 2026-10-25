@@ -1159,3 +1159,17 @@ transport/read/session checks passed; see [scoped evidence](evidence/hermes-comp
 This is no prompt/model inference test, and it does not certify streaming, tool/server requests,
 reconnection or client rendering. Full RPC compatibility remains unverified, even when these
 partial checks pass. Any observed failure is retained as a failed RPC gate.
+
+
+### Isolated text turn with local model fixture (2026-10-25)
+
+The fixed old/candidate/restored Hermes runtimes pass 84/84 scoped checks, including prompt acceptance,
+correlated streamed text/completion and persisted user/assistant messages. The model service is a
+loopback-only deterministic OpenAI-compatible fixture; real upstream Hermes performs request handling,
+stream conversion and persistence. The sandbox first proves external-network denial, and each phase
+restores its original synthetic configuration bytes/mode. See [the report](evidence/hermes-compatibility/2026-10-25-prompt-contracts.json).
+
+This proves the simple text-turn protocol with a simulated model, not real provider compatibility,
+model quality, tools/approval handling, reconnects, relay integration or Android/Web rendering.
+Full RPC/client acceptance remains unverified. Fixture code is hash-bound alongside the probe and
+lab script; no adapted-version declaration or production recommendation changes.

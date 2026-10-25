@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Probe existing disposable old/new Hermes runtimes at their original absolute path.
 
-No installation, user data, model calls, external service or production account is involved.
+No installation, user data, external service or production account is involved.
+--prompt uses a fenced loopback model fixture and restores the synthetic configuration.
 The candidate is temporarily reactivated only inside a successful synthetic installation lab.
 """
 import argparse
@@ -27,7 +28,13 @@ def load_lab():
     return module
 
 
-def probe(root, lab, version, stage, node):
+def probe(root, lab, version, stage, node, prompt=False):
+    if prompt:
+        return prompt_probe(root, lab, version, stage, node)
+    return runtime_probe(root, lab, version, stage, node)
+
+
+def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None):
     env = lab.isolated_environment(root)
     token = secrets.token_urlsafe(32)
     env.update(HERMES_DESKTOP='1', HERMES_DASHBOARD_SESSION_TOKEN=token)
@@ -35,7 +42,7 @@ def probe(root, lab, version, stage, node):
     launcher = repo / ('venv/bin/hermes' if version == '0.21.3' else '.hermes/bin/hermes')
     fd = os.open(str(root / 'tmp' / (stage + '.private.log')), os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'r+b', buffering=0) as output:
-        child = subprocess.Popen(['/usr/bin/sandbox-exec', '-f', str(root / 'isolation.sb'), str(launcher),
+        child = subprocess.Popen(['/usr/bin/sandbox-exec', '-f', str(sandbox or root / 'isolation.sb'), str(launcher),
                                   '--profile','default','serve','--host','127.0.0.1','--port','0'],
                                  cwd=repo, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output, start_new_session=True)
         try:
@@ -53,7 +60,7 @@ def probe(root, lab, version, stage, node):
                 raise ValueError('startup_timeout')
             # Tokens travel through stdin, never command arguments, evidence or printed logs.
             runtime = subprocess.run([node, str(Path(__file__).with_name('hermes-compatibility-contract-probe.mjs'))],
-                input=json.dumps({'port':port,'token':token,'version':version}), text=True, stdout=subprocess.PIPE,
+                input=json.dumps({'port':port,'token':token,'version':version,'prompt':prompt}), text=True, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, timeout=100, cwd=Path(__file__).parent.parent,
                 env={'PATH':'/usr/bin:/bin','HOME':str(root/'user'),'TMPDIR':str(root/'tmp')})
             if runtime.returncode:
@@ -70,9 +77,31 @@ def probe(root, lab, version, stage, node):
             except ProcessLookupError: pass
 
 
+def prompt_probe(root, lab, version, stage, node):
+    spec=importlib.util.spec_from_file_location('model_fixture',Path(__file__).with_name('hermes-compatibility-model-fixture.py'))
+    fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+    sandbox=root/'tmp'/(stage+'.sb')
+    sandbox.write_text((root/'isolation.sb').read_text()+
+        '(deny network-outbound)\n(allow network-outbound (remote ip "localhost:*"))\n')
+    sandbox.chmod(0o600)
+    # Verify denial before allowing the test to perform any model-facing operation.
+    fence=subprocess.run(['/usr/bin/sandbox-exec','-f',str(sandbox),'/usr/bin/python3','-c',
+        'import socket; s=socket.socket(); s.settimeout(1);\ntry: s.connect(("192.0.2.1",9))\nexcept PermissionError: raise SystemExit(0)\nexcept OSError: raise SystemExit(2)\nraise SystemExit(3)'],
+        env=lab.isolated_environment(root),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
+    if fence.returncode: raise ValueError('network_fence_failed')
+    with fixture.model_fixture(root/'user/.hermes/config.yaml') as observation:
+        result=runtime_probe(root,lab,version,stage,node,prompt=True,sandbox=sandbox)
+    result['checks']['promptModelObserved']=observation['requests']>0
+    result['checks']['promptConfigurationRestored']=observation['restored']
+    result['checks']['promptNetworkFence']=True
+    result['modelFixtureSha256']=lab.sha256(Path(__file__).with_name('hermes-compatibility-model-fixture.py').read_bytes())
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--lab-root', type=Path, required=True)
+    parser.add_argument('--prompt', action='store_true', help='Add a loopback model fixture and synthetic prompt test')
     args = parser.parse_args()
     root = args.lab_root.resolve()
     if root.parent != Path(tempfile.gettempdir()).resolve() or not root.name.startswith('hermes-compat-lab-'):
@@ -89,6 +118,7 @@ def main():
     if report.get('kind')!='runtime-rehearsal' or report.get('status')!='runtime_stage_passed': raise ValueError('runtime_required')
     for folder,commit in ((old,lab.RUNTIME_SOURCE),(candidate,lab.RUNTIME_TARGET)):
         if lab.git_read(folder/'.hermes/hermes-agent','rev-parse','HEAD').decode().strip()!=commit: raise ValueError('commit_mismatch')
+    run_probe=(lambda *items: probe(*items,prompt=True)) if args.prompt else probe
     node=shutil.which('node')
     if not node: raise ValueError('node_missing')
     lock=os.open(str(root/'contract-probe.lock'),os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
@@ -97,14 +127,14 @@ def main():
         output={'schemaVersion':1,'kind':'live-runtime-contracts','sourceCommit':lab.RUNTIME_SOURCE,
                 'targetCommit':lab.RUNTIME_TARGET,'compatibilityApproved':False,'stages':{}}
         stamp=str(time.time_ns())
-        output['stages']['source']=probe(root,lab,'0.21.3','contract-source-'+stamp,node)
+        output['stages']['source']=run_probe(root,lab,'0.21.3','contract-source-'+stamp,node)
         old.rename(parked)
         try:
             candidate.rename(old)
-            try: output['stages']['candidate']=probe(root,lab,'0.22.5','contract-candidate-'+stamp,node)
+            try: output['stages']['candidate']=run_probe(root,lab,'0.22.5','contract-candidate-'+stamp,node)
             finally: old.rename(candidate)
         finally: parked.rename(old)
-        output['stages']['restored']=probe(root,lab,'0.21.3','contract-restored-'+stamp,node)
+        output['stages']['restored']=run_probe(root,lab,'0.21.3','contract-restored-'+stamp,node)
         output['suiteSha256']=lab.sha256(Path(__file__).read_bytes())
         output['probeSha256']=lab.sha256(Path(__file__).with_name('hermes-compatibility-contract-probe.mjs').read_bytes())
         output['status']='passed' if all(all(s['checks'].values()) for s in output['stages'].values()) else 'contract_gap'

@@ -94,3 +94,45 @@ test('invalid capabilities and reasoning values are not silently certified',asyn
   const checks=await probeSessionRPC(url);
   assert.equal(checks.rpcCapabilities,false);assert.equal(checks.rpcReasoning,false);assert.equal(checks.rpcResume,true);
 });
+
+test('synthetic prompt accepts early streamed events and verifies persisted roles',async t=>{
+  const url=await server(t,(socket,request)=>{
+    if(request.method==='prompt.submit') {
+      assert.deepEqual(request.params,{session_id:'new-live',text:'Hermes GO compatibility synthetic turn'});
+      for(const [type,text] of [['message.delta','Hermes GO '],['message.delta','synthetic model reply'],['message.complete','Hermes GO synthetic model reply']])
+        socket.send(JSON.stringify({jsonrpc:'2.0',method:'event',params:{type,session_id:'new-live',payload:{text,stored_session_id:'new-stored'}}}));
+      answer(socket,request,{status:'streaming'});
+    }else answer(socket,request);
+  });
+  const checks=await probeSessionRPC(url,{prompt:true,readHistory:async id=>{
+    assert.equal(id,'new-stored');
+    return {messages:[{id:1,role:'user',content:'Hermes GO compatibility synthetic turn',timestamp:1792926000},
+      {id:2,role:'assistant',content:'Hermes GO synthetic model reply',timestamp:1792926001}]};
+  }});
+  assert.equal(checks.promptAccepted,true);assert.equal(checks.promptStream,true);assert.equal(checks.promptHistory,true);
+});
+test('unrelated session events and missing persisted assistant cannot pass a prompt',async t=>{
+  for(const unrelated of [true,false]) {
+    const url=await server(t,(socket,request)=>{
+      if(request.method==='prompt.submit') {
+        answer(socket,request,{status:'streaming'});
+        for(const type of ['message.delta','message.complete'])socket.send(JSON.stringify({jsonrpc:'2.0',method:'event',params:{
+          type,session_id:unrelated?'different':'new-live',payload:{text:'Hermes GO synthetic model reply'}}}));
+      }else answer(socket,request);
+    });
+    const checks=await probeSessionRPC(url,{prompt:true,timeoutMs:100,readHistory:async()=>({messages:[]})});
+    assert.equal(checks.promptAccepted,true);assert.equal(checks.promptStream,!unrelated);assert.equal(checks.promptHistory,false);
+  }
+});
+
+
+test('prompt event accumulation is bounded and cannot claim completed history',async t=>{
+  const url=await server(t,(socket,request)=>{
+    if(request.method==='prompt.submit') {
+      answer(socket,request,{status:'streaming'});
+      socket.send(JSON.stringify({jsonrpc:'2.0',method:'event',params:{type:'message.delta',session_id:'new-live',payload:{text:'x'.repeat(65537)}}}));
+    }else answer(socket,request);
+  });
+  const checks=await probeSessionRPC(url,{prompt:true,readHistory:async()=>{throw new Error('must not read');}});
+  assert.equal(checks.promptStream,false);assert.equal(checks.promptHistory,false);
+});

@@ -14,3 +14,9 @@ test("contract lab refuses daily HOME and restores synthetic paths after a faile
   const result = spawnSync("python3", ["-B", script], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
 });
+
+test("local model fixture serves bounded synthetic replies and restores configuration on failure", () => {
+  const script = fileURLToPath(new URL("./hermes-compatibility-model-fixture.test.py", import.meta.url));
+  const result = spawnSync("python3", ["-B", script], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+});

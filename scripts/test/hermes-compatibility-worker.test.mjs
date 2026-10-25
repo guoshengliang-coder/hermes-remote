@@ -203,3 +203,30 @@ test('real session RPC lifecycle evidence retains partial scope and propagates f
   const noScope=structuredClone(raw);for(const stage of Object.values(noScope.stages))delete stage.rpcScope;
   assert.throws(()=>parse(noScope));
 });
+
+test('local-model prompt evidence binds its fixture and never certifies full RPC', async () => {
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-prompt-contracts.json',import.meta.url)));
+  const fixture=raw.stages.source.modelFixtureSha256;
+  const parse=(value,hash=fixture)=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,hash);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  const good=bundle(raw);
+  assert.equal(good.report.checks.find(c=>c.name==='rpc').status,'not_run');
+  assert.equal(good.report.checks.find(c=>c.name==='clientBusiness').status,'not_run');
+  assert.deepEqual(validateBundle(task,good),good.report);
+  assert.throws(()=>parse(raw,'a'.repeat(64)));
+  assert.throws(()=>contractEvidence(raw,task.identity,raw.suiteSha256,raw.probeSha256));
+  for(const stage of ['source','candidate','restored']) {
+    for(const name of ['promptAccepted','promptStream','promptHistory','promptModelObserved','promptConfigurationRestored','promptNetworkFence']) {
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[name];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].checks[name]=false;failed.status='contract_gap';
+      assert.equal(bundle(failed).report.checks.find(c=>c.name==='rpc').status,'failed');
+    }
+    for(const field of ['promptScope','modelFixtureSha256']) {
+      const changed=structuredClone(raw);delete changed.stages[stage][field];assert.throws(()=>parse(changed));
+    }
+  }
+  const missing=structuredClone(raw);
+  for(const stage of Object.values(missing.stages))delete stage.promptScope;
+  assert.throws(()=>parse(missing),'prompt observations without scope must not disappear');
+});
