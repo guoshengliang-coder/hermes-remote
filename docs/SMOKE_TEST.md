@@ -2453,3 +2453,17 @@ fields. Verify the model request count stays unchanged, six test LaunchAgents ar
 installation paths are restored, and no cleanup-required marker or temporary Node/helper remains.
 Never substitute a daily installation root. A successful isolated result still needs account-mode,
 actual-client and release-artifact acceptance before full upgrade compatibility can be approved.
+
+### Isolated account-mode Hermes relay (2026-10-25)
+
+Use the existing disposable contract lab with `--prompt --relay --restart --launchagent --account-relay`
+and `--postgres-bin /absolute/path/to/trusted/postgresql18/bin`. It creates its own password-protected
+loopback database; do not supply a production database URL or reuse an existing cluster. A stage's
+account evidence must bind setup/PostgreSQL fixture hashes, SQL migration digest and actual database
+version/binary. Confirm empty-database/data-directory guards, refusal of another account, cluster exit,
+original credentials across Connector restart and exact history readback without a new model request.
+
+Keep failed reports: two runs exposed intermittent recovery failures even though direct Hermes probes
+passed; two later passes do not resolve them. Do not approve the version on this evidence. When a
+recovery probe fails, inspect only its private diagnostic status/code/boolean record, never paste private
+service logs or credentials. Next isolate the failure within account routing versus upstream transport.

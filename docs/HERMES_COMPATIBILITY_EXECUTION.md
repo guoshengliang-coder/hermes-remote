@@ -8,7 +8,7 @@
 |---|---|---|
 | I0 | 升级/失败恢复演练通过，但发现真实锁协议缺口 | 旧 updater 在父进程死亡、子进程存活时错误放行；不能通过并发验收 |
 | I1 | 本地实现与测试完成 | 真实账号启用及完整登录交互待验收 |
-| I2 | 队列/工作流/报告及隔离验证已有本地实现 | 六项可通过、并发一项失败、八项未完成；普通 PR CI 已运行，受保护的实际验证任务尚未执行 |
+| I2 | 队列/工作流/报告及隔离验证已有本地实现 | 六项可通过；并发锁失败，账号恢复存在间歇性失败待定位，其他门禁未完成；普通 PR CI 已运行，受保护的实际验证任务尚未执行 |
 | I3 | 审批/签名发布协议/客户端校验已有本地实现 | 真实发布组件证据产出、受保护工作流及其余活动组件身份采集待完成 |
 | I4–I5 | 未完成 | 锁协议缺口解决前不能开放一键升级；执行器、真实端到端和发布均未交付 |
 
@@ -681,3 +681,48 @@ PostgreSQL 测试执行。未修改 Desktop 产品源或 UI；上轮 assets/742 
 运行中断和完整升级执行器仍待验收。整体继续为六项可通过、一项并发锁失败、八项未完成，
 没有将局部成功升级为兼容推荐。未合并、部署、发布、授予角色或修改日常 Hermes；继续保持
 现有草稿 PR，不向上游发送额外消息。
+
+## I2 真实账号中继与尚未解决的恢复间歇性
+
+`897763d1` 的 11 项 PR 检查全部通过。本轮实施前评审账号/legacy 鉴权差异、独立数据库身份、
+空库与目录边界、真实迁移、合成会话与 Connector 私钥、跨账号拒绝、异常清理及报告范围。
+新增 PostgreSQL 18 fixture，每阶段新建私有集群、随机 loopback 端口和 SCRAM 密码；受信
+seed 程序先核对服务端 data_directory 和空 public schema，再应用真实仓库 SQL。账号会话、
+refresh family 与 Ed25519 绑定均为合成数据，经过真实 TokenCodec/Gateway/Connector 鉴权。
+未发送邮件、使用真实账号或授予管理员权限。
+
+Probe 支持 Bearer HTTP/WS；完成合成对话后保留同一 Gateway、账号会话与绑定，重启 Hermes
+及 Connector，再验证原对话。新增账号范围与 legacy 范围严格区分，数据库版本/二进制、
+fixture 和迁移摘要全部进入白名单证据。worker 默认切换账号模式；受保护 macOS job 准备
+PostgreSQL 工具链，无工具链记录基础设施未完成，不能静默替换为 legacy 通过。
+
+四次真实 source/candidate/restored 实验结果：
+
+- 首次：candidate 重启后账号中继的版本、种子历史、RPC ready/capabilities/resume/identity/
+  history 七项失败；直接访问 Hermes 和 Native 服务检查通过。
+  [原始脱敏失败记录](evidence/hermes-compatibility/2026-10-25-account-relay-first-gap.json)。
+- 源码确认账号 Connector 在线不等于 Hermes 健康；测试等待补为在线且健康，最长 45 秒，
+  有正向与持续不健康回归。再次实跑仍出现 candidate 和 restored 的相同七项失败，故不能
+  把问题归因于已经修正的等待条件。
+  [健康门禁后的失败](evidence/hermes-compatibility/2026-10-25-account-relay-readiness-gap.json)。
+- 增加仅在失败后写私有文件的状态诊断（HTTP 状态、注册错误码、健康布尔值，无正文/凭据），
+  后两轮全通过，未触发诊断文件。没有据此宣称失败已解决；数据库日志未出现连接耗尽、密码
+  鉴权失败或死锁，实际失败根因仍未知。
+- 最后一轮的 [脱敏报告](evidence/hermes-compatibility/2026-10-25-account-relay-contracts.json)
+  绑定最终源码：198 直接/账号合同、45 直接重启、48 账号恢复、24 Native 服务、12 数据库/
+  账号隔离和六项凭据/清理观察通过。这是单轮结果，不覆盖前两次负证据。
+
+四轮 24 个精确临时 LaunchAgent 均已卸载，12 个私有数据库均停止且端口可重新绑定。原安装
+路径恢复、无清理标记，临时 Node/Native 助手已删除。未扫描或操作日常服务。历史失败记录
+对应当时的中间 harness；不冒充最终源码成功报告。消费者回归明确要求两份失败记录仍产生
+connector/serviceRecovery=failed，当前成功报告不能提升完整门禁为通过。
+
+定向 44/44 通过；就绪判定修正后的 lab/worker 24/24 通过；最终真实正反报告加入完整基线。
+`npm run build` 通过；完整 `npm test` 中 Protocol 18、Connector 153、Gateway 272（14 跳过）、
+release-server 41 通过；scripts 516 通过、0 跳过，仅两项既有 macOS LibreSSL CMS legacy-recovery
+失败，整体退出非零。自有 PostgreSQL 与新集群 seed/重复初始化拒绝/异常停止测试实际执行。
+最终诊断脱敏和真实报告消费者复核 25/25 通过。产品 Desktop/Android/UI 未改动，未重复或冒称设备验收。
+
+下一步以更小的账号路由/本机传输复现定位间歇性失败，不能只继续抽样直到通过。上游旧锁问题、
+真实客户端/登录、完整执行器及 I4/I5 仍未交付，受保护验证/签名发布任务尚未实际启用。未合并、
+部署、发布、授予角色或升级日常 Hermes；保持草稿。

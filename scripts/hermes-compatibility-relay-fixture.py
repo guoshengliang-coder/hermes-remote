@@ -1,9 +1,11 @@
 """Disposable real Gateway/Connector pair. Only the caller's sandboxed lab is writable."""
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import json
+import importlib.util
 import hashlib
 import shutil
 import os
+import re
 from pathlib import Path
 import secrets
 import signal
@@ -39,8 +41,8 @@ def stop_child(child):
     except ProcessLookupError: pass
 
 
-def get_json(url, token=None):
-    headers={'X-Hermes-Session-Token':token} if token else {}
+def get_json(url, token=None, account=False):
+    headers=({'Authorization':'Bearer '+token} if account else {'X-Hermes-Session-Token':token}) if token else {}
     request=urllib.request.Request(url,headers=headers)
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
@@ -49,14 +51,29 @@ def get_json(url, token=None):
             if len(body)>64*1024:raise ValueError('relay_response_limit')
             return response.status,json.loads(body)
     except urllib.error.HTTPError as error:
-        status=error.code;error.close();return status,None
+        status=error.code
+        try:
+            data=error.read(64*1024+1)
+            body=json.loads(data) if len(data)<=64*1024 else None
+        except (ValueError,OSError):body=None
+        finally:error.close()
+        return status,body
 
 
-def wait_ready(children, origin, device=None, online=True):
-    deadline=time.monotonic()+20
+def wait_ready(children, origin, device=None, online=True, account_token=None):
+    deadline=time.monotonic()+(45 if account_token and online else 20)
     while time.monotonic()<deadline:
         if any(child.poll() is not None for child in children):raise ValueError('relay_process_exited')
         try:
+            if account_token:
+                if device is None:
+                    status,body=get_json(origin+'/readyz')
+                    if status==200 and body.get('status')=='ready':return
+                else:
+                    status,body=get_json(origin+'/v2/connector-binding',account_token,account=True)
+                    if (status==200 and body.get('state')=='bound' and body.get('binding',{}).get('connector',{}).get('online') is online
+                        and (not online or body.get('binding',{}).get('hermes',{}).get('reachable') is True)):return
+                time.sleep(0.1);continue
             status,body=get_json(origin+'/health')
             if status==200 and body.get('ok') is True and (device is None or
                 any(row.get('deviceId')==device and row.get('online') is True for row in body.get('devices',[])) is online):return
@@ -66,7 +83,7 @@ def wait_ready(children, origin, device=None, online=True):
 
 
 @contextmanager
-def relay_fixture(root,node,sandbox,backend_port,backend_token,stage):
+def relay_fixture(root,node,sandbox,backend_port,backend_token,stage,postgres_bin=None):
     root=Path(root).resolve();sandbox=Path(sandbox)
     if not root.name.startswith('hermes-compat-lab-') or root.stat().st_uid!=os.getuid() or root.stat().st_mode&0o077:
         raise ValueError('unsafe_relay_lab')
@@ -100,16 +117,37 @@ def relay_fixture(root,node,sandbox,backend_port,backend_token,stage):
         'DEVICE_ID':device,'HERMES_BASE_URL':f'http://127.0.0.1:{backend_port}',
         'HERMES_SESSION_TOKEN':backend_token,'CONNECTOR_LOG_LEVEL':'off','FILES_ROOT':str(workspace),
         'OBSERVER_STATE_FILE':str(workspace/'observer.json')}
-    children=[];logs=[];active=[]
+    children=[];logs=[];active=[];database_context=ExitStack();account_token=None;account_evidence=None
     def start(component, env, suffix=''):
         fd=os.open(str(workspace/(component+suffix+'.private.log')),os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
         log=os.fdopen(fd,'wb');logs.append(log)
         child=subprocess.Popen(['/usr/bin/sandbox-exec','-f',str(sandbox),node,str(source/component/'dist/index.js')],
             cwd=source,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)
         children.append(child);active.append(child)
-        wait_ready(active,origin,device if component=='connector' else None)
+        wait_ready(active,origin,device if component=='connector' else None,account_token=account_token)
         return child
     try:
+        if postgres_bin:
+            postgres_path=Path(__file__).with_name('hermes-compatibility-postgres-fixture.py')
+            spec=importlib.util.spec_from_file_location('postgres_fixture',postgres_path)
+            postgres=importlib.util.module_from_spec(spec);spec.loader.exec_module(postgres)
+            database=database_context.enter_context(postgres.postgres_fixture(workspace,postgres_bin))
+            account_path=Path(__file__).with_name('hermes-compatibility-account-fixture.mjs')
+            seeded=subprocess.run(['/usr/bin/sandbox-exec','-f',str(sandbox),node,str(account_path)],
+                input=json.dumps({'url':database['url'],'dataDirectory':database['dataDirectory'],'workspace':str(workspace)}),
+                text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=60,cwd=source,env={**common,'TMPDIR':str(root.parent)})
+            if seeded.returncode:raise ValueError('account_fixture_failed')
+            account=json.loads(seeded.stdout);app_token=account['token'];account_token=app_token;device=account['device']
+            gateway.update(ACCOUNT_AUTH_ENABLED='1',ACCOUNT_BINDING_ENABLED='1',ACCOUNT_DATABASE_URL=database['url'],
+                ACCOUNT_TOKEN_HASH_KEY=account['tokenKey'],ACCOUNT_GATEWAY_ORIGIN=origin)
+            connector.update(CONNECTOR_MODE='account',GATEWAY_URL=origin.replace('http:','ws:')+'/v2/connect',
+                ACCOUNT_CONNECTOR_CREDENTIAL_FILE=account['credentialPath'])
+            connector.pop('CONNECTOR_TOKEN');connector.pop('DEVICE_ID')
+            account_evidence={'scope':'synthetic-account-routing-v1','setupSha256':digest(account_path),
+                'postgresFixtureSha256':digest(postgres_path),'postgresBinarySha256':database['postgresBinarySha256'],
+                'postgresVersion':database['postgresVersion'],'migrationsSha256':account['migrationsSha256'],
+                'checks':{'databaseIdentityVerified':account['databaseIdentityVerified'],
+                    'emptyDatabaseVerified':account['emptyDatabaseVerified'],'otherAccountDenied':False,'databaseStopped':False}}
         gateway_child=start('gateway',gateway)
         connector_child=start('connector',connector)
         recovered=False
@@ -120,22 +158,41 @@ def relay_fixture(root,node,sandbox,backend_port,backend_token,stage):
             recovered=True
             previous=connector_child
             stop_child(previous);active.remove(previous)
-            wait_ready(active,origin,device,online=False)
+            wait_ready(active,origin,device,online=False,account_token=account_token)
             connector_child=start('connector',{**connector,'HERMES_SESSION_TOKEN':new_backend_token},'-restarted')
             return {'gatewaySameProcess':gateway_child.poll() is None,
                 'connectorPreviousStopped':previous.poll() is not None,'connectorFreshProcess':connector_child.pid!=previous.pid,
                 'connectorOfflineObserved':True,'connectorOnline':True,
                 'clientCredentialPreserved':observation['token']==app_token and observation['port']==port}
+        def diagnose(new_backend_token):
+            # Fixed read-only routes; persist only status/registered codes/booleans, never response bodies.
+            status,body=get_json(origin+'/api/status',app_token,account=bool(account_token))
+            code=body.get('error',{}).get('code') if isinstance(body,dict) and isinstance(body.get('error'),dict) else None
+            result={'relayStatus':status,'registeredErrorCode':code if isinstance(code,str) and re.fullmatch(r'HR-[A-Z]+-[0-9]{3}',code) else None}
+            result['localStatus']=get_json(f'http://127.0.0.1:{backend_port}/api/status',new_backend_token)[0]
+            if account_token:
+                status,body=get_json(origin+'/v2/connector-binding',app_token,account=True)
+                result.update(accountStatus=status,connectorOnline=body.get('binding',{}).get('connector',{}).get('online') is True,
+                    hermesReachable=body.get('binding',{}).get('hermes',{}).get('reachable') is True)
+            return result
         local_status,_=get_json(f'http://127.0.0.1:{backend_port}/api/profiles/active',app_token)
         relay_status,_=get_json(origin+'/api/profiles/active',backend_token)
         observation={'port':port,'token':app_token,'roleSeparation':local_status in (401,403) and relay_status in (401,403),
-            'reconnect':reconnect,'stopped':False,'buildSha256':build_sha,'nodeSha256':node_sha,'gatewayVersion':json.loads((source/'gateway/package.json').read_text())['version'],
+            'reconnect':reconnect,'diagnose':diagnose,'stopped':False,'buildSha256':build_sha,'nodeSha256':node_sha,'gatewayVersion':json.loads((source/'gateway/package.json').read_text())['version'],
             'connectorVersion':json.loads((source/'connector/package.json').read_text())['version']}
+        if account_evidence is not None:
+            status,body=get_json(origin+'/api/status',account['otherToken'],account=True)
+            account_evidence['checks']['otherAccountDenied']=status==409 and body.get('error',{}).get('code')=='HR-BIND-001'
+            observation['account']=account_evidence
         yield observation
         if any(child.poll() is not None for child in active):raise ValueError('relay_process_exited')
         if build_digest(source)!=build_sha or digest(local_node)!=node_sha:raise ValueError('relay_build_changed')
     finally:
-        for child in reversed(active):stop_child(child)
-        for log in logs:log.close()
-        local_node.unlink(missing_ok=True)
+        try:
+            for child in reversed(active):stop_child(child)
+        finally:
+            for log in logs:log.close()
+            local_node.unlink(missing_ok=True)
+            database_context.close()
+            if account_evidence is not None:account_evidence['checks']['databaseStopped']=database['stopped']
         if 'observation' in locals():observation['stopped']=all(child.poll() is not None for child in children)

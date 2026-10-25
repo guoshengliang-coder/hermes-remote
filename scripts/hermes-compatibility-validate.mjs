@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS, RESTART_SCOPE, RESTART_CHECKS, RELAY_RECOVERY_SCOPE, RELAY_RECOVERY_CHECKS } from './hermes-compatibility-contract-probe.mjs';
+import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS, RESTART_SCOPE, RESTART_CHECKS, RELAY_RECOVERY_SCOPE, RELAY_RECOVERY_CHECKS, ACCOUNT_RECOVERY_SCOPE } from './hermes-compatibility-contract-probe.mjs';
 import { parseTask, readJSON, infrastructureReport } from './hermes-compatibility-worker.mjs';
 import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/dist/account/hermes-compatibility-model.js';
 
@@ -14,6 +14,17 @@ const exec = promisify(execFile);
 const timestamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SHA = /^[a-f0-9]{64}$/;
 export const RELAY_SCOPE = 'legacy-source-build-relay-v1';
+export const ACCOUNT_RELAY_SCOPE = 'account-source-build-relay-v1';
+export const ACCOUNT_FIXTURE_CHECKS = ['databaseIdentityVerified','emptyDatabaseVerified','otherAccountDenied','databaseStopped'];
+export async function accountFixtureSourceIdentity(){
+  const hash=async path=>createHash('sha256').update(await readFile(path)).digest('hex');
+  const records=[];
+  for(const name of (await readdir('gateway/migrations')).filter(n=>/^\d{3}_[a-z0-9_]+\.sql$/.test(n)).sort())
+    records.push([name,await hash('gateway/migrations/'+name)]);
+  return {setupSha256:await hash('scripts/hermes-compatibility-account-fixture.mjs'),
+    postgresFixtureSha256:await hash('scripts/hermes-compatibility-postgres-fixture.py'),
+    migrationsSha256:createHash('sha256').update(JSON.stringify(records)).digest('hex')};
+}
 export const LAUNCH_AGENT_SCOPE = 'temporary-desktop-launchagent-v1';
 export async function launchAgentSourceIdentity() {
   const hash=async path=>createHash('sha256').update(await readFile(path)).digest('hex');
@@ -24,16 +35,16 @@ export async function launchAgentSourceIdentity() {
     fixtureSha256:await hash('scripts/hermes-compatibility-launchagent-fixture.py'),
     coreSourceSha256:createHash('sha256').update(JSON.stringify(records)).digest('hex')};
 }
-export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, launchAgentIdentity) {
-  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct', launchAgentIdentity);
+export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, launchAgentIdentity, accountIdentity) {
+  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct', launchAgentIdentity, accountIdentity);
 }
-function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport, launchAgentIdentity) {
+function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport, launchAgentIdentity, accountIdentity) {
   const names=['httpMissingToken','httpWrongToken','httpValidToken','runningVersion','sessionList','profileSessionList',
     'historyRead','connectorSchema','websocketMissingToken','websocketWrongToken','connectorActiveListRPC'];
   if(raw?.schemaVersion!==1||raw.kind!=='live-runtime-contracts'||raw.sourceCommit!==identity.sourceCommit
     ||raw.targetCommit!==identity.targetCommit||raw.compatibilityApproved!==false||raw.suiteSha256!==suiteSha256
     ||raw.probeSha256!==probeSha256||!SHA.test(suiteSha256)||!SHA.test(probeSha256))throw new Error('contract_identity_mismatch');
-  if (raw.relayScope !== undefined && (raw.relayScope !== RELAY_SCOPE || transport !== 'direct' || !SHA.test(relayFixtureSha256??'')))
+  if (raw.relayScope !== undefined && (![RELAY_SCOPE,ACCOUNT_RELAY_SCOPE].includes(raw.relayScope) || transport !== 'direct' || !SHA.test(relayFixtureSha256??'')))
     throw new Error('contract_relay_scope_mismatch');
   const restScope=raw.stages?.source?.restScope;
   if (restScope !== undefined && restScope !== CORE_REST_SCOPE) throw new Error('contract_scope_mismatch');
@@ -73,14 +84,15 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
   }
   let relay;
   if (raw.relayScope) {
+    const accountMode=raw.relayScope===ACCOUNT_RELAY_SCOPE;
     // These are source builds in a legacy token channel, never released artifacts or account-mode certification.
     const first=raw.stages.source.relay;
     const fields=['gatewayVersion','connectorVersion','nodeSha256','buildSha256'];
     if (!first || !['gatewayVersion','connectorVersion'].every(k=>/^[0-9]+\.[0-9]+\.[0-9]+$/.test(first[k]??''))
         || !['nodeSha256','buildSha256'].every(k=>SHA.test(first[k]??''))) throw new Error('contract_relay_identity_mismatch');
-    const probes={}, observations={},recoveries={};
+    const probes={}, observations={},recoveries={},accounts={};
     const recoveryScope=first.recovery?.scope;
-    if(recoveryScope!==undefined&&(recoveryScope!==RELAY_RECOVERY_SCOPE||!restartScope))throw new Error('relay_recovery_scope_mismatch');
+    if(recoveryScope!==undefined&&(recoveryScope!==(accountMode?ACCOUNT_RECOVERY_SCOPE:RELAY_RECOVERY_SCOPE)||!restartScope))throw new Error('relay_recovery_scope_mismatch');
     for (const name of ['source','candidate','restored']) {
       const item=raw.stages[name].relay;
       if (!item || item.fixtureSha256!==relayFixtureSha256 || !fields.every(k=>item[k]===first[k])
@@ -88,6 +100,15 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
           || item.probe?.relay!==undefined || !item.probe?.checks) throw new Error('contract_relay_identity_mismatch');
       probes[name]=item.probe;
       observations[name]={roleSeparation:item.roleSeparation,stopped:item.stopped};
+      if(accountMode){
+        const account=item.account;
+        if(account?.scope!=='synthetic-account-routing-v1'||!/^18\.[0-9]+$/.test(account.postgresVersion??'')
+          ||!SHA.test(account.postgresBinarySha256??'')||!['setupSha256','postgresFixtureSha256','migrationsSha256'].every(k=>
+            SHA.test(account[k]??'')&&account[k]===accountIdentity?.[k])
+          ||!['setupSha256','postgresFixtureSha256','migrationsSha256','postgresVersion','postgresBinarySha256'].every(k=>account[k]===first.account?.[k])
+          ||!ACCOUNT_FIXTURE_CHECKS.every(k=>typeof account.checks?.[k]==='boolean'))throw new Error('account_fixture_mismatch');
+        accounts[name]=Object.fromEntries(ACCOUNT_FIXTURE_CHECKS.map(k=>[k,account.checks[k]]));
+      }else if(item.account!==undefined)throw new Error('unexpected_account_fixture');
       const recovery=item.recovery;
       if(recoveryScope){
         if(recovery?.schemaVersion!==1||recovery.kind!=='live-relay-recovery-probe'||recovery.scope!==recoveryScope
@@ -102,12 +123,14 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
     }
     const nested=parseContracts({...raw,relayScope:undefined,stages:probes,
       status:Object.values(probes).every(p=>Object.values(p.checks).every(v=>v===true))?'passed':'contract_gap'},
-      identity,suiteSha256,probeSha256,modelFixtureSha256,undefined,'legacy-relay');
+      identity,suiteSha256,probeSha256,modelFixtureSha256,undefined,accountMode?'account-relay':'legacy-relay');
     if (!restScope || !rpcScope || !promptScope || !reconnectScope ||
         ['restScope','rpcScope','promptScope','reconnectScope'].some(k=>nested[k]!==raw.stages.source[k]))
       throw new Error('contract_relay_scope_mismatch');
-    relay={scope:RELAY_SCOPE,fixtureSha256:relayFixtureSha256,...Object.fromEntries(fields.map(k=>[k,first[k]])),
-      stages:nested.stages,observations,...(recoveryScope?{recovery:{scope:recoveryScope,stages:recoveries}}:{})};
+    relay={scope:raw.relayScope,fixtureSha256:relayFixtureSha256,...Object.fromEntries(fields.map(k=>[k,first[k]])),
+      stages:nested.stages,observations,...(accountMode?{account:{scope:'synthetic-account-routing-v1',
+        ...Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,first.account[k]])),
+        postgresVersion:first.account.postgresVersion,postgresBinarySha256:first.account.postgresBinarySha256,stages:accounts}}:{}),...(recoveryScope?{recovery:{scope:recoveryScope,stages:recoveries}}:{})};
   }
   let launchAgent;
   const firstNative=raw.stages.source.launchAgent;
@@ -137,6 +160,7 @@ function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha
     && (!restartScope || Object.values(restartStages).every(stage=>Object.values(stage.checks).every(Boolean))) && (!relay ||
     (Object.values(relay.stages).every(stage=>Object.values(stage.checks).every(Boolean)) &&
      Object.values(relay.observations).every(stage=>stage.roleSeparation && stage.stopped) &&
+     (!relay.account||Object.values(relay.account.stages).every(checks=>Object.values(checks).every(Boolean))) &&
      (!relay.recovery||Object.values(relay.recovery.stages).every(stage=>Object.values(stage.checks).every(Boolean)))))
     && (!launchAgent||Object.values(launchAgent.cycles).every(cycle=>Object.values(cycle).every(checks=>Object.values(checks).every(Boolean))));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
@@ -216,6 +240,8 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
          Object.values(evidence.contracts.relay.observations).some(stage=>!stage.roleSeparation || !stage.stopped))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }
+    if(name==='connector'&&evidence.contracts?.relay?.account&&Object.values(evidence.contracts.relay.account.stages)
+      .some(checks=>Object.values(checks).some(v=>v===false)))return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     if(['serviceRecovery','connector'].includes(name)&&evidence.contracts?.relay?.recovery&&
       Object.values(evidence.contracts.relay.recovery.stages).some(stage=>stage.attempted&&Object.values(stage.checks).some(v=>v===false))){
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
@@ -244,6 +270,8 @@ async function main() {
   const startedAt = timestamp(), evidence = {};
   try {
     if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) throw new Error('wrong_runner');
+    const postgresBin=process.env.HERMES_COMPATIBILITY_POSTGRES_BIN;
+    if(!postgresBin||!postgresBin.startsWith('/'))throw new Error('postgresql_toolchain_missing');
     const osVersion = (await exec('/usr/bin/sw_vers', ['-productVersion'])).stdout.trim();
     const normalizedOS = osVersion.split('.').length === 2 ? `${osVersion}.0` : osVersion;
     const head = (await exec('git', ['rev-parse', 'HEAD'])).stdout.trim();
@@ -283,7 +311,8 @@ async function main() {
           createHash('sha256').update(await readFile(lockSuite)).digest('hex'));
         const contractSuite=resolve('scripts/hermes-compatibility-contract-lab.py');
         const contractProbe=resolve('scripts/hermes-compatibility-contract-probe.mjs');
-        const contract=await exec('python3',[contractSuite,'--prompt','--relay','--restart','--launchagent','--lab-root',labRoot],{timeout:30*60_000,maxBuffer:64*1024});
+        const contract=await exec('python3',[contractSuite,'--prompt','--relay','--restart','--launchagent','--account-relay',
+          '--postgres-bin',postgresBin,'--lab-root',labRoot],{timeout:30*60_000,maxBuffer:64*1024});
         const contractResult=JSON.parse(contract.stdout.trim());
         const contractPath=await realpath(contractResult.report);
         if(dirname(contractPath)!==labRoot||!/^contract-report-[0-9]+\.json$/.test(contractPath.slice(labRoot.length+1)))throw new Error('contract_path_invalid');
@@ -292,7 +321,7 @@ async function main() {
           createHash('sha256').update(await readFile(contractProbe)).digest('hex'),
           createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-model-fixture.py'))).digest('hex'),
           createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-relay-fixture.py'))).digest('hex'),
-          await launchAgentSourceIdentity());
+          await launchAgentSourceIdentity(),await accountFixtureSourceIdentity());
       }
     }
     evidence.recovery = { normal: evidence.normal, fault: evidence.fault };

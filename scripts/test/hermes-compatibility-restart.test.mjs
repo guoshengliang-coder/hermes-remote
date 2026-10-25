@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
 import {WebSocketServer} from 'ws';
-import {probeBackendRestart,probeRelayRecovery,RELAY_RECOVERY_SCOPE,validatePromptHistory,PROMPT_TEXT,PROMPT_ANSWER} from '../hermes-compatibility-contract-probe.mjs';
+import {probeBackendRestart,probeRelayRecovery,RELAY_RECOVERY_SCOPE,ACCOUNT_RECOVERY_SCOPE,validatePromptHistory,PROMPT_TEXT,PROMPT_ANSWER} from '../hermes-compatibility-contract-probe.mjs';
 
 const token='n'.repeat(40),previousToken='o'.repeat(40),storedId='synthetic-stored';
 const messages=()=>[{id:2,role:'user',content:PROMPT_TEXT,timestamp:1792926000},
   {id:3,role:'assistant',content:PROMPT_ANSWER,timestamp:1792926001}];
-async function fixture(t){
+async function fixture(t,account=false){
   const state={oldAccepted:false,version:'0.22.5',messages:messages(),requests:[]};
   const http=createServer((req,res)=>{
-    if(req.headers['x-hermes-session-token']!==token){res.writeHead(state.oldAccepted?200:403);res.end('{}');return;}
+    if(account?req.headers.authorization!==`Bearer ${token}`:req.headers['x-hermes-session-token']!==token){res.writeHead(state.oldAccepted?200:403);res.end('{}');return;}
     let value;
     if(req.url==='/api/status')value={version:state.version,gateway_running:false};
     else if(req.url==='/api/sessions/go-compat-lab-history/messages')value={messages:[{id:1,role:'user',content:'Hermes GO 升级前的合成会话',timestamp:1792926000}]};
@@ -21,7 +21,7 @@ async function fixture(t){
   });
   const wss=new WebSocketServer({noServer:true});
   http.on('upgrade',(req,socket,head)=>{
-    if(new URL(req.url,'http://localhost').searchParams.get('token')!==token){socket.destroy();return;}
+    if(account?req.headers.authorization!==`Bearer ${token}`:new URL(req.url,'http://localhost').searchParams.get('token')!==token){socket.destroy();return;}
     wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws));
   });
   wss.on('connection',ws=>{
@@ -68,4 +68,13 @@ test('relay recovery preserves client authentication and reads the exact complet
   state.messages[1].id++;
   assert.equal((await probeRelayRecovery(input)).checks.recoveryHistory,false);
   await assert.rejects(probeRelayRecovery({...input,previousToken}));
+});
+
+test('account recovery authenticates HTTP and every WebSocket with the original bearer session',async t=>{
+  const {input,state}=await fixture(t,true);delete input.previousToken;input.transport='account-relay';
+  const result=await probeRelayRecovery(input);
+  assert.equal(result.scope,ACCOUNT_RECOVERY_SCOPE);assert.ok(Object.values(result.checks).every(Boolean));
+  assert.equal(state.requests.find(r=>r.method==='session.resume').params.session_id,storedId);
+  assert.equal(JSON.stringify(result).includes(token),false);
+  await assert.rejects(probeRelayRecovery({...input,transport:'unverified'}));
 });

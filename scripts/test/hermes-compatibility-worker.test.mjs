@@ -136,6 +136,8 @@ test('workflow isolates upstream execution from OIDC and never accepts scripts o
   assert.match(validator, /runs-on: macos-26/);
   assert.doesNotMatch(validator, /id-token: write|secrets\./);
   assert.match(validator, /persist-credentials: false/);
+  assert.match(validator, /brew install postgresql@18/);
+  assert.match(validator, /HERMES_COMPATIBILITY_POSTGRES_BIN/);
   assert.equal((workflow.match(/id-token: write/g) || []).length, 2);
   assert.doesNotMatch(workflow, /run:.*\$\{\{/);
 });
@@ -407,4 +409,48 @@ test('relay recovery evidence requires all three stages and cannot certify full 
   const privateData=structuredClone(raw);privateData.stages.source.relay.recovery.checkpoint={storedId:'synthetic-private'};
   privateData.stages.source.relay.recovery.token='synthetic-private';
   assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+});
+
+test('synthetic account evidence binds migrations/database identity and cannot be substituted for legacy or real login',async()=>{
+  const {contractEvidence,ACCOUNT_RELAY_SCOPE,ACCOUNT_FIXTURE_CHECKS}=await import('../hermes-compatibility-validate.mjs');
+  const {ACCOUNT_RECOVERY_SCOPE}=await import('../hermes-compatibility-contract-probe.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-account-relay-contracts.json',import.meta.url)));
+  const native=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
+  const identity=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));
+  const parse=(value,expected=identity)=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,native,expected);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  assert.equal(parse(raw).relay.scope,ACCOUNT_RELAY_SCOPE);
+  for(const name of ['connector','serviceRecovery','clientBusiness','desktopLifecycle'])
+    assert.equal(bundle(raw).report.checks.find(c=>c.name===name).status,'not_run');
+  assert.throws(()=>parse(raw,{}));
+  for(const name of ['source','candidate','restored']){
+    for(const key of ['scope','setupSha256','postgresFixtureSha256','migrationsSha256','postgresVersion','postgresBinarySha256']){
+      const wrong=structuredClone(raw);wrong.stages[name].relay.account[key]='invalid';assert.throws(()=>parse(wrong));
+    }
+    for(const key of ACCOUNT_FIXTURE_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[name].relay.account.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[name].relay.account.checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';assert.equal(bundle(failed).report.checks.find(c=>c.name==='connector').status,'failed');
+    }
+    const missing=structuredClone(raw);delete missing.stages[name].relay.account;assert.throws(()=>parse(missing));
+    const legacy=structuredClone(raw);legacy.stages[name].relay.probe.transport='legacy-relay';assert.throws(()=>parse(legacy));
+    const recovery=structuredClone(raw);recovery.stages[name].relay.recovery.scope='legacy-relay-completed-turn-recovery-v1';assert.throws(()=>parse(recovery));
+  }
+  const privateData=structuredClone(raw);privateData.stages.source.relay.account.databaseUrl='synthetic-private';
+  assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+});
+
+test('recorded account recovery failures remain failed despite successful direct/native checks',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  for(const file of ['account-relay-first-gap','account-relay-readiness-gap']){
+    const raw=JSON.parse(await readFile(new URL(`../../docs/evidence/hermes-compatibility/2026-10-25-${file}.json`,import.meta.url)));
+    const native=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
+    const account=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));
+    const contracts=contractEvidence(raw,task.identity,raw.suiteSha256,raw.probeSha256,raw.stages.source.modelFixtureSha256,
+      raw.stages.source.relay.fixtureSha256,native,account);
+    const result=buildBundle(task,{normal:labEvidence(normal,task.identity),contracts},'2026-10-25T01:00:00Z');
+    for(const name of ['connector','serviceRecovery'])assert.equal(result.report.checks.find(c=>c.name===name).status,'failed');
+    assert.equal(validateBundle(task,result).outcome,'failed');
+  }
 });

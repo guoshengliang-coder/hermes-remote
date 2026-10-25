@@ -323,3 +323,27 @@ Gateway/Connector 完成一轮合成对话，保留其 checkpoint；Gateway 跨 
 ExitStack 保证异常时先清理本任务中继，再恢复模型配置；只停止由 fixture 创建的进程组。
 凭据、checkpoint、进程号和路径仅在本机私有状态，不进入公开报告。现有 worker 选项组合
 `--prompt --relay --restart --launchagent` 自动执行本范围；无新增产品错误码或管理授权。
+
+## I2 合成账号模式的真实中继
+
+worker 现在默认使用 `--prompt --relay --restart --launchagent --account-relay --postgres-bin <toolchain>`。
+受保护 macOS validate job 准备 PostgreSQL 18 工具链，路径通过 HERMES_COMPATIBILITY_POSTGRES_BIN
+传入；没有该工具链时记录基础设施未完成，不回退到 legacy 并冒充账号验证。独立本地实验不传
+最后两个选项仍运行 legacy 范围。数据库不是外部服务输入：每阶段均新建 owner-only 集群，
+随机 loopback TCP 端口、随机 SCRAM 密码，不创建公共 Unix socket，不连接日常或生产数据库。
+
+受信 fixture 先核对服务端 data_directory 就是自有新集群且 public schema 为空，再应用仓库
+迁移，使用真实 TokenCodec 创建合成会话/refresh family 和 Ed25519 Connector 凭据。真实 Gateway
+和 Connector 完成挑战鉴权；客户端通过 Bearer 会话读取 HTTP/RPC，另一个无设备的合成账号
+必须被 HR-BIND-001 拒绝。没有发送登录邮件、创建真实账号、授予管理员角色或调用外部身份服务。
+
+新增 `account-source-build-relay-v1` 与 `account-relay-completed-turn-recovery-v1`，不与 legacy
+范围互换。除既有检查外，每阶段记录新数据库身份、空库、另一账号拒绝和数据库退出四项检查，
+绑定 PostgreSQL 版本/二进制、fixture 与完整迁移摘要；缺项、错误身份和范围混用拒收。只有
+连接在线且 Hermes 健康确认后才开始读写；45 秒内不能确认就绪则本轮未完成，不能绕过实际业务
+检查。失败时只在私有文件记录固定接口 HTTP 状态、注册错误码与健康布尔值，不保存响应正文。
+
+四次本地真实实验中，前两次出现账号中继恢复失败，后两次通过；失败根因仍未确认。在线/健康
+等待的修正有回归，但不足以解释全部失败。正反证据一起保留，见实施记录；单次或后续成功不能
+据此宣称恢复可靠或批准兼容。已测失败继续使 connector/serviceRecovery 失败；局部成功仍不
+完成这些完整门禁。真实登录、客户端 UI/生命周期、分享和多设备等仍需各自验收。

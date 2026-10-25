@@ -49,6 +49,7 @@ export const RESTART_CHECKS = ['restartPreviousStopped','restartFreshProcess','r
   'restartReady','restartCapabilities','restartResume','restartIdentity','restartHistory',
   'restartConfigurationRestored','restartNetworkFence'];
 export const RELAY_RECOVERY_SCOPE = 'legacy-relay-completed-turn-recovery-v1';
+export const ACCOUNT_RECOVERY_SCOPE = 'account-relay-completed-turn-recovery-v1';
 export const RELAY_RECOVERY_CHECKS = ['gatewaySameProcess','connectorPreviousStopped','connectorFreshProcess',
   'connectorOfflineObserved','connectorOnline','clientCredentialPreserved','recoveryVersion','recoverySeedHistory',
   'recoveryReady','recoveryCapabilities','recoveryResume','recoveryIdentity','recoveryHistory','recoveryNoModelRequest',
@@ -80,10 +81,10 @@ export function validateSessionHandle(value, resume = false) {
   return value.session_id;
 }
 /** One connection, ready before capabilities, matching JSON-RPC IDs, bounded total lifetime. */
-export function probeSessionRPC(url, {timeoutMs = 45_000, prompt = false, readHistory, onTurnVerified} = {}) {
+export function probeSessionRPC(url, {timeoutMs = 45_000, prompt = false, readHistory, onTurnVerified, headers} = {}) {
   return new Promise(resolve => {
     const checks=Object.fromEntries([...SESSION_RPC_CHECKS,...(prompt?PROMPT_CHECKS.slice(0,3):[])].map(name=>[name,false]));
-    const socket=new WebSocket(url,{handshakeTimeout:10_000,maxPayload:1024*1024});
+    const socket=new WebSocket(url,{handshakeTimeout:10_000,maxPayload:1024*1024,headers});
     let done=false,started=false,sequence=0,pending,created;
     const turnEvents=[];let endTurn,turnBytes=0;
     const turnComplete=new Promise(resolve=>{endTurn=resolve;});
@@ -186,10 +187,10 @@ export function validatePromptHistory(value) {
   return history;
 }
 /** New authenticated transport, same stored conversation, no new prompt or history writes. */
-export function probeReconnectRPC(url,{storedId,history,readHistory,timeoutMs=15_000}) {
+export function probeReconnectRPC(url,{storedId,history,readHistory,timeoutMs=15_000,headers}) {
   return new Promise(resolve=>{
     const checks=Object.fromEntries(RECONNECT_CHECKS.map(n=>[n,false]));
-    const socket=new WebSocket(url,{handshakeTimeout:10_000,maxPayload:1024*1024});
+    const socket=new WebSocket(url,{handshakeTimeout:10_000,maxPayload:1024*1024,headers});
     let done=false,started=false,pending,sequence=0;
     const finish=()=>{
       if(done)return;done=true;clearTimeout(timer);
@@ -257,9 +258,9 @@ async function body(response, maximum = 2 * 1024 * 1024) {
   } finally { await reader.cancel().catch(() => {}); }
   return Buffer.concat(chunks).toString('utf8');
 }
-function websocket(url, rejectExpected) {
+function websocket(url, rejectExpected, headers) {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url, {handshakeTimeout: 10_000, maxPayload: 1024 * 1024});
+    const socket = new WebSocket(url, {handshakeTimeout: 10_000, maxPayload: 1024 * 1024,headers});
     const timer = setTimeout(() => finish(false), 20_000);
     let done = false;
     function finish(ok) {
@@ -285,14 +286,21 @@ function websocket(url, rejectExpected) {
     socket.on('close', () => { if (!done) finish(false); });
   });
 }
+function probeAuth(base,token,transport){
+  if(transport!=='account-relay')return new HermesAuth({baseUrl:base,sessionToken:token,requestTimeoutMs:15_000});
+  return {headers:{authorization:`Bearer ${token}`},
+    request(path,init){if(!path.startsWith('/api/'))throw Error('invalid_account_path');
+      return fetch(base+path,{...init,headers:{...init.headers,authorization:`Bearer ${token}`},redirect:'error',signal:AbortSignal.timeout(15_000)});},
+    async websocketUrl(path){if(path!=='/api/ws')throw Error('invalid_account_ws');return base.replace('http:','ws:')+path;}};
+}
 export async function probeContract({port, token, version, prompt = false, transport = 'direct', captureRestart = false}) {
   if(typeof captureRestart!=='boolean'||(captureRestart&&!prompt))throw new Error('invalid_checkpoint_capture');
-  if (!['direct','legacy-relay'].includes(transport) || typeof prompt !== 'boolean' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string'
+  if (!['direct','legacy-relay','account-relay'].includes(transport) || typeof prompt !== 'boolean' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string'
       || !/^[A-Za-z0-9_-]{32,128}$/.test(token) || !['0.21.3','0.22.5'].includes(version)) throw new Error('invalid_probe');
-  const base = `http://127.0.0.1:${port}`, auth = new HermesAuth({baseUrl:base,sessionToken:token,requestTimeoutMs:15_000});
+  const base = `http://127.0.0.1:${port}`, auth = probeAuth(base,token,transport);
   const checks = {};
   async function check(name, fn) { try { await fn(); checks[name] = true; } catch { checks[name] = false; } }
-  for (const [name, headers] of [['httpMissingToken',{}],['httpWrongToken',{'X-Hermes-Session-Token':'deliberately-wrong'}]]) {
+  for (const [name, headers] of [['httpMissingToken',{}],['httpWrongToken',transport==='account-relay'?{authorization:'Bearer deliberately-wrong'}:{'X-Hermes-Session-Token':'deliberately-wrong'}]]) {
     await check(name, async () => {
       const response = await fetch(base + '/api/profiles/active', {headers,redirect:'error',signal:AbortSignal.timeout(15_000)});
       await response.body?.cancel(); if (![401,403].includes(response.status)) throw new Error('not_rejected');
@@ -330,14 +338,14 @@ export async function probeContract({port, token, version, prompt = false, trans
     if (report.status !== 'compatible') throw new Error('contract');
   });
   await check('websocketMissingToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws', true));
-  await check('websocketWrongToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws?token=deliberately-wrong', true));
-  await check('connectorActiveListRPC', async () => websocket(await auth.websocketUrl('/api/ws'), false));
+  await check('websocketWrongToken', () => websocket(base.replace('http:', 'ws:') + (transport==='account-relay'?'/api/ws':'/api/ws?token=deliberately-wrong'), true,transport==='account-relay'?{authorization:'Bearer deliberately-wrong'}:undefined));
+  await check('connectorActiveListRPC', async () => websocket(await auth.websocketUrl('/api/ws'), false,auth.headers));
   let completedTurn;
   const readHistory=async id=>JSON.parse(await body(await auth.request(`/api/sessions/${encodeURIComponent(id)}/messages`,{method:'GET'})));
-  Object.assign(checks,await probeSessionRPC(await auth.websocketUrl('/api/ws'),{prompt,timeoutMs:prompt?80_000:45_000,
+  Object.assign(checks,await probeSessionRPC(await auth.websocketUrl('/api/ws'),{prompt,headers:auth.headers,timeoutMs:prompt?80_000:45_000,
     readHistory,onTurnVerified:value=>{completedTurn=value;}}));
   if(prompt)Object.assign(checks,completedTurn
-    ? await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...completedTurn,readHistory})
+    ? await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...completedTurn,readHistory,headers:auth.headers})
     : Object.fromEntries(RECONNECT_CHECKS.map(n=>[n,false])));
   // Only the private parent process receives this checkpoint; it must strip it before reporting.
   return {schemaVersion:1,kind:'live-connector-contract-probe',version,transport,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE,reconnectScope:RECONNECT_SCOPE}:{}),checks,compatibilityApproved:false,
@@ -345,14 +353,14 @@ export async function probeContract({port, token, version, prompt = false, trans
 }
 
 /** Read an already completed synthetic turn after the owning backend has actually restarted. */
-async function probeCompletedRecovery({port,token,previousToken,version,checkpoint}, relay) {
-  if(!Number.isInteger(port)||port<1||port>65535||!['0.21.3','0.22.5'].includes(version)
+async function probeCompletedRecovery({port,token,previousToken,version,checkpoint,transport='legacy-relay'}, relay) {
+  if((relay&&!['legacy-relay','account-relay'].includes(transport))||!Number.isInteger(port)||port<1||port>65535||!['0.21.3','0.22.5'].includes(version)
     ||!(relay?[token]:[token,previousToken]).every(v=>typeof v==='string'&&/^[A-Za-z0-9_-]{32,128}$/.test(v))
     ||(!relay&&token===previousToken)|| (relay&&previousToken!==undefined)
     ||!object(checkpoint)||typeof checkpoint.storedId!=='string'||!checkpoint.storedId||checkpoint.storedId.length>256
     ||!Array.isArray(checkpoint.history)||checkpoint.history.length!==2
     ||JSON.stringify(validatePromptHistory({messages:checkpoint.history}))!==JSON.stringify(checkpoint.history))throw new Error('invalid_restart');
-  const base=`http://127.0.0.1:${port}`,auth=new HermesAuth({baseUrl:base,sessionToken:token,requestTimeoutMs:15_000});
+  const base=`http://127.0.0.1:${port}`,auth=probeAuth(base,token,relay?transport:'direct');
   const checks={};
   async function check(name,fn){try{await fn();checks[name]=true;}catch{checks[name]=false;}}
   if(!relay)await check('restartOldTokenRejected',async()=>{
@@ -362,10 +370,10 @@ async function probeCompletedRecovery({port,token,previousToken,version,checkpoi
   await check('restartVersion',async()=>validateCoreStatus(JSON.parse(await body(await auth.request('/api/status',{method:'GET'}))),version));
   await check('restartSeedHistory',async()=>validateCoreHistory(JSON.parse(await body(await auth.request(`/api/sessions/${HISTORY_ID}/messages`,{method:'GET'})))));
   const readHistory=async id=>JSON.parse(await body(await auth.request(`/api/sessions/${encodeURIComponent(id)}/messages`,{method:'GET'})));
-  const resumed=await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...checkpoint,readHistory});
+  const resumed=await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...checkpoint,readHistory,headers:auth.headers});
   for(const [name,passed] of Object.entries(resumed))checks[name.replace('reconnect','restart')]=passed;
   return {schemaVersion:1,kind:relay?'live-relay-recovery-probe':'live-backend-restart-probe',
-    scope:relay?RELAY_RECOVERY_SCOPE:RESTART_SCOPE,version,attempted:true,
+    scope:relay?(transport==='account-relay'?ACCOUNT_RECOVERY_SCOPE:RELAY_RECOVERY_SCOPE):RESTART_SCOPE,version,attempted:true,
     checks:relay?Object.fromEntries(Object.entries(checks).map(([k,v])=>[k.replace('restart','recovery'),v])):checks,compatibilityApproved:false};
 }
 export const probeBackendRestart = value => probeCompletedRecovery(value,false);

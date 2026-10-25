@@ -32,3 +32,9 @@ test("launchd fixture uses isolated labels and ports and preserves the private t
   const result = spawnSync("python3", ["-B", script], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
 });
+
+test('account fixture refuses daily/non-private targets and verifies fresh PostgreSQL when configured',()=>{
+  const script=fileURLToPath(new URL('./hermes-compatibility-account-fixture.test.py',import.meta.url));
+  const result=spawnSync('python3',['-B',script],{encoding:'utf8'});
+  assert.equal(result.status,0,result.stderr||result.error?.message);
+});

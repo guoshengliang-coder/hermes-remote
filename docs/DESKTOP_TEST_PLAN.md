@@ -1245,3 +1245,18 @@ The exception-path tests require the retained relay to close even when backend r
 Real runs also require all six temporary launchd jobs unloaded and all owned processes/copies cleaned
 up before moving installation paths. No app UI, production labels, credentials or daily data are used.
 Account-mode and actual Desktop/Android/Web lifecycle acceptance remain outstanding.
+
+### Hermes compatibility: account relay with synthetic sessions (2026-10-25)
+
+The existing isolated Desktop Core LaunchAgent case now also supports real account-mode relay code.
+Each stage gets a new private PostgreSQL 18 cluster, migrated from repository SQL, with synthetic
+sessions and Connector signing keys. No real login, account role, installed app or daily service is
+changed. Require both account Connector online and Hermes healthy before probing; online alone is
+not sufficient. Verify exact completed-turn recovery through the original bearer session and reject
+another unbound account. Bind database/toolchain/fixture/migration identity and verify cluster cleanup.
+
+Four real runs produced two failures followed by two passes. The earlier candidate/restored recovery
+failures remain unexplained, so this case is not accepted as reliable yet. The evidence and required
+follow-up are in HERMES_COMPATIBILITY_EXECUTION.md. All 24 temporary jobs and 12 database clusters
+from these runs were stopped and their ports checked; temporary executables and original paths were
+restored. Product UI, real account login and client lifecycle tests remain outstanding.

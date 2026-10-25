@@ -62,6 +62,10 @@ jobs:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: compatibility-task
+      - name: Prepare the synthetic account database toolchain
+        run: |
+          brew install postgresql@18
+          printf 'HERMES_COMPATIBILITY_POSTGRES_BIN=%s/bin\n' "$(brew --prefix postgresql@18)" >> "$GITHUB_ENV"
       - name: Validate in disposable homes with OS isolation
         run: node scripts/hermes-compatibility-validate.mjs compatibility-task.json compatibility-result.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

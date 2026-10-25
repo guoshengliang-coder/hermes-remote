@@ -1247,3 +1247,21 @@ This adds `legacy-relay-completed-turn-recovery-v1`; it does not expand the earl
 scope. Missing or failed recovery checks cannot become passing evidence. Full connector/service
 recovery remains unapproved: account mode, released clients/components, interrupted generation and
 actual upgrade orchestration require independent acceptance. No upstream or product code changed.
+
+### Synthetic account relay and recovery (2026-10-25, unresolved intermittency)
+
+The lab can now use real account-mode Gateway/Connector code with an independently created private
+PostgreSQL 18 cluster per stage. Repository migrations, TokenCodec sessions/refresh families and
+Ed25519 credentials are real; accounts and data are synthetic. HTTP and WebSocket requests use the
+original bearer session. Another unbound account is denied. The worker selects this mode by default;
+legacy mode remains an independent option.
+
+The first two runs exposed post-restart account relay failures while direct Hermes access passed.
+Waiting for both Connector online and Hermes health was necessary, but a second failure remained.
+Two later full runs passed without a confirmed root cause. Preserve both
+[initial failure](evidence/hermes-compatibility/2026-10-25-account-relay-first-gap.json),
+[health-gated failure](evidence/hermes-compatibility/2026-10-25-account-relay-readiness-gap.json) and
+[latest pass](evidence/hermes-compatibility/2026-10-25-account-relay-contracts.json).
+A pass covers 198 direct/account checks, 45 direct restart, 48 account recovery, 24 Native service,
+12 account fixture and six role/cleanup observations. These observations do not resolve the known
+intermittency or certify actual login, released clients, tools/files, interrupted work or upgrade safety.

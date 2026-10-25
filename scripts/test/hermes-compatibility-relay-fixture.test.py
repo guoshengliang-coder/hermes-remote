@@ -53,6 +53,11 @@ class RelayFixtureTests(unittest.TestCase):
                         self.assertEqual(envs[0]['CONNECTOR_TOKEN'],envs[1]['CONNECTOR_TOKEN'])
                         self.assertEqual(envs[1]['HERMES_SESSION_TOKEN'],'synthetic-local-token')
                         for env in envs:self.assertNotIn('NODE_OPTIONS',env)
+                        with mock.patch.object(fixture,'get_json',side_effect=[
+                            (502,{'error':{'code':'HR-CONN-006','message':'synthetic-private'}}),(200,{'secret':'synthetic-private'})]):
+                            diagnostic=report['diagnose']('n'*43)
+                            self.assertEqual(diagnostic,{'relayStatus':502,'registeredErrorCode':'HR-CONN-006','localStatus':200})
+                            self.assertNotIn('synthetic-private',str(diagnostic))
                         raise RuntimeError('injected probe failure')
                 self.assertTrue(report['stopped'])
                 self.assertEqual({call.args[0] for call in kill.call_args_list},{12000,12001})
@@ -101,6 +106,18 @@ class RelayFixtureTests(unittest.TestCase):
                     self.assertTrue(report['stopped'])
                     self.assertTrue(all(c.poll() is not None for c in children))
                     self.assertFalse((root/'tmp/relay-recovery/node').exists())
+
+    def test_account_online_is_not_ready_until_hermes_health_is_accepted(self):
+        child=types.SimpleNamespace(poll=lambda:None)
+        def state(reachable):return (200,{'state':'bound','binding':{'connector':{'online':True},'hermes':{'reachable':reachable}}})
+        with mock.patch.object(fixture,'get_json',side_effect=[state(False),state(True)]) as read, \
+            mock.patch.object(fixture.time,'sleep'):
+            fixture.wait_ready([child],'http://127.0.0.1:12345','synthetic',account_token='synthetic')
+            self.assertEqual(read.call_count,2)
+        with mock.patch.object(fixture,'get_json',return_value=state(False)), \
+            mock.patch.object(fixture.time,'monotonic',side_effect=[0,0,46]),mock.patch.object(fixture.time,'sleep'):
+            with self.assertRaisesRegex(ValueError,'relay_start_timeout'):
+                fixture.wait_ready([child],'http://127.0.0.1:12345','synthetic',account_token='synthetic')
 
     def test_exited_child_fails_readiness_before_network_access(self):
         child=types.SimpleNamespace(poll=lambda:1)

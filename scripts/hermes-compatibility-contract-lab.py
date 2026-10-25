@@ -44,14 +44,14 @@ def stop_agent(root, agent):
         raise
 
 
-def probe(root, lab, version, stage, node, prompt=False, relay=False, restart=False, launchagent=None):
+def probe(root, lab, version, stage, node, prompt=False, relay=False, restart=False, launchagent=None, postgres_bin=None):
     if prompt:
-        return prompt_probe(root, lab, version, stage, node, relay=relay, restart=restart, launchagent=launchagent)
+        return prompt_probe(root, lab, version, stage, node, relay=relay, restart=restart, launchagent=launchagent, postgres_bin=postgres_bin)
     return runtime_probe(root, lab, version, stage, node)
 
 
 def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, relay=False, model_observation=None,
-                  capture_restart=False, restart_state=None, launchagent=None, relay_context=None, relay_state=None):
+                  capture_restart=False, restart_state=None, launchagent=None, relay_context=None, relay_state=None, postgres_bin=None):
     env = lab.isolated_environment(root)
     token = secrets.token_urlsafe(32)
     env.update(HERMES_DESKTOP='1', HERMES_DASHBOARD_SESSION_TOKEN=token)
@@ -92,6 +92,7 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, r
                       'captureRestart':capture_restart}
                 if recovery:
                     data={'port':active_port,'token':active_token,'version':version,'operation':'relay-recovery',
+                          'transport':'account-relay' if postgres_bin else 'legacy-relay',
                           'checkpoint':relay_state['checkpoint']}
                 elif restart_state:
                     data={'port':active_port,'token':active_token,'version':version,'operation':'restart',
@@ -119,14 +120,15 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, r
                 spec=importlib.util.spec_from_file_location('relay_fixture',Path(__file__).with_name('hermes-compatibility-relay-fixture.py'))
                 fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
                 with ExitStack() as local_context:
-                    observation=(relay_context or local_context).enter_context(fixture.relay_fixture(root,node,sandbox,port,token,stage))
+                    observation=(relay_context or local_context).enter_context(fixture.relay_fixture(root,node,sandbox,port,token,stage,postgres_bin=postgres_bin))
                     model_before=model_observation['requests']
-                    relayed=call_probe(observation['port'],observation['token'],'legacy-relay')
+                    relayed=call_probe(observation['port'],observation['token'],'account-relay' if postgres_bin else 'legacy-relay')
                     relayed['checks']['promptModelObserved']=model_observation['requests']>model_before
                     if capture_restart:relay_state.update(observation=observation,checkpoint=relayed.pop('restartCheckpoint'))
                 result['relay']={'probe':relayed,'roleSeparation':observation['roleSeparation'],'stopped':observation['stopped'],
                     'gatewayVersion':observation['gatewayVersion'],'connectorVersion':observation['connectorVersion'],'nodeSha256':observation['nodeSha256'],'buildSha256':observation['buildSha256'],
                     'fixtureSha256':lab.sha256(Path(__file__).with_name('hermes-compatibility-relay-fixture.py').read_bytes())}
+                if postgres_bin:result['relay']['account']=observation['account']
                 if capture_restart:relay_state['record']=result['relay']
             if restart_state and relay_state is not None and relay_state['checkpoint'] is not None:
                 observation=relay_state['observation']
@@ -134,6 +136,12 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, r
                 lifecycle=observation['reconnect'](token)
                 recovered=call_probe(observation['port'],observation['token'],recovery=True)
                 recovered['checks'].update(lifecycle,recoveryNoModelRequest=model_observation['requests']==model_before)
+                if not all(recovered['checks'].values()):
+                    try:diagnostic=observation['diagnose'](token)
+                    except Exception:diagnostic={'unavailable':True}
+                    path=root/'tmp'/(stage+'-relay-diagnostic.private.json')
+                    fd=os.open(str(path),os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+                    with os.fdopen(fd,'w') as output:json.dump(diagnostic,output)
                 relay_state['record']['recovery']=recovered
             return result
         finally:
@@ -152,7 +160,7 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, r
                 if restart_state:result['checks']['restartStopped']=child.poll() is not None
 
 
-def prompt_probe(root, lab, version, stage, node, relay=False, restart=False, launchagent=None):
+def prompt_probe(root, lab, version, stage, node, relay=False, restart=False, launchagent=None, postgres_bin=None):
     spec=importlib.util.spec_from_file_location('model_fixture',Path(__file__).with_name('hermes-compatibility-model-fixture.py'))
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     sandbox=root/'tmp'/(stage+'.sb')
@@ -167,14 +175,14 @@ def prompt_probe(root, lab, version, stage, node, relay=False, restart=False, la
     relay_state={} if relay and restart else None
     with fixture.model_fixture(root/'user/.hermes/config.yaml') as observation, ExitStack() as relay_context:
         result=runtime_probe(root,lab,version,stage,node,prompt=True,sandbox=sandbox,relay=relay,model_observation=observation,capture_restart=restart,launchagent=launchagent,
-            relay_context=relay_context if relay_state is not None else None,relay_state=relay_state)
+            relay_context=relay_context if relay_state is not None else None,relay_state=relay_state,postgres_bin=postgres_bin)
         if restart:
             # Keep token, PID, port, stored ID and transcript in memory only; never serialize them to the report.
             previous=result.pop('_restart')
             if not previous['stopped']:raise ValueError('previous_backend_alive')
             if previous['checkpoint'] is not None:
                 result['restart']=runtime_probe(root,lab,version,stage+'-restart',node,sandbox=sandbox,
-                    model_observation=observation,restart_state=previous,launchagent=launchagent,relay_state=relay_state)
+                    model_observation=observation,restart_state=previous,launchagent=launchagent,relay_state=relay_state,postgres_bin=postgres_bin)
             else:
                 # Preserve the actual prompt failure; missing prerequisite is not an infrastructure error
                 # or a claim that a restart was attempted. The consumer rejects a false skip.
@@ -183,7 +191,7 @@ def prompt_probe(root, lab, version, stage, node, relay=False, restart=False, la
                     'checks':{},'compatibilityApproved':False}
         if relay_state is not None and 'recovery' not in result['relay']:
             result['relay']['recovery']={'schemaVersion':1,'kind':'live-relay-recovery-probe',
-                'scope':'legacy-relay-completed-turn-recovery-v1','version':version,'attempted':False,
+                'scope':'account-relay-completed-turn-recovery-v1' if postgres_bin else 'legacy-relay-completed-turn-recovery-v1','version':version,'attempted':False,
                 'checks':{},'compatibilityApproved':False}
     if relay_state is not None:
         result['relay']['stopped']=relay_state['observation']['stopped']
@@ -205,7 +213,11 @@ def main():
     parser.add_argument('--relay',action='store_true',help='Also exercise a disposable real legacy Gateway/Connector pair')
     parser.add_argument('--restart',action='store_true',help='Restart the owned synthetic backend and resume its completed turn')
     parser.add_argument('--launchagent',action='store_true',help='Use actual Desktop Core with isolated launchd labels and ports')
+    parser.add_argument('--account-relay',action='store_true',help='Use synthetic account authentication with a fresh private PostgreSQL cluster')
+    parser.add_argument('--postgres-bin',type=Path,help='Trusted PostgreSQL 18 toolchain for the synthetic account fixture')
     args = parser.parse_args()
+    if args.account_relay and not args.relay:raise ValueError('account_requires_relay')
+    if bool(args.postgres_bin)!=args.account_relay:raise ValueError('account_requires_postgresql')
     if args.relay and not args.prompt:raise ValueError('relay_requires_fenced_prompt')
     if args.restart and not args.prompt:raise ValueError('restart_requires_fenced_prompt')
     if args.launchagent and not args.restart:raise ValueError('launchagent_requires_restart')
@@ -236,7 +248,7 @@ def main():
             fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
             native={'helper':root/'tmp'/('native-helper-'+secrets.token_hex(16))}
             native['identity']=fixture.build_helper(native['helper'])
-        run_probe=(lambda *items: probe(*items,prompt=True,relay=args.relay,restart=args.restart,launchagent=native)) if args.prompt else probe
+        run_probe=(lambda *items: probe(*items,prompt=True,relay=args.relay,restart=args.restart,launchagent=native,postgres_bin=args.postgres_bin)) if args.prompt else probe
         output={'schemaVersion':1,'kind':'live-runtime-contracts','sourceCommit':lab.RUNTIME_SOURCE,
                 'targetCommit':lab.RUNTIME_TARGET,'compatibilityApproved':False,'stages':{}}
         stamp=str(time.time_ns())
@@ -255,8 +267,9 @@ def main():
         output['status']='passed' if all(all(s['checks'].values()) and (not args.relay or
             (all(s['relay']['probe']['checks'].values()) and s['relay']['roleSeparation'] and s['relay']['stopped']))
             and (not args.restart or all(s['restart']['checks'].values()))
-            and (not (args.restart and args.relay) or all(s['relay']['recovery']['checks'].values())) for s in output['stages'].values()) else 'contract_gap'
-        if args.relay:output['relayScope']='legacy-source-build-relay-v1'
+            and (not (args.restart and args.relay) or all(s['relay']['recovery']['checks'].values()))
+            and (not args.account_relay or all(s['relay']['account']['checks'].values())) for s in output['stages'].values()) else 'contract_gap'
+        if args.relay:output['relayScope']='account-source-build-relay-v1' if args.account_relay else 'legacy-source-build-relay-v1'
         path=root/('contract-report-'+stamp+'.json')
         path.write_text(json.dumps(output,indent=2)+'\n');path.chmod(0o600)
         print(json.dumps({'report':str(path),'status':output['status']}))
