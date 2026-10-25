@@ -254,3 +254,57 @@ test('completed-turn reconnect evidence cannot imply restart or new-data recover
   const missing=structuredClone(raw);for(const stage of Object.values(missing.stages))delete stage.reconnectScope;
   assert.throws(()=>parse(missing));
 });
+
+test('real legacy relay evidence is scoped, identity-bound and rejects every observed failure',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-relay-contracts.json',import.meta.url)));
+  const fixture=raw.stages.source.relay.fixtureSha256;
+  const parse=(value,hash=fixture)=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,raw.stages.source.modelFixtureSha256,hash);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  const contracts=parse(raw);
+  assert.equal(contracts.relay.scope,'legacy-source-build-relay-v1');
+  for(const name of ['connector','rpc','clientBusiness','serviceRecovery','newDataProtection']) {
+    assert.equal(bundle(raw).report.checks.find(c=>c.name===name).status,'not_run');
+  }
+  const successful=bundle(raw);assert.deepEqual(validateBundle(task,successful),successful.report);
+  const privateFields=structuredClone(raw);
+  privateFields.stages.source.relay.token='synthetic-secret';
+  privateFields.stages.source.relay.probe.privateLog='synthetic-secret';
+  assert.equal(JSON.stringify(parse(privateFields)).includes('synthetic-secret'),false);
+  assert.throws(()=>parse(raw,'0'.repeat(64)));
+  const noScope=structuredClone(raw);delete noScope.relayScope;assert.throws(()=>parse(noScope));
+  assert.throws(()=>parse({...raw,relayScope:'account-release-relay-v1'}));
+  for(const stage of ['source','candidate','restored']) {
+    const bad=value=>{const r=structuredClone(raw);value(r.stages[stage]);assert.throws(()=>parse(r));};
+    bad(s=>{delete s.relay;});
+    bad(s=>{s.transport='legacy-relay';});
+    bad(s=>{s.relay.probe.transport='direct';});
+    bad(s=>{delete s.relay.probe.transport;});
+    bad(s=>{s.relay.probe.relay={};});
+    bad(s=>{s.relay.probe.version='0.0.0';});
+    bad(s=>{s.relay.probe.modelFixtureSha256='0'.repeat(64);});
+    for(const scope of ['restScope','rpcScope','promptScope','reconnectScope']) {
+      bad(s=>{delete s.relay.probe[scope];});
+      bad(s=>{s.relay.probe[scope]='unknown';});
+    }
+    for(const key of ['gatewayVersion','connectorVersion','nodeSha256','buildSha256','fixtureSha256']) {
+      bad(s=>{s.relay[key]=key.endsWith('Sha256')?'0'.repeat(64):'9.9.9';});
+      bad(s=>{delete s.relay[key];});
+    }
+    for(const flag of ['roleSeparation','stopped']) {
+      bad(s=>{s.relay[flag]='true';});
+      const failed=structuredClone(raw);failed.stages[stage].relay[flag]=false;
+      assert.throws(()=>parse(failed));failed.status='contract_gap';
+      assert.equal(bundle(failed).report.checks.find(c=>c.name==='connector').status,'failed');
+    }
+    for(const key of Object.keys(raw.stages[stage].relay.probe.checks)) {
+      bad(s=>{delete s.relay.probe.checks[key];});
+      const failed=structuredClone(raw);failed.stages[stage].relay.probe.checks[key]=false;
+      assert.throws(()=>parse(failed));failed.status='contract_gap';
+      const result=bundle(failed);
+      assert.deepEqual(result.report.checks.find(c=>c.name==='connector'),
+        {name:'connector',status:'failed',evidenceSha256:compatibilityDigest(result.evidence.contracts)});
+      assert.equal(validateBundle(task,result).outcome,'failed');
+    }
+  }
+});

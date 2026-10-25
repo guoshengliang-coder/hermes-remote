@@ -275,8 +275,8 @@ function websocket(url, rejectExpected) {
     socket.on('close', () => { if (!done) finish(false); });
   });
 }
-export async function probeContract({port, token, version, prompt = false}) {
-  if (typeof prompt !== 'boolean' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string'
+export async function probeContract({port, token, version, prompt = false, transport = 'direct'}) {
+  if (!['direct','legacy-relay'].includes(transport) || typeof prompt !== 'boolean' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string'
       || !/^[A-Za-z0-9_-]{32,128}$/.test(token) || !['0.21.3','0.22.5'].includes(version)) throw new Error('invalid_probe');
   const base = `http://127.0.0.1:${port}`, auth = new HermesAuth({baseUrl:base,sessionToken:token,requestTimeoutMs:15_000});
   const checks = {};
@@ -313,7 +313,9 @@ export async function probeContract({port, token, version, prompt = false}) {
       {empty:offset===1,pagination:true,offset});
   });
   await check('connectorSchema', async () => {
-    const report = evaluateHermesContract({openapi:{kind:'ok',body:await body(await auth.openApiDocument(),8*1024*1024)},hermesVersion:version,checkedAt:new Date()});
+    const report = transport==='direct'
+      ? evaluateHermesContract({openapi:{kind:'ok',body:await body(await auth.openApiDocument(),8*1024*1024)},hermesVersion:version,checkedAt:new Date()})
+      : JSON.parse(await body(await auth.request('/api/hermes-remote/contract',{method:'GET'})));
     if (report.status !== 'compatible') throw new Error('contract');
   });
   await check('websocketMissingToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws', true));
@@ -326,7 +328,7 @@ export async function probeContract({port, token, version, prompt = false}) {
   if(prompt)Object.assign(checks,completedTurn
     ? await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...completedTurn,readHistory})
     : Object.fromEntries(RECONNECT_CHECKS.map(n=>[n,false])));
-  return {schemaVersion:1,kind:'live-connector-contract-probe',version,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE,reconnectScope:RECONNECT_SCOPE}:{}),checks,compatibilityApproved:false};
+  return {schemaVersion:1,kind:'live-connector-contract-probe',version,transport,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE,reconnectScope:RECONNECT_SCOPE}:{}),checks,compatibilityApproved:false};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {

@@ -459,3 +459,32 @@ I4/I5 未交付。未合并、部署、发布、授予角色或修改日常 Herm
 提交后的统计检查发现烟雾测试文档被编辑脚本误覆盖；随后的文档修复提交完整恢复上轮内容，
 仅追加本轮重连说明。已核对原文逐字保留、追加段落唯一和相对上轮完整差异，代码与实测证据
 未变化。未改写已推送历史；最终状态以修复提交为准。
+
+## I2 真实 Gateway/Connector legacy 中继
+
+`4cfdde35` 的 11 项 CI 全部通过。本轮在修改前评审中继身份与凭据分离、live/observer 模式、
+每次模型请求归属、启动及探测失败清理、构建变化、报告缺项/错范围和局部成功越级认证风险。
+隔离 fixture 使用真实编译入口和独立合成 App/Connector/Hermes 凭据，复用现有外网隔离。
+首次启动发现 Node 位于真实 HOME 而被既有读取隔离拒绝；改为只复制选定可执行文件、前后
+校验 SHA-256 并在收尾删除，未放宽 HOME 或网络隔离。
+
+最终构建后重新实测旧版 0.21.3、候选 0.22.5、恢复后的旧版：每阶段 33 项直接访问和 33 项
+真实中继检查全部通过，共 198/198；另有每阶段凭据交换拒绝和进程退出，共六项观察通过。
+[脱敏证据](evidence/hermes-compatibility/2026-10-25-relay-contracts.json) 绑定 lab/probe/model/
+relay fixture、Node、组件 dist 树与 lockfile 摘要。最终核对摘要与磁盘一致，原始目录已恢复，
+所有临时 Node 副本已移除。源码构建版本为 Gateway 0.4.36、Connector 0.1.17；不等同于签名
+发布产物或账号模式验收，也不证明全部安装依赖文件的完整性。
+
+worker 默认执行 `--prompt --relay`，分别记录两个传输路径的模型到达观察，三阶段混合构建、
+错版本、缺项、错误 transport/范围、状态矛盾和私有字段都有回归覆盖。任何已测中继失败明确
+使 Connector 项失败；全通过仍不将完整 Connector 项批准。新失败沿用已登记的双语
+HR-HERMESCOMPAT-004，公开报告仅保留白名单布尔结果、版本和摘要。
+
+定向 lab/worker 18/18 通过，完整基线也包含 REST/RPC 回归。`npm run build` 通过；
+`npm test`：Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通过；
+scripts 484 通过、0 跳过，仍仅复现既有两项 macOS LibreSSL CMS legacy-recovery 失败，
+整体退出非零。一次性 PostgreSQL 检查执行。未改变 Desktop/Android 产品或 UI，不重复设备
+检查；未声称账号中继、手机/Web、正式组件或生产验收。烟雾/契约文档的原文逐字保留。
+
+当前仍是六项可通过、一项并发锁失败、八项未完成，I4/I5 未交付。未合并、部署、发布、
+授予角色或修改日常 Hermes；保留草稿 PR，继续按既定规划补齐验证与执行路径。

@@ -13,12 +13,18 @@ import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/d
 const exec = promisify(execFile);
 const timestamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SHA = /^[a-f0-9]{64}$/;
-export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256) {
+export const RELAY_SCOPE = 'legacy-source-build-relay-v1';
+export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256) {
+  return parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, 'direct');
+}
+function parseContracts(raw, identity, suiteSha256, probeSha256, modelFixtureSha256, relayFixtureSha256, transport) {
   const names=['httpMissingToken','httpWrongToken','httpValidToken','runningVersion','sessionList','profileSessionList',
     'historyRead','connectorSchema','websocketMissingToken','websocketWrongToken','connectorActiveListRPC'];
   if(raw?.schemaVersion!==1||raw.kind!=='live-runtime-contracts'||raw.sourceCommit!==identity.sourceCommit
     ||raw.targetCommit!==identity.targetCommit||raw.compatibilityApproved!==false||raw.suiteSha256!==suiteSha256
     ||raw.probeSha256!==probeSha256||!SHA.test(suiteSha256)||!SHA.test(probeSha256))throw new Error('contract_identity_mismatch');
+  if (raw.relayScope !== undefined && (raw.relayScope !== RELAY_SCOPE || transport !== 'direct' || !SHA.test(relayFixtureSha256??'')))
+    throw new Error('contract_relay_scope_mismatch');
   const restScope=raw.stages?.source?.restScope;
   if (restScope !== undefined && restScope !== CORE_REST_SCOPE) throw new Error('contract_scope_mismatch');
   const rpcScope=raw.stages?.source?.rpcScope;
@@ -34,6 +40,7 @@ export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelF
   for(const [name,version] of [['source','0.21.3'],['candidate',identity.version],['restored','0.21.3']]) {
     const stage=raw.stages?.[name];
     if(stage?.schemaVersion!==1||stage.kind!=='live-connector-contract-probe'||stage.version!==version
+      ||(stage.transport??'direct')!==transport||(!raw.relayScope && stage.relay!==undefined)
       ||stage.compatibilityApproved!==false||stage.restScope!==restScope||stage.rpcScope!==rpcScope||stage.promptScope!==promptScope||stage.reconnectScope!==reconnectScope
       ||(!reconnectScope && RECONNECT_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n)))
       ||(promptScope && stage.modelFixtureSha256!==modelFixtureSha256)
@@ -43,9 +50,36 @@ export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelF
       ||!required.every(n=>typeof stage.checks?.[n]==='boolean'))throw new Error('contract_stage_mismatch');
     stages[name]={version,checks:Object.fromEntries(required.map(n=>[n,stage.checks[n]]))};
   }
-  const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean));
+  let relay;
+  if (raw.relayScope) {
+    // These are source builds in a legacy token channel, never released artifacts or account-mode certification.
+    const first=raw.stages.source.relay;
+    const fields=['gatewayVersion','connectorVersion','nodeSha256','buildSha256'];
+    if (!first || !['gatewayVersion','connectorVersion'].every(k=>/^[0-9]+\.[0-9]+\.[0-9]+$/.test(first[k]??''))
+        || !['nodeSha256','buildSha256'].every(k=>SHA.test(first[k]??''))) throw new Error('contract_relay_identity_mismatch');
+    const probes={}, observations={};
+    for (const name of ['source','candidate','restored']) {
+      const item=raw.stages[name].relay;
+      if (!item || item.fixtureSha256!==relayFixtureSha256 || !fields.every(k=>item[k]===first[k])
+          || typeof item.roleSeparation!=='boolean' || typeof item.stopped!=='boolean'
+          || item.probe?.relay!==undefined || !item.probe?.checks) throw new Error('contract_relay_identity_mismatch');
+      probes[name]=item.probe;
+      observations[name]={roleSeparation:item.roleSeparation,stopped:item.stopped};
+    }
+    const nested=parseContracts({...raw,relayScope:undefined,stages:probes,
+      status:Object.values(probes).every(p=>Object.values(p.checks).every(v=>v===true))?'passed':'contract_gap'},
+      identity,suiteSha256,probeSha256,modelFixtureSha256,undefined,'legacy-relay');
+    if (!restScope || !rpcScope || !promptScope || !reconnectScope ||
+        ['restScope','rpcScope','promptScope','reconnectScope'].some(k=>nested[k]!==raw.stages.source[k]))
+      throw new Error('contract_relay_scope_mismatch');
+    relay={scope:RELAY_SCOPE,fixtureSha256:relayFixtureSha256,...Object.fromEntries(fields.map(k=>[k,first[k]])),
+      stages:nested.stages,observations};
+  }
+  const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean)) && (!relay ||
+    (Object.values(relay.stages).every(stage=>Object.values(stage.checks).every(Boolean)) &&
+     Object.values(relay.observations).every(stage=>stage.roleSeparation && stage.stopped)));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
-  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),suiteSha256,probeSha256,stages};
+  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),suiteSha256,probeSha256,stages,...(relay?{relay}:{})};
 }
 export function lockEvidence(raw, identity, suiteSha256) {
   const names = ['oldRefusesLiveOwner', 'newRefusesLiveOwner', 'childSurvivesOwnerInterruption',
@@ -115,6 +149,11 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
           evidence.contracts.stages[stage]?.checks[check] === false))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }
+    if (name === 'connector' && evidence.contracts?.relay &&
+        (Object.values(evidence.contracts.relay.stages).some(stage=>Object.values(stage.checks).some(value=>value===false)) ||
+         Object.values(evidence.contracts.relay.observations).some(stage=>!stage.roleSeparation || !stage.stopped))) {
+      return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
+    }
     const available = Object.hasOwn(conditions, name);
     const proof = name === 'recovery' ? evidence.recovery : ['authentication','rest'].includes(name) ? evidence.contracts : normal;
     return { name, status: available ? conditions[name] ? 'passed' : 'failed' : 'not_run',
@@ -168,14 +207,15 @@ async function main() {
           createHash('sha256').update(await readFile(lockSuite)).digest('hex'));
         const contractSuite=resolve('scripts/hermes-compatibility-contract-lab.py');
         const contractProbe=resolve('scripts/hermes-compatibility-contract-probe.mjs');
-        const contract=await exec('python3',[contractSuite,'--prompt','--lab-root',labRoot],{timeout:15*60_000,maxBuffer:64*1024});
+        const contract=await exec('python3',[contractSuite,'--prompt','--relay','--lab-root',labRoot],{timeout:20*60_000,maxBuffer:64*1024});
         const contractResult=JSON.parse(contract.stdout.trim());
         const contractPath=await realpath(contractResult.report);
         if(dirname(contractPath)!==labRoot||!/^contract-report-[0-9]+\.json$/.test(contractPath.slice(labRoot.length+1)))throw new Error('contract_path_invalid');
         evidence.contracts=contractEvidence(await readJSON(contractPath),task.identity,
           createHash('sha256').update(await readFile(contractSuite)).digest('hex'),
           createHash('sha256').update(await readFile(contractProbe)).digest('hex'),
-          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-model-fixture.py'))).digest('hex'));
+          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-model-fixture.py'))).digest('hex'),
+          createHash('sha256').update(await readFile(resolve('scripts/hermes-compatibility-relay-fixture.py'))).digest('hex'));
       }
     }
     evidence.recovery = { normal: evidence.normal, fault: evidence.fault };

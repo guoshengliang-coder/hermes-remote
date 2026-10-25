@@ -28,13 +28,13 @@ def load_lab():
     return module
 
 
-def probe(root, lab, version, stage, node, prompt=False):
+def probe(root, lab, version, stage, node, prompt=False, relay=False):
     if prompt:
-        return prompt_probe(root, lab, version, stage, node)
+        return prompt_probe(root, lab, version, stage, node, relay=relay)
     return runtime_probe(root, lab, version, stage, node)
 
 
-def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None):
+def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, relay=False, model_observation=None):
     env = lab.isolated_environment(root)
     token = secrets.token_urlsafe(32)
     env.update(HERMES_DESKTOP='1', HERMES_DASHBOARD_SESSION_TOKEN=token)
@@ -59,13 +59,27 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None):
             if port is None:
                 raise ValueError('startup_timeout')
             # Tokens travel through stdin, never command arguments, evidence or printed logs.
-            runtime = subprocess.run([node, str(Path(__file__).with_name('hermes-compatibility-contract-probe.mjs'))],
-                input=json.dumps({'port':port,'token':token,'version':version,'prompt':prompt}), text=True, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, timeout=100, cwd=Path(__file__).parent.parent,
-                env={'PATH':'/usr/bin:/bin','HOME':str(root/'user'),'TMPDIR':str(root/'tmp')})
-            if runtime.returncode:
-                raise ValueError('probe_failed')
-            return json.loads(runtime.stdout)
+            def call_probe(active_port,active_token,transport='direct'):
+                runtime = subprocess.run([node, str(Path(__file__).with_name('hermes-compatibility-contract-probe.mjs'))],
+                    input=json.dumps({'port':active_port,'token':active_token,'version':version,'prompt':prompt,'transport':transport}),
+                    text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=100,cwd=Path(__file__).parent.parent,
+                    env={'PATH':'/usr/bin:/bin','HOME':str(root/'user'),'TMPDIR':str(root/'tmp')})
+                if runtime.returncode:raise ValueError('probe_failed')
+                return json.loads(runtime.stdout)
+            model_before=model_observation['requests'] if model_observation else 0
+            result=call_probe(port,token)
+            if model_observation is not None:result['checks']['promptModelObserved']=model_observation['requests']>model_before
+            if relay:
+                spec=importlib.util.spec_from_file_location('relay_fixture',Path(__file__).with_name('hermes-compatibility-relay-fixture.py'))
+                fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+                with fixture.relay_fixture(root,node,sandbox,port,token,stage) as observation:
+                    model_before=model_observation['requests']
+                    relayed=call_probe(observation['port'],observation['token'],'legacy-relay')
+                    relayed['checks']['promptModelObserved']=model_observation['requests']>model_before
+                result['relay']={'probe':relayed,'roleSeparation':observation['roleSeparation'],'stopped':observation['stopped'],
+                    'gatewayVersion':observation['gatewayVersion'],'connectorVersion':observation['connectorVersion'],'nodeSha256':observation['nodeSha256'],'buildSha256':observation['buildSha256'],
+                    'fixtureSha256':lab.sha256(Path(__file__).with_name('hermes-compatibility-relay-fixture.py').read_bytes())}
+            return result
         finally:
             # Stop all processes belonging to this synthetic backend before swapping paths.
             try: os.killpg(child.pid, signal.SIGTERM)
@@ -77,7 +91,7 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None):
             except ProcessLookupError: pass
 
 
-def prompt_probe(root, lab, version, stage, node):
+def prompt_probe(root, lab, version, stage, node, relay=False):
     spec=importlib.util.spec_from_file_location('model_fixture',Path(__file__).with_name('hermes-compatibility-model-fixture.py'))
     fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
     sandbox=root/'tmp'/(stage+'.sb')
@@ -90,11 +104,11 @@ def prompt_probe(root, lab, version, stage, node):
         env=lab.isolated_environment(root),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
     if fence.returncode: raise ValueError('network_fence_failed')
     with fixture.model_fixture(root/'user/.hermes/config.yaml') as observation:
-        result=runtime_probe(root,lab,version,stage,node,prompt=True,sandbox=sandbox)
-    result['checks']['promptModelObserved']=observation['requests']>0
-    result['checks']['promptConfigurationRestored']=observation['restored']
-    result['checks']['promptNetworkFence']=True
-    result['modelFixtureSha256']=lab.sha256(Path(__file__).with_name('hermes-compatibility-model-fixture.py').read_bytes())
+        result=runtime_probe(root,lab,version,stage,node,prompt=True,sandbox=sandbox,relay=relay,model_observation=observation)
+    for item in [result]+([result['relay']['probe']] if relay else []):
+        item['checks']['promptConfigurationRestored']=observation['restored']
+        item['checks']['promptNetworkFence']=True
+        item['modelFixtureSha256']=lab.sha256(Path(__file__).with_name('hermes-compatibility-model-fixture.py').read_bytes())
     return result
 
 
@@ -102,7 +116,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--lab-root', type=Path, required=True)
     parser.add_argument('--prompt', action='store_true', help='Add a loopback model fixture and synthetic prompt test')
+    parser.add_argument('--relay',action='store_true',help='Also exercise a disposable real legacy Gateway/Connector pair')
     args = parser.parse_args()
+    if args.relay and not args.prompt:raise ValueError('relay_requires_fenced_prompt')
     root = args.lab_root.resolve()
     if root.parent != Path(tempfile.gettempdir()).resolve() or not root.name.startswith('hermes-compat-lab-'):
         raise ValueError('not_disposable_lab')
@@ -118,7 +134,7 @@ def main():
     if report.get('kind')!='runtime-rehearsal' or report.get('status')!='runtime_stage_passed': raise ValueError('runtime_required')
     for folder,commit in ((old,lab.RUNTIME_SOURCE),(candidate,lab.RUNTIME_TARGET)):
         if lab.git_read(folder/'.hermes/hermes-agent','rev-parse','HEAD').decode().strip()!=commit: raise ValueError('commit_mismatch')
-    run_probe=(lambda *items: probe(*items,prompt=True)) if args.prompt else probe
+    run_probe=(lambda *items: probe(*items,prompt=True,relay=args.relay)) if args.prompt else probe
     node=shutil.which('node')
     if not node: raise ValueError('node_missing')
     lock=os.open(str(root/'contract-probe.lock'),os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
@@ -137,7 +153,9 @@ def main():
         output['stages']['restored']=run_probe(root,lab,'0.21.3','contract-restored-'+stamp,node)
         output['suiteSha256']=lab.sha256(Path(__file__).read_bytes())
         output['probeSha256']=lab.sha256(Path(__file__).with_name('hermes-compatibility-contract-probe.mjs').read_bytes())
-        output['status']='passed' if all(all(s['checks'].values()) for s in output['stages'].values()) else 'contract_gap'
+        output['status']='passed' if all(all(s['checks'].values()) and (not args.relay or
+            (all(s['relay']['probe']['checks'].values()) and s['relay']['roleSeparation'] and s['relay']['stopped'])) for s in output['stages'].values()) else 'contract_gap'
+        if args.relay:output['relayScope']='legacy-source-build-relay-v1'
         path=root/('contract-report-'+stamp+'.json')
         path.write_text(json.dumps(output,indent=2)+'\n');path.chmod(0o600)
         print(json.dumps({'report':str(path),'status':output['status']}))

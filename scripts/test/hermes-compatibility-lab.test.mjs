@@ -20,3 +20,9 @@ test("local model fixture serves bounded synthetic replies and restores configur
   const result = spawnSync("python3", ["-B", script], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
 });
+
+test("relay fixture pins source builds, separates credentials and stops only its children", () => {
+  const script = fileURLToPath(new URL("./hermes-compatibility-relay-fixture.test.py", import.meta.url));
+  const result = spawnSync("python3", ["-B", script], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+});

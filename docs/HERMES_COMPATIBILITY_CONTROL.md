@@ -141,8 +141,8 @@ user/assistant 内容、行 ID 和秒级时间戳。模型是固定回复的本�
 80 秒连接总期限、1 MiB 帧上限、最多 256 条/64 KiB 文本事件限制测试资源；保存必要字段，
 不上传原始请求或模型响应。只接受预定合成提示，本地 HTTP 请求体最多 4 MiB。
 
-CI 验证 worker 使用 `--prompt` 执行此范围。局部通过仍不能认证完整 RPC 或客户端业务，
-工具调用/审批、生成中断重放、真实模型、Connector/Gateway 中继与手机/Web 端到端仍待验收。
+CI 验证 worker 使用 `--prompt --relay` 执行此范围及下述中继验证。局部通过仍不能认证完整 RPC 或客户端业务，
+工具调用/审批、生成中断重放、真实模型、账号模式中继与手机/Web 端到端仍待验收。
 任何已测对话路径失败明确记为 RPC 失败，不因它是模拟模型而忽略。
 
 
@@ -158,3 +158,21 @@ live/stored 映射并回读历史。恢复不能夹带完整历史；两条预�
 明确记为 RPC 失败。重连连接有 15 秒期限和 1 MiB 帧上限，错误和句柄不进入公开证据。
 该范围不认证服务进程重启、生成中断/重放、Desktop 生命周期、升级恢复覆盖新版数据或手机/Web
 业务；这些独立检查仍保持未执行。完整 RPC 也不能由这份局部成功提升为通过。
+
+## I2 真实 legacy 中继局部证据
+
+`legacy-source-build-relay-v1` 在三个阶段分别启动一次性 Gateway/Connector 进程，复用同一套
+REST、会话、文本对话和完成后重连检查。使用编译后的真实入口、live Hermes 和启用的 observer；
+Gateway 只监听 loopback，两个进程采用相同的外网隔离 sandbox、独立合成凭据与私有日志。
+Gateway 不收到 Hermes 凭据，Connector 不收到 App 凭据；还实际交换两类凭据确认请求被拒绝。
+Connector-owned contract endpoint 替代直接访问 Hermes OpenAPI，保留中继真实鉴权和契约判断。
+
+worker 默认使用 `--prompt --relay`，合同实验期限为 20 分钟。报告保留直接访问和中继访问的
+独立结果；分别观察本地模型收到请求，不能用直接访问成功替中继背书。每阶段绑定 fixture、
+Node 二进制、三个组件 dist 树与 lockfile 摘要及 Gateway/Connector 源码版本。它们是本次源码
+构建的身份记录，不是正式发行物验签，也不证明所有 node_modules 文件的完整性。
+
+三阶段范围、版本、构建摘要必须一致，缺项、错用 direct transport、结果与状态矛盾均拒收。
+白名单只输出检查和摘要，不输出地址、令牌、请求正文或私有日志。任一已测中继检查、凭据隔离
+或清理失败，明确令 `connector=failed`。全部通过仍保持总 Connector 项 `not_run`：账号模式、
+正式发布组件、文件通道、服务恢复及 Android/Web 客户端业务仍需各自验收。

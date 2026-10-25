@@ -2339,3 +2339,19 @@ scope mixing; a pass leaves service recovery, process interruption, Desktop life
 and new-data protection unverified. Repeat the real source/candidate/restored lab for evidence; mock
 socket tests alone do not establish compatibility. Interrupted-generation replay and backend restart
 remain separate acceptance scenarios.
+
+### Hermes compatibility: actual legacy relay
+
+Run the existing disposable contract lab with `--prompt --relay` after `npm run build`; never use
+production credentials or the daily Hermes directory. Require 33 direct and 33 relayed checks for
+each source/candidate/restored stage. Require distinct model request observations, swapped App/Hermes
+tokens rejected, matching build/Node/fixture identities, and both owned child processes stopped.
+The Node executable is copied with SHA-256 verification into the private lab so the existing HOME
+read fence remains intact; its temporary copy must be removed on success and probe/start failure.
+
+Automated fixture tests cover startup/probe failure cleanup and clean credential-separated process
+environments; report tests reject missing/mixed identities, transports, scope and contradictory
+results. The real experiment separately proves the actual loopback chain. Source builds must not
+be presented as installed releases. Account-mode relay, released-component verification, file
+transfer, restart recovery and actual Android/Web business remain pending; a green narrow report
+must leave full Connector compatibility unapproved.

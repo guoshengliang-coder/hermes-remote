@@ -1187,3 +1187,18 @@ This is a completed-turn transport reconnect, not backend restart, interrupted-g
 Desktop lifecycle, relay/client acceptance or post-upgrade data recovery. Full RPC certification
 remains unverified. The newly exercised failure paths block RPC acceptance; old reports retain their
 original scope and cannot inherit this coverage.
+
+### Real legacy Gateway/Connector relay (2026-10-25)
+
+The isolated `--prompt --relay` experiment repeats all 33 scoped checks through actual compiled
+Gateway and Connector entrypoints, in addition to direct Hermes access, for old/candidate/restored
+runtimes. It exercises live mode and the observer; `/api/hermes-remote/contract` supplies Connector's
+contract decision because Gateway does not expose upstream OpenAPI. The separate model request
+observation must succeed for each transport. All 198 contract checks and six role-separation/cleanup
+observations passed; see [the report](evidence/hermes-compatibility/2026-10-25-relay-contracts.json).
+
+The pair uses synthetic tokens, loopback listeners and the same external-network-denying sandbox.
+The report binds source build trees, lockfile and Node executable, not signed release artifacts or
+all installed dependency bytes. Source versions are Gateway 0.4.36 and Connector 0.1.17. This scoped
+legacy-channel result does not certify account mode, file transfer, service recovery or client UI.
+A demonstrated relay failure rejects Connector compatibility; success alone cannot approve it.
