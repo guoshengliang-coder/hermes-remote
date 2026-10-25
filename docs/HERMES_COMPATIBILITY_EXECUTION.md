@@ -434,3 +434,24 @@ worker 已接入 prompt 模式，报告拒绝缺失阶段、错误 fixture 摘�
 已测对话失败明确阻止 RPC 验收；模拟文本对话全部通过仍不能认证工具/审批、重连、中继、真实
 模型和客户端业务。当前仍是六项可通过、一项并发锁失败、八项未完成，I4/I5 未交付。
 未合并、部署、发布、授予角色或修改日常 Hermes，工作仍保留在获准草稿 PR。
+
+
+## I2 已完成对话的独立连接恢复
+
+`81849f68` 的 11 项 CI 全部通过。本轮验证刚完成的合成对话在旧 WebSocket 关闭后能否由新
+连接恢复。实施前评审连接身份、ready/capabilities 顺序、stored/live 关联、历史缺失/重复/变化、
+异常收尾和局部成功越级认证风险。新连接不提交第二次 prompt，恢复所用参数仍与客户端一致。
+
+固定旧版 0.21.3、新版 0.22.5、恢复后的旧版共 99/99 检查通过；新增五项覆盖 ready、能力声明、
+resume、身份关联和历史回读。两条预期消息的行 ID、角色、正文和时间戳与首连接一致。
+[脱敏证据](evidence/hermes-compatibility/2026-10-25-reconnect-contracts.json) 绑定最终 lab/probe/
+fixture 摘要，不公开会话 ID 或历史正文。历史范围记录保持不可变。
+
+定向 35/35 通过。`npm run build` 通过；完整 `npm test` 中 Protocol 18、Connector 153、
+Gateway 272（14 跳过）、release-server 41 通过；scripts 482 通过、0 跳过，仍仅复现两项
+既有 macOS LibreSSL CMS legacy-recovery 失败，整体退出非零。一次性 PostgreSQL 检查执行。
+没有 Desktop/Android 产品或 UI 变化，未重复本地 app 或设备验证。`git diff --check` 通过。
+
+任何已测重连失败明确进入 RPC 失败结论；通过不能替代生成中断/重放、后端进程恢复、Desktop
+生命周期、新版数据保护或真实客户端业务。当前仍是六项可通过、一项并发锁失败、八项未完成，
+I4/I5 未交付。未合并、部署、发布、授予角色或修改日常 Hermes；继续保留草稿状态。

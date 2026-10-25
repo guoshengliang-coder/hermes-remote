@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS } from './hermes-compatibility-contract-probe.mjs';
+import { CORE_REST_SCOPE, CORE_REST_CHECKS, SESSION_RPC_SCOPE, SESSION_RPC_CHECKS, PROMPT_SCOPE, PROMPT_CHECKS, RECONNECT_SCOPE, RECONNECT_CHECKS } from './hermes-compatibility-contract-probe.mjs';
 import { parseTask, readJSON, infrastructureReport } from './hermes-compatibility-worker.mjs';
 import { compatibilityDigest, REQUIRED_COMPATIBILITY_CHECKS } from '../gateway/dist/account/hermes-compatibility-model.js';
 
@@ -26,13 +26,16 @@ export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelF
   const promptScope=raw.stages?.source?.promptScope;
   if (promptScope !== undefined && (promptScope !== PROMPT_SCOPE || !restScope || !rpcScope || !SHA.test(modelFixtureSha256??'')))
     throw new Error('contract_scope_mismatch');
+  const reconnectScope=raw.stages?.source?.reconnectScope;
+  if (reconnectScope !== undefined && (reconnectScope !== RECONNECT_SCOPE || !promptScope)) throw new Error('contract_scope_mismatch');
   const required = [...names, ...(restScope ? CORE_REST_CHECKS : []), ...(rpcScope ? SESSION_RPC_CHECKS : []),
-    ...(promptScope ? PROMPT_CHECKS : [])];
+    ...(promptScope ? PROMPT_CHECKS : []),...(reconnectScope ? RECONNECT_CHECKS : [])];
   const stages={};
   for(const [name,version] of [['source','0.21.3'],['candidate',identity.version],['restored','0.21.3']]) {
     const stage=raw.stages?.[name];
     if(stage?.schemaVersion!==1||stage.kind!=='live-connector-contract-probe'||stage.version!==version
-      ||stage.compatibilityApproved!==false||stage.restScope!==restScope||stage.rpcScope!==rpcScope||stage.promptScope!==promptScope
+      ||stage.compatibilityApproved!==false||stage.restScope!==restScope||stage.rpcScope!==rpcScope||stage.promptScope!==promptScope||stage.reconnectScope!==reconnectScope
+      ||(!reconnectScope && RECONNECT_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n)))
       ||(promptScope && stage.modelFixtureSha256!==modelFixtureSha256)
       ||(!promptScope && (stage.modelFixtureSha256!==undefined || PROMPT_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n))))
       ||(!restScope && CORE_REST_CHECKS.some(n=>Object.hasOwn(stage.checks??{},n)))
@@ -42,7 +45,7 @@ export function contractEvidence(raw, identity, suiteSha256, probeSha256, modelF
   }
   const passed=Object.values(stages).every(stage=>Object.values(stage.checks).every(Boolean));
   if(raw.status!==(passed?'passed':'contract_gap'))throw new Error('contract_status_mismatch');
-  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),suiteSha256,probeSha256,stages};
+  return {kind:'live-runtime-contracts',scope:'desktop-owned-loopback-session-token',...(restScope?{restScope}:{}),...(rpcScope?{rpcScope}:{}),...(promptScope?{promptScope,modelFixtureSha256}:{}),...(reconnectScope?{reconnectScope}:{}),suiteSha256,probeSha256,stages};
 }
 export function lockEvidence(raw, identity, suiteSha256) {
   const names = ['oldRefusesLiveOwner', 'newRefusesLiveOwner', 'childSurvivesOwnerInterruption',
@@ -108,7 +111,7 @@ export function buildBundle(task, evidence, startedAt, finishedAt = timestamp())
     // Session lifecycle success does not prove prompts/tools/server requests. A failure
     // in an exercised required path does, however, rule out full RPC compatibility.
     if (name === 'rpc' && evidence.contracts?.rpcScope === SESSION_RPC_SCOPE &&
-        ['source','candidate','restored'].some(stage => [...SESSION_RPC_CHECKS,...(evidence.contracts.promptScope===PROMPT_SCOPE?PROMPT_CHECKS:[])].some(check =>
+        ['source','candidate','restored'].some(stage => [...SESSION_RPC_CHECKS,...(evidence.contracts.promptScope===PROMPT_SCOPE?PROMPT_CHECKS:[]),...(evidence.contracts.reconnectScope===RECONNECT_SCOPE?RECONNECT_CHECKS:[])].some(check =>
           evidence.contracts.stages[stage]?.checks[check] === false))) {
       return {name,status:'failed',evidenceSha256:compatibilityDigest(evidence.contracts)};
     }

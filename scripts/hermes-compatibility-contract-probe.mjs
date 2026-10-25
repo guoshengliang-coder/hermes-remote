@@ -41,6 +41,8 @@ export function validateCoreHistory(value, {empty = false, pagination = false, o
       || value.pagination.order !== 'oldest' || value.pagination.returned !== value.messages.length)) throw new Error('history_pagination');
 }
 
+export const RECONNECT_SCOPE = 'completed-text-turn-reconnect-v1';
+export const RECONNECT_CHECKS = ['reconnectReady','reconnectCapabilities','reconnectResume','reconnectIdentity','reconnectHistory'];
 export const PROMPT_SCOPE = 'loopback-model-text-turn-v1';
 export const PROMPT_TEXT = 'Hermes GO compatibility synthetic turn';
 export const PROMPT_ANSWER = 'Hermes GO synthetic model reply';
@@ -51,7 +53,7 @@ export const SESSION_RPC_CHECKS = ['rpcReady','rpcCapabilities','rpcCreate','rpc
 export const sessionRpcCalls = {
   capabilities: () => ({method:'client.capabilities',params:{server_requests:true}}),
   create: () => ({method:'session.create',params:{source:'hermes_remote',profile:'default'}}),
-  resume: () => ({method:'session.resume',params:{session_id:HISTORY_ID,source:'hermes_remote',omit_messages:true,profile:'default'}}),
+  resume: (storedId = HISTORY_ID) => ({method:'session.resume',params:{session_id:storedId,source:'hermes_remote',omit_messages:true,profile:'default'}}),
   reasoning: sessionId => ({method:'config.get',params:{key:'reasoning',session_id:sessionId}}),
 };
 export function validateSessionHandle(value, resume = false) {
@@ -68,7 +70,7 @@ export function validateSessionHandle(value, resume = false) {
   return value.session_id;
 }
 /** One connection, ready before capabilities, matching JSON-RPC IDs, bounded total lifetime. */
-export function probeSessionRPC(url, {timeoutMs = 45_000, prompt = false, readHistory} = {}) {
+export function probeSessionRPC(url, {timeoutMs = 45_000, prompt = false, readHistory, onTurnVerified} = {}) {
   return new Promise(resolve => {
     const checks=Object.fromEntries([...SESSION_RPC_CHECKS,...(prompt?PROMPT_CHECKS.slice(0,3):[])].map(name=>[name,false]));
     const socket=new WebSocket(url,{handshakeTimeout:10_000,maxPayload:1024*1024});
@@ -78,7 +80,11 @@ export function probeSessionRPC(url, {timeoutMs = 45_000, prompt = false, readHi
     const finish=()=>{
       if(done)return;done=true;clearTimeout(timer);
       if(pending){pending.reject(new Error('rpc_closed'));pending=undefined;}
-      endTurn(false);socket.terminate();resolve({...checks});
+      endTurn(false);
+      // Report only after this transport is closed, so a following probe uses a new connection.
+      const complete=()=>resolve({...checks});
+      if(socket.readyState===WebSocket.CLOSED)complete();
+      else {socket.once('close',complete);socket.terminate();}
     };
     const timer=setTimeout(finish,timeoutMs);
     const call=({method,params})=>new Promise((accept,reject)=>{
@@ -123,11 +129,8 @@ export function probeSessionRPC(url, {timeoutMs = 45_000, prompt = false, readHi
           const stored=created.stored_session_id??turnEvents.find(e=>e.payload?.stored_session_id)?.payload.stored_session_id;
           if(typeof stored!=='string'||!stored)throw new Error('turn_stored_id');
           const value=await readHistory(stored);
-          if(!Array.isArray(value.messages))throw new Error('turn_history');
-          for(const [role,content] of [['user',PROMPT_TEXT],['assistant',PROMPT_ANSWER]]) {
-            if(!value.messages.some(m=>m.role===role&&m.content===content&&seconds(m.timestamp)&&Number.isSafeInteger(m.id)))
-              throw new Error('turn_history');
-          }
+          const history=validatePromptHistory(value);
+          if(onTurnVerified)onTurnVerified({storedId:stored,history});
         });
       }
       finish();
@@ -155,6 +158,77 @@ export function probeSessionRPC(url, {timeoutMs = 45_000, prompt = false, readHi
         const request=pending;pending=undefined;
         if(Object.hasOwn(frame,'error')||!Object.hasOwn(frame,'result'))request.reject(new Error('rpc_response'));
         else request.accept(frame.result);
+      }catch{finish();}
+    });
+  });
+}
+
+export function validatePromptHistory(value) {
+  if(!Array.isArray(value?.messages))throw new Error('turn_history');
+  const history=[];
+  for(const [role,content] of [['user',PROMPT_TEXT],['assistant',PROMPT_ANSWER]]) {
+    const matches=value.messages.filter(m=>m?.role===role&&m.content===content);
+    if(matches.length!==1||!seconds(matches[0].timestamp)||!Number.isSafeInteger(matches[0].id)||matches[0].id<1)
+      throw new Error('turn_history');
+    const {id,timestamp}=matches[0];history.push({id,role,content,timestamp});
+  }
+  if(history[0].id===history[1].id)throw new Error('turn_history_identity');
+  return history;
+}
+/** New authenticated transport, same stored conversation, no new prompt or history writes. */
+export function probeReconnectRPC(url,{storedId,history,readHistory,timeoutMs=15_000}) {
+  return new Promise(resolve=>{
+    const checks=Object.fromEntries(RECONNECT_CHECKS.map(n=>[n,false]));
+    const socket=new WebSocket(url,{handshakeTimeout:10_000,maxPayload:1024*1024});
+    let done=false,started=false,pending,sequence=0;
+    const finish=()=>{
+      if(done)return;done=true;clearTimeout(timer);
+      if(pending){pending.reject(new Error('reconnect_closed'));pending=undefined;}
+      const complete=()=>resolve({...checks});
+      if(socket.readyState===WebSocket.CLOSED)complete();
+      else {socket.once('close',complete);socket.terminate();}
+    };
+    const timer=setTimeout(finish,timeoutMs);
+    const call=({method,params})=>new Promise((accept,reject)=>{
+      if(done){reject(new Error('reconnect_closed'));return;}
+      const id=`compat-reconnect-${++sequence}`;pending={id,accept,reject};
+      socket.send(JSON.stringify({jsonrpc:'2.0',id,method,params}),error=>{if(error)finish();});
+    });
+    const check=async(name,fn)=>{try{await fn();if(!done)checks[name]=true;}catch{/* booleans only */}};
+    async function run(){
+      let live;
+      await check('reconnectCapabilities',async()=>{
+        const v=await call(sessionRpcCalls.capabilities());
+        if(!object(v)||!Array.isArray(v.server_requests)||!v.server_requests.every(x=>typeof x==='string'))throw new Error('capabilities');
+      });
+      await check('reconnectResume',async()=>{
+        if(typeof storedId!=='string'||!storedId)throw new Error('stored_id');
+        live=validateSessionHandle(await call(sessionRpcCalls.resume(storedId)),true);
+      });
+      await check('reconnectIdentity',async()=>{
+        if(!live)throw new Error('no_live');
+        const rows=parseActiveList(await call({method:'session.active_list',params:{}}));
+        if(!rows.some(r=>r.id===live&&r.sessionKey===storedId))throw new Error('identity');
+      });
+      await check('reconnectHistory',async()=>{
+        if(!checks.reconnectIdentity||!Array.isArray(history))throw new Error('identity');
+        if(JSON.stringify(validatePromptHistory(await readHistory(storedId)))!==JSON.stringify(history))throw new Error('changed_history');
+      });
+      finish();
+    }
+    socket.on('error',finish);socket.on('close',finish);
+    socket.on('unexpected-response',(_request,response)=>{response.resume();finish();});
+    socket.on('message',raw=>{
+      try {
+        const frame=JSON.parse(raw.toString());
+        if(!object(frame)||frame.jsonrpc!=='2.0')throw new Error('envelope');
+        if(frame.method==='event'&&frame.params?.type==='gateway.ready'&&!started){
+          started=true;checks.reconnectReady=true;void run().catch(finish);return;
+        }
+        if(!pending||frame.id!==pending.id)return;
+        const current=pending;pending=undefined;
+        if(Object.hasOwn(frame,'error')||!Object.hasOwn(frame,'result'))current.reject(new Error('response'));
+        else current.accept(frame.result);
       }catch{finish();}
     });
   });
@@ -245,9 +319,14 @@ export async function probeContract({port, token, version, prompt = false}) {
   await check('websocketMissingToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws', true));
   await check('websocketWrongToken', () => websocket(base.replace('http:', 'ws:') + '/api/ws?token=deliberately-wrong', true));
   await check('connectorActiveListRPC', async () => websocket(await auth.websocketUrl('/api/ws'), false));
+  let completedTurn;
+  const readHistory=async id=>JSON.parse(await body(await auth.request(`/api/sessions/${encodeURIComponent(id)}/messages`,{method:'GET'})));
   Object.assign(checks,await probeSessionRPC(await auth.websocketUrl('/api/ws'),{prompt,timeoutMs:prompt?80_000:45_000,
-    readHistory:async id=>JSON.parse(await body(await auth.request(`/api/sessions/${encodeURIComponent(id)}/messages`,{method:'GET'})))}));
-  return {schemaVersion:1,kind:'live-connector-contract-probe',version,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE}:{}),checks,compatibilityApproved:false};
+    readHistory,onTurnVerified:value=>{completedTurn=value;}}));
+  if(prompt)Object.assign(checks,completedTurn
+    ? await probeReconnectRPC(await auth.websocketUrl('/api/ws'),{...completedTurn,readHistory})
+    : Object.fromEntries(RECONNECT_CHECKS.map(n=>[n,false])));
+  return {schemaVersion:1,kind:'live-connector-contract-probe',version,restScope:CORE_REST_SCOPE,rpcScope:SESSION_RPC_SCOPE,...(prompt?{promptScope:PROMPT_SCOPE,reconnectScope:RECONNECT_SCOPE}:{}),checks,compatibilityApproved:false};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {

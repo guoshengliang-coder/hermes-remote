@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {once} from 'node:events';
 import ts from 'typescript';
 import {WebSocketServer} from 'ws';
-import {probeSessionRPC,SESSION_RPC_CHECKS,sessionRpcCalls,validateSessionHandle} from '../hermes-compatibility-contract-probe.mjs';
+import {probeSessionRPC,SESSION_RPC_CHECKS,sessionRpcCalls,validateSessionHandle,probeReconnectRPC,RECONNECT_CHECKS,validatePromptHistory} from '../hermes-compatibility-contract-probe.mjs';
 
 const stored='go-compat-lab-history';
 const results={
@@ -14,10 +14,11 @@ const results={
   'config.get':{value:'medium',display:'show'},
   'session.active_list':{sessions:[{id:'restored-live',session_key:stored,status:'idle',last_active:1792926000}]},
 };
-async function server(t,handler,{ready=true}={}) {
+async function server(t,handler,{ready=true,onConnection}={}) {
   const wss=new WebSocketServer({host:'127.0.0.1',port:0});await once(wss,'listening');
   t.after(async()=>{for(const socket of wss.clients)socket.terminate();await new Promise(r=>wss.close(r));});
   wss.on('connection',socket=>{
+    onConnection?.(socket);
     socket.on('message',raw=>handler(socket,JSON.parse(raw.toString())));
     if(ready)socket.send(JSON.stringify({jsonrpc:'2.0',method:'event',params:{type:'gateway.ready',payload:{}}}));
   });
@@ -135,4 +136,60 @@ test('prompt event accumulation is bounded and cannot claim completed history',a
   });
   const checks=await probeSessionRPC(url,{prompt:true,readHistory:async()=>{throw new Error('must not read');}});
   assert.equal(checks.promptStream,false);assert.equal(checks.promptHistory,false);
+});
+
+
+const savedTurn=()=>({messages:[
+  {id:71,role:'user',content:'Hermes GO compatibility synthetic turn',timestamp:1792926000.5},
+  {id:72,role:'assistant',content:'Hermes GO synthetic model reply',timestamp:1792926001.5},
+]});
+test('completed turn is resumed over a distinct connection using its stored ID',async t=>{
+  const connections=[];const calls=[];let verified;
+  const url=await server(t,(socket,request)=>{
+    const index=connections.indexOf(socket);calls.push([index,request.method]);
+    if(index===1) {
+      if(request.method==='session.resume')assert.deepEqual(request.params,{session_id:'new-stored',source:'hermes_remote',omit_messages:true,profile:'default'});
+      answer(socket,request,request.method==='session.active_list'?{sessions:[{id:'restored-live',session_key:'new-stored',status:'idle'}]}:results[request.method]);
+    }else if(request.method==='prompt.submit') {
+      answer(socket,request,{status:'streaming'});
+      for(const type of ['message.delta','message.complete'])socket.send(JSON.stringify({jsonrpc:'2.0',method:'event',params:{
+        type,session_id:'new-live',payload:{text:'Hermes GO synthetic model reply'}}}));
+    }else answer(socket,request);
+  },{onConnection:socket=>connections.push(socket)});
+  const first=await probeSessionRPC(url,{prompt:true,readHistory:async()=>savedTurn(),onTurnVerified:value=>{verified=value;}});
+  assert.equal(first.promptHistory,true);
+  const second=await probeReconnectRPC(url,{...verified,readHistory:async id=>{assert.equal(id,'new-stored');return savedTurn();}});
+  assert.ok(RECONNECT_CHECKS.every(name=>second[name]));assert.equal(connections.length,2);
+  assert.deepEqual(calls.filter(([index])=>index===1).map(([,method])=>method),['client.capabilities','session.resume','session.active_list']);
+  assert.equal(connections[0].readyState,3);
+});
+test('reconnect rejects lost, duplicated or changed stored rows',async t=>{
+  const url=await server(t,(socket,request)=>answer(socket,request,request.method==='session.active_list'?
+    {sessions:[{id:'restored-live',session_key:'new-stored',status:'idle'}]}:results[request.method]));
+  for(const mutate of [v=>v.messages.pop(),v=>v.messages.push({...v.messages[0]}),v=>v.messages[0].id+=10,
+    v=>v.messages[1].timestamp++,v=>{v.messages[1].content='changed';}]) {
+    const changed=savedTurn();mutate(changed);
+    const checks=await probeReconnectRPC(url,{storedId:'new-stored',history:validatePromptHistory(savedTurn()),readHistory:async()=>changed});
+    assert.equal(checks.reconnectResume,true);assert.equal(checks.reconnectHistory,false);
+  }
+});
+test('reconnect requires live/stored correlation and actual readiness',async t=>{
+  const url=await server(t,answer);
+  const wrong=await probeReconnectRPC(url,{storedId:'wrong-stored',history:validatePromptHistory(savedTurn()),readHistory:async()=>savedTurn()});
+  assert.equal(wrong.reconnectIdentity,false);assert.equal(wrong.reconnectHistory,false);
+  const quiet=await server(t,()=>assert.fail('RPC sent before ready'),{ready:false});
+  const timeout=await probeReconnectRPC(quiet,{storedId:'new-stored',history:[],timeoutMs:100});
+  assert.ok(Object.values(timeout).every(v=>v===false));
+});
+test('reconnect malformed responses and connection loss are bounded failures',async t=>{
+  for(const mode of ['close','wrong-id','error']) {
+    const url=await server(t,(socket,request)=>{
+      if(mode==='close')socket.close();
+      else socket.send(JSON.stringify(mode==='error'?{jsonrpc:'2.0',id:request.id,error:{code:4000,message:'synthetic-secret'}}:
+        {jsonrpc:'2.0',id:'wrong-id',result:results[request.method]}));
+    });
+    const checks=await probeReconnectRPC(url,{storedId:'new-stored',history:[],timeoutMs:100});
+    assert.equal(checks.reconnectCapabilities,false);assert.equal(checks.reconnectHistory,false);
+    assert.equal(JSON.stringify(checks).includes('synthetic-secret'),false);
+  }
 });

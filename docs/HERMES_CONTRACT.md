@@ -1173,3 +1173,17 @@ This proves the simple text-turn protocol with a simulated model, not real provi
 model quality, tools/approval handling, reconnects, relay integration or Android/Web rendering.
 Full RPC/client acceptance remains unverified. Fixture code is hash-bound alongside the probe and
 lab script; no adapted-version declaration or production recommendation changes.
+
+
+### Completed text-turn reconnect (2026-10-25)
+
+The fixed source/candidate/restored runtimes also pass a new-connection resume of the just-completed
+synthetic conversation. The first WebSocket closes before another is opened; the new socket repeats
+ready/capabilities, resumes by stored ID with omit_messages, correlates active live/stored identity,
+and rereads the same user/assistant row IDs, contents and timestamps. Total scoped checks are 99/99;
+see [the report](evidence/hermes-compatibility/2026-10-25-reconnect-contracts.json).
+
+This is a completed-turn transport reconnect, not backend restart, interrupted-generation replay,
+Desktop lifecycle, relay/client acceptance or post-upgrade data recovery. Full RPC certification
+remains unverified. The newly exercised failure paths block RPC acceptance; old reports retain their
+original scope and cannot inherit this coverage.
