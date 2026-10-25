@@ -1705,3 +1705,20 @@ means no archive download. Other four component identities remain unknown; no ex
 Public collection uses an isolated ephemeral session without credentials/cookies, bounded downloads
 and 30-second request / 120-second resource timeouts, with its own disposable workspace. Hermes is
 re-detected after collection; an installation change invalidates the earlier environment assessment.
+
+
+### I3 ordinary recommendation: running Desktop identity
+
+The same query now finds the installed Desktop version's original DMG digest in a fresh matching
+signed recommendation. An older matching Hermes candidate may supply that identity even when the
+highest candidate needs a newer Desktop. Conflicting digests for the same Desktop version remain
+unknown. A separate public ephemeral download retrieves the versioned original DMG without using
+the latest app index as authority. Full archive/bundle checks are followed by kernel process and
+ctime continuity checks; only the resulting observation joins Connector in recommendation matching.
+
+The inspector allows the app's ordinary or LaunchServices process arguments, rejects loader
+injection, changed process identity and bundle files changed after launch, and tolerates root-owned
+installed app files without relaxing Connector ownership. The collector never recursively deletes
+an unresolved mount after detach failure. These are point-in-time observations; they are not atomic
+maintenance locks or permission to execute an upgrade. Gateway/Android/Web identity and I4 execution
+remain incomplete. No UI layout, launch, installation, release or daily service action was added.

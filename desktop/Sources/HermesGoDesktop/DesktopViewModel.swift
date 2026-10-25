@@ -523,6 +523,15 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                let identity = try? await DesktopConnectorIdentityCollector().collect(configuration: configuration, layout: layout) {
                 components = [identity.component]
             }
+            if initial.status == .requirements,
+               case .configured(let configuration) = appUpdateConfiguration,
+               let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+               let expected = HermesRecommendationAssessment.desktopRequirement(snapshot, installation: current,
+                   environment: environment, installedVersion: version),
+               let identity = try? await DesktopAppIdentityCollector().collect(expected: expected,
+                   configuration: configuration, installedApp: Bundle.main.bundleURL) {
+                components.append(identity.component)
+            }
             // A download can outlast a local Hermes change. Re-detect before using the result;
             // absent/failed component observations remain unknown, never reused from a prior query.
             let finalDetection = await Task.detached(priority: .userInitiated) { detector.detect() }.value

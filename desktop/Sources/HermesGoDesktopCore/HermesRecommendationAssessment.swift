@@ -60,6 +60,21 @@ public struct HermesRecommendationAssessment: Sendable {
         return Self(.requirements, entry: candidate, unknown: unknown, mismatched: mismatched, snapshot: snapshot)
     }
 
+    /// Select a digest to verify, not an identity to trust. Conflicting archive identities for the
+    /// same installed version stay unknown; an unsigned bundle version never satisfies a record.
+    public static func desktopRequirement(_ snapshot: VerifiedHermesRecommendation,
+                                          installation: DesktopLocalHermesDetection,
+                                          environment: HermesCompatibilityEnvironment?,
+                                          installedVersion: String, now: Date = Date()) -> HermesCompatibilityComponent? {
+        guard now < snapshot.expiresAt, let local = installation.installation, let environment else { return nil }
+        let requirements = snapshot.entries.filter {
+            $0.identity.sourceCommit == local.commit && $0.identity.environment == environment
+                && DesktopSemanticVersion.isNewer($0.identity.version, than: local.version)
+        }.compactMap { $0.identity.components.first { $0.name == "desktop" && $0.version == installedVersion } }
+        guard let first = requirements.first, requirements.allSatisfy({ $0 == first }) else { return nil }
+        return first
+    }
+
     public var summaryChinese: String {
         switch status {
         case .unchecked: "尚未查询"

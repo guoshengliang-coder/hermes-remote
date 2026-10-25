@@ -74,6 +74,26 @@ final class DesktopReleaseDownloaderTests: XCTestCase {
         }
     }
 
+    func testDigestOnlyArchiveDiscoveryStillBoundsBytesAndRejectsEmptyAndRedirectedResponses() async throws {
+        let url = URL(string: "https://downloads.example/original.dmg")!
+        for (status, payload, maximum, accepted) in [(200, Data("ok".utf8), Int64(3), true),
+            (200, Data(), Int64(3), false), (200, Data(repeating: 1, count: 1024), Int64(3), false),
+            (302, Data("ok".utf8), Int64(3), false)] {
+            let root = temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+            ReleaseURLProtocol.handler = { _ in (status, [:], payload) }
+            do {
+                let file = try await DesktopReleaseDownloader(session: session()).download(from: url, fileName: url.lastPathComponent,
+                    maximumBytes: maximum, into: root)
+                XCTAssertTrue(accepted)
+                XCTAssertEqual(try Data(contentsOf: file), payload)
+            } catch {
+                XCTAssertFalse(accepted)
+                XCTAssertTrue(error is DesktopReleaseDownloadError)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(url.lastPathComponent).path))
+            }
+        }
+    }
+
     private func session() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ReleaseURLProtocol.self]

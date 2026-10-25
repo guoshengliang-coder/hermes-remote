@@ -42,6 +42,43 @@ final class HermesCompatibilityRecommendationTests: XCTestCase {
         components.map { .init(name: $0["name"] as! String, version: "1.0.0", artifactSha256: String(repeating: "f", count: 64)) }
     }
 
+    func testDesktopDiscoveryRequiresFreshMatchingPathAndInstalledVersion() throws {
+        let snapshot = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
+        let expected = HermesRecommendationAssessment.desktopRequirement(snapshot, installation: local(),
+            environment: localEnvironment, installedVersion: "1.0.0", now: now)
+        XCTAssertEqual(expected, localComponents[0])
+        XCTAssertNil(HermesRecommendationAssessment.desktopRequirement(snapshot, installation: local(),
+            environment: localEnvironment, installedVersion: "2.0.0", now: now))
+        XCTAssertNil(HermesRecommendationAssessment.desktopRequirement(snapshot, installation: local(),
+            environment: localEnvironment, installedVersion: "1.0.0", now: now.addingTimeInterval(86400)))
+        XCTAssertNil(HermesRecommendationAssessment.desktopRequirement(snapshot, installation: local(version: "0.23.0"),
+            environment: localEnvironment, installedVersion: "1.0.0", now: now))
+        XCTAssertNil(HermesRecommendationAssessment.desktopRequirement(snapshot, installation: local(commit: String(repeating: "e", count: 40)),
+            environment: localEnvironment, installedVersion: "1.0.0", now: now))
+        XCTAssertNil(HermesRecommendationAssessment.desktopRequirement(snapshot, installation: local(),
+            environment: nil, installedVersion: "1.0.0", now: now))
+        // A discovered expected digest does not itself become an observed local identity.
+        XCTAssertEqual(HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,
+            components: [], now: now).unknownComponents.count, 5)
+    }
+
+    func testDesktopDiscoveryFindsLowerCandidateAndRejectsConflictingSameVersionDigests() throws {
+        var value = payload(), newer = entry(version: "0.23.0")
+        var identity = newer["identity"] as! [String: Any], requirements = components
+        requirements[0]["version"] = "2.0.0"
+        identity["components"] = requirements; newer["identity"] = identity
+        value["entries"] = [newer, entry()]
+        var snapshot = try verifier().verify(envelope(value), minimumRevision: 0, now: now)
+        XCTAssertEqual(HermesRecommendationAssessment.desktopRequirement(snapshot, installation: local(),
+            environment: localEnvironment, installedVersion: "1.0.0", now: now), localComponents[0])
+        requirements[0]["version"] = "1.0.0"; requirements[0]["artifactSha256"] = String(repeating: "a", count: 64)
+        identity["components"] = requirements; newer["identity"] = identity
+        value["entries"] = [newer, entry()]
+        snapshot = try verifier().verify(envelope(value), minimumRevision: 0, now: now)
+        XCTAssertNil(HermesRecommendationAssessment.desktopRequirement(snapshot, installation: local(),
+            environment: localEnvironment, installedVersion: "1.0.0", now: now))
+    }
+
     func testOrdinaryAssessmentKeepsAllUnknownComponentsExplicit() throws {
         let snapshot = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
         let result = HermesRecommendationAssessment.evaluate(snapshot, installation: local(), environment: localEnvironment,

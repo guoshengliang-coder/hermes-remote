@@ -1184,3 +1184,30 @@ Foundation's real temporary directory despite TMPDIR; permitting only the probe 
 directories resolved that test harness failure. A separate outside-write attempt was rejected and
 no collection workspace remained. Installed files and daily services were never modified. This is
 Connector identity evidence, not a published compatibility verdict or end-to-end UI acceptance.
+
+
+### Running Desktop identity and ordinary-query collection (2026-10-25)
+
+Test impact: the original-DMG file observation must not identify an unrelated, restarted or
+modified running app. New coverage rejects PID/owner/executable/argv mismatch, loader injection,
+process restart during inspection and restored original bytes/mtime after launch. It accepts plain
+launch and the exact LaunchServices psn grammar. Collection tests exercise versioned URL discovery,
+actual archive hashing/file inspection plus a synthetic process reader, download timeout, corrupt
+archive, failed runtime identity, success/failure cleanup and retaining failed-detach reference
+workspaces. The test runner copies fixtures; its fake mount is never claimed as physical evidence.
+
+Recommendation tests require a fresh matching source/environment and installed version, find an
+older candidate when needed, reject conflicting same-version digests, and keep discovered expected
+metadata distinct from observed identity. The downloader's new internal bounded-size mode rejects
+empty, oversized and redirected bodies; existing exact-size callers retain their original gate.
+First focused suite passes 71 tests; the final full suite passes 742 tests, assets and the local app build.
+No UI layout/control changed; real published recommendation clicks and complete client matching
+still need acceptance. Local command timeouts and atomic maintenance remain I4 prerequisites.
+
+An actual read-only probe identified the currently running 0.2.41 Desktop against a fresh original
+public DMG download; the reference digest came from the recorded release, not a published compatibility
+snapshot. The evidence is `evidence/hermes-compatibility/2026-10-25-running-desktop-identity.json`.
+It binds source hashes and retains no process IDs, paths, argv or environment values. OS sandbox
+restricted writes to the probe/macOS temporary directories; a separate outside write was rejected,
+and collection left no workspace. The daily app was neither launched, stopped, updated nor replaced.
+This proves process/file identity only; compatibility approval remains false.

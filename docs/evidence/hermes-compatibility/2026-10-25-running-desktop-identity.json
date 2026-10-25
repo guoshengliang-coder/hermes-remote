@@ -1,0 +1,24 @@
+{
+  "artifactSha256": "9f82c98523b8e3bd81a741c48e352e163e588c79ffbb4947abd904f3a85aaa9d",
+  "compatibilityApproved": false,
+  "contentSha256": "c0b6498e0f5aa30d99da7df77ca20e1ce4165b031874f35e984532adb69bbb84",
+  "dailyInstallationReadOnly": true,
+  "desktopVersion": "0.2.41",
+  "freshPublicDownload": true,
+  "referenceAuthority": "recorded original public release digest; not a published compatibility recommendation",
+  "result": "passed",
+  "runningProcessVerified": true,
+  "schemaVersion": 1,
+  "scope": "automatic-running-desktop-identity",
+  "collectedAt": "2026-10-25T10:22:48.873884+00:00",
+  "sandboxOutsideWriteRejected": true,
+  "collectorWorkspaceRemoved": true,
+  "writeScope": "probe directory and macOS temporary directory",
+  "sourceSha256": {
+    "DesktopAppIdentityCollector.swift": "96f215bb201199b3a9a39da3522af9dd7d35b7c871ffb45398a5b9ec84c13f3f",
+    "DesktopAppRuntimeIdentity.swift": "6c1c9ebecf7002b7e3f6444623e607a38b6f340b47a319211a3b94530808fc2e",
+    "DesktopAppIdentity.swift": "206d3f89d6f3b546998b1f083fffb6065eb3841a7ee26938933c869ab2795648",
+    "DesktopConnectorRuntimeIdentity.swift": "cefb7fb393e3319932b94a2749af81071e4d82793324c23b7a0db25ee10d70ca",
+    "DesktopReleaseDownloader.swift": "9d62a2327007b9485235b87b305c3435c99c0786ba7067026764eea45a38a599"
+  }
+}

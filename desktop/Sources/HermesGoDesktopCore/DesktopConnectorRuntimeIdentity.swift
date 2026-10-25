@@ -89,7 +89,7 @@ public struct DesktopConnectorRuntimeIdentityInspector {
         else { throw Self.issue }
     }
 
-    static func requireUnchangedTree(_ root: URL, since startedAt: Date) throws {
+    static func requireUnchangedTree(_ root: URL, since startedAt: Date, allowedOwners: Set<uid_t> = [getuid()]) throws {
         guard root.standardizedFileURL == root.standardizedFileURL.resolvingSymlinksInPath() else { throw issue }
         var failed = false
         guard let iterator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil,
@@ -98,7 +98,7 @@ public struct DesktopConnectorRuntimeIdentityInspector {
         func inspect(_ path: URL) throws {
             var info = stat()
             guard lstat(path.path, &info) == 0,
-                  [S_IFDIR, S_IFREG].contains(info.st_mode & S_IFMT), info.st_uid == getuid(),
+                  [S_IFDIR, S_IFREG].contains(info.st_mode & S_IFMT), allowedOwners.contains(info.st_uid),
                   info.st_mode & 0o022 == 0 else { throw issue }
             let changed = TimeInterval(info.st_ctimespec.tv_sec) + TimeInterval(info.st_ctimespec.tv_nsec) / 1_000_000_000
             guard changed <= startedAt.timeIntervalSince1970 else { throw issue }

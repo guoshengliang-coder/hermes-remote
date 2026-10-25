@@ -4,6 +4,174 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopAppIdentityTests: XCTestCase {
+    private func process(_ f: AppIdentityFixture, startedAt: Date = Date()) -> ConnectorKernelIdentity {
+        let executable = f.installed.appendingPathComponent("Contents/MacOS/HermesGoDesktop").path
+        return .init(pid: 12345, userID: getuid(), startedAt: startedAt, executable: executable,
+                     arguments: [executable], injectedEnvironment: false)
+    }
+
+    func testRuntimeLinksOriginalBundleToStableProcess() throws {
+        let f = try AppIdentityFixture(); defer { f.remove() }
+        let observation = try f.inspect(), process = process(f)
+        let result = try DesktopAppRuntimeIdentityInspector(readProcess: { _ in process })
+            .inspect(observation: observation, installedApp: f.installed, processID: process.pid)
+        XCTAssertEqual(result.component, f.expected)
+        XCTAssertEqual(result.contentSHA256, observation.contentSHA256)
+        XCTAssertEqual(result.startedAt, process.startedAt)
+    }
+
+    func testRuntimeRejectsDifferentProcessOwnerExecutableArgumentsAndInjection() throws {
+        let f = try AppIdentityFixture(); defer { f.remove() }
+        let observation = try f.inspect(), original = process(f)
+        let variants = [
+            ConnectorKernelIdentity(pid: original.pid + 1, userID: getuid(), startedAt: original.startedAt,
+                executable: original.executable, arguments: original.arguments, injectedEnvironment: false),
+            ConnectorKernelIdentity(pid: original.pid, userID: getuid() + 1, startedAt: original.startedAt,
+                executable: original.executable, arguments: original.arguments, injectedEnvironment: false),
+            ConnectorKernelIdentity(pid: original.pid, userID: getuid(), startedAt: original.startedAt,
+                executable: "/different/executable", arguments: original.arguments, injectedEnvironment: false),
+            ConnectorKernelIdentity(pid: original.pid, userID: getuid(), startedAt: original.startedAt,
+                executable: original.executable, arguments: original.arguments + ["--unknown"], injectedEnvironment: false),
+            ConnectorKernelIdentity(pid: original.pid, userID: getuid(), startedAt: original.startedAt,
+                executable: original.executable, arguments: original.arguments, injectedEnvironment: true)
+        ]
+        for process in variants {
+            XCTAssertThrowsError(try DesktopAppRuntimeIdentityInspector(readProcess: { _ in process })
+                .inspect(observation: observation, installedApp: f.installed, processID: original.pid)) { self.assertRuntimeIssue($0) }
+        }
+    }
+
+    func testRuntimeRejectsProcessRestartDuringInspection() throws {
+        let f = try AppIdentityFixture(); defer { f.remove() }
+        let observation = try f.inspect(), original = process(f)
+        var reads = 0
+        XCTAssertThrowsError(try DesktopAppRuntimeIdentityInspector(readProcess: { _ in
+            reads += 1
+            return reads == 1 ? original : ConnectorKernelIdentity(pid: original.pid, userID: original.userID,
+                startedAt: original.startedAt.addingTimeInterval(1), executable: original.executable,
+                arguments: original.arguments, injectedEnvironment: false)
+        }).inspect(observation: observation, installedApp: f.installed, processID: original.pid)) { self.assertRuntimeIssue($0) }
+        XCTAssertEqual(reads, 2)
+    }
+
+    func testRuntimeRejectsChangedAndRestoredBytesAfterProcessStart() throws {
+        let f = try AppIdentityFixture(); defer { f.remove() }
+        let observation = try f.inspect(), process = process(f)
+        let file = f.installed.appendingPathComponent("Contents/MacOS/HermesGoDesktop")
+        let bytes = try Data(contentsOf: file), attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        let inspector = DesktopAppRuntimeIdentityInspector(readProcess: { _ in process })
+        try Data("different".utf8).write(to: file)
+        XCTAssertThrowsError(try inspector.inspect(observation: observation, installedApp: f.installed, processID: process.pid))
+        try bytes.write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: attributes[.modificationDate]!], ofItemAtPath: file.path)
+        XCTAssertEqual(try DesktopManagedComponentContentHasher().identify(directory: f.installed).sha256, observation.contentSHA256)
+        XCTAssertThrowsError(try inspector.inspect(observation: observation, installedApp: f.installed, processID: process.pid)) { self.assertRuntimeIssue($0) }
+    }
+
+    func testRuntimeAcceptsOnlyPlainOrLaunchServicesProcessArguments() {
+        let path = "/Applications/Synthetic.app/Contents/MacOS/Synthetic"
+        XCTAssertTrue(DesktopAppRuntimeIdentityInspector.accepts(arguments: [path], executable: path))
+        XCTAssertTrue(DesktopAppRuntimeIdentityInspector.accepts(arguments: [path, "-psn_0_12345"], executable: path))
+        for arguments in [[], ["other"], [path, "-psn_1_a"], [path, "-psn_1_2", "extra"]] {
+            XCTAssertFalse(DesktopAppRuntimeIdentityInspector.accepts(arguments: arguments, executable: path))
+        }
+    }
+
+    func testCollectorDownloadsVersionedOriginalAndRemovesWorkspace() async throws {
+        let f = try AppIdentityFixture(); defer { f.remove() }
+        let process = process(f), downloads = AppIdentityDownloads()
+        let collector = collector(f, process: process, downloads: downloads)
+        let result = try await collector.collect(expected: f.expected, configuration: configuration(),
+                                                  installedApp: f.installed, processID: process.pid)
+        XCTAssertEqual(result.component, f.expected)
+        let paths = await downloads.paths
+        XCTAssertEqual(paths.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0].path))
+    }
+
+    func testCollectorCannotPromoteBadArchiveOrFailedRuntimeAndCleansWorkspace() async throws {
+        for failRuntime in [true, false] {
+            let f = try AppIdentityFixture(); defer { f.remove() }
+            let expected = f.expected
+            if !failRuntime { try Data("tampered".utf8).write(to: f.archive) }
+            let original = process(f)
+            let wrong = ConnectorKernelIdentity(pid: original.pid, userID: original.userID, startedAt: original.startedAt,
+                executable: "wrong", arguments: original.arguments, injectedEnvironment: false)
+            let downloads = AppIdentityDownloads()
+            do {
+                _ = try await collector(f, process: wrong, downloads: downloads).collect(expected: expected,
+                    configuration: configuration(), installedApp: f.installed, processID: original.pid)
+                XCTFail("Expected failure")
+            } catch { assertRuntimeIssue(error) }
+            let paths = await downloads.paths
+            XCTAssertEqual(paths.count, 1)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0].path))
+        }
+    }
+
+    func testCollectorDownloadFailureProducesNoIdentityAndRemovesEmptyWorkspace() async throws {
+        let f = try AppIdentityFixture(); defer { f.remove() }
+        let downloads = AppIdentityDownloads()
+        let collector = DesktopAppIdentityCollector(download: { _, root in
+            await downloads.record(root)
+            throw URLError(.timedOut)
+        }, inspect: { _, _, _, _ in XCTFail("Failed download cannot inspect"); throw URLError(.unknown) },
+        runtime: { _, _, _ in XCTFail("Failed download cannot promote identity"); throw URLError(.unknown) })
+        do {
+            _ = try await collector.collect(expected: f.expected, configuration: configuration(), installedApp: f.installed)
+            XCTFail("Expected failure")
+        } catch { assertRuntimeIssue(error) }
+        let paths = await downloads.paths
+        XCTAssertEqual(paths.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0].path))
+    }
+
+    func testCollectorNeverRecursivelyRemovesFailedDetachWorkspace() async throws {
+        let f = try AppIdentityFixture(); defer { f.remove() }
+        f.runner.detachStatus = 1
+        let process = process(f), downloads = AppIdentityDownloads()
+        do {
+            _ = try await collector(f, process: process, downloads: downloads).collect(expected: f.expected,
+                configuration: configuration(), installedApp: f.installed, processID: process.pid)
+            XCTFail("Expected failure")
+        } catch { assertRuntimeIssue(error) }
+        let paths = await downloads.paths
+        XCTAssertEqual(paths.count, 1)
+        // The unit runner copies files rather than mounting, so only this synthetic residue may
+        // be removed by the test. Production must retain a mount after a failed detach.
+        defer { try? FileManager.default.removeItem(at: paths[0]) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths[0].path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths[0].appendingPathComponent("Hermes-Go-Desktop-0.2.42.dmg").path))
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: paths[0].path).isEmpty)
+    }
+
+    private func collector(_ f: AppIdentityFixture, process: ConnectorKernelIdentity,
+                           downloads: AppIdentityDownloads) -> DesktopAppIdentityCollector {
+        DesktopAppIdentityCollector(download: { url, root in
+            XCTAssertEqual(url.absoluteString, "https://downloads.example/desktop/apps/0.2.42/Hermes-Go-Desktop-0.2.42.dmg")
+            await downloads.record(root)
+            let destination = root.appendingPathComponent(url.lastPathComponent)
+            try FileManager.default.copyItem(at: f.archive, to: destination)
+            return destination
+        }, inspect: { expected, archive, app, root in
+            try DesktopAppIdentityInspector(runner: f.runner).inspect(expected: expected, archive: archive, installedApp: app, workspaceRoot: root)
+        }, runtime: { observation, app, pid in
+            try DesktopAppRuntimeIdentityInspector(readProcess: { _ in process }).inspect(observation: observation, installedApp: app, processID: pid)
+        })
+    }
+    private func configuration() throws -> DesktopAppUpdateConfiguration {
+        try .init(indexURL: URL(string: "https://downloads.example/desktop/apps/index.json")!, channel: "internal", architecture: "arm64")
+    }
+    private func assertRuntimeIssue(_ error: Error) {
+        guard let issue = error as? DesktopIssue else { return XCTFail("Expected structured issue") }
+        XCTAssertEqual(issue.code.rawValue, "HR-HERMESCOMPAT-008")
+        XCTAssertEqual(issue.summaryChinese, "无法确认升级推荐")
+        XCTAssertEqual(issue.summaryEnglish, "Upgrade recommendation unavailable")
+        XCTAssertTrue(issue.retryable)
+        XCTAssertEqual(issue.recoveryAction, .retry)
+        XCTAssertFalse(issue.sanitizedDiagnostic.contains("/"))
+    }
+
     func testMatchesFullBundleAndKeepsArchiveAndContentIdentitiesDistinct() throws {
         let f = try AppIdentityFixture(); defer { f.remove() }
         let before = try DesktopManagedComponentContentHasher().identify(directory: f.installed)
@@ -219,4 +387,9 @@ private final class AppIdentityCopyHook: FileManager, @unchecked Sendable {
 
 private final class AppIdentityCleanupFailure: FileManager, @unchecked Sendable {
     override func removeItem(at URL: URL) throws { throw CocoaError(.fileWriteNoPermission) }
+}
+
+private actor AppIdentityDownloads {
+    private(set) var paths: [URL] = []
+    func record(_ path: URL) { paths.append(path) }
 }
