@@ -1046,3 +1046,18 @@ schema-1 active 0.3.4 journal resolve to the bundled index/executor with this fi
 finds app 0.2.37 and backend 0.4.12; the backend envelope passes size/hash and Ed25519 verification
 using the installed app's trusted public key. No credentials were printed and no app, service,
 installation journal or Hermes data was changed. Commit/relaunch acceptance remains pending.
+
+### Installed component identity observations (2026-10-25)
+
+Test impact: `DesktopComponentReleasePreflightTests` exercises real temporary component stores and
+Ed25519-verified synthetic manifests. Check that installed Connector observations preserve the
+signed archive digest separately from the content digest, while missing components, a receipt with
+its content removed, and display-only reconstruction produce no installed observations. Modify the
+installed executable without changing its version or receipt; a fresh scan must reject the digest.
+A failed Connector health probe must abort instead of returning identity evidence. Existing manifest
+signature and preflight runtime tests continue to cover rejection before scanning.
+
+These observations do not establish which Connector process is running. Physical active-process
+matching, bundled-layout identity, installed Desktop archive provenance and the five-component
+recommendation flow remain unverified. This core-only change introduces no new user-visible error
+or visual state; existing preflight error mapping is unchanged.

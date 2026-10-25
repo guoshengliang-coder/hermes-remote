@@ -1624,3 +1624,17 @@ This fixes a bundled 0.3.4 installation offered 0.4.12 but incorrectly passed to
 executor, whose layout guard used to report `releaseNotNewer` (`HR-MIGRATE-001`). App replacement
 continues only after successful background commit/cleanup. An affected old GUI may need one direct
 DMG replacement to acquire this updater fix; do not edit its journal or reinstall/reset Hermes.
+
+### Installed component identity for Hermes compatibility (2026-10-25)
+
+The existing signed component preflight now returns `installedComponents` observations beside its
+download/reuse plan. Only managed bootstrap components whose receipt, complete content digest and
+health probe pass receive an observation. The archive SHA-256 comes from the verified manifest;
+the receipt's content SHA-256 is retained separately. Missing components and external observations
+cannot acquire an archive identity, and constructing a presentation result does not create evidence.
+
+This is a read-only observation of the component store at scan time, not the identity of a running
+Connector and not Hermes upgrade permission. A newer manifest may not describe the installed older
+component; that case remains unknown. Bundled installations, the installed Desktop app's DMG mapping,
+remote/client identities, freshness at execution and ordinary-page wiring still need implementation.
+No component migration, service restart, UI change or one-click Hermes execution is enabled here.
