@@ -194,12 +194,12 @@ NODE
 if [[ "$components_only" == 0 ]]; then
   release_name="$(basename "$DESKTOP_RELEASE_MANIFEST")"
   release_files="$(node scripts/desktop-publish-files.mjs "$DESKTOP_RELEASE_MANIFEST")"
-  release_size="$(stat -f %z "$DESKTOP_RELEASE_MANIFEST")"
+  release_size="$(wc -c < "$DESKTOP_RELEASE_MANIFEST" | tr -d '[:space:]')"
   release_sha="$(shasum -a 256 "$DESKTOP_RELEASE_MANIFEST" | awk '{print $1}')"
 fi
 component_name="$(basename "$DESKTOP_COMPONENT_MANIFEST")"
 component_files="$(node scripts/desktop-publish-files.mjs "$DESKTOP_COMPONENT_MANIFEST")"
-component_size="$(stat -f %z "$DESKTOP_COMPONENT_MANIFEST")"
+component_size="$(wc -c < "$DESKTOP_COMPONENT_MANIFEST" | tr -d '[:space:]')"
 component_sha="$(shasum -a 256 "$DESKTOP_COMPONENT_MANIFEST" | awk '{print $1}')"
 updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
