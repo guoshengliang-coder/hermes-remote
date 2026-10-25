@@ -11,6 +11,8 @@ const messages=()=>[{id:2,role:'user',content:PROMPT_TEXT,timestamp:1792926000},
 async function fixture(t,account=false){
   const state={oldAccepted:false,version:'0.22.5',messages:messages(),requests:[]};
   const http=createServer((req,res)=>{
+    if(state.reset){req.socket.destroy();return;}
+    if(state.httpStatus){res.writeHead(state.httpStatus);res.end('synthetic-private-body');return;}
     if(account?req.headers.authorization!==`Bearer ${token}`:req.headers['x-hermes-session-token']!==token){res.writeHead(state.oldAccepted?200:403);res.end('{}');return;}
     let value;
     if(req.url==='/api/status')value={version:state.version,gateway_running:false};
@@ -21,6 +23,7 @@ async function fixture(t,account=false){
   });
   const wss=new WebSocketServer({noServer:true});
   http.on('upgrade',(req,socket,head)=>{
+    if(state.httpStatus||state.reset){socket.destroy();return;}
     if(account?req.headers.authorization!==`Bearer ${token}`:new URL(req.url,'http://localhost').searchParams.get('token')!==token){socket.destroy();return;}
     wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws));
   });
@@ -77,4 +80,29 @@ test('account recovery authenticates HTTP and every WebSocket with the original 
   assert.equal(state.requests.find(r=>r.method==='session.resume').params.session_id,storedId);
   assert.equal(JSON.stringify(result).includes(token),false);
   await assert.rejects(probeRelayRecovery({...input,transport:'unverified'}));
+});
+
+test('recovery captures bounded request-time status without credentials, paths or response bodies',async t=>{
+  const {input,state}=await fixture(t,true);delete input.previousToken;
+  Object.assign(input,{transport:'account-relay',captureDiagnostics:true});state.httpStatus=503;
+  const result=await probeRelayRecovery(input);
+  assert.equal(result.checks.recoveryVersion,false);assert.equal(result.checks.recoverySeedHistory,false);
+  assert.deepEqual(result.privateDiagnostics.map(({endpoint,status})=>({endpoint,status})),[
+    {endpoint:'status',status:503},{endpoint:'history',status:503}]);
+  for(const event of result.privateDiagnostics){
+    assert.deepEqual(Object.keys(event).sort(),['elapsedMs','endpoint','status']);
+    assert.ok(Number.isInteger(event.elapsedMs)&&event.elapsedMs>=0);
+  }
+  for(const value of [token,storedId,'synthetic-private-body','/api/','127.0.0.1'])assert.equal(JSON.stringify(result).includes(value),false);
+  const ordinary=await probeRelayRecovery({...input,captureDiagnostics:false});
+  assert.equal(Object.hasOwn(ordinary,'privateDiagnostics'),false);
+  await assert.rejects(probeRelayRecovery({...input,captureDiagnostics:'true'}));
+});
+
+test('recovery transport failures retain only an allowlisted error classification',async t=>{
+  const {input,state}=await fixture(t,true);delete input.previousToken;state.reset=true;
+  const result=await probeRelayRecovery({...input,transport:'account-relay',captureDiagnostics:true});
+  assert.equal(result.privateDiagnostics.length,2);
+  for(const event of result.privateDiagnostics){assert.equal(event.status,0);assert.equal(event.error,'UND_ERR_SOCKET');}
+  for(const value of [token,storedId,'fetch failed','socket','127.0.0.1'])assert.equal(JSON.stringify(result).includes(value),false);
 });

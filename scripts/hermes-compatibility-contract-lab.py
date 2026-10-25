@@ -44,6 +44,18 @@ def stop_agent(root, agent):
         raise
 
 
+def retain_recovery_diagnostics(root, stage, recovered, observation, token):
+    # Remove private observations even on success; they never enter the public report.
+    requests=recovered.pop('privateDiagnostics',[])
+    if all(recovered['checks'].values()):return
+    try:diagnostic=observation['diagnose'](token)
+    except Exception:diagnostic={'unavailable':True}
+    diagnostic['requests']=requests
+    path=root/'tmp'/(stage+'-relay-diagnostic.private.json')
+    fd=os.open(str(path),os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'w') as output:json.dump(diagnostic,output)
+
+
 def probe(root, lab, version, stage, node, prompt=False, relay=False, restart=False, launchagent=None, postgres_bin=None):
     if prompt:
         return prompt_probe(root, lab, version, stage, node, relay=relay, restart=restart, launchagent=launchagent, postgres_bin=postgres_bin)
@@ -93,7 +105,7 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, r
                 if recovery:
                     data={'port':active_port,'token':active_token,'version':version,'operation':'relay-recovery',
                           'transport':'account-relay' if postgres_bin else 'legacy-relay',
-                          'checkpoint':relay_state['checkpoint']}
+                          'checkpoint':relay_state['checkpoint'],'captureDiagnostics':True}
                 elif restart_state:
                     data={'port':active_port,'token':active_token,'version':version,'operation':'restart',
                           'previousToken':restart_state['token'],'checkpoint':restart_state['checkpoint']}
@@ -136,12 +148,7 @@ def runtime_probe(root, lab, version, stage, node, prompt=False, sandbox=None, r
                 lifecycle=observation['reconnect'](token)
                 recovered=call_probe(observation['port'],observation['token'],recovery=True)
                 recovered['checks'].update(lifecycle,recoveryNoModelRequest=model_observation['requests']==model_before)
-                if not all(recovered['checks'].values()):
-                    try:diagnostic=observation['diagnose'](token)
-                    except Exception:diagnostic={'unavailable':True}
-                    path=root/'tmp'/(stage+'-relay-diagnostic.private.json')
-                    fd=os.open(str(path),os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-                    with os.fdopen(fd,'w') as output:json.dump(diagnostic,output)
+                retain_recovery_diagnostics(root,stage,recovered,observation,token)
                 relay_state['record']['recovery']=recovered
             return result
         finally:

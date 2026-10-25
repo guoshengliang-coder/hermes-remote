@@ -12,6 +12,24 @@ spec.loader.exec_module(lab)
 
 
 class ContractLabTests(unittest.TestCase):
+    def test_request_diagnostics_stay_private_on_success_and_failure(self):
+        for passed in (False,True):
+            with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+                root=Path(directory);(root/'tmp').mkdir()
+                requests=[{'endpoint':'status','status':503,'elapsedMs':2}]
+                recovered={'checks':{'recoveryVersion':passed},'privateDiagnostics':requests}
+                observer=mock.Mock(side_effect=ValueError('private exception'))
+                lab.retain_recovery_diagnostics(root,'fixture',recovered,{'diagnose':observer},'private token')
+                self.assertNotIn('privateDiagnostics',recovered)
+                path=root/'tmp/fixture-relay-diagnostic.private.json'
+                if passed:
+                    self.assertFalse(path.exists());observer.assert_not_called()
+                else:
+                    self.assertEqual(path.stat().st_mode&0o777,0o600)
+                    self.assertEqual(json.loads(path.read_text()),{'unavailable':True,'requests':requests})
+                    self.assertNotIn('private exception',path.read_text())
+                    self.assertNotIn('private token',path.read_text())
+
     def test_daily_home_is_rejected_before_runtime_execution(self):
         with mock.patch('sys.argv', ['probe', '--lab-root', str(Path.home())]), mock.patch.object(lab, 'probe') as runner:
             with self.assertRaisesRegex(ValueError, 'not_disposable_lab'):

@@ -353,14 +353,32 @@ export async function probeContract({port, token, version, prompt = false, trans
 }
 
 /** Read an already completed synthetic turn after the owning backend has actually restarted. */
-async function probeCompletedRecovery({port,token,previousToken,version,checkpoint,transport='legacy-relay'}, relay) {
-  if((relay&&!['legacy-relay','account-relay'].includes(transport))||!Number.isInteger(port)||port<1||port>65535||!['0.21.3','0.22.5'].includes(version)
+async function probeCompletedRecovery({port,token,previousToken,version,checkpoint,transport='legacy-relay',captureDiagnostics=false}, relay) {
+  if(typeof captureDiagnostics!=='boolean'||(relay&&!['legacy-relay','account-relay'].includes(transport))||!Number.isInteger(port)||port<1||port>65535||!['0.21.3','0.22.5'].includes(version)
     ||!(relay?[token]:[token,previousToken]).every(v=>typeof v==='string'&&/^[A-Za-z0-9_-]{32,128}$/.test(v))
     ||(!relay&&token===previousToken)|| (relay&&previousToken!==undefined)
     ||!object(checkpoint)||typeof checkpoint.storedId!=='string'||!checkpoint.storedId||checkpoint.storedId.length>256
     ||!Array.isArray(checkpoint.history)||checkpoint.history.length!==2
     ||JSON.stringify(validatePromptHistory({messages:checkpoint.history}))!==JSON.stringify(checkpoint.history))throw new Error('invalid_restart');
   const base=`http://127.0.0.1:${port}`,auth=probeAuth(base,token,relay?transport:'direct');
+  // Private parent-only observations at request time. Never copy URLs, headers, bodies,
+  // exception messages or stored conversation identifiers into diagnostic records.
+  const privateDiagnostics=[];
+  if(captureDiagnostics){
+    const request=auth.request.bind(auth);
+    auth.request=async(path,init)=>{
+      const started=performance.now(),endpoint=path==='/api/status'?'status':'history';
+      const record=value=>{if(privateDiagnostics.length<8)privateDiagnostics.push({endpoint,...value,elapsedMs:Math.round(performance.now()-started)});};
+      try{
+        const response=await request(path,init);record({status:response.status});return response;
+      }catch(error){
+        const code=error?.cause?.code??error?.code;
+        const allowed=['ECONNREFUSED','ECONNRESET','UND_ERR_CONNECT_TIMEOUT','UND_ERR_SOCKET','ENOTFOUND'];
+        record({status:0,error:allowed.includes(code)?code:error?.name==='TimeoutError'?'timeout':'other'});
+        throw error;
+      }
+    };
+  }
   const checks={};
   async function check(name,fn){try{await fn();checks[name]=true;}catch{checks[name]=false;}}
   if(!relay)await check('restartOldTokenRejected',async()=>{
@@ -374,7 +392,8 @@ async function probeCompletedRecovery({port,token,previousToken,version,checkpoi
   for(const [name,passed] of Object.entries(resumed))checks[name.replace('reconnect','restart')]=passed;
   return {schemaVersion:1,kind:relay?'live-relay-recovery-probe':'live-backend-restart-probe',
     scope:relay?(transport==='account-relay'?ACCOUNT_RECOVERY_SCOPE:RELAY_RECOVERY_SCOPE):RESTART_SCOPE,version,attempted:true,
-    checks:relay?Object.fromEntries(Object.entries(checks).map(([k,v])=>[k.replace('restart','recovery'),v])):checks,compatibilityApproved:false};
+    checks:relay?Object.fromEntries(Object.entries(checks).map(([k,v])=>[k.replace('restart','recovery'),v])):checks,compatibilityApproved:false,
+    ...(captureDiagnostics?{privateDiagnostics}:{})};
 }
 export const probeBackendRestart = value => probeCompletedRecovery(value,false);
 export const probeRelayRecovery = value => probeCompletedRecovery(value,true);

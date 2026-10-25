@@ -438,12 +438,13 @@ test('synthetic account evidence binds migrations/database identity and cannot b
     const recovery=structuredClone(raw);recovery.stages[name].relay.recovery.scope='legacy-relay-completed-turn-recovery-v1';assert.throws(()=>parse(recovery));
   }
   const privateData=structuredClone(raw);privateData.stages.source.relay.account.databaseUrl='synthetic-private';
+  privateData.stages.source.relay.recovery.privateDiagnostics=[{arbitrary:'synthetic-private'}];
   assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
 });
 
 test('recorded account recovery failures remain failed despite successful direct/native checks',async()=>{
   const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
-  for(const file of ['account-relay-first-gap','account-relay-readiness-gap']){
+  for(const file of ['account-relay-first-gap','account-relay-readiness-gap','account-relay-route-gap']){
     const raw=JSON.parse(await readFile(new URL(`../../docs/evidence/hermes-compatibility/2026-10-25-${file}.json`,import.meta.url)));
     const native=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
     const account=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));

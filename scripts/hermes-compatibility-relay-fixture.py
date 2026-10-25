@@ -72,7 +72,13 @@ def wait_ready(children, origin, device=None, online=True, account_token=None):
                 else:
                     status,body=get_json(origin+'/v2/connector-binding',account_token,account=True)
                     if (status==200 and body.get('state')=='bound' and body.get('binding',{}).get('connector',{}).get('online') is online
-                        and (not online or body.get('binding',{}).get('hermes',{}).get('reachable') is True)):return
+                        and (not online or body.get('binding',{}).get('hermes',{}).get('reachable') is True)):
+                        if not online:return
+                        # Key proof marks the binding online before the new peer is registered;
+                        # its persisted health can still belong to the previous connection.
+                        # Read through the actual account route before beginning acceptance.
+                        routed_status,_=get_json(origin+'/api/status',account_token,account=True)
+                        if routed_status==200:return
                 time.sleep(0.1);continue
             status,body=get_json(origin+'/health')
             if status==200 and body.get('ok') is True and (device is None or

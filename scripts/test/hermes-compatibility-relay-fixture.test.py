@@ -110,14 +110,31 @@ class RelayFixtureTests(unittest.TestCase):
     def test_account_online_is_not_ready_until_hermes_health_is_accepted(self):
         child=types.SimpleNamespace(poll=lambda:None)
         def state(reachable):return (200,{'state':'bound','binding':{'connector':{'online':True},'hermes':{'reachable':reachable}}})
-        with mock.patch.object(fixture,'get_json',side_effect=[state(False),state(True)]) as read, \
+        with mock.patch.object(fixture,'get_json',side_effect=[state(False),state(True),(200,{})]) as read, \
             mock.patch.object(fixture.time,'sleep'):
             fixture.wait_ready([child],'http://127.0.0.1:12345','synthetic',account_token='synthetic')
-            self.assertEqual(read.call_count,2)
+            self.assertEqual(read.call_count,3)
         with mock.patch.object(fixture,'get_json',return_value=state(False)), \
             mock.patch.object(fixture.time,'monotonic',side_effect=[0,0,46]),mock.patch.object(fixture.time,'sleep'):
             with self.assertRaisesRegex(ValueError,'relay_start_timeout'):
                 fixture.wait_ready([child],'http://127.0.0.1:12345','synthetic',account_token='synthetic')
+
+    def test_stale_healthy_binding_cannot_signal_ready_before_account_route_is_registered(self):
+        child=types.SimpleNamespace(poll=lambda:None)
+        state=(200,{'state':'bound','binding':{'connector':{'online':True},'hermes':{'reachable':True}}})
+        origin='http://127.0.0.1:12345'
+        with mock.patch.object(fixture,'get_json',side_effect=[state,(503,{}),state,(200,{})]) as read, \
+            mock.patch.object(fixture.time,'sleep'):
+            fixture.wait_ready([child],origin,'synthetic',account_token='synthetic')
+            self.assertEqual(read.call_args_list,[
+                mock.call(origin+'/v2/connector-binding','synthetic',account=True),
+                mock.call(origin+'/api/status','synthetic',account=True),
+                mock.call(origin+'/v2/connector-binding','synthetic',account=True),
+                mock.call(origin+'/api/status','synthetic',account=True)])
+        with mock.patch.object(fixture,'get_json',side_effect=[state,(503,{})]), \
+            mock.patch.object(fixture.time,'monotonic',side_effect=[0,0,46]),mock.patch.object(fixture.time,'sleep'):
+            with self.assertRaisesRegex(ValueError,'relay_start_timeout'):
+                fixture.wait_ready([child],origin,'synthetic',account_token='synthetic')
 
     def test_exited_child_fails_readiness_before_network_access(self):
         child=types.SimpleNamespace(poll=lambda:1)
