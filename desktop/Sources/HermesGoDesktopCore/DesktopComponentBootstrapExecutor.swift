@@ -24,6 +24,15 @@ extension DesktopComponentReleaseInstaller: DesktopComponentReleaseInstalling {}
 /// credentials, LaunchAgents, service ordering, account binding, journaling, and rollback. The
 /// component bootstrap executor never mutates those surfaces directly.
 public protocol DesktopComponentBootstrapMigrating: Sendable {
+    func migrateBundledInstallationToComponents(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome
+
     func migrateComponentRelease(
         manifest: DesktopComponentReleaseManifestV2,
         activationPlan: DesktopComponentReleaseActivationPlan,
@@ -45,6 +54,17 @@ public protocol DesktopComponentBootstrapMigrating: Sendable {
 }
 
 public extension DesktopComponentBootstrapMigrating {
+    func migrateBundledInstallationToComponents(
+        manifest: DesktopComponentReleaseManifestV2,
+        activationPlan: DesktopComponentReleaseActivationPlan,
+        hermesLaunchAgentConfiguration: DesktopHermesServerLaunchAgent,
+        launchAgentConfiguration: DesktopAccountConnectorLaunchAgent,
+        runID: String,
+        confirmation: String
+    ) async throws -> DesktopMigrationOutcome {
+        throw DesktopMigrationCoordinatorError.invalidStartingState
+    }
+
     func upgradeComponentRelease(
         manifest: DesktopComponentReleaseManifestV2,
         activationPlan: DesktopComponentReleaseActivationPlan,
@@ -74,6 +94,7 @@ public struct DesktopComponentBootstrapPreparation: Equatable, Identifiable, Sen
     public let confirmationText: String
     public let preflight: DesktopComponentReleasePreflightResult
     public let intent: DesktopManagedBootstrapIntent
+    public let migratesBundledLayout: Bool
 
     fileprivate init(
         id: String,
@@ -81,7 +102,8 @@ public struct DesktopComponentBootstrapPreparation: Equatable, Identifiable, Sen
         releaseVersion: String,
         confirmationText: String,
         preflight: DesktopComponentReleasePreflightResult,
-        intent: DesktopManagedBootstrapIntent
+        intent: DesktopManagedBootstrapIntent,
+        migratesBundledLayout: Bool
     ) {
         self.id = id
         self.runID = runID
@@ -89,6 +111,7 @@ public struct DesktopComponentBootstrapPreparation: Equatable, Identifiable, Sen
         self.confirmationText = confirmationText
         self.preflight = preflight
         self.intent = intent
+        self.migratesBundledLayout = migratesBundledLayout
     }
 }
 
@@ -154,6 +177,7 @@ public actor DesktopComponentBootstrapExecutor {
         workspaceRoot: URL,
         runID: String,
         installation: DesktopManagedBootstrapInstallationStatus = .absent,
+        migrateBundledLayout: Bool = false,
         healthProbe: @escaping DesktopComponentReleaseInstaller.HealthProbe
     ) async throws -> DesktopComponentBootstrapPreparation {
         guard case .idle = state else {
@@ -165,9 +189,12 @@ public actor DesktopComponentBootstrapExecutor {
         let intent: DesktopManagedBootstrapIntent
         switch installation {
         case .absent:
+            guard !migrateBundledLayout else {
+                throw DesktopMigrationCoordinatorError.invalidStartingState
+            }
             intent = .install
         case .active(let installed, let layout, _, _):
-            guard layout == .componentStore else {
+            guard migrateBundledLayout ? layout == .bundledRelease : layout == .componentStore else {
                 throw DesktopMigrationCoordinatorError.invalidStartingState
             }
             guard Self.version(
@@ -209,7 +236,8 @@ public actor DesktopComponentBootstrapExecutor {
                 let publicValue = makePublicPreparation(
                     preflight: trustedPreflight.result,
                     runID: normalizedRunID,
-                    intent: intent
+                    intent: intent,
+                    migratesBundledLayout: migrateBundledLayout
                 )
                 state = .cleanupPending(PendingCleanup(
                     publicValue: publicValue,
@@ -223,7 +251,8 @@ public actor DesktopComponentBootstrapExecutor {
         let publicValue = makePublicPreparation(
             preflight: trustedPreflight.result,
             runID: normalizedRunID,
-            intent: intent
+            intent: intent,
+            migratesBundledLayout: migrateBundledLayout
         )
         state = .prepared(PendingPreparation(
             publicValue: publicValue,
@@ -301,14 +330,25 @@ public actor DesktopComponentBootstrapExecutor {
                     confirmation: confirmation
                 )
             case .upgrade:
-                migrationOutcome = try await migration.upgradeComponentRelease(
-                    manifest: installed.manifest,
-                    activationPlan: installed.activationPlan,
-                    hermesLaunchAgentConfiguration: launchAgents.hermes,
-                    launchAgentConfiguration: launchAgents.connector,
-                    runID: pending.publicValue.runID,
-                    confirmation: confirmation
-                )
+                if pending.publicValue.migratesBundledLayout {
+                    migrationOutcome = try await migration.migrateBundledInstallationToComponents(
+                        manifest: installed.manifest,
+                        activationPlan: installed.activationPlan,
+                        hermesLaunchAgentConfiguration: launchAgents.hermes,
+                        launchAgentConfiguration: launchAgents.connector,
+                        runID: pending.publicValue.runID,
+                        confirmation: confirmation
+                    )
+                } else {
+                    migrationOutcome = try await migration.upgradeComponentRelease(
+                        manifest: installed.manifest,
+                        activationPlan: installed.activationPlan,
+                        hermesLaunchAgentConfiguration: launchAgents.hermes,
+                        launchAgentConfiguration: launchAgents.connector,
+                        runID: pending.publicValue.runID,
+                        confirmation: confirmation
+                    )
+                }
             }
         } catch {
             if cleanupInstalled(installed, publicValue: pending.publicValue) == false {
@@ -411,16 +451,21 @@ public actor DesktopComponentBootstrapExecutor {
     private func makePublicPreparation(
         preflight: DesktopComponentReleasePreflightResult,
         runID: String,
-        intent: DesktopManagedBootstrapIntent
+        intent: DesktopManagedBootstrapIntent,
+        migratesBundledLayout: Bool
     ) -> DesktopComponentBootstrapPreparation {
         DesktopComponentBootstrapPreparation(
             id: UUID().uuidString.lowercased(),
             runID: runID,
             releaseVersion: preflight.manifest.releaseVersion,
-            confirmationText: DesktopMigrationCoordinator<SystemCommandRunner>
-                .confirmationText(releaseVersion: preflight.manifest.releaseVersion),
+            confirmationText: migratesBundledLayout
+                ? DesktopMigrationCoordinator<SystemCommandRunner>
+                    .componentMigrationConfirmationText(releaseVersion: preflight.manifest.releaseVersion)
+                : DesktopMigrationCoordinator<SystemCommandRunner>
+                    .confirmationText(releaseVersion: preflight.manifest.releaseVersion),
             preflight: preflight,
-            intent: intent
+            intent: intent,
+            migratesBundledLayout: migratesBundledLayout
         )
     }
 

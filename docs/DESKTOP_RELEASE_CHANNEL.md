@@ -441,3 +441,7 @@ with `DESKTOP_RELEASE_REMOTE_APP_ROOT`) never uploads into a root-owned store.
 
 An Actions artifact, a tag, or an updated `index.json` is not by itself proof that an installed Mac
 received the update; only the public readback plus a real update run closes that gate.
+
+## Independent component publication (2026-10-25)
+
+New signed candidates default to Node + Connector only (`components_only: true`). Publish with `DESKTOP_RELEASE_COMPONENTS_ONLY=1` through the existing publisher and protected environment, verifying the complete public manifest and both component archives before changing only `/desktop/components/index.json`. Rollback uses the same flag and verifies its public readback. The historical `/desktop/releases/index.json` stays frozen for old clients. Signature continuity verifies both independent channels without requiring equal versions; ordinary layout upgrades remain unchanged. A newer Desktop can explicitly migrate an existing bundled/local installation through its unified updater and distinct “迁移并重连” confirmation. No Hermes archive is required by this component publication. The paused 0.4.13 immutable files are retained; the next component candidate uses 0.4.14. The approved internal Desktop patch uses 0.2.43/build 46, with the existing public trust settings and unified internal DMG publisher. Actual publication evidence follows only after public byte/hash verification.

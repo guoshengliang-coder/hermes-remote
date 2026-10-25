@@ -1596,3 +1596,7 @@ This fixes a bundled 0.3.4 installation offered 0.4.12 but incorrectly passed to
 executor, whose layout guard used to report `releaseNotNewer` (`HR-MIGRATE-001`). App replacement
 continues only after successful background commit/cleanup. An affected old GUI may need one direct
 DMG replacement to acquire this updater fix; do not edit its journal or reinstall/reset Hermes.
+
+### Explicit bundled-to-component update (2026-10-25)
+
+The approved HG-237 follow-up exposes the separately confirmed layout migration through the unified updater. Local Hermes detection and the existing managed agent must indicate local runtime before discovery may select the component channel for a bundled journal. Component preparation records the conversion intent and shows its distinct confirmation; coordinator commit revalidates the exact binding, local token contract and executable before any service stop. The existing durable upgrade snapshot and fresh local/Cloud health proofs cover failure and interrupted recovery. The old pointer/archive remain for recovery, with no automatic bundled-runtime fallback after component commit. No Hermes source/database is installed or migrated. The compatibility administration work in draft #673 is independent and is not required or enabled by this update.

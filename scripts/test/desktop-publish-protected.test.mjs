@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-test("protected publisher rollback swaps both root-owned index paths through sudo", async (t) => {
+for (const [componentsOnly, readbackFailure] of [[false, false], [true, false], [true, true]]) {
+test(`protected publisher rollback respects its selected channel scope (${componentsOnly}, bad readback=${readbackFailure})`, async (t) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "desktop-publish-protected-test-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const releaseRoot = path.join(root, "releases");
@@ -31,7 +32,8 @@ while [ "$#" -gt 0 ]; do
 done
 case "$url" in
   https://example.test/desktop/releases/index.json) cp "$TEST_RELEASE_ROOT/index.json" "$out" ;;
-  https://example.test/desktop/components/index.json) cp "$TEST_COMPONENT_ROOT/index.json" "$out" ;;
+  https://example.test/desktop/components/index.json)
+    if [ "$TEST_BAD_READBACK" = 1 ]; then echo corrupted > "$out"; else cp "$TEST_COMPONENT_ROOT/index.json" "$out"; fi ;;
   *) exit 71 ;;
 esac
 `, { mode: 0o700 });
@@ -39,19 +41,23 @@ esac
     cwd: process.cwd(), encoding: "utf8", shell: false,
     env: {
       ...process.env, PATH: `${bin}:${process.env.PATH}`,
+      DESKTOP_RELEASE_COMPONENTS_ONLY: componentsOnly ? "1" : "0",
       DESKTOP_RELEASE_SSH_TARGET: "release@example.test",
       DESKTOP_RELEASE_PUBLIC_ORIGIN: "https://example.test",
       DESKTOP_RELEASE_PRESTAGED_PROTECTED: "1",
       DESKTOP_RELEASE_REMOTE_RELEASE_ROOT: releaseRoot,
       DESKTOP_RELEASE_REMOTE_COMPONENT_ROOT: componentRoot,
+      TEST_BAD_READBACK: readbackFailure ? "1" : "0",
       TEST_RELEASE_ROOT: releaseRoot,
       TEST_COMPONENT_ROOT: componentRoot,
     },
   });
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /DESKTOP_RELEASE_ROLLBACK_OK/);
-  assert.equal(await readFile(path.join(releaseRoot, "index.json"), "utf8"), "release-previous");
-  assert.equal(await readFile(path.join(componentRoot, "index.json"), "utf8"), "component-previous");
-  assert.equal(await readFile(path.join(releaseRoot, "index.previous.json"), "utf8"), "release-current");
-  assert.equal(await readFile(path.join(componentRoot, "index.previous.json"), "utf8"), "component-current");
+  assert.equal(result.status, readbackFailure ? 65 : 0, result.stderr);
+  if (readbackFailure) assert.match(result.stderr, /HR-RELEASE-004/);
+  else assert.match(result.stdout, componentsOnly ? /DESKTOP_COMPONENT_RELEASE_ROLLBACK_OK/ : /DESKTOP_RELEASE_ROLLBACK_OK/);
+  assert.equal(await readFile(path.join(releaseRoot, "index.json"), "utf8"), componentsOnly ? "release-current" : "release-previous");
+  assert.equal(await readFile(path.join(componentRoot, "index.json"), "utf8"), readbackFailure ? "component-current" : "component-previous");
+  assert.equal(await readFile(path.join(releaseRoot, "index.previous.json"), "utf8"), componentsOnly ? "release-previous" : "release-current");
+  assert.equal(await readFile(path.join(componentRoot, "index.previous.json"), "utf8"), readbackFailure ? "component-previous" : "component-current");
 });
+}

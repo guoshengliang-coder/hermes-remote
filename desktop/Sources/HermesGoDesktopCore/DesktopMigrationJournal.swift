@@ -252,7 +252,8 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
 
     /// Starts an upgrade from one durably committed managed release. Unlike `begin`, this is the
     /// only operation allowed to replace an `account_active` journal. The binding and layout must
-    /// remain identical, and the target must be a strict semantic-version upgrade.
+    /// remain identical, and the target must be a strict semantic-version upgrade. A separately
+    /// confirmed bundled-to-component migration is the sole exception to preserving the layout.
     public func beginUpgrade(
         runID: String,
         installedReleaseVersion: String,
@@ -260,7 +261,8 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
         installedReleaseLayout: DesktopManagedReleaseLayoutKind,
         targetReleaseLayout: DesktopManagedReleaseLayoutKind,
         bindingID: String,
-        bindingGeneration: Int
+        bindingGeneration: Int,
+        migrateBundledLayout: Bool = false
     ) throws -> DesktopMigrationJournal {
         try withExclusiveLock {
             let normalizedInstalled = try semanticVersion(installedReleaseVersion)
@@ -271,6 +273,9 @@ public final class DesktopMigrationJournalStore: @unchecked Sendable {
                   existing.lastKnownGoodMode == .account,
                   existing.releaseVersion == normalizedInstalled,
                   existing.releaseLayout == installedReleaseLayout,
+                  (migrateBundledLayout
+                    ? installedReleaseLayout == .bundledRelease && targetReleaseLayout == .componentStore
+                    : installedReleaseLayout == targetReleaseLayout),
                   existing.bindingID == normalizedBindingID,
                   existing.bindingGeneration == normalizedGeneration,
                   semanticVersionIsNewer(targetReleaseVersion, than: installedReleaseVersion)

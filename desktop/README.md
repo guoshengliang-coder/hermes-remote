@@ -603,3 +603,5 @@ source changes. Packaging fails if the two files differ.
 - `Tests/` — account setup/recovery, state-reduction, and security tests.
 - `Packaging/` — static bundle metadata and the synchronized app icon.
 - `scripts/` — local `.app` and `.dmg` packaging.
+
+0.2.43/build 46 adds an explicitly confirmed migration from the historical bundled Connector layout to the signed Node/Connector component channel. It preserves the Mac’s own Hermes, its home, private token and account binding, and retains durable health-gated rollback. Component-only releases no longer require a Hermes archive. Physical migration acceptance is separate from publication.
