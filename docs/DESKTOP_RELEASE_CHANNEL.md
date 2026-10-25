@@ -1,5 +1,17 @@
 # Desktop release channel
 
+## Authorized preparation: 0.2.42
+
+On 2026-10-25 the owner authorized merge and publication of the next Desktop patch, including #666.
+Allocate **0.2.42/build 45** on the existing ad-hoc internal channel. Explain custom Git configuration
+refusal while preserving the config, sandbox and fixed redacted diagnostic. One-click upgrade/recovery
+remains disabled. Build from clean current main after version PR/main checks pass; preserve installed
+public trust/update settings, publish through the unified internal publisher, verify full public DMGs
+and both discovery indexes, and keep signed managed-component pointers unchanged. Run actual client
+update/relaunch and condition/record/health checks without restarting Hermes. Physical phone business
+acceptance remains blocked by the unavailable device; this is not Apple notarization or clean-Mac
+acceptance.
+
 ## Published internal test distribution: 0.2.41
 
 Owner-authorized publication completed on 2026-10-24 after #659 and version PR #661 and their
