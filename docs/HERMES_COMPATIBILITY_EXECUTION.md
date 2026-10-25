@@ -350,3 +350,11 @@ Gateway OCI job：对刚打包的镜像创建自有、无网络容器，验证�
 该观察显式保留 `publicRouteVerified=false`，尚不证明公网选择了被检查容器，也不会直接进入普通
 推荐或签名 inventory。发布来源授权、路由绑定、Android/Web 活动身份及 I0/I2/I4/I5 既有缺口仍
 待完成；没有合并、部署、发布、授予角色或升级日常 Hermes。
+
+
+本轮 [Gateway OCI 真实验收](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/40185496920)
+已成功：触发分支为 `dc203625`，实际构建的 PR 合并快照为 `9749a443a2f389959b987396c5ba00a29e4451f7`，
+不能将二者混同。正常只读容器采集成功，额外 NODE_OPTIONS 被拒绝；两个自有容器清理完成，成功
+标记已核对。[脱敏报告](evidence/hermes-compatibility/2026-10-25-gateway-oci-runtime.json) 保留真实
+归档/镜像摘要与上述范围，没有生产配置或凭据。仅证明该 CI 候选的采集链路，不是发布、路由或
+Hermes 兼容批准。上游 #144377 本轮只读复核仍打开、零回复，未声称锁问题已解决。
