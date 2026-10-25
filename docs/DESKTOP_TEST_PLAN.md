@@ -1,5 +1,29 @@
 # Hermes Go Desktop test plan
 
+## Hermes compatibility I4: operation intent and process interruption
+
+Test impact: private file/root/lock ownership, symlinks/hardlinks, atomic replacement, synchronization,
+complete-record comparisons, shared maintenance exclusion, interrupted writes and new recovery stages.
+Use HR-HERMESUPDATE-002 for invalid/concurrent operation preflight and -003 for uncertain persistence
+or recovery. Their existing bilingual summaries, recovery actions and redacted diagnostics remain.
+No arbitrary paths, error messages or journal contents are included in UI diagnostic summaries.
+
+Swift tests cover new-run/idempotent initial intent, exact resume, stale snapshots, conflicting migration,
+backup/run identity, invalid phase changes, cancellation before mutation, recovery terminal, replaced
+lock, unsafe files, non-file installation URLs and injected failures around atomic replacement.
+`scripts/test/hermes-upgrade-journal-process.test.py` compiles the actual Core and test-only helper on
+macOS. It SIGKILLs owned processes after a successful write, before rename, and after rename; checks
+the complete old/new record, refuses a contender while the owner lives, then resumes that same run
+to a pre-mutation cancellation and reacquires the normal migration lease. It never starts services,
+creates a backup, runs Hermes or restores user data. This is process-crash evidence, not a power-loss
+or upstream-process-tree lock certification. The macOS PR job runs it after Swift tests; helper/test
+changes select that job even without changes under desktop/.
+
+Native synthetic `HermesVersionCard` fixtures for recovering/rolledBack were rendered in light/dark at
+540/700 pt. The compact recovering/light and restored/dark views were inspected: phase labels fit,
+pending recovery retains its registered warning, and the terminal remains explicitly historical.
+Callbacks are inert; this is visual acceptance of record text, not an installed-app upgrade journey.
+
 ## Hermes compatibility I1: administrator management
 
 I2 adds request/run-detail parsing tests: only candidate/recipe IDs and persisted revision/operation

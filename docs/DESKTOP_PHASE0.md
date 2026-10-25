@@ -1,5 +1,21 @@
 # Hermes Go Desktop phase 0
 
+## Hermes compatibility I4: durable intent (implementation, not an enabled updater)
+
+`DesktopHermesUpgradeOperation` now writes private upgrade intent atomically, syncs it, validates
+readback and holds the same `migration-operation.lock` used by installation/repair. Beginning refuses
+pending migration or another pending upgrade; resuming requires the exact persisted record and a free
+kernel lease. Every advance compares the complete previous record, preserves immutable identities,
+and checks the phase/backup relationship. Errors after replacement leave the new intent for explicit
+reconciliation; they never authorize continuing the next effect. Interrupted temporary files are not
+treated as journals or automatically promoted.
+
+Recovery intent and a historical restored terminal are now readable. These are GO operation records,
+not upstream ownership, backup verification or permission to overwrite user data. No app action calls
+the writer yet. Official updater coordination, service drain, backup/restore execution, recommendation
+revalidation and the worker/UI lifecycle remain unfinished. The current upstream lock gap still blocks
+opening the ordinary upgrade action.
+
 ## Hermes compatibility: bundled Connector runtime identity (implementation)
 
 The schema-1 bundled layout now has a read-only continuity check from its signed-archive file
