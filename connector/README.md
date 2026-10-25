@@ -4,6 +4,15 @@ HG-232 adds pooled HTTP(S) returns and up to four ranges of one opaque file refe
 existing aggregate upload budget. Old Gateways/Android clients remain serial. See
 `../docs/ATTACHMENT_PERFORMANCE.md` for negotiation, compatibility and the local benchmark.
 
+## Connector 0.1.18 — HG-237 prompt outcome diagnostics (allocated, publication pending)
+
+Tracks bounded prompt.submit ID/method/outcome metadata without prompt or response content,
+including unresolved calls on close. Gateway 0.4.37 adds the matching relay-hop metadata; Android
+0.1.183 keeps ambiguous delivery separate from history and never automatically replays it.
+No protocol, minimum-client or upstream Hermes change. The signed managed pair is planned as
+0.4.13, reusing Node 22.23.2 and the immutable Hermes Server archive. This allocation is not a
+publication or installation claim; protected signing and public byte/signature verification remain gates.
+
 ## Independent attachment downloads (HG-222)
 
 `HEAD /api/files` reads original metadata without a payload. Its legacy GET still uses
