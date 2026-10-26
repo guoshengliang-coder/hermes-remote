@@ -1,5 +1,23 @@
 # Hermes upstream contract
 
+## Fixed official upgrade stages (I4, 2026-10-26)
+
+The native upgrade adapter consumes the fixed target's official `scripts/install.sh`, checked against
+the signed compatibility identity's SHA-256. For the audited 0.22.5 commit
+`bf0203a794a07aac3ff764972ab9087baa4e4f4e`, protocol 1 advertises noninteractive repository, venv,
+python-deps, config, products and complete stages. The adapter passes `--commit` on every mutation,
+plus explicit `--dir`, `--hermes-home`, `--skip-browser` and `--skip-computer-use`; it does not request
+the interactive setup/gateway stages or build the upstream Desktop app. Both exit status and the
+machine result frame must succeed, and the on-disk commit is checked after each stage. Upstream
+continues to own dependency installation and product completion. This adapter alone does not prove
+service drain, complete compatibility or readiness to enable the ordinary upgrade action.
+
+The audited `products` stage also calls `wire_shell_path` and upstream launcher publication. With
+this adapter's explicit `SHELL=/bin/bash`, it may edit `.bashrc`, `.profile` and existing `.bash_profile`/
+`.bash_login`; launcher exposure can affect `~/.local/bin` and previously owned conveniences elsewhere.
+These external paths must be inventoried and preserved by the future executor before mutation. The
+current home-plus-runtime materialization receipt does not certify full external-entrypoint recovery.
+
 ## Desktop optional model metadata (2026-10-24)
 
 Desktop may read authenticated `GET /api/model/info` on fixed loopback serve-v1 after local authentication succeeds. Source checked: upstream `hermes_cli/web_routers/models.py`. Only the `model` string is consumed; empty means no selected model, malformed/missing/non-200/transport failure means unknown. This is informational and must never gate existing connectivity or claim credentials/inference were tested. Tokens remain on the Mac and use the existing proxy-disabled, redirect-restricted session. No writes, model requests, profile changes or provider secrets are consumed. Android, Web, Gateway and Connector contracts remain unchanged.

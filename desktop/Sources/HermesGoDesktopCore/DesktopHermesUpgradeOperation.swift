@@ -11,11 +11,43 @@ public final class DesktopHermesUpgradeOperation: @unchecked Sendable {
     private let mutex = NSLock()
     private var current: DesktopHermesUpgradeJournal
     private var ownsDescriptors = false
+    private var updateEffectRunning = false
     private let persistenceHook: @Sendable (PersistencePoint) throws -> Void
     enum PersistencePoint: Equatable, Sendable { case temporarySynced, replaced, directorySynced }
 
     public var snapshot: DesktopHermesUpgradeJournal {
         mutex.lock(); defer { mutex.unlock() }; return current
+    }
+
+    /// One official installer invocation per operation object. Holding the object retains the GO
+    /// lease; another task cannot advance intent underneath the running effect. This is not a
+    /// replacement for the executor's independent service/writer checks.
+    func withUpdatingEffect<T>(_ body: (DesktopHermesUpgradeJournal) async throws -> T) async throws -> T {
+        let expected = try beginUpdatingEffect()
+        defer { finishUpdatingEffect() }
+        let result = try await body(expected)
+        try requireUpdatingEffect(expected)
+        return result
+    }
+
+    private func beginUpdatingEffect() throws -> DesktopHermesUpgradeJournal {
+        mutex.lock(); defer { mutex.unlock() }
+        try assertOwnership()
+        guard !updateEffectRunning, current.phase == .updating, current.backup != nil,
+              try store.loadReadOnly() == current else { throw DesktopHermesUpgradeError.preflightBlocked }
+        updateEffectRunning = true
+        return current
+    }
+
+    func requireUpdatingEffect(_ expected: DesktopHermesUpgradeJournal) throws {
+        mutex.lock(); defer { mutex.unlock() }
+        try assertOwnership()
+        guard updateEffectRunning, current == expected, try store.loadReadOnly() == expected
+        else { throw DesktopHermesUpgradeError.recoveryRequired }
+    }
+
+    private func finishUpdatingEffect() {
+        mutex.lock(); defer { mutex.unlock() }; updateEffectRunning = false
     }
 
     public func captureRecoveryPoint(in recovery: DesktopHermesRecoveryPointStore,
@@ -116,7 +148,7 @@ public final class DesktopHermesUpgradeOperation: @unchecked Sendable {
                                           backup: DesktopHermesUpgradeBackup? = nil, now: Date = Date()) throws -> DesktopHermesUpgradeJournal {
         mutex.lock(); defer { mutex.unlock() }
         try assertOwnership()
-        guard current == expected, try store.loadReadOnly() == expected else { throw DesktopHermesUpgradeError.recoveryRequired }
+        guard !updateEffectRunning, current == expected, try store.loadReadOnly() == expected else { throw DesktopHermesUpgradeError.recoveryRequired }
         guard Self.transitions[current.phase]?.contains(phase) == true,
               now.timeIntervalSince1970.isFinite, now >= current.updatedAt,
               backup == nil || (current.phase == .backingUp && phase == .updating && current.backup == nil

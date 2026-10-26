@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import os
 from pathlib import Path
 import selectors
@@ -6,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import uuid
 
 
@@ -30,6 +32,79 @@ class JournalProcessTests(unittest.TestCase):
         subprocess.run(['swiftc','-parse-as-library','-I',str(binary/'Modules'),
             str(cls.source/'scripts/hermes-recovery-point-helper.swift'),*map(str,objects),'-o',str(cls.recovery_helper)],
             check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=120)
+        cls.pinned_helper=Path(cls.workspace.name)/'pinned-helper'
+        subprocess.run(['swiftc','-parse-as-library','-I',str(binary/'Modules'),
+            str(cls.source/'scripts/hermes-pinned-upgrade-helper.swift'),*map(str,objects),'-o',str(cls.pinned_helper)],
+            check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=120)
+
+    def test_pinned_history_probe_keeps_prior_logs_and_uses_unique_names(self):
+        spec=importlib.util.spec_from_file_location('pinned_lab_test',self.source/'scripts/hermes-pinned-upgrade-lab.py')
+        lab=importlib.util.module_from_spec(spec);spec.loader.exec_module(lab)
+        with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+            root=Path(directory).resolve();workspace=root/'probe';workspace.mkdir()
+            existing=root/'candidateHistory.private.log';existing.write_bytes(b'old ready marker')
+            seen=[]
+            def fake_probe(root,profile,env,launcher,name,version):
+                log=root/(name+'.private.log')
+                self.assertIn('(literal "'+str(log)+'")',profile.read_text())
+                self.assertIn('(deny network-outbound)',profile.read_text())
+                with log.open('xb') as output:output.write(b'fresh')
+                seen.append(name)
+                return {'historyPresent':True}
+            with patch.object(lab.base,'probe_history',side_effect=fake_probe):
+                for _ in range(2):
+                    self.assertTrue(lab.probe_history(root,workspace,{},root/'launcher','candidateHistory','0.22.5')['historyPresent'])
+            self.assertEqual(len(set(seen)),2)
+            self.assertEqual(existing.read_bytes(),b'old ready marker')
+
+    def test_recovery_material_normalizes_macos_aliases_but_refuses_other_roots(self):
+        spec=importlib.util.spec_from_file_location('pinned_paths_test',self.source/'scripts/hermes-pinned-upgrade-lab.py')
+        lab=importlib.util.module_from_spec(spec);spec.loader.exec_module(lab)
+        with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
+            root=Path(directory).resolve();run=str(uuid.uuid4())
+            home=root/'user/.hermes';home.mkdir(parents=True)
+            points=root/('native-recovery-'+run)/'points';staged=points/'materialized/tree-0';staged.mkdir(parents=True)
+            # Exercise the spelling Foundation returns for standard macOS temporary paths.
+            alias=lambda p:str(p).removeprefix('/private') if str(p).startswith('/private/var/') else str(p)
+            material={'runID':run.upper(),'roots':[{'original':alias(home),'staged':alias(staged)}]}
+            self.assertEqual(lab.checked_material_roots(root,run,material,[home]),[(home,staged)])
+            with patch.object(lab,'idle',return_value=False):
+                with self.assertRaises(lab.base.LabRefusal):lab.checked_material_roots(root,run,material,[home])
+            unrelated=root/'unrelated';unrelated.mkdir()
+            material['roots'][0]['original']=str(unrelated)
+            with self.assertRaises(lab.base.LabRefusal):lab.checked_material_roots(root,run,material,[home])
+            material['roots'][0]={'original':str(home),'staged':str(unrelated)}
+            with self.assertRaises(lab.base.LabRefusal):lab.checked_material_roots(root,run,material,[home])
+            home.rmdir();home.symlink_to(unrelated,target_is_directory=True)
+            material['roots'][0]={'original':str(home),'staged':str(staged)}
+            with self.assertRaises(lab.base.LabRefusal):lab.checked_material_roots(root,run,material,[home])
+
+    def test_pinned_installer_helper_refuses_unprepared_labs_without_writing(self):
+        for prefix in ['not-a-hermes-lab-', 'hermes-compat-lab-']:
+            with tempfile.TemporaryDirectory(prefix=prefix) as directory:
+                root=Path(directory).resolve()
+                result=subprocess.run([str(self.pinned_helper),str(root),str(uuid.uuid4()),'normal'],
+                    env={'PATH':'/usr/bin:/bin','TMPDIR':tempfile.gettempdir(),'HOME':str(root)},
+                    text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15)
+                self.assertEqual(result.returncode,2)
+                self.assertEqual(json.loads(result.stdout),{'status':'refused','code':'HR-HERMESUPDATE-002'})
+                self.assertEqual(list(root.iterdir()),[])
+
+    def test_pinned_upgrade_lab_refuses_a_nonlab_with_bilingual_error(self):
+        with tempfile.TemporaryDirectory(prefix='not-a-hermes-lab-') as directory:
+            result=subprocess.run([sys.executable,'-B',str(self.source/'scripts/hermes-pinned-upgrade-lab.py'),
+                '--lab',directory],text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15)
+            self.assertEqual(result.returncode,2)
+            error=json.loads(result.stdout)['error']
+            self.assertEqual(error['code'],'HR-HERMESUPDATE-002')
+            self.assertTrue(error['summaryZh']);self.assertTrue(error['summaryEn'])
+            self.assertFalse(error['retryable']);self.assertNotIn(directory,result.stdout)
+            missing=Path(directory)/'missing'
+            result=subprocess.run([sys.executable,'-B',str(self.source/'scripts/hermes-pinned-upgrade-lab.py'),
+                '--lab',str(missing)],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=15)
+            self.assertEqual(result.returncode,2);self.assertEqual(result.stderr,'')
+            self.assertEqual(json.loads(result.stdout)['error']['code'],'HR-HERMESUPDATE-002')
+            self.assertNotIn(str(missing),result.stdout)
 
     def test_recovery_material_survives_process_exit_and_keeps_new_candidate_data(self):
         with tempfile.TemporaryDirectory(prefix='hermes-compat-lab-') as directory:
@@ -43,6 +118,14 @@ class JournalProcessTests(unittest.TestCase):
             captured=subprocess.run([str(self.recovery_helper),'capture',str(root),run],env=env,
                 text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=30)
             self.assertEqual(captured.returncode,0);self.assertEqual(json.loads(captured.stdout),{'status':'captured'})
+            # Both native helpers must load the same state directory. No installer is supplied,
+            # so this reaches the captured intent and then refuses before any upstream execution.
+            refused=subprocess.run([str(self.pinned_helper),str(root),run,'normal'],env=env,
+                text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15)
+            self.assertEqual(refused.returncode,2)
+            frames=[json.loads(line) for line in refused.stdout.splitlines()]
+            self.assertIn({'checkpoint':'intent-resumed'},frames)
+            self.assertEqual(frames[-1],{'status':'refused','code':'HR-HERMESUPDATE-002'})
             (home/'state.db').write_bytes(b'new synthetic history')
             restored=subprocess.run([str(self.recovery_helper),'materialize',str(root),run],env=env,
                 text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=30)

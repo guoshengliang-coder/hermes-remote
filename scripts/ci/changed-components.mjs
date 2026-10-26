@@ -48,6 +48,8 @@ export function classifyChangedPaths(paths) {
       file === 'scripts/hermes-upgrade-journal-helper.swift' ||
       file === 'scripts/hermes-recovery-point-helper.swift' ||
       file === 'scripts/hermes-recovery-point-lab.py' ||
+      file === 'scripts/hermes-pinned-upgrade-helper.swift' ||
+      file === 'scripts/hermes-pinned-upgrade-lab.py' ||
       file === 'scripts/test/hermes-upgrade-journal-process.test.py' ||
       file === 'package.json'
     ) result.desktop = true;

@@ -1,5 +1,31 @@
 # Hermes Go Desktop test plan
 
+## I4 pinned official installer adapter
+
+Test impact: signed script digest and fixed target, private preparation, stage protocol/exit status,
+checkout identity before/after each effect, clean child environment, timeout cancellation, concurrent
+phase advance and retained recovery intent. Existing HR-HERMESUPDATE-002 covers preparation refusal;
+-003 covers incomplete effects. No raw upstream output is returned to the progress callback.
+
+Five new Swift tests cover changed bytes, stale recommendation, exact URL/arguments/environment,
+all stages, no premature success, conflicting intent advance, failed maintenance callback, replaced
+script, unexpected commit, nonzero exit despite an OK frame, wrong stage and timeout. Injected runners
+prove adapter decisions, not upstream behavior. A real shell exits successfully while its child
+keeps running; the regression failed on the old runner and now requires failure despite the OK frame.
+The macOS process suite also builds the actual lab helper and confirms that an unprepared or non-lab root is refused without writes. CI path selection
+includes both helper and driver. History probes use unique logs and retain old readiness markers
+without accepting them; repeated-probe coverage prevents a retained log from blocking the next run.
+Recovery path tests accept macOS /var aliases but refuse different roots, symlink redirection and
+still-open files; missing lab directories return the registered bilingual error without a traceback.
+
+`python3 -B scripts/hermes-pinned-upgrade-lab.py --lab <retained-I0-disposable-lab> --mode normal`
+and `--mode dependency-failure` exercise the actual Core adapter, official fixed script, native
+capture/materialization, restored interpreter and history. The original synthetic user tree is
+retained untouched; upstream writes are fenced to a copy at the same absolute paths. A timeout or
+uncertain process cleanup retains the scene instead of swapping originals under a possible writer.
+Synthetic signing/identity inputs are test fixtures, not a real published recommendation. This lab
+does not certify a production drain, worker UI lifetime or automatic recovery after new business data.
+
 ## Accepted B maintenance scope (2026-10-26)
 
 Test impact: recipe/validation/report/approval/signature identity propagation, rejection of old or

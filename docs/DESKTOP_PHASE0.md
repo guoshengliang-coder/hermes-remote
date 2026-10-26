@@ -1,5 +1,25 @@
 # Hermes Go Desktop phase 0
 
+## Hermes compatibility I4: pinned official installer adapter
+
+`DesktopHermesPinnedUpgradeInstaller` prepares only the exact official script named by a verified
+recommendation's commit and digest. It drives the audited repository/venv/python-deps/config/products/
+complete stages under an existing `updating` operation and backup receipt. The executor supplies
+fresh maintenance checks before each stage; this adapter does not assert service quiescence itself.
+Exit status, result frame and actual checkout commit must agree. A stage timeout cancels the owned
+runner; failures retain updating intent and recovery material. Upgrade-mode process execution also
+requires the original process group to disappear; a successful shell with surviving children is a
+failed effect, even when its output pipe closed. It does not automatically overwrite recovery data. The operation rejects concurrent
+effect execution and phase advances during a running installer effect.
+
+It does not start services, commit success, automatically retry/reset, replace user data, or provide
+an app button. Independent worker/UI lifetime, production process discovery/drain, fresh recommendation
+revalidation and automatic recovery commit remain I4 work. Full recovery must also cover the
+official installer’s external command conveniences and shell startup edits; restoring the checkout
+and interpreter alone does not prove that the user’s normal command entrypoint has been restored. The existing install-when-missing flow
+continues to use its original main-script source; official URL validation additionally accepts an
+exact 40-character upstream commit for this adapter.
+
 ## Hermes compatibility: accepted maintenance policy
 
 The owner chose B on 2026-10-26. Validation recipes, reports and signed recommendation identities
@@ -76,8 +96,8 @@ structured report viewing. Without a configured recipe the page cannot start val
 isolated suite covers five of fifteen checks and demonstrates a failed concurrent-update check,
 so it cannot produce an approvable report. I3 implements approval/revocation, protected publishing
 jobs, signed recommendations and a public verification client locally. No actual signing publication
-has run. Normal-page recommendation querying is now wired; active component collection and one-click Hermes execution remain subsequent gated work; the old
-updater lock gap must be resolved before the tested migration can become supported.
+has run. Normal-page recommendation querying is now wired; active component collection and one-click Hermes execution remain subsequent gated work. The accepted B maintenance-window check
+must pass before the migration can be supported; the old updater lock gap remains excluded and open.
 See HERMES_COMPATIBILITY_EXECUTION.md for real upgrade/recovery evidence and remaining gates.
 
 ### Ordinary recommendation query (implementation, not released)

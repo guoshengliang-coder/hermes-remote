@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "kind": "desktop-native-pinned-upgrade",
+  "mode": "normal",
+  "status": "passed",
+  "compatibilityApproved": false,
+  "sourceCommit": "633dda6d7fdcac7e8340471c9f5ed08cdccbd70c",
+  "targetCommit": "bf0203a794a07aac3ff764972ab9087baa4e4f4e",
+  "coreSourceSha256": "82109d67a6de12d84bc6b42cf8f185b2a4d746f8b08f3e2c37c1c70b1f1325ef",
+  "helperSourceSha256": "02ee277737fb8be0e7bdd65b27048f513d3377ea3327085bd2f3b9d6a2507f88",
+  "recoveryHelperSha256": "f9f542a73d59b22fd656a424532b259723f636bacfcc761eb861b87cd9d78e14",
+  "driverSha256": "6e499b1ca5b837185a578480f35610662b7c187a6eb57b83ee74ca0cb60049fc",
+  "checks": {
+    "writeFence": true,
+    "sourceCopy": true,
+    "capture": true,
+    "officialStages": true,
+    "targetCommit": true,
+    "candidateHistory": true,
+    "materialize": true,
+    "restoredHistory": true,
+    "restoredConfiguration": true,
+    "sourceCommit": true,
+    "originalUserReturned": true
+  },
+  "notExecuted": [
+    "productionServiceDrain",
+    "realRecommendationPublication",
+    "workerUILifecycle",
+    "automaticLivePathCommit",
+    "newBusinessDataRecovery",
+    "installedDesktopJourney"
+  ],
+  "helperBinarySha256": "62165ce64b6d9a966049efc9d8c246c49e9e24d9d7442c783d2fe550e64533ae",
+  "stages": [
+    {
+      "stage": "repository",
+      "completed": false
+    },
+    {
+      "stage": "repository",
+      "completed": true
+    },
+    {
+      "stage": "venv",
+      "completed": false
+    },
+    {
+      "stage": "venv",
+      "completed": true
+    },
+    {
+      "stage": "python-deps",
+      "completed": false
+    },
+    {
+      "stage": "python-deps",
+      "completed": true
+    },
+    {
+      "stage": "config",
+      "completed": false
+    },
+    {
+      "stage": "config",
+      "completed": true
+    },
+    {
+      "stage": "products",
+      "completed": false
+    },
+    {
+      "stage": "products",
+      "completed": true
+    },
+    {
+      "stage": "complete",
+      "completed": false
+    },
+    {
+      "stage": "complete",
+      "completed": true
+    }
+  ],
+  "checkpoints": [
+    "intent-resumed",
+    "script-prepared",
+    "database-idle",
+    "database-idle",
+    "database-idle",
+    "database-idle",
+    "database-idle",
+    "database-idle",
+    "database-idle",
+    "database-idle"
+  ],
+  "helperResult": {
+    "status": "installed",
+    "intentRetained": true
+  }
+}
