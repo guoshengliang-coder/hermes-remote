@@ -46,7 +46,7 @@ test("PostgreSQL compatibility: real grants, revocation, immutable identity, CAS
       assert.deepEqual(first,retry);
       await assert.rejects(store.discover(owner,command,{...candidate,targetCommit:"d".repeat(40)}),hasCode("HR-HERMESCOMPAT-003"));
       await assert.rejects(store.discover(owner,{...command,operationId:randomUUID()},candidate),hasCode("HR-HERMESCOMPAT-003"));
-      const identity: ValidationIdentity = { schemaVersion:1,candidateId:first.candidateId,version:candidate.version,
+      const identity: ValidationIdentity = { schemaVersion:1,maintenancePolicy:"go-controlled-window-v1",candidateId:first.candidateId,version:candidate.version,
         sourceCommit:"e".repeat(40),targetCommit:candidate.targetCommit,goCommit:"f".repeat(40),suiteSha256:"a".repeat(64),
         installerSha256:candidate.installerSha256,environment:{os:"macos",arch:"arm64",osVersion:"26.0.1",installation:"legacy-venv-to-pm"},
         components:COMPONENT_NAMES.map(name=>({name,version:"1.2.3",artifactSha256:"b".repeat(64)})) };

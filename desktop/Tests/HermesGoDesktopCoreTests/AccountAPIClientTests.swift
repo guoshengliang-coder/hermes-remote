@@ -63,7 +63,7 @@ final class AccountAPIClientTests: XCTestCase {
 
     func testHermesCompatibilityReportBindsRequestedRunAndRejectsPassingCheckWithoutEvidence() throws {
         let id = "60000000-0000-4000-8000-000000000001"
-        let identity: [String: Any] = ["version":"0.22.5", "sourceCommit":String(repeating:"a",count:40),
+        let identity: [String: Any] = ["maintenancePolicy":"go-controlled-window-v1", "version":"0.22.5", "sourceCommit":String(repeating:"a",count:40),
             "targetCommit":String(repeating:"b",count:40), "goCommit":String(repeating:"c",count:40)]
         let hash = String(repeating:"d",count:64)
         var report: [String: Any] = ["schemaVersion":1, "runId":id, "identity":identity, "startedAt":"2026-10-25T01:00:00Z",

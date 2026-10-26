@@ -17,10 +17,10 @@ export function parseCompatibilityCIConfiguration(raw:string):{trust:Compatibili
     const recipes=config.recipes.map((item):CompatibilityRecipe=>{
       const recipe=exact(item,["id","identity"]);
       if(typeof recipe.id!=="string"||!/^[a-z0-9][a-z0-9-]{0,63}$/.test(recipe.id))throw compatibilityErrors.invalid();
-      const value=exact(recipe.identity,["schemaVersion","sourceCommit","goCommit","suiteSha256","environment","components"]);
+      const value=exact(recipe.identity,["schemaVersion","maintenancePolicy","sourceCommit","goCommit","suiteSha256","environment","components"]);
       const parsed=parseValidationIdentity({...value,candidateId:"10000000-0000-4000-8000-000000000001",version:"0.0.0",
         targetCommit:value.sourceCommit==="f".repeat(40)?"e".repeat(40):"f".repeat(40),installerSha256:"a".repeat(64)});
-      return {id:recipe.id,identity:{schemaVersion:1,sourceCommit:parsed.sourceCommit,goCommit:parsed.goCommit,
+      return {id:recipe.id,identity:{schemaVersion:1,maintenancePolicy:parsed.maintenancePolicy,sourceCommit:parsed.sourceCommit,goCommit:parsed.goCommit,
         suiteSha256:parsed.suiteSha256,environment:parsed.environment,components:parsed.components}};
     });
     if(new Set(recipes.map(r=>r.id)).size!==recipes.length)throw compatibilityErrors.invalid();

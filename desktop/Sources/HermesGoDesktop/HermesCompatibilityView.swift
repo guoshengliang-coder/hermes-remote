@@ -75,6 +75,10 @@ struct HermesCompatibilityView: View {
                                             VStack(alignment: .leading, spacing: 8) {
                                                 Text("\(report.checks.filter { $0.status == "passed" }.count) / 15 项通过")
                                                     .font(.callout.bold())
+                                                Text(report.identity.maintenancePolicy.titleChinese).font(.callout.bold())
+                                                Text(report.identity.maintenancePolicy.summaryChinese)
+                                                    .font(.caption).foregroundStyle(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
                                                 Text("\(report.startedAt) — \(report.finishedAt)")
                                                     .font(.caption).foregroundStyle(.secondary)
                                                 ForEach(report.checks) { check in

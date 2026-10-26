@@ -1,5 +1,13 @@
 # Hermes Go Desktop phase 0
 
+## Hermes compatibility: accepted maintenance policy
+
+The owner chose B on 2026-10-26. Validation recipes, reports and signed recommendation identities
+now require `maintenancePolicy=go-controlled-window-v1`. Missing/unknown policies fail closed;
+historical reports do not inherit this scope. Admin reports and ordinary recommendation cards show
+the same condition. The maintenance-window check replaces the old all-updaters concurrency check
+and remains unverified until actually exercised. Ordinary execution is still unavailable.
+
 ## Hermes compatibility I4: durable intent (implementation, not an enabled updater)
 
 `DesktopHermesRecoveryPointStore` captures the home and explicitly collected external runtimes
@@ -24,8 +32,8 @@ treated as journals or automatically promoted.
 Recovery intent and a historical restored terminal are now readable. These are GO operation records,
 not upstream ownership, backup verification or permission to overwrite user data. No app action calls
 the writer yet. Official updater coordination, service drain, backup/restore execution, recommendation
-revalidation and the worker/UI lifecycle remain unfinished. The current upstream lock gap still blocks
-opening the ordinary upgrade action.
+revalidation and the worker/UI lifecycle remain unfinished. These unfinished execution and acceptance
+steps still block opening the ordinary upgrade action under the owner's accepted B scope.
 
 ## Hermes compatibility: bundled Connector runtime identity (implementation)
 

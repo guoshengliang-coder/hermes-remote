@@ -10,7 +10,7 @@ import {
 const sha = "a".repeat(40), hash = "b".repeat(64);
 function identity(): ValidationIdentity {
   return {
-    schemaVersion: 1, candidateId: randomUUID(), version: "0.22.5",
+    schemaVersion: 1, maintenancePolicy: "go-controlled-window-v1", candidateId: randomUUID(), version: "0.22.5",
     sourceCommit: "c".repeat(40), targetCommit: sha, goCommit: "d".repeat(40),
     suiteSha256: hash, installerSha256: "e".repeat(64),
     environment: { os: "macos", arch: "arm64", osVersion: "26.0.1", installation: "legacy-venv-to-pm" },
@@ -93,4 +93,18 @@ test("compatibility failures carry stable bilingual summaries and recovery behav
     assert.equal(error.retryable, key === "unavailable" || key === "publicationIncomplete");
     assert.notEqual(error.action, "none");
   }
+});
+
+
+test("maintenance policy must be explicit; historical reports cannot become B approvals", () => {
+  const current = { ...identity(), maintenancePolicy: "go-controlled-window-v1" };
+  const legacy = { ...current } as Record<string, unknown>;
+  delete legacy.maintenancePolicy;
+  assert.throws(() => parseValidationIdentity(legacy), code("HR-HERMESCOMPAT-002"));
+  assert.deepEqual(parseValidationIdentity(current), current);
+  assert.throws(() => parseValidationIdentity({ ...current, maintenancePolicy: "all-updaters" }), code("HR-HERMESCOMPAT-002"));
+  assert.notEqual(compatibilityDigest(current), compatibilityDigest(legacy));
+  const value = report();
+  const oldChecks = value.checks.map(c => c.name === "maintenanceWindow" ? { ...c, name: "concurrentUpdate" } : c);
+  assert.throws(() => parseValidationReport({ ...value, checks: oldChecks }), code("HR-HERMESCOMPAT-002"));
 });

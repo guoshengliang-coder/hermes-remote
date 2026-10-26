@@ -41,6 +41,9 @@ struct HermesVersionCard: View {
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let entry = assessment.entry {
+                        Text(entry.identity.maintenancePolicy.summaryChinese)
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                         DisclosureGroup("查看验证记录与组件要求") {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text("Hermes \(entry.identity.version) · \(entry.identity.targetCommit.prefix(12))")

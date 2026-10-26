@@ -4,7 +4,7 @@ import { AccountModeError } from "./model.js";
 /** Separate from the live REST health check: certification of an exact upgrade path. */
 export const REQUIRED_COMPATIBILITY_CHECKS = [
   "installation", "authentication", "rest", "rpc", "history", "configuration", "connector",
-  "serviceRecovery", "upgrade", "recovery", "concurrentUpdate", "processInterruption",
+  "serviceRecovery", "upgrade", "recovery", "maintenanceWindow", "processInterruption",
   "desktopLifecycle", "clientBusiness", "newDataProtection",
 ] as const;
 export const COMPONENT_NAMES = ["desktop", "connector", "gateway", "android", "web"] as const;
@@ -13,8 +13,10 @@ export interface TestedComponent {
   version: string;
   artifactSha256: string;
 }
+export const HERMES_MAINTENANCE_POLICY = "go-controlled-window-v1" as const;
 export interface ValidationIdentity {
   schemaVersion: 1;
+  maintenancePolicy: typeof HERMES_MAINTENANCE_POLICY;
   candidateId: string;
   version: string;
   sourceCommit: string;
@@ -116,12 +118,12 @@ export function parseTestedComponents(value: unknown): TestedComponent[] {
   return components;
 }
 export function parseValidationIdentity(value: unknown): ValidationIdentity {
-  const v = object(value, ["schemaVersion", "candidateId", "version", "sourceCommit", "targetCommit",
+  const v = object(value, ["schemaVersion", "maintenancePolicy", "candidateId", "version", "sourceCommit", "targetCommit",
     "goCommit", "suiteSha256", "installerSha256", "environment", "components"]);
   const env = object(v.environment, ["os", "arch", "osVersion", "installation"]);
-  if (v.schemaVersion !== 1 || env.os !== "macos" || env.arch !== "arm64"
+  if (v.schemaVersion !== 1 || v.maintenancePolicy !== HERMES_MAINTENANCE_POLICY || env.os !== "macos" || env.arch !== "arm64"
       || env.installation !== "legacy-venv-to-pm" || v.sourceCommit === v.targetCommit) throw compatibilityErrors.invalid();
-  return { schemaVersion: 1, candidateId: compatibilityUUID(v.candidateId), version: compatibilityVersion(v.version),
+  return { schemaVersion: 1, maintenancePolicy: HERMES_MAINTENANCE_POLICY, candidateId: compatibilityUUID(v.candidateId), version: compatibilityVersion(v.version),
     sourceCommit: compatibilityCommit(v.sourceCommit), targetCommit: compatibilityCommit(v.targetCommit),
     goCommit: compatibilityCommit(v.goCommit), suiteSha256: compatibilityHash(v.suiteSha256),
     installerSha256: compatibilityHash(v.installerSha256),

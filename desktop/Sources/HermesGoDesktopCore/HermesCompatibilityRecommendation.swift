@@ -20,6 +20,7 @@ public struct HermesCompatibilityEnvironment: Codable, Equatable, Sendable {
 }
 public struct HermesCompatibilityIdentity: Decodable, Equatable, Sendable {
     public let schemaVersion: Int
+    public let maintenancePolicy: HermesMaintenancePolicy
     public let candidateId: String
     public let version: String
     public let sourceCommit: String
@@ -90,7 +91,7 @@ public struct HermesCompatibilityRecommendationVerifier: Sendable {
             else { throw Self.issue }
             for entry in entries {
                 _ = try Self.object(entry, keys: ["schemaVersion","id","runId","identity","reportSha256"])
-                let identity = try Self.object(entry["identity"], keys: ["schemaVersion","candidateId","version","sourceCommit","targetCommit","goCommit","suiteSha256","installerSha256","environment","components"])
+                let identity = try Self.object(entry["identity"], keys: ["schemaVersion","maintenancePolicy","candidateId","version","sourceCommit","targetCommit","goCommit","suiteSha256","installerSha256","environment","components"])
                 _ = try Self.object(identity["environment"], keys: ["os","arch","osVersion","installation"])
                 guard let components = identity["components"] as? [[String:Any]], components.count == 5 else { throw Self.issue }
                 for component in components { _ = try Self.object(component, keys: ["name","version","artifactSha256"]) }

@@ -9,7 +9,7 @@ const pair=generateKeyPairSync("ed25519");
 const signer=new CompatibilitySigner("compat-test",pair.privateKey.export({type:"pkcs8",format:"pem"}).toString(),"https://relay.example");
 const keys=new Map([[signer.id,pair.publicKey]]);
 const now=new Date("2026-10-25T00:00:00Z");
-const identity:ValidationIdentity={schemaVersion:1,candidateId:randomUUID(),version:"0.22.5",sourceCommit:"a".repeat(40),
+const identity:ValidationIdentity={schemaVersion:1,maintenancePolicy:"go-controlled-window-v1",candidateId:randomUUID(),version:"0.22.5",sourceCommit:"a".repeat(40),
   targetCommit:"b".repeat(40),goCommit:"c".repeat(40),suiteSha256:"d".repeat(64),installerSha256:"e".repeat(64),
   environment:{os:"macos",arch:"arm64",osVersion:"26.0.0",installation:"legacy-venv-to-pm"},
   components:COMPONENT_NAMES.map(name=>({name,version:"1.0.0",artifactSha256:"f".repeat(64)}))};

@@ -52,6 +52,7 @@ public struct HermesCompatibilitySnapshot: Decodable, Equatable, Sendable {
                 public let osVersion: String
                 public let installation: String
             }
+            public let maintenancePolicy: HermesMaintenancePolicy
             public let sourceCommit: String
             public let goCommit: String
             public let environment: Environment
@@ -68,6 +69,7 @@ public struct HermesCompatibilitySnapshot: Decodable, Equatable, Sendable {
         public let identityConflict: Bool
     }
     public struct Identity: Decodable, Equatable, Sendable {
+        public let maintenancePolicy: HermesMaintenancePolicy
         public let version: String
         public let sourceCommit: String
         public let targetCommit: String
@@ -182,7 +184,7 @@ public struct HermesCompatibilityRunDetail: Decodable, Equatable, Sendable {
             public var title: String { Self.titles[name] ?? "未知检查项" }
             static let titles = ["installation":"安装", "authentication":"认证", "rest":"REST 接口", "rpc":"RPC 接口",
                 "history":"历史会话", "configuration":"配置", "connector":"Connector", "serviceRecovery":"服务恢复",
-                "upgrade":"升级", "recovery":"回退", "concurrentUpdate":"并发升级", "processInterruption":"进程中断",
+                "upgrade":"升级", "recovery":"回退", "maintenanceWindow":"GO 维护窗口", "processInterruption":"进程中断",
                 "desktopLifecycle":"Desktop 生命周期", "clientBusiness":"客户端业务", "newDataProtection":"新增数据保护"]
             public var stateTitle: String {
                 switch status { case "passed": "通过"; case "failed": "未通过"; case "infrastructure_failed": "环境异常";

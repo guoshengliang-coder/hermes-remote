@@ -9,7 +9,7 @@ import {parseCompatibilityCIConfiguration} from "./account/hermes-compatibility-
 
 const trust={repository:"example/hermes",repositoryId:"12345",audience:"https://gateway.invalid/hermes-compatibility"};
 const commit="a".repeat(40),taskId=randomUUID(),candidateId=randomUUID();
-const identity:ValidationIdentity={schemaVersion:1,candidateId,version:"0.22.5",sourceCommit:"b".repeat(40),targetCommit:"c".repeat(40),goCommit:commit,
+const identity:ValidationIdentity={schemaVersion:1,maintenancePolicy:"go-controlled-window-v1",candidateId,version:"0.22.5",sourceCommit:"b".repeat(40),targetCommit:"c".repeat(40),goCommit:commit,
   suiteSha256:"d".repeat(64),installerSha256:"e".repeat(64),environment:{os:"macos",arch:"arm64",osVersion:"26.0.1",installation:"legacy-venv-to-pm"},
   components:COMPONENT_NAMES.map(name=>({name,version:"1.2.3",artifactSha256:"f".repeat(64)}))};
 const {privateKey,publicKey}=generateKeyPairSync("rsa",{modulusLength:2048});

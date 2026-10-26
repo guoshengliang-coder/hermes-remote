@@ -1,5 +1,19 @@
 # Hermes Go Desktop test plan
 
+## Accepted B maintenance scope (2026-10-26)
+
+Test impact: recipe/validation/report/approval/signature identity propagation, rejection of old or
+unknown policy, and unchanged refusal of incomplete evidence. Reuse HR-HERMESCOMPAT-002/-004/-008;
+no new error code, raw diagnostic or business API. TypeScript and Swift use a freshly signed synthetic
+shared fixture; no private key is retained. A regression first demonstrated that the previous parser
+accepted an identity without maintenance conditions. Swift rejects missing/unknown policies even
+when the surrounding signature is valid. The worker keeps the legacy lock-gap evidence unchanged
+and does not turn it into a successful maintenance-window check.
+
+Inspect the admin report and recommendation card at compact width: full maintenance condition must
+wrap visibly above approval/details. Actual upgrade confirmation, independent worker, external writer
+refusal and fault recovery remain required I4 acceptance; policy propagation alone is not that result.
+
 ## Hermes compatibility I4: operation intent and process interruption
 
 Recovery-point test impact includes external Python coverage, linked data/config dependencies,
@@ -1318,3 +1332,9 @@ The report consumer must retain every scoped check, bind the separate probe hash
 failures. See `HERMES_COMPATIBILITY_EXECUTION.md` and the 2026-10-26 clarify evidence. This does not
 validate approval cards, multi-question/multi-select UI, pending-question reconnect, app lifecycle or
 installed Desktop upgrade interaction; these remain separate acceptance cases.
+
+B policy visual acceptance: independent native fixtures rendered at 540 pt in light/dark. The
+recommendation condition wraps above the collapsed details; the admin report shows the condition
+above all 15 checks and approval. The admin NSView bitmap cache omitted native GroupBox contents,
+so acceptance used captures of the exact synthetic preview window instead. Both themes were
+inspected directly. Fixture callbacks were inert; the synthetic 15/15 state is not a real approval.

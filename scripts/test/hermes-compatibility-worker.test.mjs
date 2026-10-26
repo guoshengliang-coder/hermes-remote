@@ -8,7 +8,7 @@ import { compatibilityDigest } from '../../gateway/dist/account/hermes-compatibi
 const normal = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-runtime.json', import.meta.url)));
 const fault = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-dependency-failure.json', import.meta.url)));
 const task = parseTask({ schemaVersion: 1, runId: '11111111-1111-4111-8111-111111111111', identity: {
-  schemaVersion: 1, candidateId: '22222222-2222-4222-8222-222222222222', version: '0.22.5',
+  schemaVersion: 1, maintenancePolicy: "go-controlled-window-v1", candidateId: '22222222-2222-4222-8222-222222222222', version: '0.22.5',
   sourceCommit: normal.case.sourceCommit, targetCommit: normal.case.targetCommit, installerSha256: normal.case.installerSha256,
   goCommit: 'a'.repeat(40), suiteSha256: normal.suiteSha256,
   environment: { os: 'macos', arch: 'arm64', osVersion: '26.0.0', installation: 'legacy-venv-to-pm' },
@@ -72,12 +72,13 @@ test('real configured upgrade and dependency failure both recover with their fix
   assert.deepEqual(validateBundle(currentTask,bundle),bundle.report);
 });
 
-test('observed legacy lock gap is a failed check, never hidden as not-run or approved', async () => {
+test('legacy lock gap remains evidence and cannot certify the newly scoped maintenance window', async () => {
   const lock = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-update-lock.json', import.meta.url)));
   const { lockEvidence } = await import('../hermes-compatibility-validate.mjs');
   const evidence = { concurrency: lockEvidence(lock, task.identity, lock.suiteSha256) };
   const bundle = buildBundle(task, evidence, '2026-10-25T01:00:00Z');
-  assert.equal(bundle.report.checks.find(c => c.name === 'concurrentUpdate').status, 'failed');
+  assert.equal(bundle.report.checks.find(c => c.name === 'maintenanceWindow').status, 'not_run');
+  assert.equal(bundle.evidence.concurrency.gap, true);
   assert.equal(bundle.report.outcome, 'failed');
   assert.deepEqual(validateBundle(task, bundle), bundle.report);
   assert.throws(() => lockEvidence({...lock, targetCommit: '0'.repeat(40)}, task.identity, lock.suiteSha256));
@@ -85,7 +86,7 @@ test('observed legacy lock gap is a failed check, never hidden as not-run or app
   success.checks.oldRefusesSurvivingChild = true;
   success.status = 'passed';
   const partial = buildBundle(task, {concurrency: lockEvidence(success, task.identity, lock.suiteSha256)}, '2026-10-25T01:00:00Z');
-  assert.equal(partial.report.checks.find(c => c.name === 'concurrentUpdate').status, 'not_run', 'one lock probe cannot certify all concurrency');
+  assert.equal(partial.report.checks.find(c => c.name === 'maintenanceWindow').status, 'not_run', 'one lock probe cannot certify all concurrency');
 });
 
 test('real transport evidence certifies only the exercised authentication scope', async () => {

@@ -1,5 +1,13 @@
 # Hermes Go Desktop design contract
 
+## Hermes compatibility: accepted maintenance window (2026-10-26)
+
+管理员验证报告在通过数量下面显示“GO 控制的维护窗口”及完整条件；普通用户的推荐卡在
+推荐结果下方同样直接显示条件，不藏在折叠详情中。说明允许换行：升级及恢复期间不要从
+其他入口启动 Hermes 或运行更新，发现现存外部更新或无法确认已停止的服务时暂停。
+“并发升级”检查改为“GO 维护窗口”，不将原锁缺陷展示为已解决。沿用原生字体和次要文本颜色；
+本轮不增加可执行按钮，后续实际确认必须使用同一个受签名身份约束的条件。
+
 ## Hermes compatibility I4: durable operation records
 
 记录区沿用现有卡片，不增加升级/恢复按钮。新增“准备恢复升级前状态”和“记录为已恢复升级前状态”：

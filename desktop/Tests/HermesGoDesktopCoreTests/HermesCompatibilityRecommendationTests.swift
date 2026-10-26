@@ -13,7 +13,7 @@ final class HermesCompatibilityRecommendationTests: XCTestCase {
     private var environment: [String:Any] { ["os":"macos","arch":"arm64","osVersion":"26.0.0","installation":"legacy-venv-to-pm"] }
     private func entry(version: String = "0.22.5") -> [String:Any] {
         ["schemaVersion":1,"id":UUID().uuidString.lowercased(),"runId":UUID().uuidString.lowercased(),"reportSha256":String(repeating:"0",count:64),
-         "identity":["schemaVersion":1,"candidateId":UUID().uuidString.lowercased(),"version":version,
+         "identity":["schemaVersion":1,"maintenancePolicy":"go-controlled-window-v1","candidateId":UUID().uuidString.lowercased(),"version":version,
                      "sourceCommit":String(repeating:"a",count:40),"targetCommit":String(repeating:"b",count:40),"goCommit":String(repeating:"c",count:40),
                      "suiteSha256":String(repeating:"d",count:64),"installerSha256":String(repeating:"e",count:64),"environment":environment,"components":components]]
     }
@@ -28,6 +28,25 @@ final class HermesCompatibilityRecommendationTests: XCTestCase {
     }
     private func verifier() throws -> HermesCompatibilityRecommendationVerifier {
         try HermesCompatibilityRecommendationVerifier(origin:origin,keys:["test":key.publicKey.rawRepresentation])
+    }
+
+    func testMaintenancePolicyIsRequiredEvenOnCorrectlySignedRecommendations() throws {
+        let current = try verifier().verify(envelope(payload()), minimumRevision: 0, now: now)
+        XCTAssertEqual(current.entries.first?.identity.maintenancePolicy, .goControlledWindowV1)
+        for policy: String? in [nil, "all-updaters", "go-controlled-window-v2"] {
+            var value = payload(), row = entry()
+            var identity = row["identity"] as! [String: Any]
+            identity["maintenancePolicy"] = policy
+            row["identity"] = identity; value["entries"] = [row]
+            XCTAssertThrowsError(try verifier().verify(envelope(value), minimumRevision: 0, now: now)) { error in
+                XCTAssertEqual((error as? DesktopIssue)?.code, .hermesCompatibilityRecommendationInvalid)
+            }
+        }
+        let policy = HermesMaintenancePolicy.goControlledWindowV1
+        XCTAssertTrue(policy.summaryChinese.contains("请勿"))
+        XCTAssertTrue(policy.summaryEnglish.contains("do not start Hermes"))
+        XCTAssertTrue(policy.recoveryChinese.contains("不会自动"))
+        XCTAssertTrue(policy.recoveryEnglish.contains("never automatically overwritten"))
     }
 
     private func local(version: String = "0.21.3", commit: String = String(repeating: "a", count: 40)) -> DesktopLocalHermesDetection {
