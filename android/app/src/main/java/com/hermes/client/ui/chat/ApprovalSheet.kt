@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -15,13 +16,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -49,37 +50,50 @@ fun ApprovalSheet(req: ApprovalRequest, onRespond: (ApprovalChoice) -> Unit, onD
     // but state still blocked). The sheet leaves composition only when a choice clears the pending.
     val sheetState = com.hermes.client.ui.components.hermesSheetState(confirmValueChange = { it != SheetValue.Hidden })
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        // The pending decision cannot be dismissed; scrolling belongs only to its details.
+        sheetGesturesEnabled = false,
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-            Text(
-                (if (tier == ApprovalTier.ELEVATED) l10n("高风险审批", "Elevated approval") else l10n("需要审批", "Approval needed")) + label,
-                style = MaterialTheme.typography.titleMedium,
-                color = badge,
-            )
-            if (req.command.isNotBlank()) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
-                    Text(req.command, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
+            // Measure the unweighted actions first. Only the details consume remaining height;
+            // fill=false keeps short requests content-sized rather than opening a full-screen sheet.
+            Column(
+                Modifier.fillMaxWidth().weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()).testTag("approval-details"),
+            ) {
+                Text(
+                    (if (tier == ApprovalTier.ELEVATED) l10n("高风险审批", "Elevated approval") else l10n("需要审批", "Approval needed")) + label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = badge,
+                )
+                if (req.command.isNotBlank()) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .testTag("approval-command").padding(vertical = 12.dp)) {
+                        Text(req.command, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
-            }
-            if (req.description.isNotBlank()) {
-                Text(req.description, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 16.dp))
-            }
+                if (req.description.isNotBlank()) {
+                    Text(req.description, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 16.dp))
+                }
 
-            if (req.patternKeys.isNotEmpty()) {
-                Text(
-                    l10n("授权范围：${req.patternKeys.joinToString(", ")}", "Grants: ${req.patternKeys.joinToString(", ")}"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-            }
-            if (req.smartDenied) {
-                Text(
-                    l10n("所有者已阻止自动执行——仅在确认本次操作安全时批准。", "Owner override — approve only this one operation."),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
+                if (req.patternKeys.isNotEmpty()) {
+                    Text(
+                        l10n("授权范围：${req.patternKeys.joinToString(", ")}", "Grants: ${req.patternKeys.joinToString(", ")}"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+                if (req.smartDenied) {
+                    Text(
+                        l10n("所有者已阻止自动执行——仅在确认本次操作安全时批准。", "Owner override — approve only this one operation."),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
             }
 
             if (tier == ApprovalTier.STANDARD) {
