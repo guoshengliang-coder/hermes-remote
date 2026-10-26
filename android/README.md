@@ -1,3 +1,9 @@
+HG-239 keeps approval decisions in a fixed bottom action area while long commands, descriptions,
+grants and owner warnings scroll above it. Commands remain horizontally readable in full; scrolling
+cannot dismiss or approve a pending request. Standard scopes and elevated slide-to-confirm stay
+unchanged. L1 layout/gesture tests and light/dark screenshots cover small viewports and 1.3× text;
+physical-device checks remain in `../docs/ANDROID_SMOKE.md`. This source change allocates no APK.
+
 HG-237 preserves ambiguous prompt outcomes as durable “Delivery unknown” bubbles with Check status
 only. Unknown turns do not block history synchronization and are not matched to a server turn by text.
 Account WebSockets send heartbeat pings; Android legacy connection modes are retired. No version or
