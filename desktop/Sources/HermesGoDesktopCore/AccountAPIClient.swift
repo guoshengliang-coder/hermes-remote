@@ -104,6 +104,12 @@ public protocol AccountAPIRequesting: Sendable {
         accessToken: String,
         idempotencyKey: String
     ) async throws
+    func revokeBrowser(
+        id: String,
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws
     func deleteAccount(
         grant: String,
         acknowledgedPermanentCloudDeletion: Bool,
@@ -485,6 +491,25 @@ public actor AccountAPIClient: AccountAPIRequesting {
         else { throw AccountClientError.invalidResponse }
         try await sendEmpty(
             path: "/v2/installations/\(id.lowercased())",
+            method: "DELETE",
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey,
+            body: InstallationRevocationRequest(grant: grant)
+        )
+    }
+
+    public func revokeBrowser(
+        id: String,
+        grant: String,
+        accessToken: String,
+        idempotencyKey: String
+    ) async throws {
+        guard UUID(uuidString: id) != nil,
+              !grant.isEmpty,
+              grant.utf8.count <= 256
+        else { throw AccountClientError.invalidResponse }
+        try await sendEmpty(
+            path: "/v2/browser-installations/\(id.lowercased())",
             method: "DELETE",
             accessToken: accessToken,
             idempotencyKey: idempotencyKey,

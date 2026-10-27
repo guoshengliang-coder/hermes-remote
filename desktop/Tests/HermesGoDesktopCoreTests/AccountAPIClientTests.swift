@@ -10,7 +10,7 @@ final class AccountAPIClientTests: XCTestCase {
 
     func testCapabilitiesDecodeOptionalDesktopBootstrapRuntimeContract() async throws {
         StubURLProtocol.handler = { _ in
-            (200, ["Content-Type": "application/json"], Data(#"{"version":1,"accountAuth":{"enabled":true,"providers":["email_otp"],"android":true,"macos":true,"identityManagement":true,"webAccountCenter":false},"binding":{"enabled":true,"replacement":true,"maxActiveConnectorsPerAccount":3},"legacy":{"appTokenAccepted":true,"connectorTokenAccepted":true},"desktopBootstrap":{"runtimeContract":"hermes-serve-v1","componentManifestSchemaVersion":2}}"#.utf8))
+            (200, ["Content-Type": "application/json"], Data(#"{"version":1,"accountAuth":{"enabled":true,"providers":["email_otp"],"android":true,"macos":true,"identityManagement":true,"browserInstallationRevocation":true,"webAccountCenter":false},"binding":{"enabled":true,"replacement":true,"maxActiveConnectorsPerAccount":3},"legacy":{"appTokenAccepted":true,"connectorTokenAccepted":true},"desktopBootstrap":{"runtimeContract":"hermes-serve-v1","componentManifestSchemaVersion":2}}"#.utf8))
         }
         let client = AccountAPIClient(
             gatewayURL: URL(string: "https://relay.example")!,
@@ -19,8 +19,15 @@ final class AccountAPIClientTests: XCTestCase {
 
         let capabilities = try await client.capabilities()
 
+        XCTAssertEqual(capabilities.accountAuth.browserInstallationRevocation, true)
         XCTAssertEqual(capabilities.desktopBootstrap?.runtimeContract, "hermes-serve-v1")
         XCTAssertEqual(capabilities.desktopBootstrap?.componentManifestSchemaVersion, 2)
+    }
+
+    func testLegacyCapabilitiesOmitBrowserRevocation() throws {
+        let data = Data(#"{"version":1,"accountAuth":{"enabled":true,"providers":["email_otp"],"android":true,"macos":true},"binding":{"enabled":true,"replacement":true,"maxActiveConnectorsPerAccount":1}}"#.utf8)
+        let capabilities = try JSONDecoder().decode(AccountCapabilities.self, from: data)
+        XCTAssertNil(capabilities.accountAuth.browserInstallationRevocation)
     }
 
     func testRefreshUsesCallerPersistedIdempotencyKeyAndExactClientInstallationID() async throws {
@@ -253,6 +260,37 @@ final class AccountAPIClientTests: XCTestCase {
         let body = try XCTUnwrap(captured.1)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
         XCTAssertEqual(captured.0.url?.path, "/v2/installations/\(installationID)")
+        XCTAssertEqual(captured.0.httpMethod, "DELETE")
+        XCTAssertEqual(captured.0.value(forHTTPHeaderField: "Authorization"), "Bearer hga_secret")
+        XCTAssertEqual(captured.0.value(forHTTPHeaderField: "Idempotency-Key"), idempotencyKey)
+        XCTAssertEqual(json["grant"], grant)
+    }
+
+    func testBrowserRevocationSendsRecentAuthenticationGrantInBoundedDeleteBody() async throws {
+        let requestBox = LockedRequestBox()
+        StubURLProtocol.handler = { request in
+            requestBox.set(request, body: request.capturedBody())
+            return (204, ["Content-Type": "application/json"], Data())
+        }
+        let client = AccountAPIClient(
+            gatewayURL: URL(string: "https://relay.example")!,
+            session: makeStubSession()
+        )
+        let installationID = "30000000-0000-4000-8000-000000000001"
+        let idempotencyKey = "70000000-0000-4000-8000-000000000002"
+        let grant = "hgg_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
+
+        try await client.revokeBrowser(
+            id: installationID,
+            grant: grant,
+            accessToken: "hga_secret",
+            idempotencyKey: idempotencyKey
+        )
+
+        let captured = try XCTUnwrap(requestBox.value())
+        let body = try XCTUnwrap(captured.1)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(captured.0.url?.path, "/v2/browser-installations/\(installationID)")
         XCTAssertEqual(captured.0.httpMethod, "DELETE")
         XCTAssertEqual(captured.0.value(forHTTPHeaderField: "Authorization"), "Bearer hga_secret")
         XCTAssertEqual(captured.0.value(forHTTPHeaderField: "Idempotency-Key"), idempotencyKey)

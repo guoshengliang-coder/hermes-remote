@@ -149,7 +149,7 @@ public actor DesktopAccountController {
         return try await loadDashboard(record: record)
     }
 
-    public func requestPhoneRevocationVerification(
+    public func requestLoginDeviceRevocationVerification(
         id: String
     ) async throws -> DesktopEmailVerificationChallenge {
         guard let record = sessionRecord else {
@@ -159,7 +159,7 @@ public actor DesktopAccountController {
                 recoveryAction: "sign_in"
             )
         }
-        try requirePhoneRevocation(id: id)
+        try requireLoginDeviceRevocation(id: id)
         let current = try await refreshIfNeeded(record)
         guard let accountEmail = current.account.email else {
             throw accountOperationError(
@@ -181,13 +181,14 @@ public actor DesktopAccountController {
         )
     }
 
-    public func revokePhone(
+    public func revokeLoginDevice(
         id: String,
         verification: DesktopEmailVerificationChallenge,
         verificationCode: String
     ) async throws -> DesktopAccountState {
         guard let record = sessionRecord else { return .signedOut }
-        try requirePhoneRevocation(id: id)
+        try requireLoginDeviceRevocation(id: id)
+        let isBrowser = dashboardSnapshot?.loginDevices.first { $0.id == id }?.kind == "browser"
         let completed = try await commitVerifiedMutation(
             record: record,
             operation: "account.installation.revoke:\(id.lowercased())",
@@ -195,12 +196,11 @@ public actor DesktopAccountController {
             verification: verification,
             verificationCode: verificationCode
         ) { grant, accessToken, idempotencyKey in
-            try await self.api.revokePhone(
-                id: id,
-                grant: grant,
-                accessToken: accessToken,
-                idempotencyKey: idempotencyKey
-            )
+            if isBrowser {
+                try await self.api.revokeBrowser(id: id, grant: grant, accessToken: accessToken, idempotencyKey: idempotencyKey)
+            } else {
+                try await self.api.revokePhone(id: id, grant: grant, accessToken: accessToken, idempotencyKey: idempotencyKey)
+            }
         }
         return try await loadDashboard(record: completed)
     }
@@ -1056,6 +1056,7 @@ public actor DesktopAccountController {
                 sectionIssues: sectionIssues, shareIssues: shareIssues,
                 supportsDeviceSharing: supportsDeviceSharing,
                 maxSharedDevices: capabilitiesSnapshot?.binding.maxSharedDevices ?? 0,
+                browserInstallationRevocation: capabilitiesSnapshot?.accountAuth.browserInstallationRevocation == true,
                 accountDeletionEnabled: capabilitiesSnapshot?.accountAuth.accountDeletion == true,
                 desktopBootstrapRuntimeContract: capabilitiesSnapshot?.desktopBootstrap?.runtimeContract,
                 desktopComponentManifestSchemaVersion:
@@ -1238,6 +1239,7 @@ public actor DesktopAccountController {
             sectionIssues: dashboard.sectionIssues, shareIssues: dashboard.shareIssues,
             supportsDeviceSharing: dashboard.supportsDeviceSharing,
             maxSharedDevices: dashboard.maxSharedDevices,
+            browserInstallationRevocation: dashboard.browserInstallationRevocation,
             accountDeletionEnabled: dashboard.accountDeletionEnabled,
             desktopBootstrapRuntimeContract: dashboard.desktopBootstrapRuntimeContract,
             desktopComponentManifestSchemaVersion: dashboard.desktopComponentManifestSchemaVersion
@@ -1255,7 +1257,7 @@ public actor DesktopAccountController {
         }
     }
 
-    private func requirePhoneRevocation(id: String) throws {
+    private func requireLoginDeviceRevocation(id: String) throws {
         guard capabilitiesSnapshot?.accountAuth.identityManagement == true,
               capabilitiesSnapshot?.accountAuth.providers.contains("email_otp") == true
         else {
@@ -1265,14 +1267,18 @@ public actor DesktopAccountController {
                 recoveryAction: "none"
             )
         }
-        guard dashboardSnapshot?.phones.contains(where: {
+        guard dashboardSnapshot?.loginDevices.contains(where: {
             $0.id == id && !$0.current && $0.status == "active"
         }) == true else {
             throw accountOperationError(
                 code: "HR-ACCOUNT-006",
-                message: "Phone installation was not found.",
+                message: "Login installation was not found.",
                 recoveryAction: "refresh"
             )
+        }
+        if dashboardSnapshot?.loginDevices.first(where: { $0.id == id })?.kind == "browser",
+           capabilitiesSnapshot?.accountAuth.browserInstallationRevocation != true {
+            throw AccountClientError.invalidResponse
         }
     }
 

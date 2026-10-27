@@ -50,6 +50,7 @@ public struct AccountCapabilities: Codable, Equatable, Sendable {
         public let android: Bool
         public let macos: Bool
         public let identityManagement: Bool?
+        public let browserInstallationRevocation: Bool?
         public let accountDeletion: Bool?
         public let webAccountCenter: Bool?
 
@@ -59,6 +60,7 @@ public struct AccountCapabilities: Codable, Equatable, Sendable {
             android: Bool,
             macos: Bool,
             identityManagement: Bool? = nil,
+            browserInstallationRevocation: Bool? = nil,
             accountDeletion: Bool? = nil,
             webAccountCenter: Bool? = nil
         ) {
@@ -67,6 +69,7 @@ public struct AccountCapabilities: Codable, Equatable, Sendable {
             self.android = android
             self.macos = macos
             self.identityManagement = identityManagement
+            self.browserInstallationRevocation = browserInstallationRevocation
             self.accountDeletion = accountDeletion
             self.webAccountCenter = webAccountCenter
         }
@@ -360,6 +363,7 @@ public struct AccountDashboard: Equatable, Sendable {
     public let deviceShares: [String: DeviceShareManagement]
     public let supportsDeviceSharing: Bool
     public let maxSharedDevices: Int
+    public let browserInstallationRevocation: Bool
     public let accountDeletionEnabled: Bool
     public let desktopBootstrapRuntimeContract: String?
     public let desktopComponentManifestSchemaVersion: Int?
@@ -376,6 +380,7 @@ public struct AccountDashboard: Equatable, Sendable {
         shareIssues: [String: DesktopIssue] = [:],
         supportsDeviceSharing: Bool = false,
         maxSharedDevices: Int = 0,
+        browserInstallationRevocation: Bool = false,
         accountDeletionEnabled: Bool = false,
         desktopBootstrapRuntimeContract: String? = nil,
         desktopComponentManifestSchemaVersion: Int? = nil
@@ -391,9 +396,19 @@ public struct AccountDashboard: Equatable, Sendable {
         self.deviceShares = deviceShares
         self.supportsDeviceSharing = supportsDeviceSharing
         self.maxSharedDevices = maxSharedDevices
+        self.browserInstallationRevocation = browserInstallationRevocation
         self.accountDeletionEnabled = accountDeletionEnabled
         self.desktopBootstrapRuntimeContract = desktopBootstrapRuntimeContract
         self.desktopComponentManifestSchemaVersion = desktopComponentManifestSchemaVersion
+    }
+
+    public var loginDevices: [ManagedAccountInstallation] {
+        installations.filter { $0.kind == "phone" || $0.kind == "browser" }
+    }
+
+    public func canRevokeLoginDevice(_ installation: ManagedAccountInstallation) -> Bool {
+        !installation.current && installation.status == "active"
+            && (installation.kind == "phone" || (installation.kind == "browser" && browserInstallationRevocation))
     }
 
     public var phones: [ManagedAccountInstallation] {

@@ -587,12 +587,14 @@ local Hermes sessions, files, configuration, credentials, or models.
 Secure Web sessions expose the same operation at `DELETE /v2/web/account`; it additionally requires
 the exact Origin/Fetch Metadata/CSRF boundary and clears all browser session cookies on `204`.
 
-## 5. Phone installations
+## 5. Login installations
 
 ### `GET /v2/installations`
 
-Desktop account management only in V1. Returns authorized phone installations plus the current
-Desktop UI installation:
+Desktop account management only. Returns the current account’s non-revoked phone, Desktop,
+and browser installations. Desktop’s login-device panel displays phone/browser entries; Macs are
+managed separately. A browser installation represents a browser profile/WebApp login, not a unique
+physical phone:
 
 ```json
 {
@@ -630,6 +632,22 @@ calling Desktop, or a Connector binding; those have explicit operations. A succe
 uses the same grant and `Idempotency-Key` and returns `204` even though the first request already
 consumed the grant and revoked the phone. Reusing the key with a different target, grant, or target
 kind fails with `HR-ACCOUNT-005`.
+
+### `DELETE /v2/browser-installations/{installationId}`
+
+Desktop-only browser revocation. Advertised as optional
+`accountAuth.browserInstallationRevocation: true` when account mode, account control and identity
+management are enabled. This additive endpoint requires the same Desktop bearer, bounded JSON
+`{ "grant": "hgg_..." }`, single-use `account.installation.revoke` grant and UUID `Idempotency-Key`
+as phone revocation above. Only an active `kind: "browser"` installation in the caller’s account is
+accepted. It uses the same atomic session/refresh/grant revocation and audit transaction; exact
+retries return `204`, including after the first success consumed the grant. It cannot target a
+phone, Desktop, Connector binding or another account.
+
+Clients must treat an absent capability as unsupported: still display browser records from
+`GET /v2/installations`, but do not send browser revocation requests or request verification for them.
+Deploy Gateway before Desktop. Existing phone DELETE and Web Cookie/CSRF routes are unchanged;
+Android and Web require no coordinated client release. No schema or wire protocol change.
 
 ### `DELETE /v2/installations/current`
 

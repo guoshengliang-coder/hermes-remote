@@ -113,7 +113,7 @@ export class AccountControlService {
       case "replayed": return;
       case "not_found": throw accountErrors.resourceNotFound();
       case "invalid_target": throw accountErrors.invalidRequest(
-        "Only phone installations can be revoked here.",
+        "The installation kind is not supported by this route.",
       );
       case "current_installation": throw accountErrors.invalidRequest(
         "The current installation must sign out itself.",
@@ -137,6 +137,22 @@ export class AccountControlService {
       grant,
       idempotencyKey,
       "phone",
+    );
+  }
+
+  async revokeManagedBrowserInstallation(
+    principal: AccountPrincipal,
+    targetInstallationId: string,
+    grant: string,
+    idempotencyKey: string,
+  ): Promise<void> {
+    requireDesktop(principal);
+    await this.revokeAccountInstallation(
+      principal,
+      targetInstallationId,
+      grant,
+      idempotencyKey,
+      "browser",
     );
   }
 

@@ -4,9 +4,9 @@ import SwiftUI
 struct AccountDevicesView: View {
     var accountOnly = false
     @EnvironmentObject private var model: DesktopViewModel
-    @State private var phoneToRemove: ManagedAccountInstallation?
-    @State private var phoneVerificationCode = ""
-    @State private var phoneVerificationChallenge: DesktopEmailVerificationChallenge?
+    @State private var loginDeviceToRevoke: ManagedAccountInstallation?
+    @State private var loginDeviceVerificationCode = ""
+    @State private var loginDeviceVerificationChallenge: DesktopEmailVerificationChallenge?
     @State private var accountEmail = ""
     @State private var accountCode = ""
     @State private var accountEmailChallenge: DesktopEmailVerificationChallenge?
@@ -60,11 +60,11 @@ struct AccountDevicesView: View {
             }
             .padding(34)
         }
-        .sheet(item: $phoneToRemove, onDismiss: {
-            phoneVerificationChallenge = nil
-            phoneVerificationCode = ""
+        .sheet(item: $loginDeviceToRevoke, onDismiss: {
+            loginDeviceVerificationChallenge = nil
+            loginDeviceVerificationCode = ""
         }) { phone in
-            phoneRevocationSheet(phone)
+            loginDeviceRevocationSheet(phone)
         }
         .sheet(isPresented: $showsAcceptInvitation) { acceptInvitationSheet }
         .sheet(item: $shareDevice) { device in
@@ -174,7 +174,13 @@ struct AccountDevicesView: View {
         if accountOnly {
             accountCard(dashboard)
             if let issue = dashboard.sectionIssues[.installations] { accountIssueCard(issue) }
-            else { phonesCard(dashboard.phones) }
+            else {
+                AccountLoginDevicesCard(dashboard: dashboard, isBusy: model.isAccountOperationInProgress) { installation in
+                    loginDeviceVerificationChallenge = nil
+                    loginDeviceVerificationCode = ""
+                    loginDeviceToRevoke = installation
+                }
+            }
         } else {
             if let issue = dashboard.sectionIssues[.devices] {
                 statusCard(symbol: "wifi.exclamationmark", title: "设备列表暂时无法加载", detail: "请刷新重试。账号和本机功能仍可使用。")
@@ -412,24 +418,24 @@ struct AccountDevicesView: View {
         .frame(width: 470)
     }
 
-    private func phoneRevocationSheet(_ phone: ManagedAccountInstallation) -> some View {
+    private func loginDeviceRevocationSheet(_ installation: ManagedAccountInstallation) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("移除 \(phone.displayName)？")
+            Text("撤销 \(installation.displayName) 的登录？")
                 .font(.system(size: 20, weight: .bold))
-            Text("为确认是你本人，我们会向当前账号邮箱发送六位验证码。验证成功后，只撤销这台手机的账号登录；其他手机、Desktop 和 Hermes 不受影响。")
+            Text("为确认是你本人，我们会向当前账号邮箱发送六位验证码。验证成功后，只撤销这个手机 App 或浏览器的账号登录；其他登录设备和 Hermes 不受影响。")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let verification = phoneVerificationChallenge {
+            if let verification = loginDeviceVerificationChallenge {
                 Text("身份验证码已发送至 \(verification.email)")
                     .font(.system(size: 12, weight: .semibold))
-                TextField("六位验证码", text: $phoneVerificationCode)
+                TextField("六位验证码", text: $loginDeviceVerificationCode)
                     .textFieldStyle(.roundedBorder)
                 Button("重新发送身份验证码") {
                     Task {
-                        if let next = await model.requestPhoneRevocationVerification(id: phone.id) {
-                            phoneVerificationChallenge = next
-                            phoneVerificationCode = ""
+                        if let next = await model.requestLoginDeviceRevocationVerification(id: installation.id) {
+                            loginDeviceVerificationChallenge = next
+                            loginDeviceVerificationCode = ""
                         }
                     }
                 }
@@ -438,33 +444,33 @@ struct AccountDevicesView: View {
             }
             HStack {
                 Button("取消") {
-                    phoneToRemove = nil
-                    phoneVerificationChallenge = nil
-                    phoneVerificationCode = ""
+                    loginDeviceToRevoke = nil
+                    loginDeviceVerificationChallenge = nil
+                    loginDeviceVerificationCode = ""
                 }
                 .buttonStyle(.bordered)
                 Spacer()
-                if let verification = phoneVerificationChallenge {
-                    Button("验证并移除", role: .destructive) {
+                if let verification = loginDeviceVerificationChallenge {
+                    Button("验证并撤销登录", role: .destructive) {
                         Task {
-                            if await model.revokePhone(
-                                phone.id,
+                            if await model.revokeLoginDevice(
+                                installation.id,
                                 verification: verification,
-                                verificationCode: phoneVerificationCode
+                                verificationCode: loginDeviceVerificationCode
                             ) {
-                                phoneToRemove = nil
-                                phoneVerificationChallenge = nil
-                                phoneVerificationCode = ""
+                                loginDeviceToRevoke = nil
+                                loginDeviceVerificationChallenge = nil
+                                loginDeviceVerificationCode = ""
                             }
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!isSixDigitCode(phoneVerificationCode) || model.isAccountOperationInProgress)
+                    .disabled(!isSixDigitCode(loginDeviceVerificationCode) || model.isAccountOperationInProgress)
                 } else {
                     Button("发送身份验证码") {
                         Task {
-                            phoneVerificationChallenge = await model.requestPhoneRevocationVerification(
-                                id: phone.id
+                            loginDeviceVerificationChallenge = await model.requestLoginDeviceRevocationVerification(
+                                id: installation.id
                             )
                         }
                     }
@@ -606,61 +612,6 @@ struct AccountDevicesView: View {
 
     private func isSixDigitCode(_ value: String) -> Bool {
         value.count == 6 && value.allSatisfy { $0.isASCII && $0.isNumber }
-    }
-
-    private func formattedActivity(_ value: String) -> String {
-        let format = ISO8601DateFormatter()
-        format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = format.date(from: value) ?? ISO8601DateFormatter().date(from: value)
-        return date?.formatted(date: .abbreviated, time: .shortened) ?? "未知"
-    }
-
-    private func phonesCard(_ phones: [ManagedAccountInstallation]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("登录设备 · 手机")
-                    .font(.system(size: 17, weight: .bold))
-                Spacer()
-                Text("\(phones.count) 台")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.bottom, 12)
-            if phones.isEmpty {
-                Text("还没有手机使用这个账号登录。")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 14)
-            } else {
-                ForEach(Array(phones.enumerated()), id: \.element.id) { index, phone in
-                    if index > 0 { Divider() }
-                    HStack(spacing: 12) {
-                        Image(systemName: "iphone")
-                            .foregroundStyle(Color.hermesBlue)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(phone.displayName)
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("\(phone.status == "active" ? "登录有效" : "已撤销") · 最近活动 \(formattedActivity(phone.lastSeenAt))")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Button("移除", role: .destructive) {
-                            phoneVerificationChallenge = nil
-                            phoneVerificationCode = ""
-                            phoneToRemove = phone
-                        }
-                            .buttonStyle(.bordered)
-                            .disabled(phone.status != "active" || model.isAccountOperationInProgress)
-                    }
-                    .frame(minHeight: 54)
-                }
-            }
-        }
-        .padding(20)
-        .hermesCard()
     }
 
     private func statusCard(symbol: String, title: String, detail: String) -> some View {

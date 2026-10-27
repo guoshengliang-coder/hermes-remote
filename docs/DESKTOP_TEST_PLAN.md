@@ -16,6 +16,17 @@ swiftc -parse-as-library -I desktop/.build/arm64-apple-macosx/debug/Modules desk
 本机验收输出在 `/tmp/operation-ui`（macOS `/private/tmp/operation-ui`）。模拟原生窗口不是实际升级验收；仍需在发布后，用获准的测试 Mac 验证组件准备→确认→服务切换→Desktop 重启，以及真实网络中断后的重试。不要为验收升级或停止用户日常 Hermes。
 
 
+## 2026-10-27：WebApp 登录设备回归（待发布）
+
+测试影响：覆盖 phone/browser 混合列表及 phone-only 旧属性、能力字段缺省/存在的解码、旧服务器只读降级、邮箱再验证、浏览器 DELETE 路由和授权体、丢失响应后复用 grant/idempotency key。Gateway 覆盖 Desktop-only、缺少 grant、功能关闭、目标类型限制；真实 PostgreSQL 验证账号隔离、撤销后 access/refresh 失效、其他浏览器/手机/Desktop 不受影响、精确重试。没有新增错误码，保留原鉴权/目标/幂等错误及其本地化映射。
+
+本地结果：Swift 706 项通过，资源检查和 app 构建通过（临时签名，不是发布物）。Gateway 启用独立 PostgreSQL 后 253 项通过、14 项按各自外部条件跳过、0 失败。根 npm build 通过；根 npm test 的协议 18、Connector 156、Gateway 225（未启用数据库时）、release-server 41 项通过。脚本测试 442 项通过、1 项跳过、2 项旧 legacy-recovery 解密失败；已在未修改 main 快照复现相同两项，不能把根基线写为全绿。
+
+原生卡片夹具：`scripts/desktop-login-devices-preview.swift`，与生产 `HermesDesign.swift`、`AccountLoginDevicesCard.swift` 一起链接 Swift debug Core 对象；输出混合、旧服务器、空、忙碌 × 浅色/深色/420pt 窄窗。结果位于 `/private/tmp/webapp-login-devices-ui/`。该夹具只用模拟数据，不发送验证码或操作真实登录。
+
+上线后待验收：手机浏览器与主屏幕 WebApp 实际登录，在 Desktop 刷新后核对类型/活动；完成一次邮箱验证撤销，确认该浏览器下一次请求要求重新登录、其他登录不受影响；重新登录后记录恢复。同一手机的浏览器和独立 WebApp 可能是不同安装记录，应分别显示。未操作用户真实账号或部署 Gateway。
+
+
 ## 2026-10-27：下载与阶段重试回归（0.2.46 / build 49）
 
 测试影响：覆盖真实 Git URL 重写且全局配置不变、手动/显式代理一致传递、Node 原生下载走回环测试代理、CR 行在进程退出前可见、Git 字节与对象计数分离、阶段失败/修改代理后重试、目标/脚本/环境改变、实际 PM 文件缺失，以及界面丢弃过期阶段事件。原先无凭据输出、目标版本检查、诊断失败和重复点击测试继续运行。结构化错误使用既有 HR-HERMESUPDATE-004/005，无新错误码。
