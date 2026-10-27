@@ -246,6 +246,43 @@ test("multi-device errors have stable recovery metadata and bilingual registry e
   }
 });
 
+test("Desktop browser revocation route preserves phone-only legacy route and requires reauthentication", async () => {
+  const repository = new FakeControlRepository();
+  const codec = new TokenCodec(HASH_KEY);
+  const control = new AccountControlService(repository, codec);
+  let caller: "desktop" | "phone" | "browser" = "desktop";
+  const controller = new AccountHttpController(true, {
+    authenticate: async () => principal(caller),
+  } as unknown as AccountService, {
+    controlEnabled: true, controlService: control, identityManagementEnabled: true,
+  });
+  const target = "879d7035-9ba5-456f-979a-98ab28ae89ec";
+  const grant = codec.issueReauthenticationGrant();
+  async function revoke(route: string, body: object) {
+    const response = new MemoryResponse();
+    await controller.handle(memoryRequest("DELETE", {
+      authorization: "Bearer test-access", "content-type": "application/json",
+      "idempotency-key": "85d92f97-4404-4713-97f4-30a33da91997",
+    }, JSON.stringify(body)), response.asServerResponse(), new URL(`http://localhost/v2/${route}/${target}`));
+    return response;
+  }
+  assert.equal((await revoke("browser-installations", {})).status, 400);
+  assert.equal(repository.revokedAccountInstallationID, undefined);
+  assert.equal((await revoke("browser-installations", { grant })).status, 204);
+  assert.equal(repository.accountInstallationRequiredKind, "browser");
+  assert.equal(repository.accountInstallationGrantHash, codec.hashReauthenticationGrant(grant));
+  assert.equal((await revoke("installations", { grant })).status, 204);
+  assert.equal(repository.accountInstallationRequiredKind, "phone");
+  for (const kind of ["phone", "browser"] as const) {
+    caller = kind;
+    const response = await revoke("browser-installations", { grant });
+    assert.equal((response.json() as { error: { code: string } }).error.code, "HR-ACCOUNT-007");
+  }
+  const capabilities = new MemoryResponse();
+  await controller.handle(memoryRequest("GET"), capabilities.asServerResponse(), new URL("http://localhost/v2/capabilities"));
+  assert.equal((capabilities.json() as { accountAuth: { browserInstallationRevocation: boolean } }).accountAuth.browserInstallationRevocation, true);
+});
+
 test("account control HTTP routes enforce recent authentication for managed phone revocation", async () => {
   const repository = new FakeControlRepository();
   repository.devices = [accountDevice()];

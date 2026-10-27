@@ -360,7 +360,9 @@ test("PostgreSQL enforces one Connector and isolates independently revocable pho
     );
     assert.equal((await control.getBinding(phoneBPrincipal)).state, "bound");
 
-    const browser = await signIn(accounts, "web", "Safari test browser");
+    const browserClientID = randomUUID();
+    const browser = await signIn(accounts, "web", "Safari test browser", browserClientID);
+    const otherBrowser = await signIn(accounts, "web", "Another browser");
     const browserPrincipal = await accounts.authenticate(`Bearer ${browser.session.accessToken}`);
     const securityInstallations = await control.listAccountInstallations(replacementPrincipal);
     assert.equal(securityInstallations.some(({ id, current }) => (
@@ -369,7 +371,7 @@ test("PostgreSQL enforces one Connector and isolates independently revocable pho
     assert.equal(securityInstallations.find(({ id }) => id === browserPrincipal.installation.id)
       ?.activeSessionCount, 1);
     await assert.rejects(
-      control.revokeAccountInstallation(
+      control.revokeManagedBrowserInstallation(
         replacementPrincipal,
         replacementPrincipal.installation.id,
         "not-used-for-current-installation",
@@ -378,7 +380,7 @@ test("PostgreSQL enforces one Connector and isolates independently revocable pho
       (error: unknown) => errorCode(error) === "HR-ACCOUNT-004",
     );
     await assert.rejects(
-      control.revokeAccountInstallation(
+      control.revokeManagedBrowserInstallation(
         replacementPrincipal,
         browserPrincipal.installation.id,
         wrongScopeGrant.grant,
@@ -392,14 +394,24 @@ test("PostgreSQL enforces one Connector and isolates independently revocable pho
       scope: "account.installation.revoke",
       idempotencyKey: randomUUID(),
     });
+    // Neither Desktop nor phone installations are valid browser-route targets; the grant survives.
+    for (const target of [winnerPrincipal.installation.id, phoneBPrincipal.installation.id]) {
+      await assert.rejects(control.revokeManagedBrowserInstallation(
+        replacementPrincipal, target, installationGrant.grant, randomUUID(),
+      ), (error: unknown) => errorCode(error) === "HR-ACCOUNT-004");
+    }
+    await assert.rejects(control.revokeManagedPhoneInstallation(
+      replacementPrincipal, browserPrincipal.installation.id, installationGrant.grant, randomUUID(),
+    ), (error: unknown) => errorCode(error) === "HR-ACCOUNT-004");
+    assert((await control.listInstallations(replacementPrincipal)).some(({ id }) => id === browserPrincipal.installation.id));
     const securityRevokeKey = randomUUID();
-    await control.revokeAccountInstallation(
+    await control.revokeManagedBrowserInstallation(
       replacementPrincipal,
       browserPrincipal.installation.id,
       installationGrant.grant,
       securityRevokeKey,
     );
-    await control.revokeAccountInstallation(
+    await control.revokeManagedBrowserInstallation(
       replacementPrincipal,
       browserPrincipal.installation.id,
       installationGrant.grant,
@@ -412,13 +424,16 @@ test("PostgreSQL enforces one Connector and isolates independently revocable pho
     await assert.rejects(
       accounts.refresh({
         refreshToken: browser.session.refreshToken,
-        clientInstallationId: browserPrincipal.installation.id,
+        clientInstallationId: browserClientID,
         idempotencyKey: randomUUID(),
       }),
       (error: unknown) => errorCode(error) === "HR-AUTH-003"
         || errorCode(error) === "HR-AUTH-004",
     );
     assert.equal((await control.getBinding(phoneBPrincipal)).state, "bound");
+    assert.equal((await accounts.authenticate(`Bearer ${otherBrowser.session.accessToken}`)).installation.kind, "browser");
+    assert.equal((await accounts.authenticate(`Bearer ${phoneB.session.accessToken}`)).installation.kind, "phone");
+    assert(!(await control.listInstallations(replacementPrincipal)).some(({ id }) => id === browserPrincipal.installation.id));
     const securityAudit = await control.listAccountAuditEvents(replacementPrincipal, 100);
     assert.equal(securityAudit[0]?.eventType, "account.installation.revoked");
     assert.equal("metadata" in (securityAudit[0] ?? {}), false);
@@ -566,6 +581,12 @@ test("PostgreSQL enforces one Connector and isolates independently revocable pho
       email: "account-b@example.invalid",
       displayName: "Account B",
     };
+    const foreignBrowser = await signIn(accounts, "web", "Foreign browser");
+    assert(!(await control.listInstallations(replacementPrincipal)).some(({ id }) => id === foreignBrowser.installation.id));
+    await assert.rejects(control.revokeManagedBrowserInstallation(
+      replacementPrincipal, foreignBrowser.installation.id, installationGrant.grant, randomUUID(),
+    ), (error: unknown) => errorCode(error) === "HR-ACCOUNT-006");
+    assert.equal((await accounts.authenticate(`Bearer ${foreignBrowser.session.accessToken}`)).installation.kind, "browser");
     const otherPhone = await signIn(accounts, "android", "Other account phone");
     const otherDesktop = await signIn(accounts, "macos", "Other account Desktop");
     const otherPrincipal = await accounts.authenticate(`Bearer ${otherPhone.session.accessToken}`);
@@ -607,12 +628,13 @@ async function signIn(
   service: AccountService,
   platform: AccountPlatform,
   displayName: string,
+  clientInstallationId: string = randomUUID(),
 ): Promise<AccountSessionResponse> {
   return service.exchangeGoogleProof({
     platform,
     idToken: "integration-provider-proof-not-persisted",
     nonce: randomBytes(16).toString("hex"),
-    clientInstallationId: randomUUID(),
+    clientInstallationId,
     displayName,
     appVersion: "0.0.0-test",
     idempotencyKey: randomUUID(),

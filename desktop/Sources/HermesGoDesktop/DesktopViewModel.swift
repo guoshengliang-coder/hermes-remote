@@ -758,7 +758,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         return false
     }
 
-    func requestPhoneRevocationVerification(
+    func requestLoginDeviceRevocationVerification(
         id: String
     ) async -> DesktopEmailVerificationChallenge? {
         guard !isAccountOperationInProgress, !isManagedBootstrapAccountLocked else { return nil }
@@ -766,7 +766,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         accountIssue = nil
         defer { isAccountOperationInProgress = false }
         do {
-            return try await accountController.requestPhoneRevocationVerification(id: id)
+            return try await accountController.requestLoginDeviceRevocationVerification(id: id)
         } catch let error as AccountClientError {
             accountIssue = DesktopIssue.account(error)
         } catch {
@@ -779,13 +779,13 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     @discardableResult
-    func revokePhone(
+    func revokeLoginDevice(
         _ id: String,
         verification: DesktopEmailVerificationChallenge,
         verificationCode: String
     ) async -> Bool {
         await performAccountOperation {
-            try await self.accountController.revokePhone(
+            try await self.accountController.revokeLoginDevice(
                 id: id,
                 verification: verification,
                 verificationCode: verificationCode

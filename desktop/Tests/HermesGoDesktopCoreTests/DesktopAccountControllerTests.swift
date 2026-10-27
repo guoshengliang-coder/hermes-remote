@@ -4,6 +4,23 @@ import XCTest
 @testable import HermesGoDesktopCore
 
 final class DesktopAccountControllerTests: XCTestCase {
+    func testLegacyGatewayStillListsBrowserButDisablesRevocation() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures)
+        let controller = DesktopAccountController(api: api,
+            sessionStore: MemoryAccountSessionStore(record: fixtures.record),
+            machineIdentityStore: MemoryMachineIdentityStore(), oauth: nil,
+            displayName: "Mac", appVersion: "0.3.0")
+        guard case .signedIn(let dashboard) = try await controller.bootstrap() else { return XCTFail() }
+        XCTAssertTrue(dashboard.loginDevices.contains(fixtures.browser))
+        XCTAssertFalse(dashboard.canRevokeLoginDevice(fixtures.browser))
+        XCTAssertTrue(dashboard.canRevokeLoginDevice(fixtures.phoneA))
+        do {
+            _ = try await controller.requestLoginDeviceRevocationVerification(id: fixtures.browser.id)
+            XCTFail("Old Gateway must not receive a browser mutation")
+        } catch { XCTAssertEqual(error as? AccountClientError, .invalidResponse) }
+    }
+
     func testDisabledGatewayKeepsAccountClientUnavailableWithoutStartingOAuth() async throws {
         let fixtures = AccountFixtures()
         let api = RecordingAccountAPI(fixtures: fixtures, accountEnabled: false)
@@ -53,6 +70,7 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertEqual(exchange.clientInstallationID, machine.clientInstallationID)
         XCTAssertEqual(exchange.displayName, "Living-room Mac mini")
         XCTAssertEqual(stored, fixtures.record)
+        XCTAssertEqual(dashboard.loginDevices.map { $0.displayName }, ["Phone A", "Phone B", "iPhone WebApp"])
         XCTAssertEqual(dashboard.phones.map { $0.displayName }, ["Phone A", "Phone B"])
         XCTAssertEqual(dashboard.binding.state, "no_binding")
         XCTAssertFalse(machine.connectorPublicKey.isEmpty)
@@ -167,10 +185,10 @@ final class DesktopAccountControllerTests: XCTestCase {
         )
 
         _ = try await controller.bootstrap()
-        let verification = try await controller.requestPhoneRevocationVerification(
+        let verification = try await controller.requestLoginDeviceRevocationVerification(
             id: fixtures.phoneA.id
         )
-        _ = try await controller.revokePhone(
+        _ = try await controller.revokeLoginDevice(
             id: fixtures.phoneA.id,
             verification: verification,
             verificationCode: "123456"
@@ -184,6 +202,43 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertNil(try sessions.load())
         XCTAssertEqual(try machines.loadOrCreate(), machineBefore)
         XCTAssertEqual(state, .signedOut)
+    }
+
+    func testBrowserRemovalUsesBrowserRouteAndPreservesDesktopIdentity() async throws {
+        let fixtures = AccountFixtures()
+        let api = RecordingAccountAPI(fixtures: fixtures, browserRevocationEnabled: true)
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let machines = MemoryMachineIdentityStore()
+        let machineBefore = try machines.loadOrCreate()
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: machines,
+            oauth: nil,
+            displayName: "Mac mini",
+            appVersion: "0.3.0"
+        )
+
+        _ = try await controller.bootstrap()
+        let verification = try await controller.requestLoginDeviceRevocationVerification(
+            id: fixtures.browser.id
+        )
+        let state = try await controller.revokeLoginDevice(
+            id: fixtures.browser.id,
+            verification: verification,
+            verificationCode: "123456"
+        )
+
+        let revokedBrowserID = await api.revokedBrowserID()
+        let revokedPhoneID = await api.revokedPhoneID()
+        let didSignOut = await api.didSignOut()
+        XCTAssertEqual(revokedBrowserID, fixtures.browser.id)
+        XCTAssertNil(revokedPhoneID)
+        XCTAssertFalse(didSignOut)
+        XCTAssertEqual(try sessions.load()?.installation.id, fixtures.record.installation.id)
+        XCTAssertEqual(try machines.loadOrCreate(), machineBefore)
+        guard case .signedIn(let dashboard) = state else { return XCTFail("Desktop must stay signed in") }
+        XCTAssertTrue(dashboard.canRevokeLoginDevice(fixtures.browser))
     }
 
     func testPhoneRevocationRequiresEmailGrantAndReusesItAfterLostResponse() async throws {
@@ -203,11 +258,11 @@ final class DesktopAccountControllerTests: XCTestCase {
         )
 
         _ = try await controller.bootstrap()
-        let verification = try await controller.requestPhoneRevocationVerification(
+        let verification = try await controller.requestLoginDeviceRevocationVerification(
             id: fixtures.phoneA.id
         )
         await XCTAssertThrowsErrorAsync(
-            try await controller.revokePhone(
+            try await controller.revokeLoginDevice(
                 id: fixtures.phoneA.id,
                 verification: verification,
                 verificationCode: "123456"
@@ -218,7 +273,7 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertEqual(try sessions.load()?.pendingReauthenticationGrants?.count, 1)
         XCTAssertEqual(try sessions.load()?.pendingOperationIdempotencyKeys?.count, 1)
 
-        _ = try await controller.revokePhone(
+        _ = try await controller.revokeLoginDevice(
             id: fixtures.phoneA.id,
             verification: verification,
             verificationCode: "123456"
@@ -232,6 +287,62 @@ final class DesktopAccountControllerTests: XCTestCase {
         XCTAssertEqual(reauthenticationAttempts[0].code, "123456")
         XCTAssertEqual(revokeAttempts.count, 2)
         XCTAssertEqual(revokeAttempts.map(\.id), [fixtures.phoneA.id, fixtures.phoneA.id])
+        XCTAssertEqual(revokeAttempts.map(\.grant), [revokeAttempts[0].grant, revokeAttempts[0].grant])
+        XCTAssertEqual(
+            revokeAttempts.map(\.idempotencyKey),
+            [revokeAttempts[0].idempotencyKey, revokeAttempts[0].idempotencyKey]
+        )
+        XCTAssertNil(try sessions.load()?.pendingReauthenticationGrants)
+        XCTAssertNil(try sessions.load()?.pendingOperationIdempotencyKeys)
+    }
+
+    func testBrowserRevocationRequiresEmailGrantAndReusesItAfterLostResponse() async throws {
+        let fixtures = AccountFixtures()
+        let sessions = MemoryAccountSessionStore(record: fixtures.record)
+        let api = RecordingAccountAPI(
+            fixtures: fixtures,
+            browserRevocationEnabled: true,
+            phoneRevocationFailuresRemaining: 1
+        )
+        let controller = DesktopAccountController(
+            api: api,
+            sessionStore: sessions,
+            machineIdentityStore: MemoryMachineIdentityStore(),
+            oauth: nil,
+            displayName: "Mac mini",
+            appVersion: "0.4.0"
+        )
+
+        _ = try await controller.bootstrap()
+        let verification = try await controller.requestLoginDeviceRevocationVerification(
+            id: fixtures.browser.id
+        )
+        await XCTAssertThrowsErrorAsync(
+            try await controller.revokeLoginDevice(
+                id: fixtures.browser.id,
+                verification: verification,
+                verificationCode: "123456"
+            )
+        ) { error in
+            XCTAssertEqual(error as? AccountClientError, .transport)
+        }
+        XCTAssertEqual(try sessions.load()?.pendingReauthenticationGrants?.count, 1)
+        XCTAssertEqual(try sessions.load()?.pendingOperationIdempotencyKeys?.count, 1)
+
+        _ = try await controller.revokeLoginDevice(
+            id: fixtures.browser.id,
+            verification: verification,
+            verificationCode: "123456"
+        )
+        let reauthenticationAttempts = await api.emailReauthenticationAttempts()
+        let revokeAttempts = await api.phoneRevocationAttempts()
+
+        XCTAssertEqual(reauthenticationAttempts.count, 1)
+        XCTAssertEqual(reauthenticationAttempts[0].scope, "account.installation.revoke")
+        XCTAssertEqual(reauthenticationAttempts[0].email, fixtures.account.email)
+        XCTAssertEqual(reauthenticationAttempts[0].code, "123456")
+        XCTAssertEqual(revokeAttempts.count, 2)
+        XCTAssertEqual(revokeAttempts.map(\.id), [fixtures.browser.id, fixtures.browser.id])
         XCTAssertEqual(revokeAttempts.map(\.grant), [revokeAttempts[0].grant, revokeAttempts[0].grant])
         XCTAssertEqual(
             revokeAttempts.map(\.idempotencyKey),
@@ -355,7 +466,7 @@ final class DesktopAccountControllerTests: XCTestCase {
 
         _ = try await controller.bootstrap()
         await XCTAssertThrowsErrorAsync(
-            try await controller.requestPhoneRevocationVerification(id: fixtures.phoneA.id)
+            try await controller.requestLoginDeviceRevocationVerification(id: fixtures.phoneA.id)
         ) { error in
             guard case .remote(let remote)? = error as? AccountClientError else {
                 return XCTFail("Expected a structured account error")
@@ -1187,6 +1298,10 @@ private struct AccountFixtures {
         status: "active",
         current: false
     )
+    let browser = ManagedAccountInstallation(
+        id: "30000000-0000-4000-8000-000000000003", kind: "browser", platform: "web",
+        displayName: "iPhone WebApp", lastSeenAt: "2026-10-27T00:00:00Z", status: "active", current: false
+    )
     let phoneB = ManagedAccountInstallation(
         id: "30000000-0000-4000-8000-000000000002",
         kind: "phone",
@@ -1235,6 +1350,7 @@ private struct AccountFixtures {
         sharingEnabled: Bool = false,
         bindingEnabled: Bool = true,
         identityManagementEnabled: Bool = true,
+        browserRevocationEnabled: Bool = false,
         accountDeletionEnabled: Bool = false
     ) -> AccountCapabilities {
         AccountCapabilities(
@@ -1245,6 +1361,7 @@ private struct AccountFixtures {
                 android: true,
                 macos: true,
                 identityManagement: identityManagementEnabled,
+                browserInstallationRevocation: browserRevocationEnabled ? true : nil,
                 accountDeletion: accountDeletionEnabled
             ),
             binding: .init(
@@ -1407,6 +1524,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
     private let multiDeviceEnabled: Bool
     private let sharingEnabled: Bool
     private let bindingEnabled: Bool
+    private let browserRevocationEnabled: Bool
     private let identityManagementEnabled: Bool
     private let accountDeletionEnabled: Bool
     private var shareManagementHistory: [String] = []
@@ -1432,6 +1550,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         sharingEnabled: Bool = false,
         bindingEnabled: Bool = true,
         identityManagementEnabled: Bool = true,
+        browserRevocationEnabled: Bool = false,
         accountDeletionEnabled: Bool = false,
         accountDeletionFailuresRemaining: Int = 0,
         phoneRevocationFailuresRemaining: Int = 0,
@@ -1452,6 +1571,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         self.multiDeviceEnabled = multiDeviceEnabled
         self.sharingEnabled = sharingEnabled
         self.bindingEnabled = bindingEnabled
+        self.browserRevocationEnabled = browserRevocationEnabled
         self.identityManagementEnabled = identityManagementEnabled
         self.accountDeletionEnabled = accountDeletionEnabled
         self.accountDeletionFailuresRemaining = accountDeletionFailuresRemaining
@@ -1475,6 +1595,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
                 sharingEnabled: sharingEnabled,
                 bindingEnabled: bindingEnabled,
                 identityManagementEnabled: identityManagementEnabled,
+                browserRevocationEnabled: browserRevocationEnabled,
                 accountDeletionEnabled: accountDeletionEnabled
             )
         }
@@ -1554,7 +1675,7 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
     func installations(accessToken: String) async throws -> [ManagedAccountInstallation] {
         if let installationReadFailure { throw installationReadFailure }
         guard identityManagementEnabled else { throw AccountClientError.transport }
-        return [fixtures.phoneA, fixtures.phoneB]
+        return [fixtures.phoneA, fixtures.phoneB, fixtures.browser]
     }
     func binding(accessToken: String) async throws -> AccountBindingSnapshot {
         guard bindingEnabled else { throw AccountClientError.transport }
@@ -1782,6 +1903,16 @@ private actor RecordingAccountAPI: AccountAPIRequesting {
         )
     }
 
+    private var revokedBrowser: String?
+    func revokedBrowserID() -> String? { revokedBrowser }
+    func revokeBrowser(id: String, grant: String, accessToken: String, idempotencyKey: String) async throws {
+        revokedBrowser = id
+        phoneRevocationHistory.append(.init(id: id, grant: grant, idempotencyKey: idempotencyKey))
+        if phoneRevocationFailuresRemaining > 0 {
+            phoneRevocationFailuresRemaining -= 1
+            throw AccountClientError.transport
+        }
+    }
     func revokePhone(
         id: String,
         grant: String,

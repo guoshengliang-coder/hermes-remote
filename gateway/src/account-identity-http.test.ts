@@ -11,6 +11,9 @@ const IDEMPOTENCY_KEY = "9e0a2044-94fc-44d0-a81c-498ea343d085";
 
 test("identity management and Web account shell remain independently default-off", async () => {
   const controller = new AccountHttpController(true, {} as AccountService);
+  const capabilities = new MemoryResponse();
+  await controller.handle(memoryRequest("GET"), capabilities.asServerResponse(), new URL("http://localhost/v2/capabilities"));
+  assert.equal((capabilities.json() as { accountAuth: { browserInstallationRevocation?: boolean } }).accountAuth.browserInstallationRevocation, undefined);
   const identities = new MemoryResponse();
   await controller.handle(
     memoryRequest("GET", { authorization: "Bearer ignored" }),
@@ -33,6 +36,22 @@ test("identity management and Web account shell remain independently default-off
   assert.equal(phoneRevocation.status, 503);
   assert.equal(
     (phoneRevocation.json() as { error: { code: string } }).error.code,
+    "HR-ACCOUNT-009",
+  );
+
+  const browserRevocation = new MemoryResponse();
+  await controller.handle(
+    memoryRequest("DELETE", {
+      authorization: "Bearer ignored",
+      "content-type": "application/json",
+      "idempotency-key": IDEMPOTENCY_KEY,
+    }, JSON.stringify({ grant: `hgg_${"g".repeat(43)}` })),
+    browserRevocation.asServerResponse(),
+    new URL("http://localhost/v2/browser-installations/879d7035-9ba5-456f-979a-98ab28ae89ec"),
+  );
+  assert.equal(browserRevocation.status, 503);
+  assert.equal(
+    (browserRevocation.json() as { error: { code: string } }).error.code,
     "HR-ACCOUNT-009",
   );
 

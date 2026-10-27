@@ -43,6 +43,7 @@ export interface AccountCapabilities {
     android: boolean;
     macos: boolean;
     identityManagement: boolean;
+    browserInstallationRevocation?: true;
     accountDeletion?: true;
     accountDataSync?: { version: 1; entities: ["accountProfile"] };
     modelPreferencesSync?: { version: 1; maxModels: 500; retentionDays: 90 };
@@ -1025,6 +1026,23 @@ export class AccountHttpController {
         return;
       }
 
+      const browserInstallationMatch = /^\/v2\/browser-installations\/([0-9a-f-]{36})$/i.exec(url.pathname);
+      if (browserInstallationMatch && request.method === "DELETE") {
+        this.requireIdentityManagement();
+        const control = this.requireAccountSecurity();
+        const principal = await this.service.authenticate(firstHeader(request, "authorization"));
+        const body = await readJsonObject(request);
+        await control.revokeManagedBrowserInstallation(
+          principal,
+          uuid(browserInstallationMatch[1], "installationId"),
+          boundedString(body.grant, "grant", 1, 256),
+          uuid(firstHeader(request, "idempotency-key"), "Idempotency-Key"),
+        );
+        response.writeHead(204, { "cache-control": "no-store" });
+        response.end();
+        return;
+      }
+
       if (url.pathname === "/v2/devices"
           && request.method === "GET"
           && this.options.multiDeviceEnabled) {
@@ -1448,6 +1466,8 @@ function capabilities(
       android: true,
       macos: true,
       identityManagement: enabled && identityManagementEnabled,
+      ...(enabled && controlEnabled && identityManagementEnabled
+        ? { browserInstallationRevocation: true as const } : {}),
       ...(enabled && accountDeletionEnabled ? { accountDeletion: true as const } : {}),
       webAccountCenter: enabled && webAccountCenterEnabled,
       ...(enabled && webSessionEnabled ? { webSessions: true as const } : {}),
