@@ -1,9 +1,13 @@
 # Hermes Go Desktop
 
-## 0.2.44 / build 47：Hermes 稳定版升级首阶段（待发布，2026-10-27）
+## 0.2.44 / build 47：Hermes 稳定版升级首阶段（已发布，2026-10-27）
 
-本机 Hermes 页支持版本检测、官方稳定版及关键更新展示、点击升级、实际版本确认和升级后自动运行现有 GO 诊断。旧的兼容推荐/条件检查不再作为按钮前置条件。官方安装器按目标提交更新已有安装，运行期间保持 Desktop 开启；不包含自建停写、自动回滚、独立后台执行或问题上报。发布说明缺少中文摘要时显示官方原文。以下历史版本说明不代表此功能已发布。
+本机 Hermes 页支持版本检测、官方稳定版及关键更新展示、点击升级、实际版本确认和升级后自动运行现有 GO 诊断。旧的兼容推荐/条件检查不再作为按钮前置条件。官方安装器按目标提交更新已有安装，运行期间保持 Desktop 开启；不包含自建停写、自动回滚、独立后台执行或问题上报。发布说明缺少中文摘要时显示官方原文。官网与 Desktop 更新入口已同步，公开完整安装包校验通过；这是临时签名内测版。日常 Desktop/Hermes 未由发布操作替换，实际客户端升级及账号/手机验收仍需单独完成。
 
+
+下载：[Hermes Go Desktop 0.2.44](https://mrlgs.net/desktop/apps/0.2.44/Hermes-Go-Desktop-0.2.44-dev.dmg)。
+
+## Previous distribution: 0.2.42
 
 Published **0.2.42 / build 45** on 2026-10-25 on the owner-authorized ad-hoc internal channel.
 Hermes conditions now explain custom Git configuration refusal (#666), preserving the existing

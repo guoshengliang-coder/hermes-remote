@@ -1,20 +1,31 @@
 # Desktop release channel
 
-## Internal test candidate: 0.2.44 / build 47
+## Published internal test distribution: 0.2.44 / build 47
 
-The owner requested merge and publication on 2026-10-27. This patch adds local Hermes version
-recognition, official stable release notes, click-to-upgrade using the target upstream installer,
-and automatic GO runtime diagnostics after confirming the installed version (#678). The existing
-0.2.43/build 46 public package remains immutable. Allocate the next patch/build and retain the
-installed public trust/update configuration on the established ad-hoc internal channel.
+Owner-authorized publication completed on 2026-10-27 after feature PR #678, version PR #679
+and both resulting main gates passed. Built from clean main
+`45858433b44b2788272d58ec642a88097df00658`. Adds local Hermes version recognition, official
+stable release notes, click-to-upgrade in the existing installation using the target official
+installer, actual version confirmation and automatic GO diagnostics. No compatibility registry,
+automatic rollback or issue submission is included; Desktop must remain running during upgrade.
 
-Verification impact: this version/documentation change introduces no new runtime behavior or error
-codes; reuse the 684-test Desktop suite plus assets, app/DMG packaging and internal publication tests.
-Build only from clean current main after this version PR passes the merge gate. Publication must
-verify both complete public DMGs and website/app-update discovery. Signed component pointers remain
-unchanged. Daily Hermes is not upgraded by publishing Desktop. Apple notarization, actual installed
-Desktop upgrade/relaunch and phone/account end-to-end acceptance remain separate from package checks.
-The exact source, byte/hash and publication results are recorded after the publisher completes.
+Assets, **684 Swift tests**, **15 publication/update tooling tests**, release app/DMG builds,
+strict ad-hoc signature, mounted bundle identity/version/build/arm64, public configuration
+continuity and image integrity passed. Both public DMGs match **4,077,879 bytes**, SHA-256
+`2fc126e932d8e59aea50df9e66d5e83ac3e365c271f83ddcc2cee2e0ed5f18fa`.
+The first unified publisher attempt returned HR-SITE-004 after uploading the immutable file.
+The server hash, both complete public DMGs and all four unchanged indexes were reconciled before
+retrying with the exact same package, receipt time and notes. That retry passed both publisher
+success markers. Independent full downloads and website/app-update discovery verified 0.2.44/build 47;
+the two signed managed-component/release pointers remained byte-identical. No immutable file was
+overwritten. The precise cause of the first failed attempt was not established.
+
+The owner's installed Desktop 0.2.43 and daily Hermes were not replaced or upgraded. Actual
+installed-client update/relaunch, production account/phone behavior and clean-machine acceptance
+remain separate. This is temporary ad-hoc internal distribution, not Apple notarization. The
+isolated Hermes installer/runtime and native UI fixture evidence is in `DESKTOP_TEST_PLAN.md`.
+
+Download: `https://mrlgs.net/desktop/apps/0.2.44/Hermes-Go-Desktop-0.2.44-dev.dmg`.
 
 ## Published internal test distribution: 0.2.42
 
