@@ -16,7 +16,7 @@ swiftc -parse-as-library -I desktop/.build/arm64-apple-macosx/debug/Modules desk
 本机验收输出在 `/tmp/operation-ui`（macOS `/private/tmp/operation-ui`）。模拟原生窗口不是实际升级验收；仍需在发布后，用获准的测试 Mac 验证组件准备→确认→服务切换→Desktop 重启，以及真实网络中断后的重试。不要为验收升级或停止用户日常 Hermes。
 
 
-## 2026-10-27：WebApp 登录设备回归（待发布）
+## 2026-10-27：WebApp 登录设备回归（0.2.47 / build 50）
 
 测试影响：覆盖 phone/browser 混合列表及 phone-only 旧属性、能力字段缺省/存在的解码、旧服务器只读降级、邮箱再验证、浏览器 DELETE 路由和授权体、丢失响应后复用 grant/idempotency key。Gateway 覆盖 Desktop-only、缺少 grant、功能关闭、目标类型限制；真实 PostgreSQL 验证账号隔离、撤销后 access/refresh 失效、其他浏览器/手机/Desktop 不受影响、精确重试。没有新增错误码，保留原鉴权/目标/幂等错误及其本地化映射。
 
