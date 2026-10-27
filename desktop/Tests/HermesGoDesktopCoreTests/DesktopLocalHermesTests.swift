@@ -212,6 +212,65 @@ final class DesktopLocalHermesDetectorTests: XCTestCase {
         XCTAssertNotNil(home.detect(environment: ["HERMES_HOME": home.path(".hermes")]).installation)
     }
 
+    func testOfficialOsascriptLauncherRecognisesExistingHermesWithoutChangingFiles() throws {
+        let home = try LocalHermesHome()
+        let args = try osascriptArguments([home.path(".hermes/hermes-agent/venv/bin/python"), "-m", "hermes_cli.main", "gateway", "run"])
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", ["ProgramArguments": args])
+        let plist = URL(fileURLWithPath: home.path("Library/LaunchAgents/ai.hermes.gateway.plist"))
+        let before = try Data(contentsOf: plist)
+        XCTAssertEqual(home.detect().installation?.version, "0.21.3")
+        XCTAssertEqual(try Data(contentsOf: plist), before)
+        XCTAssertNil(home.detector().loopbackPortOccupantLabel(), "gateway is not the serve listener")
+    }
+
+    func testOsascriptLauncherPreservesForeignRootAndCustomDataHomeChecks() throws {
+        let home = try LocalHermesHome()
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", ["ProgramArguments": try osascriptArguments(["/opt/other-hermes/venv/bin/python", "-m", "hermes_cli.main", "gateway", "run"])])
+        XCTAssertEqual(home.reason(), .nonStandardLocation)
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", [
+            "ProgramArguments": try osascriptArguments([home.path(".hermes/hermes-agent/venv/bin/hermes"), "gateway", "run"]),
+            "EnvironmentVariables": ["HERMES_HOME": "/Volumes/Other/hermes"]])
+        XCTAssertEqual(home.reason(), .customHermesHome)
+    }
+
+    func testUnknownOsascriptIsUnverifiedInsteadOfMistakenForHermesPath() throws {
+        let home = try LocalHermesHome()
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", ["ProgramArguments": ["/usr/bin/osascript", "-e", "display dialog \"hello\""]])
+        guard case .unsupported(.nonStandardLocation, let detail) = home.detect() else { return XCTFail("must remain unverified") }
+        XCTAssertTrue(detail.contains("osascript target could not be verified"))
+        XCTAssertFalse(detail.contains("hello"), "never include arbitrary script contents in diagnostics")
+    }
+
+    func testWrappedPMCommandAndServePortAreRecognised() throws {
+        let home = try LocalHermesHome()
+        try home.prepareStampedPM()
+        let launcher = home.path(".hermes/hermes-agent/.hermes/bin/hermes")
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", ["ProgramArguments": try osascriptArguments([
+            launcher, "--run-module", "hermes_cli.stderr_timestamp", "--error-log", "/tmp/gateway.log", "--", launcher, "gateway", "run", "--external-supervisor"])])
+        XCTAssertEqual(home.detect().installation?.version, "0.22.5")
+        try home.writeLaunchAgent("com.hermes.dashboard.plist", ["ProgramArguments": try osascriptArguments([launcher, "serve", "--port", "9119"])])
+        XCTAssertEqual(home.detector().loopbackPortOccupantLabel(), "com.hermes.dashboard")
+    }
+
+    func testExplicitProgramCannotMasqueradeAsOsascript() throws {
+        let home = try LocalHermesHome()
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", [
+            "Program": "/bin/sh",
+            "ProgramArguments": try osascriptArguments([home.path(".hermes/hermes-agent/venv/bin/hermes"), "gateway", "run"])])
+        XCTAssertEqual(home.reason(), .nonStandardLocation)
+    }
+
+    private func osascriptArguments(_ command: [String]) throws -> [String] {
+        func quote(_ value: String) -> String {
+            if value.range(of: "^[A-Za-z0-9_@%+=:,./-]+$", options: .regularExpression) != nil { return value }
+            return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        }
+        let shell = "exec " + command.map(quote).joined(separator: " ") + " >> '/tmp/hermes stdout.log' 2>> '/tmp/hermes stderr.log'"
+        let literal = String(decoding: try JSONEncoder().encode(shell), as: UTF8.self)
+        return ["/usr/bin/osascript", "-l", "JavaScript", "-e",
+                "ObjC.import(\"stdlib\"); const status=$.system(" + literal + "); const signal=status & 127; $.exit(status === -1 ? 1 : signal === 0 ? (status >> 8) & 255 : 128 + signal);"]
+    }
+
     func testTheOwnersOwnLaunchAgentsDecideWhereHermesRuns() throws {
         let home = try LocalHermesHome()
         // Shaped like the real ai.hermes.gateway agent on the owner's Mac mini.

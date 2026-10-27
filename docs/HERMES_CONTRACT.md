@@ -1,5 +1,11 @@
 # Hermes upstream contract
 
+## 2026-10-27：Desktop 消费官方 launchd JXA 文法
+
+`DesktopHermesLaunchdCommand` 消费 `hermes_cli/gateway_launchd.py::launchd_program_arguments` 的固定五参数 `/usr/bin/osascript -l JavaScript -e <script>`。核对 v0.22.5（bf0203a794a07aac3ff764972ab9087baa4e4f4e）及 v0.21.4+canary.20260929T070217Z 源码，两者均为固定 ObjC stdlib/system/exit 包装、JSON 编码的 shell 字符串和 `exec <shlex.join(command)> >> <quoted stdout> 2>> <quoted stderr>`。
+
+解析器只静态解码，并用上游 shlex 引号规则重建后逐字匹配；不运行 JXA、shell 或 Hermes。实际命令交给现有安装检测；不支持的格式继续 HR-MIGRATE-008。采用新上游版本时核对该生成函数及 PM/Python 启动命令，并更新固定夹具和检测器测试；不要通过执行未知启动脚本来确认路径。该契约只用于 Desktop，本次不改变 Gateway、Connector、Android 或 Web 协议。
+
 ## Stable upgrade download / retry adapter (2026-10-27)
 
 The progress adapter requests Git `fetch`/`clone --progress` through a private PATH wrapper; it parses only `Receiving objects: …, N MiB | N MiB/s` byte facts. Unknown output remains diagnostic text. No upstream file is patched. Successful protocol-v1 stages are resumable only within the current Desktop process, with an identical target/script and matching file evidence. Checked against local upstream v0.22.5: `stage_venv` bootstraps uv Python, `python-deps` calls PM, `config` prepares home paths, `products` calls source completion. PM `install_key` is the first 16 SHA-256 hex characters of the canonical source path; `installs/<key>/facts.json` → `packages.venv.environment` selects the environment, with `pyvenv.cfg` and Python required. Unsupported evidence reruns a stage instead of claiming reuse. Products still require the official successful result before recording completion.

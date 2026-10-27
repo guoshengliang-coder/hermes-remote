@@ -1,5 +1,9 @@
 # Hermes Go Desktop phase 0
 
+## 2026-10-27：识别官方 osascript 启动包装
+
+本机检测器静态解码上游 `gateway_launchd.launchd_program_arguments` 的固定 JXA 包装，按包装中的实际可执行文件判断安装目录，不再把 `/usr/bin/osascript` 当作 Hermes 路径。保留原有版本、依赖、配置目录和外部安装检查；未知包装仍显示 HR-MIGRATE-008，详情说明无法确认启动目标。检测不执行包装脚本，不修改 Hermes 安装、数据或 LaunchAgent。
+
 ## 2026-10-27：操作状态可观察性（0.2.47 / build 50）
 
 新增只读状态适配层、任务计时跟踪器与独立进度窗口，复用 Hermes version manager、managed/component setup progress 和既有错误/恢复动作。准备、等待确认、服务切换、下载、检测及终态均有明确文案；通用 busy 标记不再冒充正在执行。背景准备/App 包下载与修复执行器未提供的细粒度统计保持未知，不改执行协议。准备失败重新检查；既有 Hermes 阶段重试仍走原实现；待清理只走既有清理重试。全程未增加超时终止、自动重跑或后台守护机制。
