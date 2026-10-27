@@ -18,26 +18,42 @@ public final class DesktopHermesVersionManager: ObservableObject {
     @Published public private(set) var startedAt: Date?
     @Published public private(set) var stepStartedAt: Date?
     @Published public private(set) var lastOutputAt: Date?
+    @Published public private(set) var transfer: DesktopHermesTransferProgress?
+    @Published public private(set) var transferAt: Date?
+    @Published public private(set) var networkSummary = ""
+    @Published public private(set) var substep = ""
+    @Published public private(set) var retainedStageCount = 0
+    public var retryTitle: String {
+        phase == .failed ? "重试：" + step.titleChinese : ""
+    }
     private var attemptID: UUID?
     public var completedStepCount: Int {
-        phase == .completed ? DesktopHermesUpgradeStep.allCases.count : step.index
+        phase == .completed ? DesktopHermesUpgradeStep.allCases.count : max(step.index, retainedStageCount == 0 ? 0 : retainedStageCount + 1)
     }
     private var upgradedAt: Date?
     private var retryTarget: DesktopHermesUpgradeTarget?
     private let detect: @Sendable () async -> DesktopLocalHermesDetection
     private let checker: DesktopHermesUpgradeChecker
-    private let execute: @Sendable (DesktopHermesUpgradeTarget, @escaping @Sendable (DesktopHermesUpgradeStep) async -> Void, @escaping @Sendable (String) -> Void) async throws -> Void
+    public typealias Executor = @Sendable (DesktopHermesUpgradeTarget, @escaping @Sendable (DesktopHermesUpgradeStep) async -> Void, @escaping @Sendable (String) -> Void, @escaping @Sendable (DesktopHermesUpgradeStep, DesktopHermesUpgradeActivity) -> Void) async throws -> Void
+    private let execute: Executor
 
     public init(checker: DesktopHermesUpgradeChecker = .init(),
                 detect: @escaping @Sendable () async -> DesktopLocalHermesDetection,
                 execute: @escaping @Sendable (DesktopHermesUpgradeTarget, @escaping @Sendable (DesktopHermesUpgradeStep) async -> Void, @escaping @Sendable (String) -> Void) async throws -> Void) {
-        self.checker = checker; self.detect = detect; self.execute = execute
+        self.checker = checker; self.detect = detect
+        self.execute = { target, progress, output, _ in try await execute(target, progress, output) }
+    }
+    public init(checker: DesktopHermesUpgradeChecker = .init(),
+                detect: @escaping @Sendable () async -> DesktopLocalHermesDetection,
+                executeWithEvents: @escaping Executor) {
+        self.checker = checker; self.detect = detect; self.execute = executeWithEvents
     }
     public static func system(paths: DesktopLocalHermesPaths) -> DesktopHermesVersionManager {
         let detector = DesktopLocalHermesDetector(paths: paths)
-        return .init(detect: { await Task.detached { detector.detect() }.value }, execute: { target, progress, output in
+        let session = DesktopHermesUpgradeSession(paths: paths)
+        return .init(detect: { await Task.detached { detector.detect() }.value }, executeWithEvents: { target, progress, output, activity in
             let proxy = await Task.detached { DesktopSystemProxy.current() }.value
-            try await DesktopHermesStableInstaller(paths: paths, proxy: proxy).run(target: target, progress: progress, output: output)
+            try await DesktopHermesStableInstaller(paths: paths, proxy: proxy, session: session).run(target: target, progress: progress, output: output, activity: activity)
         })
     }
     public var isRunning: Bool { phase == .installing || phase == .checkingRuntime }
@@ -80,6 +96,7 @@ public final class DesktopHermesVersionManager: ObservableObject {
         let attempt = UUID(); attemptID = attempt
         startedAt = Date(); stepStartedAt = startedAt; lastOutputAt = nil
         step = .download; progress = step.titleChinese
+        transfer = nil; transferAt = nil; substep = ""; networkSummary = ""; retainedStageCount = 0
         do {
             // Re-read just the local identity. No compatibility certification or Git configuration preflight.
             installation = await detect()
@@ -96,6 +113,8 @@ public final class DesktopHermesVersionManager: ObservableObject {
                     guard self?.attemptID == attempt else { return }
                     self?.appendOutput(value)
                 }
+            }, { [weak self] source, activity in
+                Task { @MainActor in self?.receiveActivity(activity, source: source, attempt: attempt) }
             })
             receiveStep(.verify, attempt: attempt)
             installation = await detect()
@@ -134,8 +153,21 @@ public final class DesktopHermesVersionManager: ObservableObject {
     }
     private func receiveStep(_ value: DesktopHermesUpgradeStep, attempt: UUID) {
         guard attemptID == attempt, phase == .installing, value.index >= step.index else { return }
-        if value != step { stepStartedAt = Date() }
+        if value != step { stepStartedAt = Date(); transfer = nil; transferAt = nil; substep = "" }
         step = value; progress = value.titleChinese
+    }
+    private func receiveActivity(_ activity: DesktopHermesUpgradeActivity, source: DesktopHermesUpgradeStep, attempt: UUID) {
+        guard attemptID == attempt, phase == .installing else { return }
+        switch activity {
+        case .network(let text): networkSummary = text
+        case .resumed(let count): retainedStageCount = count
+        case .transfer(let value):
+            guard source == step else { return }
+            transfer = value; transferAt = Date()
+        case .substep(let text):
+            guard source == step else { return }
+            substep = text; transfer = nil; transferAt = nil
+        }
     }
     private func appendOutput(_ value: String) {
         lastOutputAt = Date()

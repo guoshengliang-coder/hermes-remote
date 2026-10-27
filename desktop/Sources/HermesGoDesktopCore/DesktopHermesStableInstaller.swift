@@ -9,30 +9,59 @@ public struct DesktopHermesStableInstaller: Sendable {
     let fetcher: any DesktopHermesInstallerScriptFetching
     let inheritedEnvironment: [String: String]
     let proxy: DesktopSystemProxy
+    let session: DesktopHermesUpgradeSession
 
     public init(paths: DesktopLocalHermesPaths, proxy: DesktopSystemProxy,
                 runner: any DesktopHermesInstallerProcessRunning = DesktopPosixProcessRunner(),
-                fetcher: any DesktopHermesInstallerScriptFetching = DesktopHermesInstallerURLSessionFetcher(),
-                inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
-        self.paths = paths; self.proxy = proxy; self.runner = runner; self.fetcher = fetcher
+                fetcher: (any DesktopHermesInstallerScriptFetching)? = nil,
+                inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+                session: DesktopHermesUpgradeSession? = nil) {
+        self.paths = paths; self.proxy = proxy; self.runner = runner
+        let network = DesktopHermesUpgradeNetwork.environment(proxy: proxy, inherited: inheritedEnvironment)
+        self.fetcher = fetcher ?? DesktopHermesInstallerURLSessionFetcher(proxyEnvironment: proxy.isConfigured || DesktopSystemProxy.proxyVariableNames.contains(where: { !(inheritedEnvironment[$0] ?? "").isEmpty }) ? network : nil)
         self.inheritedEnvironment = inheritedEnvironment
+        self.session = session ?? DesktopHermesUpgradeSession(paths: paths)
     }
 
     public static let stages = DesktopHermesUpgradeStep.installerSteps.map(\.rawValue)
 
     public func run(target: DesktopHermesUpgradeTarget,
                     progress: @escaping @Sendable (DesktopHermesUpgradeStep) async -> Void,
-                    output: @escaping @Sendable (String) -> Void) async throws {
+                    output: @escaping @Sendable (String) -> Void,
+                    activity: @escaping @Sendable (DesktopHermesUpgradeStep, DesktopHermesUpgradeActivity) -> Void = { _, _ in }) async throws {
+        try await session.acquire()
+        do {
+            try await perform(target: target, progress: progress, output: output, activity: activity)
+            await session.release()
+        } catch {
+            await session.release()
+            throw error
+        }
+    }
+
+    private func perform(target: DesktopHermesUpgradeTarget,
+                         progress: @escaping @Sendable (DesktopHermesUpgradeStep) async -> Void,
+                         output: @escaping @Sendable (String) -> Void,
+                         activity: @escaping @Sendable (DesktopHermesUpgradeStep, DesktopHermesUpgradeActivity) -> Void) async throws {
         guard getuid() != 0 else { throw DesktopHermesInstallFailure.runningAsRoot }
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("hermes-stable-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: work) }
         await progress(.download)
         let url = URL(string: "https://raw.githubusercontent.com/NousResearch/hermes-agent/\(target.commit)/scripts/install.sh")!
-        let data = try await fetcher.fetchInstallerScript(from: url)
+        var environment = environment()
+        activity(.download, .network(DesktopHermesUpgradeNetwork.summary(proxy: proxy, environment: environment)))
+        let data = try await fetcher.fetchInstallerScript(from: url) { value in
+            activity(.download, .transfer(.init(receivedBytes: value.receivedBytes, totalBytes: value.totalBytes, bytesPerSecond: value.bytesPerSecond)))
+        }
         let script = work.appendingPathComponent("install.sh")
         try data.write(to: script)
-        let environment = environment()
+        let bin = work.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let git = bin.appendingPathComponent("git")
+        try Data(DesktopHermesUpgradeNetwork.gitWrapper.utf8).write(to: git)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: git.path)
+        environment["PATH"] = bin.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
         let manifestRun = try await runner.run(executable: URL(fileURLWithPath: "/bin/bash"),
             arguments: [script.path, "--manifest"], environment: environment,
             workingDirectory: paths.homeDirectory, onLine: { output(SecretRedactor.redact($0)) })
@@ -43,18 +72,26 @@ public struct DesktopHermesStableInstaller: Sendable {
         // Require every required stage before running the first stage.
         guard Self.stages.allSatisfy({ name in manifest.stages.contains { $0.name == name && !$0.needsUserInput } })
         else { throw DesktopHermesInstallFailure.protocolMismatch(detail: "required upgrade stages missing") }
-        for step in DesktopHermesUpgradeStep.installerSteps {
+        let completed = await session.resume(target: target, script: data)
+        activity(.download, .resumed(completedStages: completed))
+        for step in DesktopHermesUpgradeStep.installerSteps.dropFirst(completed) {
             let name = step.rawValue
             try Task.checkCancellation()
             await progress(step)
             let result = try await runner.run(executable: URL(fileURLWithPath: "/bin/bash"),
                 arguments: [script.path, "--stage", name, "--non-interactive", "--json"] + common,
                 environment: environment, workingDirectory: paths.homeDirectory,
-                onLine: { output(SecretRedactor.redact($0)) })
+                onLine: { line in
+                    let sanitized = SecretRedactor.redact(line)
+                    output(sanitized)
+                    if let transfer = DesktopHermesTransferProgress.parse(sanitized) { activity(step, .transfer(transfer)) }
+                    if let title = DesktopHermesUpgradeOutput.substep(sanitized) { activity(step, .substep(title)) }
+                })
             guard result.exitStatus == 0,
                   let frame = DesktopHermesInstallerStageResult.parse(result.standardOutputTail),
                   frame.stage == name, frame.ok, !frame.skipped
             else { throw DesktopHermesInstallFailure.stageFailed(stage: name, detail: "official stage did not complete") }
+            await session.completed(step, target: target)
         }
     }
 
@@ -70,7 +107,7 @@ public struct DesktopHermesStableInstaller: Sendable {
         env["SHELL"] = "/bin/bash"; env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
         env["TERM"] = "dumb"; env["NO_COLOR"] = "1"; env["NONINTERACTIVE"] = "1"
         env["GIT_TERMINAL_PROMPT"] = "0"; env["SUDO_ASKPASS"] = "/usr/bin/false"
-        for (key, value) in proxy.environment(inheriting: inheritedEnvironment) { env[key] = value }
+        for (key, value) in DesktopHermesUpgradeNetwork.environment(proxy: proxy, inherited: inheritedEnvironment) { env[key] = value }
         return env
     }
 }

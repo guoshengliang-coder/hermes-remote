@@ -187,6 +187,30 @@ final class DesktopHermesSimpleUpgradeTests: XCTestCase {
         await run.value
         XCTAssertEqual(manager.completedStepCount, 9)
     }
+    @MainActor func testTypedActivityKeepsRetryProgressAndRejectsLateEarlierStageEvents() async {
+        let state = UpgradeState(Self.installation())
+        let gate = UpgradeGate()
+        let manager = DesktopHermesVersionManager(checker: .init(fetcher: FixedRelease(target: Self.target)), detect: { await state.current() }, executeWithEvents: { target, progress, _, activity in
+            activity(.download, .network("下载网络：使用已配置的 HTTPS 代理"))
+            activity(.download, .resumed(completedStages: 4))
+            await progress(.products)
+            activity(.products, .substep("准备 Node 依赖"))
+            activity(.repository, .transfer(.init(receivedBytes: 1000)))
+            await gate.wait()
+            await state.updated(Self.installation(target.version, commit: target.commit))
+        })
+        await manager.check()
+        let run = Task { await manager.upgrade { [Self.check()] } }
+        while await gate.calls == 0 { await Task.yield() }
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(manager.retainedStageCount, 4)
+        XCTAssertEqual(manager.completedStepCount, 5)
+        XCTAssertEqual(manager.substep, "准备 Node 依赖")
+        XCTAssertTrue(manager.networkSummary.contains("HTTPS"))
+        XCTAssertNil(manager.transfer)
+        await gate.finish(); await run.value
+        XCTAssertEqual(manager.phase, .completed)
+    }
     func testElapsedTimeDoesNotInventAnEstimate() {
         let start = Date(timeIntervalSince1970: 100)
         XCTAssertEqual(DesktopHermesUpgradeStep.elapsed(since: start, at: start.addingTimeInterval(-1)), "0 秒")

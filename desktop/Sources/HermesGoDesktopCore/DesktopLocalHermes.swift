@@ -356,7 +356,7 @@ public struct DesktopLocalHermesDetector: Sendable {
 
     // MARK: - Identity
 
-    private func readGitIdentity() -> (commit: String, changedAt: Date)? {
+    func readGitIdentity() -> (commit: String, changedAt: Date)? {
         let gitDirectory = paths.checkoutRoot.appendingPathComponent(".git", isDirectory: true)
         guard isOwnedDirectory(gitDirectory) else { return nil }
         let headURL = gitDirectory.appendingPathComponent("HEAD")

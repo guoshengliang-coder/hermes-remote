@@ -960,7 +960,8 @@ public extension DesktopIssue {
 /// followed, and the body is streamed and abandoned past `maximumScriptBytes` rather than
 /// buffered first.
 public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScriptFetching {
-    public init() {}
+    let proxyEnvironment: [String: String]?
+    public init(proxyEnvironment: [String: String]? = nil) { self.proxyEnvironment = proxyEnvironment }
 
     /// Refuses any redirect that leaves upstream's origin, and remembers that it did.
     public final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
@@ -994,6 +995,9 @@ public struct DesktopHermesInstallerURLSessionFetcher: DesktopHermesInstallerScr
             throw DesktopHermesInstallFailure.protocolMismatch(detail: "installer URL is not upstream's")
         }
         let configuration = URLSessionConfiguration.ephemeral
+        if let proxyEnvironment {
+            configuration.connectionProxyDictionary = try DesktopHermesUpgradeNetwork.urlSessionProxy(proxyEnvironment)
+        }
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 120
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -1323,7 +1327,7 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
 
         private mutating func lines(final: Bool) -> [String] {
             var result: [String] = []
-            while let newline = buffer.firstIndex(of: 0x0A) {
+            while let newline = buffer.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
                 result.append(Self.clean(buffer[buffer.startIndex..<newline]))
                 buffer.removeSubrange(buffer.startIndex...newline)
             }

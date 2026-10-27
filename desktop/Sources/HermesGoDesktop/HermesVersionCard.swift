@@ -34,13 +34,16 @@ struct HermesVersionCard: View {
                     .buttonStyle(.bordered).disabled(isBusy || manager.isChecking || manager.isRunning)
                     .accessibilityIdentifier("hermes-check-updates")
                 if let target = manager.target, manager.canUpgrade {
-                    Button(manager.phase == .failed ? "重试升级到 \(target.version)" : "升级到 \(target.version)", action: upgrade)
+                    Button(manager.phase == .failed ? manager.retryTitle : "升级到 \(target.version)", action: upgrade)
                         .buttonStyle(.borderedProminent).disabled(isBusy)
                         .accessibilityIdentifier("hermes-upgrade-start")
                 }
             }
             if manager.isRunning {
                 upgradeProgress
+            }
+            if manager.phase == .failed, let target = manager.target {
+                Text("本次升级目标：\(target.version)").font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if manager.phase == .completed || manager.phase == .failed {
                 Text(manager.resultSummary).font(.system(size: 14, weight: .semibold))
@@ -85,7 +88,7 @@ struct HermesVersionCard: View {
             let total = DesktopHermesUpgradeStep.allCases.count
             let start = manager.startedAt ?? context.date
             let stageStart = manager.stepStartedAt ?? start
-            let lastActivity = max(manager.lastOutputAt ?? stageStart, stageStart)
+            let lastActivity = max(manager.lastOutputAt ?? stageStart, manager.transferAt ?? stageStart, stageStart)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -97,6 +100,19 @@ struct HermesVersionCard: View {
                     .progressViewStyle(.linear)
                     .accessibilityLabel("升级步骤进度")
                     .accessibilityValue("已完成 \(manager.completedStepCount) / \(total) 步")
+                if !manager.networkSummary.isEmpty { Text(manager.networkSummary) }
+                if manager.retainedStageCount > 0 {
+                    Text("已核对并保留 \(manager.retainedStageCount) 个官方阶段，继续剩余步骤。")
+                }
+                if !manager.substep.isEmpty { Text(manager.substep).foregroundStyle(.primary) }
+                if let transfer = manager.transfer {
+                    Text(transfer.summary).monospacedDigit()
+                    if let at = manager.transferAt, context.date.timeIntervalSince(at) < 5, let speed = transfer.speedSummary {
+                        Text("最近报告速度：" + speed).monospacedDigit()
+                    } else {
+                        Text("等待新的下载进度；暂无法确认当前速度。")
+                    }
+                }
                 Text("已完成 \(manager.completedStepCount) / \(total) 步；各步骤耗时不同。")
                 Text("总耗时 \(DesktopHermesUpgradeStep.elapsed(since: start, at: context.date)) · 本步骤 \(DesktopHermesUpgradeStep.elapsed(since: stageStart, at: context.date))")
                     .monospacedDigit()
@@ -106,7 +122,7 @@ struct HermesVersionCard: View {
                             .monospacedDigit()
                     }
                     if context.date.timeIntervalSince(lastActivity) >= 45 {
-                        Text("正在等待本步骤的新输出，可展开下方执行输出查看详情。")
+                        Text("本步骤暂未返回新输出，不能据此判断卡住；可展开执行输出查看详情。")
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
