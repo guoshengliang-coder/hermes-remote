@@ -1,5 +1,28 @@
 # Desktop release channel
 
+## Internal test release: 0.2.46 / build 49
+
+The owner requested merge and publication on 2026-10-27 for #683. This patch unifies
+process-local download proxies across the installer and dependency tools, displays real transfer
+bytes/speed and known substeps, and resumes from the first failed or invalidated stage in the same
+Desktop session. Completed stages require matching target, installer hash and filesystem evidence.
+No compatibility management, rollback or background recovery is added. PAC and SOCKS-only limitations
+are documented in Desktop; no global Git or network settings are changed.
+
+Continue the established ad-hoc internal channel and installed public trust/update configuration.
+This version allocation changes only packaging metadata and documentation; no new behavior tests
+are needed. The release gate runs assets, 701 Swift tests, 15 publication/update tooling tests,
+release app/DMG builds, strict ad-hoc signature, mounted bundle identity/arm64/configuration and
+image integrity checks. The unified publisher verifies both full public DMGs and synchronizes the
+website and app-update indexes; signed component pointers must remain unchanged.
+
+Exact commit, size, SHA-256 and publication time are recorded in generated receipts and public
+indexes after verification. Public readback is the completion gate. Native light/dark/narrow UI
+fixtures were inspected, including a 48-second quiet stage; an actual installed-client upgrade
+click, update/relaunch and clean-machine acceptance remain unverified. Publication does not replace
+the owner's installed app or upgrade daily Hermes. This is temporary ad-hoc internal distribution,
+not Apple notarization.
+
 ## Internal test release: 0.2.45 / build 48
 
 The owner requested merge and publication on 2026-10-27 after #681 merged with green PR/main
