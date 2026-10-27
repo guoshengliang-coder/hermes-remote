@@ -40,8 +40,7 @@ struct HermesVersionCard: View {
                 }
             }
             if manager.isRunning {
-                HStack { ProgressView().controlSize(.small); Text(manager.progress).font(.system(size: 13)) }
-                Text("升级期间请保持 Desktop 运行。").font(.system(size: 12)).foregroundStyle(.secondary)
+                upgradeProgress
             }
             if manager.phase == .completed || manager.phase == .failed {
                 Text(manager.resultSummary).font(.system(size: 14, weight: .semibold))
@@ -80,6 +79,42 @@ struct HermesVersionCard: View {
         }
         .padding(20).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
         .task { if manager.report == nil && !manager.isChecking && !isBusy { await manager.check() } }
+    }
+    private var upgradeProgress: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let total = DesktopHermesUpgradeStep.allCases.count
+            let start = manager.startedAt ?? context.date
+            let stageStart = manager.stepStartedAt ?? start
+            let lastActivity = max(manager.lastOutputAt ?? stageStart, stageStart)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("第 \(manager.step.index + 1) / \(total) 步 · \(manager.progress)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ProgressView(value: Double(manager.completedStepCount), total: Double(total))
+                    .progressViewStyle(.linear)
+                    .accessibilityLabel("升级步骤进度")
+                    .accessibilityValue("已完成 \(manager.completedStepCount) / \(total) 步")
+                Text("已完成 \(manager.completedStepCount) / \(total) 步；各步骤耗时不同。")
+                Text("总耗时 \(DesktopHermesUpgradeStep.elapsed(since: start, at: context.date)) · 本步骤 \(DesktopHermesUpgradeStep.elapsed(since: stageStart, at: context.date))")
+                    .monospacedDigit()
+                if manager.phase == .installing {
+                    if let lastOutput = manager.lastOutputAt, lastOutput >= stageStart {
+                        Text("最近收到输出：\(DesktopHermesUpgradeStep.elapsed(since: lastOutput, at: context.date))前")
+                            .monospacedDigit()
+                    }
+                    if context.date.timeIntervalSince(lastActivity) >= 45 {
+                        Text("正在等待本步骤的新输出，可展开下方执行输出查看详情。")
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Text("升级期间请保持 Desktop 运行。")
+            }
+            .font(.system(size: 12)).foregroundStyle(.secondary)
+            .accessibilityIdentifier("hermes-upgrade-progress")
+        }
     }
     private func versionRow(_ label: String, _ value: String) -> some View {
         HStack { Text(label).foregroundStyle(.secondary); Spacer(); Text(value) }.font(.system(size: 13))

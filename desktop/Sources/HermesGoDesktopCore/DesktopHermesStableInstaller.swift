@@ -18,16 +18,16 @@ public struct DesktopHermesStableInstaller: Sendable {
         self.inheritedEnvironment = inheritedEnvironment
     }
 
-    public static let stages = ["repository", "venv", "python-deps", "config", "products", "complete"]
+    public static let stages = DesktopHermesUpgradeStep.installerSteps.map(\.rawValue)
 
     public func run(target: DesktopHermesUpgradeTarget,
-                    progress: @escaping @Sendable (String) -> Void,
+                    progress: @escaping @Sendable (DesktopHermesUpgradeStep) async -> Void,
                     output: @escaping @Sendable (String) -> Void) async throws {
         guard getuid() != 0 else { throw DesktopHermesInstallFailure.runningAsRoot }
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("hermes-stable-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: work) }
-        progress("下载官方升级程序")
+        await progress(.download)
         let url = URL(string: "https://raw.githubusercontent.com/NousResearch/hermes-agent/\(target.commit)/scripts/install.sh")!
         let data = try await fetcher.fetchInstallerScript(from: url)
         let script = work.appendingPathComponent("install.sh")
@@ -43,10 +43,10 @@ public struct DesktopHermesStableInstaller: Sendable {
         // Require every required stage before running the first stage.
         guard Self.stages.allSatisfy({ name in manifest.stages.contains { $0.name == name && !$0.needsUserInput } })
         else { throw DesktopHermesInstallFailure.protocolMismatch(detail: "required upgrade stages missing") }
-        for name in Self.stages {
+        for step in DesktopHermesUpgradeStep.installerSteps {
+            let name = step.rawValue
             try Task.checkCancellation()
-            let stage = manifest.stages.first { $0.name == name }!
-            progress(stage.titleChinese)
+            await progress(step)
             let result = try await runner.run(executable: URL(fileURLWithPath: "/bin/bash"),
                 arguments: [script.path, "--stage", name, "--non-interactive", "--json"] + common,
                 environment: environment, workingDirectory: paths.homeDirectory,
