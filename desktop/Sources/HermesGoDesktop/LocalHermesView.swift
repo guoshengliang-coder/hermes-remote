@@ -27,16 +27,22 @@ struct LocalHermesView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(model.localHermesPresentation.version).font(.system(size: 24, weight: .medium))
                             Text("Hermes 版本").font(.system(size: 12)).foregroundStyle(.secondary)
+                            if let label = model.localHermesPresentation.managementLabel { Text(label).font(.system(size: 11)).foregroundStyle(.secondary) }
                         }
                         HermesFact(title: "本机验证", value: model.localHermesPresentation.canOpen ? "已通过" : (model.localHermesPresentation.level == .failed ? "未通过" : "待验证"),
-                                   level: model.localHermesPresentation.level)
+                                   level: model.localHermesPresentation.canOpen ? .healthy : model.localHermesPresentation.level)
                         HermesModelFact(showsName: true)
                     }
                     if !model.localHermesPresentation.canOpen {
                         Text(model.localHermesPresentation.detail).font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                     if model.localHermesDetection?.installation != nil { ModelConfigurationPrompt() }
-                    if let issue = model.localHermesIssue { GateIssueBanner(issue: issue) }
+                    if let detail = model.localHermesPresentation.managementDetail {
+                        Label(detail, systemImage: "exclamationmark.circle").font(.system(size: 13)).foregroundStyle(.secondary)
+                        if let issue = model.localHermesIssue {
+                            DisclosureGroup("查看检测原因") { GateIssueBanner(issue: issue) }
+                        }
+                    } else if let issue = model.localHermesIssue { GateIssueBanner(issue: issue) }
                     Divider()
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 10) { actions }

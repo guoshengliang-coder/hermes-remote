@@ -8,7 +8,7 @@ public enum DesktopManagedBootstrapOperation: Equatable {
 
     /// A retained cleanup handle must not keep an installation confirmation sheet open.
     public var presentsConfirmation: Bool {
-        self == .awaitingConfirmation || self == .committing
+        self == .awaitingConfirmation
     }
 
     public var uiState: DesktopSetupUIState {
@@ -30,7 +30,7 @@ public enum DesktopComponentBootstrapOperation: Equatable {
     case failed
 
     public var presentsConfirmation: Bool {
-        self == .awaitingConfirmation || self == .committing
+        self == .awaitingConfirmation
     }
 
     public var uiState: DesktopSetupUIState {

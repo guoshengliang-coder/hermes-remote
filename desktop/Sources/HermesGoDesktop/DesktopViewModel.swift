@@ -79,6 +79,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var serviceRepairGuidance: String?
     @Published private(set) var isServiceRepairPreparing = false
     @Published private(set) var isServiceRepairRunning = false
+    @Published private(set) var serviceRepairCompleted = false
     /// Kept apart from `managedBootstrapIssue` on purpose: drift is orthogonal to the bootstrap
     /// Which Hermes the managed service runs is reconciled on every refresh (local runtime mode,
     /// `docs/DESKTOP_PHASE0.md`). Its own slot because it is orthogonal to the bootstrap state
@@ -121,6 +122,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var diagnosticFocusIssue: DesktopIssue?
     @Published private(set) var diagnosticRequestID: UUID?
     @Published private(set) var isAppUpdateInstalling = false
+    @Published private(set) var isAppUpdateHandoff = false
+    private(set) var desktopUpdateBackgroundKind: DesktopOperationStatus.Kind = .managedSetup
     @Published private(set) var desktopUpdateSequence = DesktopUpdateSequence()
     private var desktopUpdateReport: DesktopUpdateReport?
     @Published private(set) var appUpdateIssue: DesktopIssue?
@@ -238,6 +241,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published var accountSignInRequestID = UUID()
     @Published private(set) var lastAccountIdentity: HermesAccount?
 
+    func requestOperationDiagnostics() { diagnosticRequestID = UUID() }
+
     func requestAccountSignIn() { accountSignInRequestID = UUID() }
 
     var localDeviceName: String {
@@ -249,7 +254,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             localHermes: localHermesPresentation, localHealth: localManagedHermesHealth,
             accountState: accountState, accountCheckedAt: accountCheckedAt,
             hasAccountIssue: accountIssue != nil, manageOnly: isManageOnly,
-            operationInProgress: isManagedBootstrapAccountLocked)
+            operationInProgress: isManagedBootstrapAccountLocked || activeOperationKind != nil,
+            operation: activeOperationKind.map { operationStatus(for: $0) })
     }
 
     var statusTitle: String {
@@ -530,6 +536,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         else { return }
         guard !isAppUpdateInstalling else { return }
         isAppUpdateInstalling = true
+        isAppUpdateHandoff = false
         appUpdateIssue = nil
         defer { isAppUpdateInstalling = false }
         do {
@@ -539,6 +546,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 workspaceRoot: Self.updateWorkspaceRoot()
             )
             try appUpdateInstaller.commit(prepared)
+            isAppUpdateHandoff = true
             appUpdateStatusMessage = "已安排安装 \(reference.appVersion)，应用即将退出并自动重启。"
             isUpdateSheetPresented = false
             try? await Task.sleep(for: .seconds(1))
@@ -561,6 +569,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         guard !isDesktopUpdateRunning, !isManagedBootstrapAccountLocked,
               case .available(let report) = updateCheckState else { return }
         desktopUpdateReport = report
+        desktopUpdateBackgroundKind = report.managedUpdate?.managedLayout == .componentStore ? .componentSetup : .managedSetup
+        isAppUpdateHandoff = false
         appUpdateIssue = nil
         desktopUpdateSequence.begin(background: report.managedUpdate != nil, app: report.appUpdate != nil)
         if desktopUpdateSequence.stage == .background {
@@ -572,7 +582,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                     desktopUpdateSequence.stop()
                     appUpdateIssue = componentBootstrapIssue ?? DesktopIssue(code: .migrationPreflightFailed)
                     appUpdateStatusMessage = "Desktop 更新准备失败，尚未重启。请重新检查更新；仍失败可打开诊断并复制报告。"
-                    isUpdateSheetPresented = true
+                    isUpdateSheetPresented = false
                 }
             } else {
                 await prepareManagedBootstrap(forDesktopUpdate: true)
@@ -580,7 +590,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                     desktopUpdateSequence.stop()
                     appUpdateIssue = managedBootstrapIssue ?? DesktopIssue(code: .migrationPreflightFailed)
                     appUpdateStatusMessage = "Desktop 更新准备失败，尚未重启。请重新检查更新；仍失败可打开诊断并复制报告。"
-                    isUpdateSheetPresented = true
+                    isUpdateSheetPresented = false
                 }
             }
         } else {
@@ -597,15 +607,15 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
             updateCheckState = remaining.hasUpdates ? .available(remaining) : .upToDate(remaining)
         }
         if desktopUpdateSequence.stage == .app {
-            // The service confirmation has closed before presenting the final app stage.
-            isUpdateSheetPresented = true
+            // Keep execution in the progress window after the service confirmation closes.
+            isUpdateSheetPresented = false
             appUpdateStatusMessage = "Desktop 后台更新已完成，正在准备应用重启。"
             await installAppUpdate()
         } else {
             appUpdateIssue = issue
             appUpdateStatusMessage = desktopUpdateSequence.stage == .completed
                 ? "Desktop 更新已完成。" : "Desktop 更新未全部完成；请先处理诊断中的问题，再重试更新。"
-            isUpdateSheetPresented = true
+            isUpdateSheetPresented = false
             if desktopUpdateSequence.stage == .completed {
                 updateCheckState = .upToDate(DesktopUpdateReport(checkedAt: Date(), appUpdate: nil, managedUpdate: nil))
             }
@@ -1253,6 +1263,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     func prepareConnectorReconnect() async {
         guard canReconnectManagedConnector, let repair = serviceRepair else { return }
         isServiceRepairPreparing = true
+        serviceRepairCompleted = false
         serviceRepairIssue = nil
         serviceRepairGuidance = nil
         do { serviceRepairPreparation = try await repair.prepare(reconnectOnly: true) }
@@ -2246,6 +2257,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     func prepareServiceRepair() async {
         guard !isManagedBootstrapAccountLocked, !isAccountOperationInProgress, let repair = serviceRepair else { return }
         isServiceRepairPreparing = true
+        serviceRepairCompleted = false
         serviceRepairIssue = nil
         serviceRepairGuidance = nil
         do { serviceRepairPreparation = try await repair.prepare() }
@@ -2262,9 +2274,13 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     func confirmServiceRepair() async {
         guard !isServiceRepairRunning, let plan = serviceRepairPreparation, let repair = serviceRepair else { return }
         isServiceRepairRunning = true
+        serviceRepairCompleted = false
         serviceRepairIssue = nil
         serviceRepairGuidance = nil
-        do { try await repair.commit(plan, confirmed: true) }
+        do {
+            try await repair.commit(plan, confirmed: true)
+            serviceRepairCompleted = true
+        }
         catch { showServiceRepairFailure(error, duringCommit: true) }
         serviceRepairPreparation = nil
         isServiceRepairRunning = false

@@ -11,9 +11,9 @@ struct SetupConfirmationSheets: ViewModifier {
         content
             .sheet(isPresented: $model.showsModelSetup) { ModelSetupSheet() }
             .sheet(item: Binding(
-                get: { model.serviceRepairPreparation },
+                get: { model.isServiceRepairRunning ? nil : model.serviceRepairPreparation },
                 set: { value in
-                    if value == nil { Task { await model.cancelServiceRepair() } }
+                    if value == nil, !model.isServiceRepairRunning { Task { await model.cancelServiceRepair() } }
                 }
             )) { plan in
                 ManagedServiceRepairConfirmation(
@@ -82,7 +82,10 @@ struct SetupConfirmationSheets: ViewModifier {
                     .disabled(model.isDesktopUpdateRunning).keyboardShortcut(.cancelAction)
                 Spacer()
                 if model.updateCheckState.report?.hasUpdates == true {
-                    Button("更新 Desktop") { Task { await model.installDesktopUpdate() } }
+                    Button("更新 Desktop") {
+                        model.isUpdateSheetPresented = false
+                        Task { await model.installDesktopUpdate() }
+                    }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked)
                 }

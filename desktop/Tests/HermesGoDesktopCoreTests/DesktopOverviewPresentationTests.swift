@@ -132,12 +132,27 @@ final class DesktopOverviewPresentationTests: XCTestCase {
         XCTAssertEqual(make(unverified: true).desktop.level, .degraded)
     }
 
+    func testOverviewShowsNamedOperationAndConfirmationInsteadOfGenericBusy() {
+        let operation = DesktopOperationStatus(kind: .desktopUpdate, state: .waitingForConfirmation, stage: "等待确认服务切换")
+        let result = make(busy: true, operation: operation)
+        XCTAssertEqual(result.desktop.title, "更新 Desktop · 等待你的确认")
+        XCTAssertEqual(result.background, "等待你的确认")
+        XCTAssertFalse(result.desktop.detail.contains("请等待当前操作完成"))
+    }
+    func testHealthyRuntimeWithUnsupportedInstallationDoesNotShowAllGreen() {
+        let result = make(unsupported: true)
+        XCTAssertEqual(result.hermes.title, "服务可用，升级受限")
+        XCTAssertEqual(result.hermes.level, .degraded)
+        XCTAssertEqual(result.level, .degraded)
+        XCTAssertTrue(result.title.contains("本机服务可用"))
+    }
+
     private func make(online: Bool = true, selectedRemote: Bool = false,
                       cloudLevel: HealthLevel = .healthy, localLevel: HealthLevel? = .healthy,
                       age: TimeInterval = 0, accountAge: TimeInterval = 0, reportAge: TimeInterval = 0,
                       accountIssue: Bool = false, remoteHealthy: Bool = true,
                       state: DesktopAccountState? = nil, manageOnly: Bool = false,
-                      busy: Bool = false, unverified: Bool = false, latency: Int? = nil) -> DesktopOverviewPresentation {
+                      busy: Bool = false, operation: DesktopOperationStatus? = nil, unsupported: Bool = false, unverified: Bool = false, latency: Int? = nil) -> DesktopOverviewPresentation {
         let checked = now.addingTimeInterval(-age)
         let report = ISO8601DateFormatter().string(from: now.addingTimeInterval(-reportAge))
         let localHealth = localLevel.map { ComponentHealth(component: .hermes, level: $0, detail: "fixture", checkedAt: checked) }
@@ -160,8 +175,8 @@ final class DesktopOverviewPresentationTests: XCTestCase {
             gateway: ComponentHealth(component: .gateway, level: cloudLevel, detail: "fixture", checkedAt: checked, latencyMilliseconds: latency),
             agent: DesktopAgentPresentation(mode: unverified ? .managedUnverified(releaseVersion: "1") : .managedVerified(releaseVersion: "1"),
                 health: ComponentHealth(component: .desktopAgent, level: .healthy, detail: "fixture", checkedAt: checked)),
-            localHermes: DesktopLocalHermesPresentation(detection: .absent(hermesDataPresent: false), health: localHealth, hasManagedInstallation: true, now: now),
+            localHermes: DesktopLocalHermesPresentation(detection: unsupported ? .unsupported(.unreadableIdentity, detail: "fixture") : .absent(hermesDataPresent: false), health: localHealth, hasManagedInstallation: true, now: now),
             localHealth: localHealth, accountState: state ?? .signedIn(dashboard), accountCheckedAt: now.addingTimeInterval(-accountAge),
-            hasAccountIssue: accountIssue, manageOnly: manageOnly, operationInProgress: busy, now: now)
+            hasAccountIssue: accountIssue, manageOnly: manageOnly, operationInProgress: busy, operation: operation, now: now)
     }
 }

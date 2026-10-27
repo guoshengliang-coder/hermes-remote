@@ -32,7 +32,7 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
     public init(gateway: ComponentHealth, agent: DesktopAgentPresentation,
                 localHermes: DesktopLocalHermesPresentation, localHealth: ComponentHealth?,
                 accountState: DesktopAccountState, accountCheckedAt: Date?, hasAccountIssue: Bool,
-                manageOnly: Bool, operationInProgress: Bool, now: Date = Date()) {
+                manageOnly: Bool, operationInProgress: Bool, operation: DesktopOperationStatus? = nil, now: Date = Date()) {
         func fresh(_ date: Date?) -> Bool {
             AccountDeviceHealth.isFresh(date, now: now)
         }
@@ -74,8 +74,9 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
         remoteConnection = !accountFresh ? "尚未确认" : binding == nil ? "尚未绑定" :
             binding?.connector.online == true ? "已连接云端" : "未连接云端"
         if operationInProgress {
-            background = "操作进行中"
-            desktop = status(.checking, "正在处理", "Desktop 正在安装、更新或修复，请等待当前操作完成。", agent.health.checkedAt)
+            background = operation?.state.title ?? "操作状态待确认"
+            desktop = status(.checking, operation.map { $0.kind.title + " · " + $0.state.title } ?? "操作需要确认",
+                             operation?.stage ?? "请查看操作结果或诊断，确认是否需要处理。", agent.health.checkedAt)
         } else if manageOnly {
             background = "未启用"
             desktop = status(.unavailable, "仅用于管理", "这台 Mac 尚未启用远程连接；其他 Mac 可在设备页管理。", agent.health.checkedAt)
@@ -109,7 +110,7 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
         if let localHealth, !fresh(localHealth.checkedAt) {
             hermes = status(.checking, "等待重新检查", "上次本机验证结果已过期，请刷新状态。", localHealth.checkedAt)
         } else if localHermes.canOpen {
-            hermes = status(.healthy, "服务已就绪", localHermes.detail, localHealth?.checkedAt)
+            hermes = status(localHermes.level, localHermes.title, localHermes.detail, localHealth?.checkedAt)
         } else {
             hermes = status(localHermes.level, localHermes.title, localHermes.detail, localHealth?.checkedAt)
         }
@@ -147,6 +148,10 @@ public struct DesktopOverviewPresentation: Equatable, Sendable {
             title = hermes.level == .healthy ? "本机可用，远程访问中断" : "远程访问需要处理"
             detail = cloud.level == .failed ? cloud.detail : desktop.detail
             level = .failed
+        } else if localHermes.canOpen && hermes.level == .degraded {
+            title = "本机服务可用，安装信息需要处理"
+            detail = localHermes.managementDetail ?? localHermes.detail
+            level = .degraded
         } else if cloud.level == .healthy && desktop.level == .healthy && hermes.level == .healthy && remoteVerified {
             title = "本机与远程连接均正常"
             detail = "云端、Desktop 和本机 Hermes 均已验证，手机可以访问这台 Mac。"

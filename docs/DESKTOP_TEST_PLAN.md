@@ -1,5 +1,21 @@
 # Hermes Go Desktop test plan
 
+## 2026-10-27：操作窗口回归与视觉验收
+
+测试影响评审：这是只读呈现变更。回归覆盖操作名称、运行/等待确认/待清理/终态区分；时钟刷新不算进展，静默不产生失败；失败重试重置计时，关闭窗口保留任务；有实际输出才更新进展，日志限量脱敏；健康服务与不受支持安装并存时不可全绿，管理方式不可冒充版本。沿用已有错误码与中英文/恢复/脱敏测试，无新增错误类别。
+
+执行 `npm run desktop:assets:test`、`npm run desktop:test`、`npm run desktop:app`。隔离原生验收脚本 `scripts/desktop-operation-preview.swift` 直接编译生产状态适配层和 NSPanel，不实例化真实 DesktopViewModel，不访问钥匙串、账号或 launchd。覆盖下载、等待确认、无新进展、失败、清理待处理、成功 × 浅色/深色/窄窗口；检查关闭/重新打开保持任务代次，适配层重试调用正确入口。
+
+```sh
+swiftc -parse-as-library -I desktop/.build/arm64-apple-macosx/debug/Modules desktop/.build/arm64-apple-macosx/debug/HermesGoDesktopCore.build/*.o desktop/Sources/HermesGoDesktop/DesktopOperationStatus.swift desktop/Sources/HermesGoDesktop/DesktopOperationWindow.swift scripts/desktop-operation-preview.swift -o /tmp/desktop-operation-preview
+/tmp/desktop-operation-preview
+```
+
+本轮结果：710 项 Swift 测试全部通过，assets 检查与最终 `desktop:app` 构建通过（本地临时签名，未发布）。生产状态适配层和 18 个原生进度窗口夹具通过；关闭重开保留状态与计时，Desktop 更新待清理保持“需要处理”并调用清理入口。直接审阅浅色/深色/窄窗代表画面；另渲染本机服务健康但安装不受支持的 3 个布局，确认“服务可用，升级受限”“版本未识别”与本机验证已通过可以同时清楚显示。日志证据为 `/private/tmp/operation-tests-final.log`、`/private/tmp/operation-app-final.log` 和 `/private/tmp/operation-ui/result.log`。独立分支 `codex/desktop-operation-progress`，未修改 WebApp 工作树。
+
+本机验收输出在 `/tmp/operation-ui`（macOS `/private/tmp/operation-ui`）。模拟原生窗口不是实际升级验收；仍需在发布后，用获准的测试 Mac 验证组件准备→确认→服务切换→Desktop 重启，以及真实网络中断后的重试。不要为验收升级或停止用户日常 Hermes。
+
+
 ## 2026-10-27：下载与阶段重试回归（0.2.46 / build 49）
 
 测试影响：覆盖真实 Git URL 重写且全局配置不变、手动/显式代理一致传递、Node 原生下载走回环测试代理、CR 行在进程退出前可见、Git 字节与对象计数分离、阶段失败/修改代理后重试、目标/脚本/环境改变、实际 PM 文件缺失，以及界面丢弃过期阶段事件。原先无凭据输出、目标版本检查、诊断失败和重复点击测试继续运行。结构化错误使用既有 HR-HERMESUPDATE-004/005，无新错误码。
