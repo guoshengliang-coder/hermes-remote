@@ -1,5 +1,26 @@
 # Desktop release channel
 
+## Internal test release: 0.2.45 / build 48
+
+The owner requested merge and publication on 2026-10-27 after #681 merged with green PR/main
+checks. This patch adds nine-step Hermes upgrade progress, total and current-step elapsed time,
+and recent output activity. Completed steps come from ordered installer events; no synthetic
+percentage or remaining-time estimate is shown. Existing upgrade commands and error codes are unchanged.
+
+Continue the established ad-hoc internal channel and installed public trust/update configuration.
+Version allocation changes only packaging metadata and documentation, so no additional behavior
+tests are needed. The release gate runs assets, 687 Swift tests, 15 publication/update tooling tests,
+release app/DMG builds, strict ad-hoc signature, mounted bundle identity/arm64/configuration and image
+integrity checks. Publication uses the unified publisher and verifies both full public DMGs,
+website and app-update indexes; signed component pointers must remain unchanged.
+
+The exact source commit, size, SHA-256 and publication time belong to the generated package and
+publication receipts and the public indexes, rather than being predicted in this pre-publication
+source commit. Public readback is the completion gate. Publishing does not replace the owner's
+running Desktop or interrupt a Hermes upgrade. Actual installed-client update/relaunch and the
+45-second quiet-output hint's separate visual acceptance remain unverified; this is not Apple
+notarization or clean-machine acceptance.
+
 ## Published internal test distribution: 0.2.44 / build 47
 
 Owner-authorized publication completed on 2026-10-27 after feature PR #678, version PR #679
