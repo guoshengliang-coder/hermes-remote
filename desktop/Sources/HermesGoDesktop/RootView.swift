@@ -37,6 +37,7 @@ struct RootView: View {
     var body: some View {
         MainShellView()
         .modifier(SetupConfirmationSheets())
+        .modifier(DesktopOperationWindowHost())
         .onChange(of: model.entryRoute, initial: true) { _, route in
             model.entryRouteDidChange(route)
         }
@@ -67,7 +68,7 @@ private struct MainShellView: View {
                 .frame(width: 1)
 
             Group {
-                if canInspectLocal && selection == .diagnostics { DiagnosticsView(selection: $selection) }
+                if selection == .diagnostics { DiagnosticsView(selection: $selection) }
                 else if canInspectLocal && selection == .settings { SettingsView() }
                 else if canInspectLocal && selection == .localHermes { LocalHermesView(selection: $selection) }
                 else if canInspectLocal && selection == .pairing { AccountDevicesView() }
@@ -166,7 +167,7 @@ private struct SidebarView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 10)
                 .accessibilityLabel(item.title)
-                .disabled(!DesktopNavigationAccess.allowsLocalPages(operationLocked: model.isManagedBootstrapAccountLocked))
+                .disabled(item != .diagnostics && !DesktopNavigationAccess.allowsLocalPages(operationLocked: model.isManagedBootstrapAccountLocked))
             }
 
             Spacer()

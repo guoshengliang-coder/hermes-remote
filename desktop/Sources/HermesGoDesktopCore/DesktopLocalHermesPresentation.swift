@@ -8,14 +8,20 @@ public struct DesktopLocalHermesPresentation: Equatable, Sendable {
     public let detail: String
     public let version: String
     public let canOpen: Bool
+    public let managementDetail: String?
+    public let managementLabel: String?
 
     public init(detection: DesktopLocalHermesDetection?, health: ComponentHealth?, hasManagedInstallation: Bool, now: Date = Date()) {
         let health = health.flatMap { AccountDeviceHealth.isFresh($0.checkedAt, now: now) ? $0 : nil }
-        version = detection?.installation?.version ?? (hasManagedInstallation ? "由 Desktop 管理" : "未检测到版本")
+        version = detection?.installation?.version ?? "版本未识别"
+        managementLabel = hasManagedInstallation ? "由 Desktop 管理" : nil
+        if case .unsupported = detection {
+            managementDetail = "安装信息未通过识别，自动升级暂不可用。请查看检测原因。（HR-MIGRATE-008）"
+        } else { managementDetail = nil }
         canOpen = health?.level == .healthy
         if canOpen {
-            level = .healthy
-            title = "服务已就绪"
+            level = managementDetail == nil ? .healthy : .degraded
+            title = managementDetail == nil ? "服务已就绪" : "服务可用，升级受限"
             detail = "Hermes 服务与本机认证检查已通过，模型配置单独显示。"
         } else if let health, health.level != .checking {
             level = health.level == .unavailable ? .checking : .failed

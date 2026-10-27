@@ -18,9 +18,9 @@ final class DesktopSetupProgressTests: XCTestCase {
         XCTAssertTrue(managed.allSatisfy { !$0.presentsConfirmation })
         XCTAssertTrue(components.allSatisfy { !$0.presentsConfirmation })
         XCTAssertTrue(DesktopManagedBootstrapOperation.awaitingConfirmation.presentsConfirmation)
-        XCTAssertTrue(DesktopManagedBootstrapOperation.committing.presentsConfirmation)
+        XCTAssertFalse(DesktopManagedBootstrapOperation.committing.presentsConfirmation)
         XCTAssertTrue(DesktopComponentBootstrapOperation.awaitingConfirmation.presentsConfirmation)
-        XCTAssertTrue(DesktopComponentBootstrapOperation.committing.presentsConfirmation)
+        XCTAssertFalse(DesktopComponentBootstrapOperation.committing.presentsConfirmation)
     }
 
     func testElapsedTimeAdvancesWithoutCallbacksAndFreezesOnCompletion() throws {

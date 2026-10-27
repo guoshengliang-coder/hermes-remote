@@ -144,7 +144,12 @@ struct OverviewView: View {
                 HStack(spacing: 32) { hermesVersion; hermesVerification; HermesModelFact() }
                 VStack(alignment: .leading, spacing: 16) { hermesVersion; hermesVerification; HermesModelFact() }
             }
-            if let issue = model.localHermesIssue ?? model.localManagedHermesHealth?.issue {
+            if let detail = model.localHermesPresentation.managementDetail {
+                Label(detail, systemImage: "exclamationmark.circle").font(.system(size: 13)).foregroundStyle(.secondary)
+                if let issue = model.localHermesIssue {
+                    DisclosureGroup("查看检测原因") { issueLink(issue) }
+                }
+            } else if let issue = model.localHermesIssue ?? model.localManagedHermesHealth?.issue {
                 issueLink(issue)
             }
             if model.localHermesDetection?.installation != nil {
@@ -152,11 +157,11 @@ struct OverviewView: View {
             }
             footer("hermes", title: "检查详情") {
                 if !model.isManagedBootstrapAccountLocked {
-                    if state.hermes.level == .healthy {
+                    if model.localHermesPresentation.canOpen {
                         Button("打开 Hermes") { model.openHermes() }.buttonStyle(.bordered)
                     }
                     Button("查看本机 Hermes") { selection = .localHermes }
-                    if state.hermes.level != .healthy {
+                    if !model.localHermesPresentation.canOpen {
                         Button("诊断与修复") { selection = .diagnostics }
                     }
                 }
@@ -177,11 +182,12 @@ struct OverviewView: View {
             Text(model.localHermesPresentation.version).font(.system(size: 22, weight: .medium))
                 .textSelection(.enabled)
             Text("Hermes 版本").font(.system(size: 11)).foregroundStyle(.secondary)
+            if let label = model.localHermesPresentation.managementLabel { Text(label).font(.system(size: 11)).foregroundStyle(.secondary) }
         }
     }
     private var hermesVerification: some View {
-        indicator("本机验证", value: state.hermes.level == .healthy ? "已通过" : state.hermes.title,
-                  level: state.hermes.level)
+        indicator("本机验证", value: model.localHermesPresentation.canOpen ? "已通过" : state.hermes.title,
+                  level: model.localHermesPresentation.canOpen ? .healthy : state.hermes.level)
     }
 
     private func section<Content: View>(_ title: String, subtitle: String?, symbol: String,

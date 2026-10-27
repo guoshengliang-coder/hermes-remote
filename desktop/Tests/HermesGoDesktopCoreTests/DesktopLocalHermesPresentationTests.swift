@@ -8,6 +8,19 @@ final class DesktopLocalHermesUsabilityTests: XCTestCase {
             checkoutRoot: URL(fileURLWithPath: "/hermes"), hermesHome: URL(fileURLWithPath: "/data"),
             commit: String(repeating: "a", count: 40), version: "0.21.3", identityChangedAt: Date())
     }
+    func testHealthyRuntimeDoesNotHideUnsupportedInstallation() {
+        let now = Date()
+        let result = DesktopLocalHermesPresentation(detection: .unsupported(.unreadableIdentity, detail: "private"),
+            health: .init(component: .hermes, level: .healthy, detail: "ok", checkedAt: now),
+            hasManagedInstallation: true, now: now)
+        XCTAssertTrue(result.canOpen)
+        XCTAssertEqual(result.level, .degraded)
+        XCTAssertEqual(result.title, "服务可用，升级受限")
+        XCTAssertNotNil(result.managementDetail)
+        XCTAssertEqual(result.version, "版本未识别")
+        XCTAssertFalse(result.detail.contains("private"))
+    }
+
     func testInstalledFilesDoNotEstablishUsability() {
         let result = DesktopLocalHermesPresentation(detection: .usable(installation), health: nil, hasManagedInstallation: false)
         XCTAssertFalse(result.canOpen)
@@ -47,6 +60,7 @@ final class DesktopLocalHermesUsabilityTests: XCTestCase {
         let result = DesktopLocalHermesPresentation(detection: .absent(hermesDataPresent: false),
             health: ComponentHealth(component: .hermes, level: .healthy, detail: "authenticated", checkedAt: Date()), hasManagedInstallation: true)
         XCTAssertTrue(result.canOpen)
-        XCTAssertEqual(result.version, "由 Desktop 管理")
+        XCTAssertEqual(result.version, "版本未识别")
+        XCTAssertEqual(result.managementLabel, "由 Desktop 管理")
     }
 }
