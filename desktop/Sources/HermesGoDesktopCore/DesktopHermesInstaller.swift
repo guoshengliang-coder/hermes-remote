@@ -23,14 +23,18 @@ public enum DesktopHermesInstallerSource {
 
     /// Whether a URL (the request, every redirect hop and the final one) is still upstream's: HTTPS
     /// on port 443, and either the official origin or exactly upstream's own
-    /// `scripts/install.sh` on the pinned branch at `raw.githubusercontent.com`.
+    /// `scripts/install.sh` on the configured branch or an exact commit at `raw.githubusercontent.com`.
     public static func isOfficial(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(),
               allowedHosts.contains(host), url.port == nil || url.port == 443
         else { return false }
         switch host {
         case "hermes-agent.nousresearch.com": return true
-        default: return url.path == "/NousResearch/hermes-agent/\(branch)/scripts/install.sh"
+        default:
+            if url.path == "/NousResearch/hermes-agent/\(branch)/scripts/install.sh" { return true }
+            let parts = url.path.split(separator: "/")
+            return parts.count == 5 && parts[0] == "NousResearch" && parts[1] == "hermes-agent"
+                && DesktopLocalHermesDetector.isObjectID(String(parts[2])) && parts[3] == "scripts" && parts[4] == "install.sh"
         }
     }
     public static let branch = "main"
@@ -1067,7 +1071,13 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
     public static let maximumCallbackBytes = 4096
     public static let tailLines = 200
 
-    public init() {}
+    private let requireProcessGroupExit: Bool
+
+    /// Upgrade stages may mutate data through descendants after their shell exits. In strict
+    /// mode an extant or uninspectable group is a failed effect, even with an OK result frame.
+    public init(requireProcessGroupExit: Bool = false) {
+        self.requireProcessGroupExit = requireProcessGroupExit
+    }
 
     // MARK: Live process groups
 
@@ -1110,6 +1120,7 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
                             environment: environment,
                             workingDirectory: workingDirectory,
                             control: control,
+                            requireProcessGroupExit: requireProcessGroupExit,
                             onLine: onLine
                         ))
                     } catch {
@@ -1155,6 +1166,7 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
         environment: [String: String],
         workingDirectory: URL,
         control: ProcessControl,
+        requireProcessGroupExit: Bool,
         onLine: @escaping @Sendable (String) -> Void
     ) throws -> DesktopHermesInstallerProcessResult {
         var outPipe: [Int32] = [0, 0]
@@ -1243,7 +1255,9 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
                 killed = true
             }
             let drained = readers.allSatisfy(\.closed)
-            if exitStatus != nil, drained { break }
+            if exitStatus != nil, drained {
+                if !requireProcessGroupExit || processGroupHasExited(pid) { break }
+            }
             // A descendant that outlives the installer may keep the pipe open; do not wait on it.
             if let exitedAt, Date().timeIntervalSince(exitedAt) > 5 { break }
         }
@@ -1252,10 +1266,16 @@ public struct DesktopPosixProcessRunner: DesktopHermesInstallerProcessRunning {
             if !readers[index].closed { close(readers[index].fd) }
         }
         return DesktopHermesInstallerProcessResult(
-            exitStatus: exitStatus ?? -1,
+            // Do not signal an unknown descendant or infer exit from closed output pipes.
+            // The executor retains intent and must prove quiescence before any recovery write.
+            exitStatus: requireProcessGroupExit && !processGroupHasExited(pid) ? -1 : (exitStatus ?? -1),
             standardOutputTail: stdoutTail,
             combinedTail: combinedTail
         )
+    }
+
+    private static func processGroupHasExited(_ pid: pid_t) -> Bool {
+        kill(-pid, 0) == -1 && errno == ESRCH
     }
 
     /// Splits a line at character boundaries into pieces of at most `maximumBytes` UTF-8 bytes.

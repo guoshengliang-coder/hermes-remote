@@ -1,0 +1,1029 @@
+# Hermes 兼容管理实施记录
+
+本记录对应 [迭代规划](HERMES_COMPATIBILITY_ITERATION_PLAN.md)。用户于 2026-10-25 授权按该规划持续实施。当前未向生产授予角色、未发布清单、未升级日常 Hermes。
+
+## 2026-10-26：负责人确认 B，继续 I4
+
+负责人明确回复“那就选B”。规划改为 GO 控制的维护窗口；原始上游锁实验和失败证据保持不变，
+不再把故障期间另行启动旧更新器的互斥作为首版交付依赖。仍须拒绝已有外部冲突与未知写入者，
+保留独立 worker、中断恢复、数据保护和实际 Desktop 验收。历史报告不能直接翻为通过。
+
+本轮测试影响：维护条件必须贯穿 recipe、验证身份、报告摘要、批准、签名推荐与 Swift 消费者。
+身份增加必需 `maintenancePolicy=go-controlled-window-v1`，缺条件或未知条件拒绝；旧
+`concurrentUpdate` 不能替代 `maintenanceWindow`。仍有 15 项必需检查，维护窗口未实测时
+保持未执行。复用 HR-HERMESCOMPAT-002/-004/-008，不新增错误码或暴露原始诊断。
+旧解析器接受缺少条件的回归已先失败，修复后 TypeScript/Swift 共用合成签名夹具通过。
+
+验证：根构建、36 项聚焦 Node、41 项聚焦 Swift、隔离 PostgreSQL 审批链路通过；Desktop
+assets、全部 766 项 Swift 和 ad-hoc app 构建通过。完整 npm：Protocol 18、Connector 156、
+Gateway 245（33 跳过）、release-server 41 通过；脚本 552 通过、1 跳过，仍有两项既有
+本机 LibreSSL CMS 恢复失败。另用隔离数据库显式运行兼容管理真实数据库测试通过；第一次
+从仓库根运行缺少 migrations 路径，改为 Gateway 工作目录后通过。没有将跳过算作通过。
+
+管理员报告和普通推荐卡显示同一维护条件，执行按钮仍关闭。后续继续连接实际执行链路，
+不能用这次条件传播替代 I4 验收。没有合并、发布、部署、授予角色或修改日常 Hermes。
+
+## I4 固定官方安装器接入（2026-10-26）
+
+新增 `DesktopHermesPinnedUpgradeInstaller`，用已验签推荐中的固定 commit 和 SHA-256 准备
+官方脚本，在持有 GO 操作锁、已写入 updating 意图和备份引用后运行六个官方阶段。每个阶段
+都检查维护回调、记录/锁、脚本字节、退出码、JSON 结果与实际 checkout commit；不把脚本
+返回成功直接当作整个升级成功。服务验证、业务恢复和最终提交仍由完整执行器负责。
+
+测试影响评审覆盖精确目标、摘要篡改、旧推荐、阶段协议、清洁子进程环境、超时、并发推进与
+失败保留。复用已注册 HR-HERMESUPDATE-002/-003；原始上游输出不传入 UI 进度回调。
+真实子进程回归先证明旧 runner 的 shell 返回 0、子进程仍存活时会被当作成功；升级专用严格
+模式现在要求进程组消失，否则该阶段失败，保留恢复意图。没有强杀陌生进程或自动覆盖数据。
+
+新实验驱动直接链接产品 Core、运行固定官方脚本，并调用原生恢复点。输入是合成账号/历史、
+临时签名和安装身份；上游只能写一次性用户副本，原合成用户完整保留。旧日志使用独占创建，
+首次完整六阶段运行因此在历史探针处被已有日志拒绝；现在每次探针使用唯一日志名并保留旧
+证据，重复探针有回归。随后运行已通过新版启动/历史和原生材料重建，但控制脚本把 macOS
+`/var` 与 `/private/var` 别名误判成路径越界，因此在替换前拒绝。现按真实路径核对精确预期根和
+私有材料目录，回归同时覆盖别名接受和无关目录拒绝。两次均确认原合成用户完整归还；这些是
+实验驱动缺陷，不是已证明的 Hermes 不兼容，失败记录也未改记为通过。
+
+验证：Desktop assets、771 项 Swift 测试及 ad-hoc app 构建通过；7 项实际 Core 进程/实验工具
+测试、7 项 CI 路径分类测试通过。没有改动 Gateway/Connector/Protocol 产品代码，本轮不重复
+前一轮已记录的完整 Node 基线；前述两项本机 LibreSSL CMS 失败仍未解决。
+
+[正常路径记录](evidence/hermes-compatibility/2026-10-26-native-pinned-upgrade.json)通过全部六个
+官方阶段、精确目标检查、新版实际启动与旧历史读取、原生材料重建、旧版实际启动与历史、原
+配置和 source commit 核对，以及原合成用户整树归还检查。报告仍为 `compatibilityApproved=false`。
+[依赖阶段故障记录](evidence/hermes-compatibility/2026-10-26-native-pinned-dependency-failure.json)
+也通过：真实依赖安装后注入退出码 97，Core 返回 HR-HERMESUPDATE-003，后续 config/products/
+complete 不执行，updating 意图与备份保留；原生重建后旧版历史、配置、source commit 和原合成
+用户整树归还均通过。它是故障注入，不是一次自然发生的依赖下载失败。两次最终实跑均无清理
+隔离标记。
+
+Core 和两个 Swift helper 摘要与本次代码一致。实跑后实验驱动另加替换前目录占用拒绝、缺失
+目录错误脱敏，以及待恢复目录符号链接重定向拒绝（该回归先失败再修复）；记录保留实跑时的
+原驱动摘要，追加防护通过上述定向回归，未冒充为原实跑已经包含的行为。这个局部证据不提供自动原路径恢复保证。
+
+当前边界：实验尚不能认证生产停写、独立 worker/UI 生命周期、已安装 Desktop 的点击链路、
+新版业务数据保护和自动原路径提交。源码审计还确认 products 会发布外部命令入口并修改
+shell 启动文件；完整执行器必须备份/恢复这些路径，当前 home 与外部解释器的恢复材料不能
+替代完整用户命令入口恢复验收。普通升级仍关闭，不合并、部署、发布或修改日常 Hermes。
+
+## 进度
+
+| 迭代 | 状态 | 尚缺的验收 |
+|---|---|---|
+| I0 | 升级/失败恢复演练通过；负责人选择 B | 旧锁缺陷保留，需重新验收 GO 维护窗口 |
+| I1 | 本地实现与测试完成 | 真实账号启用及完整登录交互待验收 |
+| I2 | 队列/工作流/报告及隔离验证已有本地实现 | 六项可通过；B 维护窗口未实测；完整门禁与受保护实际验证任务未完成 |
+| I3 | 审批/签名发布协议/客户端校验已有本地实现 | 真实发布组件证据产出、受保护工作流及其余活动组件身份采集待完成 |
+| I4–I5 | 未完成；I4 记录、互斥、备份与私有重建基础已实现 | 已选择 B；完整维护窗口执行器、真实端到端和发布均未交付 |
+
+## I0：固定输入与入口审计
+
+- GO 基线：`4ba4505f66b34dca85215aa51bcbbef4a4f4654e`。
+- 本机只读观察：macOS arm64，传统 `venv/bin/hermes`，源码 `633dda6d7fdcac7e8340471c9f5ed08cdccbd70c`，工作树干净。未运行任何更新命令。
+- 官方稳定发布：[v0.22.5](https://github.com/NousResearch/hermes-agent/releases/tag/v0.22.5)，发布时间 `2026-10-23T05:28:45Z`；实际解引用 commit 为 `bf0203a794a07aac3ff764972ab9087baa4e4f4e`，不能把 annotated tag 对象 `56b6a31fededdf7364e1a0a79548d144e7fd81a3` 当代码 commit。
+- 该 commit 的 `scripts/install.sh` SHA-256：`99cb3691d55019c6973a7acb775a915648666cc24e483ca827a1cdbb3531a674`。
+- 旧版 `hermes update` 只有 branch 选择；v0.22.5 加入 channel，但仍无公开的指定 commit 更新参数。通道名不是不可变目标，不能直接用于 GO 的精确审批。
+- v0.22.5 官方安装器公开支持 `--commit`、`--dir`、`--hermes-home` 和分阶段 JSON 协议。现有 checkout 的 repository 阶段会先移动至 branch，再 pin commit；pin 必须属于该 branch。运行依赖之前必须另行确认最终 HEAD。
+- 安装器的 products 阶段调用上游自己的 source completion，负责 launcher、产品构建、配置迁移。完整更新锁在 completion 内部取得，**不能据此声称 repository 阶段已经停写或受全程锁保护**。
+- v0.22.5 的 29 个现有 RPC params 模型与当前 `docs/hermes-rpc-params.json` 做 AST 字段比较：没有删除已有键；4 个模型增加共 7 个有默认值的字段。这只证明字段清单差异，不证明方法注册、字段语义、事件或完整业务兼容，因此暂不扩大参数 allowlist 或标记该版本受支持。
+
+这些事实来自固定 commit 源码，不从旧 HG-199 草稿推断。第一步只在一次性实验目录演练；不复制日常数据库、凭据或 LaunchAgent，不把环境变量隔离当作进程隔离。
+
+## I0 测试影响评审（实施前）
+
+本轮新增开发者用的隔离演练工具，尚不改变 Desktop/Gateway 的线上行为。工具必须覆盖：固定 commit/安装器摘要校验，失败阶段区分，升级后的精确 HEAD 检查，恢复到原绝对路径，配置与 SQLite 文件的恢复校验，以及无法建立隔离时拒绝执行。单元测试使用合成仓库，只证明工具控制流；官方脚本真实运行证据单独记录。
+
+现有 `HR-HERMESUPDATE-002/003` 分别用于实验前置拒绝和未完成恢复；本轮不复用错误码表示新的业务含义，不把异常原文作为主要提示。报告只记录闭合阶段名、commit、摘要、平台和结果；完整工具输出留在权限受限的实验目录。
+
+安装器演练通过不等于兼容认证。真实依赖、Hermes REST/RPC、GO Connector、受管服务及中断恢复都需要各自证据；未执行项始终标为未执行。
+
+### I0 发现的 Desktop 版本识别适配
+
+v0.22.5 `hermes_cli/__init__.py` 不再声明固定 `__version__ = "x.y.z"`；`source_stamp.py` 在源码完成阶段生成 schema 2 的 `install-stamp.json`，包含完整 `commit` 和 `baseVersion`。当前 Desktop 正则只能读旧声明，因此新版正常安装仍会被识别为 `unreadableIdentity`。这属于首条升级路径的必要修正。
+
+测试先固定新版 lazy identity 样本，要求不导入/执行 Python 即能识别；再覆盖旧版声明、stamp 与 HEAD 不匹配、未知 schema、包分发 stamp、损坏/软链接/可被其他用户写入的 stamp。保留现有 `unreadableIdentity` 错误含义与映射，不增加新码。stamp 只证明磁盘版本来源，不能代替依赖或服务健康验证。此改动需 Desktop 全量测试和 app 构建，暂不安装或发布构建结果。
+
+## 可重跑的 I0 实验
+
+工具：`scripts/hermes-compatibility-lab.py`；固定输入：`scripts/fixtures/hermes-compatibility/v0.21.3-to-v0.22.5.json`。
+需要 macOS、Python 3 标准库、Git 和可用的系统 sandbox。先在**独立审计 clone** 中取得两端 commit 及对应 `scripts/install.sh` blob；不要在日常 Hermes checkout 拉取或运行实验。
+
+```bash
+python3 -B scripts/hermes-compatibility-lab.py \
+  --cache /path/to/disposable-upstream-audit \
+  --case scripts/fixtures/hermes-compatibility/v0.21.3-to-v0.22.5.json
+
+# 完整依赖 + 真实旧版 SessionDB 合成会话 + 临时 HTTP 服务读取 + 旧环境恢复：
+python3 -B scripts/hermes-compatibility-lab.py \
+  --cache /path/to/disposable-upstream-audit \
+  --case scripts/fixtures/hermes-compatibility/v0.21.3-to-v0.22.5.json --runtime
+
+# 故障演练：新依赖落盘后主动失败，退出码应为 1；检查 restore/restoredHistory 必须通过。
+python3 -B scripts/hermes-compatibility-lab.py \
+  --cache /path/to/disposable-upstream-audit \
+  --case scripts/fixtures/hermes-compatibility/v0.21.3-to-v0.22.5.json \
+  --runtime --fault-after target_python-deps
+
+node --test scripts/test/hermes-compatibility-lab.test.mjs
+```
+
+实验每次新建 owner-only 临时目录，实际安装直接克隆官方仓库。审计缓存只用来核实输入，不作为实验安装的 alternates 或硬链接依赖。上游子进程不能写实验目录以外的文件、读取日常 HOME 或向其他进程发送信号，也不能调用 launchctl/sudo。开始前用无敏感内容的外部临时哨兵验证写入隔离有效。
+
+实验还拒绝候选程序写报告、实验脚本和备份，只允许其写合成用户目录、临时工作区和私有日志。旧安装器在 BSD `mktemp` 无参数失败时回退硬编码 `/tmp`，首次 runtime 实验被隔离规则正确拒绝。实验 PATH 中现在提供仅补充无模板形式的 `mktemp` 适配，把这些临时文件放入实验 TMPDIR；不改官方脚本、不开放全局 `/tmp` 写权限。这项环境差异不能冒充日常机器原样执行的证明。
+
+默认模式只验证代码切换与文件恢复，报告为 `source_stage_passed`；`--runtime` 额外验证真实依赖和同一条合成会话在旧版、新版及恢复后的旧版 HTTP 中可读取，全部通过才为 `runtime_stage_passed`。两者都保留 `compatibilityApproved: false` 和未执行门禁。`--runtime` 首版只接受已审计的这两个 commit，不猜测其他版本的安装阶段。
+
+完整实验还显式取得并校验官方目标 tag（上游新版从可达 release tag 生成 stamp 的 baseVersion），并比较 HTTP 实际版本与预期版本。`--fault-after` 只接受两个固定故障点，不执行任意用户命令；注入失败始终记录为失败，只有恢复检查另外记录通过。
+
+报告保存 commit、安装器/实验脚本摘要、平台、逐阶段退出状态及恢复摘要。完整原始日志仅留在私有实验目录，不上传。实验中的 source/candidate/snapshot 是合成测试环境，不是该 Mac 的第二份日常 Hermes。快照保留整个实验用户目录，并恢复到原绝对路径；仅恢复 Git commit 不能验证旧解释器和依赖可用。
+
+本实验尚不模拟应用被杀、断电或任意第三方进程同时写入；这些门禁一直保留在 `notExecuted`。失败现场与快照不会自动删除，排查后只清理由本实验生成的目录。
+
+## 本地检查记录
+
+- 新增工具单元测试已验证合成仓库下成功恢复、切换后失败恢复、错误目标拒绝、损坏快照拒绝、隔离不可用拒绝、输入/环境限制。它们不替代官方执行结果。
+- Desktop 新 stamp 正向回归在修正前确实失败；修正后 30 项 detector、664 项 Swift 全量、assets 检查及本地 ad-hoc app 构建通过，未安装/发布。
+- 初次脚本基线缺少工作区依赖；补齐锁定依赖并构建 protocol 后，`npm run test:scripts` 为 431 通过、1 失败、4 跳过。唯一失败是既有 `legacy-recovery` 的 CMS 解密，当前系统 `openssl` 是 LibreSSL 3.3.6。用临时自签测试证书独立复现：AES-256-GCM CMS 加密成功、解密退出 4（`Error decrypting CMS structure`），不依赖本次改动。需要在匹配的 OpenSSL 环境复核，不能据此声称基线全绿。该恢复代码未修改。
+- 官方**源码阶段**实跑通过：固定目标 `bf0203a794a07aac3ff764972ab9087baa4e4f4e`，恢复至 `633dda6d7fdcac7e8340471c9f5ed08cdccbd70c`；恢复前快照与恢复后树摘要均为 `8e036d154486a43a30961851c7e0b01cd1a7bf29ebfbef1589257efe3f3757ec`。本地证据目录 `hermes-compat-lab-v3r1smq6`，结果 `source_stage_passed`、`compatibilityApproved=false`。这次实验早于 runtime/报告脚本摘要增强，不能作为 I2 的完整认证报告。
+- 官方完整运行时中间实验 `hermes-compat-lab-i6ubtx9r` 已通过：旧版真实依赖、SessionDB 合成会话、目标 PM 依赖/产品完成、候选历史读取、整个合成用户目录恢复、旧版历史再次读取。快照/恢复摘要相同：`4dccdcf45fa4395834dbd5c67a3f32c66a004d98db97128837cdd5ec566961a5`。该次套件摘要 `f79df50e99a8532af31098e799a8510fedc25e3ac529a870fcc1d244637b427f`，早于显式 tag 和 HTTP version 校验，因此不能替代最终验收。当前正在固定最终脚本重跑。
+- 该轮实际旧版/新版/恢复后 OpenAPI 路由清单分别有 248/263/248 条；用现有 Connector `evaluateHermesContract` 读取三个真实服务采集文件，42 条消费路由全部存在。这里只证明 REST 路由清单，没有调用所有路由或证明 RPC 语义。
+
+## HG-199 原型取舍
+
+审计基于草稿提交 `e434d63d`、`f06869f8`，不整体合入草稿。
+
+| 模块 | 处理 | 理由与后续验收 |
+|---|---|---|
+| 已合入主线的发布查询、Git/marker 检查、只读 journal | 复用 | 保持不执行上游源码的被动检测；补上本轮新版 stamp 识别 |
+| 固定 REST/RPC 清单、解析样本和合成历史测试思路 | 复用并重新跑 | 旧草稿静态/合成通过不能认证当前真实目标，必须绑定新的报告 |
+| `DesktopHermesUpgradeMachineEvidenceProviding` 等注入式证据接口 | 作为验收清单参考，不当实际采集器 | 原型提交明确没有生产 collector；必须逐项取得实际来源 |
+| 事务 journal、原服务清单和私有备份校验 | 有选择复用设计与测试 | 正式执行前仍需原绝对路径依赖恢复、服务归属和进程中断实证 |
+| 整体 Python 私有更新 worker / takeover 流程 | 替换 | 优先使用固定 commit 官方 installer；不继续复制上游整个内部更新流程 |
+| `executionAvailable=false` | 保留至 G2 门禁 | 不因管理页完成或注入测试变绿就打开升级按钮 |
+
+已确认的官方接口缺口是 repository 阶段没有全程更新锁与写入排空。这要求 HC-07 提供有界且按版本验证的锁/服务协调，或补齐官方接口；不能把官方 products 阶段自己的锁等同于完整事务。首版排除无法识别或无法停写的外部服务，不能自动杀第三方进程。
+
+HC-03 的固定合同另见 [控制面合同](HERMES_COMPATIBILITY_CONTROL.md)。它可在 HC-02 实验进行时整理；I1 尚未验收。
+
+## I0 固定套件最终实跑
+
+两次都使用套件 SHA-256 `84e0aeb232ef754dd94b07a2363fe6c64d938a326731e48de7909815d0f52090`，不是前述中间版本。
+
+- [完整升级及恢复报告](evidence/hermes-compatibility/2026-10-25-runtime.json)：`runtime_stage_passed`。实际 HTTP 版本依次为 0.21.3 → 0.22.5 → 0.21.3，三次均读到原合成会话；精确 commit、官方 tag 及真实依赖/产品阶段通过。恢复摘要 `48f4d46bd9202391ec0a4887eeadb5f0466746ab56eacb76772574942ecf1514` 与升级前快照一致。本地目录 `hermes-compat-lab-jo28st1h`。
+- [依赖落盘后注入失败报告](evidence/hermes-compatibility/2026-10-25-dependency-failure.json)：预期 `failed`，原因 `injected_failure_after_target_dependencies`；没有错误地显示升级成功。restore/restoredHistory 都通过，实际运行恢复为 0.21.3；摘要 `271707993b8d951e3869d44b105aac468cb3af815f571a940b03333c13ec0b25` 与升级前一致。本地目录 `hermes-compat-lab-um46lsn5`。
+- [最终轮 REST 路由清单核对](evidence/hermes-compatibility/2026-10-25-rest-paths.json)：旧版、新版和恢复后都满足现有 42 条 Connector 路由清单。仍未证明全部端点行为或 RPC。
+
+这证明恢复必须保留完整旧运行环境并恢复原路径，不能只切换 Git commit。两个报告仍为 `compatibilityApproved=false`，LaunchAgent、完整业务、并发与突然中断不在这两次实验的已通过范围。
+
+## I1 实现与检查
+
+新增 schema 21：独立管理员授予、候选、任务、报告、审批、发布快照、幂等操作和审计。`ACCOUNT_HERMES_COMPATIBILITY_ENABLED` 默认关闭。没有生产迁移、授予或部署。release-contract 的 schema 更新属于红灯集成范围，后续合并/发布按既有门禁；未升 app 或服务包版本。
+
+管理请求使用既有 bearer session，事务内重新验证账号、session、installation 和稳定 account ID 的管理员角色。初始授予工具只接受明确 account ID 与匹配的已验证邮箱，没有登录时自动按邮箱提权。Desktop 根据服务端权限显示入口，换账号/签出/拒绝后清除旧数据。新增失败使用 HR-HERMESCOMPAT-001–006，本地摘要不直接显示服务器原始文本。
+
+候选从固定官方 API 获取稳定 release、解引用 commit 和安装器摘要；移动 tag 保留旧身份并标异常。任务和审批有修订检查和幂等键。失败、缺项、未执行、跨 run/identity 报告及未发布组件不能审批。普通管理 HTTP 不接受报告上传。I2 验证配置和派发尚未接入，runtime 的 recipe 列表为空；页面不代表流水线已完成。
+
+本机缺少 PostgreSQL，已按[官方构建方式](https://www.postgresql.org/docs/18/install-make.html)在本任务临时目录构建校验过摘要的 PostgreSQL 18.0，仅监听 owner-only Unix socket，不开放 TCP。真实数据库测试覆盖授予/撤销、伪造邮箱、并发幂等、陈旧修订、任务去重、冲突报告、失败证据拒绝、审批审计及已撤销 session。使用合成账号和独立 schema，测试结束后删 schema。
+
+- Desktop assets、667 项 Swift 测试、本地 ad-hoc app 构建通过，未安装/发布。新增页深浅色原生合成窗口检查通过；完整登录交互仍待检查。离屏 bitmap 输出不完整，未当作视觉通过证据。原生工具失败后仅截取本任务预览窗口完成深浅色检查。
+- Node 构建通过；Protocol 18/18、Connector 153/153、Gateway 259 通过/14 跳过/0 失败（真实 PostgreSQL 测试已运行）、release-server 41/41。
+- 脚本基线提供测试数据库后为 434 通过、2 失败、0 跳过；两项失败均为既有 LibreSSL CMS 解密路径，第二项原先跳过，实际运行后暴露同一原因。未改旧恢复逻辑，仍需要 OpenSSL 环境复核。
+- `git diff --check` 通过。只有隔离工作树里的本任务修改，没有 commit、push、PR、生产启用或日常 Hermes 变更。
+
+## I2 进行中：固定工作流身份与队列
+
+已实现 GitHub OIDC 签名/issuer/audience/repository ID/main workflow/精确 GO commit/run attempt 校验及 GitHub run metadata 的任务 UUID 交叉核验。准备/回收与实际执行上游代码分不同任务；尚未派发真实 CI。管理员 bearer token 不能回传报告。任务队列持久记录派发尝试，最多三次、间隔五分钟；超时转基础设施异常而不是通过。重跑 GitHub attempt 2 不能覆盖原 run，需管理员新建任务。
+
+配置解析只允许固定项目仓库、固定环境和组件组合，不接受脚本或路径；无配置时仍保持空 recipe。新增代码尚需与实际 workflow/报告脚本完成联调和全量复验，不能记为 I2 完成。
+
+### I2 本地联调进展
+
+已加入三 job 工作流及领取/验证/报告脚本。验证 job 没有 OIDC 写权限，上传白名单证据；回收端重算 bundle 和逐项摘要。报告丢失或校验失败回传基础设施异常。已有真实 I0 两份报告经转换只证明安装、历史、升级、恢复四项，其余十一项未执行，审批仍拒绝。Desktop 已接发起验证菜单和逐项报告。
+
+新增超时回归先在旧 90 分钟规则下失败，改为 120 分钟后真实 PostgreSQL 测试通过；避免最长 85 分钟验证加准备/回收尚未结束就超时。定向 Gateway 14/14（含真实 PG）、脚本 6/6（含 Python lab 包装）、Desktop 669/669、资源和本地 app 构建通过。新增菜单/15 项报告深浅色原生合成窗口已检查。未启动真实 GitHub workflow，未部署服务/授予角色，I2 线上闭环仍待实际启用验证。
+
+I2 Node 基线复验：Protocol 18/18、Connector 153/153、Gateway 265 通过/14 跳过/0 失败、release-server 41/41；脚本 439 通过/2 失败，仍是已记录的本机 LibreSSL CMS 问题。
+
+## I3 进行中：受保护签名发布与精确匹配
+
+实现待发布任务、固定发布 workflow、`desktop-release` 环境 OIDC 核验、专用 purpose 的 Ed25519 快照、公开回读后提交和撤回。Gateway 只持有公钥与派发凭据，签名步骤使用现有发布环境中的私钥。被 GitHub 接受的任务等待环境审批，不反复派发；超时和派发失败可见。批准、发布请求和 published 状态分别表达。
+
+发布前及公开回读后复核已发布组件证据；撤回立即停止提供受影响旧清单，并可发布更高修订的空清单。Swift 校验格式/签名/用途/origin/有效期/修订，按完整源版本、系统与五个组件身份匹配最高稳定目标。共享 TypeScript 签名 fixture 在 Swift 中验签通过，仅为合成样本，不含私钥或实际支持声明。
+
+本阶段定向 Gateway 20/20（含真实 PostgreSQL）、worker 脚本 7/7、Swift API/签名 25/25 通过。审批/发布/撤回按钮及发布任务状态已接入；新增按钮的原生视觉检查、本阶段完整基线、真实受保护工作流、发布组件清单产出/续期、普通客户端联网获取与执行前新鲜度尚待完成。没有生产权限授予、私钥配置、CI 派发或发布。
+
+### I3 后续本地验证
+
+新增公开清单 HTTP 客户端：无账号凭据/cookie、拒绝重定向、512 KiB 上限、超时、禁用缓存；每次 refresh 都联网。验签后持久保存每个 origin 的最高修订和签名载荷摘要，跨客户端重启拒绝旧修订或同修订不同内容，持久化失败或断网不返回旧授权。它仍需接到普通页面及 I4 开始变更前的复核；单独的 refresh 返回值不是执行许可。
+
+重复 JSON key 的签名载荷回归在修复前确实失败，修复后拒绝歧义载荷。公开 HTTP、持久重放与离线拒绝测试通过。最新本地基线：Desktop 679/679、assets、ad-hoc app 构建；Protocol 18/18、Connector 153/153、Gateway 271 通过/14 跳过、release-server 41/41。脚本 442 通过/2 失败，仍是本机 LibreSSL 对既有 legacy-recovery CMS 路径的失败，没有据此宣称全基线绿色。
+
+管理页新增批准、发布和撤回状态已用单独合成窗口检查深浅主题、顶部和底部滚动布局。预览中的 15/15 是专用 UI 样本，**不是本版本通过证据**。没有操作真实管理员账号、发布清单或安装该 app。
+
+## I0/I4 实际阻断：旧 updater 的锁不能覆盖存活子进程
+
+新增 `scripts/hermes-compatibility-lock-lab.py` 仅在临时 HOME 使用固定两个 commit 的原始 `update_lock.py`，不运行安装器、不访问日常 HOME。复跑两次均得到 [失败证据](evidence/hermes-compatibility/2026-10-25-update-lock.json)：
+
+- 新版持锁父进程存活时，旧/新版兄弟进程均拒绝进入。
+- 强制结束持锁父进程，保留继承 checkout flock 的安装子进程；新版兄弟进程仍拒绝，旧版兄弟进程却取得锁。
+- 整个自有进程组退出后，新版可以重新取得锁。
+
+原因来自固定源码：旧版只检查 marker 的 owner PID 和 20 分钟期限，不识别新版继承的内核锁或存活 delegate。新版 marker 前两行与旧版兼容；问题不是格式改成了无法解析的新版前缀。旧版 acquire 本身也不是原子独占写，不能靠 GO 自己再加一个锁就证明外部 updater 遵守互斥。
+
+CI 已复用同一探针：发现冲突时 concurrentUpdate 明确 failed；即使单一探针通过，也不能把完整并发矩阵直接标为 passed。对应回归先失败、实现后通过。该探针不会伪造 processInterruption、Desktop 生命周期或新数据保护通过。
+
+下一步需要解决官方更新入口的全程锁/子进程托管接口，或由负责人明确修改首版支持范围；不能在原规划里悄悄降低并发验收门槛。可审阅的边界和验收条件见 [上游接口缺口](HERMES_UPGRADE_UPSTREAM_GAP.md)。当前未编写绕过该缺口的生产执行器，普通升级仍关闭。
+
+## 当前审阅状态
+
+本任务代码与证据保存在隔离分支 `codex/hermes-compatibility-plan`，首个本地提交为 `7afba960`。远程推送被自动审批拒绝，理由是该次外部代码披露尚无明确授权；已请求用户授权，没有改用其他通道推送，未创建 PR。
+
+后续本地复核补齐服务端签名载荷的重复 JSON key 拒绝，避免与 Swift 对同一签名字节产生不同解释；新增回归修复前失败、修复后通过。受影响 Gateway 基线复验为 272 通过/14 跳过/0 失败（真实 PostgreSQL），兼容 worker 8/8 通过。此修复没有改变已记录的真实上游实验结论。
+
+仍未完成：真实账号启用与 CI/受保护发布、发布组件证据产出和续期、普通页面的组件身份采集及接线、九项未验收的兼容检查、I4 执行器和 I5 设备端到端。不能仅凭获得推送授权或合并管理代码就越过这些门槛。未部署、未发布、未升级日常 Hermes。
+
+## I2 真实运行接口补验
+
+在已验证的合成安装实验中，使用原绝对路径分别启动旧版 0.21.3、新版 0.22.5 和恢复后的旧版。没有运行新的安装器，也没有访问日常 HOME、模型凭据或生产账号。`hermes-compatibility-contract-lab.py` 只接受临时目录中的成功 runtime lab，使用原隔离 profile；候选暂时激活后，无论探针成功与否都恢复原目录位置，保留候选数据。控制流测试验证拒绝日常 HOME、候选失败后的原路径恢复和候选新增合成文件保留；这不是生产恢复实现。
+
+三次实际运行均通过 11 个局部检查，见 [运行接口证据](evidence/hermes-compatibility/2026-10-25-live-contracts.json)：HTTP 缺失/错误 token 被拒绝，正确 token 可读取；WebSocket 缺失/错误 token 被拒绝，正确 token 可调用 active_list 并由真实 Connector parser 解析；运行版本一致；会话列表、跨 profile 列表和历史读取保留合成会话；真实 Connector OpenAPI evaluator 返回 compatible。token 仅在内存和子进程 stdin 传递，报告不含 token、响应正文或原始日志。GET 可能触发上游自身维护写入，因此只在合成 HOME 中测试。
+
+该证据只新增认证项通过，范围是 Desktop 托管的 loopback session token 模式。没有据一次 active_list 或 schema 检查把 RPC/Connector/客户端业务整体标为通过。CI 已串联该探针并绑定两个脚本摘要。验证 job 从 85 调整到 105 分钟，服务端运行期限从 120 到 150 分钟；125 分钟仍运行、151 分钟转超时的真实数据库回归在旧规则下失败后修复。一次数据库启动未带原专用 socket 参数导致连接失败，已停止并按 `-k <测试 socket> -p 55439 -h ''` 重启，确认 listen_addresses 为空后复验；该失败不算作通过证据。
+
+本轮最终基线：Protocol 18/18、Connector 153/153、Gateway 272 通过/14 跳过/0 失败、release-server 41/41；脚本 444 通过/2 失败，仍为已记录的本机 LibreSSL CMS 问题。本轮没有 Desktop 源码改动，沿用上一轮 679 项 Swift 与原生页面检查，不声称重跑。最终探针字节再次实跑三阶段通过。
+
+用户随后明确授权将本任务分支推送到 `guoshengliang-coder/hermes-remote` 并创建草稿 PR；该授权不包括合并、部署或升级日常 Hermes。此前推送拒绝已获得所需补充授权，后续仍按独立门禁执行。
+
+## 草稿 CI 与发布组件证据
+
+已创建 [草稿 PR #673](https://github.com/guoshengliang-coder/hermes-remote/pull/673)。首轮 gitleaks 将两个实验报告的五个 `openapiPathsSha256` 识别为 generic-api-key；逐一用原始仅含路径/方法的文件重新计算，五个摘要全部一致，确认为公开路由摘要。沿用仓库规则，仅排除这五个精确历史 commit/file/line 指纹。提交 `229143e7` 的 11 项 GitHub 检查全部通过，包括 Node、Desktop、Android、Web、密钥扫描及独立恢复流水线。`merge-when-green --no-merge` 拒绝草稿，随后使用只读 `gh pr checks --watch` 等待，未改变草稿、合并或发布。
+
+I3 后续测试影响评审：现有 Web 发布只回读首页，不能证明兼容记录里的整个 Web 组件包已经可取得。本轮新增只读 Web 证据采集器，复用真实 package/manifest/tar 解析，绑定原始归档摘要、版本及公开文件全集；首尾两次回读首页以发现检查期间切换。它只生成未签名组件观察，尚未接入受保护 inventory 汇总，不冒充完整 I3 或 Web/Hermes 业务验证。其余四类发布证据来源、inventory 签名/续期仍待完成。
+
+测试覆盖修改脚本但首页不变、缺文件、重定向、部分响应、过大响应、归档与清单不一致、部署中途切换、无凭据请求及中英错误序列化/脱敏。另用真实 package → 临时目录 publish → loopback HTTP → readback，证明整个合成 Web 发布可核验，修改已发布 JS 后确实拒绝；不是线上发布证据。首次 loopback 测试被执行沙箱禁止监听，获准测试执行后通过。没有修改 Web 产品代码、现有发布流程、Desktop UI 或部署任何服务。
+
+本轮验证：Web 证据与既有 Web 发布定向测试 11/11；脚本基线 449 通过、2 失败、1 跳过。两项失败仍为已记录的本机 LibreSSL CMS 解密；跳过项因本轮误用了数据库变量名，改用 `ACCOUNT_TEST_DATABASE_URL` 后单独补跑数据库迁移套件 9/9、无跳过。未修改的 Swift/客户端组件沿用前述 CI 结果，不声称本轮本地重跑。
+
+## I0/I2 实际配置保留补验
+
+`b0bb528e` 的 11 项 GitHub 检查全部通过，草稿未合并。随后回到真实升级链路补配置证据：原 `synthetic-config.yaml` 只能证明文件恢复，不能证明 Hermes 会读取升级后的实际配置。本轮在全新合成 HOME 中通过旧版配置保存函数设置模型/provider、最大轮数、终端超时及 reasoning 显示项，随机生成带 synthetic 前缀的虚拟 provider 凭据。检查使用两端实际 `load_config_readonly` 和 dotenv 读取；新版通过官方 `--run-module unittest` 启动器取得 PM 运行环境，不假定存在新版 venv 路径。没有实际模型请求或日常配置/凭据参与。
+
+实施前测试影响评审覆盖上述任一值丢失/变化时拒绝、同一配置在升级和失败恢复后重新读取、脚本身份固定及报告白名单。14 项 Python 工具单测、10 项 worker/lab 定向测试通过；脚本基线 451 通过、2 项既有 LibreSSL CMS 失败、无跳过。配置字段只作为 `seeded-default-profile-and-dotenv` 范围的观察，不能据此把多 profile、环境变量引用等全部配置场景标为通过，configuration 门禁仍保留未验收。
+
+为给新演练留空间，核验旧中间实验 `hermes-compat-lab-i6ubtx9r` 为已结束的固定套件 `f79df50e…` 且无相关进程后，只清理其 user/candidate/snapshot/tmp 合成运行目录，保留原报告、路由清单和私有日志。最终历史证据实验 `jo28st1h` 与 `um46lsn5` 未清理。
+
+固定套件 `b89bccdb4f18d97120f8817a104b2ad9effbd4e2bc4d11dfcddddfa6d184cf89` 的两次真实实验已结束：
+
+- [正常升级/恢复与配置检查](evidence/hermes-compatibility/2026-10-25-runtime-configuration.json) 为 `runtime_stage_passed`；旧版、新版、恢复后旧版的实际配置读取均通过。原历史可读，恢复树摘要与备份相等。运行目录 `hermes-compat-lab-nnkfnvca`，耗时 1205 秒。
+- [依赖落盘后失败与配置恢复](evidence/hermes-compatibility/2026-10-25-dependency-configuration.json) 如期记录 `injected_failure_after_target_dependencies`，整体不会标为升级成功。旧版配置、虚拟凭据及历史恢复检查通过，恢复树摘要与备份相等。候选在故障点后未启动，不能声称候选配置检查通过。运行目录 `hermes-compat-lab-ntjmmgcq`，耗时 866 秒。
+- 正常实验的新环境再执行三阶段接口探针，33 项全部通过；输出与已有 `2026-10-25-live-contracts.json` 字节一致，报告 SHA-256 为 `ed01b9436cdb7ccc7abee565233cbffddd22a9bbbe0a9643e755a4513f9e7d2b`，因此未重复存同一份 JSON。
+
+两份配置报告只保存阶段结果，不含虚拟凭据值、配置正文或个人目录；复制前与三份合成环境中的凭据值比对，确认未包含。该轮加强了已测默认 profile 的真实证据，仍没有解决并发锁、其他配置形态、I4 执行器或 I5 端到端；既有五项通过/并发失败/九项未验收的认证状态未因此扩大。
+
+两份最终真实配置报告绑定后的 worker/lab 定向测试 11/11 通过；`git diff --check` 通过。此轮没有 Gateway/Connector/协议/客户端产品代码变更，未重复跑未受影响的本地 Swift/Android 构建。
+
+## I3 安装身份与包身份的对应
+
+`4334d74f` 的 11 项 GitHub 检查全部通过，PR 保持草稿，未合并或部署。
+
+本轮检查发现：组件 receipt 的 contentSHA256 是解包后的内容身份，兼容记录的 artifactSha256 是原始归档身份，两者不能互换；Desktop app 更新器也没有可验证的已安装 DMG 身份记录。只凭版本号拼出五组件组合会产生错误匹配。
+
+实施前测试影响评审针对内容/归档摘要混淆、同版本文件被修改、只剩 receipt、健康检查失败和普通展示对象重建。现有签名组件预检增加只读 installedComponents 观察：只有验签清单映射、磁盘完整重算和健康检查均通过的托管组件才返回两种摘要。它接在既有预检返回路径，未新增独立后台扫描器或改写安装记录。定向 14 项通过；第一次沙箱执行因 Swift 缓存不可写而未启动测试，获准正常编译执行后通过。
+
+该观察仍不是正在运行的 Connector 身份。当前 bundle 布局、Desktop DMG 到已安装 app 的可信映射、其他客户端与 Gateway 的实际身份、普通推荐页接线仍待实现；不能据此标记 I3 完成或开放升级。没有新增用户可见错误或视觉变化，现有预检错误映射不变。
+
+本轮 Desktop 基线：683 项 Swift 测试、资产一致性和本地 ad-hoc app 构建全部通过；`git diff --check` 通过。没有安装或发布构建产物，没有 UI 变化，因此没有新增原生视觉验收声明。Gateway/Connector/Android 产品源码未变，未重复其本地基线。
+
+## I3 旧布局 Connector 身份补验
+
+`6da23374` 的 11 项 GitHub 检查全部通过，PR 仍为草稿。本轮继续为 schema-1 旧布局补身份采集：签名清单绑定原始归档；归档复制到私有工作目录后再次验摘要并复用安全解包器；完整比对当前所选 Connector 树，前后核对 current 指向。返回值明确是所选安装文件的观察，不是运行进程或升级许可。未改写 receipt、安装目录或服务配置，未强制迁移用户布局。
+
+实施前测试影响评审覆盖安装文件/归档被改、复制期间归档变化、签名与 JSON 歧义、检查期间切换发布、工作目录边界及清理失败；错误沿用 HR-HERMESCOMPAT-008，技术详情仅保留固定阶段及闭集枚举，不传递系统错误中的个人路径。10 项定向测试通过。初始编译修正了私有 Base64 helper 的调用，初始错误文案断言修正为分别检查 summary/detail，没有改变现有文案。
+
+实机只读观察发现当前 selected release 已是 0.4.12，不能继续沿用旧记录的 0.3.4。从安装 app 的公开索引/公钥出发核验 0.4.12 清单和 37,087,174 字节 Connector 包，选中组件版本为 0.1.17。探针使用本轮实际 Core 代码，OS sandbox 禁止网络及自有临时目录外写入；独立的外部空目录写入尝试确实被拒绝。没有运行归档内程序、模型请求或 launchd 操作。
+
+第一次实验的 sandbox 布尔条件误拒绝了自有临时写入，修正后保留目录外拒绝。随后实机发现已有工作目录的 URL directory hint 导致临时参考包被判为 outsideManagedRoot；新增回归在修复前失败，给新 run URL 明确 isDirectory 后通过。最终 [实机身份报告](evidence/hermes-compatibility/2026-10-25-installed-bundled-connector.json) 为 passed，安装树内容与签名包一致；报告绑定 inspector 源文件摘要，保留 runningProcessVerified=false 和 compatibilityApproved=false。临时探针、公开下载与诊断位于 `/private/tmp/hermes-bundled-identity-real-rxej62h7`，不含账号凭据。
+
+仍需普通页面的原始清单/包发现接线、正在运行的组件身份、Desktop/Gateway/客户端身份及完整升级执行。已请求用户单独授权向上游提交已准备的锁缺陷报告；未收到授权前没有发送消息或创建上游 issue。本轮未合并、部署或升级日常 Hermes。
+
+最终 Desktop 基线为 693 项 Swift 测试、资产一致性与本地 ad-hoc app 构建通过；10 项定向测试通过，`git diff --check` 通过。新增证据只涉及当前选中组件文件；没有重复未改动 Gateway/Connector/Android 的本地套件，没有 UI 变化或新增视觉验收声明。
+
+## 上游锁缺口报告已提交
+
+用户明确授权后，先检索上游相关锁、子进程及旧版更新问题，未找到同一固定版本过渡的复现报告；于 2026-10-25 创建 [NousResearch/hermes-agent #144377](https://github.com/NousResearch/hermes-agent/issues/144377)。提交仅包含两个固定 commit、合成实验步骤、脱敏结果和已公开分支的证据永久链接。报告明确说明子进程只休眠并持有继承的锁，不声称已发生并行安装或数据损坏，不推断上游当前 main 的状态。没有修改上游代码。
+
+该报告请求明确旧入口到新锁的受支持过渡条件，不能代替修复和重新验收；0.21.3→0.22.5 仍不批准，普通一键升级仍关闭。`ca099d26` 的 11 项 GitHub 检查已全部通过，PR #673 保持草稿。本次仅更新报告状态与证据措辞，检查文档差异和链接，不重复未改动组件的测试；未合并、部署、发布或升级日常 Hermes。
+
+## I3 Desktop 安装文件身份补验
+
+`5834cd03` 的 11 项 GitHub 检查全部通过。继续补齐普通客户端组件匹配的 Desktop 输入：新增只读 DMG 比对器，明确区分原始包摘要与完整 app 内容摘要，检查真实 bundle 身份和可执行入口；私有副本二次校验后只读挂载，不调用会在安装目录旁暂存替换 app 的更新器。安装内容前后复核，卸载成功后才删除自有工作目录；卸载或清理失败不能返回成功。
+
+实施前测试影响评审覆盖同版本篡改、归档/复制竞争、安装切换、路径边界、挂载与收尾失败。12 项定向场景通过，其中一项实跑合成 DMG 创建、只读挂载和卸载。最终完整基线为 705 项 Swift、资产一致性和本地 ad-hoc app 构建通过。错误复用 HR-HERMESCOMPAT-008 并检查双语摘要/详情、重试与恢复动作及无路径诊断。未修改现有安装流程或 UI，未重跑不受影响的 Gateway/Connector/Android 基线。
+
+实机仍是 0.2.41/build 44，当前公开索引是 0.2.42/build 45；不能凭索引把安装版本记成新版。下载发布记录里的 0.2.41 原始 DMG 并校验 4,012,102 字节及精确摘要后，用最终 Core 代码核验成功。OS sandbox 禁止网络和临时目录外写入，独立外部写入尝试被拒绝；安装文件未写入、包内程序未运行。脱敏 [实机 app 文件报告](evidence/hermes-compatibility/2026-10-25-installed-desktop-app.json) 保留 runningProcessVerified=false、compatibilityApproved=false，并注明参考身份来自已有发布记录而非签名兼容记录。
+
+该观察不能代替运行进程身份、可信推荐消费或完整五组件匹配。普通页面接线、其他组件身份与发布证据、九项兼容验收、上游锁缺口及 I4/I5 仍待完成。没有合并、发布、部署、授权角色或升级日常 Hermes。
+
+## I3 普通页面推荐查询接线
+
+`a5cc938d` 的 11 项 GitHub 检查全部通过。本轮将普通“检查 Hermes 版本”接到已实现的签名推荐客户端；账号服务 origin 与已固定的发布公钥提供配置，公开请求不携带账号凭据。两路查询并行、错误分别处理，删除原 `verifiedTargets` 注入捷径，不再只允许与上游最新相同的推荐。推荐取得后重新检测本机安装，再匹配来源 commit、系统/安装类型和组件要求。
+
+实施前更新设计合同并评审过期、查询失败、未知组件、不匹配和旧推荐选择的测试影响。新增判定保留未知与不匹配名单；完整匹配时可选择较旧但满足条件的推荐，仍必须高于本机版本。过期视图失效，失败不复用上次结果。当前生产接线尚无完整活动组件身份输入，不能把前两轮安装文件观察直接当作运行进程身份，因而发布候选仍显示“条件待确认”；这不是 I3 全部验收，也没有开启升级按钮。
+
+定向推荐/版本测试 22/22，最终完整 Desktop 基线为 714 项 Swift、资产检查与本地 ad-hoc app 构建通过。新增 getter 初次编译的返回值错误已修正；中途打包因我继续编辑源码被构建器拒绝，固定最终源码后已完整重跑，不把该次失败算通过。原生合成预览检查未知、完整匹配、失败和未配置四态的深浅色共八张，使用实际卡片/主题/错误 banner 与无副作用模型替身，未运行日常 Desktop 或服务。完整匹配预览仅证明布局，不能作为真实认证。
+
+待完成项仍包括活动组件采集、可信发布组件证据与续期、实际受保护流水线和账号操作、上游锁修复、九项兼容验收以及 I4/I5。没有合并、发布、部署或升级日常 Hermes。
+
+## I3 受管 Connector 运行身份关联
+
+`ffef03ff` 的 11 项 GitHub 检查全部通过。本轮确认现有健康接口只有 Hermes 状态，不足以证明 Connector 身份；复用已固定的 schema-1 打包入口和 macOS 内核接口，补充只读运行关联，不扩展云端握手。检查确切受管标签和 launcher、内核 PID/用户/启动时间/可执行文件/参数，拒绝 Node/dyld 加载覆盖；重算完整包树，再以 ctime 确认文件/目录没有在进程启动后变更，最后复核进程与 current 选择。进程环境仅本地解析为闭集判断，不记录其值。
+
+测试影响评审覆盖 PID 复用、运行参数与包不符、加载器覆盖、选择切换、同版本文件修改及恢复旧内容/mtime。新增八项测试；定向 18/18、完整 722 项 Swift、资产检查和本地 app 构建通过。真实内核测试只操作自有 sleep 子进程；不以假 Node fixture 证明真实进程验收。
+
+实机重新核验签名 0.4.12 包与 Connector 0.1.17 文件后，运行关联检查通过。探针在禁止网络、禁止临时目录外写入的 OS sandbox 中运行，外部写入拒绝也单独验证；未重启、停止或发信号给日常 Connector。[运行关联证据](evidence/hermes-compatibility/2026-10-25-running-bundled-connector.json) 绑定两个 inspector 摘要，省略 PID、路径、参数和环境值，兼容批准仍为 false。
+
+该结果仅覆盖当前 bundled Node 布局的进程与文件连续性，不声称对抗特权调试注入；独立 Node 组件布局、普通页面自动采集、Desktop 活动身份及远端/客户端身份仍需补齐。其余升级与端到端门槛不变。未修改 Connector/Gateway/协议源码，未合并、发布、部署或升级日常 Hermes。
+
+
+## I3 普通推荐自动采集 Connector
+
+`6273f9e5` 的 11 项 CI 全部通过。本轮把已验证的文件/运行身份检查接入普通推荐查询：只有清单内
+存在符合本机来源和环境的更高版本候选才下载；从当前选择的 release 推导原始公开清单位置，固定
+配置只允许相同版本，签名、发布版本、通道、架构和源站验证通过才下载归档。全树和进程关联检查
+继续复用现有实现；下载结束重新检测 Hermes，失败身份保留未知，不沿用上次结果。
+
+实施前评审了签名错误、选中版本在网络期间变化、下载/运行核验失败、私有临时文件清理和公共
+会话隔离的测试影响。新增八项测试，首轮定向 24/24，最终全量 730 项 Swift、资产检查和本地 app
+构建通过。首次未提升权限的 Swift 调用被编译缓存沙箱拒绝，随后按正常权限完成全量检查；该次
+失败不计入通过结果。没有 UI 布局或控件变更，沿用上一轮原生预览；真实发布推荐的界面点击仍待验收。
+
+实机自动发现/公开下载/文件与进程关联链路通过，确认当前 Connector 0.1.17；
+[脱敏证据](evidence/hermes-compatibility/2026-10-25-automatic-connector-collection.json) 记录归档与内容摘要、
+采集器和 inspector 源码摘要，兼容批准仍为 false。第一次探针因 Foundation 不采用 TMPDIR 而被测试
+沙箱拒绝下载；改为仅允许探针目录和 macOS 系统临时目录写入后通过，并独立验证外部写入被拒绝、
+下载工作目录已清理。没有向日常安装目录写入，也没有启动、停止或重启服务。
+
+其他四组件身份、可信发布证据/续期、真实账号与工作流验收、九项兼容检查、上游锁缺口和 I4/I5
+仍未完成。现有 tar/launchctl runner 的本地命令期限尚未补齐；网络期限不能代替完整事务期限。
+本轮未合并、发布、部署、授予角色或升级日常 Hermes。
+
+
+## I3 当前运行 Desktop 身份与自动采集
+
+`a9843432` 的 11 项 CI 全部通过。本轮补齐另一项本机身份：从新鲜签名推荐中匹配当前 Desktop
+版本及唯一归档摘要，公开下载版本化原始 DMG，经既有完整文件核验后，确认内核进程的用户、启动
+时间、可执行文件和允许的启动参数，拒绝加载覆盖，并核验 app 树自进程启动后未变更。支持从较低
+但匹配的 Hermes 候选取得要求；同版本摘要冲突不猜测。普通查询仅接收成功观察，云端/Android/Web
+继续未知。共享下载器保留原调用的精确大小检查，只为身份发现增加内部有界模式；挂载卸载失败时
+不递归删除工作目录。
+
+实施前测试影响评审覆盖错误进程、重启/文件替换、下载失败、摘要冲突及卸载失败。新增 12 项测试；
+首轮定向 71/71、初轮全量 741/741 通过，审查后补一项下载超时清理回归。资产检查和最终产品源码的
+本地 app 构建通过；没有 UI 布局变更，未声称真实发布推荐点击验收。补齐后最终全量 742/742 通过。
+
+[实机证据](evidence/hermes-compatibility/2026-10-25-running-desktop-identity.json) 确认当前运行的
+Desktop 0.2.41 对应重新下载的原始公开 DMG。参考摘要来自已记录的发布物，不是线上兼容批准；
+报告不包含 PID、路径或进程环境。探针限制写入任务/系统临时目录，单独验证外部写入拒绝与采集
+工作目录清理。未启动、停止、更新或替换日常 app。
+
+这些是检查时的文件/进程观察，不能替代正式执行前的完整复核或维护锁。可信发布组件证据、其他
+三类活动组件身份、真实账号/工作流、九项兼容检查、上游锁缺口及 I4/I5 仍待完成。未合并、部署、
+发布、授予角色或升级日常 Hermes。
+
+## I3 Gateway 原始发布包与容器身份采集
+
+`1f3fe4b2` 的 11 项 CI 全部通过。本轮复用现有 schema-3 OCI bundle、config/descriptor 身份解析与
+只读 Docker inspect，新增 Gateway 发布证据采集器。验证固定原始包摘要、镜像配置中的平台/版本/
+commit、容器镜像和标准启动参数；拒绝可写根、代码目录覆盖、加载参数覆盖、容器替换或重启。
+私有包复制和命令均有上限/期限；不输出完整环境、挂载源、容器 ID 或原始错误。错误复用已登记的
+HR-HERMESCOMPAT-004，保留中英文、不可重试及查看报告动作。
+
+测试影响评审覆盖包/镜像错配、运行配置变化、只读边界、检测阶段和诊断脱敏。新增六项采集测试，
+连同既有归档身份测试 8/8 通过；最初测试夹具的 macOS /var 路径不满足既有 ops 无链接要求，已改
+为真实规范路径，并让拒绝用例断言到达正确检查阶段，避免提前失败冒充回归覆盖。
+
+`npm run build` 通过；有正常本地测试权限和隔离 PostgreSQL 后，Protocol 18、Connector 153、
+Gateway 272（14 跳过）、release-server 41 通过。脚本 458 通过、0 跳过，仍有已知两项 macOS
+LibreSSL CMS 恢复失败，完整 npm test 因此未全绿。首次沙箱调用的本地监听 EPERM 不计为产品失败，
+正常权限复跑已覆盖。没有修改上述组件源码或协议；无需重跑未变化的 Desktop/Android 本地基线。
+
+本机没有可用 Docker CLI，不能把注入 Docker 输出当作真实运行证据。已将真实验收接入现有
+Gateway OCI job：对刚打包的镜像创建自有、无网络容器，验证正常态与额外 Node 参数拒绝，完成后
+清理；其远端结果尚待本轮推送确认。生产服务器未连接或改动。
+
+该观察显式保留 `publicRouteVerified=false`，尚不证明公网选择了被检查容器，也不会直接进入普通
+推荐或签名 inventory。发布来源授权、路由绑定、Android/Web 活动身份及 I0/I2/I4/I5 既有缺口仍
+待完成；没有合并、部署、发布、授予角色或升级日常 Hermes。
+
+
+本轮 [Gateway OCI 真实验收](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/40185496920)
+已成功：触发分支为 `dc203625`，实际构建的 PR 合并快照为 `9749a443a2f389959b987396c5ba00a29e4451f7`，
+不能将二者混同。正常只读容器采集成功，额外 NODE_OPTIONS 被拒绝；两个自有容器清理完成，成功
+标记已核对。[脱敏报告](evidence/hermes-compatibility/2026-10-25-gateway-oci-runtime.json) 保留真实
+归档/镜像摘要与上述范围，没有生产配置或凭据。仅证明该 CI 候选的采集链路，不是发布、路由或
+Hermes 兼容批准。上游 #144377 本轮只读复核仍打开、零回复，未声称锁问题已解决。
+
+
+## I2 核心 REST 读取与分阶段证据
+
+`c6202b8f` 的 11 项 CI 全部通过。本轮回到核心接口验收，实施前评审字段改名、类型漂移、消息
+时间戳、分页和旧报告升级误判的测试影响。新增 `required-read-surfaces-v1`，检查四个必需读取
+路由；沿用 `HR-HERMESCOMPAT-004` 和原有脱敏错误出口，没有新增用户可见错误码。
+
+在保留的已成功升级合成环境中，真实启动旧版 0.21.3、新版 0.22.5、恢复后的旧版，48/48 接口
+检查通过。新增部分验证会话字段、秒级时间戳、原始文本以及第一页/越界空页和分页元数据。
+[脱敏报告](evidence/hermes-compatibility/2026-10-25-core-rest-contracts.json) 绑定实际 suite/probe
+源码摘要；旧 33 项证据保留，不能因新测试而自动取得 REST 结论。每一阶段的范围/五项布尔结果
+必需完整，缺项或混用范围拒收，任意失败传导为 REST 失败，其证据摘要指向接口报告。
+
+定向 14/14 测试通过；`npm run build` 通过。完整 `npm test` 中 Protocol 18、Connector 153、
+Gateway 272（14 项跳过）、release-server 41 通过；scripts 463 通过、0 跳过，仍有此前同样的
+两项 macOS LibreSSL CMS legacy-recovery 失败，因此整体命令退出非零，未声称全绿。
+一次性 PostgreSQL 检查实际执行。没有 Desktop、Android 产品或 UI 修改，未重复其本地基线，
+也未声称手机/Web 实际业务验收。`git diff --check` 通过。
+
+当前六项可通过、并发更新一项失败、八项未执行。核心 REST 仅覆盖默认 profile 单条文本历史，
+不认证可选接口、多模态内容、其他 profile、完整 RPC、Connector 中继或客户端业务。
+真实账号/受保护工作流、可信发布 inventory、其余组件身份、上游锁缺口与 I4/I5 仍待完成。
+本轮没有合并、部署、发布、授予角色或修改日常 Hermes；继续保留草稿和非兼容批准状态。
+
+
+## I2 同连接会话 RPC 实测
+
+`477ed741` 的 11 项 CI 全部通过。本轮按核心业务顺序增加 RPC 局部覆盖：同一连接等待 ready，
+首先声明能力，创建空会话，恢复合成历史，使用恢复句柄读取 reasoning，再核对活动列表的 stored/
+live 身份。参数形状与真实 Web builder 对照，未增加客户端参数或修改上游源码。实施前评审
+响应 ID、协议 envelope、超时/断连、错误传播、历史意外返回和局部证据被错误认证的测试影响。
+
+最终探针对固定旧版 0.21.3、新版 0.22.5、恢复后的旧版三阶段共 66/66 检查通过，包含新增六项
+会话检查；[脱敏证据](evidence/hermes-compatibility/2026-10-25-session-rpc-contracts.json) 与最终
+suite/probe 摘要一致。只创建隔离环境内的合成空会话，不提交 prompt、模型推理或生产账号请求。
+45 秒总期限、1 MiB 单帧上限、连接关闭收尾和布尔白名单结果防止挂起或泄漏原始响应。
+
+定向 23/23 通过；更换最终实测证据后报告回归 11/11 通过。`npm run build` 通过；完整测试
+Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通过，scripts 472 通过、
+0 跳过，仍复现相同两项 macOS LibreSSL CMS legacy-recovery 失败，整体退出非零。一次性
+PostgreSQL 检查执行；未改 Desktop/Android 产品或 UI，因此未重复本地 app/device 验证。
+
+该范围通过仍将完整 `rpc` 保持未执行；任一已测会话路径失败则记为失败并关联接口证据。
+prompt 流式事件、工具/审批、重新连接、中继和真实客户端业务仍需验收。当前总计仍是六项可
+通过、一项并发锁失败、八项未完成；可信发布 inventory、执行器和 I4/I5 等门槛不变。
+本轮未合并、部署、发布、授予角色或修改日常 Hermes。
+
+
+## I2 本地模型文本对话与历史落盘
+
+`efcdd2b6` 的 11 项 CI 全部通过。本轮推进提交消息到保存历史的路径，实施前评审外网隔离、
+临时配置恢复、同会话事件关联、提前到达事件、消息落盘、摘要绑定及局部结果不能越级批准的
+测试影响。新增固定回复的 loopback HTTP 模型 fixture，原版 Hermes 自身执行模型协议、RPC
+事件转换和数据库写入；不修改上游代码，也不请求真实模型服务。
+
+`--prompt` 先用系统沙箱验证外部测试地址被权限拒绝，再临时覆盖合成配置并启动已有隔离后端。
+每次结束先停测试后端，再恢复原配置字节与权限。首轮因 macOS sandbox 不接受数字地址写法而
+拒绝执行；改为其要求的 localhost 语法后，自检及真实对话通过。首次 Python 语法编译因宿主
+缓存写入限制失败，改为不写缓存的编译检查后通过；未放宽日常目录权限。
+
+最终旧版 0.21.3、新版 0.22.5、恢复后的旧版 84/84 检查通过，包括 streaming 接受结果、匹配
+句柄的 delta/complete 文本、历史里 user/assistant 行、本地模型实际收到请求、外网隔离和配置
+恢复。[脱敏证据](evidence/hermes-compatibility/2026-10-25-prompt-contracts.json) 同时绑定最终
+lab/probe/model-fixture 三份源码摘要。旧报告保持原范围，不从新实现自动获得新增结论。
+
+定向 30/30 通过；`npm run build` 通过。完整 `npm test` 的 Protocol 18、Connector 153、
+Gateway 272（14 跳过）、release-server 41 通过，scripts 初轮 476 通过/2 失败；最终补齐
+事件缓冲白名单/上限及网络门禁回归后，完整 scripts 基线 477 通过、0 跳过，仍仅有相同两项
+macOS LibreSSL CMS legacy-recovery 失败。因此完整基线不是全绿。一次性 PostgreSQL 测试执行。
+没有 Desktop/Android 产品或 UI 修改，未重复本地 app 或设备测试；未声称真实模型/客户端验收。
+
+worker 已接入 prompt 模式，报告拒绝缺失阶段、错误 fixture 摘要、混合范围和状态矛盾。任何
+已测对话失败明确阻止 RPC 验收；模拟文本对话全部通过仍不能认证工具/审批、重连、中继、真实
+模型和客户端业务。当前仍是六项可通过、一项并发锁失败、八项未完成，I4/I5 未交付。
+未合并、部署、发布、授予角色或修改日常 Hermes，工作仍保留在获准草稿 PR。
+
+
+## I2 已完成对话的独立连接恢复
+
+`81849f68` 的 11 项 CI 全部通过。本轮验证刚完成的合成对话在旧 WebSocket 关闭后能否由新
+连接恢复。实施前评审连接身份、ready/capabilities 顺序、stored/live 关联、历史缺失/重复/变化、
+异常收尾和局部成功越级认证风险。新连接不提交第二次 prompt，恢复所用参数仍与客户端一致。
+
+固定旧版 0.21.3、新版 0.22.5、恢复后的旧版共 99/99 检查通过；新增五项覆盖 ready、能力声明、
+resume、身份关联和历史回读。两条预期消息的行 ID、角色、正文和时间戳与首连接一致。
+[脱敏证据](evidence/hermes-compatibility/2026-10-25-reconnect-contracts.json) 绑定最终 lab/probe/
+fixture 摘要，不公开会话 ID 或历史正文。历史范围记录保持不可变。
+
+定向 35/35 通过。`npm run build` 通过；完整 `npm test` 中 Protocol 18、Connector 153、
+Gateway 272（14 跳过）、release-server 41 通过；scripts 482 通过、0 跳过，仍仅复现两项
+既有 macOS LibreSSL CMS legacy-recovery 失败，整体退出非零。一次性 PostgreSQL 检查执行。
+没有 Desktop/Android 产品或 UI 变化，未重复本地 app 或设备验证。`git diff --check` 通过。
+
+任何已测重连失败明确进入 RPC 失败结论；通过不能替代生成中断/重放、后端进程恢复、Desktop
+生命周期、新版数据保护或真实客户端业务。当前仍是六项可通过、一项并发锁失败、八项未完成，
+I4/I5 未交付。未合并、部署、发布、授予角色或修改日常 Hermes；继续保留草稿状态。
+
+提交后的统计检查发现烟雾测试文档被编辑脚本误覆盖；随后的文档修复提交完整恢复上轮内容，
+仅追加本轮重连说明。已核对原文逐字保留、追加段落唯一和相对上轮完整差异，代码与实测证据
+未变化。未改写已推送历史；最终状态以修复提交为准。
+
+## I2 真实 Gateway/Connector legacy 中继
+
+`4cfdde35` 的 11 项 CI 全部通过。本轮在修改前评审中继身份与凭据分离、live/observer 模式、
+每次模型请求归属、启动及探测失败清理、构建变化、报告缺项/错范围和局部成功越级认证风险。
+隔离 fixture 使用真实编译入口和独立合成 App/Connector/Hermes 凭据，复用现有外网隔离。
+首次启动发现 Node 位于真实 HOME 而被既有读取隔离拒绝；改为只复制选定可执行文件、前后
+校验 SHA-256 并在收尾删除，未放宽 HOME 或网络隔离。
+
+最终构建后重新实测旧版 0.21.3、候选 0.22.5、恢复后的旧版：每阶段 33 项直接访问和 33 项
+真实中继检查全部通过，共 198/198；另有每阶段凭据交换拒绝和进程退出，共六项观察通过。
+[脱敏证据](evidence/hermes-compatibility/2026-10-25-relay-contracts.json) 绑定 lab/probe/model/
+relay fixture、Node、组件 dist 树与 lockfile 摘要。最终核对摘要与磁盘一致，原始目录已恢复，
+所有临时 Node 副本已移除。源码构建版本为 Gateway 0.4.36、Connector 0.1.17；不等同于签名
+发布产物或账号模式验收，也不证明全部安装依赖文件的完整性。
+
+worker 默认执行 `--prompt --relay`，分别记录两个传输路径的模型到达观察，三阶段混合构建、
+错版本、缺项、错误 transport/范围、状态矛盾和私有字段都有回归覆盖。任何已测中继失败明确
+使 Connector 项失败；全通过仍不将完整 Connector 项批准。新失败沿用已登记的双语
+HR-HERMESCOMPAT-004，公开报告仅保留白名单布尔结果、版本和摘要。
+
+定向 lab/worker 18/18 通过，完整基线也包含 REST/RPC 回归。`npm run build` 通过；
+`npm test`：Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通过；
+scripts 484 通过、0 跳过，仍仅复现既有两项 macOS LibreSSL CMS legacy-recovery 失败，
+整体退出非零。一次性 PostgreSQL 检查执行。未改变 Desktop/Android 产品或 UI，不重复设备
+检查；未声称账号中继、手机/Web、正式组件或生产验收。烟雾/契约文档的原文逐字保留。
+
+当前仍是六项可通过、一项并发锁失败、八项未完成，I4/I5 未交付。未合并、部署、发布、
+授予角色或修改日常 Hermes；保留草稿 PR，继续按既定规划补齐验证与执行路径。
+
+## I3 Connector 发布证据输入
+
+`c5c0efb6` 的 11 项 CI 全部通过。本轮梳理可信 inventory 产出端时确认，组件是否已正式发布
+与用户是否正在运行该组件是两个独立要求；已有运行身份观察不能取代发布依据。实施前评审
+签名/公钥来源、两种布局身份、有效期、跨版本 URL、完整包回读、资源上限、变更检测及错误脱敏。
+
+新增只读 Connector 发布采集器，复用既有 v1/v2 payload 校验，不改变原发布器行为。先使用
+受信公钥认证原始签名 payload、拒绝重复键和过期/未来记录，再完整读取目标归档核对长度/摘要，
+最后复核同一版本化清单未变化。没有执行归档、安装组件或持有发布私钥。受保护调用方仍须
+控制信任配置与预期组合，普通管理员不能将自行填写的通过观察送进发布授权。
+
+已对现有公开发布包 0.4.12 的两种布局实测：bundled Connector 0.1.17 原归档
+`a8733c13302af73b793563f5c7a9d5898626efc8be4c53986dd94366e21e524a` 和 v2 原归档
+`95db00fe236a35945a5ee713ed99bbfaeee1fa8a05a5e5be4ba11fbee5863475` 均验签/全量回读通过。
+验签公钥来自本机已安装 Desktop 的公开信任配置；未读取账号或发布凭据。
+[证据](evidence/hermes-compatibility/2026-10-25-published-connector-artifacts.json) 绑定采集器、
+payload 校验器与验签源码摘要。两者版本相同而归档不同，精确组合不能按版本号合并。
+
+新增六项采集器测试，并与既有签名发布测试一起 18/18 通过；包含合成签名包的真实 HTTP
+回读和包被替换后的拒绝。`npm run build` 通过；完整 `npm test` 中 Protocol 18、Connector
+153、Gateway 272（14 跳过）、release-server 41 通过，scripts 490 通过、0 跳过；仍是两项
+既有 macOS LibreSSL CMS legacy-recovery 失败，整体非全绿。一次性 PostgreSQL 检查执行。
+未修改 Desktop/Android 产品或 UI，未重复本机 app/设备测试；`git diff --check` 通过。
+
+此证据仅覆盖 Connector 的签名发布记录及对应公共归档；v2 运行依赖、当前进程、完整五组件
+汇总/签名/续期、真实发布链路仍待完成。I4/I5 和上游并发锁缺口没有因此解决。未合并、部署、
+发布、授予角色、修改日常 Hermes 或创建额外上游消息，继续保留草稿 PR。
+
+## I3 五组件库存准备与签名消费原语
+
+`baee5b7d` 的 11 项 CI 全部通过。本轮测试影响评审覆盖五组件缺项/串身份、原始资料来源、
+元数据和归档不一致、观察过期、依据先到期、组合重复、续签旧证据、跨用途签名及失败整份拒绝。
+新增 Desktop/Android 原始发布记录的公共归档采集器；复用现有 Android 元数据合同，固定源
+commit、版本、原归档摘要、长度和 URL，无凭据、无跳转、流式有界读取。它不替代包签名、
+notarization 或原发布 package gate。
+
+库存准备器按受控策略调用五种原生采集器，拒绝缺项和不一致；同次任务共享完全相同的观察，
+新的任务重新采集。结束时验证观察最多 15 分钟，库存到期受 24 小时上限及来源签名到期约束。
+输出只有载荷/策略/证据摘要和必要身份时间，不含来源路径或原始记录。CLI 只写新的未签名
+文件；未配置私钥或生产上传。Gateway 新增共用库存 parser 和专用签名原语，实际序列化后
+验签；重复组合拒绝，库存不能当作 Hermes 推荐或通过报告。
+
+[公开客户端回读](evidence/hermes-compatibility/2026-10-25-public-client-artifacts.json) 实测
+Desktop 0.2.42（4,013,043 bytes）与 Android 0.1.183（36,999,632 bytes）完整摘要匹配。
+本次元数据来自公开索引快照，因此证据明确不认证原始发布来源授权，也没有重做 APK/DMG
+签名或执行检查；不能直接作为生产库存策略。没有安装或启动下载的客户端。
+
+最初四类采集/生成定向测试 24/24 通过，随后补充任务内复用和长任务失效用例纳入完整基线。
+`npm run build` 通过；`npm test`：Protocol 18、Connector 153、Gateway 272（14 跳过）、
+release-server 41 通过，scripts 497 通过、0 跳过；仍仅有既有两项 macOS LibreSSL CMS
+legacy-recovery 失败，整体退出非零。一次性 PostgreSQL 检查执行，`git diff --check` 通过。
+没有 Desktop/Android 产品或 UI 变化，不重复设备验证。
+
+新增 CI 实跑接在既有临时 Gateway 容器验收中：真实隔离 Gateway 与真实打包的合成 Web，
+临时签名的 Connector 记录和不可执行的客户端 fixture，通过 loopback HTTP 调用全部默认
+采集器；临时密钥签名后让 Gateway 真正消费者匹配，替换客户端字节后必须拒绝。该 CI 结果
+在本次提交时仍待运行，本机未宣称 Docker 验收。正式受保护任务、五组件原始资料/受信主机
+配置、库存原子安装与续期尚未接通；I4/I5 和上游锁缺口仍未解决。
+
+随后已读取本轮镜像 job 的原始日志核验新增步骤：[CI 证据](evidence/hermes-compatibility/2026-10-25-inventory-producer-ci.json)。
+run `40192389451` / job `121165957729` 在 PR 合并快照
+`2009d7a3442be2fb3ba5671a1f7b787bea52566d`（包含本分支 `325032d3`）完成：实际临时
+Gateway 0.4.37，五项默认采集器均执行，临时密钥签名/消费验签通过，改动客户端归档后拒绝，
+最终 acceptance 标记出现。Gateway 与临时 HTTP/文件资源收尾完成；注入 Node 加载选项的
+第二容器仍被拒绝。客户端包保持合成 fixture，不能据此认证正式包或完整用户业务。
+
+## I3 签名库存原子安装
+
+`bc3c6abd` 的 11 项 CI 全部通过。本轮实施前评审签名用途/期限、初始安装与递增更新、
+幂等重试、并发写入、替换前后中断、目录/配置/锁变化及读取竞态。新增 Python 内核锁入口，
+通过 exec 让实际 Node 写入器继承锁；无按时抢锁、签名密钥、网络或服务操作。写入器验证
+签名及旧状态，在同目录完成独占写入、文件同步、原子替换、目录同步和回读验签。
+
+新载荷必须晚于已认证旧载荷；相同载荷幂等，update 不自动初始化。修复 Gateway 打开旧文件
+后遭原子替换时因链接数归零误拒绝的竞态；仍拒绝硬链接，签名/有效期规则保持不变。回归
+测试精确注入该窗口，并覆盖真实内核锁争用和替换前后 SIGKILL。首轮强杀 fixture 因仅等待
+无活动句柄的 Promise 提前退出，已用测试专用定时器修正；随后七项定向测试全部通过。
+
+`npm run build` 通过；完整 `npm test` 中 Protocol 18、Connector 153、Gateway 272（14 跳过）、
+release-server 41 通过，scripts 504 通过、0 跳过。仍仅有既有两项 macOS LibreSSL CMS
+legacy-recovery 失败，整体退出非零；一次性 PostgreSQL 检查执行。沿用库存读取端既有
+HR-HERMESCOMPAT-006，测试双语摘要、恢复动作、重试属性与诊断脱敏。
+
+CI 临时容器测试增加实际签名库存初始化、重复交付、更新为空库存及拒绝旧库存，结果将在
+运行后单独留证。本机未宣称 Docker 验收或掉电认证；没有 Desktop/Android 产品或 UI 改动。
+正式受保护任务/配置/续期、I4/I5 与上游锁缺口仍待完成。未合并、部署、发布、授予角色或
+修改日常 Hermes，草稿 PR 保持开发状态。
+
+随后核对 [原子交付 CI 证据](evidence/hermes-compatibility/2026-10-25-inventory-install-ci.json)：
+run `40194748670` / job `121173062695` 在合并快照
+`c15cfa28a89c84c561b3a94576ae7566114f8c03`（包含分支 `4f42769e`）完成五组件收集与
+实际安装/消费；重复交付幂等、后续空库存生效、旧库存被拒绝四项布尔结果均为真，最终
+cleanup 标记出现。Gateway 0.4.37 为临时真实镜像，其他客户端仍是合成输入，未扩大认证范围。
+
+## I2 后端进程重启与已完成对话恢复
+
+`7fc4c78f` 的 11 项 CI 全部通过。本轮先评审进程所有权、原端口重绑定、新旧鉴权、持久历史
+身份、重复推理风险、配置恢复、失败报告和私有 checkpoint 脱敏。现有重连只换 WebSocket，
+本轮在同一隔离安装上实际停止自有后端并启动新进程；使用新的合成 token，复用原 loopback
+端口，直接恢复上一进程完成的文本对话。checkpoint 仅在内存/子进程管道传递，不落公开证据。
+
+旧版 0.21.3、候选 0.22.5、恢复后的旧版全部完成：每阶段 15 项重启检查，共 45/45；同时
+原有每阶段 33 项直接检查和 33 项真实 legacy 中继检查共 198/198，另有六项凭据分离和收尾
+观察通过。[脱敏报告](evidence/hermes-compatibility/2026-10-25-backend-restart-contracts.json)
+绑定最终 lab/probe/model/relay 摘要。原绝对路径已恢复；新的后端拒绝旧 HTTP token，两条
+预期消息的 ID、正文、角色和时间戳不变，本地模型请求计数没有增加，配置已恢复。
+
+新增故障回归涵盖旧凭据误接受、错运行版本、历史变化、缺失/重复 checkpoint、重启失败后
+配置恢复、前一后端未停时拒绝再启动。报告拒绝三阶段缺项、范围/版本混用和状态矛盾，并
+白名单剔除私有数据。已测重启失败明确使 serviceRecovery 失败；局部通过不把 LaunchAgent、
+Desktop 生命周期、生成中断或新版数据保护提升为通过。重启回读走直接连接，不认证中继重连。
+worker 默认 `--prompt --relay --restart`，合同实验有 30 分钟期限，错误沿用 HR-HERMESCOMPAT-004。
+
+提交前审查发现前置对话失败而没有 checkpoint 时会误报基础设施异常，已修正并增加回归：
+保留 RPC 失败，重启仅记 attempted=false/空检查；前置成功不能跳过。修正后重新实跑三阶段，
+最终证据绑定修正后的源码，而非沿用此前的成功报告。
+
+定向 37/37 通过；随后真实报告替换构造 fixture，worker 15/15 再次通过。`npm run build` 通过；
+完整 `npm test`：Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通过；
+scripts 508 通过、0 跳过，仍仅复现既有两项 macOS LibreSSL CMS legacy-recovery 失败，整体
+退出非零。一次性 PostgreSQL 检查执行。未修改 Desktop/Android 产品或 UI，不重复设备验证。
+
+完整目标仍未交付：上游旧更新器锁缺口未解决，当前依然六项可通过、一项并发锁失败、八项
+未完成；受保护清单任务、实际执行器和 I4/I5 保持待完成。未合并、部署、发布、授予角色或
+修改日常 Hermes，继续保持草稿状态。
+
+## I2 真实 Desktop Core 与隔离 LaunchAgent
+
+`5977d44d` 的 11 项 CI 全部通过。本轮实施前评审正式标签/端口隔离、真实 Native 控制器、
+token-file 合同、环境隔离、bootstrap 不确定结果、进程和端口收尾，以及报告身份/缺项拒收。
+新增 Swift 验收助手链接当前 Desktop Core，复用真实 launcher/plist 生成与启停控制器；只在
+随机临时标签和端口上操作。适配增加原 sandbox/干净环境，正式标签不会到达 launchctl，
+9119 被拒绝，token 保留在 0600 文件，代理变量不继承。
+
+首次实跑在配置生成前被路径预检拒绝，没有加载服务。原因是 Foundation 将 `/private/var`
+规范表示为 `/var`；改为 POSIX realpath 验证调用方路径，保留原临时目录/所有者/权限检查。
+没有放宽到日常目录。随后实跑成功；收尾审查又补上停止不确定时的私有清理标记与实验隔离，
+不再移动可能被存活进程写入的候选路径，后续重跑也会拒绝。该故障路径有回归覆盖。
+
+最终源码再次实跑固定旧版、候选和恢复版，每阶段初始/重启两次，共六次真实 launchd 服务
+循环，24/24 加载、运行归属、卸载/进程退出和端口释放观察通过；45/45 已完成对话重启检查、
+198/198 直接/legacy 中继检查及六项凭据分离/收尾观察也通过。
+[脱敏证据](evidence/hermes-compatibility/2026-10-25-launchagent-contracts.json) 绑定最终 lab、
+probe、Native helper 源码/二进制、Core 源码树与 fixtures 摘要。最后只核对本任务十二个随机
+job（两轮各六个）均已卸载，原绝对路径已恢复，清理标记不存在，实验助手/Node 临时副本已删除。
+
+报告端重新计算受信源码摘要；六次循环缺项、混用身份、错误范围、状态矛盾或已测失败均不能
+形成通过证据。明确失败使 serviceRecovery 失败；前置对话失败时仍遵守 attempted=false，
+不伪造重启循环。worker 默认增加 `--launchagent`，缺 GUI 域/Swift 工具链作为基础设施失败。
+重启后的中继连接、Desktop 重开和实际账号客户端业务仍需继续验收，不能由本轮提升为全通过。
+
+定向 lab/worker 21/21 通过；最终真实报告消费者 16/16 通过。Node 构建通过，最后完整测试
+Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通过；scripts 510
+通过、0 跳过，仅两项既有 macOS LibreSSL CMS legacy-recovery 失败，整体退出非零。
+一次性 PostgreSQL 检查执行。Desktop assets、742 Swift 测试和本地 ad-hoc App 构建通过；
+没有产品 UI 改动，不追加截图或宣称分发验收。`git diff --check` 通过。
+
+上游 issue 此时仍无回复，未确认锁缺口修复。整体仍是六项可通过、一项并发锁失败、八项
+未完成；I4/I5、受保护任务和真实客户端链路尚未交付。未合并、部署、发布、授予角色或
+修改日常 Hermes，也未向上游发送额外消息。
+
+## I2 保持 Gateway 运行的中继恢复
+
+`1c42c240` 的 11 项 PR 检查全部通过。本轮先评审恢复范围与测试影响：此前中继在后端重启
+前已关闭，因此不能证明原客户端连接路径仍可使用。新增范围保持 Gateway 进程、端口、设备
+身份和 app/connector 凭据不变，后端用新本机 token 启动后，仅替换自有 Connector；Gateway
+必须先观察到旧连接离线，再确认新连接上线。用原 app 凭据恢复重启前通过中继完成的对话，
+核对运行版本、种子历史、同一 stored ID 和两条消息的 ID/正文/角色/时间戳，无新增模型请求。
+
+实际固定旧版、候选、恢复版三阶段共 48/48 新增检查通过；原有 198 直接/中继、45 后端重启、
+24 Native 服务与六项凭据/清理检查仍通过。证据见
+[中继恢复报告](evidence/hermes-compatibility/2026-10-25-relay-recovery-contracts.json)，绑定
+最终 lab/probe/fixtures、源码构建及 Native 身份。六个本轮随机 LaunchAgent 均已卸载，两个
+实验安装路径恢复，无清理标记，临时 Native 助手与 Node 副本已删除。
+
+报告解析新增三阶段完整性、版本/范围、布尔类型与状态一致性验证。已测失败使 connector 和
+serviceRecovery 失败；前置对话失败只能记录未尝试/空 checks，不能隐藏成功前置后的漏测。
+checkpoint、令牌、进程号、路径和正文只在私有实验状态，报告白名单排除这些字段。
+ExitStack 故障测试覆盖重启抛错时保留的中继仍被清理、原模型配置仍被恢复。复用既有
+HR-HERMESCOMPAT-004 失败边界，无新增产品错误码、权限或 UI 行为。
+
+定向 26/26 通过（首次沙箱禁止监听回环端口；获运行权限后重跑通过）；真实报告替换构造
+fixture 后，完整基线再次覆盖消费者。`npm run build` 通过；`npm test` 中 Protocol 18、
+Connector 153、Gateway 272（14 跳过）、release-server 41 通过；scripts 512 通过、0 跳过，
+仅复现既有两项 macOS LibreSSL CMS legacy-recovery 解密失败，整体退出非零。一次性
+PostgreSQL 测试执行。未修改 Desktop 产品源或 UI；上轮 assets/742 Swift/ad-hoc 构建记录
+不冒充本轮重新执行。`git diff --check` 通过。
+
+本轮只证明 legacy 源码构建、已完成文本对话的恢复；账号模式、发布产物、实际客户端、
+运行中断和完整升级执行器仍待验收。整体继续为六项可通过、一项并发锁失败、八项未完成，
+没有将局部成功升级为兼容推荐。未合并、部署、发布、授予角色或修改日常 Hermes；继续保持
+现有草稿 PR，不向上游发送额外消息。
+
+## I2 真实账号中继与尚未解决的恢复间歇性
+
+`897763d1` 的 11 项 PR 检查全部通过。本轮实施前评审账号/legacy 鉴权差异、独立数据库身份、
+空库与目录边界、真实迁移、合成会话与 Connector 私钥、跨账号拒绝、异常清理及报告范围。
+新增 PostgreSQL 18 fixture，每阶段新建私有集群、随机 loopback 端口和 SCRAM 密码；受信
+seed 程序先核对服务端 data_directory 和空 public schema，再应用真实仓库 SQL。账号会话、
+refresh family 与 Ed25519 绑定均为合成数据，经过真实 TokenCodec/Gateway/Connector 鉴权。
+未发送邮件、使用真实账号或授予管理员权限。
+
+Probe 支持 Bearer HTTP/WS；完成合成对话后保留同一 Gateway、账号会话与绑定，重启 Hermes
+及 Connector，再验证原对话。新增账号范围与 legacy 范围严格区分，数据库版本/二进制、
+fixture 和迁移摘要全部进入白名单证据。worker 默认切换账号模式；受保护 macOS job 准备
+PostgreSQL 工具链，无工具链记录基础设施未完成，不能静默替换为 legacy 通过。
+
+四次真实 source/candidate/restored 实验结果：
+
+- 首次：candidate 重启后账号中继的版本、种子历史、RPC ready/capabilities/resume/identity/
+  history 七项失败；直接访问 Hermes 和 Native 服务检查通过。
+  [原始脱敏失败记录](evidence/hermes-compatibility/2026-10-25-account-relay-first-gap.json)。
+- 源码确认账号 Connector 在线不等于 Hermes 健康；测试等待补为在线且健康，最长 45 秒，
+  有正向与持续不健康回归。再次实跑仍出现 candidate 和 restored 的相同七项失败，故不能
+  把问题归因于已经修正的等待条件。
+  [健康门禁后的失败](evidence/hermes-compatibility/2026-10-25-account-relay-readiness-gap.json)。
+- 增加仅在失败后写私有文件的状态诊断（HTTP 状态、注册错误码、健康布尔值，无正文/凭据），
+  后两轮全通过，未触发诊断文件。没有据此宣称失败已解决；数据库日志未出现连接耗尽、密码
+  鉴权失败或死锁，实际失败根因仍未知。
+- 最后一轮的 [脱敏报告](evidence/hermes-compatibility/2026-10-25-account-relay-contracts.json)
+  绑定最终源码：198 直接/账号合同、45 直接重启、48 账号恢复、24 Native 服务、12 数据库/
+  账号隔离和六项凭据/清理观察通过。这是单轮结果，不覆盖前两次负证据。
+
+四轮 24 个精确临时 LaunchAgent 均已卸载，12 个私有数据库均停止且端口可重新绑定。原安装
+路径恢复、无清理标记，临时 Node/Native 助手已删除。未扫描或操作日常服务。历史失败记录
+对应当时的中间 harness；不冒充最终源码成功报告。消费者回归明确要求两份失败记录仍产生
+connector/serviceRecovery=failed，当前成功报告不能提升完整门禁为通过。
+
+定向 44/44 通过；就绪判定修正后的 lab/worker 24/24 通过；最终真实正反报告加入完整基线。
+`npm run build` 通过；完整 `npm test` 中 Protocol 18、Connector 153、Gateway 272（14 跳过）、
+release-server 41 通过；scripts 516 通过、0 跳过，仅两项既有 macOS LibreSSL CMS legacy-recovery
+失败，整体退出非零。自有 PostgreSQL 与新集群 seed/重复初始化拒绝/异常停止测试实际执行。
+最终诊断脱敏和真实报告消费者复核 25/25 通过。产品 Desktop/Android/UI 未改动，未重复或冒称设备验收。
+
+下一步以更小的账号路由/本机传输复现定位间歇性失败，不能只继续抽样直到通过。上游旧锁问题、
+真实客户端/登录、完整执行器及 I4/I5 仍未交付，受保护验证/签名发布任务尚未实际启用。未合并、
+部署、发布、授予角色或升级日常 Hermes；保持草稿。
+
+## I2 定位并修正账号恢复验收的就绪竞态
+
+`cae87235` 的 11 项 PR 检查全部通过。本轮先评审失败证据采集、请求诊断脱敏、原账号凭据、
+就绪期限及永久不可路由时的拒绝。简化为真实 Gateway/Connector/PostgreSQL 与合成 HTTP
+后端后，Python 8 次和 Node 8 次快速健康响应均未复现，不能据此排除失败。新增请求当时的
+私有 HTTP 状态/端点类别/耗时/白名单错误分类；成功也剔除私有字段，失败才写 0600 文件。
+
+真实 Hermes 再次复现 candidate/restored 的七项恢复失败，见
+[请求诊断轮的负证据](evidence/hermes-compatibility/2026-10-25-account-relay-route-gap.json)。
+两阶段请求当时都为 503；随后的固定诊断为 HR-CONN-005，本机 200、绑定在线且健康。
+源码确认 `recordBindingDisconnected` 只清 online，`recordBindingKeyProof` 提前置 online；
+旧 healthy 值保留，而 `AccountConnectorSession` 等待新健康检查完成才注册可路由 peer。
+因此数据库快照不能充当本次连接的就绪信号。
+
+将合成后端的新健康响应固定延迟一秒，两次均在旧门禁返回后读到 503，稍后同一连接自行恢复
+为 200。就绪门禁现要求原账号凭据实际通过 `/api/status` 中继读到 200；保留 45 秒期限，
+不重试或覆盖已经开始的业务检查。修正后同样两次均直接读到 200，见
+[确定性前后对照](evidence/hermes-compatibility/2026-10-25-account-readiness-regression.json)。
+新增回归在旧逻辑确实失败，新逻辑通过；持续 503 必须超时，不能接受仅在线/健康的快照。
+可执行的真实延迟检查纳入 account fixture 测试，设置 HERMES_COMPATIBILITY_POSTGRES_BIN 后
+使用一次性集群运行；未设置时明确跳过该内层检查。
+
+最终真实 source/candidate/restored 三阶段通过，更新
+[账号合同报告](evidence/hermes-compatibility/2026-10-25-account-relay-contracts.json)：198 直接/
+账号合同、45 后端重启、48 账号恢复、24 Native、12 账号隔离与六项凭据/清理观察通过。
+此前三份失败报告继续由消费者回归要求 connector/serviceRecovery=failed，未被新成功覆盖。
+本轮两次临时构建插桩被既有 Gateway 完整性校验拒绝，未作为兼容证据；标准构建已恢复，
+没有改动产品 Gateway 源码或关闭校验。复现及最终完整实验涉及的 14 个精确随机 LaunchAgent
+全部卸载，8 个一次性集群全部停止，16 个不同端口可重新绑定；原安装路径恢复、无隔离清理
+标记，临时 Node/Native 副本删除。缩小实验只使用本轮自有合成目录。
+
+定向 32/32 通过，包括实际 PostgreSQL 的延迟路由回归；`npm run build` 通过。完整 `npm test`
+Protocol 18、Connector 153、Gateway 272（14 跳过）、release-server 41 通过；scripts 518
+通过、0 跳过，仅两项既有 macOS LibreSSL CMS legacy-recovery 失败，整体退出非零。
+最终正反报告消费者包含在该基线中。沿用 HR-HERMESCOMPAT-004；不向用户显示原始异常，未增加
+产品错误码。Desktop/Android 产品与 UI 未修改，不宣称重新执行设备或分发验收。
+
+这解决本次验收的启动时序缺陷，不证明所有账号恢复场景。上游锁 issue #144377 仍开放、无回复，
+尚无已确认修复；完整客户端/运行中断/升级执行器、I4/I5 和受保护任务仍待完成。未合并、部署、
+发布、授予角色或升级日常 Hermes，继续保持草稿。
+
+## I4 持久操作记录与进程中断基础
+
+`8b3f7de4` 的 11 项 PR 检查通过。按 I4 执行链推进，本轮先评审记录持久化、私有文件与锁归属、
+完整旧记录比较、阶段/备份关系、进程中断及错误呈现。新增 `DesktopHermesUpgradeOperation`，
+复用 GO 安装/修复的 `migration-operation.lock`，将意图通过 0600 临时文件、文件 fsync、原子
+替换、目录 fsync 和严格回读持久化。未完成迁移/升级不能被新操作覆盖；恢复同一操作必须先取得
+空闲内核锁，再匹配完整记录。更新阶段必须带同一 run 的备份清单摘要，变更后不能普通取消。
+记录恢复阶段和已恢复历史终态，但这些字段不认证备份内容或当前服务健康。
+
+任何持久化错误都要求停止后续副作用、重新读取核对；原子替换后报错时新意图可能已经可见。
+中断遗留临时文件不自动提升为记录。新增阶段沿用 schema 1；当前读取器仍接受旧记录，旧版本
+读取器遇到未知阶段应拒绝，不能推测操作已结束。既有 HR-HERMESUPDATE-002/003 的双语摘要、
+重试属性和脱敏诊断保持；未增加错误码。普通页面仍只读，没有接入写入器或新的执行按钮。
+
+9 项新 Swift 测试覆盖成功/恢复/取消、精确接管、持锁与迁移冲突、陈旧记录、非法备份、替换锁、
+不安全权限/链接、非文件 URL 和三个写入故障点。另用实际 Core 编译测试助手，在成功写入后、
+rename 前和 rename 后分别 SIGKILL 自有进程：存活期间竞争者均被拒绝，终止后完整旧/新记录保留，
+同一 run 可接管并在变更前取消，正常迁移可重新取锁。助手未创建合成安装目录、未启动 Hermes，
+不把进程崩溃实验当断电或上游子进程互斥证明。该测试加入 macOS CI，路径分类回归防止漏跑。
+
+最终本地 Desktop assets、751 项 Swift、1 项实际进程测试（三个中断子场景）和 ad-hoc app 构建
+通过；CI 分类/工作流定向 18/18 通过，`git diff --check` 通过。新增阶段的实际卡片用惰性回调
+渲染八份深浅色/宽窄合成窗口，直接检查 540 pt 的恢复中浅色与已恢复深色两份，文字和警告未截断。
+这只验收记录展示，不代表已安装 app 的升级交互。本轮没有改 Node 产品逻辑、没有重复完整 npm
+或真实 Hermes 兼容实验；上一轮兼容报告保留其原套件身份，不提升为当前完整兼容认证。
+
+剩余 I4 工作仍包含推荐重验、官方 updater 协调、服务停写、真实备份/恢复及 worker/UI 生命周期；
+GO 操作锁不能替代尚有缺口的上游锁。I4/I5 未完成，普通升级保持关闭。未合并、部署、发布、
+授予角色、安装构建产物或升级日常 Hermes；本轮继续交付到现有草稿 PR。
+
+### 与当前主线整合
+
+`8728f95e` 推送后 PR 因与新主线冲突没有注册检查。先核对 `docs/INTEGRATION.md` 的版本、文件
+交集和跨项目要求，再整合 `ed36884bbb1cc774e16ded39d4a7f33d37f16f6e`：该精确 main 的 CI/SAST
+均通过；双方未修改相同版本真相源，schema 21 保留在兼容分支。冲突仅是 DESKTOP_PHASE0 和
+DESKTOP_TEST_PLAN 追加段落，完整保留双方内容；DesktopViewModel 的组件迁移接入、既有兼容
+管理/推荐查询和 Gateway release 测试的版本/schema 断言逐项核对。主线的组件迁移同样取得
+GO 操作锁，因此新增升级意图不会绕过其互斥。未修改主线已有版本、迁移语义或 Android 行为。
+
+整合后重新执行 Desktop assets、758 项 Swift、实际 Core 三个 SIGKILL 子场景及本地 ad-hoc
+app 构建，全部通过。Node 构建通过；完整 npm test 中 Protocol 18、Connector 156、Gateway
+273（14 跳过）、release-server 41 通过；scripts 529 通过、0 跳过，仍仅两项既有 LibreSSL
+CMS legacy-recovery 解密失败，整体退出非零。Android 代码仅继承主线，没有新增设备验证或
+分发产物。真实 Hermes 报告仍绑定原始源码/版本，不把本次整合当新版本的兼容认证。
+上游 issue #144377 再次只读确认仍开放、零评论，尚无可采用的修复。
+
+## I4 原生恢复点与真实旧运行时重建（2026-10-26）
+
+上一轮 `82026344` 的 11 项 PR 检查全部通过。本轮沿 I4 的代码、依赖和数据恢复点推进，测试
+影响包括原始路径、外部 Python、软链接覆盖、复制一致性、权限/篡改拒绝、跨进程读取和新版数据
+保留。没有更改管理员/推荐合同、错误码、UI 或版本号。
+
+新增 `DesktopHermesRecoveryPointStore`，由持有 GO 操作锁的升级对象在 backingUp 阶段调用。
+它保存 home（含 checkout/venv）与明确采集的外部运行时；解释器或任一软链接指向未覆盖范围时
+拒绝，不能把 home-only 拷贝当完整恢复点。记录绑定 run、来源/目标、原路径以及文件内容、POSIX
+权限和链接摘要，私有目录内完成同步后独占原子发布。已有同 run 点只有在身份及当前所有源树仍
+一致时允许幂等返回。当前上限是八个互不重叠的根、每根 25 万项/20 GiB；这是有界材料操作，
+不是任意安装/OS 快照或完整元数据认证。停写与任意 Python 依赖闭包仍需正式 recipe/执行器保证。
+
+恢复阶段复核已绑定 receipt 和完整保存树，再重建到新的私有工作目录。它不替换当前安装，不
+删除候选或新版历史，不因已有记录就取得数据恢复授权。错误仍使用 HR-HERMESUPDATE-002/003，
+不把路径、配置或异常正文作为主要提示。普通页面尚未调用该能力。
+
+首次真实实验被拒绝，见[负证据](evidence/hermes-compatibility/2026-10-26-native-recovery-uv-lock-refusal.json)。
+只读定位到 uv 的 `venv/.lock` 为 0666，而其 home 为 0700。回归在修正前真实失败，现按有效私有
+父目录边界保留该模式；没有 chmod 原始文件来绕过测试。非私有树暴露的可写项、错误归属、特殊
+文件及未覆盖的外链继续拒绝。另两项测试中间失败是 NSURL 目录提示/系统临时路径别名的测试
+比较问题，改为路径比较/规范化；没有改动产品的路径保护来通过它们。
+
+[最终原生恢复材料实跑](evidence/hermes-compatibility/2026-10-26-native-recovery-material.json)绑定
+实际 Core 源树、助手源码/二进制和实验驱动摘要。独立助手进程保存旧 0.21.3 的 home 与外部 uv
+Python，退出后另一个进程重读 journal 并重建。Core 全程不修改原始树。独立实验控制器仅在原
+一次性实验目录将材料放回两个原绝对路径，实际 HTTP 报告 0.21.3，原合成历史可读，配置与凭据
+文件字节一致；后台停止后检查数据库/解释器无打开者，放回此前保留的原始树，两棵树摘要恢复
+一致。没有残留清理标记。网络限制为 loopback，未调用真实模型、日常 Hermes 或 LaunchAgent。
+
+复跑命令为 `python3 -B scripts/hermes-recovery-point-lab.py --lab <已有的隔离 I0 实验目录>`。
+该控制器只接受固定旧 commit 和实验 uv 布局；它的原路径切换不能被当成产品恢复执行器。
+报告明确保留 officialUpgrade、automaticRestoreCommit、upstreamOwnership、运行路径提交中断、
+新版数据降级授权及实际 Desktop 交互为未执行，`compatibilityApproved=false`。
+
+最终 Desktop assets、765 项 Swift、3 项进程/CLI 测试（三个既有 SIGKILL 子场景、新增跨进程
+恢复材料和双语前置拒绝）、本地 ad-hoc app 构建及 18 项 CI 分类/工作流测试通过。最终记录重新
+绑定补齐错误合同的驱动；两份已确认原始树恢复的中间重复材料已清理，保留最终材料和负证据。
+未重复完整 npm 基线；
+本轮没有 Node 产品变化，之前两项本机 LibreSSL 问题的状态未改变。未重复设备/UI 验收，也没有
+安装或分发本地构建。下一步仍是受控停写与原路径恢复提交、数据写入边界和 worker/UI 生命周期，
+不能据本轮材料重建成功开放普通升级。I4/I5 未完成，继续保留草稿、未合并/部署/发布。
+
+## I2 真实 clarify 工具往返与报告约束（2026-10-26）
+
+I4 原路径替换仍依赖上游更新所有权与受控停写；本轮没有继续添加无法接通的恢复执行框架，
+而是补齐原 I2 核心业务验证中的工具交互。测试影响审查覆盖服务器主动请求、交错 RPC 回包、
+单题批量回答、工具身份、流式/最终输出和历史，及证据遗漏/篡改/失败传播。没有新增产品 API、
+错误码、管理员权限、UI 或版本分配；CLI 前置失败沿用 HR-HERMESCOMPAT-004。
+
+隔离模型新增固定 clarify 工具调用，只问一道合成选择题。必须收到正确 tool_call_id 和工具
+返回的精确答案才生成最终文本，不使用真实供应商。实际 Hermes 发送 server-request，探针
+按现有 Web 参数 builder 的合同调用 `clarify.lock`，验证 `status=ok` 与空 `remaining` 数组。
+同一个 socket 同时保留提交与回答的请求 ID，支持问题早于 prompt.submit 回包、完成消息早于
+回答确认。检查工具 start/complete、工具结果、最终文本及持久化历史；拒绝串会话、缺题 ID、
+错误工具/答案、过期、超时、超量流和中断。套件 `--clarify` 必须同时启用有网络围栏的 `--prompt`。
+
+两项初始失败都属于新探针的断言错误，保留而不当作上游缺陷：
+
+- [回答确认类型失败](evidence/hermes-compatibility/2026-10-26-clarify-ack-type-refusal.json)：
+  最初把 remaining 当数量；两个固定上游源码明确是未回答题目 ID 数组，最终一道题返回空数组。
+- [工具后段落断言失败](evidence/hermes-compatibility/2026-10-26-clarify-paragraph-refusal.json)：
+  工具与回答已完成，历史里的最终文本正确，但流多两个换行。两版 `agent/stream_delivery.py`
+  在工具迭代后的首段加一个段落分隔，Web 完成事件使用最终正文。现仅接受精确正文或这一对
+  前置换行，不用宽泛 trim 掩盖额外正文；有对应正反例。
+
+[最终真实记录](evidence/hermes-compatibility/2026-10-26-clarify-contracts.json)绑定实验驱动、主
+探针、新 clarify 探针、模型夹具和实际中继构建摘要。0.21.3、0.22.5、恢复后的 0.21.3 均经
+直连和实际账号 Gateway/Connector 完成；六条路径各 43 项布尔检查通过，共 258 项，其中
+新增 clarify 60 项。三套合成账号 PostgreSQL 的 12 项检查通过，中继凭据角色分离和停止确认
+均通过。所有临时服务已退出，原实验安装位置恢复，无清理隔离标记。未运行真实模型或日常服务。
+
+worker 默认纳入该场景。证据消费要求三阶段与账号中继的 scope 一致，并绑定独立探针摘要；
+缺字段、缺 scope、错误摘要或“全通过”状态隐藏失败会被拒绝。已测 direct 失败明确使 rpc
+失败，中继失败使 connector 失败。全部通过仍不代表完整 RPC、Connector 或客户端业务通过：
+审批、多题/多选、待答重连、生成中断及实际 Android/Web/Desktop 交互仍需验证。
+本轮未重复 LaunchAgent/后端恢复场景，旧证据保留原源码身份。
+
+复跑：`python3 -B scripts/hermes-compatibility-contract-lab.py --lab-root <隔离 I0 实验目录>
+--prompt --clarify --relay --account-relay --postgres-bin <可信 PostgreSQL 18 bin>`。
+仍是已有实验目录的验证，不会安装或升级日常 Hermes。I4/I5 未完成，普通一键升级继续关闭。
+
+本轮完整 Node 构建通过；Protocol 18、Connector 156、Gateway 273（14 跳过）、release-server
+41 通过，scripts 545 通过、2 失败、0 跳过。两项失败仍是既有本机 LibreSSL CMS legacy-recovery
+解密问题，因此完整命令退出非零。最终定向工具/worker/lab 测试 42/42 通过（包含 Python 子套件）；
+Python 模型夹具单独 4/4 通过。构建后发现中继产物摘要变化，重新实跑后再保存最终记录，不复用
+先前构建的通过声明。没有 Desktop 产品代码或视觉改动，本轮未重复 Swift/app 构建或设备验证。
+仍保持草稿，不合并、部署、发布或操作日常 Hermes。
+
+最终构建的再次实跑还暴露既有 REST 探针的分页假设：多次运行累积超过 100 个合成会话后，
+种子会话在第二页，直接读取其历史仍成功，但旧探针只查第一页。
+[失败记录](evidence/hermes-compatibility/2026-10-26-session-pagination-refusal.json)保留完整检查，
+不能算通过。现按两版端点支持的 offset 每次读取 100 条，上限五页（旧版 profiles 合并窗口上限
+500）；空页、忽略 offset、无效行或窗口内找不到种子均失败。没有删除历史、改会话时间或放宽
+种子字段校验。回归明确复现旧第一页断言失败，再验证第二页成功及有界拒绝。此项在完整基线
+之后补入，因此最终定向回归另行记录。
+
+最终分页修正后的实跑仍为 258/258，全部脚本/模型/中继构建摘要再次逐项核对一致；原路径恢复，
+没有清理标记。最终 core REST、clarify、worker、lab 定向组合 48/48 通过。草稿 PR 的本次提交
+继续等待其精确提交的远程检查，不把此前提交的绿色状态沿用为本次检查结果。
+
+## I2 真实 Web 文字与单题澄清交互（2026-10-26）
+
+本轮把“手写 RPC 参数与 Web 相同”推进为实际打开本次构建的 Web 页面，使用 Playwright
+1.62.1 / Chrome for Testing 151.0.7922.34（revision 1234）点击新建、发送文字、刷新历史、
+回答澄清卡片并再次刷新。真实 Gateway、Connector、官方 Hermes 和数据库处理请求；账号、
+历史和模型均为合成数据。未修改产品 Web、上游源码或日常安装。
+
+最终[机器记录](evidence/hermes-compatibility/2026-10-26-web-contracts.json)为 `passed`：
+
+| 运行阶段 | direct / account-relay | 新增 Web 检查 | 私有账号数据库检查 |
+| --- | --- | --- | --- |
+| 原 0.21.3 | 43 / 43 | 16 / 16 | 4 / 4 |
+| 候选 0.22.5 | 43 / 43 | 16 / 16 | 4 / 4 |
+| 恢复原 0.21.3 | 43 / 43 | 16 / 16 | 4 / 4 |
+
+浏览器检查包括真实访问会话和刷新、CSRF 拒绝、WebSocket 鉴权、两次页面输入、卡片选择、
+精确回复和两次重载后的唯一历史，以及浏览器/代理退出。原有接口 258 项、新 Web 48 项及
+数据库 12 项分别保留，不提升为完整兼容认证。临时服务和数据库全部退出，原合成路径恢复，
+没有清理隔离标记。最终 suite/probe/model/relay/account/Web/browser 摘要与当前文件逐项核对，
+完整记录通过正式证据消费函数；不存在复用旧构建通过结果的情况。
+
+已直接检查候选版的[问题卡片](evidence/hermes-compatibility/2026-10-26-web-question.png)和
+[完成后历史](evidence/hermes-compatibility/2026-10-26-web-completed.png)：问题和两个选项可读，
+回答后工具显示完成，刷新后普通回复和澄清回复各一次。截图只含合成内容；截取时结束有限
+动画，避免把淡入中间帧作为视觉证据。这不是 Safari、Android 或日常 Desktop 的设备验收。
+
+开发过程失败均来自新夹具，不是此次发现的上游不兼容：Svix 密钥必须用标准 base64；
+macOS Chromium 的临时目录需设置 `MAC_CHROMIUM_TMPDIR`；合成浏览器需要可刷新的会话；
+实际 socket 路由是 `/v2/devices/{id}/ws`；两个“新建”入口需要明确定位；空输入框在完成后
+显示添加按钮，不能等待“发送”按钮。已按实际源码修正并补相应边界回归，没有放开日常 HOME、
+外网或系统临时目录。Chromium 的临时目录规则见其
+[官方实现](https://raw.githubusercontent.com/chromium/chromium/main/base/files/file_util_apple.mm)。
+日常 Chrome 没有被启动或修改，测试工具链也不被声明为通过产品签名/公证。
+
+测试影响和错误码评审：改变范围是账号测试种子、浏览器/代理夹具、worker 证据校验及隔离 CI
+依赖；复用既有双语 `HR-HERMESCOMPAT-004`，原始错误留在私有诊断。新增回归覆盖不安全浏览器
+拒绝、MAC 临时目录、清理不确定时隔离、无效参数、邮件路由拒绝、真实 socket 路由，以及缺项、
+错摘要、假完成和失败不能伪装为通过。最终 REST/clarify/Web/worker/lab 定向 **53/53** 通过，
+包括真实私有 PostgreSQL 子套件。Web 组件 **1,009/1,009** 通过；根构建和 Web 构建通过。
+完整 Node 基线：Protocol 18、Connector 156、Gateway 273（14 跳过）、release-server 41
+通过；scripts 552 通过、2 失败、0 跳过。两项失败仍为既有 macOS LibreSSL CMS legacy-recovery
+解密路径，故完整 `npm test` 退出非零。随后新增 socket 路由回归及最终消费约束在上述 53 项
+定向检查中通过。没有 Desktop 产品改动，本轮未重复 Swift/app 或真实设备验收。
+
+worker 现在纳入此浏览器范围，但全部局部检查通过仍保持完整 `clientBusiness=not_run`；
+任何已测失败都不能被忽略。真实邮箱登录、其他工具/审批、待答重连、手机，以及完整已安装
+Desktop 升级仍待验收。本轮未重复 LaunchAgent/后端重启范围；此前证据保持其原始身份。
+上游 issue #144377 仍打开且无回复，更新所有权缺口未解决。I4/I5 未完成，普通升级继续关闭。
+没有授予角色、合并、部署、发布、升级或重启日常 Hermes。

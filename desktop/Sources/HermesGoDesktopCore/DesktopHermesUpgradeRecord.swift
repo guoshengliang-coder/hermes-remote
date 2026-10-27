@@ -79,8 +79,10 @@ public extension DesktopHermesUpgradePhase {
         case .restoringServices: return "准备恢复服务"
         case .verifying: return "准备验证升级结果"
         case .cancelling: return "准备取消并恢复服务"
+        case .recovering: return "准备恢复升级前状态"
         case .completed: return "记录为已完成"
         case .cancelled: return "记录为已取消"
+        case .rolledBack: return "记录为已恢复升级前状态"
         }
     }
 
@@ -92,8 +94,10 @@ public extension DesktopHermesUpgradePhase {
         case .restoringServices: return "Intent to restore services"
         case .verifying: return "Intent to verify the upgrade"
         case .cancelling: return "Intent to cancel and restore services"
+        case .recovering: return "Intent to recover the pre-upgrade state"
         case .completed: return "Recorded as completed"
         case .cancelled: return "Recorded as cancelled"
+        case .rolledBack: return "Recorded as restored to the pre-upgrade state"
         }
     }
 }

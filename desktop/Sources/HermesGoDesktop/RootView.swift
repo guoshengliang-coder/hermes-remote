@@ -7,6 +7,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
     case pairing
     case diagnostics
     case settings
+    case hermesCompatibility
 
     var id: String { rawValue }
 
@@ -17,6 +18,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .localHermes: "本机 Hermes"
         case .pairing: "我的设备"
         case .settings: "设置"
+        case .hermesCompatibility: "Hermes 兼容版本管理"
         }
     }
 
@@ -27,6 +29,7 @@ enum DesktopSection: String, CaseIterable, Identifiable {
         case .localHermes: "desktopcomputer"
         case .pairing: "desktopcomputer"
         case .settings: "gearshape"
+        case .hermesCompatibility: "checkmark.seal"
         }
     }
 }
@@ -67,7 +70,8 @@ private struct MainShellView: View {
                 .frame(width: 1)
 
             Group {
-                if canInspectLocal && selection == .diagnostics { DiagnosticsView(selection: $selection) }
+                if selection == .hermesCompatibility { HermesCompatibilityView() }
+                else if canInspectLocal && selection == .diagnostics { DiagnosticsView(selection: $selection) }
                 else if canInspectLocal && selection == .settings { SettingsView() }
                 else if canInspectLocal && selection == .localHermes { LocalHermesView(selection: $selection) }
                 else if canInspectLocal && selection == .pairing { AccountDevicesView() }
@@ -89,6 +93,7 @@ private struct MainShellView: View {
                         case .localHermes: LocalHermesView(selection: $selection)
                         case .pairing: AccountDevicesView()
                         case .settings: SettingsView()
+                        case .hermesCompatibility: HermesCompatibilityView()
                         }
                     }
                 }
@@ -142,7 +147,7 @@ private struct SidebarView: View {
             .padding(.top, 24)
             .padding(.bottom, 26)
 
-            ForEach(DesktopSection.allCases) { item in
+            ForEach(DesktopSection.allCases.filter { $0 != .hermesCompatibility || model.canManageHermesCompatibility }) { item in
                 Button {
                     selection = item
                     if item == .overview { showOverview() }

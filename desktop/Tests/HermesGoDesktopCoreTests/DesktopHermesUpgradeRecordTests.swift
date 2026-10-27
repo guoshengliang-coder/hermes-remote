@@ -13,7 +13,7 @@ final class DesktopHermesUpgradeRecordTests: XCTestCase {
     func testAllPhasesAreHistoricalIntentAndNeverExecutionPermission() throws {
         let fixture = ReadOnlyUpgradeFixture(); defer { fixture.remove() }
         for phase in [DesktopHermesUpgradePhase.quiescing, .backingUp, .updating, .restoringServices,
-                      .verifying, .cancelling, .completed, .cancelled] {
+                      .verifying, .cancelling, .recovering, .completed, .cancelled, .rolledBack] {
             let bytes = try fixture.write(phase: phase)
             let record = DesktopHermesUpgradeRecord.read(from: fixture.store)
             guard case .recorded(let target, let observed, _) = record else { return XCTFail("record not loaded") }

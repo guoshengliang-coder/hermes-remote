@@ -25,6 +25,9 @@ on:
       - "scripts/smoke-compat-client.mjs"
       - "scripts/write-gateway-bundle-manifest.mjs"
       - "scripts/test-gateway-image.sh"
+      - "scripts/hermes-compatibility-gateway-evidence.mjs"
+      - "scripts/test-gateway-compatibility-evidence.mjs"
+      - "scripts/test/hermes-compatibility-gateway-evidence.test.mjs"
       - "scripts/verify-gateway-image-candidate.mjs"
       - "scripts/verify-production-baseline-bundle.mjs"
       - "scripts/lib/release-errors.mjs"
@@ -54,6 +57,9 @@ on:
       - "scripts/smoke-compat-client.mjs"
       - "scripts/write-gateway-bundle-manifest.mjs"
       - "scripts/test-gateway-image.sh"
+      - "scripts/hermes-compatibility-gateway-evidence.mjs"
+      - "scripts/test-gateway-compatibility-evidence.mjs"
+      - "scripts/test/hermes-compatibility-gateway-evidence.test.mjs"
       - "scripts/verify-gateway-image-candidate.mjs"
       - "scripts/verify-production-baseline-bundle.mjs"
       - "scripts/lib/release-errors.mjs"
@@ -81,6 +87,10 @@ jobs:
         run: ./scripts/test-gateway-image.sh
       - name: Package the immutable staging bundle
         run: ./scripts/package-gateway-bundle.sh outputs/gateway-bundle
+      - name: Verify compatibility identity against disposable Gateway containers
+        run: |
+          npm run build -w @hermes-remote/gateway
+          node scripts/test-gateway-compatibility-evidence.mjs outputs/gateway-bundle
       - name: Package the production-baseline operator bundle
         run: node scripts/package-production-baseline-bundle.mjs outputs/production-baseline-bundle
       - name: Retain the main candidate for production audit

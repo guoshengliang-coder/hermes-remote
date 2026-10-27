@@ -4,11 +4,12 @@ import Foundation
 /// Intent is persisted before each effect. A phase names work that may have started, not a
 /// successful effect. Resume adapters must reconcile receipts and service state before retrying.
 public enum DesktopHermesUpgradePhase: String, Codable, Sendable {
-    case quiescing, backingUp, updating, restoringServices, verifying, cancelling, completed, cancelled
-    public var terminal: Bool { self == .completed || self == .cancelled }
+    case quiescing, backingUp, updating, restoringServices, verifying, cancelling, recovering, completed, cancelled, rolledBack
+    public var terminal: Bool { self == .completed || self == .cancelled || self == .rolledBack }
     public var canCancel: Bool { self == .quiescing || self == .backingUp }
     public var sourceMayHaveChanged: Bool {
         self == .updating || self == .restoringServices || self == .verifying || self == .completed
+            || self == .recovering || self == .rolledBack
     }
 }
 
@@ -49,7 +50,26 @@ public struct DesktopHermesUpgradeJournal: Codable, Equatable, Sendable {
     public fileprivate(set) var backup: DesktopHermesUpgradeBackup?
     public fileprivate(set) var updatedAt: Date
 
-    fileprivate func validate() throws {
+    public init(runID: UUID, target: DesktopHermesUpgradeTarget, sourceCommit: String, sourceIdentity: String,
+                checkout: URL, hermesHome: URL, services: [DesktopHermesUpgradeService], originalChannel: String?,
+                upstreamUpdateID: UUID? = nil, now: Date = Date()) throws {
+        guard checkout.isFileURL, hermesHome.isFileURL else { throw DesktopHermesUpgradeError.preflightBlocked }
+        schemaVersion = 1; self.runID = runID.uuidString
+        self.upstreamUpdateID = upstreamUpdateID?.uuidString; self.target = target
+        self.sourceCommit = sourceCommit; self.sourceIdentity = sourceIdentity
+        self.checkout = checkout.path; self.hermesHome = hermesHome.path; self.services = services
+        self.originalChannel = originalChannel; phase = .quiescing; backup = nil; updatedAt = now
+        try validate()
+    }
+
+    func advancing(to phase: DesktopHermesUpgradePhase, backup: DesktopHermesUpgradeBackup?, now: Date) throws -> Self {
+        var result = self
+        result.phase = phase; result.backup = backup ?? self.backup; result.updatedAt = now
+        try result.validate()
+        return result
+    }
+
+    func validate() throws {
         guard schemaVersion == 1, UUID(uuidString: runID) != nil,
               upstreamUpdateID == nil || UUID(uuidString: upstreamUpdateID!) != nil,
               DesktopLocalHermesDetector.isObjectID(sourceCommit), Self.digest(sourceIdentity),

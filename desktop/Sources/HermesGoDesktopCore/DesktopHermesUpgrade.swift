@@ -36,13 +36,10 @@ public struct DesktopHermesUpgradeReport: Equatable, Sendable {
     public let installation: DesktopLocalHermesDetection
     public let latestStable: DesktopHermesUpgradeTarget
     public let checkedAt: Date
-    /// A target only becomes recommended after the GO contract matrix verifies that exact commit.
-    public let verifiedRecommendation: DesktopHermesUpgradeTarget?
     public var hasNewerStable: Bool {
         guard let local = installation.installation else { return false }
         return DesktopLocalHermesDetector.version(local.version, isOlderThan: latestStable.version)
     }
-    public var latestStableIsVerified: Bool { verifiedRecommendation == latestStable }
 }
 
 public protocol DesktopHermesReleaseFetching: Sendable {
@@ -133,15 +130,37 @@ private final class HermesReleaseRedirectGuard: NSObject, URLSessionTaskDelegate
 
 public struct DesktopHermesUpgradeChecker: Sendable {
     private let fetcher: any DesktopHermesReleaseFetching
-    private let verifiedTargets: [DesktopHermesUpgradeTarget]
-    public init(fetcher: any DesktopHermesReleaseFetching = DesktopHermesOfficialReleaseFetcher(),
-                verifiedTargets: [DesktopHermesUpgradeTarget] = []) {
-        self.fetcher = fetcher; self.verifiedTargets = verifiedTargets
+    public init(fetcher: any DesktopHermesReleaseFetching = DesktopHermesOfficialReleaseFetcher()) {
+        self.fetcher = fetcher
     }
     public func check(installation: DesktopLocalHermesDetection, now: Date = Date()) async throws -> DesktopHermesUpgradeReport {
         let latest = try await fetcher.latestStable()
-        let recommendation = verifiedTargets.first { $0 == latest }
         return DesktopHermesUpgradeReport(installation: installation, latestStable: latest,
-                                          checkedAt: now, verifiedRecommendation: recommendation)
+                                          checkedAt: now)
     }
+
+    /// Independent public requests: either failure clears only its own result. There is no cached
+    /// recommendation fallback, and no upstream target is treated as compatibility evidence.
+    public func checkSources(installation: DesktopLocalHermesDetection,
+                             recommendation: Result<(any HermesRecommendationRefreshing)?, DesktopIssue>) async -> DesktopHermesVersionSources {
+        async let upstream = upstreamResult(installation)
+        async let signed = recommendationResult(recommendation)
+        return await DesktopHermesVersionSources(upstream: upstream, recommendation: signed)
+    }
+    private func upstreamResult(_ installation: DesktopLocalHermesDetection) async -> Result<DesktopHermesUpgradeReport, DesktopIssue> {
+        do { return .success(try await check(installation: installation)) }
+        catch { return .failure((error as? DesktopHermesUpgradeError ?? .checkFailed).issue) }
+    }
+    private func recommendationResult(_ configured: Result<(any HermesRecommendationRefreshing)?, DesktopIssue>) async
+        -> Result<VerifiedHermesRecommendation?, DesktopIssue> {
+        do {
+            guard let client = try configured.get() else { return .success(nil) }
+            return .success(try await client.refresh())
+        } catch { return .failure(DesktopIssue(code: .hermesCompatibilityRecommendationInvalid)) }
+    }
+}
+
+public struct DesktopHermesVersionSources: Sendable {
+    public let upstream: Result<DesktopHermesUpgradeReport, DesktopIssue>
+    public let recommendation: Result<VerifiedHermesRecommendation?, DesktopIssue>
 }

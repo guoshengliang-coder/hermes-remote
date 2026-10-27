@@ -1,5 +1,127 @@
 # Hermes Go Desktop test plan
 
+## I4 pinned official installer adapter
+
+Test impact: signed script digest and fixed target, private preparation, stage protocol/exit status,
+checkout identity before/after each effect, clean child environment, timeout cancellation, concurrent
+phase advance and retained recovery intent. Existing HR-HERMESUPDATE-002 covers preparation refusal;
+-003 covers incomplete effects. No raw upstream output is returned to the progress callback.
+
+Five new Swift tests cover changed bytes, stale recommendation, exact URL/arguments/environment,
+all stages, no premature success, conflicting intent advance, failed maintenance callback, replaced
+script, unexpected commit, nonzero exit despite an OK frame, wrong stage and timeout. Injected runners
+prove adapter decisions, not upstream behavior. A real shell exits successfully while its child
+keeps running; the regression failed on the old runner and now requires failure despite the OK frame.
+The macOS process suite also builds the actual lab helper and confirms that an unprepared or non-lab root is refused without writes. CI path selection
+includes both helper and driver. History probes use unique logs and retain old readiness markers
+without accepting them; repeated-probe coverage prevents a retained log from blocking the next run.
+Recovery path tests accept macOS /var aliases but refuse different roots, symlink redirection and
+still-open files; missing lab directories return the registered bilingual error without a traceback.
+
+`python3 -B scripts/hermes-pinned-upgrade-lab.py --lab <retained-I0-disposable-lab> --mode normal`
+and `--mode dependency-failure` exercise the actual Core adapter, official fixed script, native
+capture/materialization, restored interpreter and history. The original synthetic user tree is
+retained untouched; upstream writes are fenced to a copy at the same absolute paths. A timeout or
+uncertain process cleanup retains the scene instead of swapping originals under a possible writer.
+Synthetic signing/identity inputs are test fixtures, not a real published recommendation. This lab
+does not certify a production drain, worker UI lifetime or automatic recovery after new business data.
+
+## Accepted B maintenance scope (2026-10-26)
+
+Test impact: recipe/validation/report/approval/signature identity propagation, rejection of old or
+unknown policy, and unchanged refusal of incomplete evidence. Reuse HR-HERMESCOMPAT-002/-004/-008;
+no new error code, raw diagnostic or business API. TypeScript and Swift use a freshly signed synthetic
+shared fixture; no private key is retained. A regression first demonstrated that the previous parser
+accepted an identity without maintenance conditions. Swift rejects missing/unknown policies even
+when the surrounding signature is valid. The worker keeps the legacy lock-gap evidence unchanged
+and does not turn it into a successful maintenance-window check.
+
+Inspect the admin report and recommendation card at compact width: full maintenance condition must
+wrap visibly above approval/details. Actual upgrade confirmation, independent worker, external writer
+refusal and fault recovery remain required I4 acceptance; policy propagation alone is not that result.
+
+## Hermes compatibility I4: operation intent and process interruption
+
+Recovery-point test impact includes external Python coverage, linked data/config dependencies,
+tree consistency, metadata/receipt tampering, effective private-directory boundaries and source
+preservation. Seven `DesktopHermesRecoveryPointTests` exercise real trees and retained candidate
+writes. A uv-created 0666 venv lock behind a 0700 home is preserved; the regression failed before
+the fix. Exposed writable entries still refuse, and source permissions are never changed to pass.
+The process test additionally captures in one actual-Core helper process and reconstructs in another,
+checking that new candidate history remains untouched. No live-path commit is performed by Core.
+
+`python3 -B scripts/hermes-recovery-point-lab.py --lab <retained-I0-disposable-lab>` independently
+checks the fixed source and uv layout, builds the actual Core helper, and captures/materializes both
+home and external Python. Only its explicit lab controller swaps the synthetic paths, starts old
+Hermes under the existing sandbox plus loopback-only network policy, verifies HTTP version/history
+and configuration, stops it and returns the untouched original trees. The final 2026-10-26 receipt
+is in `docs/evidence/hermes-compatibility/2026-10-26-native-recovery-material.json`. This is not an
+official update, automatic rollback, power-loss/live-commit interruption, new-data downgrade policy,
+installed-app journey or general Python dependency certification. Unsafe cleanup leaves a marker
+and retained trees. Do not apply this lab command to a daily installation.
+
+Test impact: private file/root/lock ownership, symlinks/hardlinks, atomic replacement, synchronization,
+complete-record comparisons, shared maintenance exclusion, interrupted writes and new recovery stages.
+Use HR-HERMESUPDATE-002 for invalid/concurrent operation preflight and -003 for uncertain persistence
+or recovery. Their existing bilingual summaries, recovery actions and redacted diagnostics remain.
+No arbitrary paths, error messages or journal contents are included in UI diagnostic summaries.
+
+Swift tests cover new-run/idempotent initial intent, exact resume, stale snapshots, conflicting migration,
+backup/run identity, invalid phase changes, cancellation before mutation, recovery terminal, replaced
+lock, unsafe files, non-file installation URLs and injected failures around atomic replacement.
+`scripts/test/hermes-upgrade-journal-process.test.py` compiles the actual Core and test-only helper on
+macOS. It SIGKILLs owned processes after a successful write, before rename, and after rename; checks
+the complete old/new record, refuses a contender while the owner lives, then resumes that same run
+to a pre-mutation cancellation and reacquires the normal migration lease. It never starts services,
+creates a backup, runs Hermes or restores user data. This is process-crash evidence, not a power-loss
+or upstream-process-tree lock certification. The macOS PR job runs it after Swift tests; helper/test
+changes select that job even without changes under desktop/.
+
+Native synthetic `HermesVersionCard` fixtures for recovering/rolledBack were rendered in light/dark at
+540/700 pt. The compact recovering/light and restored/dark views were inspected: phase labels fit,
+pending recovery retains its registered warning, and the terminal remains explicitly historical.
+Callbacks are inert; this is visual acceptance of record text, not an installed-app upgrade journey.
+
+## Hermes compatibility I1: administrator management
+
+I2 adds request/run-detail parsing tests: only candidate/recipe IDs and persisted revision/operation
+are sent; cross-run reports, duplicate checks and passing checks without evidence are rejected.
+Native acceptance must also cover the recipe menu and a 15-row report at compact window sizes.
+The CI reporter validates bundle and per-check digests. Isolated runtime evidence proves five checks
+(including managed loopback-token authentication); the real lock probe demonstrates a concurrent-update
+failure, leaving nine checks unverified. A single active-list RPC is not full Connector/business acceptance.
+No report is eligible for approval on that basis.
+
+I3 local baseline: 679 Swift tests/assets/ad-hoc app build pass. Recommendation tests cover strict
+signature/purpose/origin/expiry, duplicate JSON keys, public bounded credential-free HTTP, persistence
+across client recreation, same-revision equivocation and offline/persistence failure without cache
+authorization. The duplicate-key regression failed before its fix. Approval/publish/revoke and task
+states were inspected in light/dark native fixture windows with scrolling. A synthetic 15/15 preview
+is visual test data only. Actual protected publication, account-role interaction, local component
+identity collection and the ordinary page/executor integration remain unverified/unimplemented.
+
+Automated checks cover bearer-only access, no client email authority, schema validation, stable
+mutation ID/revision and all six local bilingual errors. Real PostgreSQL checks cover grant/revoke,
+stale sessions, concurrent idempotency, immutable target conflicts, report identity and approval gates.
+667 Swift tests/assets/local app build passed on 2026-10-25. The light and dark native page was inspected using
+synthetic records in a separate fixture process; this does not prove account or production workflow.
+
+Pending native acceptance: sign in as an ordinary account (entry absent), granted account (entry
+present), revoke while page is open (management rejected/data cleared), switch account during refresh,
+retry a discovery after response loss, display failed/infrastructure/queued runs, and compact
+layout. Runtime recipes remain empty without an explicit CI configuration; no fabricated validation
+or approval is offered. The feature has not been enabled in production.
+
+## Hermes compatibility I0: source stamp regression
+
+测试影响：v0.22.5 的 lazy `__version__` 在旧 detector 下无法识别；新增聚焦回归已先运行并失败。
+修正读取与 HEAD 一致的 schema-2 source/self/bootstrap stamp，同时覆盖旧版声明优先、错误 commit、
+未知 schema、布尔/字符串 schema、包分发标记、非法版本、占位版本、可被其他用户写入文件、损坏文件和软链接。
+采用 `adoptedAt` 样本证明它仅用于磁盘身份，不把它作为完成安装的证据；样本 Python 包含抛错语句，
+检测必须只读文件、不执行上游代码。无布局变化，无新增错误码；真实 venv→PM 演练和正式版本发布另记。
+验证结果：30 项 detector 聚焦测试、664 项 Swift 全量测试、assets 检查和本地 ad-hoc app 构建通过。
+未安装该构建、未升版、未发布；真实 v0.22.5 产物下的识别仍随运行时演练确认。
+
 ## 0.2.42：发布与实际客户端检查（2026-10-25）
 
 从干净发布提交 `e8e2559f` 构建，assets、660 Swift、15 发布/更新工具测试、release app/DMG、
@@ -1007,6 +1129,238 @@ finds app 0.2.37 and backend 0.4.12; the backend envelope passes size/hash and E
 using the installed app's trusted public key. No credentials were printed and no app, service,
 installation journal or Hermes data was changed. Commit/relaunch acceptance remains pending.
 
+### Installed component identity observations (2026-10-25)
+
+Test impact: `DesktopComponentReleasePreflightTests` exercises real temporary component stores and
+Ed25519-verified synthetic manifests. Check that installed Connector observations preserve the
+signed archive digest separately from the content digest, while missing components, a receipt with
+its content removed, and display-only reconstruction produce no installed observations. Modify the
+installed executable without changing its version or receipt; a fresh scan must reject the digest.
+A failed Connector health probe must abort instead of returning identity evidence. Existing manifest
+signature and preflight runtime tests continue to cover rejection before scanning.
+
+These observations do not establish which Connector process is running. Physical active-process
+matching, installed Desktop archive provenance and the five-component
+recommendation flow remain unverified. This core-only change introduces no new user-visible error
+or visual state; existing preflight error mapping is unchanged.
+
+### Bundled Connector identity (2026-10-25)
+
+`DesktopBundledConnectorIdentityTests` creates actual tar.gz archives and signed schema-1 manifests
+in temporary directories. It covers full content comparison, added files/links, archive modification,
+copy-time archive replacement, invalid signatures/ambiguous envelopes, selected-release changes during
+inspection, unsafe workspaces and cleanup failure. The existing-directory URL case failed before
+the run directory was explicitly marked `isDirectory: true`; it passes after the fix. Tests assert
+`HR-HERMESCOMPAT-008`, both localized summaries/details, retry/recovery and path-free diagnostics.
+Archive contents are never executed by the inspector.
+
+Physical observation: use the installed app's public signing key and release-index configuration,
+resolve and verify the public schema-1 envelope, download the exact Connector archive, then call
+`DesktopBundledConnectorIdentityInspector.inspect` with the actual managed layout and a separate
+private workspace. In this run an OS sandbox denied network and every write outside that workspace;
+an independent outside-write attempt was refused. The selected release was 0.4.12 and Connector
+0.1.17; full installed content matched the original public archive. No launchd or model commands ran.
+The sanitized report is `evidence/hermes-compatibility/2026-10-25-installed-bundled-connector.json`.
+Running-process identity, ordinary-page integration and end-to-end Hermes upgrade remain pending.
+
+### Desktop app archive identity (2026-10-25)
+
+Test impact: `DesktopAppIdentityTests` covers exact installed content, same-version modification,
+extra files/links, invalid component/version/bundle ID/executable, archive and copy-time modification,
+installation replacement during inspection, workspace overlap, ambiguous mounted apps, mount failure,
+detach failure and cleanup failure. Twelve tests pass. One creates a real synthetic DMG using hdiutil,
+then runs the default inspector through actual read-only mount, comparison and detach; the other
+mount-failure scenarios use a command double and do not claim real failed-mount recovery. Assert the
+existing HR-HERMESCOMPAT-008 Chinese/English summaries/details, retryability, recovery and diagnostic
+redaction. No archived executable is run.
+
+Physical check: the installed app is 0.2.41/build 44, although the current public index advertises
+0.2.42/build 45. The probe used the original 0.2.41 DMG and its digest from the recorded public release,
+not the latest index or a fabricated signed compatibility record. Using the actual Core inspector,
+the whole installed app matched that DMG. An OS sandbox denied network and writes outside the private
+probe workspace; an independent outside-write attempt was refused. Successful detach and cleanup
+left the inspection workspace empty. Evidence:
+`evidence/hermes-compatibility/2026-10-25-installed-desktop-app.json`.
+
+This verifies installed files only. It does not prove the active process uses them, supply a signed
+recommendation or finish ordinary-client matching. Final Desktop baseline: 705 Swift tests, asset
+consistency and local ad-hoc app build pass; no app was installed or published, and no UI change
+required a new visual acceptance claim. The reused command runner has no wall-clock timeout; this
+iteration does not claim a bounded or cancellable production inspection task.
+
+### Ordinary signed recommendation query (2026-10-25)
+
+Test impact: remove the old hard-coded verified-target path and its stale assertions. New tests cover
+all five unknown components, known archive mismatch versus unknown identity, a lower fully matching
+recommendation, source/environment mismatch, no downgrade, missing/unsupported installations, empty
+published snapshots, expiry, duplicate local observations and missing/invalid trust configuration.
+The actual two-source coordinator is tested with independent upstream/recommendation failures, no
+reuse after a previous success and disabled recommendation lookup. Focused recommendation/version
+tests pass 22/22; the complete Desktop baseline passes 714 Swift tests, assets and local ad-hoc build.
+
+Native inspection used the actual `HermesVersionCard`, design modifier and issue banner with a
+no-op model in an isolated NSHostingView process. Four synthetic states (unknown components, full
+match, failure, unconfigured), each in light/dark appearance at 660 pt width, were rendered and
+visually inspected. Text and HR-HERMESCOMPAT-008 remain readable with no clipping; complete-match
+copy explicitly says one-click upgrade is unavailable. Preview source/images are retained locally
+at `/private/tmp/hermes-recommendation-ui-px57ajse`. No daily app was launched, and no account,
+network or service calls were made by the fixture. Expanded-detail clicks and a real published
+recommendation flow still need acceptance; these fixtures are not production compatibility evidence.
+
+An intermediate compile found a missing explicit return in the new presentation getter and was
+fixed. One intermediate app build was rejected because the source changed while it was compiling;
+after source stabilization, the final baseline/build was rerun successfully. Neither failed attempt
+is counted as passing validation.
+
+### Bundled Connector runtime continuity (2026-10-25)
+
+Test impact: extend the signed bundled-file fixture with an inert synthetic runtime tree. Cover
+exact job/process matching, wrong owner/executable/argv, loader injection, PID reuse, selected-release
+switching, content tampering and restoring original bytes/mtime after process start. The last case
+must still fail because ctime changed. Parser tests reject nested/duplicate/negative PIDs and foreign
+launchers, preserve exact argv, reject malformed kernel buffers and retain no environment values.
+A real kernel test starts only its own `/bin/sleep` child, checks identity stability, terminates that
+child and confirms its exited PID is rejected. Synthetic Node bytes are never executed.
+
+Focused runtime/bundled tests pass 18/18. Final baseline: 722 Swift tests, asset consistency and local
+ad-hoc app build pass. The initial SDK probe found that Swift cannot import the expression macro
+PROC_PIDPATHINFO_MAXSIZE; the implementation uses its SDK-defined `4 * MAXPATHLEN` expansion, while
+all struct layouts and process functions come directly from Darwin. No shell parsing of process
+environment, new protocol, Connector source change or remote deployment was needed.
+
+Physical read-only inspection reused the public signed 0.4.12 archive and freshly rechecked its
+selected Connector files. The actual managed process matched Connector 0.1.17, its bundled Node and
+script paths; process identity remained stable and the component tree had not changed since launch.
+OS sandbox denied network and all writes outside the probe workspace; a separate outside-write
+attempt was refused. No daily process was started, stopped or signalled. Report:
+`evidence/hermes-compatibility/2026-10-25-running-bundled-connector.json`; private probe directory:
+`/private/tmp/hermes-connector-runtime-real-wn8k3q4e`. The report omits PID, argv, personal paths and
+environment values. It records process continuity for this layout, not resistance to privileged
+debugger injection or compatibility approval. Separate Node-store layout and automatic collection
+in the ordinary page remain unverified. No UI change required a new visual check.
+
+
+### Ordinary recommendation Connector collection (2026-10-25)
+
+Test impact: automatic collection must use the selected release, never the latest index. Synthetic
+signed archives exercise the actual file inspector and fake-kernel runtime inspector together;
+wrong signatures/releases, pointer changes before/after download, invalid layouts, download and
+runtime failures return no identity. Private download workspaces are removed on success and failure.
+Pinned configuration cannot substitute a different selected release. Public transport configuration
+has no cookie/credential/cache state and finite 30/120-second network timeouts; existing downloader
+redirect/size tests remain applicable. Eight new tests; first focused run 24/24, final full baseline
+730 Swift tests, assets and local ad-hoc app build pass. An initial sandboxed Swift invocation failed
+to access its compiler cache; the successful full run used the usual build permissions.
+
+The ordinary query skips collection without a source/environment candidate, re-detects Hermes after
+the download, and includes only a successful fresh Connector identity. Other four identities remain
+unknown. No UI controls/layout changed; the prior native previews still cover these presentation
+states. Real published-recommendation clicks, complete component matching and upgrade/recovery remain
+unverified. Network requests are bounded, but existing local tar/launchctl command runners do not yet
+provide a wall-clock deadline; this is not evidence for a bounded production upgrade transaction.
+
+Actual automatic collection passed against the installed bundled Connector 0.1.17 using fresh public
+manifest/archive downloads. The report in `evidence/hermes-compatibility/2026-10-25-automatic-connector-collection.json`
+binds source hashes and omits local paths/PIDs/argv/environment. The first probe sandbox disallowed
+Foundation's real temporary directory despite TMPDIR; permitting only the probe and macOS temporary
+directories resolved that test harness failure. A separate outside-write attempt was rejected and
+no collection workspace remained. Installed files and daily services were never modified. This is
+Connector identity evidence, not a published compatibility verdict or end-to-end UI acceptance.
+
+
+### Running Desktop identity and ordinary-query collection (2026-10-25)
+
+Test impact: the original-DMG file observation must not identify an unrelated, restarted or
+modified running app. New coverage rejects PID/owner/executable/argv mismatch, loader injection,
+process restart during inspection and restored original bytes/mtime after launch. It accepts plain
+launch and the exact LaunchServices psn grammar. Collection tests exercise versioned URL discovery,
+actual archive hashing/file inspection plus a synthetic process reader, download timeout, corrupt
+archive, failed runtime identity, success/failure cleanup and retaining failed-detach reference
+workspaces. The test runner copies fixtures; its fake mount is never claimed as physical evidence.
+
+Recommendation tests require a fresh matching source/environment and installed version, find an
+older candidate when needed, reject conflicting same-version digests, and keep discovered expected
+metadata distinct from observed identity. The downloader's new internal bounded-size mode rejects
+empty, oversized and redirected bodies; existing exact-size callers retain their original gate.
+First focused suite passes 71 tests; the final full suite passes 742 tests, assets and the local app build.
+No UI layout/control changed; real published recommendation clicks and complete client matching
+still need acceptance. Local command timeouts and atomic maintenance remain I4 prerequisites.
+
+An actual read-only probe identified the currently running 0.2.41 Desktop against a fresh original
+public DMG download; the reference digest came from the recorded release, not a published compatibility
+snapshot. The evidence is `evidence/hermes-compatibility/2026-10-25-running-desktop-identity.json`.
+It binds source hashes and retains no process IDs, paths, argv or environment values. OS sandbox
+restricted writes to the probe/macOS temporary directories; a separate outside write was rejected,
+and collection left no workspace. The daily app was neither launched, stopped, updated nor replaced.
+This proves process/file identity only; compatibility approval remains false.
+
+### Hermes compatibility: isolated launchd acceptance (2026-10-25)
+
+`hermes-compatibility-launchagent-helper.swift` builds against real Desktop Core and reuses its local
+launcher/plist generators and exact-label controller. The fixture maps only the Hermes test target to
+a random label, substitutes a random loopback port, and adds the existing sandbox/clean environment.
+It refuses port 9119, label collisions and non-private/non-lab paths. No daily job is inspected or
+changed; synthetic credentials remain in private files and the original launcher reads them.
+
+On this Mac, fixed 0.21.3 / 0.22.5 / restored-0.21.3 each passed initial and restarted service cycles:
+all 24 loaded/owned-process/unloaded/port-released observations, 45 completed-turn restart checks,
+198 direct/legacy-relay contract checks and six role/cleanup observations passed. The evidence is
+`evidence/hermes-compatibility/2026-10-25-launchagent-contracts.json`. It binds Core/helper/fixture
+identity; no PID, token, path, plist or raw launchctl environment is retained publicly.
+
+This is native service-controller acceptance under substituted test identities, not UI or daily
+installation verification. App lifecycle, actual managed relay reconnect, account mode, interrupted
+generation and data-safe recovery still require their own cases. No product UI or release version
+changed; no new screenshots or distributed artifact are implied.
+
+### Hermes compatibility: relay retained across backend restart (2026-10-25)
+
+Using the same temporary Desktop Core LaunchAgent harness, keep the source-built legacy Gateway
+alive while Hermes is stopped and started on its original test port with a new local token. Stop only
+the owned Connector, observe its device go offline, then start a new Connector using the new local
+token. Keep the Gateway PID, device identity, public endpoint and client/connector credentials.
+Through the original app credential, resume the relayed completed turn and compare exact persisted
+rows without another prompt. Three fixed-version stages pass 48/48 new checks; the evidence is
+`evidence/hermes-compatibility/2026-10-25-relay-recovery-contracts.json`.
+
+The exception-path tests require the retained relay to close even when backend recovery throws.
+Real runs also require all six temporary launchd jobs unloaded and all owned processes/copies cleaned
+up before moving installation paths. No app UI, production labels, credentials or daily data are used.
+Account-mode and actual Desktop/Android/Web lifecycle acceptance remain outstanding.
+
+### Hermes compatibility: account relay with synthetic sessions (2026-10-25)
+
+The existing isolated Desktop Core LaunchAgent case now also supports real account-mode relay code.
+Each stage gets a new private PostgreSQL 18 cluster, migrated from repository SQL, with synthetic
+sessions and Connector signing keys. No real login, account role, installed app or daily service is
+changed. Require both account Connector online and Hermes healthy before probing; online alone is
+not sufficient. Verify exact completed-turn recovery through the original bearer session and reject
+another unbound account. Bind database/toolchain/fixture/migration identity and verify cluster cleanup.
+
+Four real runs produced two failures followed by two passes. The earlier candidate/restored recovery
+failures remain unexplained, so this case is not accepted as reliable yet. The evidence and required
+follow-up are in HERMES_COMPATIBILITY_EXECUTION.md. All 24 temporary jobs and 12 database clusters
+from these runs were stopped and their ports checked; temporary executables and original paths were
+restored. Product UI, real account login and client lifecycle tests remain outstanding.
+
 ### Component layout migration release gate (2026-10-25)
 
 See `DESKTOP_COMPONENT_MIGRATION.md` for the transaction and physical acceptance matrix. Automated coverage includes opted-in component discovery from an active bundled/local installation; disabled/missing configuration and invalid states stay on their existing paths. Real signed component fixture archives exercise exact preparation confirmation, one-way conversion, retained local Hermes agent/launcher/token and binding, health failure rollback, restart recovery, missing executable refusal before shutdown and refusal to restore bundled Hermes after commit. Publisher fault injection covers complete archive/index bytes, HTTP readback failure, rollback readback failure, current-main movement, downgrade, signed-version mismatch and independent channel signatures. GUI integration calls the explicit preparation only from the unified update flow and labels its final confirmation “迁移并重连”. Physical service-changing migration, fresh install and Android business acceptance remain pending and must be reported separately from package/publication verification.
+
+### Hermes compatibility: one-question clarify tool round trip (2026-10-26)
+
+The isolated contract lab's `--prompt --clarify` exercises the real Hermes tool/server-request path,
+optionally through the actual account relay. Verify one-question batch `clarify.lock` parameter parity
+with the Web builder, empty-array `remaining`, tool identity/result, the exact post-tool paragraph
+separator, completion and persisted user/assistant rows. Test interleaved RPC responses, timeout,
+expired acknowledgements, wrong sessions/IDs/results, bounded event accumulation and missing history.
+The report consumer must retain every scoped check, bind the separate probe hash and reject hidden
+failures. See `HERMES_COMPATIBILITY_EXECUTION.md` and the 2026-10-26 clarify evidence. This does not
+validate approval cards, multi-question/multi-select UI, pending-question reconnect, app lifecycle or
+installed Desktop upgrade interaction; these remain separate acceptance cases.
+
+B policy visual acceptance: independent native fixtures rendered at 540 pt in light/dark. The
+recommendation condition wraps above the collapsed details; the admin report shows the condition
+above all 15 checks and approval. The admin NSView bitmap cache omitted native GroupBox contents,
+so acceptance used captures of the exact synthetic preview window instead. Both themes were
+inspected directly. Fixture callbacks were inert; the synthetic 15/15 state is not a real approval.

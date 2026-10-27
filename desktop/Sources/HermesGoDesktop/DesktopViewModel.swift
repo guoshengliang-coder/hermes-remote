@@ -54,6 +54,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var accountState: DesktopAccountState = .checking
     @Published private(set) var accountIssue: DesktopIssue?
     @Published private(set) var accountCheckedAt: Date?
+    @Published private(set) var canManageHermesCompatibility = false
+    @Published private(set) var hermesCompatibilitySnapshot: HermesCompatibilitySnapshot?
+    @Published private(set) var hermesCompatibilityReport: HermesCompatibilityRunDetail?
+    @Published private(set) var hermesCompatibilityIssue: DesktopIssue?
+    @Published private(set) var isHermesCompatibilityBusy = false
+    private var hermesCompatibilityEpoch = 0
     @Published private(set) var isDiagnosing = false
     @Published private(set) var setupRequestID = 0
     @Published private(set) var modelConfiguration: DesktopModelConfiguration = .unknown
@@ -116,6 +122,8 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var isRefreshingHermesUpgradeRecord = false
     @Published private(set) var isCheckingHermesUpgrade = false
     private let hermesUpgradeChecker = DesktopHermesUpgradeChecker()
+    @Published private(set) var hermesRecommendation = HermesRecommendationAssessment.unchecked
+    private let hermesRecommendationClient: Result<(any HermesRecommendationRefreshing)?, DesktopIssue>
 
     @Published private(set) var updateCheckState: DesktopUpdateCheckState = .idle
     @Published var isUpdateSheetPresented = false
@@ -176,6 +184,12 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let bootstrapConfiguration = DesktopManagedBootstrapConfigurationState.load()
         let componentConfiguration = DesktopComponentPreflightConfigurationState.load()
         managedBootstrapConfiguration = bootstrapConfiguration
+        do {
+            hermesRecommendationClient = .success(try HermesCompatibilityRecommendationClient.desktop(
+                gatewayURL: configuration.gatewayURL, release: bootstrapConfiguration))
+        } catch {
+            hermesRecommendationClient = .failure(DesktopIssue(code: .hermesCompatibilityRecommendationInvalid))
+        }
         componentPreflightConfiguration = componentConfiguration
         componentEntrypointProbe = DesktopManagedComponentEntrypointProbe(
             currentUserID: getuid()
@@ -471,14 +485,60 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         isCheckingHermesUpgrade = true
         hermesUpgradeIssue = nil
         hermesUpgradeReadiness = nil
+        hermesRecommendation = .checking
         defer { isCheckingHermesUpgrade = false }
         let detection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
-        do {
-            hermesUpgradeReport = try await hermesUpgradeChecker.check(installation: detection)
-        } catch {
+        let sources = await hermesUpgradeChecker.checkSources(installation: detection, recommendation: hermesRecommendationClient)
+        switch sources.upstream {
+        case .success(let report): hermesUpgradeReport = report
+        case .failure(let issue):
             // A failed check cannot keep advertising an earlier successful verdict.
             hermesUpgradeReport = nil
-            hermesUpgradeIssue = (error as? DesktopHermesUpgradeError ?? .checkFailed).issue
+            hermesUpgradeIssue = issue
+        }
+        // The two public sources are independent: upstream failure must not suppress the signed
+        // recommendation result, and a failed recommendation must not hide the upstream version.
+        switch sources.recommendation {
+        case .failure: hermesRecommendation = .failed
+        case .success(nil): hermesRecommendation = .unconfigured
+        case .success(let snapshot?):
+            let current = await Task.detached(priority: .userInitiated) { detector.detect() }.value
+            let os = ProcessInfo.processInfo.operatingSystemVersion
+            #if arch(arm64)
+            let architecture = "arm64"
+            #else
+            let architecture = "x86_64"
+            #endif
+            let environment = current.installation.flatMap { local -> HermesCompatibilityEnvironment? in
+                guard !local.usesPackageManager, local.dependenciesConsistent else { return nil }
+                return HermesCompatibilityEnvironment(arch: architecture,
+                    osVersion: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)", installation: "legacy-venv-to-pm")
+            }
+            let initial = HermesRecommendationAssessment.evaluate(snapshot, installation: current,
+                environment: environment, components: [])
+            var components: [HermesCompatibilityComponent] = []
+            // Avoid downloading an original archive when no source/environment path exists.
+            if initial.status == .requirements,
+               case .configured(let configuration) = managedBootstrapConfiguration,
+               let paths = managedPaths,
+               let layout = try? DesktopManagedInstallLayout(root: paths.managedRoot, launchAgentsRoot: paths.launchAgentsRoot),
+               let identity = try? await DesktopConnectorIdentityCollector().collect(configuration: configuration, layout: layout) {
+                components = [identity.component]
+            }
+            if initial.status == .requirements,
+               case .configured(let configuration) = appUpdateConfiguration,
+               let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+               let expected = HermesRecommendationAssessment.desktopRequirement(snapshot, installation: current,
+                   environment: environment, installedVersion: version),
+               let identity = try? await DesktopAppIdentityCollector().collect(expected: expected,
+                   configuration: configuration, installedApp: Bundle.main.bundleURL) {
+                components.append(identity.component)
+            }
+            // A download can outlast a local Hermes change. Re-detect before using the result;
+            // absent/failed component observations remain unknown, never reused from a prior query.
+            let finalDetection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
+            hermesRecommendation = .evaluate(snapshot, installation: finalDetection,
+                environment: finalDetection == current ? environment : nil, components: components)
         }
         await refreshHermesUpgradeRecord()
         if let issue = hermesUpgradeRecord.issue { hermesUpgradeIssue = issue }
@@ -687,6 +747,100 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
                 technicalCause: String(describing: error)
             )
             if bootstrap { accountState = .signedOut }
+        }
+    }
+
+    func refreshHermesCompatibilityAccess() async {
+        guard let accountID = currentAccountID(accountState) else { return }
+        let epoch = hermesCompatibilityEpoch
+        do {
+            let access = try await accountController.hermesCompatibilityAccess()
+            guard epoch == hermesCompatibilityEpoch, accountID == currentAccountID(accountState) else { return }
+            canManageHermesCompatibility = access.canManage
+            if !access.canManage { hermesCompatibilitySnapshot = nil; hermesCompatibilityReport = nil }
+        } catch {
+            guard epoch == hermesCompatibilityEpoch, accountID == currentAccountID(accountState) else { return }
+            canManageHermesCompatibility = false
+            hermesCompatibilitySnapshot = nil
+            hermesCompatibilityReport = nil
+        }
+    }
+
+    func requestHermesCompatibilityRun(candidateID: String, recipeID: String) async {
+        await refreshHermesCompatibility(requestRun: (candidateID, recipeID))
+    }
+
+    func manageHermesCompatibility(_ action: HermesCompatibilityManagementAction) async {
+        await refreshHermesCompatibility(managementAction: action)
+    }
+
+    func loadHermesCompatibilityReport(runID: String) async {
+        guard canManageHermesCompatibility, !isHermesCompatibilityBusy,
+              let accountID = currentAccountID(accountState) else { return }
+        let epoch = hermesCompatibilityEpoch
+        isHermesCompatibilityBusy = true
+        hermesCompatibilityIssue = nil
+        hermesCompatibilityReport = nil
+        defer { if epoch == hermesCompatibilityEpoch { isHermesCompatibilityBusy = false } }
+        do {
+            let report = try await accountController.hermesCompatibilityReport(runID: runID)
+            guard epoch == hermesCompatibilityEpoch, accountID == currentAccountID(accountState) else { return }
+            hermesCompatibilityReport = report
+        } catch {
+            guard epoch == hermesCompatibilityEpoch, accountID == currentAccountID(accountState) else { return }
+            hermesCompatibilityIssue = (error as? AccountClientError).map(DesktopIssue.account)
+                ?? DesktopIssue(code: .hermesCompatibilityUnavailable)
+            if let code = hermesCompatibilityIssue?.code,
+               [.hermesCompatibilityForbidden, .accountSessionRevoked, .accountSessionExpired].contains(code) {
+                canManageHermesCompatibility = false
+                hermesCompatibilitySnapshot = nil
+            }
+        }
+    }
+
+    func refreshHermesCompatibility(syncUpstream: Bool = false, requestRun: (candidateID: String, recipeID: String)? = nil,
+                                   managementAction: HermesCompatibilityManagementAction? = nil) async {
+        guard canManageHermesCompatibility, !isHermesCompatibilityBusy, !isAccountOperationInProgress, !isManagedBootstrapAccountLocked,
+              let accountID = currentAccountID(accountState) else { return }
+        let epoch = hermesCompatibilityEpoch
+        isHermesCompatibilityBusy = true
+        let mutating = syncUpstream || requestRun != nil || managementAction != nil
+        if mutating { isAccountOperationInProgress = true }
+        hermesCompatibilityIssue = nil
+        defer {
+            if mutating { isAccountOperationInProgress = false }
+            if epoch == hermesCompatibilityEpoch { isHermesCompatibilityBusy = false }
+        }
+        do {
+            if syncUpstream {
+                guard let revision = hermesCompatibilitySnapshot?.revision else { return }
+                try await accountController.syncHermesCompatibility(expectedRevision: revision)
+            }
+            if let requestRun {
+                guard let snapshot = hermesCompatibilitySnapshot,
+                      snapshot.candidates.contains(where: { $0.id == requestRun.candidateID && !$0.identityConflict }),
+                      (snapshot.recipes ?? []).contains(where: { $0.id == requestRun.recipeID }) else { return }
+                try await accountController.requestHermesCompatibilityRun(expectedRevision: snapshot.revision,
+                    candidateID: requestRun.candidateID, recipeID: requestRun.recipeID)
+            }
+            if let managementAction {
+                guard let snapshot = hermesCompatibilitySnapshot else { return }
+                try await accountController.manageHermesCompatibility(expectedRevision: snapshot.revision, action: managementAction)
+            }
+            let snapshot = try await accountController.hermesCompatibilitySnapshot()
+            guard epoch == hermesCompatibilityEpoch, accountID == currentAccountID(accountState) else { return }
+            hermesCompatibilitySnapshot = snapshot
+        } catch {
+            guard epoch == hermesCompatibilityEpoch, accountID == currentAccountID(accountState) else { return }
+            let issue = (error as? AccountClientError).map(DesktopIssue.account)
+                ?? DesktopIssue(code: .hermesCompatibilityUnavailable)
+            hermesCompatibilityIssue = issue
+            if issue.code == .hermesCompatibilityForbidden || issue.code == .accountSessionRevoked
+                || issue.code == .accountSessionExpired {
+                canManageHermesCompatibility = false
+                hermesCompatibilitySnapshot = nil
+                hermesCompatibilityReport = nil
+            }
         }
     }
 
@@ -950,6 +1104,15 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         let previousAccountID = currentAccountID(accountState)
         let nextAccountID = currentAccountID(state)
         accountState = state
+        if previousAccountID != nextAccountID || nextAccountID == nil {
+            hermesCompatibilityEpoch += 1
+            canManageHermesCompatibility = false
+            hermesCompatibilitySnapshot = nil
+            hermesCompatibilityReport = nil
+            hermesCompatibilityIssue = nil
+            isHermesCompatibilityBusy = false
+        }
+        if nextAccountID != nil { Task { await self.refreshHermesCompatibilityAccess() } }
         switch state {
         case .signedIn(let dashboard): lastAccountIdentity = dashboard.session.account
         case .signedOut, .accountDeletionSubmitted: lastAccountIdentity = nil

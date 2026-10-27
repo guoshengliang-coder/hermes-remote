@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "kind": "synthetic-account-readiness-regression",
+  "scope": "REST-only-delayed-health",
+  "healthDelayMilliseconds": 1000,
+  "compatibilityApproved": false,
+  "beforeRelayFixtureSha256": "949e742b948b5fb8c3db141e49bc991edd8e61778ca10b20caf5d425f8ba58e6",
+  "afterRelayFixtureSha256": "70f5b8c12ebeef3e2288b8724e62a844c1e460e22cfc33e9491aa44f262410c1",
+  "diagnosticProgramSha256": "159675a0b79d864f570bc819084d2f749c0a9d23b5c121073cbaa73b2bd1f92f",
+  "regressionTest": "scripts/test/hermes-compatibility-account-fixture.test.py::test_reconnect_waits_for_actual_route_when_previous_health_is_still_positive",
+  "before": [
+    {
+      "case": 0,
+      "initialNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 15
+      },
+      "recoveredNode": {
+        "status": 503,
+        "versionOK": false,
+        "elapsedMs": 14
+      },
+      "settledNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 18
+      },
+      "initial": {
+        "relayStatus": 200,
+        "registeredErrorCode": null,
+        "localStatus": 200,
+        "accountStatus": 200,
+        "connectorOnline": true,
+        "hermesReachable": true
+      },
+      "recovered": {
+        "relayStatus": 503,
+        "registeredErrorCode": "HR-CONN-005",
+        "localStatus": 200,
+        "accountStatus": 200,
+        "connectorOnline": true,
+        "hermesReachable": true
+      }
+    },
+    {
+      "case": 1,
+      "initialNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 18
+      },
+      "recoveredNode": {
+        "status": 503,
+        "versionOK": false,
+        "elapsedMs": 15
+      },
+      "settledNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 23
+      },
+      "initial": {
+        "relayStatus": 200,
+        "registeredErrorCode": null,
+        "localStatus": 200,
+        "accountStatus": 200,
+        "connectorOnline": true,
+        "hermesReachable": true
+      },
+      "recovered": {
+        "relayStatus": 503,
+        "registeredErrorCode": "HR-CONN-005",
+        "localStatus": 200,
+        "accountStatus": 200,
+        "connectorOnline": true,
+        "hermesReachable": true
+      }
+    }
+  ],
+  "after": [
+    {
+      "case": 0,
+      "initialNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 18
+      },
+      "recoveredNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 18
+      },
+      "settledNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 18
+      },
+      "initial": {
+        "relayStatus": 200,
+        "registeredErrorCode": null,
+        "localStatus": 200,
+        "accountStatus": 200,
+        "connectorOnline": true,
+        "hermesReachable": true
+      },
+      "recovered": {
+        "relayStatus": 200,
+        "registeredErrorCode": null,
+        "localStatus": 200,
+        "accountStatus": 200,
+        "connectorOnline": true,
+        "hermesReachable": true
+      }
+    },
+    {
+      "case": 1,
+      "initialNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 18
+      },
+      "recoveredNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 18
+      },
+      "settledNode": {
+        "status": 200,
+        "versionOK": true,
+        "elapsedMs": 22
+      },
+      "initial": {
+        "relayStatus": 200,
+        "registeredErrorCode": null,
+        "localStatus": 200,
+        "accountStatus": 200,
+        "connectorOnline": true,
+        "hermesReachable": true
+      },
+      "recovered": {
+        "relayStatus": 200,
+        "registeredErrorCode": null,
+        "localStatus": 200,
+        "accountStatus": 200,
+        "connectorOnline": true,
+        "hermesReachable": true
+      }
+    }
+  ]
+}

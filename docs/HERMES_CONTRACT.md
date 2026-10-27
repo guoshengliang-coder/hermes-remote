@@ -1,5 +1,23 @@
 # Hermes upstream contract
 
+## Fixed official upgrade stages (I4, 2026-10-26)
+
+The native upgrade adapter consumes the fixed target's official `scripts/install.sh`, checked against
+the signed compatibility identity's SHA-256. For the audited 0.22.5 commit
+`bf0203a794a07aac3ff764972ab9087baa4e4f4e`, protocol 1 advertises noninteractive repository, venv,
+python-deps, config, products and complete stages. The adapter passes `--commit` on every mutation,
+plus explicit `--dir`, `--hermes-home`, `--skip-browser` and `--skip-computer-use`; it does not request
+the interactive setup/gateway stages or build the upstream Desktop app. Both exit status and the
+machine result frame must succeed, and the on-disk commit is checked after each stage. Upstream
+continues to own dependency installation and product completion. This adapter alone does not prove
+service drain, complete compatibility or readiness to enable the ordinary upgrade action.
+
+The audited `products` stage also calls `wire_shell_path` and upstream launcher publication. With
+this adapter's explicit `SHELL=/bin/bash`, it may edit `.bashrc`, `.profile` and existing `.bash_profile`/
+`.bash_login`; launcher exposure can affect `~/.local/bin` and previously owned conveniences elsewhere.
+These external paths must be inventoried and preserved by the future executor before mutation. The
+current home-plus-runtime materialization receipt does not certify full external-entrypoint recovery.
+
 ## Desktop optional model metadata (2026-10-24)
 
 Desktop may read authenticated `GET /api/model/info` on fixed loopback serve-v1 after local authentication succeeds. Source checked: upstream `hermes_cli/web_routers/models.py`. Only the `model` string is consumed; empty means no selected model, malformed/missing/non-200/transport failure means unknown. This is informational and must never gate existing connectivity or claim credentials/inference were tested. Tokens remain on the Mac and use the existing proxy-disabled, redirect-restricted session. No writes, model requests, profile changes or provider secrets are consumed. Android, Web, Gateway and Connector contracts remain unchanged.
@@ -949,7 +967,7 @@ upstream:
 | PM interpreter/dependency selection behind that command (HG-212 follow-up, verified 2026-10-12) | PM owns its facts/stamps and interpreter. Desktop's file scan only makes the command eligible; installation actually runs `serve --help`, then managed starts require fresh stdout plus public/authenticated loopback HTTP. No venv dist-info check applies to PM | a failed bootstrap/import check stays `HR-MIGRATE-018`; PM repair/update remains upstream-owned, with no pip fallback or facts edit |
 | `BACKEND_PORT_IN_USE port=<n>` stdout (`hermes_cli/web_server_lifecycle.py`), HG-212 | a complete new line for the selected port identifies a startup conflict; it is not a ready marker | an unrecognised failure still fails the ready + health gate, but may wait until timeout |
 | `Application startup failed. Exiting.` stderr and Python's `TypeError: Too few arguments for typing.Generator; actual 2, expected 3`, observed in HG-212 | optional early failure diagnosis from complete lines added after the managed start checkpoint; the Python cause is classified only with the fatal exit line, and only a fixed reason leaves the reader | wording changes lose the specific diagnosis, never waive the existing readiness proof; raw stderr is not exposed |
-| `.git/HEAD`, loose refs, `packed-refs`; `hermes_cli/__init__.py` `__version__ = "x.y.z"` | read as files to identify the code on disk | `unreadableIdentity` — surfaced, nothing switched |
+| `.git/HEAD`, loose refs, `packed-refs`; legacy `hermes_cli/__init__.py` `__version__ = "x.y.z"`, or v0.22.5 schema-2 `install-stamp.json` | read as files to identify code on disk; stamp fallback must be an owner-controlled regular file, have the exact HEAD commit and `source=git`, `updateMechanism=self`, `payload=bootstrap`, and a canonical `baseVersion`. An adoption stamp is identity only, never completion/health evidence | `unreadableIdentity` — surfaced, nothing switched |
 | `venv/lib/python*/site-packages/hermes_agent-<version>.dist-info` (legacy only) | its version must equal `__version__` before switching/replacing a running legacy process; this is not proof the interpreter can load current code | Desktop waits (`dependenciesPending`) or surfaces inconsistency; actual command/start checks can still fail |
 | `~/.hermes/.hermes-update-in-progress` (`hermes_cli/update_lock.py`, 20-minute ceiling) | restarts wait while it is fresh | a restart could land mid-update |
 | `hermes_cli/main.py:_apply_profile_override`, `profiles.resolve_profile_env` | GO appends `--profile default`; explicit profile wins over sticky `active_profile` before imports. Existing profiles are allowed, never edited | changed flag parsing could select the wrong data home; launcher argument regression and physical data-home acceptance are required |
@@ -1135,3 +1153,158 @@ plus endpoint and cron metadata that the Connector must strip. Also checked
 confirmation and deferred flags are pending states, not confirmed model application.
 Web now parses these states and does not update recents before application. No upstream upgrade,
 patch, wire-version change or new Mac credential exposure is part of this work.
+
+
+### Isolated required-read checks (2026-10-25)
+
+`hermes-compatibility-contract-probe.mjs` now validates actual required REST response fields, not only
+OpenAPI presence or a substring of the transcript. Fixed 0.21.3 (`633dda6d7fdcac7e8340471c9f5ed08cdccbd70c`),
+0.22.5 (`bf0203a794a07aac3ff764972ab9087baa4e4f4e`), and restored 0.21.3 passed 48 transport/core-read
+checks in the disposable synthetic lab. See [the scoped report](evidence/hermes-compatibility/2026-10-25-core-rest-contracts.json).
+Its `required-read-surfaces-v1` scope covers default-profile text history, required session/status field
+shapes, numeric Unix-second timestamps and one-row/empty-offset pagination. It does not update the
+adapted-version declaration or certify optional routes, multimodal history, mutation RPCs, clients,
+or the unresolved updater lock transition. The report keeps `compatibilityApproved=false`.
+
+
+### Isolated session lifecycle RPC checks (2026-10-25)
+
+The same fixed source/candidate/restored runtimes now exercise ready → capabilities → create →
+resume → config.get → active_list in one connection, using the parameter shapes emitted by the Web
+client (checked against its actual builders). The synthetic restored transcript is omitted from the
+RPC reply and its live handle maps back to the seeded stored ID in the Connector parser. All 66
+transport/read/session checks passed; see [scoped evidence](evidence/hermes-compatibility/2026-10-25-session-rpc-contracts.json).
+This is no prompt/model inference test, and it does not certify streaming, tool/server requests,
+reconnection or client rendering. Full RPC compatibility remains unverified, even when these
+partial checks pass. Any observed failure is retained as a failed RPC gate.
+
+
+### Isolated text turn with local model fixture (2026-10-25)
+
+The fixed old/candidate/restored Hermes runtimes pass 84/84 scoped checks, including prompt acceptance,
+correlated streamed text/completion and persisted user/assistant messages. The model service is a
+loopback-only deterministic OpenAI-compatible fixture; real upstream Hermes performs request handling,
+stream conversion and persistence. The sandbox first proves external-network denial, and each phase
+restores its original synthetic configuration bytes/mode. See [the report](evidence/hermes-compatibility/2026-10-25-prompt-contracts.json).
+
+This proves the simple text-turn protocol with a simulated model, not real provider compatibility,
+model quality, tools/approval handling, reconnects, relay integration or Android/Web rendering.
+Full RPC/client acceptance remains unverified. Fixture code is hash-bound alongside the probe and
+lab script; no adapted-version declaration or production recommendation changes.
+
+
+### Completed text-turn reconnect (2026-10-25)
+
+The fixed source/candidate/restored runtimes also pass a new-connection resume of the just-completed
+synthetic conversation. The first WebSocket closes before another is opened; the new socket repeats
+ready/capabilities, resumes by stored ID with omit_messages, correlates active live/stored identity,
+and rereads the same user/assistant row IDs, contents and timestamps. Total scoped checks are 99/99;
+see [the report](evidence/hermes-compatibility/2026-10-25-reconnect-contracts.json).
+
+This is a completed-turn transport reconnect, not backend restart, interrupted-generation replay,
+Desktop lifecycle, relay/client acceptance or post-upgrade data recovery. Full RPC certification
+remains unverified. The newly exercised failure paths block RPC acceptance; old reports retain their
+original scope and cannot inherit this coverage.
+
+### Real legacy Gateway/Connector relay (2026-10-25)
+
+The isolated `--prompt --relay` experiment repeats all 33 scoped checks through actual compiled
+Gateway and Connector entrypoints, in addition to direct Hermes access, for old/candidate/restored
+runtimes. It exercises live mode and the observer; `/api/hermes-remote/contract` supplies Connector's
+contract decision because Gateway does not expose upstream OpenAPI. The separate model request
+observation must succeed for each transport. All 198 contract checks and six role-separation/cleanup
+observations passed; see [the report](evidence/hermes-compatibility/2026-10-25-relay-contracts.json).
+
+The pair uses synthetic tokens, loopback listeners and the same external-network-denying sandbox.
+The report binds source build trees, lockfile and Node executable, not signed release artifacts or
+all installed dependency bytes. Source versions are Gateway 0.4.36 and Connector 0.1.17. This scoped
+legacy-channel result does not certify account mode, file transfer, service recovery or client UI.
+A demonstrated relay failure rejects Connector compatibility; success alone cannot approve it.
+
+### Completed-turn backend restart (2026-10-25)
+
+The fixed 0.21.3 / 0.22.5 / restored-0.21.3 runtimes pass 45/45 additional scoped checks: stop the
+owned backend, launch a fresh process with a fresh token at the same loopback port, reject the old
+HTTP token, verify running version and seeded history, then resume the completed synthetic turn over
+a new authenticated connection. Its expected user/assistant message IDs, roles, text and timestamps
+remain unchanged, without another model request. The fixture restores configuration and stops its
+owned processes; private checkpoints never enter evidence. See
+[the report](evidence/hermes-compatibility/2026-10-25-backend-restart-contracts.json), which also retains
+198 passed direct/relay checks and six credential-separation/cleanup observations from the same run.
+
+This restart readback is direct and uses the deterministic local model fixture. It does not certify
+LaunchAgent supervision, relay reconnect, Desktop reopening, interrupted generation or downgrade
+after new writes. Those gates remain open; no adapted-version declaration or production recommendation
+changes. An observed restart failure fails serviceRecovery; narrow success cannot approve that whole gate.
+
+### Desktop Core / launchd acceptance (2026-10-25)
+
+The same fixed runtimes now run under actual temporary launchd jobs created through Desktop Core's
+real launcher/plist generators and start/stop controller. The adapter replaces the production label
+and 9119 with random test identities and preserves the token-file contract behind the existing OS
+sandbox. Six initial/restarted cycles pass 24/24 service ownership and cleanup observations; all
+45 restart, 198 direct/relay and six role/cleanup checks also pass in this run. See
+[the scoped report](evidence/hermes-compatibility/2026-10-25-launchagent-contracts.json).
+
+The report binds helper source/binary, Core source tree and fixture hashes. This does not exercise
+the daily job label, actual app shutdown/reopen, relay reconnection, account mode or production
+upgrade. A missing GUI launchd domain or toolchain is infrastructure failure, never compatibility
+approval. The production adapted-version declaration and recommendation policy remain unchanged.
+
+### Completed-turn relay recovery after backend restart (2026-10-25)
+
+The isolated lab now retains its source-built legacy Gateway across the backend restart. It replaces
+only the owned Connector, observes offline then online for the same device, supplies the new local
+Hermes token and reuses the unchanged public app credential. Readback resumes the exact relayed
+completed conversation, verifies both persisted rows and the seeded history, and makes no new model
+request. Old/candidate/restored each pass 16 checks (48 total), in addition to the existing direct,
+relay, backend-restart and Native service checks. See
+[the scoped receipt](evidence/hermes-compatibility/2026-10-25-relay-recovery-contracts.json).
+
+This adds `legacy-relay-completed-turn-recovery-v1`; it does not expand the earlier direct restart
+scope. Missing or failed recovery checks cannot become passing evidence. Full connector/service
+recovery remains unapproved: account mode, released clients/components, interrupted generation and
+actual upgrade orchestration require independent acceptance. No upstream or product code changed.
+
+### Synthetic account relay and recovery (2026-10-25, unresolved intermittency)
+
+The lab can now use real account-mode Gateway/Connector code with an independently created private
+PostgreSQL 18 cluster per stage. Repository migrations, TokenCodec sessions/refresh families and
+Ed25519 credentials are real; accounts and data are synthetic. HTTP and WebSocket requests use the
+original bearer session. Another unbound account is denied. The worker selects this mode by default;
+legacy mode remains an independent option.
+
+The first two runs exposed post-restart account relay failures while direct Hermes access passed.
+Waiting for both Connector online and Hermes health was necessary, but a second failure remained.
+Two later full runs passed without a confirmed root cause. Preserve both
+[initial failure](evidence/hermes-compatibility/2026-10-25-account-relay-first-gap.json),
+[health-gated failure](evidence/hermes-compatibility/2026-10-25-account-relay-readiness-gap.json) and
+[latest pass](evidence/hermes-compatibility/2026-10-25-account-relay-contracts.json).
+A pass covers 198 direct/account checks, 45 direct restart, 48 account recovery, 24 Native service,
+12 account fixture and six role/cleanup observations. These observations do not resolve the known
+intermittency or certify actual login, released clients, tools/files, interrupted work or upgrade safety.
+
+### Isolated clarification validation: 0.21.3 / 0.22.5 (2026-10-26)
+
+The fixed commits in `evidence/hermes-compatibility/2026-10-26-clarify-contracts.json` both passed a
+real one-question batch round trip, directly and through the actual synthetic account relay. The
+fixture uses the model's `clarify` tool, not an injected server event. `clarify.lock` returns remaining
+question IDs as an array (`[]` on the last lock), matching `contracts/prompt_voice.py` and
+`methods_prompt.py`. `agent/stream_delivery.py` prefixes the first post-tool text with one paragraph
+break; the final completion/history contains the answer without that separator. The probe accepts
+only these exact synthetic forms and validates the stored answer. This narrow record does not adopt
+either release or certify the rest of the upgrade/approval/client matrix. Details and retained failed
+probe assertions are in `HERMES_COMPATIBILITY_EXECUTION.md`.
+
+### Packaged Web text and clarify browser probe (2026-10-26)
+
+`packaged-web-text-clarify-reload-v1` exercises the actual built Web page in pinned Chrome for
+Testing against the disposable authenticated Gateway/Connector and the two fixed Hermes commits.
+It sends text, reloads persisted history, renders and answers the single clarify question, then
+reloads both replies. Synthetic browser-session refresh and a missing-CSRF rejection use the actual
+Gateway. No Web product parser or upstream code was changed for this probe.
+
+The receipt is `evidence/hermes-compatibility/2026-10-26-web-contracts.json`; all three runtime stages
+must carry the same scope, exact probe/build identities and every check. This narrows the earlier
+unverified Web-rendering scope only for text/single-question clarify. Real login, physical browsers,
+other tools, Android and the installed Desktop upgrade journey remain separate acceptance gates.

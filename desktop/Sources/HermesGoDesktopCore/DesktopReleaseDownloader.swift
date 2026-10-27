@@ -74,9 +74,20 @@ public final class DesktopReleaseDownloader: @unchecked Sendable {
         sizeBytes: Int64,
         into downloadRoot: URL
     ) async throws -> URL {
+        try await download(from: url, fileName: fileName, maximumBytes: sizeBytes, expectedSize: sizeBytes, into: downloadRoot)
+    }
+
+    /// Bounded discovery for an original archive whose digest comes from a separate signed record.
+    /// Downloading alone never verifies that identity; the caller must hash before opening it.
+    func download(from url: URL, fileName: String, maximumBytes: Int64, into downloadRoot: URL) async throws -> URL {
+        try await download(from: url, fileName: fileName, maximumBytes: maximumBytes, expectedSize: nil, into: downloadRoot)
+    }
+
+    private func download(from url: URL, fileName: String, maximumBytes: Int64,
+                          expectedSize: Int64?, into downloadRoot: URL) async throws -> URL {
         guard Self.validHTTPSURL(url),
-              sizeBytes > 0,
-              sizeBytes <= 2 * 1024 * 1024 * 1024,
+              maximumBytes > 0,
+              maximumBytes <= 2 * 1024 * 1024 * 1024,
               fileName == url.lastPathComponent,
               !fileName.isEmpty,
               !fileName.contains("/")
@@ -87,7 +98,7 @@ public final class DesktopReleaseDownloader: @unchecked Sendable {
             throw DesktopReleaseDownloadError.unsafeDestination
         }
 
-        let delegate = BoundedNoRedirectDownloadDelegate(maximumBytes: sizeBytes)
+        let delegate = BoundedNoRedirectDownloadDelegate(maximumBytes: maximumBytes)
         let temporary: URL
         let response: URLResponse
         do {
@@ -100,10 +111,11 @@ public final class DesktopReleaseDownloader: @unchecked Sendable {
             throw DesktopReleaseDownloadError.transportFailed
         }
         defer { try? fileManager.removeItem(at: temporary) }
-        try validate(response: response, requestedURL: url, expectedSize: sizeBytes)
+        try validate(response: response, requestedURL: url, expectedSize: expectedSize)
         guard let attributes = try? fileManager.attributesOfItem(atPath: temporary.path),
               let size = attributes[.size] as? NSNumber,
-              size.int64Value == sizeBytes
+              size.int64Value > 0, size.int64Value <= maximumBytes,
+              expectedSize == nil || size.int64Value == expectedSize
         else { throw DesktopReleaseDownloadError.invalidResponse }
         do {
             try fileManager.moveItem(at: temporary, to: destination)

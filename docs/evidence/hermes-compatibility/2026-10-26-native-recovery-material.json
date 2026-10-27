@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "kind": "desktop-native-recovery-material",
+  "status": "passed",
+  "compatibilityApproved": false,
+  "sourceCommit": "633dda6d7fdcac7e8340471c9f5ed08cdccbd70c",
+  "sourceVersion": "0.21.3",
+  "coreSourceSha256": "53ca3b5c58b7c200f52394513c035539d5fb8184655e6fef3eaad878149a65df",
+  "driverSha256": "e2f7ce79280c113d8c84739e00990393440e29c3320a30e8091ea58e43501784",
+  "helperSourceSha256": "f9f542a73d59b22fd656a424532b259723f636bacfcc761eb861b87cd9d78e14",
+  "checks": {
+    "capture": {
+      "passed": true
+    },
+    "materialize": {
+      "passed": true
+    },
+    "originalsUnchangedBeforeCommit": {
+      "passed": true
+    },
+    "restoredAtOriginalPaths": {
+      "passed": true,
+      "treeDigests": [
+        "d3d429c1be742965402cc0aeafec6098a42b20d9eca9e93412580a174ea7f0a6",
+        "c14196ada12235fd168fe288856993d9378fc50d7e61dd39874479b2d3b08473"
+      ]
+    },
+    "restoredHistory": {
+      "passed": true,
+      "historyPresent": true,
+      "runningVersion": "0.21.3",
+      "pathCount": 248,
+      "openapiPathsSha256": "b7038ed98a6b9ae2953a33dc2392ab41074878c8afae90652ed284c8f3ef6f36"
+    },
+    "restoredConfiguration": {
+      "passed": true
+    },
+    "untouchedOriginalsReturned": {
+      "passed": true
+    },
+    "sourceUnchanged": {
+      "passed": true
+    }
+  },
+  "notExecuted": [
+    "officialUpgrade",
+    "automaticRestoreCommit",
+    "upstreamOwnership",
+    "crashDuringLivePathCommit",
+    "newDataDowngradeAuthorization",
+    "installedDesktopJourney"
+  ],
+  "helperBinarySha256": "9bcced202e33736abdd0fbb92537ec61771b71f460b49d85a6c63511aa7572d4"
+}

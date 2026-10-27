@@ -13,6 +13,7 @@ struct HermesVersionCard: View {
     var record: DesktopHermesUpgradeRecord = .unchecked
     var isRefreshingRecord = false
     var refreshRecord: () -> Void = {}
+    var recommendation = HermesRecommendationAssessment.unchecked
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -27,15 +28,37 @@ struct HermesVersionCard: View {
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 versionRow("上游稳定版本", report.latestStable.version)
-                versionRow("GO 验证推荐", report.verifiedRecommendation?.version ?? "尚无验证结果")
                 versionRow("检查时间", report.checkedAt.formatted(date: .abbreviated, time: .shortened))
-                Text(report.latestStableIsVerified
-                     ? "已通过 GO 兼容验证，可继续检查升级条件。"
-                     : "这个上游版本尚未通过 GO 升级验证，暂不能在此执行升级。")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
             } else {
                 Text("检查本机 Hermes 与官方稳定发布。")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                let assessment = recommendation.current(at: context.date)
+                VStack(alignment: .leading, spacing: 8) {
+                    versionRow("GO 验证推荐", assessment.summaryChinese)
+                    Text(assessment.detailChinese)
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let entry = assessment.entry {
+                        Text(entry.identity.maintenancePolicy.summaryChinese)
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        DisclosureGroup("查看验证记录与组件要求") {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("Hermes \(entry.identity.version) · \(entry.identity.targetCommit.prefix(12))")
+                                ForEach(entry.identity.components, id: \.name) { component in
+                                    Text("\(HermesRecommendationAssessment.componentLabel(component.name))：\(component.version)")
+                                }
+                                if let expires = assessment.expiresAt {
+                                    Text("清单有效至 \(expires.formatted(date: .abbreviated, time: .shortened))")
+                                }
+                            }.font(.system(size: 12)).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }.font(.system(size: 12))
+                    }
+                    if let issue = assessment.issue { GateIssueBanner(issue: issue) }
+                }
             }
             Button(isChecking ? "正在检查…" : "检查 Hermes 版本") {
                 checkVersions()

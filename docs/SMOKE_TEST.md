@@ -2253,3 +2253,228 @@ behavior is claimed. L2 was unavailable (no physical device attached).
   bytes from the previous identity. Preserve HR-FILE/HR-AUTH recovery messages.
 - Physical Wi-Fi/cellular/NAT, original HONOR codec and OEM background behavior still require device
   verification; L1 and synthetic L3 results do not establish those outcomes.
+
+### Hermes compatibility: Gateway OCI identity evidence
+
+The Gateway OCI workflow now runs `scripts/test-gateway-compatibility-evidence.mjs outputs/gateway-bundle`
+after packaging the immutable bundle. It creates only disposable network-isolated containers from
+that just-built image, checks health, verifies original archive/runtime association, and confirms
+that an additional `NODE_OPTIONS` setting is rejected. Both containers are removed in finally.
+The success marker is `GATEWAY_COMPATIBILITY_EVIDENCE_ACCEPTANCE_OK`; the emitted report explicitly
+leaves public routing and compatibility approval unverified. The CI origin is synthetic.
+
+Local parser/collector coverage runs with:
+
+```sh
+npm run build
+node --test scripts/test/hermes-compatibility-gateway-evidence.test.mjs scripts/test/gateway-archive-identity.test.mjs
+```
+
+Those tests create a real synthetic OCI tar and use real bounded tar reads, but inject Docker
+observations. They do not substitute for the real Linux/Docker workflow. Cover mismatched archives
+and image IDs, code-path mounts, mutable root, loader overrides, process/container changes, unsafe
+arguments and redacted bilingual errors. No production deployment or live-host acceptance follows
+from a CI success; trusted inventory assembly and public-route binding remain separate gates.
+
+
+### Hermes compatibility: required REST reads
+
+After `npm run build`, run:
+
+```sh
+node --test scripts/test/hermes-compatibility-core-rest.test.mjs scripts/test/hermes-compatibility-worker.test.mjs
+python3 scripts/hermes-compatibility-contract-lab.py --lab-root <successful-disposable-runtime-lab>
+```
+
+The second command accepts only a private temporary lab created by the runtime rehearsal, with the
+fixed old/new checkouts and synthetic history. It starts only those sandboxed processes, reactivates
+the candidate at its original lab path, and restores the old path in finally. Never pass a daily HOME.
+Require all three stages to include `restScope=required-read-surfaces-v1` and five core REST booleans;
+the REST-only report has 16 checks per stage; the current probe adds six scoped session RPC checks. Record the immutable report and suite/probe hashes.
+Regression coverage rejects renamed IDs/timestamps, numeric/boolean coercion, ignored pagination,
+missing/mixed scopes and failed stages; old 11-check reports must keep REST `not_run`.
+
+The observed pass covers only default-profile text history on the four required read routes.
+Multimodal transcripts, optional operations, actual Android/Web rendering, relay integration and
+full RPC sessions still need their dedicated acceptance; this does not authorize an upgrade.
+
+
+### Hermes compatibility: session RPC lifecycle
+
+Run `node --test scripts/test/hermes-compatibility-session-rpc.test.mjs` for loopback WebSocket
+regressions and parameter parity against the real Web builders. Repeat the disposable contract lab
+command above for source/candidate/restored upstream execution. Current scope has 22 checks per
+stage, including ready/capabilities, empty-session creation, stored-session resume without transcript,
+reasoning configuration and stored/live identity correlation. Record hashes from the final probe.
+
+Cover missing readiness, wrong response IDs, invalid envelopes, timeouts, disconnects, RPC errors,
+unexpected transcript, mismatched activity identity and invalid configuration shapes. Partial session
+success must leave full RPC acceptance not run; any exercised failure must propagate as failed.
+Prompt streaming, real model/tool/server requests, reconnect/replay and actual Android/Web business
+still require dedicated acceptance. No daily install or production account belongs in this lab.
+
+
+### Hermes compatibility: fenced local-model text turn
+
+```sh
+node --test scripts/test/hermes-compatibility-session-rpc.test.mjs scripts/test/hermes-compatibility-lab.test.mjs scripts/test/hermes-compatibility-worker.test.mjs
+python3 -B scripts/hermes-compatibility-contract-lab.py --prompt --lab-root <successful-disposable-runtime-lab>
+```
+
+The explicit prompt mode adds a deterministic loopback model and six checks per stage (28 total).
+Require external-network PermissionError before starting the model/backend, then verify a fresh
+session accepts the exact synthetic prompt, emits matching deltas/completion and persists both roles.
+After stopping the synthetic backend, original configuration bytes and mode must be restored. Pin the
+model fixture, probe and suite hashes in the immutable report. The default no-prompt mode remains useful
+for the narrower lifecycle checks; the CI worker invokes prompt mode.
+
+Tests cover early events before the RPC acknowledgement, unrelated session events, missing persisted
+assistant text, bounded event accumulation, rejected nonfixture prompts, configuration restoration on
+exceptions and failed network preflight before any model/configuration change. A simulated model pass
+must not turn full RPC/client business into passed. Real models, tools/server requests, reconnects,
+relay and device E2E remain outstanding. Never use the daily installation or actual provider secrets.
+
+
+### Hermes compatibility: completed-turn reconnect
+
+The `--prompt` contract lab now follows its stored text turn with a fresh authenticated WebSocket
+and five reconnect checks (33 checks per stage). Require ready and capabilities again, resume the
+stored conversation with omit_messages, correlate the returned runtime handle through active_list,
+and compare expected user/assistant row IDs, roles, contents and timestamps to the first connection.
+No second prompt should be sent. Missing, duplicate or changed rows must fail.
+
+`hermes-compatibility-session-rpc.test.mjs` checks distinct connections, the exact stored-ID request,
+changed/missing/duplicate history, identity mismatch, absent readiness, wrong response IDs, errors,
+connection loss and bounded timeouts. Worker tests require all five fields in every stage and reject
+scope mixing; a pass leaves service recovery, process interruption, Desktop lifecycle, client business
+and new-data protection unverified. Repeat the real source/candidate/restored lab for evidence; mock
+socket tests alone do not establish compatibility. Interrupted-generation replay and backend restart
+remain separate acceptance scenarios.
+
+### Hermes compatibility: actual legacy relay
+
+Run the existing disposable contract lab with `--prompt --relay` after `npm run build`; never use
+production credentials or the daily Hermes directory. Require 33 direct and 33 relayed checks for
+each source/candidate/restored stage. Require distinct model request observations, swapped App/Hermes
+tokens rejected, matching build/Node/fixture identities, and both owned child processes stopped.
+The Node executable is copied with SHA-256 verification into the private lab so the existing HOME
+read fence remains intact; its temporary copy must be removed on success and probe/start failure.
+
+Automated fixture tests cover startup/probe failure cleanup and clean credential-separated process
+environments; report tests reject missing/mixed identities, transports, scope and contradictory
+results. The real experiment separately proves the actual loopback chain. Source builds must not
+be presented as installed releases. Account-mode relay, released-component verification, file
+transfer, restart recovery and actual Android/Web business remain pending; a green narrow report
+must leave full Connector compatibility unapproved.
+
+### Hermes compatibility: signed published Connector evidence
+
+With the existing trusted public key, run `hermes-compatibility-connector-evidence.mjs` for a fixed
+versioned bundled or v2 release and exact Connector version/archive digest. Require signature and
+manifest identity/freshness before archive access, full public bytes matching the signed length/hash,
+and identical manifest bytes on readback. Do not substitute a package version for the Connector
+version or use a bundled archive digest for the v2 artifact at the same semantic version.
+
+Automated fixtures cover both layouts, wrong signatures, duplicate signed JSON keys, expired/future
+manifests, wrong scope/target/directory, partial/oversized/redirected downloads, changing manifests and
+redacted transport errors. A loopback HTTP test checks actual transfer and detects artifact replacement.
+The retained public experiment verifies both real 0.4.12 records and Connector 0.1.17 archives. It does
+not install or execute either archive, certify v2 runtime dependencies or sign an inventory. Protected
+five-component assembly/signing/renewal and actual installed-client matching remain separate gates.
+
+### Hermes compatibility: five-component inventory preparation
+
+Prepare from protected original release records, never administrator-supplied pass/fail reports.
+Require all five exact components and fresh native collector results. Missing source, wrong identity,
+expired Connector authority, observations older than 15 minutes, duplicate combination or unknown
+policy fields must refuse the entire draft. A second preparation must recollect evidence; it cannot
+renew a saved observation. Bound inventory expiry by every source's observation and signed lifetime.
+An explicit empty policy may prepare an empty inventory without publishing or revoking anything.
+
+CI's disposable Gateway image acceptance additionally runs all default collectors: a real isolated
+Gateway, a packaged synthetic Web archive, temporary signing keys for a synthetic Connector manifest,
+and inert synthetic client bytes served through loopback HTTP. It signs the resulting inventory with
+a temporary key, verifies the exact combination through Gateway's real consumer, and refuses after
+one client archive changes. This tests producer plumbing; the client blobs are not executable APKs
+or DMGs, and no production inventory is signed or installed. The existing public Desktop/Android
+archives are separately read back by digest; their package gates/runtime identity are separate proofs.
+
+### Hermes compatibility: atomic signed inventory installation
+
+Run `node --test scripts/test/hermes-compatibility-inventory-install.test.mjs` after building. Use only
+temporary keys, protected temporary directories and synthetic inventories. The Python CLI must hold
+the kernel lock in the actual exec'd writer. A second writer must refuse while it is live; SIGKILL
+before/after rename must leave complete old/new bytes, release the lock, and permit an idempotent retry.
+Missing state requires explicit initialization. Reject older or same-time changed payloads, invalid
+signatures, expired candidates, symlinks, hardlinks, writable state and changed configuration/lock inode.
+An expired but authentic previous inventory still orders a fresh update. A reader that opened the old
+file before replacement must finish its signed snapshot, including when its link count becomes zero.
+
+Disposable image CI extends the five-collector test through the real Python installer and Gateway
+file reader: initialize, retry unchanged, install a later empty inventory and refuse the old inventory.
+Require all four receipt booleans and the final cleanup marker. Abruptly abandoned random `.next` files
+are never promoted. This is process-crash testing, not hardware power-loss or production deployment
+certification; protected workflow delivery, signing-key rotation and scheduled renewal need acceptance.
+
+### Hermes compatibility: completed-turn backend restart
+
+Run the disposable contract lab with `--prompt --relay --restart`. Each old/candidate/restored runtime
+must complete a synthetic turn, stop its owned backend, start a new process at the same loopback port
+with a fresh token, reject the previous HTTP token and resume the persisted turn over a new socket.
+Require unchanged expected message IDs/roles/text/timestamps, the original seeded history, exact running
+version, no new model request, stopped owned backend and restored configuration. The checkpoint and
+credentials remain in private memory/pipes and must never enter evidence JSON or command arguments.
+
+Require all 15 scoped checks in all three stages; reject missing/mixed scopes and contradictory status.
+Fault tests cover old-token acceptance, wrong version, changed rows, missing/duplicate checkpoints,
+restart failure cleanup and refusal to start before the previous backend stops. A failed observed
+restart fails serviceRecovery; success alone leaves it unverified pending LaunchAgent and Desktop
+lifecycle acceptance. This path reads directly after restart: it does not certify relay reconnection,
+in-flight generation recovery, new-data downgrade protection or real Android/Web user journeys.
+If the preceding prompt fails to produce a checkpoint, retain its RPC failure and record restart
+attempted=false with no checks. Do not turn that product failure into an infrastructure error or
+fabricate a restart result. A successful prerequisite cannot authorize this skip.
+
+### Hermes compatibility: actual Desktop Core with isolated launchd jobs
+
+On a disposable macOS GUI host, add `--launchagent` to `--prompt --relay --restart`. The helper builds
+and links real Desktop Core, generates its launcher/plist and invokes its actual controller. The test
+adapter substitutes a random job label and loopback port, and prepends the existing sandbox/clean
+environment. Never use the production labels, port 9119 or the daily Hermes HOME. Tokens stay in
+0600 files; no token, proxy credentials, raw launchctl output, PID or personal path enters the report.
+
+Require initial and restarted job observations for all three versions: loaded, owned running PID,
+unloaded with process exited, and port released. Bind all six cycles to identical helper source and
+binary, Core source tree and fixture digests. Reject missing cycles/flags, changed identities, false
+skips and contradictory status. After failure inspect only the experiment's exact random labels and
+ensure cleanup; never discover/stop arbitrary Hermes services. The public report must keep broader
+serviceRecovery unverified until managed relay, Desktop lifecycle and remaining acceptance are covered.
+If stop cannot be confirmed, require a private cleanup marker, preserved active/parked paths and
+refusal of another run. Do not swap directories under a potentially live writer or remove the marker
+as a retry shortcut. Cleanup must first verify the exact experiment-owned job is gone.
+
+### Isolated Hermes relay recovery (2026-10-25)
+
+Run the existing private contract lab with `--prompt --relay --restart --launchagent` against its
+previously verified disposable lab root. It now also retains the legacy source-built Gateway while
+restarting Hermes and its Connector, reuses the original app credential and verifies the same completed
+relayed turn. Expect source/candidate/restored `relay.recovery.scope` to be
+`legacy-relay-completed-turn-recovery-v1`, each with 16 boolean checks and no credential/checkpoint
+fields. Verify the model request count stays unchanged, six test LaunchAgents are unloaded, both
+installation paths are restored, and no cleanup-required marker or temporary Node/helper remains.
+Never substitute a daily installation root. A successful isolated result still needs account-mode,
+actual-client and release-artifact acceptance before full upgrade compatibility can be approved.
+
+### Isolated account-mode Hermes relay (2026-10-25)
+
+Use the existing disposable contract lab with `--prompt --relay --restart --launchagent --account-relay`
+and `--postgres-bin /absolute/path/to/trusted/postgresql18/bin`. It creates its own password-protected
+loopback database; do not supply a production database URL or reuse an existing cluster. A stage's
+account evidence must bind setup/PostgreSQL fixture hashes, SQL migration digest and actual database
+version/binary. Confirm empty-database/data-directory guards, refusal of another account, cluster exit,
+original credentials across Connector restart and exact history readback without a new model request.
+
+Keep failed reports: two runs exposed intermittent recovery failures even though direct Hermes probes
+passed; two later passes do not resolve them. Do not approve the version on this evidence. When a
+recovery probe fails, inspect only its private diagnostic status/code/boolean record, never paste private
+service logs or credentials. Next isolate the failure within account routing versus upstream transport.

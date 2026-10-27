@@ -904,3 +904,8 @@ async function sha256File(value) {
 function fail(cause) {
   throw new DesktopManagedReleaseError(cause);
 }
+
+// Payload shape checks shared by read-only release evidence collectors. Callers must first
+// authenticate the exact envelope bytes and enforce freshness for their use case.
+export { validatePayload as validateDesktopManagedPayload,
+  validateComponentPayloadV2 as validateDesktopComponentPayloadV2 };

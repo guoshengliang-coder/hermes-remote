@@ -68,7 +68,8 @@ struct LocalHermesView: View {
                     checkConditions: { Task { await model.checkHermesUpgradeConditions() } },
                     record: model.hermesUpgradeRecord,
                     isRefreshingRecord: model.isRefreshingHermesUpgradeRecord,
-                    refreshRecord: { Task { await model.refreshHermesUpgradeRecord() } }
+                    refreshRecord: { Task { await model.refreshHermesUpgradeRecord() } },
+                    recommendation: model.hermesRecommendation
                 )
 
                 if showsConnectionSetup, model.currentDashboard != nil {

@@ -13,19 +13,50 @@ public enum DesktopComponentReleasePreflightError: Error, Equatable, Sendable {
     case componentHealthProbeFailed(DesktopManagedComponentKind)
 }
 
+/// A point-in-time observation of installed bytes mapped to an archive by a verified manifest.
+/// This does not identify the running process or authorize a Hermes upgrade. Re-scan before use;
+/// receipts, version strings and external candidates alone cannot produce this observation.
+public struct DesktopInstalledComponentObservation: Equatable, Sendable {
+    public let kind: DesktopManagedComponentKind
+    public let version: String
+    public let architecture: String
+    public let contentSHA256: String
+    public let artifactSHA256: String
+
+    fileprivate init(artifact: DesktopComponentReleaseArtifactV2) {
+        kind = artifact.kind
+        version = artifact.version
+        architecture = artifact.architecture
+        contentSHA256 = artifact.contentSHA256
+        artifactSHA256 = artifact.sha256
+    }
+}
+
 public struct DesktopComponentReleasePreflightResult: Equatable, Sendable {
     public let manifest: DesktopComponentReleaseManifestV2
     public let plan: DesktopManagedComponentPreflightPlan
     public let externalEnvironment: DesktopExternalEnvironmentScan
+    public let installedComponents: [DesktopInstalledComponentObservation]
 
     public init(
         manifest: DesktopComponentReleaseManifestV2,
         plan: DesktopManagedComponentPreflightPlan,
         externalEnvironment: DesktopExternalEnvironmentScan
     ) {
+        self.init(manifest: manifest, plan: plan, externalEnvironment: externalEnvironment,
+                  installedComponents: [])
+    }
+
+    fileprivate init(
+        manifest: DesktopComponentReleaseManifestV2,
+        plan: DesktopManagedComponentPreflightPlan,
+        externalEnvironment: DesktopExternalEnvironmentScan,
+        installedComponents: [DesktopInstalledComponentObservation]
+    ) {
         self.manifest = manifest
         self.plan = plan
         self.externalEnvironment = externalEnvironment
+        self.installedComponents = installedComponents
     }
 }
 
@@ -91,6 +122,7 @@ public final class DesktopComponentReleasePreflightCoordinator: @unchecked Senda
         catch { throw DesktopComponentReleasePreflightError.invalidManifest }
         let artifacts = Dictionary(uniqueKeysWithValues: manifest.components.map { ($0.kind, $0) })
         var managedCandidates: [DesktopManagedComponentCandidate] = []
+        var installedComponents: [DesktopInstalledComponentObservation] = []
         for requirement in requirements {
             guard let artifact = artifacts[requirement.kind] else {
                 throw DesktopComponentReleasePreflightError.invalidManifest
@@ -111,6 +143,7 @@ public final class DesktopComponentReleasePreflightCoordinator: @unchecked Senda
                     )
                 }
                 managedCandidates.append(candidate)
+                installedComponents.append(DesktopInstalledComponentObservation(artifact: artifact))
             }
         }
 
@@ -127,7 +160,8 @@ public final class DesktopComponentReleasePreflightCoordinator: @unchecked Senda
         return DesktopComponentReleasePreflightResult(
             manifest: manifest,
             plan: plan,
-            externalEnvironment: externalEnvironment
+            externalEnvironment: externalEnvironment,
+            installedComponents: installedComponents
         )
     }
 }

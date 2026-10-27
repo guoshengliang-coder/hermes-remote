@@ -35,6 +35,54 @@ public actor DesktopAccountController {
         try await refresh()
     }
 
+    public func hermesCompatibilityAccess() async throws -> HermesCompatibilityAccess {
+        let (client, record) = try await compatibilityContext()
+        return try await client.hermesCompatibilityAccess(accessToken: record.session.accessToken)
+    }
+
+    public func hermesCompatibilitySnapshot() async throws -> HermesCompatibilitySnapshot {
+        let (client, record) = try await compatibilityContext()
+        return try await client.hermesCompatibilitySnapshot(accessToken: record.session.accessToken)
+    }
+
+    public func syncHermesCompatibility(expectedRevision: Int) async throws {
+        let (client, record) = try await compatibilityContext()
+        // Include the optimistic revision in the persisted operation identity: a refreshed decision
+        // is a new command, while retrying the same page reuses the same idempotency key.
+        _ = try await performMutation(record: record, operation: "hermes.compatibility.sync:\(expectedRevision)") { token, key in
+            try await client.syncHermesCompatibility(accessToken: token, operationID: key, expectedRevision: expectedRevision)
+        }
+    }
+
+    public func requestHermesCompatibilityRun(expectedRevision: Int, candidateID: String, recipeID: String) async throws {
+        let (client, record) = try await compatibilityContext()
+        _ = try await performMutation(record: record, operation: "hermes.compatibility.run:\(candidateID):\(recipeID):\(expectedRevision)") { token, key in
+            try await client.requestHermesCompatibilityRun(accessToken: token, operationID: key, expectedRevision: expectedRevision, candidateID: candidateID, recipeID: recipeID)
+        }
+    }
+
+    public func hermesCompatibilityReport(runID: String) async throws -> HermesCompatibilityRunDetail {
+        let (client, record) = try await compatibilityContext()
+        return try await client.hermesCompatibilityReport(accessToken: record.session.accessToken, runID: runID)
+    }
+
+    public func manageHermesCompatibility(expectedRevision: Int, action: HermesCompatibilityManagementAction) async throws {
+        let (client, record) = try await compatibilityContext()
+        _ = try await performMutation(record: record, operation: "hermes.compatibility.\(action.operationName):\(expectedRevision)") { token, key in
+            try await client.manageHermesCompatibility(accessToken: token, operationID: key, expectedRevision: expectedRevision, action: action)
+        }
+    }
+
+    private func compatibilityContext() async throws -> (any HermesCompatibilityAPIRequesting, AccountSessionRecord) {
+        guard let record = sessionRecord, let client = api as? any HermesCompatibilityAPIRequesting else {
+            throw accountOperationError(code: "HR-ACCOUNT-003", message: "Compatibility management is unavailable.", recoveryAction: "none")
+        }
+        let current = try await refreshIfNeeded(record)
+        guard sessionRecord?.account.id == record.account.id else { throw AccountClientError.invalidResponse }
+        sessionRecord = current
+        return (client, current)
+    }
+
     public func signIn() async throws -> DesktopAccountState {
         let capabilities: AccountCapabilities
         if let capabilitiesSnapshot {

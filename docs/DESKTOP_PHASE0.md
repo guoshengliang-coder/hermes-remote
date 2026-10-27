@@ -1,5 +1,129 @@
 # Hermes Go Desktop phase 0
 
+## Hermes compatibility I4: pinned official installer adapter
+
+`DesktopHermesPinnedUpgradeInstaller` prepares only the exact official script named by a verified
+recommendation's commit and digest. It drives the audited repository/venv/python-deps/config/products/
+complete stages under an existing `updating` operation and backup receipt. The executor supplies
+fresh maintenance checks before each stage; this adapter does not assert service quiescence itself.
+Exit status, result frame and actual checkout commit must agree. A stage timeout cancels the owned
+runner; failures retain updating intent and recovery material. Upgrade-mode process execution also
+requires the original process group to disappear; a successful shell with surviving children is a
+failed effect, even when its output pipe closed. It does not automatically overwrite recovery data. The operation rejects concurrent
+effect execution and phase advances during a running installer effect.
+
+It does not start services, commit success, automatically retry/reset, replace user data, or provide
+an app button. Independent worker/UI lifetime, production process discovery/drain, fresh recommendation
+revalidation and automatic recovery commit remain I4 work. Full recovery must also cover the
+official installer’s external command conveniences and shell startup edits; restoring the checkout
+and interpreter alone does not prove that the user’s normal command entrypoint has been restored. The existing install-when-missing flow
+continues to use its original main-script source; official URL validation additionally accepts an
+exact 40-character upstream commit for this adapter.
+
+## Hermes compatibility: accepted maintenance policy
+
+The owner chose B on 2026-10-26. Validation recipes, reports and signed recommendation identities
+now require `maintenancePolicy=go-controlled-window-v1`. Missing/unknown policies fail closed;
+historical reports do not inherit this scope. Admin reports and ordinary recommendation cards show
+the same condition. The maintenance-window check replaces the old all-updaters concurrency check
+and remains unverified until actually exercised. Ordinary execution is still unavailable.
+
+## Hermes compatibility I4: durable intent (implementation, not an enabled updater)
+
+`DesktopHermesRecoveryPointStore` captures the home and explicitly collected external runtimes
+under the operation lease. It refuses an omitted venv interpreter, uncovered symlink targets,
+overlapping roots, unsafe ownership or special files. Private points bind the exact journal identity,
+root paths, bytes, POSIX modes and links; publication is exclusive/atomic after synchronization.
+Retry accepts an existing point only when its identity and all current source trees still match.
+Recovery validates the receipt and reconstructs into a new private workspace, retaining all current
+installation data. This does not implement the live-path commit, data-write fence or service drain.
+No app action calls it. The fixed legacy uv runtime has been reconstructed and started at its original
+synthetic absolute paths by the separate lab controller; general dependency closure remains a recipe
+responsibility. OS snapshots, arbitrary metadata certification and arbitrary installations are not claimed.
+
+`DesktopHermesUpgradeOperation` now writes private upgrade intent atomically, syncs it, validates
+readback and holds the same `migration-operation.lock` used by installation/repair. Beginning refuses
+pending migration or another pending upgrade; resuming requires the exact persisted record and a free
+kernel lease. Every advance compares the complete previous record, preserves immutable identities,
+and checks the phase/backup relationship. Errors after replacement leave the new intent for explicit
+reconciliation; they never authorize continuing the next effect. Interrupted temporary files are not
+treated as journals or automatically promoted.
+
+Recovery intent and a historical restored terminal are now readable. These are GO operation records,
+not upstream ownership, backup verification or permission to overwrite user data. No app action calls
+the writer yet. Official updater coordination, service drain, backup/restore execution, recommendation
+revalidation and the worker/UI lifecycle remain unfinished. These unfinished execution and acceptance
+steps still block opening the ordinary upgrade action under the owner's accepted B scope.
+
+## Hermes compatibility: bundled Connector runtime identity (implementation)
+
+The schema-1 bundled layout now has a read-only continuity check from its signed-archive file
+observation to the active managed Connector job. It checks the exact launchd label/launcher, kernel
+PID/owner/start time/executable/argv, rejects Node/dyld loader overrides, rehashes the installed tree
+and refuses file/directory changes after process start using ctime rather than restorable mtime.
+Process and selected-release identities are checked again at the end. Raw process environment values
+are discarded locally and never logged. No service operation or new Connector wire protocol is used.
+
+This supports the existing bundled Node layout only; the separate Node component layout still needs
+its own identity association. It is not an attestation against privileged process injection or a
+Hermes/client compatibility result. Ordinary-page automatic collection remains pending.
+
+## Hermes compatibility: Desktop app identity (implementation, not released)
+
+`DesktopAppIdentityInspector` compares the installed app's complete content with a private copy of
+the original DMG, whose digest must match the supplied component identity. It mounts that copy
+read-only without opening or executing its contents, checks bundle ID/version/build/executable and
+compares installed content before and after the inspection. It detaches before deleting its own
+workspace; detach failure retains the workspace and returns a structured failure. The current
+link-free bundle layout is supported; unsupported bundle trees are rejected.
+
+The caller must obtain the expected component from a verified recommendation. The observation alone
+does not attest a signature, identify a running process, approve compatibility or enable an upgrade.
+Original package discovery and active five-component collection remain pending. No UI or installer flow
+changes in this iteration. Physical read-only evidence is recorded in the test plan.
+
+## Hermes compatibility I1: management foundation (implementation, not released)
+
+The new administrator-only “Hermes 兼容版本管理” entry queries server authorization using the existing
+account session. It lists recent official candidates, verification runs, recommendation decisions and
+audit events; refresh and official discovery are available when the server feature is enabled.
+Changing account, signing out or receiving a permission rejection clears prior management data.
+No email in Desktop grants authority. Six registered HR-HERMESCOMPAT errors use local bilingual text.
+
+Gateway schema 21 and its default-off feature must be deployed separately. No live administrator has
+been granted. I2 now connects server-controlled recipes, durable dispatch, isolated CI jobs and
+structured report viewing. Without a configured recipe the page cannot start validation. The current
+isolated suite covers five of fifteen checks and demonstrates a failed concurrent-update check,
+so it cannot produce an approvable report. I3 implements approval/revocation, protected publishing
+jobs, signed recommendations and a public verification client locally. No actual signing publication
+has run. Normal-page recommendation querying is now wired; active component collection and one-click Hermes execution remain subsequent gated work. The accepted B maintenance-window check
+must pass before the migration can be supported; the old updater lock gap remains excluded and open.
+See HERMES_COMPATIBILITY_EXECUTION.md for real upgrade/recovery evidence and remaining gates.
+
+### Ordinary recommendation query (implementation, not released)
+
+“检查 Hermes 版本” now runs upstream discovery and signed recommendation retrieval independently,
+using the account Gateway origin and existing pinned release public keys without an account session.
+It removes the old injected `verifiedTargets` shortcut. The card distinguishes missing trust, failed
+retrieval, unknown installation, unsupported installation conditions, no matching upgrade path,
+unknown/mismatched components and a complete match. A lower supported version can be selected even
+when a newer upstream version exists. Expiry invalidates the displayed assessment on its periodic
+refresh; mutations would still require a fresh online check.
+
+Active component collection is not yet wired: production supplies no unverified archive identities,
+so a published candidate remains conditional until all five observations are established. Synthetic
+complete-match previews do not certify any production combination. The card has no upgrade button.
+
+## Hermes compatibility I0: stamped source identity (2026-10-25, implementation)
+
+Hermes v0.22.5 no longer declares a literal Python `__version__`. Local detection keeps the
+legacy literal first, then reads upstream's schema-2 `install-stamp.json` only when its full commit
+matches Git HEAD and its source/self/bootstrap identity matches the standard source installation.
+The stamp must be an owner-controlled regular file with a bounded canonical base version; missing,
+stale, malformed, unsafe and foreign-distribution stamps remain `unreadableIdentity`. No Python is
+imported, and an adoption stamp is not considered evidence that an update or dependency sync finished.
+Service startup and HTTP health checks remain separate. This code does not enable an upgrade button.
+
 ## HG-199：只读版本管理拆分
 
 本次从 #560 提取版本检测、升级条件检查和升级记录，接入本机 Hermes 页。
@@ -1596,6 +1720,63 @@ This fixes a bundled 0.3.4 installation offered 0.4.12 but incorrectly passed to
 executor, whose layout guard used to report `releaseNotNewer` (`HR-MIGRATE-001`). App replacement
 continues only after successful background commit/cleanup. An affected old GUI may need one direct
 DMG replacement to acquire this updater fix; do not edit its journal or reinstall/reset Hermes.
+
+### Installed component identity for Hermes compatibility (2026-10-25)
+
+The existing signed component preflight now returns `installedComponents` observations beside its
+download/reuse plan. Only managed bootstrap components whose receipt, complete content digest and
+health probe pass receive an observation. The archive SHA-256 comes from the verified manifest;
+the receipt's content SHA-256 is retained separately. Missing components and external observations
+cannot acquire an archive identity, and constructing a presentation result does not create evidence.
+
+This is a read-only observation of the component store at scan time, not the identity of a running
+Connector and not Hermes upgrade permission. A newer manifest may not describe the installed older
+component; that case remains unknown. The installed Desktop app's DMG mapping, running-process and
+remote/client identities, freshness at execution and ordinary-page wiring still need implementation.
+No component migration, service restart, UI change or one-click Hermes execution is enabled here.
+
+For schema-1 bundled installations, `DesktopBundledConnectorIdentityInspector` can now reconstruct
+the content/archive mapping from the original signed release manifest and archive. It verifies the
+currently selected release, copies and re-verifies the archive in a private temporary workspace,
+extracts through the existing safe extractor, compares the complete installed tree before/after,
+and rechecks the selected release before returning. It neither edits the old receipt nor migrates
+the installation. Temporary cleanup failure prevents a successful identity result. Errors retain
+only fixed stages and closed error enums behind `HR-HERMESCOMPAT-008`.
+
+A read-only physical check matched selected release 0.4.12 / Connector 0.1.17 to its signed public
+archive; see the execution record. This does not identify a running process. The inspector requires
+the original signed inputs and is not yet wired to ordinary recommendation discovery. No download
+or service action is triggered automatically by adding this API.
+
+
+### I3 ordinary recommendation: automatic Connector collection
+
+When a freshly signed recommendation has a newer path matching the local source and environment,
+Desktop resolves the currently selected bundled release's original manifest from its configured
+public release endpoint. It verifies the signature before downloading the Connector archive, then
+reuses full installed-file and process-continuity checks. Successful identity participates in the
+existing recommendation assessment; failed or unavailable identity remains unknown. No candidate
+means no archive download. Other four component identities remain unknown; no execution is enabled.
+Public collection uses an isolated ephemeral session without credentials/cookies, bounded downloads
+and 30-second request / 120-second resource timeouts, with its own disposable workspace. Hermes is
+re-detected after collection; an installation change invalidates the earlier environment assessment.
+
+
+### I3 ordinary recommendation: running Desktop identity
+
+The same query now finds the installed Desktop version's original DMG digest in a fresh matching
+signed recommendation. An older matching Hermes candidate may supply that identity even when the
+highest candidate needs a newer Desktop. Conflicting digests for the same Desktop version remain
+unknown. A separate public ephemeral download retrieves the versioned original DMG without using
+the latest app index as authority. Full archive/bundle checks are followed by kernel process and
+ctime continuity checks; only the resulting observation joins Connector in recommendation matching.
+
+The inspector allows the app's ordinary or LaunchServices process arguments, rejects loader
+injection, changed process identity and bundle files changed after launch, and tolerates root-owned
+installed app files without relaxing Connector ownership. The collector never recursively deletes
+an unresolved mount after detach failure. These are point-in-time observations; they are not atomic
+maintenance locks or permission to execute an upgrade. Gateway/Android/Web identity and I4 execution
+remain incomplete. No UI layout, launch, installation, release or daily service action was added.
 
 ### Explicit bundled-to-component update (2026-10-25)
 

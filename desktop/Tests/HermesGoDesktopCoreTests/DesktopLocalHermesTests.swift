@@ -6,6 +6,52 @@ import XCTest
 // MARK: - Detection
 
 final class DesktopLocalHermesDetectorTests: XCTestCase {
+    func testSourceStampIdentifiesNewHermesWithoutImportingItsLazyVersion() throws {
+        let home = try LocalHermesHome()
+        try home.prepareStampedPM()
+        let installation = try XCTUnwrap(home.detect().installation)
+        XCTAssertEqual(installation.version, "0.22.5")
+        XCTAssertEqual(installation.commit, LocalHermesHome.commit)
+        XCTAssertEqual(installation.installedDistribution, .packageManaged)
+    }
+
+    func testSourceStampMustBelongToCurrentCommitAndKnownSourceFormat() throws {
+        let invalid: [[String: Any]] = [
+            ["commit": String(repeating: "f", count: 40)], ["schemaVersion": 3],
+            ["schemaVersion": "2"], ["schemaVersion": true], ["source": "build"],
+            ["updateMechanism": "electron-updater"], ["payload": "bundled"],
+            ["baseVersion": "unknown"], ["baseVersion": "0.0.0"], ["baseVersion": "0.22.5\nmalicious"],
+            ["baseVersion": "0.22.5-beta"], ["baseVersion": "0.22.5\n"], ["baseVersion": "00.22.5"], ["commit": ""],
+        ]
+        for override in invalid {
+            let home = try LocalHermesHome()
+            try home.prepareStampedPM(overrides: override)
+            XCTAssertEqual(home.reason(), .unreadableIdentity, "\(override)")
+        }
+    }
+
+    func testUnsafeOrMalformedSourceStampCannotSupplyVersion() throws {
+        let relative = ".hermes/hermes-agent/install-stamp.json"
+        let home = try LocalHermesHome()
+        try home.prepareStampedPM()
+        try FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: home.path(relative))
+        XCTAssertEqual(home.reason(), .unreadableIdentity)
+        try home.write(relative, "{}")
+        XCTAssertEqual(home.reason(), .unreadableIdentity)
+        try home.write(relative, "not JSON")
+        XCTAssertEqual(home.reason(), .unreadableIdentity)
+        try home.prepareStampedPM()
+        try FileManager.default.moveItem(atPath: home.path(relative), toPath: home.path("foreign-stamp.json"))
+        try FileManager.default.createSymbolicLink(atPath: home.path(relative), withDestinationPath: home.path("foreign-stamp.json"))
+        XCTAssertEqual(home.reason(), .unreadableIdentity)
+    }
+
+    func testLegacyDeclaredVersionRemainsAuthoritativeDuringRecovery() throws {
+        let home = try LocalHermesHome()
+        try home.write(".hermes/hermes-agent/install-stamp.json", "{\"baseVersion\":\"99.0.0\"}")
+        XCTAssertEqual(home.detect().installation?.version, "0.21.3")
+    }
+
     func testV2UpdateLockOutlivesLegacyExpiryAndHonoursDelegates() throws {
         let home = try LocalHermesHome()
         let start = try XCTUnwrap(DesktopLaunchdHermesServiceProcessInspector<SystemOutputCommandRunner>.startDate(pid: getpid()))
@@ -1062,6 +1108,18 @@ private final class LocalHermesHome {
 
     func touch(_ relative: String, _ date: Date) throws {
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: path(relative))
+    }
+
+    func prepareStampedPM(overrides: [String: Any] = [:]) throws {
+        // v0.22.5 source_stamp.py's identity shape; the lazy __init__ must never execute.
+        try write(".hermes/hermes-agent/hermes_cli/__init__.py", "__version__: str\nraise RuntimeError('must not import')\n")
+        try write(".hermes/hermes-agent/.hermes/bin/hermes", "#!/bin/sh\nexit 0\n", mode: 0o755)
+        var stamp: [String: Any] = ["schemaVersion": 2, "commit": Self.commit, "baseVersion": "0.22.5",
+                                   "source": "git", "updateMechanism": "self", "payload": "bootstrap",
+                                   "dirty": false, "adoptedAt": "2026-10-25T00:00:00Z"]
+        stamp.merge(overrides) { _, new in new }
+        let data = try JSONSerialization.data(withJSONObject: stamp, options: [.sortedKeys])
+        try write(".hermes/hermes-agent/install-stamp.json", String(decoding: data, as: UTF8.self))
     }
 
     func writeLaunchAgent(_ name: String, _ object: [String: Any]) throws {

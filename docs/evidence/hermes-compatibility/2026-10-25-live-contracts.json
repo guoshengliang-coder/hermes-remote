@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-runtime-contracts",
+  "sourceCommit": "633dda6d7fdcac7e8340471c9f5ed08cdccbd70c",
+  "targetCommit": "bf0203a794a07aac3ff764972ab9087baa4e4f4e",
+  "compatibilityApproved": false,
+  "stages": {
+    "source": {
+      "schemaVersion": 1,
+      "kind": "live-connector-contract-probe",
+      "version": "0.21.3",
+      "checks": {
+        "httpMissingToken": true,
+        "httpWrongToken": true,
+        "httpValidToken": true,
+        "runningVersion": true,
+        "sessionList": true,
+        "profileSessionList": true,
+        "historyRead": true,
+        "connectorSchema": true,
+        "websocketMissingToken": true,
+        "websocketWrongToken": true,
+        "connectorActiveListRPC": true
+      },
+      "compatibilityApproved": false
+    },
+    "candidate": {
+      "schemaVersion": 1,
+      "kind": "live-connector-contract-probe",
+      "version": "0.22.5",
+      "checks": {
+        "httpMissingToken": true,
+        "httpWrongToken": true,
+        "httpValidToken": true,
+        "runningVersion": true,
+        "sessionList": true,
+        "profileSessionList": true,
+        "historyRead": true,
+        "connectorSchema": true,
+        "websocketMissingToken": true,
+        "websocketWrongToken": true,
+        "connectorActiveListRPC": true
+      },
+      "compatibilityApproved": false
+    },
+    "restored": {
+      "schemaVersion": 1,
+      "kind": "live-connector-contract-probe",
+      "version": "0.21.3",
+      "checks": {
+        "httpMissingToken": true,
+        "httpWrongToken": true,
+        "httpValidToken": true,
+        "runningVersion": true,
+        "sessionList": true,
+        "profileSessionList": true,
+        "historyRead": true,
+        "connectorSchema": true,
+        "websocketMissingToken": true,
+        "websocketWrongToken": true,
+        "connectorActiveListRPC": true
+      },
+      "compatibilityApproved": false
+    }
+  },
+  "suiteSha256": "e2f61bf82425c56b416cf21b2c1ffcbc8d16b8fd88b89e410d0e21d048494d52",
+  "probeSha256": "b7544fb2434e35fa4754e02cd8ff81c8662cfbb4a7680299f257facc15079978",
+  "status": "passed"
+}

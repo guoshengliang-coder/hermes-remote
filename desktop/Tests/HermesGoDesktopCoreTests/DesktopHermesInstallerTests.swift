@@ -676,6 +676,7 @@ final class DesktopHermesInstallOfferTests: XCTestCase {
         let official = [
             "https://hermes-agent.nousresearch.com/install.sh",
             "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/bf0203a794a07aac3ff764972ab9087baa4e4f4e/scripts/install.sh",
         ]
         let foreign = [
             "https://raw.githubusercontent.com/NousResearch/hermes-agent/evil-branch/scripts/install.sh",

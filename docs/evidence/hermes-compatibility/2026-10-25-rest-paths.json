@@ -1,0 +1,41 @@
+{
+  "note": "Route inventory only; not full endpoint or RPC behavior",
+  "reports": [
+    {
+      "name": "sourceHistory",
+      "schema": 1,
+      "retryable": false,
+      "hermesVersion": "0.21.3",
+      "minimumHermesVersion": "0.21.0",
+      "versionBelowMinimum": false,
+      "checkedAt": "2026-10-25T05:50:54.649Z",
+      "status": "compatible",
+      "missing": [],
+      "checkedPaths": 42
+    },
+    {
+      "name": "candidateHistory",
+      "schema": 1,
+      "retryable": false,
+      "hermesVersion": "0.22.5",
+      "minimumHermesVersion": "0.21.0",
+      "versionBelowMinimum": false,
+      "checkedAt": "2026-10-25T05:50:54.653Z",
+      "status": "compatible",
+      "missing": [],
+      "checkedPaths": 42
+    },
+    {
+      "name": "restoredHistory",
+      "schema": 1,
+      "retryable": false,
+      "hermesVersion": "0.21.3",
+      "minimumHermesVersion": "0.21.0",
+      "versionBelowMinimum": false,
+      "checkedAt": "2026-10-25T05:50:54.654Z",
+      "status": "compatible",
+      "missing": [],
+      "checkedPaths": 42
+    }
+  ]
+}

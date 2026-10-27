@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "gateway-oci-runtime-observation",
+  "origin": "https://ci-gateway.example",
+  "component": {
+    "name": "gateway",
+    "version": "0.4.37",
+    "artifactSha256": "6b46a807936a639cda07289760c1751f1b40a1d1ff504e343fc946edd667e519"
+  },
+  "sourceCommit": "9749a443a2f389959b987396c5ba00a29e4451f7",
+  "imageId": "sha256:a33562c94ae9e6ceceb0a0112c25b1e28e30101de7ae870aa5e6a303ba76eceb",
+  "containerdImageId": "sha256:a3de80f1959d2ddded08096680b2202690b901036befd35be2758e999560a47f",
+  "architecture": "amd64",
+  "observedAt": "2026-10-25T10:37:43Z",
+  "runningImageVerified": true,
+  "publicRouteVerified": false,
+  "compatibilityApproved": false,
+  "scope": "disposable-ci-container",
+  "ciRunURL": "https://github.com/guoshengliang-coder/hermes-remote/actions/runs/40185496920",
+  "ciTriggerHead": "dc203625fd3d97132b23cbc0ed8716ef3ac34157",
+  "ciConclusion": "success",
+  "sourceScope": "GitHub pull-request merge checkout; not a published production release",
+  "loaderOverrideRejected": true,
+  "containersCleanedUp": true,
+  "collectorSha256": "b7ad67678e75da5efdf4d5d671ab5c0ea6d4e53f5a4eb5930b4c7d93189d0f4d",
+  "acceptanceSha256": "7b20e0d6c2e6cc378a5426d42d7f76aa6258b074105729c2311cc4dcba958145"
+}

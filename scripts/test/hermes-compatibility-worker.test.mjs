@@ -1,0 +1,545 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { parseTask, validateBundle, infrastructureReport, workerRequest } from '../hermes-compatibility-worker.mjs';
+import { labEvidence, buildBundle } from '../hermes-compatibility-validate.mjs';
+import { compatibilityDigest } from '../../gateway/dist/account/hermes-compatibility-model.js';
+
+const normal = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-runtime.json', import.meta.url)));
+const fault = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-dependency-failure.json', import.meta.url)));
+const task = parseTask({ schemaVersion: 1, runId: '11111111-1111-4111-8111-111111111111', identity: {
+  schemaVersion: 1, maintenancePolicy: "go-controlled-window-v1", candidateId: '22222222-2222-4222-8222-222222222222', version: '0.22.5',
+  sourceCommit: normal.case.sourceCommit, targetCommit: normal.case.targetCommit, installerSha256: normal.case.installerSha256,
+  goCommit: 'a'.repeat(40), suiteSha256: normal.suiteSha256,
+  environment: { os: 'macos', arch: 'arm64', osVersion: '26.0.0', installation: 'legacy-venv-to-pm' },
+  components: ['desktop', 'connector', 'gateway', 'android', 'web'].map(name => ({ name, version: '1.0.0', artifactSha256: 'b'.repeat(64) })),
+} });
+
+test('real isolated rehearsal evidence proves four checks, never full compatibility', () => {
+  const evidence = { normal: labEvidence(normal, task.identity), fault: labEvidence(fault, task.identity, true) };
+  evidence.recovery = { ...evidence };
+  const bundle = buildBundle(task, evidence, '2026-10-25T01:00:00Z', '2026-10-25T02:00:00Z');
+  assert.equal(bundle.report.outcome, 'failed');
+  assert.deepEqual(bundle.report.checks.filter(c => c.status === 'passed').map(c => c.name), ['installation', 'history', 'upgrade', 'recovery']);
+  assert.equal(bundle.report.checks.filter(c => c.status === 'not_run').length, 11);
+  assert.deepEqual(validateBundle(task, bundle), bundle.report);
+  const changed = structuredClone(bundle); changed.evidence.normal.snapshotRestored = false;
+  assert.throws(() => validateBundle(task, changed), /evidence_mismatch/);
+  const otherTask = structuredClone(task); otherTask.identity.targetCommit = 'c'.repeat(40);
+  assert.throws(() => validateBundle(otherTask, bundle), /evidence_mismatch/);
+  changed.evidence = bundle.evidence; changed.report.checks[0].evidenceSha256 = 'd'.repeat(64);
+  assert.throws(() => validateBundle(task, changed), /missing_evidence/);
+});
+
+test('missing recovery, mismatched suite and failed isolation cannot become passing evidence', () => {
+  const evidence = { normal: labEvidence(normal, task.identity) };
+  assert.equal(buildBundle(task, evidence, '2026-10-25T01:00:00Z').report.checks.find(c => c.name === 'recovery').status, 'failed');
+  evidence.normal.phases.evidenceFence = false;
+  assert.equal(buildBundle(task, evidence, '2026-10-25T01:00:00Z').report.checks.filter(c => c.status === 'passed').length, 0);
+  assert.throws(() => labEvidence({ ...normal, suiteSha256: '0'.repeat(64) }, task.identity), /identity/);
+  const report = infrastructureReport(task);
+  assert.equal(report.outcome, 'infrastructure_failed');
+  assert.ok(report.checks.every(c => c.status === 'not_run' && c.evidenceSha256 === null));
+});
+
+test('default-profile configuration observations are retained without claiming all configuration support', async () => {
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-runtime-configuration.json',import.meta.url)));
+  const currentTask=parseTask({...task,identity:{...task.identity,suiteSha256:raw.suiteSha256}});
+  for(const phase of ['seedConfiguration','sourceConfiguration','candidateConfiguration','restoredConfiguration']) {
+    assert.equal(raw.checks[phase].passed,true);
+    raw.checks[phase].privateLog='synthetic-private-data';
+  }
+  const evidence=labEvidence(raw,currentTask.identity);
+  assert.deepEqual(evidence.configuration,{scope:'seeded-default-profile-and-dotenv',seeded:true,source:true,candidate:true,restored:true});
+  assert.equal(JSON.stringify(evidence).includes('synthetic-private-data'),false);
+  assert.equal(buildBundle(currentTask,{normal:evidence},'2026-10-25T01:00:00Z').report.checks.find(c=>c.name==='configuration').status,'not_run');
+  raw.checks.candidateConfiguration.passed=false;
+  assert.equal(labEvidence(raw,currentTask.identity).configuration.candidate,false);
+});
+
+test('real configured upgrade and dependency failure both recover with their fixed suite identity', async () => {
+  const upgrade=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-runtime-configuration.json',import.meta.url)));
+  const failure=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-dependency-configuration.json',import.meta.url)));
+  const currentTask=parseTask({...task,identity:{...task.identity,suiteSha256:upgrade.suiteSha256}});
+  const evidence={normal:labEvidence(upgrade,currentTask.identity),fault:labEvidence(failure,currentTask.identity,true)};
+  assert.equal(evidence.fault.configuration.source,true);
+  assert.equal(evidence.fault.configuration.restored,true);
+  assert.equal(evidence.fault.configuration.candidate,false,'fault precedes candidate startup');
+  evidence.recovery={...evidence};
+  const bundle=buildBundle(currentTask,evidence,'2026-10-25T01:00:00Z');
+  assert.equal(bundle.report.checks.find(c=>c.name==='recovery').status,'passed');
+  assert.equal(bundle.report.outcome,'failed','partial verification is not a compatibility approval');
+  assert.deepEqual(validateBundle(currentTask,bundle),bundle.report);
+});
+
+test('legacy lock gap remains evidence and cannot certify the newly scoped maintenance window', async () => {
+  const lock = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-update-lock.json', import.meta.url)));
+  const { lockEvidence } = await import('../hermes-compatibility-validate.mjs');
+  const evidence = { concurrency: lockEvidence(lock, task.identity, lock.suiteSha256) };
+  const bundle = buildBundle(task, evidence, '2026-10-25T01:00:00Z');
+  assert.equal(bundle.report.checks.find(c => c.name === 'maintenanceWindow').status, 'not_run');
+  assert.equal(bundle.evidence.concurrency.gap, true);
+  assert.equal(bundle.report.outcome, 'failed');
+  assert.deepEqual(validateBundle(task, bundle), bundle.report);
+  assert.throws(() => lockEvidence({...lock, targetCommit: '0'.repeat(40)}, task.identity, lock.suiteSha256));
+  const success = structuredClone(lock);
+  success.checks.oldRefusesSurvivingChild = true;
+  success.status = 'passed';
+  const partial = buildBundle(task, {concurrency: lockEvidence(success, task.identity, lock.suiteSha256)}, '2026-10-25T01:00:00Z');
+  assert.equal(partial.report.checks.find(c => c.name === 'maintenanceWindow').status, 'not_run', 'one lock probe cannot certify all concurrency');
+});
+
+test('real transport evidence certifies only the exercised authentication scope', async () => {
+  const { contractEvidence } = await import('../hermes-compatibility-validate.mjs');
+  const raw = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-live-contracts.json', import.meta.url)));
+  const contracts = contractEvidence(raw,task.identity,raw.suiteSha256,raw.probeSha256);
+  const privateFields=structuredClone(raw);privateFields.privateLog='synthetic-secret';privateFields.stages.candidate.token='synthetic-secret';
+  assert.equal(JSON.stringify(contractEvidence(privateFields,task.identity,raw.suiteSha256,raw.probeSha256)).includes('synthetic-secret'),false);
+  const evidence = {normal:labEvidence(normal,task.identity),contracts};
+  const bundle = buildBundle(task,evidence,'2026-10-25T01:00:00Z');
+  assert.equal(bundle.report.checks.find(c=>c.name==='authentication').status,'passed');
+  for(const name of ['rest','rpc','connector','clientBusiness','newDataProtection']) {
+    assert.equal(bundle.report.checks.find(c=>c.name===name).status,'not_run');
+  }
+  assert.deepEqual(validateBundle(task,bundle),bundle.report);
+  assert.throws(()=>contractEvidence({...raw,targetCommit:'0'.repeat(40)},task.identity,raw.suiteSha256,raw.probeSha256));
+  const broken=structuredClone(raw);broken.stages.candidate.checks.websocketWrongToken=false;broken.status='contract_gap';
+  const failed=buildBundle(task,{...evidence,contracts:contractEvidence(broken,task.identity,raw.suiteSha256,raw.probeSha256)},'2026-10-25T01:00:00Z');
+  assert.equal(failed.report.checks.find(c=>c.name==='authentication').status,'failed');
+});
+
+test('evidence publication strips arbitrary lab fields and never includes private logs', () => {
+  const evidence = labEvidence({ ...normal, privateLog: 'secret', reason: 'secret', path: '/Users/private' }, task.identity);
+  assert.equal(JSON.stringify(evidence).includes('secret'), false);
+  assert.equal(JSON.stringify(evidence).includes('/Users'), false);
+  assert.equal(compatibilityDigest(evidence).length, 64);
+});
+
+test('worker uses runner OIDC and fixed HTTPS origin without redirects', async () => {
+  const calls = [];
+  const env = { HERMES_COMPATIBILITY_GATEWAY_URL: 'https://relay.example', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://example.actions.githubusercontent.com/token?x=1', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-only' };
+  const fetcher = async (url, options) => { calls.push([String(url), options]); return new Response(JSON.stringify(calls.length === 1 ? { value: 'workflow-proof' } : task)); };
+  assert.deepEqual(await workerRequest('claim', task.runId, {}, env, fetcher), task);
+  assert.equal(new URL(calls[0][0]).searchParams.get('audience'), 'https://relay.example/hermes-compatibility');
+  assert.equal(calls[1][0], `https://relay.example/v2/hermes-compatibility/worker/${task.runId}/claim`);
+  assert.equal(calls[1][1].headers.authorization, 'Bearer workflow-proof');
+  assert.ok(calls.every(c => c[1].redirect === 'error'));
+  for (const origin of ['http://relay.example', 'https://relay.example/private', 'https://user:pass@relay.example', 'https://relay.example/?q=x']) {
+    await assert.rejects(workerRequest('claim', task.runId, {}, { ...env, HERMES_COMPATIBILITY_GATEWAY_URL: origin }, fetcher), /origin/);
+  }
+  await assert.rejects(workerRequest('claim', task.runId, {}, { ...env, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://evil.example/token' }, fetcher), /oidc_endpoint/);
+  assert.equal(calls.length, 2);
+});
+
+test('workflow isolates upstream execution from OIDC and never accepts scripts or versions as inputs', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/hermes-compatibility.yml', import.meta.url), 'utf8');
+  const validator = workflow.split('  validate:\n')[1].split('  report:\n')[0];
+  assert.match(validator, /runs-on: macos-26/);
+  assert.doesNotMatch(validator, /id-token: write|secrets\./);
+  assert.match(validator, /persist-credentials: false/);
+  assert.match(validator, /brew install postgresql@18/);
+  assert.match(validator, /HERMES_COMPATIBILITY_POSTGRES_BIN/);
+  assert.equal((workflow.match(/id-token: write/g) || []).length, 2);
+  assert.doesNotMatch(workflow, /run:.*\$\{\{/);
+});
+
+
+test('scoped real core REST evidence requires every stage and binds the contract digest', async () => {
+  const { contractEvidence } = await import('../hermes-compatibility-validate.mjs');
+  const raw = JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-core-rest-contracts.json', import.meta.url)));
+  const parse = value => contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256);
+  const contracts = parse(raw);
+  const evidence = {normal:labEvidence(normal,task.identity),contracts};
+  const bundle = buildBundle(task,evidence,'2026-10-25T01:00:00Z');
+  assert.deepEqual(bundle.report.checks.find(c=>c.name==='rest'),
+    {name:'rest',status:'passed',evidenceSha256:compatibilityDigest(contracts)});
+  assert.deepEqual(validateBundle(task,bundle),bundle.report);
+  assert.equal(bundle.report.outcome,'failed');
+  for (const name of ['rpc','connector','clientBusiness','newDataProtection'])
+    assert.equal(bundle.report.checks.find(c=>c.name===name).status,'not_run');
+  for (const stage of ['source','candidate','restored']) {
+    for (const name of ['restCoreStatus','restCoreSessions','restCoreProfileSessions','restCoreHistory','restCorePagination']) {
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[name];assert.throws(()=>parse(missing));
+      const wrong=structuredClone(raw);wrong.stages[stage].checks[name]='true';assert.throws(()=>parse(wrong));
+      const failed=structuredClone(raw);failed.stages[stage].checks[name]=false;
+      assert.throws(()=>parse(failed),/status_mismatch/);
+      failed.status='contract_gap';
+      assert.equal(buildBundle(task,{...evidence,contracts:parse(failed)},'2026-10-25T01:00:00Z')
+        .report.checks.find(c=>c.name==='rest').status,'failed');
+    }
+    for (const scope of [undefined,'unknown-scope']) {
+      const changed=structuredClone(raw);changed.stages[stage].restScope=scope;assert.throws(()=>parse(changed));
+    }
+  }
+  const noScope=structuredClone(raw);for(const stage of Object.values(noScope.stages))delete stage.restScope;
+  assert.throws(()=>parse(noScope),'checks without their scope cannot silently disappear');
+  const failedIsolation=structuredClone(evidence);failedIsolation.normal.phases.sandbox=false;
+  assert.equal(buildBundle(task,failedIsolation,'2026-10-25T01:00:00Z').report.checks.find(c=>c.name==='rest').status,'failed');
+  const privateFields=structuredClone(raw);privateFields.stages.candidate.response='synthetic-private-data';
+  assert.equal(JSON.stringify(parse(privateFields)).includes('synthetic-private-data'),false);
+});
+
+
+test('real session RPC lifecycle evidence retains partial scope and propagates failures', async () => {
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-session-rpc-contracts.json',import.meta.url)));
+  const parse=value=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256);
+  const normalEvidence=labEvidence(normal,task.identity);
+  const bundle=value=>buildBundle(task,{normal:normalEvidence,contracts:parse(value)},'2026-10-25T01:00:00Z');
+  const success=bundle(raw);
+  assert.equal(success.report.checks.find(c=>c.name==='rpc').status,'not_run','no prompt/tool/server-request coverage yet');
+  assert.equal(success.report.checks.find(c=>c.name==='rest').status,'passed');
+  assert.deepEqual(validateBundle(task,success),success.report);
+  for(const stage of ['source','candidate','restored']) {
+    for(const name of ['rpcReady','rpcCapabilities','rpcCreate','rpcResume','rpcReasoning','rpcActiveIdentity']) {
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[name];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].checks[name]=false;failed.status='contract_gap';
+      const result=bundle(failed);
+      assert.deepEqual(result.report.checks.find(c=>c.name==='rpc'),
+        {name:'rpc',status:'failed',evidenceSha256:compatibilityDigest(result.evidence.contracts)});
+      assert.deepEqual(validateBundle(task,result),result.report);
+    }
+    for(const scope of [undefined,'unknown']) {
+      const changed=structuredClone(raw);changed.stages[stage].rpcScope=scope;assert.throws(()=>parse(changed));
+    }
+  }
+  const noScope=structuredClone(raw);for(const stage of Object.values(noScope.stages))delete stage.rpcScope;
+  assert.throws(()=>parse(noScope));
+});
+
+test('local-model prompt evidence binds its fixture and never certifies full RPC', async () => {
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-prompt-contracts.json',import.meta.url)));
+  const fixture=raw.stages.source.modelFixtureSha256;
+  const parse=(value,hash=fixture)=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,hash);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  const good=bundle(raw);
+  assert.equal(good.report.checks.find(c=>c.name==='rpc').status,'not_run');
+  assert.equal(good.report.checks.find(c=>c.name==='clientBusiness').status,'not_run');
+  assert.deepEqual(validateBundle(task,good),good.report);
+  assert.throws(()=>parse(raw,'a'.repeat(64)));
+  assert.throws(()=>contractEvidence(raw,task.identity,raw.suiteSha256,raw.probeSha256));
+  for(const stage of ['source','candidate','restored']) {
+    for(const name of ['promptAccepted','promptStream','promptHistory','promptModelObserved','promptConfigurationRestored','promptNetworkFence']) {
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[name];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].checks[name]=false;failed.status='contract_gap';
+      assert.equal(bundle(failed).report.checks.find(c=>c.name==='rpc').status,'failed');
+    }
+    for(const field of ['promptScope','modelFixtureSha256']) {
+      const changed=structuredClone(raw);delete changed.stages[stage][field];assert.throws(()=>parse(changed));
+    }
+  }
+  const missing=structuredClone(raw);
+  for(const stage of Object.values(missing.stages))delete stage.promptScope;
+  assert.throws(()=>parse(missing),'prompt observations without scope must not disappear');
+});
+
+
+test('completed-turn reconnect evidence cannot imply restart or new-data recovery',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-reconnect-contracts.json',import.meta.url)));
+  const parse=value=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,raw.stages.source.modelFixtureSha256);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  const result=bundle(raw);
+  for(const name of ['rpc','serviceRecovery','processInterruption','desktopLifecycle','clientBusiness','newDataProtection'])
+    assert.equal(result.report.checks.find(c=>c.name===name)?.status,'not_run',name);
+  assert.deepEqual(validateBundle(task,result),result.report);
+  for(const stage of ['source','candidate','restored']) {
+    for(const name of ['reconnectReady','reconnectCapabilities','reconnectResume','reconnectIdentity','reconnectHistory']) {
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[name];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].checks[name]=false;failed.status='contract_gap';
+      assert.equal(bundle(failed).report.checks.find(c=>c.name==='rpc').status,'failed');
+    }
+    for(const scope of [undefined,'unknown']) {
+      const changed=structuredClone(raw);changed.stages[stage].reconnectScope=scope;assert.throws(()=>parse(changed));
+    }
+  }
+  const missing=structuredClone(raw);for(const stage of Object.values(missing.stages))delete stage.reconnectScope;
+  assert.throws(()=>parse(missing));
+});
+
+test('real legacy relay evidence is scoped, identity-bound and rejects every observed failure',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-relay-contracts.json',import.meta.url)));
+  const fixture=raw.stages.source.relay.fixtureSha256;
+  const parse=(value,hash=fixture)=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,raw.stages.source.modelFixtureSha256,hash);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  const contracts=parse(raw);
+  assert.equal(contracts.relay.scope,'legacy-source-build-relay-v1');
+  for(const name of ['connector','rpc','clientBusiness','serviceRecovery','newDataProtection']) {
+    assert.equal(bundle(raw).report.checks.find(c=>c.name===name).status,'not_run');
+  }
+  const successful=bundle(raw);assert.deepEqual(validateBundle(task,successful),successful.report);
+  const privateFields=structuredClone(raw);
+  privateFields.stages.source.relay.token='synthetic-secret';
+  privateFields.stages.source.relay.probe.privateLog='synthetic-secret';
+  assert.equal(JSON.stringify(parse(privateFields)).includes('synthetic-secret'),false);
+  assert.throws(()=>parse(raw,'0'.repeat(64)));
+  const noScope=structuredClone(raw);delete noScope.relayScope;assert.throws(()=>parse(noScope));
+  assert.throws(()=>parse({...raw,relayScope:'account-release-relay-v1'}));
+  for(const stage of ['source','candidate','restored']) {
+    const bad=value=>{const r=structuredClone(raw);value(r.stages[stage]);assert.throws(()=>parse(r));};
+    bad(s=>{delete s.relay;});
+    bad(s=>{s.transport='legacy-relay';});
+    bad(s=>{s.relay.probe.transport='direct';});
+    bad(s=>{delete s.relay.probe.transport;});
+    bad(s=>{s.relay.probe.relay={};});
+    bad(s=>{s.relay.probe.version='0.0.0';});
+    bad(s=>{s.relay.probe.modelFixtureSha256='0'.repeat(64);});
+    for(const scope of ['restScope','rpcScope','promptScope','reconnectScope']) {
+      bad(s=>{delete s.relay.probe[scope];});
+      bad(s=>{s.relay.probe[scope]='unknown';});
+    }
+    for(const key of ['gatewayVersion','connectorVersion','nodeSha256','buildSha256','fixtureSha256']) {
+      bad(s=>{s.relay[key]=key.endsWith('Sha256')?'0'.repeat(64):'9.9.9';});
+      bad(s=>{delete s.relay[key];});
+    }
+    for(const flag of ['roleSeparation','stopped']) {
+      bad(s=>{s.relay[flag]='true';});
+      const failed=structuredClone(raw);failed.stages[stage].relay[flag]=false;
+      assert.throws(()=>parse(failed));failed.status='contract_gap';
+      assert.equal(bundle(failed).report.checks.find(c=>c.name==='connector').status,'failed');
+    }
+    for(const key of Object.keys(raw.stages[stage].relay.probe.checks)) {
+      bad(s=>{delete s.relay.probe.checks[key];});
+      const failed=structuredClone(raw);failed.stages[stage].relay.probe.checks[key]=false;
+      assert.throws(()=>parse(failed));failed.status='contract_gap';
+      const result=bundle(failed);
+      assert.deepEqual(result.report.checks.find(c=>c.name==='connector'),
+        {name:'connector',status:'failed',evidenceSha256:compatibilityDigest(result.evidence.contracts)});
+      assert.equal(validateBundle(task,result).outcome,'failed');
+    }
+  }
+});
+
+test('backend restart evidence is complete and scoped; every failure blocks service recovery',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const {RESTART_SCOPE,RESTART_CHECKS}=await import('../hermes-compatibility-contract-probe.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-backend-restart-contracts.json',import.meta.url)));
+  const parse=v=>contractEvidence(v,task.identity,raw.suiteSha256,raw.probeSha256,raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256);
+  const bundle=v=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(v)},'2026-10-25T01:00:00Z');
+  const passed=bundle(raw);assert.deepEqual(validateBundle(task,passed),passed.report);
+  assert.equal(passed.evidence.contracts.restart.scope,RESTART_SCOPE);
+  for(const name of ['serviceRecovery','processInterruption','desktopLifecycle','clientBusiness','newDataProtection'])
+    assert.equal(passed.report.checks.find(c=>c.name===name).status,'not_run');
+  for(const stage of ['source','candidate','restored']){
+    for(const key of RESTART_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[stage].restart.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].restart.checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';const result=bundle(failed);
+      assert.equal(result.report.checks.find(c=>c.name==='serviceRecovery').status,'failed');
+      assert.equal(validateBundle(task,result).outcome,'failed');
+    }
+    for(const patch of [{scope:'unknown'},{scope:undefined},{version:'9.9.9'},{compatibilityApproved:true},{attempted:undefined},{attempted:'true'}]){
+      const invalid=structuredClone(raw);Object.assign(invalid.stages[stage].restart,patch);assert.throws(()=>parse(invalid));
+    }
+    const missing=structuredClone(raw);delete missing.stages[stage].restart;assert.throws(()=>parse(missing));
+  }
+  const privateData=structuredClone(raw);privateData.stages.source.restart.token='synthetic-private';
+  privateData.stages.source.restart.checkpoint={storedId:'synthetic-private'};
+  assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+  const skipped=structuredClone(raw);skipped.stages.source.restart.attempted=false;skipped.stages.source.restart.checks={};
+  assert.throws(()=>parse(skipped),'cannot hide a restart behind a successful prerequisite');
+  skipped.stages.source.checks.promptHistory=false;skipped.status='contract_gap';
+  const result=bundle(skipped);
+  assert.equal(result.report.checks.find(c=>c.name==='rpc').status,'failed');
+  assert.equal(result.report.checks.find(c=>c.name==='serviceRecovery').status,'not_run');
+  assert.equal(validateBundle(task,result).outcome,'failed');
+  skipped.stages.source.restart.checks.restartHistory=true;assert.throws(()=>parse(skipped));
+});
+
+test('Desktop launchd evidence binds actual Core/helper identity and every initial/restarted service cycle',async()=>{
+  const {contractEvidence,LAUNCH_AGENT_SCOPE}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-launchagent-contracts.json',import.meta.url)));
+  const expected=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
+  const parse=(v,native=expected)=>contractEvidence(v,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,native);
+  const bundle=v=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(v)},'2026-10-25T01:00:00Z');
+  assert.equal(parse(raw).launchAgent.scope,LAUNCH_AGENT_SCOPE);
+  assert.equal(bundle(raw).report.checks.find(c=>c.name==='serviceRecovery').status,'not_run');
+  for(const k of Object.keys(expected))assert.throws(()=>parse(raw,{...expected,[k]:'0'.repeat(64)}));
+  assert.throws(()=>parse(raw,{}));
+  for(const name of ['source','candidate','restored'])for(const phase of ['initial','restarted']){
+    const owner=v=>phase==='initial'?v.stages[name]:v.stages[name].restart;
+    const missing=structuredClone(raw);delete owner(missing).launchAgent;assert.throws(()=>parse(missing));
+    for(const key of ['scope','helperSourceSha256','coreSourceSha256','helperBinarySha256','fixtureSha256']){
+      const changed=structuredClone(raw);owner(changed).launchAgent[key]='unknown';assert.throws(()=>parse(changed));
+    }
+    for(const key of ['loaded','runningOwned','stopped','portReleased']){
+      const missing=structuredClone(raw);delete owner(missing).launchAgent.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);owner(failed).launchAgent.checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';const result=bundle(failed);
+      assert.equal(result.report.checks.find(c=>c.name==='serviceRecovery').status,'failed');
+      assert.equal(validateBundle(task,result).outcome,'failed');
+    }
+  }
+  const privateData=structuredClone(raw);privateData.stages.source.launchAgent.path='synthetic-private';
+  privateData.stages.source.restart.launchAgent.token='synthetic-private';
+  assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+});
+
+test('relay recovery evidence requires all three stages and cannot certify full service or client recovery',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const {RELAY_RECOVERY_SCOPE,RELAY_RECOVERY_CHECKS}=await import('../hermes-compatibility-contract-probe.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-relay-recovery-contracts.json',import.meta.url)));
+  const native=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
+  assert.equal(raw.stages.source.relay.recovery.scope,RELAY_RECOVERY_SCOPE);
+  const parse=v=>contractEvidence(v,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,native);
+  const bundle=v=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(v)},'2026-10-25T01:00:00Z');
+  for(const name of ['connector','serviceRecovery','clientBusiness','desktopLifecycle','newDataProtection'])
+    assert.equal(bundle(raw).report.checks.find(c=>c.name===name).status,'not_run');
+  for(const name of ['source','candidate','restored']){
+    const missing=structuredClone(raw);delete missing.stages[name].relay.recovery;assert.throws(()=>parse(missing));
+    for(const key of RELAY_RECOVERY_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[name].relay.recovery.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[name].relay.recovery.checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';const result=bundle(failed);
+      for(const check of ['connector','serviceRecovery'])assert.equal(result.report.checks.find(c=>c.name===check).status,'failed');
+      assert.equal(validateBundle(task,result).outcome,'failed');
+    }
+    for(const patch of [{schemaVersion:2},{kind:'other'},{scope:'account-mode'},{version:'0.0.0'},
+      {compatibilityApproved:true},{attempted:'true'},{attempted:false,checks:{}}]){
+      const wrong=structuredClone(raw);Object.assign(wrong.stages[name].relay.recovery,patch);assert.throws(()=>parse(wrong));
+    }
+    const skipped=structuredClone(raw);Object.assign(skipped.stages[name].relay.recovery,{attempted:false,checks:{}});
+    skipped.stages[name].relay.probe.checks.promptHistory=false;skipped.status='contract_gap';
+    assert.equal(bundle(skipped).report.checks.find(c=>c.name==='connector').status,'failed');
+    skipped.stages[name].relay.recovery.checks.recoveryHistory=true;assert.throws(()=>parse(skipped));
+  }
+  const privateData=structuredClone(raw);privateData.stages.source.relay.recovery.checkpoint={storedId:'synthetic-private'};
+  privateData.stages.source.relay.recovery.token='synthetic-private';
+  assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+});
+
+test('synthetic account evidence binds migrations/database identity and cannot be substituted for legacy or real login',async()=>{
+  const {contractEvidence,ACCOUNT_RELAY_SCOPE,ACCOUNT_FIXTURE_CHECKS}=await import('../hermes-compatibility-validate.mjs');
+  const {ACCOUNT_RECOVERY_SCOPE}=await import('../hermes-compatibility-contract-probe.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-account-relay-contracts.json',import.meta.url)));
+  const native=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
+  const identity=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));
+  const parse=(value,expected=identity)=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,native,expected);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  assert.equal(parse(raw).relay.scope,ACCOUNT_RELAY_SCOPE);
+  for(const name of ['connector','serviceRecovery','clientBusiness','desktopLifecycle'])
+    assert.equal(bundle(raw).report.checks.find(c=>c.name===name).status,'not_run');
+  assert.throws(()=>parse(raw,{}));
+  for(const name of ['source','candidate','restored']){
+    for(const key of ['scope','setupSha256','postgresFixtureSha256','migrationsSha256','postgresVersion','postgresBinarySha256']){
+      const wrong=structuredClone(raw);wrong.stages[name].relay.account[key]='invalid';assert.throws(()=>parse(wrong));
+    }
+    for(const key of ACCOUNT_FIXTURE_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[name].relay.account.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[name].relay.account.checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';assert.equal(bundle(failed).report.checks.find(c=>c.name==='connector').status,'failed');
+    }
+    const missing=structuredClone(raw);delete missing.stages[name].relay.account;assert.throws(()=>parse(missing));
+    const legacy=structuredClone(raw);legacy.stages[name].relay.probe.transport='legacy-relay';assert.throws(()=>parse(legacy));
+    const recovery=structuredClone(raw);recovery.stages[name].relay.recovery.scope='legacy-relay-completed-turn-recovery-v1';assert.throws(()=>parse(recovery));
+  }
+  const privateData=structuredClone(raw);privateData.stages.source.relay.account.databaseUrl='synthetic-private';
+  privateData.stages.source.relay.recovery.privateDiagnostics=[{arbitrary:'synthetic-private'}];
+  assert.equal(JSON.stringify(parse(privateData)).includes('synthetic-private'),false);
+});
+
+test('recorded account recovery failures remain failed despite successful direct/native checks',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  for(const file of ['account-relay-first-gap','account-relay-readiness-gap','account-relay-route-gap']){
+    const raw=JSON.parse(await readFile(new URL(`../../docs/evidence/hermes-compatibility/2026-10-25-${file}.json`,import.meta.url)));
+    const native=Object.fromEntries(['helperSourceSha256','coreSourceSha256','fixtureSha256'].map(k=>[k,raw.stages.source.launchAgent[k]]));
+    const account=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));
+    const contracts=contractEvidence(raw,task.identity,raw.suiteSha256,raw.probeSha256,raw.stages.source.modelFixtureSha256,
+      raw.stages.source.relay.fixtureSha256,native,account);
+    const result=buildBundle(task,{normal:labEvidence(normal,task.identity),contracts},'2026-10-25T01:00:00Z');
+    for(const name of ['connector','serviceRecovery'])assert.equal(result.report.checks.find(c=>c.name===name).status,'failed');
+    assert.equal(validateBundle(task,result).outcome,'failed');
+  }
+});
+
+test('clarify evidence binds its probe, rejects missing fields and never certifies full RPC',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const {CLARIFY_SCOPE,CLARIFY_CHECKS}=await import('../hermes-compatibility-clarify-probe.mjs');
+  // Synthetic parser fixture based on an already scoped text-turn report; not runtime evidence.
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-25-reconnect-contracts.json',import.meta.url)));
+  raw.clarifyProbeSha256='c'.repeat(64);
+  for(const stage of Object.values(raw.stages)){
+    stage.clarifyScope=CLARIFY_SCOPE;
+    Object.assign(stage.checks,Object.fromEntries(CLARIFY_CHECKS.map(key=>[key,true])));
+  }
+  const parse=(value,hash=raw.clarifyProbeSha256)=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,undefined,undefined,undefined,hash);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  assert.equal(parse(raw).clarifyScope,CLARIFY_SCOPE);
+  assert.equal(bundle(raw).report.checks.find(c=>c.name==='rpc').status,'not_run');
+  for(const hash of [null,'0'.repeat(64),'invalid'])assert.throws(()=>parse(raw,hash));
+  for(const stage of ['source','candidate','restored']){
+    for(const key of CLARIFY_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[stage].checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].checks[key]=false;assert.throws(()=>parse(failed));
+      failed.status='contract_gap';assert.equal(bundle(failed).report.checks.find(c=>c.name==='rpc').status,'failed');
+    }
+    for(const scope of [null,'unknown',undefined]){
+      const changed=structuredClone(raw);changed.stages[stage].clarifyScope=scope;assert.throws(()=>parse(changed));
+    }
+  }
+  const hidden=structuredClone(raw);delete hidden.clarifyProbeSha256;
+  for(const stage of Object.values(hidden.stages))delete stage.clarifyScope;
+  assert.throws(()=>parse(hidden),'cannot silently drop unscoped clarify results');
+  const diagnostic=structuredClone(raw);diagnostic.stages.source.clarifyObservation={text:'synthetic-private'};
+  assert.equal(JSON.stringify(parse(diagnostic)).includes('synthetic-private'),false);
+});
+
+test('real clarify account-relay evidence retains all checks and rejects a hidden relay failure',async()=>{
+  const {contractEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-26-clarify-contracts.json',import.meta.url)));
+  const account=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));
+  const parse=value=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,undefined,account,raw.clarifyProbeSha256);
+  const parsed=parse(raw);
+  assert.equal(parsed.stages.candidate.checks.clarifyHistory,true);
+  assert.equal(parsed.relay.stages.candidate.checks.clarifyHistory,true);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  for(const name of ['rpc','connector','clientBusiness','desktopLifecycle','newDataProtection'])
+    assert.equal(bundle(raw).report.checks.find(c=>c.name===name).status,'not_run');
+  const failed=structuredClone(raw);failed.stages.candidate.relay.probe.checks.clarifyAnswerAcknowledged=false;
+  assert.throws(()=>parse(failed));failed.status='contract_gap';
+  assert.equal(bundle(failed).report.checks.find(c=>c.name==='connector').status,'failed');
+  const omitted=structuredClone(raw);delete omitted.stages.candidate.relay.probe.clarifyScope;
+  assert.throws(()=>parse(omitted));
+});
+
+test('browser evidence binds packaged Web and engine identities without certifying all client business',async()=>{
+  const {contractEvidence,webEvidence}=await import('../hermes-compatibility-validate.mjs');
+  const {WEB_SCOPE,WEB_CHECKS}=await import('../hermes-compatibility-web-probe.mjs');
+  const raw=JSON.parse(await readFile(new URL('../../docs/evidence/hermes-compatibility/2026-10-26-clarify-contracts.json',import.meta.url)));
+  const identity=Object.fromEntries(['probeSha256','fixtureSha256','webBuildSha256','browserBinarySha256'].map(k=>[k,'e'.repeat(64)]));
+  const fixture={schemaVersion:1,kind:'live-web-browser-probe',scope:WEB_SCOPE,...identity,browserVersion:'151.0.7922.34',
+    stage:'complete',screenshots:{question:'a'.repeat(64),completed:'b'.repeat(64)},compatibilityApproved:false,
+    checks:Object.fromEntries(WEB_CHECKS.map(k=>[k,true]))};
+  // Synthetic parser fixture; these booleans are not runtime evidence.
+  raw.webScope=WEB_SCOPE;for(const stage of Object.values(raw.stages))stage.relay.web=structuredClone(fixture);
+  const account=Object.fromEntries(['setupSha256','postgresFixtureSha256','migrationsSha256'].map(k=>[k,raw.stages.source.relay.account[k]]));
+  const parse=value=>contractEvidence(value,task.identity,raw.suiteSha256,raw.probeSha256,
+    raw.stages.source.modelFixtureSha256,raw.stages.source.relay.fixtureSha256,undefined,account,raw.clarifyProbeSha256,identity);
+  const bundle=value=>buildBundle(task,{normal:labEvidence(normal,task.identity),contracts:parse(value)},'2026-10-25T01:00:00Z');
+  assert.equal(parse(raw).web.scope,WEB_SCOPE);
+  assert.equal(bundle(raw).report.checks.find(c=>c.name==='clientBusiness').status,'not_run');
+  for(const field of Object.keys(identity))assert.throws(()=>webEvidence(fixture,{...identity,[field]:'0'.repeat(64)}));
+  const privateData={...fixture,token:'synthetic-private',error:'synthetic-private'};
+  assert.equal(JSON.stringify(webEvidence(privateData,identity)).includes('synthetic-private'),false);
+  for(const stage of ['source','candidate','restored']){
+    for(const key of WEB_CHECKS){
+      const missing=structuredClone(raw);delete missing.stages[stage].relay.web.checks[key];assert.throws(()=>parse(missing));
+      const failed=structuredClone(raw);failed.stages[stage].relay.web.checks[key]=false;
+      // A launch refusal cannot retain a browser version it did not observe.
+      if(key==='browserLaunched')failed.stages[stage].relay.web.browserVersion=null;
+      assert.throws(()=>parse(failed));failed.status='contract_gap';
+      assert.equal(bundle(failed).report.checks.find(c=>c.name==='clientBusiness').status,'failed');
+    }
+    const missing=structuredClone(raw);delete missing.stages[stage].relay.web;assert.throws(()=>parse(missing));
+  }
+  const noScope=structuredClone(raw);delete noScope.webScope;assert.throws(()=>parse(noScope));
+  for(const patch of [{scope:'unknown'},{compatibilityApproved:true},{screenshots:{file:'/private/synthetic'}},{stage:'unbounded'},{stage:'text'},{screenshots:{}}])
+    assert.throws(()=>webEvidence({...fixture,...patch},identity));
+});

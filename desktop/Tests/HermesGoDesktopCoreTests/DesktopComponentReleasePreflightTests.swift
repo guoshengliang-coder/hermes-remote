@@ -17,6 +17,7 @@ final class DesktopComponentReleasePreflightTests: XCTestCase {
         )
 
         XCTAssertEqual(result.manifest, fixture.manifest)
+        XCTAssertTrue(result.installedComponents.isEmpty)
         XCTAssertEqual(result.plan.decisions.map(\.requirement.kind), [
             .nodeRuntime, .connector,
         ])
@@ -47,6 +48,75 @@ final class DesktopComponentReleasePreflightTests: XCTestCase {
         }.count, 2)
         XCTAssertEqual(result.plan.bootstrapDownloadBytes, 0)
         XCTAssertEqual(result.plan.deferredDownloadBytes, 0)
+    }
+
+    func testInstalledIdentityUsesSignedArchiveHashInsteadOfReceiptContentHash() throws {
+        let fixture = try ComponentPreflightFixture()
+        defer { fixture.remove() }
+        try fixture.commit(.connector)
+        let result = try fixture.coordinator(scanner: PreflightEnvironmentScanner()).scan(
+            verifiedManifest: fixture.verifiedManifest, healthProbe: executablePreflightProbe
+        )
+        let observed = try XCTUnwrap(result.installedComponents.first)
+        let signed = try XCTUnwrap(fixture.manifest.components.first { $0.kind == .connector })
+        XCTAssertEqual(result.installedComponents.count, 1)
+        XCTAssertEqual(observed.kind, .connector)
+        XCTAssertEqual(observed.version, signed.version)
+        XCTAssertEqual(observed.architecture, signed.architecture)
+        XCTAssertEqual(observed.contentSHA256, signed.contentSHA256)
+        XCTAssertEqual(observed.artifactSHA256, signed.sha256)
+        XCTAssertNotEqual(observed.artifactSHA256, observed.contentSHA256)
+
+        // Presentation data can be reconstructed, but cannot manufacture installed observations.
+        let displayOnly = DesktopComponentReleasePreflightResult(
+            manifest: result.manifest, plan: result.plan, externalEnvironment: result.externalEnvironment
+        )
+        XCTAssertTrue(displayOnly.installedComponents.isEmpty)
+    }
+
+    func testChangedInstalledBytesCannotRetainArchiveIdentityOnRescan() throws {
+        let fixture = try ComponentPreflightFixture()
+        defer { fixture.remove() }
+        try fixture.commit(.connector)
+        let coordinator = try fixture.coordinator(scanner: PreflightEnvironmentScanner())
+        XCTAssertEqual(try coordinator.scan(
+            verifiedManifest: fixture.verifiedManifest, healthProbe: executablePreflightProbe
+        ).installedComponents.count, 1)
+        let artifact = try XCTUnwrap(fixture.manifest.components.first { $0.kind == .connector })
+        let content = fixture.store.appendingPathComponent("components/connector/\(artifact.contentSHA256)/content")
+        try Data("#!/bin/sh\nexit 1\n".utf8).write(to: content.appendingPathComponent(artifact.entrypoint))
+
+        XCTAssertThrowsError(try coordinator.scan(
+            verifiedManifest: fixture.verifiedManifest, healthProbe: { _, _, _ in true }
+        )) {
+            XCTAssertEqual($0 as? DesktopManagedComponentStoreError, .identityMismatch)
+        }
+    }
+
+    func testReceiptWithoutContentDoesNotProduceInstalledIdentity() throws {
+        let fixture = try ComponentPreflightFixture()
+        defer { fixture.remove() }
+        try fixture.commit(.connector)
+        let artifact = try XCTUnwrap(fixture.manifest.components.first { $0.kind == .connector })
+        let container = fixture.store.appendingPathComponent("components/connector/\(artifact.contentSHA256)")
+        try FileManager.default.removeItem(at: container.appendingPathComponent("content"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: container.appendingPathComponent("receipt.json").path))
+        let result = try fixture.coordinator(scanner: PreflightEnvironmentScanner()).scan(
+            verifiedManifest: fixture.verifiedManifest, healthProbe: { _, _, _ in true }
+        )
+        XCTAssertTrue(result.installedComponents.isEmpty)
+    }
+
+    func testFailedConnectorProbeDoesNotReturnInstalledIdentity() throws {
+        let fixture = try ComponentPreflightFixture()
+        defer { fixture.remove() }
+        try fixture.commit(.connector)
+        XCTAssertThrowsError(try fixture.coordinator(scanner: PreflightEnvironmentScanner()).scan(
+            verifiedManifest: fixture.verifiedManifest, healthProbe: { _, _, _ in false }
+        )) {
+            XCTAssertEqual($0 as? DesktopComponentReleasePreflightError,
+                           .componentHealthProbeFailed(.connector))
+        }
     }
 
     func testUnhealthyManagedComponentStopsBeforeExternalScan() throws {

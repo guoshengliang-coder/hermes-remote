@@ -119,7 +119,7 @@ public protocol AccountAPIRequesting: Sendable {
     func signOut(accessToken: String, idempotencyKey: String) async throws
 }
 
-public actor AccountAPIClient: AccountAPIRequesting {
+public actor AccountAPIClient: AccountAPIRequesting, HermesCompatibilityAPIRequesting {
     private let gatewayURL: URL
     private let session: URLSession
     private let maximumResponseBytes: Int
@@ -136,6 +136,64 @@ public actor AccountAPIClient: AccountAPIRequesting {
 
     public func capabilities() async throws -> AccountCapabilities {
         try await send(path: "/v2/capabilities", method: "GET")
+    }
+
+    public func hermesCompatibilityAccess(accessToken: String) async throws -> HermesCompatibilityAccess {
+        let result: HermesCompatibilityAccess = try await send(path: "/v2/hermes-compatibility/access", method: "GET", accessToken: accessToken)
+        guard result.schemaVersion == 1, result.revision >= 0 else { throw AccountClientError.invalidResponse }
+        return result
+    }
+
+    public func hermesCompatibilitySnapshot(accessToken: String) async throws -> HermesCompatibilitySnapshot {
+        let result: HermesCompatibilitySnapshot = try await send(path: "/v2/hermes-compatibility/snapshot", method: "GET", accessToken: accessToken)
+        return try result.validated()
+    }
+
+    public func syncHermesCompatibility(accessToken: String, operationID: String, expectedRevision: Int) async throws {
+        guard UUID(uuidString: operationID) != nil, expectedRevision >= 0 else { throw AccountClientError.invalidResponse }
+        struct Mutation: Encodable { let operationId: String; let expectedRevision: Int }
+        struct Result: Decodable { let revision: Int; let candidateId: String; let identityConflict: Bool }
+        let _: Result = try await send(path: "/v2/hermes-compatibility/sync", method: "POST", accessToken: accessToken,
+            body: Mutation(operationId: operationID.lowercased(), expectedRevision: expectedRevision))
+    }
+
+    public func requestHermesCompatibilityRun(accessToken: String, operationID: String, expectedRevision: Int, candidateID: String, recipeID: String) async throws {
+        guard UUID(uuidString: operationID) != nil, UUID(uuidString: candidateID) != nil,
+              (0...9_007_199_254_740_991).contains(expectedRevision),
+              recipeID.range(of: #"\A[a-z0-9][a-z0-9-]{0,63}\z"#, options: .regularExpression) != nil
+        else { throw AccountClientError.invalidResponse }
+        struct Mutation: Encodable { let operationId: String; let expectedRevision: Int; let candidateId: String; let recipeId: String }
+        struct Result: Decodable { let revision: Int; let runId: String }
+        let result: Result = try await send(path: "/v2/hermes-compatibility/runs", method: "POST", accessToken: accessToken,
+            body: Mutation(operationId: operationID.lowercased(), expectedRevision: expectedRevision, candidateId: candidateID.lowercased(), recipeId: recipeID))
+        guard result.revision > expectedRevision, UUID(uuidString: result.runId) != nil else { throw AccountClientError.invalidResponse }
+    }
+
+    public func hermesCompatibilityReport(accessToken: String, runID: String) async throws -> HermesCompatibilityRunDetail {
+        guard UUID(uuidString: runID) != nil else { throw AccountClientError.invalidResponse }
+        let result: HermesCompatibilityRunDetail = try await send(path: "/v2/hermes-compatibility/runs/\(runID.lowercased())", method: "GET", accessToken: accessToken)
+        return try result.validated(runID: runID)
+    }
+
+    public func manageHermesCompatibility(accessToken: String, operationID: String, expectedRevision: Int, action: HermesCompatibilityManagementAction) async throws {
+        guard UUID(uuidString: operationID) != nil, (0...9_007_199_254_740_991).contains(expectedRevision) else { throw AccountClientError.invalidResponse }
+        struct Mutation: Encodable {
+            let operationId: String; let expectedRevision: Int
+            var runId: String?; var reportSha256: String?; var decisionId: String?
+        }
+        var body = Mutation(operationId: operationID.lowercased(), expectedRevision: expectedRevision)
+        switch action {
+        case let .approve(runID, hash):
+            guard UUID(uuidString: runID) != nil, hash.range(of: #"\A[a-f0-9]{64}\z"#, options: .regularExpression) != nil else { throw AccountClientError.invalidResponse }
+            body.runId = runID.lowercased(); body.reportSha256 = hash
+        case .publish: break
+        case let .revoke(id):
+            guard UUID(uuidString: id) != nil else { throw AccountClientError.invalidResponse }; body.decisionId = id.lowercased()
+        }
+        struct Result: Decodable { let revision: Int; let state: String }
+        let result: Result = try await send(path: "/v2/hermes-compatibility/\(action.path)", method: "POST", accessToken: accessToken, body: body)
+        let expected: String = switch action { case .approve: "approved"; case .publish: "pending"; case .revoke: "revoked" }
+        guard result.revision > expectedRevision, result.state == expected else { throw AccountClientError.invalidResponse }
     }
 
     public func requestEmailSignInChallenge(
