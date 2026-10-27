@@ -14,6 +14,8 @@ public enum DesktopRecoveryAction: String, Codable, Equatable, Sendable {
 }
 
 public enum DesktopIssueCode: String, Codable, Equatable, Sendable {
+    case hermesUpdateExecutionFailed = "HR-HERMESUPDATE-004"
+    case hermesUpdateDiagnosticsFailed = "HR-HERMESUPDATE-005"
     case hermesUpdateCheckFailed = "HR-HERMESUPDATE-001"
     case hermesUpdateBlocked = "HR-HERMESUPDATE-002"
     case hermesUpdateRecoveryRequired = "HR-HERMESUPDATE-003"
@@ -179,6 +181,10 @@ public struct DesktopIssue: Error, Equatable, Sendable {
         recoveryAction: DesktopRecoveryAction
     ) {
         switch code {
+        case .hermesUpdateExecutionFailed:
+            ("Hermes 升级未完成", "Hermes upgrade did not complete", "Hermes 升级未完成，请查看执行输出后重试。", "Hermes upgrade did not complete. Review the output and retry.", true, .retry)
+        case .hermesUpdateDiagnosticsFailed:
+            ("升级后运行检测未通过", "Post-upgrade checks did not pass", "升级已完成，但运行检测未通过，请查看检测结果。", "Upgrade completed, but runtime checks did not pass. Review the results.", true, .retry)
         case .hermesUpdateCheckFailed:
             ("无法核实 Hermes 更新", "Couldn't verify Hermes updates", "无法核实 Hermes 更新信息，请重新检查。", "Hermes update information could not be verified. Check again.", true, .retry)
         case .hermesUpdateBlocked:

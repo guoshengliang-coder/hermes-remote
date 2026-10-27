@@ -5,18 +5,21 @@ public struct DesktopHermesUpgradeTarget: Codable, Equatable, Sendable {
     public let version: String
     public let commit: String
     public let channel: String
-    public init(version: String, commit: String, channel: String = "stable") throws {
+    public let releaseNotes: String?
+    public var releaseURL: URL { URL(string: "https://github.com/NousResearch/hermes-agent/releases/tag/v\(version)")! }
+    public init(version: String, commit: String, channel: String = "stable", releaseNotes: String? = nil) throws {
         guard version.range(of: "^(0|[1-9][0-9]{0,2})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$", options: .regularExpression) != nil,
               DesktopLocalHermesDetector.isObjectID(commit), channel == "stable"
         else { throw DesktopHermesUpgradeError.invalidRelease }
-        self.version = version; self.commit = commit; self.channel = channel
+        self.version = version; self.commit = commit; self.channel = channel; self.releaseNotes = releaseNotes.map { String($0.prefix(60_000)) }
     }
-    private enum CodingKeys: String, CodingKey { case version, commit, channel }
+    private enum CodingKeys: String, CodingKey { case version, commit, channel, releaseNotes }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(version: values.decode(String.self, forKey: .version),
                       commit: values.decode(String.self, forKey: .commit),
-                      channel: values.decode(String.self, forKey: .channel))
+                      channel: values.decode(String.self, forKey: .channel),
+                      releaseNotes: values.decodeIfPresent(String.self, forKey: .releaseNotes))
     }
 }
 
@@ -81,7 +84,7 @@ public struct DesktopHermesOfficialReleaseFetcher: DesktopHermesReleaseFetching 
                   let sha = object["sha"] as? String, DesktopLocalHermesDetector.isObjectID(sha),
                   let type = object["type"] as? String
             else { throw DesktopHermesUpgradeError.invalidRelease }
-            if type == "commit" { return try DesktopHermesUpgradeTarget(version: String(tag.dropFirst()), commit: sha) }
+            if type == "commit" { return try DesktopHermesUpgradeTarget(version: String(tag.dropFirst()), commit: sha, releaseNotes: release["body"] as? String) }
             guard type == "tag" else { throw DesktopHermesUpgradeError.invalidRelease }
             reference = try await json("git/tags/\(sha)", deadline: deadline)
         }

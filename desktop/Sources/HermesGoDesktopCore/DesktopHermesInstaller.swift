@@ -30,7 +30,9 @@ public enum DesktopHermesInstallerSource {
         else { return false }
         switch host {
         case "hermes-agent.nousresearch.com": return true
-        default: return url.path == "/NousResearch/hermes-agent/\(branch)/scripts/install.sh"
+        default:
+            return url.path == "/NousResearch/hermes-agent/\(branch)/scripts/install.sh"
+                || url.path.range(of: "^/NousResearch/hermes-agent/[a-f0-9]{40}/scripts/install\\.sh$", options: .regularExpression) != nil
         }
     }
     public static let branch = "main"

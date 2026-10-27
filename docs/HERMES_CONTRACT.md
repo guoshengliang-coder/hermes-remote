@@ -1,5 +1,10 @@
 # Hermes upstream contract
 
+## Desktop stable upgrade adapter (2026-10-27)
+
+Desktop reads the public official `releases/latest` body and resolves its stable tag to a commit. Upgrade downloads `scripts/install.sh` at that commit and invokes the existing protocol-v1 stages `repository`, `venv`, `python-deps`, `config`, `products`, `complete`, each with `--commit`, `--dir`, `--hermes-home`, `--non-interactive --json`. Verified against official v0.22.5 / `bf0203a794a07aac3ff764972ab9087baa4e4f4e`; no upstream source edits. The existing installer's manifest/result parser and system proxy behavior are reused. Missing stages or unsuccessful results are execution errors. Final local version and commit must match the displayed target. Old releases read the declared `hermes_cli.__version__`; v0.22.5 reads its lazy version from the commit-bound `install-stamp.json` source record, matching the inspected upstream `hermes_cli/__init__.py`. This is a user-directed upstream update, not adoption into a GO compatibility allowlist; Android/Web/Connector wire contracts remain unchanged. Existing GO diagnostics run after installation; unverified/stale/missing evidence does not establish compatibility. Official notes URL: https://github.com/NousResearch/hermes-agent/releases/tag/v0.22.5.
+
+
 ## Desktop optional model metadata (2026-10-24)
 
 Desktop may read authenticated `GET /api/model/info` on fixed loopback serve-v1 after local authentication succeeds. Source checked: upstream `hermes_cli/web_routers/models.py`. Only the `model` string is consumed; empty means no selected model, malformed/missing/non-200/transport failure means unknown. This is informational and must never gate existing connectivity or claim credentials/inference were tested. Tokens remain on the Mac and use the existing proxy-disabled, redirect-restricted session. No writes, model requests, profile changes or provider secrets are consumed. Android, Web, Gateway and Connector contracts remain unchanged.
