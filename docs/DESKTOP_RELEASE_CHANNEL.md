@@ -1,5 +1,24 @@
 # Desktop release channel
 
+## Internal test release: 0.2.48 / build 51
+
+The owner requested merge and publication after verification of the osascript detection fix (#688).
+Decode the fixed upstream launchd wrapper without execution, then apply existing installation and
+version checks to its actual executable. This release changes Desktop only; Hermes installation,
+launch agents and data are not modified by this task.
+
+Feature gates passed: 723 Swift tests, assets, app build and 15 publication/update tooling tests.
+Continue the existing ad-hoc internal channel and installed public trust/update configuration.
+Package clean main; verify DMG integrity, mounted bundle version/build/identity/arm64, strict ad-hoc
+signature and configuration. Publish with the unified publisher and verify both complete public
+DMGs, website/app-update indexes and unchanged signed component pointers. Exact source, size and
+SHA-256 belong to generated receipts after verification.
+
+The affected Mac mini's full plist was unavailable; upstream-generated fixtures and isolated
+installation tests pass, but post-update refresh on that machine remains device acceptance.
+Publication does not install the app or upgrade daily Hermes. This is temporary ad-hoc internal
+distribution, not Apple notarization or clean-machine launch verification.
+
 ## Internal test release: 0.2.47 / build 50
 
 The owner requested publication on 2026-10-27 after #686 merged with green PR/main checks.
