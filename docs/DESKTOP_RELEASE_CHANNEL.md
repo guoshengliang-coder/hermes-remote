@@ -1,5 +1,21 @@
 # Desktop release channel
 
+## Internal test candidate: 0.2.44 / build 47
+
+The owner requested merge and publication on 2026-10-27. This patch adds local Hermes version
+recognition, official stable release notes, click-to-upgrade using the target upstream installer,
+and automatic GO runtime diagnostics after confirming the installed version (#678). The existing
+0.2.43/build 46 public package remains immutable. Allocate the next patch/build and retain the
+installed public trust/update configuration on the established ad-hoc internal channel.
+
+Verification impact: this version/documentation change introduces no new runtime behavior or error
+codes; reuse the 684-test Desktop suite plus assets, app/DMG packaging and internal publication tests.
+Build only from clean current main after this version PR passes the merge gate. Publication must
+verify both complete public DMGs and website/app-update discovery. Signed component pointers remain
+unchanged. Daily Hermes is not upgraded by publishing Desktop. Apple notarization, actual installed
+Desktop upgrade/relaunch and phone/account end-to-end acceptance remain separate from package checks.
+The exact source, byte/hash and publication results are recorded after the publisher completes.
+
 ## Published internal test distribution: 0.2.42
 
 Owner-authorized publication completed on 2026-10-25 after #666 and version PR #668 and their
