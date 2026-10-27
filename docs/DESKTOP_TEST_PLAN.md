@@ -1,5 +1,20 @@
 # Hermes Go Desktop test plan
 
+## 2026-10-27：稳定版点击升级首阶段
+
+本节为当前首阶段验收范围，下方 HG-199 / B 方案记录属于历史，不是新交付条件。
+
+自动回归覆盖：无需推荐认证即可升级；当前/目标同版、更高本机版本、未安装不启动；下载失败；退出成功但版本/commit 不符判失败；依赖中断后可重试；重复点击仅执行一次；新错误码双语/重试/脱敏/编码；目标 commit 贯穿所有官方阶段；失败后不执行后续阶段；真实 POSIX 子进程执行夹具脚本；升级后自动调用检测，失败/未知不误报全部通过，重新检测不重复安装。
+
+本轮本地基线：`npm run desktop:assets:test` 通过；`npm run desktop:test` 684 项通过；`npm run desktop:app` 成功并生成 ad-hoc 本地应用。新增两项错误码仅由 Desktop 本地升级流程产生，Android/Web/Connector/Gateway 无接口或错误响应变更，无需调整消费者。
+
+实际交互：`scripts/hermes-simple-upgrade-preview.swift` 仅为隔离 host，复用生产 HermesVersionCard 和 DesktopHermesVersionManager，安装及健康数据明确标为模拟；未初始化日常 DesktopViewModel。已点击升级，界面 0.21.3→0.22.5、自动检测通过；模拟检测失败后“重新检测”显示 HR-HERMESUPDATE-005，再恢复后通过；直接检查截图，无文本截断。这不是已安装日常 Desktop 的实机升级证明。
+
+真实安装器独立冒烟：`scripts/hermes-simple-upgrade-smoke.swift` 接收带 ISOLATED_TEST_HOME 标记的 `/private/tmp/hermes-simple-smoke-*` 合成用户副本，写入限于副本，使用随机本机端口，不运行 GO 日常服务。实际结果：原始合成副本为 0.21.3 / `633dda6d7fdcac7e8340471c9f5ed08cdccbd70c`，官方查询目标为 0.22.5 / `bf0203a794a07aac3ff764972ab9087baa4e4f4e`。初次运行在 venv 阶段被测试写入限制拦截；修正 macOS mktemp/uv 缓存的隔离目录规则后，在同一副本重试，六个官方阶段均返回成功。随后发现旧检测器只能读取静态版本声明，复用 commit 绑定的 install-stamp 读取及四项回归后，真实版本识别通过。独立 `--verify` 运行启动随机 loopback 端口，认证 `/api/status` 返回目标版本、`/api/sessions` 返回 200，进程组取消并等待退出，输出 `HERMES_STABLE_SMOKE_OK`。这包含失败/重试和独立运行检查，不宣称一次点击完成全部真实七项 GO 端到端验收。
+
+手工发布验收：发布后在授权测试 Mac 的本机 Hermes 页面检查真实版本/说明、点击升级；验证概述相同的七项诊断被自动刷新（未登录/无云端结果保持待确认），已运行 GO 服务通过现有运行时重启逻辑切到新代码；不把本机接口通过写成手机实测。日常安装替换、生产账号服务/手机链路、发布均不在这次隔离验收中执行。
+
+
 ## 0.2.42：发布与实际客户端检查（2026-10-25）
 
 从干净发布提交 `e8e2559f` 构建，assets、660 Swift、15 发布/更新工具测试、release app/DMG、

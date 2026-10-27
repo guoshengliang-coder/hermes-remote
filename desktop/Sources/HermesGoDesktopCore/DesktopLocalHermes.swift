@@ -250,7 +250,7 @@ public struct DesktopLocalHermesDetector: Sendable {
         guard let identity = readGitIdentity() else {
             return .unsupported(.unreadableIdentity, detail: "HEAD could not be resolved")
         }
-        guard let version = readVersion() else {
+        guard let version = readVersion(commit: identity.commit) else {
             return .unsupported(.unreadableIdentity, detail: "hermes_cli.__version__ could not be read")
         }
         guard !Self.version(version, isOlderThan: Self.minimumVersion) else {
@@ -396,15 +396,41 @@ public struct DesktopLocalHermesDetector: Sendable {
         return nil
     }
 
-    private func readVersion() -> String? {
+    private func readVersion(commit: String) -> String? {
         let url = paths.checkoutRoot.appendingPathComponent("hermes_cli/__init__.py")
         guard let data = readSmallFile(url), let text = String(data: data, encoding: .utf8) else { return nil }
         let pattern = "(?m)^__version__\\s*=\\s*[\"']((?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*))[\"']"
-        guard let expression = try? NSRegularExpression(pattern: pattern),
-              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text)
+        if let expression = try? NSRegularExpression(pattern: pattern),
+           let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let range = Range(match.range(at: 1), in: text) {
+            return String(text[range])
+        }
+        // v0.22.5 serves __version__ lazily from this stamp. Never import its
+        // Python or execute `hermes --version` during a periodic file scan.
+        // A source stamp identifies disk code, not completed dependencies or a
+        // healthy running service; the existing bounded start still proves those.
+        let stampURL = paths.checkoutRoot.appendingPathComponent("install-stamp.json")
+        var metadata = stat()
+        guard Darwin.lstat(stampURL.path, &metadata) == 0,
+              metadata.st_uid == currentUserID, metadata.st_mode & 0o022 == 0,
+              let data = readSmallFile(stampURL),
+              let stamp = try? JSONDecoder().decode(SourceInstallStamp.self, from: data),
+              stamp.schemaVersion == 2, stamp.commit == commit,
+              stamp.source == "git", stamp.updateMechanism == "self", stamp.payload == "bootstrap",
+              stamp.baseVersion != "0.0.0", stamp.baseVersion.utf8.count <= 64,
+              stamp.baseVersion.range(of: "\\A(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\z",
+                                      options: .regularExpression) != nil
         else { return nil }
-        return String(text[range])
+        return stamp.baseVersion
+    }
+
+    private struct SourceInstallStamp: Decodable {
+        let schemaVersion: Int
+        let commit: String
+        let baseVersion: String
+        let source: String
+        let updateMechanism: String
+        let payload: String
     }
 
     /// Every `hermes_agent-*.dist-info` in every `venv/lib/python*/site-packages`, sorted, so the

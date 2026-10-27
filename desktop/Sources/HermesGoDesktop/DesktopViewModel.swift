@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Darwin
 import Foundation
 import HermesGoDesktopCore
@@ -109,13 +110,11 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     @Published private(set) var componentBootstrapIssue: DesktopIssue?
     /// Per-account onboarding facts (`DesktopOnboardingRecord`); reloaded when the account changes.
     @Published private(set) var onboardingRecord = DesktopOnboardingRecord()
-    @Published private(set) var hermesUpgradeReport: DesktopHermesUpgradeReport?
     @Published private(set) var hermesUpgradeIssue: DesktopIssue?
-    @Published private(set) var hermesUpgradeReadiness: DesktopHermesUpgradeReadiness?
     @Published private(set) var hermesUpgradeRecord: DesktopHermesUpgradeRecord = .unchecked
     @Published private(set) var isRefreshingHermesUpgradeRecord = false
-    @Published private(set) var isCheckingHermesUpgrade = false
-    private let hermesUpgradeChecker = DesktopHermesUpgradeChecker()
+    let hermesVersionManager: DesktopHermesVersionManager
+    private var hermesVersionObservation: AnyCancellable?
 
     @Published private(set) var updateCheckState: DesktopUpdateCheckState = .idle
     @Published var isUpdateSheetPresented = false
@@ -194,6 +193,11 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         self.managedPaths = managedPaths
         localHermesDetector = (try? DesktopLocalHermesPaths.currentUser())
             .map { DesktopLocalHermesDetector(paths: $0) }
+        if let paths = try? DesktopLocalHermesPaths.currentUser() {
+            hermesVersionManager = .system(paths: paths)
+        } else {
+            hermesVersionManager = .init(detect: { .unsupported(.unreadableIdentity, detail: "home unavailable") }, execute: { _, _, _ in throw DesktopHermesUpgradeError.preflightBlocked })
+        }
         if let managedPaths {
             serviceRepair = try? DesktopManagedServiceRepair.system(
                 account: controller, paths: managedPaths, gatewayURL: configuration.gatewayURL
@@ -321,6 +325,9 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func startMonitoring() {
+        if hermesVersionObservation == nil {
+            hermesVersionObservation = hermesVersionManager.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        }
         guard monitorTask == nil else { return }
         monitorTask = Task { [weak self] in
             await self?.refreshAccount(bootstrap: true)
@@ -465,23 +472,35 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }
     }
 
-    func checkHermesUpdates() async {
-        guard !isCheckingHermesUpgrade, !isDesktopUpdateRunning, !isManagedBootstrapAccountLocked,
-              let detector = localHermesDetector else { return }
-        isCheckingHermesUpgrade = true
-        hermesUpgradeIssue = nil
-        hermesUpgradeReadiness = nil
-        defer { isCheckingHermesUpgrade = false }
-        let detection = await Task.detached(priority: .userInitiated) { detector.detect() }.value
-        do {
-            hermesUpgradeReport = try await hermesUpgradeChecker.check(installation: detection)
-        } catch {
-            // A failed check cannot keep advertising an earlier successful verdict.
-            hermesUpgradeReport = nil
-            hermesUpgradeIssue = (error as? DesktopHermesUpgradeError ?? .checkFailed).issue
+    func upgradeLocalHermes() async {
+        guard !isManagedBootstrapAccountLocked, !isRefreshing, !isDiagnosing else { return }
+        await hermesVersionManager.upgrade { [weak self] in
+            await self?.diagnoseAfterHermesUpgrade() ?? []
         }
-        await refreshHermesUpgradeRecord()
-        if let issue = hermesUpgradeRecord.issue { hermesUpgradeIssue = issue }
+    }
+
+    func recheckUpgradedHermes() async {
+        await hermesVersionManager.recheckRuntime { [weak self] in
+            await self?.diagnoseAfterHermesUpgrade() ?? []
+        }
+    }
+
+    private func diagnoseAfterHermesUpgrade() async -> [DesktopDiagnosticCheck] {
+        // Reuse the exact Overview/Diagnostics refresh, including existing service reconciliation.
+        hermesRuntimeRetryAfter = nil
+        let startedAt = Date()
+        for attempt in 0..<4 {
+            while isRefreshing || isDiagnosing || isAccountRefreshInProgress {
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            await refreshDiagnostics()
+            let checks = diagnosticPresentation.checks
+            let reportsAreNew = checks.filter { [.connector, .reportedHermes, .endToEnd].contains($0.id) }
+                .allSatisfy { ($0.health.checkedAt ?? .distantPast) >= startedAt }
+            if (attempt > 0 && reportsAreNew && checks.allSatisfy({ $0.health.level == .healthy })) || attempt == 3 { return checks }
+            try? await Task.sleep(for: .seconds(3))
+        }
+        return diagnosticPresentation.checks
     }
 
     /// Independent of upstream availability; no journal creation, recovery or service calls.
@@ -493,26 +512,6 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         hermesUpgradeRecord = await Task.detached(priority: .utility) {
             DesktopHermesUpgradeRecord.read(from: .init(root: paths.migrationJournalRoot))
         }.value
-    }
-
-    func checkHermesUpgradeConditions() async {
-        guard !isCheckingHermesUpgrade, !isDesktopUpdateRunning, !isManagedBootstrapAccountLocked,
-              let detector = localHermesDetector,
-              let target = hermesUpgradeReport?.latestStable, let paths = managedPaths else { return }
-        isCheckingHermesUpgrade = true
-        defer { isCheckingHermesUpgrade = false }
-        let result = await Task.detached(priority: .userInitiated) {
-            let checker = DesktopHermesUpgradeReadinessChecker()
-            let detection = detector.detect()
-            let journal = DesktopHermesUpgradeJournalStore(root: paths.migrationJournalRoot)
-            let report = checker.check(detection: detection, target: target, journal: journal,
-                officialUpdateInProgress: detector.updateInProgress())
-            return report
-        }.value
-        hermesUpgradeReadiness = result
-        hermesUpgradeIssue = result.issue
-        await refreshHermesUpgradeRecord()
-        if let issue = hermesUpgradeRecord.issue { hermesUpgradeIssue = issue }
     }
 
     /// Runs from the monitoring loop; a no-op until the 12-hour interval has passed. A build with no
@@ -1145,7 +1144,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
     }
 
     func refresh() async {
-        guard !isRefreshing else { return }
+        guard !isRefreshing, hermesVersionManager.phase != .installing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
 
@@ -1894,7 +1893,7 @@ final class DesktopViewModel: ObservableObject {    @Published private(set) var 
         }
     }
 
-    var isManagedBootstrapAccountLocked: Bool { isDesktopUpdateRunning || isServiceMutationLocked }
+    var isManagedBootstrapAccountLocked: Bool { hermesVersionManager.phase == .installing || isDesktopUpdateRunning || isServiceMutationLocked }
 
     private var isServiceMutationLocked: Bool {
         let managedLocked = switch managedBootstrapOperation {

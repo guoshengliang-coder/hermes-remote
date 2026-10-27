@@ -59,16 +59,12 @@ struct LocalHermesView: View {
                 .padding(22).frame(maxWidth: .infinity, alignment: .leading).hermesCard()
 
                 HermesVersionCard(
-                    report: model.hermesUpgradeReport,
-                    readiness: model.hermesUpgradeReadiness,
-                    issue: model.hermesUpgradeIssue,
-                    isChecking: model.isCheckingHermesUpgrade,
-                    isBusy: model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked,
-                    checkVersions: { Task { await model.checkHermesUpdates() } },
-                    checkConditions: { Task { await model.checkHermesUpgradeConditions() } },
-                    record: model.hermesUpgradeRecord,
-                    isRefreshingRecord: model.isRefreshingHermesUpgradeRecord,
-                    refreshRecord: { Task { await model.refreshHermesUpgradeRecord() } }
+                    manager: model.hermesVersionManager,
+                    currentInstallation: model.localHermesDetection,
+                    isBusy: model.isDesktopUpdateRunning || model.isManagedBootstrapAccountLocked || model.isRefreshing || model.isDiagnosing,
+                    upgrade: { Task { await model.upgradeLocalHermes() } },
+                    recheck: { Task { await model.recheckUpgradedHermes() } },
+                    showDiagnostics: { selection = .diagnostics }
                 )
 
                 if showsConnectionSetup, model.currentDashboard != nil {
