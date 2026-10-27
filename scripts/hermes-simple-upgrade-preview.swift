@@ -30,9 +30,9 @@ private struct PreviewRelease: DesktopHermesReleaseFetching {
     init() {
         let installation = PreviewInstallation()
         manager = .init(checker: .init(fetcher: PreviewRelease()), detect: { await installation.detection() }, execute: { _, progress, output in
-            for stage in ["下载官方升级程序", "下载 Hermes", "安装 Python 依赖", "准备 Hermes 应用与工具"] {
-                progress(stage); output("fixture: \(stage)")
-                try await Task.sleep(for: .milliseconds(600))
+            for stage in DesktopHermesUpgradeStep.allCases.filter({ $0.index < DesktopHermesUpgradeStep.verify.index }) {
+                await progress(stage); output("fixture: \(stage.titleChinese)")
+                try await Task.sleep(for: .seconds(stage == .products ? 50 : 2))
             }
             await installation.update()
         })
@@ -45,17 +45,19 @@ private struct PreviewRelease: DesktopHermesReleaseFetching {
 }
 @main struct SimpleUpgradePreview: App {
     @StateObject private var model = PreviewModel()
+    @State private var dark = false
     var body: some Scene {
         WindowGroup("Hermes 首阶段升级 · 隔离交互验收") {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("隔离交互验收 · 使用模拟安装与检测数据").font(.headline)
+                    Toggle("深色外观", isOn: $dark)
                     Toggle("模拟升级后检测异常", isOn: $model.unhealthy)
                     HermesVersionCard(manager: model.manager, isBusy: false,
                         upgrade: { Task { await model.manager.upgrade { await model.diagnose() } } },
                         recheck: { Task { await model.manager.recheckRuntime { await model.diagnose() } } }, showDiagnostics: {})
                 }.padding(24)
-            }.frame(minWidth: 650, minHeight: 600)
+            }.frame(minWidth: 650, minHeight: 600).preferredColorScheme(dark ? .dark : .light)
         }.defaultSize(width: 720, height: 780)
     }
 }

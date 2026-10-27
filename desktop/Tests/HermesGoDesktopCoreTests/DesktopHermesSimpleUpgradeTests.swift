@@ -132,6 +132,68 @@ final class DesktopHermesSimpleUpgradeTests: XCTestCase {
         XCTAssertEqual(manager.issue?.code, .hermesUpdateCheckFailed)
         XCTAssertFalse(manager.canUpgrade)
     }
+    @MainActor func testProgressIsOrderedAndFinishesOnlyAfterDiagnostics() async {
+        let state = UpgradeState(Self.installation())
+        let gate = UpgradeGate()
+        let manager = DesktopHermesVersionManager(checker: .init(fetcher: FixedRelease(target: Self.target)), detect: { await state.current() }, execute: { target, progress, output in
+            await progress(.products)
+            await progress(.repository) // A delayed earlier event cannot move the UI backwards.
+            output("OPENAI_API_KEY=progress-secret")
+            await gate.wait()
+            await state.updated(Self.installation(target.version, commit: target.commit))
+        })
+        await manager.check()
+        let run = Task { await manager.upgrade {
+            XCTAssertEqual(manager.step, .diagnostics)
+            XCTAssertEqual(manager.completedStepCount, 8)
+            return [Self.check(.failed)]
+        } }
+        while await gate.calls == 0 { await Task.yield() }
+        XCTAssertEqual(manager.step, .products)
+        XCTAssertEqual(manager.completedStepCount, 5)
+        XCTAssertNotNil(manager.startedAt)
+        XCTAssertNotNil(manager.stepStartedAt)
+        await Task.yield()
+        XCTAssertNotNil(manager.lastOutputAt)
+        XCTAssertFalse(manager.output.joined().contains("progress-secret"))
+        await gate.finish()
+        await run.value
+        XCTAssertEqual(manager.completedStepCount, 9)
+        XCTAssertEqual(manager.resultSummary, "升级完成，1 项运行检测未通过")
+    }
+    @MainActor func testFailedStepStaysIncompleteAndRetryResetsProgress() async {
+        let state = UpgradeState(Self.installation())
+        let gate = UpgradeGate()
+        let manager = DesktopHermesVersionManager(checker: .init(fetcher: FixedRelease(target: Self.target)), detect: { await state.current() }, execute: { target, progress, _ in
+            if await state.updates == 0 {
+                await progress(.dependencies)
+                await state.updated(.unsupported(.incompleteInstallation, detail: "fixture"))
+                throw URLError(.networkConnectionLost)
+            }
+            await gate.wait()
+            await state.updated(Self.installation(target.version, commit: target.commit))
+        })
+        await manager.check()
+        await manager.upgrade { XCTFail(); return [] }
+        XCTAssertEqual(manager.phase, .failed)
+        XCTAssertEqual(manager.completedStepCount, 3)
+        let run = Task { await manager.upgrade { [Self.check()] } }
+        while await gate.calls == 0 { await Task.yield() }
+        XCTAssertEqual(manager.step, .download)
+        XCTAssertEqual(manager.completedStepCount, 0)
+        XCTAssertTrue(manager.output.isEmpty)
+        XCTAssertNil(manager.lastOutputAt)
+        await gate.finish()
+        await run.value
+        XCTAssertEqual(manager.completedStepCount, 9)
+    }
+    func testElapsedTimeDoesNotInventAnEstimate() {
+        let start = Date(timeIntervalSince1970: 100)
+        XCTAssertEqual(DesktopHermesUpgradeStep.elapsed(since: start, at: start.addingTimeInterval(-1)), "0 秒")
+        XCTAssertEqual(DesktopHermesUpgradeStep.elapsed(since: start, at: start.addingTimeInterval(59)), "59 秒")
+        XCTAssertEqual(DesktopHermesUpgradeStep.elapsed(since: start, at: start.addingTimeInterval(125)), "2 分 5 秒")
+        XCTAssertEqual(DesktopHermesUpgradeStep.elapsed(since: start, at: start.addingTimeInterval(3661)), "1 小时 1 分")
+    }
     func testNotesDoNotInventChineseBenefitsForUnknownRelease() throws {
         let missing = Self.target
         XCTAssertTrue(missing.releaseHighlights.isEmpty)
@@ -157,8 +219,11 @@ final class DesktopHermesSimpleUpgradeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: home) }
         let runner = StageRunner(fails: "python-deps")
         let installer = DesktopHermesStableInstaller(paths: try .init(homeDirectory: home), proxy: .init(), runner: runner, fetcher: ScriptFixture(), inheritedEnvironment: ["OPENAI_API_KEY": "private"])
-        do { try await installer.run(target: Self.target, progress: { _ in }, output: { _ in }); XCTFail() }
+        let steps = UpgradeSteps()
+        do { try await installer.run(target: Self.target, progress: { await steps.append($0) }, output: { _ in }); XCTFail() }
         catch {}
+        let observed = await steps.values
+        XCTAssertEqual(observed, [.download, .repository, .venv, .dependencies])
         let calls = await runner.calls
         XCTAssertEqual(calls.count, 4) // manifest + repository + venv + failed dependencies
         for call in calls.dropFirst() {
@@ -172,7 +237,10 @@ final class DesktopHermesSimpleUpgradeTests: XCTestCase {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
         let installer = DesktopHermesStableInstaller(paths: try .init(homeDirectory: home), proxy: .init(), fetcher: ScriptFixture(), inheritedEnvironment: [:])
-        try await installer.run(target: Self.target, progress: { _ in }, output: { _ in })
+        let steps = UpgradeSteps()
+        try await installer.run(target: Self.target, progress: { await steps.append($0) }, output: { _ in })
+        let observed = await steps.values
+        XCTAssertEqual(observed, [.download] + DesktopHermesUpgradeStep.installerSteps)
         let recorded = try String(contentsOf: home.appendingPathComponent("stages"))
         XCTAssertEqual(recorded.components(separatedBy: .newlines).filter { !$0.isEmpty }, DesktopHermesStableInstaller.stages)
     }
@@ -222,4 +290,9 @@ private actor StageRunner: DesktopHermesInstallerProcessRunning {
         let stage = arguments[2]
         return .init(exitStatus: stage == fails ? 1 : 0, standardOutputTail: ["{\"ok\":true,\"stage\":\"\(stage)\",\"skipped\":false}"], combinedTail: [])
     }
+}
+
+private actor UpgradeSteps {
+    var values: [DesktopHermesUpgradeStep] = []
+    func append(_ step: DesktopHermesUpgradeStep) { values.append(step) }
 }

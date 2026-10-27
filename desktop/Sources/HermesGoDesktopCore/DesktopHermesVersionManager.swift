@@ -14,15 +14,23 @@ public final class DesktopHermesVersionManager: ObservableObject {
     @Published public private(set) var output: [String] = []
     @Published public private(set) var checks: [DesktopDiagnosticCheck] = []
     @Published public private(set) var checkedAt: Date?
+    @Published public private(set) var step: DesktopHermesUpgradeStep = .download
+    @Published public private(set) var startedAt: Date?
+    @Published public private(set) var stepStartedAt: Date?
+    @Published public private(set) var lastOutputAt: Date?
+    private var attemptID: UUID?
+    public var completedStepCount: Int {
+        phase == .completed ? DesktopHermesUpgradeStep.allCases.count : step.index
+    }
     private var upgradedAt: Date?
     private var retryTarget: DesktopHermesUpgradeTarget?
     private let detect: @Sendable () async -> DesktopLocalHermesDetection
     private let checker: DesktopHermesUpgradeChecker
-    private let execute: @Sendable (DesktopHermesUpgradeTarget, @escaping @Sendable (String) -> Void, @escaping @Sendable (String) -> Void) async throws -> Void
+    private let execute: @Sendable (DesktopHermesUpgradeTarget, @escaping @Sendable (DesktopHermesUpgradeStep) async -> Void, @escaping @Sendable (String) -> Void) async throws -> Void
 
     public init(checker: DesktopHermesUpgradeChecker = .init(),
                 detect: @escaping @Sendable () async -> DesktopLocalHermesDetection,
-                execute: @escaping @Sendable (DesktopHermesUpgradeTarget, @escaping @Sendable (String) -> Void, @escaping @Sendable (String) -> Void) async throws -> Void) {
+                execute: @escaping @Sendable (DesktopHermesUpgradeTarget, @escaping @Sendable (DesktopHermesUpgradeStep) async -> Void, @escaping @Sendable (String) -> Void) async throws -> Void) {
         self.checker = checker; self.detect = detect; self.execute = execute
     }
     public static func system(paths: DesktopLocalHermesPaths) -> DesktopHermesVersionManager {
@@ -69,7 +77,9 @@ public final class DesktopHermesVersionManager: ObservableObject {
         guard canUpgrade, let target else { return }
         let isRetry = phase == .failed && retryTarget != nil
         phase = .installing; issue = nil; checks = []; checkedAt = nil; output = []; retryTarget = target
-        progress = "准备升级到 \(target.version)"
+        let attempt = UUID(); attemptID = attempt
+        startedAt = Date(); stepStartedAt = startedAt; lastOutputAt = nil
+        step = .download; progress = step.titleChinese
         do {
             // Re-read just the local identity. No compatibility certification or Git configuration preflight.
             installation = await detect()
@@ -80,10 +90,14 @@ public final class DesktopHermesVersionManager: ObservableObject {
                 throw DesktopHermesUpgradeError.preflightBlocked
             }
             try await execute(target, { [weak self] value in
-                Task { @MainActor in if self?.phase == .installing { self?.progress = value } }
+                await self?.receiveStep(value, attempt: attempt)
             }, { [weak self] value in
-                Task { @MainActor in self?.appendOutput(value) }
+                Task { @MainActor in
+                    guard self?.attemptID == attempt else { return }
+                    self?.appendOutput(value)
+                }
             })
+            receiveStep(.verify, attempt: attempt)
             installation = await detect()
             guard let installed = installation?.installation, installed.version == target.version,
                   installed.commit == target.commit, installed.dependenciesConsistent
@@ -100,10 +114,12 @@ public final class DesktopHermesVersionManager: ObservableObject {
     }
     public func recheckRuntime(diagnose: @escaping @MainActor () async -> [DesktopDiagnosticCheck]) async {
         guard phase == .completed else { return }
+        startedAt = Date(); stepStartedAt = startedAt; lastOutputAt = nil
         await runDiagnostics(diagnose)
     }
     private func runDiagnostics(_ diagnose: @MainActor () async -> [DesktopDiagnosticCheck]) async {
-        phase = .checkingRuntime; progress = "升级已完成，正在运行 Hermes Go 检测…"; issue = nil
+        step = .diagnostics; stepStartedAt = Date()
+        phase = .checkingRuntime; progress = step.titleChinese; issue = nil
         let reported = await diagnose()
         checks = reported.map { check in
             guard let upgradedAt, [.connector, .reportedHermes, .endToEnd].contains(check.id),
@@ -116,7 +132,13 @@ public final class DesktopHermesVersionManager: ObservableObject {
         if checks.contains(where: \.needsAttention) { issue = DesktopIssue(code: .hermesUpdateDiagnosticsFailed) }
         phase = .completed; progress = ""
     }
+    private func receiveStep(_ value: DesktopHermesUpgradeStep, attempt: UUID) {
+        guard attemptID == attempt, phase == .installing, value.index >= step.index else { return }
+        if value != step { stepStartedAt = Date() }
+        step = value; progress = value.titleChinese
+    }
     private func appendOutput(_ value: String) {
+        lastOutputAt = Date()
         output.append(String(SecretRedactor.redact(value).prefix(4000)))
         if output.count > 200 { output.removeFirst(output.count - 200) }
     }

@@ -57,7 +57,7 @@ private final class PortCapture: @unchecked Sendable {
         let installer = DesktopHermesStableInstaller(paths: paths, proxy: .current(), runner: runner,
             inheritedEnvironment: ["TMPDIR": home.appendingPathComponent("tmp").path])
         if CommandLine.arguments.count == 2 {
-            try await installer.run(target: target, progress: { print("STAGE=\($0)") }, output: { print($0) })
+            try await installer.run(target: target, progress: { print("STAGE=\($0.titleChinese)") }, output: { print($0) })
         }
         if case .unsupported(let reason, let detail) = detector.detect() {
             print("DETECTION=\(reason.rawValue) \(SecretRedactor.redact(detail))")
