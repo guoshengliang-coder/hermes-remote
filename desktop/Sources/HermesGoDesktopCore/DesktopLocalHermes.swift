@@ -345,6 +345,9 @@ public struct DesktopLocalHermesDetector: Sendable {
         }
         if checkoutPresent {
             for plist in ownerLaunchAgents() {
+                if plist.unverifiedWrapper {
+                    return "\(plist.name) osascript target could not be verified; the launch script was not executed"
+                }
                 guard let program = plist.program else { continue }
                 if !isInside(program, paths.checkoutRoot) {
                     return "\(plist.name) runs Hermes from outside the standard checkout"
@@ -460,6 +463,7 @@ public struct DesktopLocalHermesDetector: Sendable {
         let program: String?
         let arguments: [String]
         let environment: [String: String]
+        let unverifiedWrapper: Bool
     }
 
     /// LaunchAgents that run *this Mac's* Hermes — the most reliable record of how the owner
@@ -484,8 +488,13 @@ public struct DesktopLocalHermesDetector: Sendable {
                   let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)
                     as? [String: Any]
             else { continue }
-            let arguments = (object["ProgramArguments"] as? [String]) ?? []
-            let program = arguments.first ?? (object["Program"] as? String)
+            let originalArguments = (object["ProgramArguments"] as? [String]) ?? []
+            let originalProgram = (object["Program"] as? String) ?? originalArguments.first
+            let isWrapper = originalProgram == "/usr/bin/osascript" || originalArguments.first == "/usr/bin/osascript"
+            let decoded = isWrapper && originalProgram == originalArguments.first
+                ? DesktopHermesLaunchdCommand.unwrap(originalArguments) : nil
+            let arguments = decoded ?? originalArguments
+            let program = decoded?.first ?? originalProgram
             let runsCheckout = program.map { isInside($0, paths.checkoutRoot) } ?? false
             guard name.hasPrefix("ai.hermes.") || runsCheckout else { continue }
             let environment = (object["EnvironmentVariables"] as? [String: Any])?
@@ -494,7 +503,8 @@ public struct DesktopLocalHermesDetector: Sendable {
                 name: name,
                 program: program,
                 arguments: arguments,
-                environment: environment
+                environment: environment,
+                unverifiedWrapper: isWrapper && decoded == nil
             ))
         }
         return agents
