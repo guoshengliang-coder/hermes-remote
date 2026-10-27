@@ -1,5 +1,27 @@
 # Desktop release channel
 
+## Internal test release: 0.2.47 / build 50
+
+The owner requested publication on 2026-10-27 after #686 merged with green PR/main checks.
+This patch adds a collapsible operation progress window, real stages and elapsed/activity times,
+explicit confirmation/cleanup/failure states, and separates local Hermes runtime health from
+installation/upgrade eligibility. It also includes #685's phone/WebApp login device display;
+browser revocation remains capability-gated and read-only on older servers. No Gateway deployment
+or managed-component publication is part of this Desktop release.
+
+Continue the existing ad-hoc internal channel and installed public trust/update configuration.
+This version allocation only changes packaging metadata and documentation. The gate runs assets,
+715 Swift tests, publication/update tooling tests, release app/DMG builds, strict ad-hoc signature,
+mounted bundle identity/version/build/arm64/configuration and image integrity checks. The unified
+publisher verifies both complete public DMGs and synchronizes website/app-update indexes.
+Signed managed-component pointers remain unchanged.
+
+Exact source, size, SHA-256 and publication time are recorded in generated receipts after actual
+verification. The feature passed 18 native progress-window fixtures and local-Hermes layout checks.
+Real installed-client upgrade/relaunch, clean-machine and account/phone acceptance remain separate;
+publication does not replace the owner's app or upgrade daily Hermes. This is temporary ad-hoc
+internal distribution, not Apple notarization.
+
 ## Internal test release: 0.2.46 / build 49
 
 The owner requested merge and publication on 2026-10-27 for #683. This patch unifies
