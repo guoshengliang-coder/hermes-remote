@@ -1,6 +1,6 @@
 # Hermes Go Desktop test plan
 
-## 2026-10-27：下载与阶段重试回归（未发布）
+## 2026-10-27：下载与阶段重试回归（0.2.46 / build 49）
 
 测试影响：覆盖真实 Git URL 重写且全局配置不变、手动/显式代理一致传递、Node 原生下载走回环测试代理、CR 行在进程退出前可见、Git 字节与对象计数分离、阶段失败/修改代理后重试、目标/脚本/环境改变、实际 PM 文件缺失，以及界面丢弃过期阶段事件。原先无凭据输出、目标版本检查、诊断失败和重复点击测试继续运行。结构化错误使用既有 HR-HERMESUPDATE-004/005，无新错误码。
 
@@ -8,7 +8,7 @@
 
 在 macOS 原生 NSHostingView 渲染下载、失败、保留四阶段后重试、静默等待四状态 × 浅色/深色/490pt 窄窗，共 12 张夹具图；已直接审阅代表性浅/深/窄窗截图。48 秒静默截图确认旧速度隐藏、等待文案完整且未误报卡死。失败按钮命名当前阶段，保留目标版本。没有替换用户应用、改变全局 Git/系统代理、操作服务或再次执行真实 Hermes 升级。真实远端网络下的完整用户升级、实际按钮点击与退出重开仍未验收；本轮不支持跨 Desktop 进程阶段恢复。
 
-本地证据：`/private/tmp/hermes-download-baseline.log`、`/private/tmp/hermes-download-package.log`、`/private/tmp/hermes-download-ui/`。源分支 `codex/hermes-upgrade-download`，未合并/发布。
+本地证据：`/private/tmp/hermes-download-baseline.log`、`/private/tmp/hermes-download-package.log`、`/private/tmp/hermes-download-ui/`。源分支 `codex/hermes-upgrade-download` 已通过 PR #683 合并；0.2.46 的发布门禁和限制见 DESKTOP_RELEASE_CHANNEL.md。
 
 
 ## 2026-10-27：升级进度回归（0.2.45 / build 48）
