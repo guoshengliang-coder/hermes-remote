@@ -251,6 +251,7 @@ export function renderIdentityWebNginxRoutes() {
     "^/v2/web/devices/[^/]+/select-default$",
     "^/v2/account/identities/[0-9a-f-]{36}$",
     "^/v2/installations/[0-9a-f-]{36}$",
+    "^/v2/browser-installations/[0-9a-f-]{36}$",
   ];
   const dynamicRoutes = dynamicPaths.map((route) => `location ~ "${route}" {
     ${httpProxy}

@@ -41,6 +41,8 @@ test("identity-Web Nginx routes expose only the reviewed email identity and acco
   assert.match(routes, /location = \/v2\/account\/identities/);
   assert.match(routes, /location = \/v2\/installations/);
   assert.match(routes, /select-default\$/);
+  assert.ok(routes.includes('location ~ "^/v2/browser-installations/[0-9a-f-]{36}$"'));
+  assert.equal(routes.includes("location /v2/browser-installations"), false);
   for (const forbidden of ["share-invitations", "/shares", "/leave", "/google/"]) {
     assert.equal(routes.includes(forbidden), false);
   }
