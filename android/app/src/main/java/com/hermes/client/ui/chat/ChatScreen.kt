@@ -755,9 +755,17 @@ fun ChatScreen(
 
     var videoFile by rememberVideoFile(vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId))
     videoFile?.let { file ->
+        val feedbackScope = vm.workspaceUiKey(sessionId, sessionProfile, sessionDeviceId)
+        val completedTask = scopedFileTasks.firstOrNull { it.remotePath == file.remotePath && vm.completedDownload(it) != null }
         val complete = file.localPath?.let { java.io.File(it) }?.takeIf { it.isFile }
-            ?: scopedFileTasks.firstOrNull { it.remotePath == file.remotePath }?.let(vm::completedDownload)
+            ?: completedTask?.let(vm::completedDownload)
         VideoPlayerDialog(file.name, prepare = { vm.prepareVideo(file) },
+            feedbackContext = VideoFeedbackContext(feedbackScope, file.remotePath ?: file.localPath ?: file.id,
+                sessionTitle ?: sessionId,
+                downloadedGeneration = completedTask?.let { task -> task.etag?.let { etag -> task.sizeBytes?.let { size ->
+                    com.hermes.client.data.video.ArtifactRangeCache.identity(task.owner, task.remotePath, etag, size)
+                } } },
+                attach = { vm.stageVideoFeedback(it, feedbackScope) }),
             downloaded = complete != null,
             openExternally = complete?.let { local -> { openCompletedVideo(context, local, file.mimeType) {
                 showAttachmentError(it.localizedMessage(language))

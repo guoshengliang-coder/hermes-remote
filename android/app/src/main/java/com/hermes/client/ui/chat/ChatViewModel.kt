@@ -1543,6 +1543,21 @@ class ChatViewModel @Inject constructor(
         val id = "att-${java.util.UUID.randomUUID()}"
         mutateState { it.withAttachment(PendingAttachment(id, ByteArray(0), mimeType, name, stagedFile = file)) }
     }
+
+    /** A viewer export must return to the same live workspace, without replacing its composer. */
+    fun stageVideoFeedback(file: java.io.File, expectedScope: String): com.hermes.client.data.error.AppError? {
+        val stage = "video_notes_attach"
+        if (expectedScope != workspaceUiKey(storedSessionId, currentProfile, currentDeviceId)) {
+            return com.hermes.client.data.error.AppError(com.hermes.client.data.error.AppErrorCode.VIDEO_NOTES_EXPORT, true, stage = stage)
+        }
+        if (_state.value.pendingAttachments.size >= ATTACH_CAP) {
+            return com.hermes.client.data.error.AppError(com.hermes.client.data.error.AppErrorCode.VIDEO_NOTES_ATTACHMENTS_FULL, false, stage = stage)
+        }
+        return try {
+            stageAttachment(file, "text/markdown", file.name)
+            null
+        } catch (failure: Exception) { com.hermes.client.data.error.videoFeedbackError(failure, export = true) }
+    }
     fun removeAttachment(id: String) {
         if (unsentComposer?.source?.attachments?.none { it.id == id } != false) {
             _state.value.pendingAttachments.firstOrNull { it.id == id }?.stagedFile?.delete()

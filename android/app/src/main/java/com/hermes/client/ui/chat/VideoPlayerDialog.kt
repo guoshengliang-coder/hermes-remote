@@ -45,6 +45,7 @@ fun VideoPlayerDialog(
     onDismiss: () -> Unit,
     downloaded: Boolean = false,
     openExternally: (() -> Unit)? = null,
+    feedbackContext: VideoFeedbackContext? = null,
 ) {
     val context = LocalContext.current
     val activity = context.videoActivity()
@@ -155,7 +156,8 @@ fun VideoPlayerDialog(
     DisposableEffect(activity) {
         onDispose { if (activity?.isChangingConfigurations != true) activity?.requestedOrientation = originalOrientation }
     }
-    fun exit() { if (fullscreen) fullscreen = false else onDismiss() }
+    val annotationMode = rememberSaveable { mutableStateOf(false) }
+    fun exit() { if (annotationMode.value) annotationMode.value = false else if (fullscreen) fullscreen = false else onDismiss() }
     Dialog(onDismissRequest = ::exit,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val window = (LocalView.current.parent as? DialogWindowProvider)?.window
@@ -167,45 +169,55 @@ fun VideoPlayerDialog(
                 hide(WindowInsetsCompat.Type.systemBars())
             }
         }
-        VideoPlayerContent(
-            name = name,
-            state = controller?.state ?: VideoPlayerState(wantsPlay = wantsPlay, buffering = error == null),
-            error = error, fullscreen = fullscreen, canPlay = controller != null,
-            downloaded = downloaded, download = download, openExternally = openExternally,
-            onClose = onDismiss, onFullscreen = { fullscreen = !fullscreen },
-            onTogglePlay = { controller?.let { if (it.state.wantsPlay) { if (it.state.hasFrame) captureFrame(); it.pause() } else it.play() } },
-            onSeek = { controller?.seek(it) },
-            onSpeed = { controller?.selectSpeed(it) },
-            holdSpeed = holdSpeed,
-            onHoldSpeed = { holdSpeed = it; speedPreferences.edit().putFloat("hold_speed", it).apply() },
-            onBoost = { if (it) controller?.beginBoost(holdSpeed) else controller?.endBoost() },
-            networkSpeed = if (!foreground || error != null || downloaded) null
-                else if (source == null) VideoNetworkSpeed() else networkSpeed,
-            precache = precache, onCacheRetry = { cacheRetry++ },
-            onStatusDiagnostics = { failure ->
-                context.getSystemService(android.content.ClipboardManager::class.java)
-                    .setPrimaryClip(android.content.ClipData.newPlainText("Hermes diagnostics", failure.sanitizedDiagnostic()))
+        VideoFeedbackWorkspace(name, feedbackContext, source?.feedbackGeneration,
+            controller?.state?.duration ?: knownDuration,
+            position = {
+                controller?.let { if (it.state.hasFrame) captureFrame(); it.pause(); it.state.position } ?: 0L
             },
-            onRetry = { error = null; wantsPlay = true; source = null; retry++ },
-            onDiagnostics = {
-                error?.let { failure ->
+            seek = { controller?.seek(it); controller?.play() }, onAttached = onDismiss,
+            mode = annotationMode,
+        ) { annotate, editing ->
+            VideoPlayerContent(
+                name = name,
+                state = controller?.state ?: VideoPlayerState(wantsPlay = wantsPlay, buffering = error == null),
+                error = error, fullscreen = fullscreen, canPlay = controller != null,
+                downloaded = downloaded, download = download, openExternally = openExternally,
+                onAnnotate = annotate, annotating = editing,
+                onClose = onDismiss, onFullscreen = { fullscreen = !fullscreen },
+                onTogglePlay = { controller?.let { if (it.state.wantsPlay) { if (it.state.hasFrame) captureFrame(); it.pause() } else it.play() } },
+                onSeek = { controller?.seek(it) },
+                onSpeed = { controller?.selectSpeed(it) },
+                holdSpeed = holdSpeed,
+                onHoldSpeed = { holdSpeed = it; speedPreferences.edit().putFloat("hold_speed", it).apply() },
+                onBoost = { if (it) controller?.beginBoost(holdSpeed) else controller?.endBoost() },
+                networkSpeed = if (!foreground || error != null || downloaded) null
+                    else if (source == null) VideoNetworkSpeed() else networkSpeed,
+                precache = precache, onCacheRetry = { cacheRetry++ },
+                onStatusDiagnostics = { failure ->
                     context.getSystemService(android.content.ClipboardManager::class.java)
                         .setPrimaryClip(android.content.ClipData.newPlainText("Hermes diagnostics", failure.sanitizedDiagnostic()))
-                }
-            },
-        ) {
-            if (controller != null) AndroidView(
-                factory = {
-                    android.view.LayoutInflater.from(it).inflate(
-                        R.layout.video_preview_player, android.widget.FrameLayout(it), false,
-                    ) as PlayerView
                 },
-                update = { videoView = it; it.player = controller.player; it.keepScreenOn = controller.state.wantsPlay },
-                onRelease = { it.player = null; videoView = null }, modifier = Modifier.fillMaxSize(),
-            )
-            frameMemory.frame?.takeIf { controller?.state?.let { !it.wantsPlay || !it.hasFrame } != false }?.let { frame ->
-                Image(frame.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize())
+                onRetry = { error = null; wantsPlay = true; source = null; retry++ },
+                onDiagnostics = {
+                    error?.let { failure ->
+                        context.getSystemService(android.content.ClipboardManager::class.java)
+                            .setPrimaryClip(android.content.ClipData.newPlainText("Hermes diagnostics", failure.sanitizedDiagnostic()))
+                    }
+                },
+            ) {
+                if (controller != null) AndroidView(
+                    factory = {
+                        android.view.LayoutInflater.from(it).inflate(
+                            R.layout.video_preview_player, android.widget.FrameLayout(it), false,
+                        ) as PlayerView
+                    },
+                    update = { videoView = it; it.player = controller.player; it.keepScreenOn = controller.state.wantsPlay },
+                    onRelease = { it.player = null; videoView = null }, modifier = Modifier.fillMaxSize(),
+                )
+                frameMemory.frame?.takeIf { controller?.state?.let { !it.wantsPlay || !it.hasFrame } != false }?.let { frame ->
+                    Image(frame.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize())
+                }
             }
         }
     }
