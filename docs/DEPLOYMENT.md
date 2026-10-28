@@ -3060,3 +3060,15 @@ Both this URL and its compatible `.dmg` alias were downloaded in full and match
 indexes are byte-identical at 0.4.12. No installed user app or local service was replaced or
 restarted. This is temporary-signing internal distribution; Apple notarization and physical
 upgrade/live-login/task-data-preservation acceptance have not been performed.
+
+
+### Gateway 0.4.38 release preparation — 2026-10-28 (authorized)
+
+The owner requested publication of the WebApp login-device fix after PR #685 merged.
+This release allocates Gateway 0.4.38 and includes the additive Desktop browser-installation
+revocation endpoint and capability. Existing phone and Web Cookie/CSRF routes are preserved.
+Database schema, protocol versions, minimum clients and rollout flags remain unchanged.
+Desktop already displays browser records with capability-gated revocation; Android and Web
+need no client update. No Connector, Desktop, Web or upstream Hermes publication is part of this run.
+Production execution and independent identity/readiness/capability verification are recorded
+separately after the standard routine release commits.
