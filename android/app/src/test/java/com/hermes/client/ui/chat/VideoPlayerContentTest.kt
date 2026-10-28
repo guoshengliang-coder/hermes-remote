@@ -9,6 +9,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.hermes.client.domain.ChatFile
+import com.hermes.client.data.video.VideoNetworkSpeed
+import com.hermes.client.data.video.VideoPlayback
+import io.mockk.*
+import com.hermes.client.data.video.VideoPrecacheState
 import com.hermes.client.ui.localization.*
 import com.hermes.client.ui.theme.HermesTheme
 import org.junit.*
@@ -44,6 +48,85 @@ class VideoPlayerContentTest {
         compose.onNodeWithContentDescription("More").assertIsDisplayed()
         compose.onAllNodesWithContentDescription("Play").assertCountEquals(2)
     }
+    @Test fun speed_polling_stops_in_background_resets_the_old_source_and_local_files_stay_hidden() {
+        val first = mockk<VideoPlayback>(relaxed = true)
+        val second = mockk<VideoPlayback>(relaxed = true)
+        every { first.networkSpeed() } returns VideoNetworkSpeed(1_000_000)
+        every { second.networkSpeed() } returns VideoNetworkSpeed(200_000)
+        var source by mutableStateOf<VideoPlayback?>(first)
+        var foreground by mutableStateOf(true)
+        var observed: VideoNetworkSpeed? = null
+        compose.setContent { observed = rememberVideoNetworkSpeed(source, foreground) }
+        compose.runOnIdle { assertEquals(1_000_000L, observed?.bytesPerSecond); foreground = false }
+        compose.runOnIdle { assertNull(observed) }
+        verify(exactly = 1) { first.resetNetworkSpeed() }
+        clearMocks(first, answers = false)
+        compose.mainClock.advanceTimeBy(3_000)
+        verify(exactly = 0) { first.networkSpeed() }
+        compose.runOnIdle { source = second; foreground = true }
+        compose.runOnIdle { assertEquals(200_000L, observed?.bytesPerSecond) }
+        verify(exactly = 0) { second.resetNetworkSpeed() }
+        compose.runOnIdle { source = null }
+        compose.runOnIdle { assertNull(observed) }
+        verify(exactly = 1) { second.resetNetworkSpeed() }
+        assertNull(VideoPlayback(localFile = java.io.File("fixture-local.mp4")).networkSpeed())
+    }
+
+    @Test fun buffer_speed_updates_both_locations_and_local_playback_has_no_network_label() {
+        var speed by mutableStateOf<VideoNetworkSpeed?>(VideoNetworkSpeed())
+        var state by mutableStateOf(playing.copy(buffering = true))
+        compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+            VideoPlayerContent("fixture.mp4", state, networkSpeed = speed,
+                precache = VideoPrecacheState(100_000_000, 500_000_000))
+        } } }
+        compose.onNodeWithTag("video-buffer-speed").assertTextEquals("Buffer speed Measuring…")
+        compose.onNodeWithTag("video-cache-progress").assertTextContains("Buffer speed Measuring…", substring = true)
+        compose.runOnIdle { speed = VideoNetworkSpeed(2_500_000) }
+        compose.onNodeWithTag("video-buffer-speed").assertTextEquals("Buffer speed 2.5 MB/s")
+        compose.onNodeWithTag("video-cache-progress").assertTextContains("Buffer speed 2.5 MB/s", substring = true)
+        compose.runOnIdle { state = playing.copy(wantsPlay = false); speed = VideoNetworkSpeed(0) }
+        compose.onNodeWithTag("video-buffer-speed").assertDoesNotExist()
+        compose.onNodeWithTag("video-cache-progress").assertTextContains("Buffer speed 0 KB/s", substring = true)
+        compose.runOnIdle { speed = null }
+        compose.onAllNodesWithText("Buffer speed", substring = true).assertCountEquals(0)
+    }
+    @Test fun network_speed_does_not_pin_playback_controls() {
+        compose.mainClock.autoAdvance = false
+        compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+            VideoPlayerContent("fixture.mp4", playing, networkSpeed = VideoNetworkSpeed(100_000))
+        } } }
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithTag("video-cache-progress").assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(3_100)
+        compose.onNodeWithTag("video-cache-progress").assertDoesNotExist()
+    }
+    @Test fun speed_labels_are_bilingual_and_use_decimal_network_units() {
+        assertEquals("缓冲速度 测速中…", videoNetworkSpeedLabel(VideoNetworkSpeed(), AppLanguage.ZH))
+        assertEquals("缓冲速度 0 KB/s", videoNetworkSpeedLabel(VideoNetworkSpeed(0), AppLanguage.ZH))
+        assertEquals("缓冲速度 125.0 KB/s", videoNetworkSpeedLabel(VideoNetworkSpeed(125_000), AppLanguage.ZH))
+        assertEquals("Buffer speed 1.0 MB/s", videoNetworkSpeedLabel(VideoNetworkSpeed(1_000_000), AppLanguage.EN))
+    }
+    private fun captureNetworkSpeed(dark: Boolean, language: AppLanguage, buffering: Boolean, name: String) {
+        compose.setContent { HermesTheme(darkTheme = dark) {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalAppLanguage provides language, LocalDensity provides Density(density.density, 1.3f)) {
+                VideoPlayerContent("缓冲速度-长文件名.mp4", playing.copy(wantsPlay = false, buffering = buffering),
+                    networkSpeed = VideoNetworkSpeed(12_345_678), precache = VideoPrecacheState(100_000_000, 3_000_000_000))
+            }
+        } }
+        compose.onNodeWithContentDescription(if (language == AppLanguage.EN) "Close" else "关闭").assertIsDisplayed()
+        compose.onNodeWithTag("video-cache-progress").assertIsDisplayed()
+        compose.waitForIdle()
+        if (buffering) compose.onNodeWithTag("video-buffer-speed").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("screenshots/$name.png")
+    }
+    @Test @Config(qualifiers = "w320dp-h720dp-420dpi")
+    fun network_speed_light_zh_narrow() = captureNetworkSpeed(false, AppLanguage.ZH, true, "video-network-speed-light-zh-fs13")
+    @Test @Config(qualifiers = "w320dp-h720dp-420dpi")
+    fun network_speed_dark_en_narrow() = captureNetworkSpeed(true, AppLanguage.EN, true, "video-network-speed-dark-en-fs13")
+    @Test @Config(qualifiers = "w800dp-h360dp-420dpi")
+    fun network_speed_landscape() = captureNetworkSpeed(true, AppLanguage.ZH, false, "video-network-speed-landscape-zh-fs13")
+
     @Test fun seek_shows_target_time_and_commits_only_on_release() {
         var target: Long? = null
         compose.setContent { HermesTheme { VideoPlayerContent("fixture.mp4", playing.copy(wantsPlay = false), onSeek = { target = it }) } }

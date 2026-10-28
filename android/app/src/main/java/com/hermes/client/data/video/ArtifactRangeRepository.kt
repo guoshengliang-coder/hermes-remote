@@ -66,6 +66,7 @@ class ArtifactRangeRepository internal constructor(
         internal val parallel = descriptor.maxConcurrentRanges.coerceIn(1, 4)
         internal val slots = Semaphore(parallel)
         internal val renewal = Mutex()
+        internal val networkSpeed = VideoNetworkSpeedMeter()
         @Volatile internal var permitsEarlyRefill = false
         @Volatile internal var playbackPosition = 0L
     }
@@ -239,8 +240,12 @@ class ArtifactRangeRepository internal constructor(
             checkOwner(source.owner, source.deviceId)
             attempted = source.descriptor
             val sample = VideoTransferSample()
-            rest.readArtifactRangeWithProgress(attempted, start, count, source.deviceId, source.owner,
-                sample::received).also { source.permitsEarlyRefill = sample.permitsEarlyRefill() }
+            source.networkSpeed.request().use { transfer ->
+                rest.readArtifactRangeWithProgress(attempted, start, count, source.deviceId, source.owner) { total ->
+                    sample.received(total)
+                    transfer.received(total)
+                }.also { source.permitsEarlyRefill = sample.permitsEarlyRefill() }
+            }
         }
         return try { request() }
         catch (error: Exception) {

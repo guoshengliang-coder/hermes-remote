@@ -35,6 +35,32 @@ class ArtifactRangeRepositoryTest {
         repository = ArtifactRangeRepository(context, rest)
     }
 
+    @Test fun only_network_progress_counts_including_foreground_precache_and_not_cached_reads() = runBlocking {
+        withTimeout(5_000) {
+            coEvery { rest.readArtifactRangeWithProgress(any(), any(), any(), any(), any(), any()) } answers {
+                val count = thirdArg<Int>()
+                val progress = arg<(Long) -> Unit>(5)
+                progress(count / 2L); progress(count.toLong())
+                ByteArray(count)
+            }
+            val source = repository.prepare(file, "mac")
+            val block = ArtifactRangeCache.BLOCK_BYTES
+            assertNull(source.networkSpeed.snapshot().bytesPerSecond)
+            repository.read(source, 0)
+            assertTrue(source.networkSpeed.snapshot().bytesPerSecond!! > 0)
+            source.networkSpeed.reset()
+            repository.read(source, 0)
+            assertNull("cache reads must not create network samples", source.networkSpeed.snapshot().bytesPerSecond)
+            val session = VideoPrecacheSession()
+            val fill = launch { repository.precache(source, session) { true } }
+            try {
+                session.state.first { it.percent == 100 }
+                assertTrue("foreground precache must be included", source.networkSpeed.snapshot().bytesPerSecond!! > 0)
+            } finally { fill.cancelAndJoin() }
+            coVerify(exactly = 3) { rest.readArtifactRangeWithProgress(any(), any(), block, any(), any(), any()) }
+        }
+    }
+
     @Test fun negotiated_slots_allow_parallel_reads_and_legacy_remains_serial() = runBlocking {
         withTimeout(5_000) {
             for (parallel in listOf(1, 2, 4)) {
