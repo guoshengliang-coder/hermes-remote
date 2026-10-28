@@ -260,12 +260,39 @@ final class DesktopLocalHermesDetectorTests: XCTestCase {
         XCTAssertEqual(home.reason(), .nonStandardLocation)
     }
 
-    private func osascriptArguments(_ command: [String]) throws -> [String] {
+    func testLegacyAppleScriptRecognisesExistingHermesAndServeWithoutChangingPlist() throws {
+        let home = try LocalHermesHome()
+        let command = [home.path(".hermes/hermes-agent/venv/bin/python"), "-m", "hermes_cli.main", "serve", "--port", "9119"]
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", ["ProgramArguments": try osascriptArguments(command, legacy: true)])
+        let plist = URL(fileURLWithPath: home.path("Library/LaunchAgents/ai.hermes.gateway.plist"))
+        let before = try Data(contentsOf: plist)
+        XCTAssertEqual(home.detect().installation?.version, "0.21.3")
+        XCTAssertEqual(home.detector().loopbackPortOccupantLabel(), "ai.hermes.gateway")
+        XCTAssertEqual(try Data(contentsOf: plist), before)
+    }
+
+    func testLegacyAppleScriptPreservesInstallationAndHomeBoundaries() throws {
+        let home = try LocalHermesHome()
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", ["ProgramArguments": try osascriptArguments(
+            ["/opt/other-hermes/venv/bin/python", "-m", "hermes_cli.main", "gateway", "run"], legacy: true)])
+        XCTAssertEqual(home.reason(), .nonStandardLocation)
+        let args = try osascriptArguments([home.path(".hermes/hermes-agent/venv/bin/python"), "-m", "hermes_cli.main", "gateway", "run"], legacy: true)
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", ["ProgramArguments": args, "EnvironmentVariables": ["HERMES_HOME": "/Volumes/Other/hermes"]])
+        XCTAssertEqual(home.reason(), .customHermesHome)
+        try home.writeLaunchAgent("ai.hermes.gateway.plist", ["Program": "/bin/sh", "ProgramArguments": args])
+        XCTAssertEqual(home.reason(), .nonStandardLocation)
+    }
+
+    private func osascriptArguments(_ command: [String], legacy: Bool = false) throws -> [String] {
         func quote(_ value: String) -> String {
             if value.range(of: "^[A-Za-z0-9_@%+=:,./-]+$", options: .regularExpression) != nil { return value }
             return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
         }
         let shell = "exec " + command.map(quote).joined(separator: " ") + " >> '/tmp/hermes stdout.log' 2>> '/tmp/hermes stderr.log'"
+        if legacy {
+            let escaped = shell.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            return ["/usr/bin/osascript", "-e", "do shell script \"" + escaped + "\""]
+        }
         let literal = String(decoding: try JSONEncoder().encode(shell), as: UTF8.self)
         return ["/usr/bin/osascript", "-l", "JavaScript", "-e",
                 "ObjC.import(\"stdlib\"); const status=$.system(" + literal + "); const signal=status & 127; $.exit(status === -1 ? 1 : signal === 0 ? (status >> 8) & 255 : 128 + signal);"]

@@ -33,6 +33,36 @@ final class DesktopHermesLaunchdCommandTests: XCTestCase {
         var truncated = original; truncated[4] = String(truncated[4].dropLast())
         XCTAssertNil(DesktopHermesLaunchdCommand.unwrap(truncated))
     }
+    // First three cases: actual pre-JXA generator at 61a2148370bc. Last: M2 plist, username normalized.
+    private var legacyFixtures: [[String: [String]]] {
+        try! JSONDecoder().decode([[String: [String]]].self, from: Data(Self.legacyUpstreamJSON.utf8))
+    }
+    func testLegacyUpstreamAppleScriptCommandsDecodeExactly() {
+        for fixture in legacyFixtures {
+            XCTAssertEqual(DesktopHermesLaunchdCommand.unwrap(fixture["arguments"]!), fixture["command"]!)
+        }
+    }
+    func testLegacyAppleScriptRejectsExtraStatementsFlagsEscapesAndTruncation() {
+        let original = legacyFixtures[0]["arguments"]!
+        for script in [original[2] + " & \"extra\"", original[2] + "\ndo shell script \"id\"",
+                       String(original[2].dropLast()), original[2].replacingOccurrences(of: "exec ", with: "exec \\u0020"),
+                       "do shell script \"exec /tmp/hermes\" with administrator privileges"] {
+            XCTAssertNil(DesktopHermesLaunchdCommand.unwrap([original[0], original[1], script]))
+        }
+        XCTAssertNil(DesktopHermesLaunchdCommand.unwrap(original + ["extra"]))
+        XCTAssertNil(DesktopHermesLaunchdCommand.unwrap(["/tmp/osascript"] + original.dropFirst()))
+    }
+    func testLegacyShellOperatorsAndChangedRedirectionRemainUnverified() {
+        let original = legacyFixtures[0]["arguments"]!
+        for replacement in ["$(id)", "`id`", "$HERMES", "/tmp/hermes;echo", "/tmp/hermes&&echo"] {
+            var input = original
+            input[2] = input[2].replacingOccurrences(of: "/Users/fixture/.hermes/hermes-agent/.hermes/bin/hermes", with: replacement)
+            XCTAssertNil(DesktopHermesLaunchdCommand.unwrap(input))
+        }
+        var input = original
+        input[2] = input[2].replacingOccurrences(of: "2>>", with: "2>")
+        XCTAssertNil(DesktopHermesLaunchdCommand.unwrap(input))
+    }
     private static let upstreamJSON = #"""
 [
   {
@@ -73,6 +103,81 @@ final class DesktopHermesLaunchdCommandTests: XCTestCase {
       "JavaScript",
       "-e",
       "ObjC.import(\"stdlib\"); const status=$.system(\"exec '/Users/test \\u7528\\u6237'\\\"'\\\"'s home/.hermes/hermes-agent/venv/bin/python' -I -c 'import sys, runpy; sys.path.insert(0, \\\"/Users/test \\u7528\\u6237'\\\"'\\\"'s home/.hermes/hermes-agent\\\"); runpy.run_module('\\\"'\\\"'hermes_cli.main'\\\"'\\\"', run_name='\\\"'\\\"'__main__'\\\"'\\\"')' gateway run >> '/tmp/log files/stdout.log' 2>> '/tmp/log files/user'\\\"'\\\"'s stderr.log'\"); const signal=status & 127; $.exit(status === -1 ? 1 : signal === 0 ? (status >> 8) & 255 : 128 + signal);"
+    ]
+  }
+]
+"""#
+    private static let legacyUpstreamJSON = #"""
+[
+  {
+    "command": [
+      "/Users/fixture/.hermes/hermes-agent/.hermes/bin/hermes",
+      "--run-module",
+      "hermes_cli.stderr_timestamp",
+      "--error-log",
+      "/Users/fixture/.hermes/logs/gateway.error.log",
+      "--",
+      "/Users/fixture/.hermes/hermes-agent/.hermes/bin/hermes",
+      "--profile",
+      "default",
+      "gateway",
+      "run",
+      "--external-supervisor"
+    ],
+    "arguments": [
+      "/usr/bin/osascript",
+      "-e",
+      "do shell script \"exec /Users/fixture/.hermes/hermes-agent/.hermes/bin/hermes --run-module hermes_cli.stderr_timestamp --error-log /Users/fixture/.hermes/logs/gateway.error.log -- /Users/fixture/.hermes/hermes-agent/.hermes/bin/hermes --profile default gateway run --external-supervisor >> '/tmp/log files/stdout.log' 2>> '/tmp/user'\\\"'\\\"'s logs/stderr.log'\""
+    ]
+  },
+  {
+    "command": [
+      "/Users/test 用户's home/.hermes/hermes-agent/venv/bin/python",
+      "-I",
+      "-c",
+      "import sys, runpy; sys.path.insert(0, \"/Users/test 用户's home/.hermes/hermes-agent\"); runpy.run_module('hermes_cli.main', run_name='__main__')",
+      "gateway",
+      "run"
+    ],
+    "arguments": [
+      "/usr/bin/osascript",
+      "-e",
+      "do shell script \"exec '/Users/test 用户'\\\"'\\\"'s home/.hermes/hermes-agent/venv/bin/python' -I -c 'import sys, runpy; sys.path.insert(0, \\\"/Users/test 用户'\\\"'\\\"'s home/.hermes/hermes-agent\\\"); runpy.run_module('\\\"'\\\"'hermes_cli.main'\\\"'\\\"', run_name='\\\"'\\\"'__main__'\\\"'\\\"')' gateway run >> '/tmp/log files/stdout.log' 2>> '/tmp/user'\\\"'\\\"'s logs/stderr.log'\""
+    ]
+  },
+  {
+    "command": [
+      "/Users/fixture space/quote'and\\backslash/.hermes/hermes-agent/venv/bin/python",
+      "-m",
+      "hermes_cli.main",
+      "gateway",
+      "run"
+    ],
+    "arguments": [
+      "/usr/bin/osascript",
+      "-e",
+      "do shell script \"exec '/Users/fixture space/quote'\\\"'\\\"'and\\\\backslash/.hermes/hermes-agent/venv/bin/python' -m hermes_cli.main gateway run >> '/tmp/log files/stdout.log' 2>> '/tmp/user'\\\"'\\\"'s logs/stderr.log'\""
+    ]
+  },
+  {
+    "command": [
+      "/Users/fixture/.hermes/hermes-agent/venv/bin/python",
+      "-m",
+      "hermes_cli.stderr_timestamp",
+      "--error-log",
+      "/Users/fixture/.hermes/logs/gateway.error.log",
+      "--",
+      "/Users/fixture/.hermes/hermes-agent/venv/bin/python",
+      "-m",
+      "hermes_cli.main",
+      "gateway",
+      "run",
+      "--external-supervisor"
+    ],
+    "arguments": [
+      "/usr/bin/osascript",
+      "-e",
+      "do shell script \"exec /Users/fixture/.hermes/hermes-agent/venv/bin/python -m hermes_cli.stderr_timestamp --error-log /Users/fixture/.hermes/logs/gateway.error.log -- /Users/fixture/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run --external-supervisor >> /Users/fixture/.hermes/logs/gateway.log 2>> /Users/fixture/.hermes/logs/gateway.error.log\""
     ]
   }
 ]

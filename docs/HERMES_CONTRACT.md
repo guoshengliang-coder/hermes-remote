@@ -1,5 +1,9 @@
 # Hermes upstream contract
 
+## 2026-10-28：旧版 launchd AppleScript 文法
+
+已核对本机上游 Git 历史 `61a2148370bcaed61c62e78bbad303b836233869` 的 `hermes_cli/gateway_launchd.py::launchd_program_arguments`：返回 `/usr/bin/osascript -e <script>` 三参数，脚本为单条 `do shell script "…"`，仅按顺序转义反斜杠和双引号。shell 命令仍是 `exec <shlex.join(command)> >> <quoted stdout> 2>> <quoted stderr>`。上游 `8682d5791b6b613c13948a0837c7293d675e77a7` 将其替换为现有 JXA 文法；旧安装可能保留旧 plist。测试固定样本由前一提交的真实字符串生成函数产生，并加入 M2/Hermes 0.21.4 的真实 plist 参数（仅归一化用户名），未执行启动脚本。两种包装共用静态命令校验；没有 Hermes RPC、Gateway、Connector 或客户端协议变化。
+
 ## 2026-10-27：Desktop 消费官方 launchd JXA 文法
 
 `DesktopHermesLaunchdCommand` 消费 `hermes_cli/gateway_launchd.py::launchd_program_arguments` 的固定五参数 `/usr/bin/osascript -l JavaScript -e <script>`。核对 v0.22.5（bf0203a794a07aac3ff764972ab9087baa4e4f4e）及 v0.21.4+canary.20260929T070217Z 源码，两者均为固定 ObjC stdlib/system/exit 包装、JSON 编码的 shell 字符串和 `exec <shlex.join(command)> >> <quoted stdout> 2>> <quoted stderr>`。

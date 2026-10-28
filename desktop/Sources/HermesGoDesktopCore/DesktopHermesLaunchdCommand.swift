@@ -1,17 +1,10 @@
 import Foundation
 
-/// Read-only decoder for upstream gateway_launchd.launchd_program_arguments (0.21.4 canary / 0.22.5).
+/// Read-only decoder for upstream gateway_launchd.launchd_program_arguments (AppleScript and JXA).
 /// Never runs osascript, a shell or Hermes. Unknown wrappers remain unverified.
 enum DesktopHermesLaunchdCommand {
     static func unwrap(_ arguments: [String]) -> [String]? {
-        guard arguments.count == 5,
-              Array(arguments.prefix(4)) == ["/usr/bin/osascript", "-l", "JavaScript", "-e"] else { return nil }
-        let prefix = "ObjC.import(\"stdlib\"); const status=$.system("
-        let suffix = "); const signal=status & 127; $.exit(status === -1 ? 1 : signal === 0 ? (status >> 8) & 255 : 128 + signal);"
-        let script = arguments[4]
-        guard script.utf8.count <= 64 * 1024, script.hasPrefix(prefix), script.hasSuffix(suffix) else { return nil }
-        let literal = String(script.dropFirst(prefix.count).dropLast(suffix.count))
-        guard let shell = try? JSONDecoder().decode(String.self, from: Data(literal.utf8)),
+        guard let shell = shellCommand(arguments),
               let tokens = split(shell), tokens.count >= 6,
               tokens.first == "exec", tokens[tokens.count - 4] == ">>", tokens[tokens.count - 2] == "2>>" else { return nil }
         let command = Array(tokens.dropFirst().dropLast(4))
@@ -23,6 +16,30 @@ enum DesktopHermesLaunchdCommand {
         let expected = "exec " + command.map(quote).joined(separator: " ") + " >> " + quote(stdout) + " 2>> " + quote(stderr)
         guard expected == shell else { return nil }
         return command
+    }
+
+    private static func shellCommand(_ arguments: [String]) -> String? {
+        guard let script = arguments.last, script.utf8.count <= 64 * 1024 else { return nil }
+        if arguments.count == 3, Array(arguments.prefix(2)) == ["/usr/bin/osascript", "-e"] {
+            let prefix = "do shell script "
+            guard script.hasPrefix(prefix),
+                  let shell = try? JSONDecoder().decode(String.self, from: Data(script.dropFirst(prefix.count).utf8))
+            else { return nil }
+            // Upstream's historical AppleScript escapes only backslashes and double quotes.
+            // JSON decoding is a superset; exact reconstruction rejects other JSON escapes and
+            // appended AppleScript expressions without ever interpreting either language.
+            let escaped = shell.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            guard script == prefix + "\"" + escaped + "\"" else { return nil }
+            return shell
+        }
+        guard arguments.count == 5,
+              Array(arguments.prefix(4)) == ["/usr/bin/osascript", "-l", "JavaScript", "-e"] else { return nil }
+        let prefix = "ObjC.import(\"stdlib\"); const status=$.system("
+        let suffix = "); const signal=status & 127; $.exit(status === -1 ? 1 : signal === 0 ? (status >> 8) & 255 : 128 + signal);"
+        guard script.hasPrefix(prefix), script.hasSuffix(suffix) else { return nil }
+        let literal = String(script.dropFirst(prefix.count).dropLast(suffix.count))
+        return try? JSONDecoder().decode(String.self, from: Data(literal.utf8))
     }
 
     private static func quote(_ value: String) -> String {

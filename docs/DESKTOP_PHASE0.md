@@ -1,5 +1,9 @@
 # Hermes Go Desktop phase 0
 
+## 2026-10-28：兼容旧版官方 launchd 包装
+
+检测器同时支持上游历史 AppleScript 三参数与新版 JXA 五参数包装，静态解码后复用原有路径、配置目录与依赖检测。AppleScript 只接受上游生成的固定语句和反斜杠/双引号转义，解码后重建比对；未知格式仍为 HR-MIGRATE-008，详情不包含脚本正文。不迁移启动项，不执行脚本，不改安装或升级流程。
+
 ## 2026-10-27：识别官方 osascript 启动包装
 
 本机检测器静态解码上游 `gateway_launchd.launchd_program_arguments` 的固定 JXA 包装，按包装中的实际可执行文件判断安装目录，不再把 `/usr/bin/osascript` 当作 Hermes 路径。保留原有版本、依赖、配置目录和外部安装检查；未知包装仍显示 HR-MIGRATE-008，详情说明无法确认启动目标。检测不执行包装脚本，不修改 Hermes 安装、数据或 LaunchAgent。
