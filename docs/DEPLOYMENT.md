@@ -3146,3 +3146,48 @@ monitoring then passed host, disk and fresh encrypted off-host backup checks at
 `2026-10-28T09:45:41.211Z`; temporary recovery containers and runtime directories were absent.
 No production database or public service was changed by that recovery. This section records
 preparation and backup recovery, not publication success or installed-client acceptance.
+
+### HG-240 Gateway and Web production receipt — 2026-10-28
+
+Feature PR #694 and version PR #695 passed every PR and resulting main check
+(`MERGED_GREEN`). Publication uses clean main source
+`f5ec5dd203f72387c5a585719571f3636909e3d4`; the official Gateway OCI run is
+[`40668932688`](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/40668932688).
+Gateway/operator archives were verified both locally and on the production host:
+
+- Gateway archive SHA-256: `e18f4c926fe00b18387b8757c3584a26e73dee2180ee73783b94cf7392644396`.
+- Operator archive SHA-256: `6b23c8fcdb52f9f01bc5df93f2b5b3abcb43ae136f6d715de4d6c61704b0d3b0`.
+- Containerd identity: `sha256:9ad9061327d1134b48f62df44100e56a9d7191da82d97e265e946be8aea8501a`.
+
+Routine production run `fa640221-91b4-4e78-a55f-1151f95fe339` committed Gateway **0.4.39**
+to blue after candidate identity/readiness, Connector/REST/WebSocket smoke, switch and observation
+gates. `current` is `releases/0.4.39-f5ec5dd203f7`; `previous` retains
+`releases/0.4.38-df14d103e377`. Independent authenticated loopback readback confirmed the exact
+source, `sourceDirty: false` and ready config/database/migrations/PostgreSQL. Public capabilities
+report 0.4.39 and `instance-model-preferences`. Post-switch host/disk/off-host-backup monitoring passed.
+Schema 20, protocol versions, minimum clients and flags remain unchanged.
+
+Web **0.1.1-f5ec5dd203f7** then passed the official publisher's typecheck, **100 files / 1018 tests**,
+build, archive/per-file checks, immutable installation and atomic pointer switch. All **20** public
+files were independently downloaded in full and compared byte-for-byte with that build. The previous
+Web release is `0.1.1-ee6305a2abbd`. No Gateway restart was needed for the static switch.
+
+Android **0.1.185** (code **186**) was prepared by the official release train and tagged at the same
+source. The official [release run 40670940380](https://github.com/guoshengliang-coder/hermes-remote/actions/runs/40670940380)
+passed the complete package/configuration/signature gate and published
+[Hermes-Remote-0.1.185-debug.apk](https://mrlgs.net/releases/Hermes-Remote-0.1.185-debug.apk).
+An independent full public download verified **37,048,784 bytes**, SHA-256
+`7a74f0a0274f3d3e9d52b54ec28fb7876b1430a7231cfd979931e89ea560b7aa`.
+The current index, source commit, three release notes, package `com.hermes.remote`, code/name,
+minimum SDK 26 and canonical signing certificate all matched. Android SDK 37 `aapt` and `apksigner`
+independently verified the downloaded package and its V2 signature. Both historical unversioned
+APK URLs returned 404. No local development APK was distributed or installed on a user device.
+
+The complete local publication evidence is retained in the repository Git common directory as
+`hg240-publication-receipt-f5ec5dd203f7.json`, SHA-256
+`d0d778ef9a4c347394409df25371279e33f88bd74452b871b271785097205077`.
+The Hermes GO release-candidate query returned one complete empty page, so no other item was
+advanced by this publication. Hermes upstream PR #145969 remains open with the current account
+holding READ permission. HG-240 remains in progress: this Go-side release does not establish
+installed three-client sync, and unsupported Hermes retains explicit independent mode. Real
+multi-client/device acceptance is outstanding; this host has L1 only, no attached device or emulator.
