@@ -47,6 +47,7 @@ class ModelsViewModel @Inject constructor(
     private val _state = MutableStateFlow(ModelsUiState())
     val state: StateFlow<ModelsUiState> = _state.asStateFlow()
 
+    val instanceModels get() = favoritesStore.instance
     val modelSync get() = favoritesStore.sync
     suspend fun legacyModels(): com.hermes.client.data.sync.LegacyModelImport =
         com.hermes.client.data.sync.legacyModelImport(favoritesStore.legacyFavorites.first(), reasoningPresets.legacyPresets.first())
@@ -148,7 +149,8 @@ class ModelsViewModel @Inject constructor(
 
     fun toggleFavorite(provider: String, model: String): kotlinx.coroutines.Job {
         val preferenceOwner = modelSync?.currentOwnerKey()
-        return viewModelScope.launch { favoritesStore.toggle(provider, model, preferenceOwner) }
+        val instanceOwner = instanceModels?.state?.value?.owner
+        return viewModelScope.launch { favoritesStore.toggle(provider, model, preferenceOwner, instanceOwner) }
     }
 
     fun select(provider: String, model: String) {

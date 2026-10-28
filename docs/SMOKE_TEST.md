@@ -2253,3 +2253,7 @@ behavior is claimed. L2 was unavailable (no physical device attached).
   bytes from the previous identity. Preserve HR-FILE/HR-AUTH recovery messages.
 - Physical Wi-Fi/cellular/NAT, original HONOR codec and OEM background behavior still require device
   verification; L1 and synthetic L3 results do not establish those outcomes.
+
+## HG-240 · Three-surface instance preferences
+
+Use an isolated Hermes home and the paired upstream backend/Desktop build plus compatible Go Gateway, Web and Android builds. Star, unstar, hide and restore on each surface; verify the other two converge, restart and verify persistence. A hidden current model must keep running. Switch Mac while a preference request is delayed; no old-instance row or action may land on the new Mac. Import old favorites after another surface cancels the same model; cancellation must survive and originals remain available. Test concurrent same-field writes (409/review) and different fields (both survive). Disconnect during mutation and before response: no automatic replay or success claim; reconnect reads the authority. Shared guest direct HTTP POST must return HR-MODEL-003 through browser and both native route forms. Old Hermes 404 must show independent mode; 5xx must show HR-MODEL-001. Name actual devices in the verification receipt; JVM/browser automation alone is not real-device acceptance.

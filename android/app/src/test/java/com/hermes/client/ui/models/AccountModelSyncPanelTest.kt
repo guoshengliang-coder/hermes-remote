@@ -23,14 +23,24 @@ class AccountModelSyncPanelTest {
     private val sync=mockk<AccountModelPreferences>()
     private val imported=java.util.concurrent.CopyOnWriteArrayList<String>()
     private val data=LegacyModelImport(listOf(LegacyModelPreference("p","m",true,"high")),1)
-    private fun mount(fail:Boolean=false) {
+    private var importedData: LegacyModelImport? = null
+    private fun mount(fail:Boolean=false, reasoningOnly:Boolean=false) {
         every{sync.state}returns state
-        coEvery{sync.importLegacy(any(),any(),any())}coAnswers{imported+=thirdArg<String>();Unit}
+        coEvery{sync.importLegacy(any(),any(),any())}coAnswers{importedData=firstArg<LegacyModelImport>();imported+=thirdArg<String>();Unit}
         compose.setContent { HermesTheme {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ZH) {
-                AccountModelSyncPanel(sync,{if(fail)throw java.io.IOException("synthetic");data})
+                AccountModelSyncPanel(sync,{if(fail)throw java.io.IOException("synthetic");data},reasoningOnly=reasoningOnly)
             }
         } }
+    }
+    @Test fun instance_mode_preserves_reasoning_import_without_importing_old_favorites() {
+        mount(reasoningOnly=true)
+        compose.onNodeWithText("账号推理偏好",substring=true).assertExists()
+        compose.onNodeWithText("导入本机偏好").performClick();compose.waitForIdle()
+        compose.onAllNodesWithText("确认导入").onLast().performClick()
+        compose.waitUntil { importedData != null }
+        Assert.assertFalse(importedData!!.candidates.single().favorite)
+        Assert.assertEquals("high",importedData!!.candidates.single().reasoning)
     }
     @Test fun import_requires_explicit_confirmation_bound_to_the_displayed_owner() {
         mount();assertTrue(imported.isEmpty())

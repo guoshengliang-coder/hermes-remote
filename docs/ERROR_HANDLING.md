@@ -527,3 +527,13 @@ runtime reasons and incomplete dependencies from missing Desktop records, accoun
 port occupancy and unknown services. Present the actionable reason on Overview and Diagnostics;
 raw causes remain redacted in details. Profiles alone no longer emit HR-MIGRATE-008 or block repair.
 No error IDs, wire payloads or Android/Web/Cloud behavior change.
+
+## HG-240 · 实例模型偏好
+
+| Code | Meaning | 中文 | English | Retryable |
+|---|---|---|---|---|
+| `HR-MODEL-001` | Instance preference transport, storage or protocol failure | 无法同步此 Mac 的模型偏好，请联网后重试。 | Couldn’t sync this Mac’s model preferences. Connect and retry. | Yes |
+| `HR-MODEL-002` | Instance identity or field revision conflict | 模型偏好已在其他客户端更新，请刷新后重新选择。 | Model preferences changed on another client. Refresh and choose again. | No |
+| `HR-MODEL-003` | Only the device owner may mutate instance preferences | 共享访客不能修改设备主人的模型偏好。 | Shared guests can’t change the device owner’s model preferences. | No |
+
+001 covers transport/storage/protocol failures, 002 covers field CAS or instance identity conflicts, 003 is the Gateway-enforced owner-only mutation boundary. Diagnostics never include preference payloads or credentials. A 404/405 capability absence uses an explicit legacy-mode notice, not a sync-success claim.

@@ -110,6 +110,7 @@ data class ModelRow(
     // Remembered per-model reasoning effort (account or Legacy preset), shown as a row badge.
     val presetEffort: String? = null,
     val available: Boolean = true,
+    val isHidden: Boolean = false,
 )
 
 /**
@@ -172,6 +173,8 @@ fun modelSelectorGroups(
     expandedGroups: Set<String>? = null,
     presets: Map<String, String> = emptyMap(),
     includeUnavailable: Boolean = false,
+    hidden: (String, String) -> Boolean = { _, _ -> false },
+    showHidden: Boolean = false,
 ): List<ModelGroup> {
     fun rowOf(p: ModelProviderDto, model: String) = ModelRow(
         provider = p.slug,
@@ -180,12 +183,14 @@ fun modelSelectorGroups(
         isFavorite = favKey(p.slug, model) in favorites,
         isCurrent = p.slug == currentProvider && model == currentModel,
         presetEffort = presets[favKey(p.slug, model)],
+        isHidden = hidden(p.slug, model),
     )
 
     val groups = mutableListOf<ModelGroup>()
 
     val favRows = providers
         .flatMap { p -> p.models.filter { m -> favKey(p.slug, m) in favorites }.map { p to it } }
+        .filter { (p, m) -> showHidden || !hidden(p.slug, m) }
         .map { (p, m) -> rowOf(p, m) }.toMutableList()
     if (includeUnavailable) {
         val known = providers.flatMap { p -> p.models.map { favKey(p.slug, it) } }.toSet()
@@ -203,15 +208,16 @@ fun modelSelectorGroups(
     }
 
     for (p in providers) {
-        if (p.models.isEmpty()) continue
+        val shownModels = p.models.filter { showHidden || !hidden(p.slug, it) }
+        if (shownModels.isEmpty()) continue
         val expanded = expandedGroups == null || p.slug in expandedGroups
         groups += ModelGroup(
             title = p.name ?: p.slug,
             slug = p.slug,
             isCurrent = p.isCurrent,
-            count = p.models.size,
+            count = shownModels.size,
             expanded = expanded,
-            rows = if (expanded) p.models.map { rowOf(p, it) } else emptyList(),
+            rows = if (expanded) shownModels.map { rowOf(p, it) } else emptyList(),
         )
     }
     return groups
@@ -336,6 +342,7 @@ fun ModelSelectorContent(
     onRetryLoad: (() -> Unit)? = null,
     syncPanel: (@Composable () -> Unit)? = null,
     favoriteBlocked: (String, String) -> Boolean = { _, _ -> false },
+    onToggleHidden: ((String, String, Boolean) -> Unit)? = null,
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         ModelStatusCard(
@@ -448,6 +455,7 @@ fun ModelSelectorContent(
                     onToggleFavorite = onToggleFavorite,
                     onSelect = onSelect,
                     favoriteBlocked = favoriteBlocked,
+                    onToggleHidden = onToggleHidden,
                 )
             }
         }
@@ -738,6 +746,7 @@ private fun ModelGroupCard(
     onToggleFavorite: (String, String) -> Unit,
     onSelect: (String, String) -> Unit,
     favoriteBlocked: (String, String) -> Boolean = { _, _ -> false },
+    onToggleHidden: ((String, String, Boolean) -> Unit)? = null,
 ) {
     Surface(
         color = modelCardColor(),
@@ -758,7 +767,7 @@ private fun ModelGroupCard(
                                 modifier = Modifier.padding(horizontal = 4.dp),
                             )
                         }
-                        ModelRowItem(row, pendingKey, onToggleFavorite, onSelect, favoriteBlocked)
+                        ModelRowItem(row, pendingKey, onToggleFavorite, onSelect, favoriteBlocked, onToggleHidden)
                     }
                 }
             }
@@ -840,6 +849,7 @@ private fun ModelRowItem(
     onToggleFavorite: (String, String) -> Unit,
     onSelect: (String, String) -> Unit,
     favoriteBlocked: (String, String) -> Boolean = { _, _ -> false },
+    onToggleHidden: ((String, String, Boolean) -> Unit)? = null,
 ) {
     val language = LocalAppLanguage.current
     val key = favKey(row.provider, row.model)
@@ -859,7 +869,7 @@ private fun ModelRowItem(
                 if (highlighted) Modifier.border(1.dp, modelCurrentBorderColor(), RowShape)
                 else Modifier,
             )
-            .clickable(enabled = enabled && row.available) { onSelect(row.provider, row.model) }
+            .clickable(enabled = enabled && row.available && !row.isHidden) { onSelect(row.provider, row.model) }
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -916,6 +926,12 @@ private fun ModelRowItem(
         // also a row you may want to star, and the old layout made the star vanish mid-switch.
         if (isPending) {
             RunSpinner(size = 17.dp, modifier = Modifier.padding(start = 8.dp))
+        }
+        onToggleHidden?.let { toggle ->
+            androidx.compose.material3.TextButton(onClick = { toggle(row.provider, row.model, !row.isHidden) },
+                enabled = enabled && !favoriteBlocked(row.provider, row.model)) {
+                Text(if (row.isHidden) l10n("显示", "Show") else l10n("隐藏", "Hide"))
+            }
         }
         Box(
             Modifier
@@ -984,6 +1000,7 @@ fun ModelSelectorSheet(
     onRetryLoad: (() -> Unit)? = null,
     syncPanel: (@Composable () -> Unit)? = null,
     favoriteBlocked: (String, String) -> Boolean = { _, _ -> false },
+    onToggleHidden: ((String, String, Boolean) -> Unit)? = null,
 ) {
     val sheetState = com.hermes.client.ui.components.hermesSheetState()
     // Sheet gestures are OFF: scrolling the model list can never accidentally collapse or
@@ -1008,7 +1025,7 @@ fun ModelSelectorSheet(
             reasoningEffort = reasoningEffort, onSelectReasoning = onSelectReasoning,
             reasoningPending = reasoningPending,
             listLoading = listLoading, listError = listError, onRetryLoad = onRetryLoad,
-            syncPanel = syncPanel, favoriteBlocked = favoriteBlocked,
+            syncPanel = syncPanel, favoriteBlocked = favoriteBlocked, onToggleHidden = onToggleHidden,
         )
     }
 }

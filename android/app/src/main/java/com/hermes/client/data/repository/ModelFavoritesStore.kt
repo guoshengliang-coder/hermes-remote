@@ -17,14 +17,14 @@ private val Context.modelFavoritesDataStore by preferencesDataStore(name = "mode
 fun favKey(provider: String, model: String): String = "$provider\u0000$model"
 
 /** Account-owned when supported; the original device-global set remains the Legacy source. */
-class ModelFavoritesStore(private val context: Context, val sync: AccountModelPreferences? = null) {
+class ModelFavoritesStore(private val context: Context, val sync: AccountModelPreferences? = null, val instance: InstanceModelPreferences? = null) {
     private val key = stringSetPreferencesKey("favorites")
 
     val legacyFavorites: Flow<Set<String>> =
         context.modelFavoritesDataStore.data.map { it[key] ?: emptySet() }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val favorites: Flow<Set<String>> = flow {
+    private val originalFavorites: Flow<Set<String>> = flow {
         val cloud = sync
         if (cloud == null) emitAll(legacyFavorites) else {
             cloud.ensureBound()
@@ -35,7 +35,17 @@ class ModelFavoritesStore(private val context: Context, val sync: AccountModelPr
         }
     }
 
-    suspend fun toggle(provider: String, model: String, confirmedOwner: String? = null) {
+    val favorites: Flow<Set<String>> = instance?.let { remote ->
+        combine(originalFavorites, remote.state) { original, state -> if (state.active) state.favorites else original }
+    } ?: originalFavorites
+
+    suspend fun toggle(provider: String, model: String, confirmedOwner: String? = null, instanceOwner: String? = null) {
+        instance?.let { remote ->
+            if (remote.state.value.active) {
+                remote.set(provider, model, "favorite", favKey(provider, model) !in remote.state.value.favorites, expectedOwner = instanceOwner ?: remote.state.value.owner)
+                return
+            }
+        }
         sync?.let { cloud ->
             val expected = confirmedOwner ?: cloud.currentOwnerKey()
             cloud.ensureBound()

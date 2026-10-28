@@ -150,7 +150,7 @@ export function supportsWebDeviceAccess(caps: GatewayCapabilities): boolean {
   return caps.accountAuth?.webDeviceAccess === true;
 }
 
-export type WebDeviceFeature = "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "default-model-write" | "session-model-config" | "process-list" | "session-access" | "voice-input";
+export type WebDeviceFeature = "instance-model-preferences" | "session-manage" | "session-delete" | "workspace-move" | "model-select" | "default-model" | "default-model-write" | "session-model-config" | "process-list" | "session-access" | "voice-input";
 
 /** Features this Gateway admits for the Web app; an older Gateway lists none, so nothing extra shows. */
 export function webDeviceFeatures(caps: GatewayCapabilities): ReadonlySet<WebDeviceFeature> {

@@ -455,8 +455,9 @@ object AppModule {
     fun provideModelFavoritesStore(
         @ApplicationContext context: Context,
         sync: com.hermes.client.data.sync.AccountModelPreferences,
+        instance: com.hermes.client.data.repository.InstanceModelPreferences,
     ): com.hermes.client.data.repository.ModelFavoritesStore =
-        com.hermes.client.data.repository.ModelFavoritesStore(context, sync)
+        com.hermes.client.data.repository.ModelFavoritesStore(context, sync, instance)
 
     @Provides
     @Singleton

@@ -20,10 +20,11 @@ import com.hermes.client.ui.localization.resolve
 /** Compact entry in the existing picker. Large queues live in a bounded, paged dialog. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AccountModelSyncPanel(sync: AccountModelPreferences?, loadLegacy: suspend () -> LegacyModelImport, provider: String? = null, model: String? = null) {
+fun AccountModelSyncPanel(sync: AccountModelPreferences?, loadLegacy: suspend () -> LegacyModelImport, provider: String? = null, model: String? = null, reasoningOnly: Boolean = false) {
     if (sync == null) return
     val state by sync.state.collectAsStateWithLifecycle()
     if (!state.useCloud) return
+    val pending = state.pending.filter { !reasoningOnly || it.operation.field == "reasoningPreset" }
     val scope = rememberCoroutineScope()
     val language = LocalAppLanguage.current
     var legacy by remember { mutableStateOf<Pair<String, LegacyModelImport>?>(null) }
@@ -34,7 +35,8 @@ fun AccountModelSyncPanel(sync: AccountModelPreferences?, loadLegacy: suspend ()
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Text(if (!state.enabled) l10n("账号模型同步已暂停", "Account model sync paused")
             else if (!state.ready) l10n("正在读取账号偏好…", "Loading account preferences…")
-            else l10n("账号模型偏好 · 待处理 ${state.pending.size}", "Account model preferences · ${state.pending.size} pending"),
+            else if(reasoningOnly) l10n("账号推理偏好 · 待处理 ${pending.size}", "Account reasoning preferences · ${pending.size} pending")
+            else l10n("账号模型偏好 · 待处理 ${pending.size}", "Account model preferences · ${pending.size} pending"),
             style = MaterialTheme.typography.bodySmall)
         (importError ?: state.error)?.let { Text(it.localizedMessage(language), color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall) }
@@ -49,7 +51,7 @@ fun AccountModelSyncPanel(sync: AccountModelPreferences?, loadLegacy: suspend ()
                 val expected = state.ownerKey
                 scope.launch {
                     try {
-                        val data = loadLegacy()
+                        val data = loadLegacy().let { old -> if (reasoningOnly) old.copy(candidates = old.candidates.filter { it.reasoning != null }.map { it.copy(favorite = false) }) else old }
                         if (sync.state.value.ownerKey == expected) { legacy = expected to data; importError = null }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { if (sync.state.value.ownerKey == expected) importError = AppError(AppErrorCode.MODEL_SYNC_STORAGE, true) }
@@ -57,7 +59,7 @@ fun AccountModelSyncPanel(sync: AccountModelPreferences?, loadLegacy: suspend ()
             }, enabled = state.enabled && state.ready) {
                 Text(l10n("导入本机偏好", "Import local preferences"))
             }
-            if (state.pending.isNotEmpty()) TextButton(onClick = { review = true }) { Text(l10n("查看队列", "Review queue")) }
+            if (pending.isNotEmpty()) TextButton(onClick = { review = true }) { Text(l10n("查看队列", "Review queue")) }
         }
     }
     legacy?.let { (confirmedOwner, data) ->
@@ -68,14 +70,14 @@ fun AccountModelSyncPanel(sync: AccountModelPreferences?, loadLegacy: suspend ()
             dismissButton = { TextButton(onClick = { legacy = null }) { Text(l10n("取消", "Cancel")) } })
     }
     if (review) {
-        val pages = maxOf(1, (state.pending.size + 4) / 5)
+        val pages = maxOf(1, (pending.size + 4) / 5)
         val currentPage = page.coerceIn(0, pages - 1)
         AlertDialog(onDismissRequest = { review = false }, title = { Text(l10n("模型偏好队列", "Model preference queue")) },
             text = {
                 Column(Modifier.heightIn(max = 360.dp).then(Modifier)) {
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f, fill = false)) {
-                        items(state.pending.drop(currentPage * 5).take(5).size) { index ->
-                            val item = state.pending[currentPage * 5 + index]
+                        items(pending.drop(currentPage * 5).take(5).size) { index ->
+                            val item = pending[currentPage * 5 + index]
                             val op = item.operation
                             Column(Modifier.padding(vertical = 6.dp)) {
                                 Text("${op.provider} / ${op.model}", style = MaterialTheme.typography.bodyMedium) // l10n-allow: opaque provider/model identifiers

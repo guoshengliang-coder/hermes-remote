@@ -11,8 +11,10 @@ import type {
 /** Same scope/status controls in the session and default-model picker; no new settings route. */
 export function ModelSyncPanel({
   legacy,
+  reasoningOnly = false,
 }: {
   legacy: ReturnType<typeof legacyModelCandidates>;
+  reasoningOnly?: boolean;
 }) {
   const { modelSync, language, t, account, device } = useApp();
   const [confirm, setConfirm] = useState<AccountModelPreferences | null>(null);
@@ -23,11 +25,13 @@ export function ModelSyncPanel({
   }, [modelSync?.view.owner, modelSync?.client]);
   if (!modelSync) return null;
   const { view, client } = modelSync;
+  const queue = view.pending.filter(p => !reasoningOnly || p.operation.field === "reasoningPreset");
+  const shownLegacy = reasoningOnly ? {...legacy, candidates: legacy.candidates.filter(r=>r.reasoningPreset!==undefined).map(r=>({...r,favorite:undefined}))} : legacy;
   const currentPage = Math.min(
     page,
-    Math.max(0, Math.ceil(view.pending.length / 5) - 1),
+    Math.max(0, Math.ceil(queue.length / 5) - 1),
   );
-  const pending = view.pending.slice(currentPage * 5, currentPage * 5 + 5);
+  const pending = queue.slice(currentPage * 5, currentPage * 5 + 5);
   const label = (value: boolean | ReasoningValue | null) =>
     value === null
       ? t("未记住", "Not saved")
@@ -39,7 +43,7 @@ export function ModelSyncPanel({
   return (
     <section
       class="model-sync-panel"
-      aria-label={t("账号模型偏好", "Account model preferences")}
+      aria-label={reasoningOnly ? t("账号推理偏好", "Account reasoning preferences") : t("账号模型偏好", "Account model preferences")}
     >
       <p class="picker-note" role="status">
         {!view.enabled
@@ -49,12 +53,12 @@ export function ModelSyncPanel({
             )
           : !view.ready
             ? t("正在读取账号模型偏好…", "Loading account model preferences…")
-            : view.pending.length
+            : queue.length
               ? t(
-                  `${view.pending.length} 项模型偏好等待同步或确认`,
-                  `${view.pending.length} model preferences waiting to sync or review`,
+                  `${queue.length} 项模型偏好等待同步或确认`,
+                  `${queue.length} model preferences waiting to sync or review`,
                 )
-              : t(
+              : reasoningOnly ? t("记住的推理偏好随账号同步", "Saved reasoning preferences sync with your account") : t(
                   "收藏与推理偏好随账号同步",
                   "Favorites and reasoning preferences sync with your account",
                 )}
@@ -78,7 +82,7 @@ export function ModelSyncPanel({
           {t("刷新模型偏好", "Refresh model preferences")}
         </button>
       ) : null}
-      {view.enabled && view.ready && legacy.candidates.length > 0 ? (
+      {view.enabled && view.ready && shownLegacy.candidates.length > 0 ? (
         <button
           type="button"
           class="text-button"
@@ -87,11 +91,11 @@ export function ModelSyncPanel({
           {t("导入此设备的旧偏好", "Import this device's old preferences")}
         </button>
       ) : null}
-      {legacy.unresolved > 0 ? (
+      {shownLegacy.unresolved > 0 ? (
         <p class="picker-note">
           {t(
-            `${legacy.unresolved} 项旧偏好无法唯一识别，仍保留在此设备。`,
-            `${legacy.unresolved} old preferences could not be identified uniquely and remain on this device.`,
+            `${shownLegacy.unresolved} 项旧偏好无法唯一识别，仍保留在此设备。`,
+            `${shownLegacy.unresolved} old preferences could not be identified uniquely and remain on this device.`,
           )}
         </p>
       ) : null}
@@ -103,8 +107,8 @@ export function ModelSyncPanel({
         >
           <p>
             {t(
-              `将 ${legacy.candidates.length} 组旧偏好导入当前账号 ${account?.email ?? account?.displayName ?? ""}？本机原数据保留；云端已有设置或取消记录不会自动覆盖。`,
-              `Import ${legacy.candidates.length} old model preferences into ${account?.email ?? account?.displayName ?? "this account"}? Originals stay on this device. Existing cloud settings or cancellations are not overwritten automatically.`,
+              `将 ${shownLegacy.candidates.length} 组旧偏好导入当前账号 ${account?.email ?? account?.displayName ?? ""}？本机原数据保留；云端已有设置或取消记录不会自动覆盖。`,
+              `Import ${shownLegacy.candidates.length} old model preferences into ${account?.email ?? account?.displayName ?? "this account"}? Originals stay on this device. Existing cloud settings or cancellations are not overwritten automatically.`,
             )}
           </p>
           <button
@@ -120,7 +124,7 @@ export function ModelSyncPanel({
             onClick={() => {
               setConfirm(null);
               void confirm?.importLegacy(
-                legacy.candidates,
+                shownLegacy.candidates,
                 `web-local-models:${device?.deviceId ?? "unknown-mac"}`,
               );
             }}
@@ -178,7 +182,7 @@ export function ModelSyncPanel({
           )}
         </div>
       ))}
-      {view.pending.length > 5 ? (
+      {queue.length > 5 ? (
         <div>
           <button
             class="text-button"
@@ -191,7 +195,7 @@ export function ModelSyncPanel({
           <button
             class="text-button"
             type="button"
-            disabled={(currentPage + 1) * 5 >= view.pending.length}
+            disabled={(currentPage + 1) * 5 >= queue.length}
             onClick={() => setPage(currentPage + 1)}
           >
             {t("下一页", "Next")}

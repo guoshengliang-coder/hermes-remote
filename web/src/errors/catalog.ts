@@ -21,6 +21,10 @@ export interface CatalogEntry {
 }
 
 export const CATALOG = {
+  "HR-MODEL-001": { zh: "无法同步此 Mac 的模型偏好，请联网后重试。", en: "Couldn’t sync this Mac’s model preferences. Connect and retry.", retryable: true, action: "retry" },
+  "HR-MODEL-002": { zh: "模型偏好已在其他客户端更新，请刷新后重新选择。", en: "Model preferences changed on another client. Refresh and choose again.", retryable: false, action: "none" },
+  "HR-MODEL-003": { zh: "共享访客不能修改设备主人的模型偏好。", en: "Shared guests can’t change the device owner’s model preferences.", retryable: false, action: "none" },
+
   "HR-CONN-001": { zh: "手机当前没有可用网络，请检查 Wi-Fi 或移动网络，恢复后会自动重连。", en: "Your phone has no network. Check Wi-Fi or mobile data; the app reconnects once it's back.", retryable: true, action: "retry" },
   "HR-CONN-002": { zh: "连不上服务，自动检测也没能确定原因，请重试。", en: "Couldn't reach the service, and automatic checks couldn't find the cause. Retry.", retryable: true, action: "reconnect" },
   "HR-CONN-003": { zh: "Relay 已连上，但会话握手超时，请重试。", en: "The Relay connected, but the session handshake timed out. Retry.", retryable: true, action: "reconnect" },

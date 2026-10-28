@@ -137,3 +137,5 @@ download caching retain the existing client semantics. No shared wire protocol c
 Web video preview additionally requires Gateway shell CSP `media-src blob:`;
 publish that Gateway policy before the Web bundle. Physical Safari/PWA and Android browser
 acceptance remains in SMOKE_TEST.md.
+
+HG-240 adds optional instance-owned model favorites and visibility for compatible Hermes runtimes. Old Hermes remains explicit independent mode. Previous account/local favorites require confirmation to import and remain intact; saved reasoning remains account-owned. See `../docs/INSTANCE_MODEL_PREFERENCES.md` for the paired upstream dependency, owner-only writes, conflict and rollout boundaries. Source implementation is not publication.

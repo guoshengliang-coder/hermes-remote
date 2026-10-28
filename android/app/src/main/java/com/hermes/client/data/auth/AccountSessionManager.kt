@@ -82,7 +82,10 @@ class AccountSessionManager(
     private val _session: MutableStateFlow<AccountSession?> get() = sessionDelegate.value
     val session: StateFlow<AccountSession?> get() = _session.asStateFlow()
     fun accountDataEpoch(): Long = profileOwnerEpoch.get()
+    private val _transportRouteEpoch = MutableStateFlow(0L)
+    val transportRouteEpoch = _transportRouteEpoch.asStateFlow()
     @Volatile private var transportDeviceId: String? = null
+        set(value) { field = value; _transportRouteEpoch.value = _transportRouteEpoch.value + 1 }
 
     /** App-start background services must not force AndroidKeyStore open before an Activity exists. */
     fun hasLoadedConnection(): Boolean = sessionDelegate.isInitialized() &&

@@ -11,7 +11,7 @@ afterEach(() => {
     h.remove();
   }
 });
-function mount() {
+function mount(reasoningOnly = false) {
   const importLegacy = vi.fn(),
     discard = vi.fn(),
     reapply = vi.fn();
@@ -33,7 +33,7 @@ function mount() {
     },
   } as unknown as AppContextValue;
   const legacy = {
-    candidates: [{ provider: "p", model: "m", favorite: true as const }],
+    candidates: [{ provider: "p", model: "m", favorite: true as const }, ...(reasoningOnly ? [{provider:"p",model:"reasoning",reasoningPreset:"high" as const}] : [])],
     unresolved: 1,
   };
   const host = document.createElement("div");
@@ -43,7 +43,7 @@ function mount() {
     act(() =>
       render(
         <AppContext.Provider value={value}>
-          <ModelSyncPanel legacy={legacy} />
+          <ModelSyncPanel legacy={legacy} reasoningOnly={reasoningOnly} />
         </AppContext.Provider>,
         host,
       ),
@@ -95,4 +95,14 @@ it("model errors have bilingual retry and diagnostic-redaction contracts", () =>
     expect(e.retryable).toBe(code === "HR-SYNC-017");
     expect(diagnostics(e)).not.toContain("private");
   }
+});
+
+it("instance mode preserves reasoning import without importing old account favorites",()=>{
+  const m=mount(true);
+  expect(m.host.textContent).toContain("记住的推理偏好随账号同步");
+  m.click("导入此设备的旧偏好");m.click("确认导入");
+  const candidates=m.importLegacy.mock.calls[0]?.[0];
+  expect(candidates).toHaveLength(1);
+  expect(candidates[0]).toMatchObject({model:"reasoning",reasoningPreset:"high"});
+  expect(candidates[0].favorite).not.toBe(true);
 });

@@ -183,6 +183,7 @@ test("the Web app reaches the device API, WebSocket and inbox with its session c
     };
     assert.equal(capabilities.accountAuth.webDeviceAccess, true);
     assert.deepEqual(capabilities.accountAuth.webDeviceFeatures, [
+      "instance-model-preferences",
       "session-manage", "session-delete", "workspace-move", "model-select", "default-model", "default-model-write", "session-model-config", "process-list", "session-access",
     ]);
     const shell = await fetch(`${origin}/app/sessions/abc`);
