@@ -24,6 +24,7 @@ data class VideoFeedbackDocument(val schemaVersion: Int = 1, val notes: List<Vid
         require(notes.map { it.id }.distinct().size == notes.size)
         require(notes.all { it.valid(Long.MAX_VALUE) })
         require(draft == null || draft.start.length <= 32 && draft.end.length <= 32 && draft.text.length <= VIDEO_NOTE_TEXT_LIMIT)
+        require(draft?.id == null || notes.any { it.id == draft.id })
     }
 }
 

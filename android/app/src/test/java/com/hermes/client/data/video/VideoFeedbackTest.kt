@@ -42,6 +42,19 @@ class VideoFeedbackTest {
             assertNotEquals(key, videoFeedbackKey(parts.first, parts.second, parts.third))
         assertNotEquals(videoFeedbackKey("a", "bc", "d"), videoFeedbackKey("ab", "c", "d"))
     }
+    @Test fun prepared_streaming_generation_matches_completed_download_and_local_version_is_frozen() {
+        val source = ArtifactRangeRepository.Source("owner", "mac", "/clip.mp4",
+            com.hermes.client.domain.ArtifactDownloadDescriptor("artifact", 123, "etag-v1", "video/mp4", 1000))
+        assertEquals(ArtifactRangeCache.identity("owner", "/clip.mp4", "etag-v1", 123),
+            VideoPlayback(source = source).feedbackGeneration)
+        val file = temporary.newFile("clip.mp4").apply { writeText("v1") }
+        val first = VideoPlayback(localFile = file)
+        val original = first.feedbackGeneration
+        assertEquals(original, VideoPlayback(localFile = file).feedbackGeneration)
+        file.writeText("different version")
+        assertNotEquals(original, VideoPlayback(localFile = file).feedbackGeneration)
+        assertEquals(original, first.feedbackGeneration)
+    }
     @Test fun saved_edits_deletes_and_separate_versions_survive_new_store_instance() = runBlocking {
         val directory = temporary.newFolder()
         val key = videoFeedbackKey("scope", "video", "v1")

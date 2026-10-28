@@ -169,6 +169,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "无法导出批注文件，请重试；批注和会话草稿仍保留。", "Couldn't export video notes. Retry; notes and the conversation draft are retained.")
         AppErrorCode.VIDEO_NOTES_INVALID ->
             localized(language, "请填写有效时间和批注；片段结束须晚于开始且不超过视频时长。", "Enter a valid time and note. The end must follow the start and stay within the video duration.")
+        AppErrorCode.VIDEO_NOTES_ATTACHMENTS_FULL ->
+            localized(language, "原会话附件已满，请先移除一个附件，再加入批注文件。", "The original chat's attachments are full. Remove an attachment, then attach the notes again.")
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->

@@ -52,6 +52,8 @@ internal fun VideoPlayerContent(
     precache: VideoPrecacheState = VideoPrecacheState(),
     onCacheRetry: () -> Unit = {},
     onStatusDiagnostics: (AppError) -> Unit = {},
+    onAnnotate: (() -> Unit)? = null,
+    annotating: Boolean = false,
     video: @Composable () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
@@ -63,7 +65,7 @@ internal fun VideoPlayerContent(
     val boost by rememberUpdatedState(onBoost)
     var seeking by remember { mutableStateOf<Float?>(null) }
     var interaction by remember { mutableIntStateOf(0) }
-    val pinned = !state.wantsPlay || state.buffering || error != null || menu || speedMenu || holdMenu || seeking != null
+    val pinned = annotating || !state.wantsPlay || state.buffering || error != null || menu || speedMenu || holdMenu || seeking != null
     LaunchedEffect(pinned, interaction) {
         controls = true
         if (!pinned) { delay(3_000); controls = false }
@@ -92,6 +94,9 @@ internal fun VideoPlayerContent(
                 MediaButton(Icons.Rounded.Close, localized(language, "关闭", "Close"), onClick = onClose)
                 Text(name, Modifier.weight(1f).padding(horizontal = 8.dp), color = Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                if (onAnnotate != null && !annotating) TextButton(onClick = onAnnotate) {
+                    Text(localized(language, "批注", "Annotate"), color = Color.White)
+                }
                 Box {
                     MediaButton(Icons.Rounded.MoreVert, localized(language, "更多", "More"), onClick = { menu = true })
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false; interaction++ }) {

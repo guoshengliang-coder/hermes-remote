@@ -87,5 +87,10 @@ class VideoFeedbackViewModelTest {
         val invalid = AppError(AppErrorCode.VIDEO_NOTES_INVALID, false)
         assertEquals(invalid.code, AppErrorCode.fromValue("HR-ANNOT-003"))
         assertNotEquals(invalid.localizedSummary(AppLanguage.ZH), invalid.localizedSummary(AppLanguage.EN))
+        val full = AppError(AppErrorCode.VIDEO_NOTES_ATTACHMENTS_FULL, false)
+        assertEquals(full.code, AppErrorCode.fromValue("HR-ANNOT-004"))
+        assertFalse(full.retryable)
+        assertTrue(full.localizedSummary(AppLanguage.ZH).contains("移除"))
+        assertTrue(full.localizedSummary(AppLanguage.EN).contains("Remove"))
     }
 }

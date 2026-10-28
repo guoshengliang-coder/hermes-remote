@@ -9,6 +9,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.video.*
@@ -25,6 +29,9 @@ internal fun VideoFeedbackPanel(
 ) {
     val language = LocalAppLanguage.current
     val context = LocalContext.current
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val document = state.document
     var deleting by remember { mutableStateOf<String?>(null) }
     Surface(modifier.testTag("video-notes-panel")) {
@@ -33,7 +40,7 @@ internal fun VideoFeedbackPanel(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(localized(language, "视频批注", "Video notes"), Modifier.weight(1f).padding(vertical = 12.dp),
                     style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = onClose) { Text(localized(language, "返回视频", "Back to video")) }
+                TextButton(onClick = { focus.clearFocus(); keyboard?.hide(); onClose() }) { Text(localized(language, "返回视频", "Back to video")) }
             }
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 12.dp)) {
@@ -80,24 +87,26 @@ internal fun VideoFeedbackPanel(
                                 style = MaterialTheme.typography.bodySmall)
                             OutlinedTextField(value = draft.start, onValueChange = { if (it.length <= 32) onDraft(draft.copy(start = it)) },
                                 label = { Text(localized(language, "开始 / 时间点", "Start / point")) }, singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), modifier = Modifier.fillMaxWidth())
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                                modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) position() })
                             TextButton(onClick = { onDraft(draft.copy(start = videoNoteTime(position()))) }) {
                                 Text(localized(language, "用当前播放位置设为开始", "Set start to current position"))
                             }
                             if (draft.range) {
                                 OutlinedTextField(value = draft.end, onValueChange = { if (it.length <= 32) onDraft(draft.copy(end = it)) },
                                     label = { Text(localized(language, "结束", "End")) }, singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), modifier = Modifier.fillMaxWidth())
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                                    modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) position() })
                                 TextButton(onClick = { onDraft(draft.copy(end = videoNoteTime(position()))) }) {
                                     Text(localized(language, "用当前播放位置设为结束", "Set end to current position"))
                                 }
                             }
                             OutlinedTextField(value = draft.text, onValueChange = { if (it.length <= VIDEO_NOTE_TEXT_LIMIT) onDraft(draft.copy(text = it)) },
                                 label = { Text(localized(language, "修改意见", "Feedback")) }, minLines = 3,
-                                modifier = Modifier.fillMaxWidth().testTag("video-note-text"))
+                                modifier = Modifier.fillMaxWidth().testTag("video-note-text").onFocusChanged { if (it.isFocused) position() })
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = onCommit) { Text(localized(language, "保存批注", "Save note")) }
-                                TextButton(onClick = { onDraft(null) }) { Text(localized(language, "取消编辑", "Cancel edit")) }
+                                Button(onClick = { onCommit(); focus.clearFocus(); keyboard?.hide() }) { Text(localized(language, "保存批注", "Save note")) }
+                                TextButton(onClick = { onDraft(null); focus.clearFocus(); keyboard?.hide() }) { Text(localized(language, "取消编辑", "Cancel edit")) }
                             }
                         }
                     }
@@ -123,9 +132,9 @@ internal fun VideoFeedbackPanel(
                     }
                 }
             }
-            if (document.draft != null) Text(localized(language, "草稿自动保存；保存当前批注后可导出。", "Draft saved automatically. Save this note before exporting."),
+            if (document.draft != null && !keyboardVisible) Text(localized(language, "草稿自动保存；保存当前批注后可导出。", "Draft saved automatically. Save this note before exporting."),
                 style = MaterialTheme.typography.bodySmall)
-            FlowRow(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (!keyboardVisible) FlowRow(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val enabled = state.loaded && document.notes.isNotEmpty() && document.draft == null && !busy
                 OutlinedButton(enabled = enabled, onClick = onSaveFile) { Text(localized(language, "保存 .md", "Save .md")) }
                 Button(enabled = enabled, onClick = onAttach) { Text(localized(language, "加入原会话", "Attach to chat")) }

@@ -28,6 +28,19 @@ import org.robolectric.annotation.GraphicsMode
 class VideoPlayerContentTest {
     @get:Rule val compose = createComposeRule()
     private val playing = VideoPlayerState(position = 12_000, duration = 60_000, buffered = 28_000, wantsPlay = true, hasFrame = true)
+    @Test fun annotation_entry_pins_playback_controls_until_the_editor_is_closed() {
+        var editing by mutableStateOf(false)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { HermesTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+            VideoPlayerContent("fixture.mp4", playing, onAnnotate = { editing = true }, annotating = editing)
+        } } }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onRoot().captureRoboImage("screenshots/video-feedback-entry.png")
+        compose.onNodeWithText("Annotate").assertIsDisplayed().performClick()
+        compose.mainClock.advanceTimeBy(4_100)
+        compose.onNodeWithText("Annotate").assertDoesNotExist()
+        compose.onNodeWithContentDescription("More").assertIsDisplayed()
+    }
     @Test fun controls_auto_hide_and_tap_reveals_while_pause_pins_controls() {
         compose.mainClock.autoAdvance = false
         var state by mutableStateOf(playing)

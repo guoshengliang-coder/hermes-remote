@@ -17,6 +17,10 @@ class VideoPlayback(
     initialPosition: Long = 0,
     private val rememberPosition: (Long) -> Unit = {},
 ) {
+    /** Freeze the prepared generation; cache completion must not move notes to a new identity. */
+    val feedbackGeneration: String? = source?.key ?: localFile?.let {
+        videoFeedbackKey("local-video", it.absolutePath, "${it.length()}:${it.lastModified()}")
+    }
     var positionMs: Long = initialPosition
         set(value) { field = value; rememberPosition(value) }
     fun networkSpeed(): VideoNetworkSpeed? = source?.networkSpeed?.snapshot()

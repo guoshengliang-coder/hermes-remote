@@ -178,6 +178,59 @@ class ChatViewModelTest {
     // profileManager.active is null in these tests, hence "default/…".
     private val draftToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s1")
 
+    @Test fun video_feedback_stages_in_original_composer_without_sending_or_replacing_draft() = runUnsentComposerTest {
+        drafts = com.hermes.client.data.repository.FakeDraftSnapshot(listOf(
+            com.hermes.client.data.repository.DraftRecord(token = draftToken, text = "已有草稿", updatedAt = 1L)))
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        vm.stageAttachment("existing".toByteArray(), "text/plain", "existing.txt")
+        val feedback = java.io.File.createTempFile("video-feedback-", ".md").apply { writeText("# 修改意见") }
+        try {
+            assertNull(vm.stageVideoFeedback(feedback, vm.workspaceUiKey("s1", null, null)))
+            assertEquals("已有草稿", vm.initialDraft.value)
+            assertEquals(listOf("existing.txt", feedback.name), vm.state.value.pendingAttachments.map { it.name })
+            assertEquals("text/markdown", vm.state.value.pendingAttachments.last().mimeType)
+            coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+            coVerify(exactly = 0) { fileRepo.uploadStagedFile(any(), any(), any()) }
+        } finally { feedback.delete() }
+    }
+
+    @Test fun video_feedback_rejects_changed_scope_and_full_composer_without_losing_attachments() = runUnsentComposerTest {
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        val feedback = java.io.File.createTempFile("video-feedback-", ".md").apply { writeText("# 修改意见") }
+        try {
+            assertEquals(com.hermes.client.data.error.AppErrorCode.VIDEO_NOTES_EXPORT,
+                vm.stageVideoFeedback(feedback, vm.workspaceUiKey("another-chat", null, null))!!.code)
+            assertTrue(vm.state.value.pendingAttachments.isEmpty())
+            repeat(ATTACH_CAP) { vm.stageAttachment(byteArrayOf(1), "text/plain", "existing-$it.txt") }
+            val before = vm.state.value.pendingAttachments
+            assertEquals(com.hermes.client.data.error.AppErrorCode.VIDEO_NOTES_ATTACHMENTS_FULL,
+                vm.stageVideoFeedback(feedback, vm.workspaceUiKey("s1", null, null))!!.code)
+            assertEquals(before, vm.state.value.pendingAttachments)
+            assertTrue(feedback.isFile)
+            coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+        } finally { feedback.delete() }
+    }
+
+    @Test fun video_feedback_is_uploaded_only_after_the_user_sends() = runUnsentComposerTest {
+        connectionStateFlow.value = ConnectionState.Connected
+        coEvery { chatRepo.resume("s1", null) } returns "s1-live"
+        val feedback = java.io.File.createTempFile("video-feedback-", ".md").apply { writeText("# 修改意见") }
+        coEvery { chatRepo.attachFilePath("s1-live", "/tmp/uploaded", feedback.name) } returns
+            com.hermes.client.data.repository.AttachedFile(feedback.name, "/tmp/uploaded", "@file:/tmp/uploaded")
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        try {
+            assertNull(vm.stageVideoFeedback(feedback, vm.workspaceUiKey("s1", null, null)))
+            coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+            vm.send("请按批注修改"); runCurrent()
+            coVerify(exactly = 1) { fileRepo.uploadStagedFile(feedback, feedback.name, "text/markdown") }
+            coVerify(exactly = 1) { chatRepo.submit("s1-live", "请按批注修改\n@file:/tmp/uploaded") }
+            events.emit(event("message.complete", "s1-live", "done")); runCurrent()
+        } finally { feedback.delete() }
+    }
+
     @Test fun small_legacy_video_retains_full_download_fallback_and_owner_scoped_position() = runUnsentComposerTest {
         val downloads = mockk<com.hermes.client.data.downloads.ArtifactDownloadManager>()
         val ranges = mockk<com.hermes.client.data.video.ArtifactRangeRepository>()

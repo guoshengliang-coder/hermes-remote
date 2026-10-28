@@ -546,6 +546,7 @@ No error IDs, wire payloads or Android/Web/Cloud behavior change.
 | `HR-ANNOT-001` | Local annotation read/write failed. Retry the failed operation; retain edits and never overwrite an unreadable document with an empty one. | 无法读取或保存视频批注，请重试；当前编辑仍保留。 | Couldn't read or save video notes. Retry; current edits are retained. | Yes |
 | `HR-ANNOT-002` | Markdown file export or staging failed. Retry Save/Attach; retain notes and existing composer content. | 无法导出批注文件，请重试；批注和会话草稿仍保留。 | Couldn't export video notes. Retry; notes and the conversation draft are retained. | Yes |
 | `HR-ANNOT-003` | Invalid time, interval, empty note or annotation limit. Correct the note before saving. | 请填写有效时间和批注；片段结束须晚于开始且不超过视频时长。 | Enter a valid time and note. The end must follow the start and stay within the video duration. | No |
+| `HR-ANNOT-004` | The original composer's attachment slots are full. Return to the chat, remove an attachment, then attach the notes again. | 原会话附件已满，请先移除一个附件，再加入批注文件。 | The original chat's attachments are full. Remove an attachment, then attach the notes again. | No |
 
 These are Android-local codes; no Gateway, Connector, Desktop or Web contract changes. Diagnostics
 contain only a fixed operation stage and exception class, never note text, paths or account identifiers.

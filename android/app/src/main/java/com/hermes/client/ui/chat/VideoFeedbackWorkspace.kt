@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -33,12 +34,14 @@ data class VideoFeedbackContext(
 internal fun VideoFeedbackWorkspace(
     name: String, context: VideoFeedbackContext?, generation: String?, duration: Long,
     position: () -> Long, seek: (Long) -> Unit, onAttached: () -> Unit,
+    mode: MutableState<Boolean>? = null,
     video: @Composable (annotate: (() -> Unit)?, editing: Boolean) -> Unit,
 ) {
     val androidContext = LocalContext.current
     val language = LocalAppLanguage.current
     val coroutine = rememberCoroutineScope()
-    var editing by rememberSaveable { mutableStateOf(false) }
+    val localMode = rememberSaveable { mutableStateOf(false) }
+    var editing by (mode ?: localMode)
     var busy by remember { mutableStateOf(false) }
     var exportError by remember { mutableStateOf<AppError?>(null) }
     var pendingSave by rememberSaveable { mutableStateOf<String?>(null) }
@@ -92,7 +95,7 @@ internal fun VideoFeedbackWorkspace(
                 if (attach) {
                     // The parent rechecks the live conversation/account and attachment capacity.
                     val error = if (currentContext?.scope == info.scope) currentContext?.attach?.invoke(exported)
-                        else AppError(AppErrorCode.AUTHENTICATION_FAILED, false, stage = "video_notes_attach_scope")
+                        else AppError(AppErrorCode.VIDEO_NOTES_EXPORT, true, stage = "video_notes_attach_scope")
                     if (error != null) exportError = error else { output = null; onAttached() }
                 } else {
                     pendingSave = exported.path
@@ -108,13 +111,15 @@ internal fun VideoFeedbackWorkspace(
     val content: @Composable () -> Unit = {
         video(if (vm != null) { { position(); editing = true } } else null, editing)
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
         if (editing && vm != null) {
             val panel: @Composable (Modifier) -> Unit = { modifier ->
                 VideoFeedbackPanel(vm.state, duration, position, vm::edit, { vm.commit(duration) }, vm::delete,
                     seek, vm::retry, { export(false) }, { export(true) }, { editing = false }, busy || pendingSave != null, modifier)
             }
-            if (maxWidth > maxHeight) Row(Modifier.fillMaxSize()) {
+            if (keyboardVisible) panel(Modifier.fillMaxSize())
+            else if (maxWidth > maxHeight) Row(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxHeight()) { content() }
                 panel(Modifier.widthIn(max = 420.dp).weight(1f).fillMaxHeight())
             } else Column(Modifier.fillMaxSize()) {

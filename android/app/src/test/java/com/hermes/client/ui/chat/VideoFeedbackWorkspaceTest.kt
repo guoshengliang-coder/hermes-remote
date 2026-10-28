@@ -8,8 +8,6 @@ import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -48,8 +46,9 @@ class VideoFeedbackWorkspaceTest {
                         VideoFeedbackWorkspace("movie.mp4", VideoFeedbackContext(scope, "/work/movie.mp4", "原会话", attach = {
                             if (refusal == null) attached = it
                             refusal
-                        }), generation, 60_000, { 1234 }, {}, { closed++ }) { annotate, _ ->
-                            if (annotate != null) Button(onClick = annotate) { Text("Annotate") }
+                        }), generation, 60_000, { 1234 }, {}, { closed++ }) { annotate, editing ->
+                            VideoPlayerContent("movie.mp4", VideoPlayerState(position = 1234, duration = 60_000, hasFrame = true),
+                                onAnnotate = annotate, annotating = editing)
                         }
                     }
                     if (registry == null) content() else CompositionLocalProvider(LocalActivityResultRegistryOwner provides registry) { content() }
@@ -60,6 +59,16 @@ class VideoFeedbackWorkspaceTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Saved on this device · This video version").fetchSemanticsNodes().isNotEmpty() }
     }
     @After fun cleanup() { attached?.delete() }
+    @Test fun range_editor_commits_typed_feedback_before_exporting() {
+        fixture()
+        compose.onNodeWithText("Note a range").performClick()
+        compose.onNodeWithText("End").performScrollTo().performTextReplacement("0:04.567")
+        compose.onNodeWithTag("video-note-text").performScrollTo().performTextInput("延长片段并保留原声")
+        compose.onNodeWithText("Save note").performScrollTo().performClick()
+        compose.onNodeWithText("Attach to chat").assertIsEnabled().performClick()
+        compose.waitUntil(5_000) { attached != null }
+        assertTrue(attached!!.readText().contains("延长片段并保留原声"))
+    }
     @Test fun attach_generates_a_real_markdown_file_and_returns_to_the_original_composer() {
         fixture()
         compose.onNodeWithText("Attach to chat").performClick()
@@ -73,10 +82,10 @@ class VideoFeedbackWorkspaceTest {
         compose.runOnIdle { assertEquals(1, closed) }
     }
     @Test fun attachment_refusal_preserves_notes_and_does_not_close_the_viewer() {
-        refusal = AppError(AppErrorCode.UPLOAD_BUSY, false)
+        refusal = AppError(AppErrorCode.VIDEO_NOTES_ATTACHMENTS_FULL, false)
         fixture()
         compose.onNodeWithText("Attach to chat").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("HR-FILE-009", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("HR-ANNOT-004", substring = true).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Back to notes").performClick()
         assertNull(attached); assertEquals(0, closed)
         compose.onNodeWithText("Attach to chat").assertIsEnabled()
