@@ -1,3 +1,8 @@
+HG-242 gives each unknown-delivery notice bounded Check status progress and an explicit unknown/error
+result. Remove local notice requires confirmation, durably clears only that phone's record, and never
+cancels Mac work, deletes server history or resends a prompt. Evidence and device limits:
+`../docs/HG_242_DELIVERY_RECOVERY.md`. No APK is allocated or published by this source change.
+
 HG-239 keeps approval decisions in a fixed bottom action area while long commands, descriptions,
 grants and owner warnings scroll above it. Commands remain horizontally readable in full; scrolling
 cannot dismiss or approve a pending request. Standard scopes and elevated slide-to-confirm stay

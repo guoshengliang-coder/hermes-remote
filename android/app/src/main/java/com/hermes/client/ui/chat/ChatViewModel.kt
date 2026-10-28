@@ -196,6 +196,12 @@ class ChatViewModel @Inject constructor(
     private val _state = MutableStateFlow(ChatUiState.empty())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
+    private val _deliveryRecovery = MutableStateFlow<Map<String, MessageDeliveryRecovery>>(emptyMap())
+    val deliveryRecovery: StateFlow<Map<String, MessageDeliveryRecovery>> = _deliveryRecovery.asStateFlow()
+    private val deliveryCheckJobs = mutableMapOf<String, Job>()
+    // A slow restore may already hold a stale disk snapshot when removal commits.
+    private val removedUnknownNotices = mutableSetOf<Pair<String, String>>()
+
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
     /**
@@ -878,6 +884,9 @@ class ChatViewModel @Inject constructor(
             existingKey?.let { runtimeStore.requestReuseReconcile(it) }
             return
         }
+        deliveryCheckJobs.values.forEach { it.cancel() }
+        deliveryCheckJobs.clear()
+        _deliveryRecovery.value = emptyMap()
         refreshJob?.cancel()
         _refreshing.value = false
         cachedHistoryJob?.cancel()
@@ -1787,6 +1796,7 @@ class ChatViewModel @Inject constructor(
             unsentWriteJob?.join()
             unsentStore.readAll(token).forEach { record ->
                 if (storedSessionId != sessionId || unsentToken != token) return@launch
+                if ((token to record.messageId) in removedUnknownNotices) return@forEach
                 if (failedSends.containsKey(record.messageId)) return@forEach
                 if (record.deliveryUnconfirmed) {
                     val restore: (ChatUiState) -> ChatUiState = { state ->
@@ -1897,10 +1907,91 @@ class ChatViewModel @Inject constructor(
         if (_state.value.messages.any { it.id == messageId && it.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED })
             com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN else failedSends[messageId]?.error?.code
 
-    /** A read-only refresh. Never route an unknown outcome through retrySend. */
+    private fun hasUnknownNotice(messageId: String): Boolean = _state.value.messages.any {
+        it.id == messageId && it.serverId == null && it.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED
+    }
+
+    /** A bounded read, with its own result. Equal text never proves submission identity. */
     fun checkMessageDelivery(messageId: String) {
-        if (_state.value.messages.any { it.id == messageId && it.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED }) {
-            refreshCurrentConversation()
+        if (!hasUnknownNotice(messageId) || _deliveryRecovery.value[messageId]?.let { it.checking || it.removing } == true) return
+        val key = runtimeKey ?: return
+        val id = storedSessionId
+        val profile = currentProfile
+        val device = currentDeviceId
+        _deliveryRecovery.update { it + (messageId to MessageDeliveryRecovery(checking = true)) }
+        deliveryCheckJobs[messageId] = viewModelScope.launch {
+            fun stillCurrent() = runtimeKey == key && hasUnknownNotice(messageId) &&
+                _deliveryRecovery.value[messageId]?.removing != true
+            try {
+                withTimeout(30_000L) {
+                    runtimeStore.probe(key, force = true, includeIdle = true)
+                    val raw = sessions.history(id, profile, device)
+                    val history = withContext(defaultDispatcher) { raw.map { it.organizedForDisplay() } }
+                    if (!stillCurrent()) return@withTimeout
+                    val result = runtimeStore.acceptManualHistory(key, history)
+                    runtimeStore.runtimes.value[key]?.chat?.let { _state.value = it }
+                    if (result == ManualHistoryResult.BUSY) {
+                        deliveryCheckFailed(messageId, com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.HISTORY_INCOMPLETE, retryable = true,
+                            stage = "delivery_check", technicalCause = "history does not cover the live conversation",
+                        ))
+                    } else _deliveryRecovery.update { it + (messageId to MessageDeliveryRecovery(checked = true)) }
+                }
+            } catch (timeout: TimeoutCancellationException) {
+                if (stillCurrent()) deliveryCheckFailed(messageId, com.hermes.client.data.error.AppError(
+                    com.hermes.client.data.error.AppErrorCode.HISTORY_INCOMPLETE, retryable = true,
+                    stage = "delivery_check", technicalCause = "status query deadline exceeded",
+                ))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (stillCurrent()) deliveryCheckFailed(messageId, com.hermes.client.data.error.historyFailure(error))
+            }
+        }
+    }
+
+    private fun deliveryCheckFailed(messageId: String, error: com.hermes.client.data.error.AppError) {
+        _deliveryRecovery.update { it + (messageId to MessageDeliveryRecovery(error = error)) }
+    }
+
+    /** Called only after the UI explains and confirms local removal. Never contacts the Mac. */
+    fun removeUnknownNotice(messageId: String) {
+        if (!hasUnknownNotice(messageId) || _deliveryRecovery.value[messageId]?.removing == true) return
+        val token = unsentToken ?: return
+        val key = runtimeKey ?: return
+        deliveryCheckJobs.remove(messageId)?.cancel()
+        _deliveryRecovery.update { it + (messageId to MessageDeliveryRecovery(removing = true)) }
+        // Use the same application-scope write queue as pre-submit persistence. Navigation cannot
+        // cancel the durable commit, or let an earlier queued save put the record back afterwards.
+        writeUnsent {
+            try {
+                unsentStore.removeUnknownNotice(token, messageId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    if (runtimeKey == key && unsentToken == token) {
+                        deliveryCheckFailed(messageId, com.hermes.client.data.error.AppError(
+                            com.hermes.client.data.error.AppErrorCode.UNKNOWN_NOTICE_REMOVE_FAILED,
+                            retryable = true, stage = "unknown_notice_remove",
+                            technicalCause = error::class.simpleName,
+                        ))
+                    }
+                }
+                return@writeUnsent
+            }
+            // The application write scope is IO; runtime/UI state and restore fences live on Main.
+            withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                removedUnknownNotices += token to messageId
+                runtimeStore.updateChat(key) { state -> state.copy(messages = state.messages.filterNot {
+                    it.id == messageId && it.serverId == null &&
+                        it.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED
+                }) }
+                if (runtimeKey == key && unsentToken == token) {
+                    runtimeStore.runtimes.value[key]?.chat?.let { _state.value = it }
+                    _deliveryRecovery.update { it - messageId }
+                }
+            }
         }
     }
 
