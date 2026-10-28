@@ -502,6 +502,8 @@ fun ChatMessageList(
     onEditResend: (String) -> Unit = {},
     onRetrySend: (String) -> Unit = {},
     onCheckDelivery: (String) -> Unit = {},
+    onRemoveUnknownNotice: (String) -> Unit = {},
+    deliveryRecovery: Map<String, MessageDeliveryRecovery> = emptyMap(),
     onDiscardSend: (String) -> Unit = {},
     sendDiagnosticFor: (String) -> String? = { null },
     sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode? = { null },
@@ -1298,6 +1300,8 @@ fun ChatMessageList(
                         onEditResend,
                         onRetrySend,
                         onCheckDelivery,
+                        onRemoveUnknownNotice,
+                        deliveryRecovery[msg.id] ?: MessageDeliveryRecovery(),
                         onDiscardSend,
                         sendDiagnosticFor,
                         sendErrorCodeFor,
@@ -1562,6 +1566,8 @@ private fun MessageBubble(
     onEditResend: (String) -> Unit,
     onRetrySend: (String) -> Unit,
     onCheckDelivery: (String) -> Unit,
+    onRemoveUnknownNotice: (String) -> Unit,
+    deliveryRecovery: MessageDeliveryRecovery,
     onDiscardSend: (String) -> Unit,
     sendDiagnosticFor: (String) -> String?,
     sendErrorCodeFor: (String) -> com.hermes.client.data.error.AppErrorCode?,
@@ -1589,7 +1595,7 @@ private fun MessageBubble(
         LocalTurnIsCurrentHit provides (searchContext != null && searchContext.currentMessageId == msg.id),
     ) {
         when (msg.role) {
-            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, landingAlpha = landingAlpha, onRetrySend = onRetrySend, onCheckDelivery = onCheckDelivery, onDiscardSend = onDiscardSend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
+            Role.USER -> UserBubble(msg, onEditResend, onOpenImage, onFileOpen, onFileShare, landingAlpha = landingAlpha, onRetrySend = onRetrySend, onCheckDelivery = onCheckDelivery, onRemoveUnknownNotice = onRemoveUnknownNotice, deliveryRecovery = deliveryRecovery, onDiscardSend = onDiscardSend, sendDiagnostic = sendDiagnosticFor(msg.id), sendErrorCode = sendErrorCodeFor(msg.id))
             else -> AssistantTurn(msg, canRegenerate, showAssistantActions, onRegenerate, onRetryWithModel, onOpenTableFullscreen, isSpeaking, onReadAloud, onStopReading, onOpenImage, onFileOpen, onFileShare, smoothLiveResize = smoothLiveResize, landingAlpha = landingAlpha)
     }
     }
@@ -1668,6 +1674,8 @@ internal fun UserBubble(
     landingAlpha: Float = 0f,
     onRetrySend: (String) -> Unit = {},
     onCheckDelivery: (String) -> Unit = {},
+    onRemoveUnknownNotice: (String) -> Unit = {},
+    deliveryRecovery: MessageDeliveryRecovery = MessageDeliveryRecovery(),
     onDiscardSend: (String) -> Unit = {},
     sendDiagnostic: String? = null,
     sendErrorCode: com.hermes.client.data.error.AppErrorCode? = null,
@@ -1841,15 +1849,9 @@ internal fun UserBubble(
             }
         }
         if (unknown) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.widthIn(max = bubbleMaxWidth).padding(top = 4.dp, end = 4.dp)) {
-                Text(localized(language, "投递结果未知", "Delivery unknown"),
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f, fill = false))
-                Spacer(Modifier.width(6.dp))
-                Text(com.hermes.client.data.error.AppErrorCode.MESSAGE_OUTCOME_UNKNOWN.compact, style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
-                TextButton(onClick = { onCheckDelivery(msg.id) }) {
-                    Text(localized(language, "重新核对", "Check status"))
+            Box(Modifier.widthIn(max = bubbleMaxWidth)) {
+                UnknownDeliveryActions(msg.id, deliveryRecovery, onCheckDelivery, onRemoveUnknownNotice) { diagnostic ->
+                    copyToClipboard(diagnostic, clipboard, context, localized(language, "诊断信息已复制", "Diagnostics copied"))
                 }
             }
         }

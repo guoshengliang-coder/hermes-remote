@@ -236,6 +236,7 @@ fun ChatScreen(
     val currentProvider by vm.currentProvider.collectAsStateWithLifecycle()
     val modelSheet by vm.modelSheet.collectAsStateWithLifecycle()
     val refreshingConversation by vm.refreshing.collectAsStateWithLifecycle()
+    val deliveryRecovery by vm.deliveryRecovery.collectAsStateWithLifecycle()
     val olderHistory by vm.olderHistory.collectAsStateWithLifecycle()
     var modelSheetOpen by rememberSaveable(sessionId) { mutableStateOf(false) }
     // "Retry with another model": the model sheet doubles as the picker; when this flag is set,
@@ -1710,6 +1711,8 @@ fun ChatScreen(
                         onEditResend = { editUnsent(it) },
                         onRetrySend = { if (editingUnsentId == it) editUnsent(it) else vm.retrySend(it) },
                         onCheckDelivery = vm::checkMessageDelivery,
+                        onRemoveUnknownNotice = vm::removeUnknownNotice,
+                        deliveryRecovery = deliveryRecovery,
                         onDiscardSend = {
                             if (vm.sendErrorCode(it) == AppErrorCode.UNSENT_ATTACHMENTS_LOST) vm.discardFailedSend(it)
                             else editUnsent(it, withdraw = true)

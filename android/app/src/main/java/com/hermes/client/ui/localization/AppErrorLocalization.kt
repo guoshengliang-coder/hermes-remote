@@ -189,6 +189,8 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             )
         AppErrorCode.GALLERY_READ_FAILED ->
             localized(language, "无法读取手机图库，请重试。", "Couldn't read the photo gallery. Retry.")
+        AppErrorCode.UNKNOWN_NOTICE_REMOVE_FAILED ->
+            localized(language, "无法移除本机提示，原提示已保留，请重试。", "Couldn't remove the local notice. It has been kept; retry.")
         AppErrorCode.PROFILE_IDENTITY_SAVE_FAILED ->
             localized(language, "无法保存身份设置，请重试。", "Couldn't save the profile settings. Retry.")
         AppErrorCode.CHART_RENDER_FAILED -> localized(language, "图表暂时无法显示，请重试或查看原始表格。", "The chart couldn't be displayed. Retry or view the original table.")

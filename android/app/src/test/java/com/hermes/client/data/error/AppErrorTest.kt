@@ -9,6 +9,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppErrorTest {
+    @Test fun unknownNoticeRemovalFailureHasStableBilingualRetryableRedactedContract() {
+        val error = AppError(AppErrorCode.UNKNOWN_NOTICE_REMOVE_FAILED, retryable = true,
+            technicalCause = "token=private Authorization: Bearer secret", stage = "unknown_notice_remove")
+        assertEquals("HR-STORE-003", error.code.value)
+        assertEquals(error.code, AppErrorCode.fromValue(error.code.value))
+        assertEquals("无法移除本机提示，原提示已保留，请重试。", error.localizedSummary(AppLanguage.ZH))
+        assertEquals("Couldn't remove the local notice. It has been kept; retry.", error.localizedSummary(AppLanguage.EN))
+        for (language in AppLanguage.entries) assertTrue(error.localizedMessage(language).contains(error.code.value))
+        assertTrue(error.retryable)
+        assertFalse(error.sanitizedDiagnostic().contains("private"))
+        assertFalse(error.sanitizedDiagnostic().contains("secret"))
+    }
+
     @Test fun unsentComposerRefusalsHaveStableBilingualNonRetryableRedactedContracts() {
         val cases = listOf(
             AppErrorCode.MESSAGE_DELIVERY_UNCONFIRMED to "HR-SESS-020",

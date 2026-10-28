@@ -2852,6 +2852,173 @@ class ChatViewModelTest {
         coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
     }
 
+    private fun unknownRecord(id: String = "unknown", token: String = draftToken) =
+        com.hermes.client.data.repository.UnsentRecord(token = token, messageId = id, text = "original",
+            code = "HR-SESS-022", retryable = false, deliveryUnconfirmed = true)
+
+    @Test fun delivery_check_shows_progress_deduplicates_and_reports_unknown_even_with_identical_history() = runUnsentComposerTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(unknownRecord()))
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        val history = kotlinx.coroutines.CompletableDeferred<List<ChatMessage>>()
+        coEvery { sessionRepo.history("s1", null) } coAnswers { history.await() }
+        vm.checkMessageDelivery("unknown")
+        vm.checkMessageDelivery("unknown")
+        assertTrue(vm.deliveryRecovery.value.getValue("unknown").checking)
+        runCurrent()
+        coVerify(exactly = 2) { sessionRepo.history("s1", null) } // initial load + one check
+        history.complete(listOf(ChatMessage("h1", Role.USER, "original", serverId = 1L)))
+        runCurrent()
+        assertTrue(vm.deliveryRecovery.value.getValue("unknown").checked)
+        assertFalse(vm.deliveryRecovery.value.getValue("unknown").checking)
+        assertEquals(com.hermes.client.domain.DeliveryState.UNCONFIRMED,
+            vm.state.value.messages.single { it.id == "unknown" }.delivery)
+        assertTrue(vm.state.value.messages.any { it.serverId == 1L })
+        vm.retrySend("unknown"); runCurrent()
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun an_incomplete_live_history_is_not_reported_as_a_successful_delivery_check() = runUnsentComposerTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(unknownRecord()))
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime)
+        vm.open("s1"); runCurrent()
+        val key = runtime.runtimes.value.keys.single()
+        runtime.beginPrompt(key, "newer live turn", messageId = "newer")
+        runCurrent()
+        coEvery { sessionRepo.history("s1", null) } returns emptyList()
+        vm.checkMessageDelivery("unknown"); runCurrent()
+        assertFalse(vm.deliveryRecovery.value.getValue("unknown").checked)
+        assertEquals("HR-SYNC-001", vm.deliveryRecovery.value.getValue("unknown").error?.code?.value)
+        assertTrue(vm.state.value.messages.any { it.id == "newer" })
+    }
+
+    @Test fun delivery_check_failure_and_deadline_preserve_the_unknown_and_allow_another_check() = runUnsentComposerTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(unknownRecord()))
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        coEvery { sessionRepo.history("s1", null) } throws java.io.IOException("token=private")
+        vm.checkMessageDelivery("unknown"); runCurrent()
+        assertNotNull(vm.deliveryRecovery.value.getValue("unknown").error)
+        assertFalse(vm.deliveryRecovery.value.getValue("unknown").error!!.sanitizedDiagnostic().contains("private"))
+        coEvery { sessionRepo.history("s1", null) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        vm.checkMessageDelivery("unknown"); runCurrent()
+        advanceTimeBy(30_001); runCurrent()
+        assertFalse(vm.deliveryRecovery.value.getValue("unknown").checking)
+        assertEquals("HR-SYNC-001", vm.deliveryRecovery.value.getValue("unknown").error?.code?.value)
+        assertTrue(unsent.peek(draftToken)?.deliveryUnconfirmed == true)
+        assertTrue(vm.state.value.messages.any { it.id == "unknown" })
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun removing_unknown_is_durable_and_preserves_other_local_and_same_text_server_turns() = runUnsentComposerTest {
+        val otherToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s2")
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(
+            unknownRecord(), unknownRecord("other"), unknownRecord(token = otherToken),
+            com.hermes.client.data.repository.UnsentRecord(token = draftToken, messageId = "failed", text = "unsent", code = "HR-SESS-007"),
+        ))
+        coEvery { sessionRepo.history("s1", null) } returns listOf(ChatMessage("h1", Role.USER, "original", serverId = 1L))
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        vm.removeUnknownNotice("unknown"); runCurrent()
+        assertEquals(setOf("other", "failed"), unsent.readAll(draftToken).map { it.messageId }.toSet())
+        assertEquals("unknown", unsent.readAll(otherToken).single().messageId)
+        assertTrue(vm.state.value.messages.none { it.id == "unknown" })
+        assertTrue(vm.state.value.messages.any { it.serverId == 1L })
+        // A fresh ViewModel/runtime simulates process restoration from the remaining disk data.
+        val reopened = buildVm()
+        reopened.open("s1"); runCurrent()
+        assertTrue(reopened.state.value.messages.none { it.id == "unknown" })
+        assertTrue(reopened.state.value.messages.any { it.id == "other" })
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+        coVerify(exactly = 0) { chatRepo.interrupt(any()) }
+        coVerify(exactly = 0) { sessionRepo.delete(any(), any(), any()) }
+    }
+
+    @Test fun failed_durable_removal_keeps_the_notice_and_can_be_retried() = runUnsentComposerTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(unknownRecord()))
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        unsent.removeFailure = java.io.IOException("token=private")
+        vm.removeUnknownNotice("unknown"); runCurrent()
+        val error = vm.deliveryRecovery.value.getValue("unknown").error!!
+        assertEquals("HR-STORE-003", error.code.value)
+        assertTrue(error.retryable)
+        assertFalse(error.sanitizedDiagnostic().contains("private"))
+        assertTrue(vm.state.value.messages.any { it.id == "unknown" })
+        assertNotNull(unsent.peek(draftToken))
+        unsent.removeFailure = null
+        vm.removeUnknownNotice("unknown"); runCurrent()
+        assertNull(unsent.peek(draftToken))
+        assertTrue(vm.state.value.messages.none { it.id == "unknown" })
+    }
+
+    @Test fun removal_waits_for_commit_and_late_history_cannot_resurrect_the_notice() = runUnsentComposerTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(unknownRecord()))
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime)
+        vm.open("s1"); runCurrent()
+        val history = kotlinx.coroutines.CompletableDeferred<List<ChatMessage>>()
+        coEvery { sessionRepo.history("s1", null) } coAnswers {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { history.await() }
+        }
+        vm.checkMessageDelivery("unknown"); runCurrent()
+        val commit = kotlinx.coroutines.CompletableDeferred<Unit>()
+        unsent.removeGate = commit
+        vm.removeUnknownNotice("unknown"); runCurrent()
+        assertTrue(vm.deliveryRecovery.value.getValue("unknown").removing)
+        assertTrue(vm.state.value.messages.any { it.id == "unknown" })
+        // An authoritative confirmation and answer arrive while the durable commit is blocked.
+        // Local cleanup must retain both, including the now-confirmed original message.
+        runtime.updateChat(runtime.runtimes.value.keys.single()) { state -> state.copy(
+            messages = state.messages.map { if (it.id == "unknown") it.copy(
+                delivery = com.hermes.client.domain.DeliveryState.SENT, serverId = 99L) else it } +
+                ChatMessage("new-answer", Role.ASSISTANT, "arrived during removal")) }
+        commit.complete(Unit); runCurrent()
+        assertEquals(99L, vm.state.value.messages.single { it.id == "unknown" }.serverId)
+        history.complete(listOf(ChatMessage("h99", Role.USER, "original", serverId = 99L))); runCurrent()
+        assertTrue(vm.state.value.messages.none { it.delivery == com.hermes.client.domain.DeliveryState.UNCONFIRMED })
+        assertTrue(vm.state.value.messages.any { it.serverId == 99L })
+        assertTrue(vm.state.value.messages.any { it.id == "new-answer" })
+        assertFalse(vm.deliveryRecovery.value.containsKey("unknown"))
+        assertNull(unsent.peek(draftToken))
+        coVerify(exactly = 0) { chatRepo.submit(any(), any()) }
+    }
+
+    @Test fun a_stale_disk_restore_cannot_reinsert_a_removed_notice() = runUnsentComposerTest {
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(unknownRecord()))
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        unsent.readAfterSnapshotGate = gate
+        val runtime = newRuntimeStore()
+        val vm = buildVm(runtimeStore = runtime)
+        vm.open("s1"); runCurrent() // seedUnsent holds the old disk snapshot behind the gate
+        val key = runtime.runtimes.value.keys.single()
+        runtime.updateChat(key) { it.withUserMessage("original", messageId = "unknown")
+            .withDelivery("unknown", com.hermes.client.domain.DeliveryState.UNCONFIRMED) }
+        runCurrent()
+        vm.removeUnknownNotice("unknown"); runCurrent()
+        gate.complete(Unit); runCurrent()
+        assertTrue(vm.state.value.messages.none { it.id == "unknown" })
+        assertNull(unsent.peek(draftToken))
+    }
+
+    @Test fun navigation_during_removal_cleans_only_the_original_conversation() = runUnsentComposerTest {
+        val otherToken = com.hermes.client.data.repository.SessionReadStore.token(null, "s2")
+        unsent = com.hermes.client.data.repository.FakeUnsentSnapshot(listOf(unknownRecord(), unknownRecord(token = otherToken)))
+        val vm = buildVm()
+        vm.open("s1"); runCurrent()
+        val commit = kotlinx.coroutines.CompletableDeferred<Unit>()
+        unsent.removeGate = commit
+        vm.removeUnknownNotice("unknown"); runCurrent()
+        vm.open("s2"); runCurrent()
+        commit.complete(Unit); runCurrent()
+        assertNull(unsent.peek(draftToken))
+        assertNotNull(unsent.peek(otherToken))
+        assertTrue(vm.state.value.messages.any { it.id == "unknown" })
+        vm.open("s1"); runCurrent()
+        assertTrue(vm.state.value.messages.none { it.id == "unknown" })
+    }
+
     @Test fun a_request_that_never_entered_the_socket_queue_remains_editable() = runUnsentComposerTest {
         coEvery { chatRepo.resume("s1", null) } returns "s1"
         coEvery { chatRepo.submit("s1", "original") } throws com.hermes.client.data.network.GatewayRequestNotSentException("not connected")
