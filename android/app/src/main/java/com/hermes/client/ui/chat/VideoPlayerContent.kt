@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermes.client.data.error.AppError
 import com.hermes.client.data.video.VideoPrecacheState
+import com.hermes.client.data.video.VideoNetworkSpeed
 import com.hermes.client.ui.localization.*
 import kotlinx.coroutines.delay
 
@@ -47,12 +48,14 @@ internal fun VideoPlayerContent(
     onBoost: (Boolean) -> Unit = {},
     holdSpeed: Float = 2f,
     onHoldSpeed: (Float) -> Unit = {},
+    networkSpeed: VideoNetworkSpeed? = null,
     precache: VideoPrecacheState = VideoPrecacheState(),
     onCacheRetry: () -> Unit = {},
     onStatusDiagnostics: (AppError) -> Unit = {},
     video: @Composable () -> Unit = {},
 ) {
     val language = LocalAppLanguage.current
+    val transferLabel = networkSpeed?.let { videoNetworkSpeedLabel(it, language) }
     var controls by remember { mutableStateOf(true) }
     var menu by remember { mutableStateOf(false) }
     var speedMenu by remember { mutableStateOf(false) }
@@ -132,6 +135,8 @@ internal fun VideoPlayerContent(
                     CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 2.dp)
                     Text(if (state.hasFrame) localized(language, "正在缓冲…", "Buffering…") else localized(language, "正在加载视频…", "Loading video…"),
                         color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    transferLabel?.let { Text(it, Modifier.testTag("video-buffer-speed"),
+                        color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.bodySmall) }
                 }
             } else if (visible) {
                 MediaButton(if (state.ended) Icons.Rounded.Replay else if (state.wantsPlay) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -172,10 +177,12 @@ internal fun VideoPlayerContent(
                         if (fullscreen) localized(language, "退出全屏", "Exit fullscreen") else localized(language, "横屏全屏", "Fullscreen"),
                         onClick = { interaction++; onFullscreen() })
                 }
-                if (precache.size > 0) Text(
-                    if (precache.cleared) localized(language, "本次观看已停止预缓存；重新打开视频可恢复", "Precaching stopped for this viewing; reopen to resume")
+                val cacheLabel = if (precache.size <= 0) null
+                    else if (precache.cleared) localized(language, "本次观看已停止预缓存；重新打开视频可恢复", "Precaching stopped for this viewing; reopen to resume")
                     else localized(language, "预览缓存 ${precache.percent}% · ${cacheBytes(precache.bytes)} / ${cacheBytes(precache.size)}",
-                        "Preview cache ${precache.percent}% · ${cacheBytes(precache.bytes)} / ${cacheBytes(precache.size)}"),
+                        "Preview cache ${precache.percent}% · ${cacheBytes(precache.bytes)} / ${cacheBytes(precache.size)}")
+                if (cacheLabel != null || transferLabel != null) Text(
+                    listOfNotNull(cacheLabel, transferLabel).joinToString(" · "),
                     Modifier.testTag("video-cache-progress"), color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall)
                 val status = state.speedError ?: precache.error
                 status?.let { failure ->
@@ -188,6 +195,17 @@ internal fun VideoPlayerContent(
             }
         }
     }
+}
+
+internal fun videoNetworkSpeedLabel(speed: VideoNetworkSpeed, language: AppLanguage): String {
+    val rate = speed.bytesPerSecond
+    val value = when {
+        rate == null -> localized(language, "测速中…", "Measuring…")
+        rate <= 0 -> "0 KB/s"
+        rate < 1_000_000 -> java.lang.String.format(java.util.Locale.ROOT, "%.1f KB/s", rate / 1_000.0)
+        else -> java.lang.String.format(java.util.Locale.ROOT, "%.1f MB/s", rate / 1_000_000.0)
+    }
+    return localized(language, "缓冲速度 $value", "Buffer speed $value")
 }
 
 private fun cacheBytes(value: Long): String = if (value >= 1024L * 1024 * 1024)

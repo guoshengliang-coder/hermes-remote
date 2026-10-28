@@ -30,6 +30,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.hermes.client.data.error.AppError
 import com.hermes.client.data.error.videoPlaybackError
+import com.hermes.client.data.video.VideoNetworkSpeed
 import com.hermes.client.data.video.VideoPlayback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -104,6 +105,7 @@ fun VideoPlayerDialog(
                 selectedSpeed, { selectedSpeed = it })
         }
     }
+    val networkSpeed = rememberVideoNetworkSpeed(source, foreground)
     val precache by frameMemory.precache.state.collectAsState()
     var cacheRetry by remember { mutableIntStateOf(0) }
     LaunchedEffect(source, foreground, cacheRetry) {
@@ -139,6 +141,7 @@ fun VideoPlayerDialog(
                 frameMemory.configurationRestart = activity?.isChangingConfigurations == true && wantsPlay
                 if (controller?.state?.hasFrame == true) captureFrame()
                 if (activity?.isChangingConfigurations != true) { wantsPlay = false; controller?.pause() }
+                source?.resetNetworkSpeed()
                 foreground = false
             } else if (event == Lifecycle.Event.ON_START) foreground = true
         }
@@ -176,6 +179,8 @@ fun VideoPlayerDialog(
             holdSpeed = holdSpeed,
             onHoldSpeed = { holdSpeed = it; speedPreferences.edit().putFloat("hold_speed", it).apply() },
             onBoost = { if (it) controller?.beginBoost(holdSpeed) else controller?.endBoost() },
+            networkSpeed = if (!foreground || error != null || downloaded) null
+                else if (source == null) VideoNetworkSpeed() else networkSpeed,
             precache = precache, onCacheRetry = { cacheRetry++ },
             onStatusDiagnostics = { failure ->
                 context.getSystemService(android.content.ClipboardManager::class.java)
@@ -204,6 +209,21 @@ fun VideoPlayerDialog(
             }
         }
     }
+}
+
+/** Refresh only while visible; disposal captures the old source, never a mutable replacement. */
+@Composable
+internal fun rememberVideoNetworkSpeed(source: VideoPlayback?, foreground: Boolean): VideoNetworkSpeed? {
+    var speed by remember(source, foreground) { mutableStateOf<VideoNetworkSpeed?>(null) }
+    LaunchedEffect(source, foreground) {
+        val video = source ?: return@LaunchedEffect
+        if (foreground) while (true) {
+            speed = video.networkSpeed()
+            delay(1_000)
+        }
+    }
+    DisposableEffect(source, foreground) { onDispose { source?.resetNetworkSpeed() } }
+    return speed
 }
 
 /** Bounded last frame across configuration recreation; cleared on close, never written to disk. */

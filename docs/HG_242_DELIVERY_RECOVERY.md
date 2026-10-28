@@ -39,3 +39,10 @@ meaning is unchanged. Required release artifact: androidApp. This task allocates
   Instrumented test source compiles but was not run. HONOR natural-network and actual multi-phone
   behavior remain pending in `ANDROID_SMOKE.md`; JVM fixtures do not establish the old stalled hop.
 - No version was allocated, no APK was distributed, and no production service was changed.
+
+## Integration recheck — 2026-10-28
+
+Main advanced to `8955f85b` while PR #698 awaited its merge. The README and smoke-list additions
+were combined without dropping either task; DESIGN merged cleanly. No implementation file overlaps.
+After integration, Android unit tests, debug assembly and lint passed (2,804 tests, zero
+failures/errors/skips). The original 18 HG-242 screenshot fixtures and code are unchanged.
