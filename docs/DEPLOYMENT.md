@@ -3072,3 +3072,22 @@ Desktop already displays browser records with capability-gated revocation; Andro
 need no client update. No Connector, Desktop, Web or upstream Hermes publication is part of this run.
 Production execution and independent identity/readiness/capability verification are recorded
 separately after the standard routine release commits.
+
+### Gateway 0.4.38 browser-installation edge route
+
+The Desktop browser-login revocation endpoint added by #685 also requires the anchored
+`^/v2/browser-installations/[0-9a-f-]{36}$` route in the existing identity-Web Nginx include.
+Fresh identity-Web installations render it automatically. For an existing production site,
+back up the protected include, verify it matches the reviewed prior bytes, and append only
+this location with the same proxy directives as the existing installation UUID route.
+Preserve all existing locations (including later account-deletion additions) and the main
+site file. Atomically replace the include, run `nginx -t`, then reload; restore the exact
+backup on validation or reload failure. Do not rerun the one-time identity-Web rollout.
+
+Publish Gateway with the normal R5-F1 candidate/switch gate. Verify public capabilities
+report `accountAuth.browserInstallationRevocation: true` and an unauthenticated DELETE to
+a synthetic browser-installation UUID returns the Gateway's structured 401 response,
+matching the direct loopback response. This smoke test never revokes a real installation.
+Account-authenticated phone/Web session revocation remains covered by Gateway integration
+tests; interactive Desktop confirmation with a real account is a separate device check.
+No client package, account flag, database schema or minimum client version changes here.
