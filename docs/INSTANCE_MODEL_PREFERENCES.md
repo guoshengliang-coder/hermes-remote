@@ -32,3 +32,9 @@ Go 不访问 Hermes 凭据或本地数据库，通过现有 Gateway→Connector 
 - Go 全仓测试的 Protocol、Connector、Gateway、Release Server 均通过；scripts 两项旧 legacy recovery 解密测试失败，在未修改主工作区同样复现。系统 OpenSSL 为 LibreSSL 3.3.6，不将本次全仓结果记为全绿。
 - Android L1 可用；L2 无实体设备；L3 未安装 emulator。未做真实设备或三套已安装客户端联调，不把 DOM/JVM 验证称为设备验收。
 - 未分配版本、发布或修改运行中的 Hermes 安装。上游和 Go 的合并、发布仍需分别核实。
+
+## 合并前 CI 修正
+
+首次 PR CI 的真实 PostgreSQL/Web Cookie 集成测试发现能力列表期望漏加
+`instance-model-preferences`，现已同步期望。此前本地未配置测试数据库，该集成测试被跳过，
+不能将本地 Gateway 套件通过解释为真实数据库路径已通过；以修正后的 PR CI 为合并门禁。
