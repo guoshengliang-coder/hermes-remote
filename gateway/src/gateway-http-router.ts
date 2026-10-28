@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AccountGatewayControl } from "./account/account-runtime.js";
-import { accountErrors, type AccountPrincipal } from "./account/model.js";
+import { AccountModeError, accountErrors, type AccountPrincipal } from "./account/model.js";
 import {
   browserResponseHeaders,
   browserRouteBodyAllowed,
@@ -104,6 +104,7 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
         return;
       }
       try {
+        await this.requirePreferenceOwner(request, deviceApiRoute.targetUrl, authorization, deviceApiRoute.deviceId);
         const connector = await this.options.resolveAccountConnector(
           authorization,
           deviceApiRoute.deviceId,
@@ -176,6 +177,7 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
         return;
       }
       try {
+        await this.requirePreferenceOwner(request, url, authorization);
         connector = await this.options.resolveAccountConnector(authorization);
       } catch (error) {
         this.options.sendAccountError(response, error);
@@ -217,6 +219,16 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
         throw new Error("file_device_changed");
       }
     });
+  }
+
+  private async requirePreferenceOwner(request: IncomingMessage, url: URL, authorization?: string, deviceId?: string, principal?: AccountPrincipal): Promise<void> {
+    if (url.pathname !== "/api/model/preferences" || ["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET")) return;
+    const control = this.options.accountControl;
+    if (!control) throw accountErrors.featureDisabled();
+    const actor = principal ?? await control.authenticate(authorization);
+    const device = await control.resolveDevice(actor, deviceId);
+    if (device.access !== "owner") throw new AccountModeError(403, "HR-MODEL-003",
+      "共享访客不能修改设备主人的模型偏好。 / Shared guests cannot change the device owner's model preferences.", false, "none");
   }
 
   private async forwardDevice(
@@ -266,6 +278,7 @@ export class GatewayHttpRouter<TConnector extends HttpConnector> {
       } else if (request.method === "DELETE" && Number(firstHeader(request, "content-length") ?? 0) > 0) {
         throw accountErrors.webRouteUnavailable();
       }
+      await this.requirePreferenceOwner(request, route.targetUrl, undefined, route.deviceId, principal);
       const connector = await this.options.resolveAccountConnectorFor(principal, route.deviceId);
       if (allowed.audit) {
         this.options.log?.info("web.session.manage", {

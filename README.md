@@ -138,3 +138,5 @@ no longer blocks history synchronization. See `docs/HG_237_SEND_RECOVERY.md` for
   sharing work is local-only until its separate rollout gates pass.
 - Attachment uploads are capped and stored transiently on the Mac; output files stream with
   acknowledged backpressure instead of crossing the control channel as one oversized message.
+
+HG-240 adds optional instance-owned model favorites and visibility for compatible Hermes runtimes. Old Hermes remains explicit independent mode. Previous account/local favorites require confirmation to import and remain intact; saved reasoning remains account-owned. See `docs/INSTANCE_MODEL_PREFERENCES.md` for the paired upstream dependency, owner-only writes, conflict and rollout boundaries. Source implementation is not publication.

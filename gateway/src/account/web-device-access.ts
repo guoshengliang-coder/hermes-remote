@@ -105,7 +105,21 @@ function defaultModelSelection(value: unknown): boolean {
 // The Web app is a chat client, not a Mac administration console: it reaches only the routes it
 // renders. Everything else (env, config, cron, skills, messaging, gateway restart, …) stays with the
 // Android and Desktop apps. Routes that change something are admitted in one shape only.
+export function modelPreferenceMutation(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const b = value as Record<string, unknown>;
+  return Object.keys(b).length === 6 && Object.keys(b).every(k => ["instanceId","provider","model","field","baseRevision","value"].includes(k))
+    && typeof b.instanceId === "string" && /^[a-f0-9-]{36}$/i.test(b.instanceId)
+    && typeof b.provider === "string" && b.provider.length > 0 && b.provider.length <= 128 && !/[\x00-\x1f]/.test(b.provider)
+    && typeof b.model === "string" && b.model.length <= 512 && !/[\x00-\x1f]/.test(b.model)
+    && typeof b.baseRevision === "string" && /^(0|[1-9][0-9]{0,18})$/.test(b.baseRevision)
+    && ((b.field === "favorite" && b.model.length > 0 && typeof b.value === "boolean")
+      || (b.field === "hidden" && (b.value === null || typeof b.value === "boolean")));
+}
+
 const BROWSER_ROUTES: ReadonlyArray<BrowserRoute> = [
+  { method: "GET", path: /^\/api\/model\/preferences$/, query: [], noBody: true },
+  { method: "POST", path: /^\/api\/model\/preferences$/, query: [], body: modelPreferenceMutation },
   { method: "GET", path: /^\/api\/status$/ },
   { method: "GET", path: /^\/api\/hermes-remote\/contract$/ },
   { method: "GET", path: /^\/api\/sessions$/ },
@@ -152,6 +166,7 @@ export function browserRouteBodyAllowed(route: BrowserRoute, headers: IncomingHt
 
 /** Features the Web app may show, advertised in /v2/capabilities (Web batch 4). */
 export const WEB_DEVICE_FEATURES = [
+  "instance-model-preferences",
   "session-manage",
   "session-delete",
   "workspace-move",

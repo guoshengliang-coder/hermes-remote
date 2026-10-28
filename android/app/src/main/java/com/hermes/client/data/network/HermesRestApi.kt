@@ -440,6 +440,18 @@ class HermesRestApi(
 
     /** Stable task owner. Credentials are never persisted, and selecting another default Mac
      * must not change the explicit originating device of an existing task. */
+    suspend fun instanceModelPreferences(deviceId: String): com.hermes.client.data.repository.InstanceModelSnapshot =
+        get("/api/model/preferences", deviceId)
+
+    suspend fun setInstanceModelPreference(value: com.hermes.client.data.repository.InstanceModelMutation, deviceId: String): com.hermes.client.data.repository.InstanceModelSnapshot = withContext(Dispatchers.IO) {
+        val payload = json.encodeToString(com.hermes.client.data.repository.InstanceModelMutation.serializer(), value)
+            .toRequestBody("application/json".toMediaType())
+        restCall(builder("/api/model/preferences", deviceId).post(payload).build()).execute().use { response ->
+            if (!response.isSuccessful) throw HermesApiException(response.code, "Model preference mutation failed")
+            json.decodeFromString<com.hermes.client.data.repository.InstanceModelSnapshot>(response.body.string())
+        }
+    }
+
     suspend fun artifactOwnerKey(deviceId: String?): String? {
         accountSessionManager?.connection(deviceId)?.let { account ->
             val owner = accountSessionManager.session.value ?: return null

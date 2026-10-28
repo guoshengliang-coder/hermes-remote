@@ -1279,3 +1279,5 @@ preview the newest call only. Running status displays its complete current text 
 until visible prose starts, then keeps only the dots. Its extra height is released so no large blank
 remains below the answer. Tapping status still opens a selectable snapshot.
 Both Android and Web share these rules; see `docs/DESIGN.md` and `docs/SMOKE_TEST.md`.
+
+HG-240 adds optional instance-owned model favorites and visibility for compatible Hermes runtimes. Old Hermes remains explicit independent mode. Previous account/local favorites require confirmation to import and remain intact; saved reasoning remains account-owned. See `../docs/INSTANCE_MODEL_PREFERENCES.md` for the paired upstream dependency, owner-only writes, conflict and rollout boundaries. Source implementation is not publication.

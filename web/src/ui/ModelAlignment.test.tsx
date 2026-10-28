@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { act } from "preact/test-utils";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { GatewayHttpError } from "../api/gateway";
 import type { GatewayClient } from "../api/gateway";
 import { AppContext, type AppContextValue } from "../app/store";
 import { modelKey, modelPrefs, rememberReasoning } from "../app/localPrefs";
@@ -163,4 +164,46 @@ it("cloud model updates stay account-owned, preserve local originals and never s
   const refreshed={...ctx,modelSync:{...ctx.modelSync,view:{...ctx.modelSync.view,rows:[]}}};
   act(()=>render(<AppContext.Provider value={refreshed}>{s.node}</AppContext.Provider>,s.host));await flush();
   expect(s.host.textContent).not.toContain("missing");expect(a.switchModel).not.toHaveBeenCalled();expect(a.setReasoning).not.toHaveBeenCalled();
+});
+
+const instanceSnapshot = (rows: object[] = [], revision = "0") => ({ version: 1, instanceId: "00000000-0000-4000-8000-000000000001", revision, rows });
+function instanceSheet(access = "owner") {
+  let remote = instanceSnapshot();
+  const api = { ...client(), deviceApi: vi.fn(async (_id: string, method: string, _path: string, options?: { body?: unknown }) => {
+    if (method === "POST") {
+      const change = options?.body as { provider: string; model: string; field: string; value: boolean };
+      remote = instanceSnapshot([{ provider: change.provider, model: change.model, favorite: change.field === "favorite" && change.value,
+        hidden: change.field === "hidden" ? change.value : null, favoriteRevision: change.field === "favorite" ? "1" : "0", hiddenRevision: change.field === "hidden" ? "1" : "0" }], "1");
+    }
+    return remote;
+  }) };
+  const ctx = context(api); ctx.features = new Set([...ctx.features, "instance-model-preferences"]); ctx.device = { ...ctx.device!, access: access as "owner" | "operator" };
+  const a = actions();
+  const host = mount(<ModelSheet current={{model:"old",provider:"p"}} profile="work" explicitOverride={false} actions={a} onSwitched={vi.fn()} onReasoning={vi.fn()} onClose={vi.fn()}/>,ctx);
+  return { api, host, a };
+}
+it("instance hiding removes a model from selection, restores it in management, and never switches the conversation", async () => {
+  const s=instanceSheet(); await flush();
+  act(()=>s.host.querySelector<HTMLButtonElement>('button[aria-label="隐藏 old"]')!.click()); await flush();
+  expect([...s.host.querySelectorAll('.model-name')].some(n=>n.textContent==='old')).toBe(false);
+  act(()=>textButton(s.host,"管理隐藏模型").click()); await flush();
+  const hiddenPick=[...s.host.querySelectorAll<HTMLButtonElement>('.model-pick')].find(b=>b.textContent?.includes('old'))!;
+  expect(hiddenPick.disabled).toBe(true);
+  act(()=>s.host.querySelector<HTMLButtonElement>('button[aria-label="恢复显示 old"]')!.click()); await flush();
+  expect(s.a.switchModel).not.toHaveBeenCalled();
+  expect(s.api.deviceApi.mock.calls.filter(c=>c[1]==="POST")).toHaveLength(2);
+});
+it("shared instance readers cannot mutate favorites or hidden settings through the selector", async()=>{
+  const s=instanceSheet("operator"); await flush();
+  expect(s.host.textContent).toContain("共享访客只能查看");
+  for(const b of s.host.querySelectorAll<HTMLButtonElement>('.model-star,button[aria-label^="隐藏 "]'))expect(b.disabled).toBe(true);
+  expect(s.api.deviceApi.mock.calls.every(c=>c[1]==="GET")).toBe(true);
+});
+it("only a real missing endpoint falls back to independent favorites; server errors stay visible", async()=>{
+  const s=instanceSheet(); await flush();
+  s.api.deviceApi.mockRejectedValue(new GatewayHttpError(503,{},"fixture"));
+  act(()=>s.host.querySelector<HTMLButtonElement>('.model-star')!.click()); await flush();
+  expect(s.host.textContent).toContain("HR-MODEL-001");
+  expect(modelPrefs("mac-a").favorites).toEqual([]);
+  expect(s.host.textContent).not.toContain("收藏仍独立管理");
 });

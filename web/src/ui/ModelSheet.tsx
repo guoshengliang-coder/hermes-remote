@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ModelOptionsResponse } from "../api/gateway";
+import { useInstanceModels } from "../app/instanceModels";
+import { hiddenModel } from "../hermes/instanceModelPreferences";
 import { useDefaultModel } from "../app/defaultModel";
 import { toAppError } from "../app/failures";
 import { modelKey as legacyModelKey, modelPrefs, recordModelUse, rememberReasoning, toggleFavoriteModel } from "../app/localPrefs";
@@ -68,6 +70,11 @@ export function ModelSheet(props: ModelSheetProps) {
 function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride, scope = "session", aboveDrawer, actions, onSwitched, onReasoning, onClose }: ModelSheetProps) {
   const { t, language, client, device, features, modelSync } = useApp();
   const deviceId = device?.deviceId ?? "";
+  const instance = useInstanceModels(client, deviceId, features.has("instance-model-preferences"), device?.access === "owner");
+  const instanceMode = instance.status !== "legacy";
+  const [showHidden, setShowHidden] = useState(false);
+  const [confirmImport, setConfirmImport] = useState(false);
+  const [importing, setImporting] = useState(false);
   const defaultModel = useDefaultModel(client, deviceId, profile, features.has("default-model"));
   const editingDefault = scope === "default";
   const current = editingDefault ? { model: defaultModel.model?.model ?? null, provider: defaultModel.model?.provider ?? null } : sessionCurrent;
@@ -87,7 +94,8 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const modelKey=modelSync?modelTuple:legacyModelKey;
   const synced=modelSync?projectedModelPrefs(modelSync.view):[];
-  const effectiveFavorites=modelSync?synced.filter((r)=>r.favorite).map((r)=>modelTuple(r.provider,r.model)):prefs.favorites;
+  const oldFavorites=modelSync?synced.filter((r)=>r.favorite).map((r)=>modelTuple(r.provider,r.model)):prefs.favorites;
+  const effectiveFavorites = instanceMode ? (instance.snapshot?.rows.filter(r => r.favorite).map(r => modelKey(r.provider,r.model)) ?? []) : oldFavorites;
   const effectivePresets=modelSync?Object.fromEntries(synced.filter((r)=>r.reasoningPreset!==null).map((r)=>[modelTuple(r.provider,r.model),r.reasoningPreset!])):prefs.presets;
   const preferencePending=(provider:string,model:string,field:"favorite"|"reasoningPreset")=>Boolean(modelSync&&(!modelSync.view.ready||!modelSync.view.enabled||modelSync.view.pending.some((p)=>p.operation.provider===provider&&p.operation.model===model&&p.operation.field===field)));
 
@@ -197,7 +205,9 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
 
   const row = (o: { provider: string; model: string; key: string; unavailable?:boolean }) => {
     const selected = o.key === currentKey || (!currentKey && o.model === current.model);
-    const allowed = !o.unavailable&&admissible(o.provider, o.model);
+    const hidden = instanceMode && hiddenModel(instance.snapshot, o.provider, o.model);
+    if (hidden && !showHidden) return null;
+    const allowed = !hidden && !o.unavailable&&admissible(o.provider, o.model);
     const fav = effectiveFavorites.includes(o.key);
     return (
       <div class={`model-row${selected ? " selected" : ""}`} key={o.key}>
@@ -217,19 +227,29 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
           class={`icon-button model-star${fav ? " on" : ""}`}
           aria-pressed={fav}
           aria-label={fav ? t("取消收藏", "Remove from favorites") : t("收藏", "Add to favorites")}
-          disabled={preferencePending(o.provider,o.model,"favorite")}
-          onClick={() => {if(modelSync)void modelSync.client?.set(o.provider,o.model,"favorite",!fav);else setPrefs({ ...prefs, favorites: toggleFavoriteModel(deviceId, o.key) });}}
+          disabled={instanceMode ? !instance.snapshot || instance.pending || importing || !instance.writable : preferencePending(o.provider,o.model,"favorite")}
+          onClick={() => {if(instanceMode)void instance.set(o.provider,o.model,"favorite",!fav);else if(modelSync)void modelSync.client?.set(o.provider,o.model,"favorite",!fav);else setPrefs({ ...prefs, favorites: toggleFavoriteModel(deviceId, o.key) });}}
         >
           <StarIcon size={16} filled={fav} />
         </button>
+        {instanceMode ? <button type="button" class="text-button" disabled={!instance.snapshot || instance.pending || importing || !instance.writable}
+          aria-label={t(hidden ? `恢复显示 ${o.model}` : `隐藏 ${o.model}`, hidden ? `Show ${o.model}` : `Hide ${o.model}`)}
+          onClick={() => void instance.set(o.provider,o.model,"hidden",!hidden)}>{t(hidden ? "显示" : "隐藏", hidden ? "Show" : "Hide")}</button> : null}
       </div>
     );
   };
 
-  const recents = prefs.recents.map((k) => {const matches=all.filter((o)=>legacyModelKey(o.provider,o.model)===k);return matches.length===1?matches[0]:undefined;}).filter((o): o is NonNullable<typeof o> => Boolean(o));
-  const favorites = modelSync?synced.filter((r)=>r.favorite).map((r)=>({...r,key:modelTuple(r.provider,r.model),unavailable:!byKey.has(modelTuple(r.provider,r.model))})):
+  const recents = prefs.recents.map((k) => {const matches=all.filter((o)=>legacyModelKey(o.provider,o.model)===k);return matches.length===1?matches[0]:undefined;}).filter((o): o is NonNullable<typeof o> => Boolean(o) && !(instanceMode && hiddenModel(instance.snapshot, o!.provider, o!.model)));
+  const favorites = instanceMode ? (instance.snapshot?.rows.filter(r=>r.favorite).map(r=>({...r,key:modelKey(r.provider,r.model),unavailable:!byKey.has(modelKey(r.provider,r.model))})) ?? []) : modelSync?synced.filter((r)=>r.favorite).map((r)=>({...r,key:modelTuple(r.provider,r.model),unavailable:!byKey.has(modelTuple(r.provider,r.model))})):
     effectiveFavorites.map((k) => byKey.get(k)).filter((o): o is NonNullable<typeof o> => Boolean(o));
   const legacy=legacyModelCandidates(prefs,all);
+  const importCandidates = [...(modelSync ? synced.filter(r=>r.favorite) : []), ...legacy.candidates.filter(r=>r.favorite)].filter((r,i,all) => all.findIndex(x=>x.provider===r.provider&&x.model===r.model)===i);
+  const importable = importCandidates.filter(r => !(instance.snapshot?.rows.some(x=>x.provider===r.provider&&x.model===r.model&&x.favoriteRevision!=="0")));
+  async function importFavorites() {
+    setConfirmImport(false); setImporting(true);
+    try { for (const candidate of importable) { if (!live.current || !await instance.set(candidate.provider,candidate.model,"favorite",true,true)) break; } }
+    finally { if(live.current)setImporting(false); }
+  }
   const configured = defaultModel.model;
   const overridden = Boolean(configured && (explicitOverride || (current.model !== null && current.model !== configured.model) || (current.provider !== null && current.provider !== configured.provider)));
   const canRestore = Boolean(!editingDefault && overridden && configured && admissible(configured.provider, configured.model));
@@ -259,7 +279,19 @@ function ModelSheetContent({ current: sessionCurrent, profile, explicitOverride,
           </span> : null}
         </span>
       </div>
-      <ModelSyncPanel legacy={legacy}/>
+      {instanceMode ? <section class="model-sync-panel" aria-label={t("此 Mac 的模型偏好", "This Mac’s model preferences")}>
+        <p role="status" class="picker-note">{t(instance.snapshot ? "收藏和隐藏与此 Hermes 实例同步" : "正在读取此 Mac 的模型偏好…", instance.snapshot ? "Favorites and visibility sync with this Hermes instance" : "Loading this Mac’s model preferences…")}</p>
+        {!instance.writable ? <p class="picker-note">{t("共享访客只能查看，不能修改主人偏好。", "Shared guests can view, but cannot edit the owner’s preferences.")}</p> : null}
+        {instance.error ? <ErrorNotice error={instance.error} language={language} onRetry={() => void instance.refresh()} /> : null}
+        <button type="button" class="text-button" onClick={()=>setShowHidden(v=>!v)}>{t(showHidden ? "收起已隐藏模型" : "管理隐藏模型", showHidden ? "Hide hidden models" : "Manage hidden models")}</button>
+        {instance.writable && instance.snapshot && importable.length ? <button type="button" class="text-button" disabled={instance.pending||importing} onClick={()=>setConfirmImport(true)}>{t(`导入旧收藏 (${importable.length})`, `Import previous favorites (${importable.length})`)}</button> : null}
+        {confirmImport ? <div role="alertdialog" aria-label={t("确认导入", "Confirm import")}>
+          <p>{t(`将 ${importable.length} 项旧收藏导入 ${device?.desktopDisplayName ?? "此 Mac"}？原数据保留，不覆盖此 Mac 已有的选择或取消。`, `Import ${importable.length} previous favorites into ${device?.desktopDisplayName ?? "this Mac"}? Originals remain; existing choices and cancellations are preserved.`)}</p>
+          <button type="button" onClick={()=>void importFavorites()}>{t("确认导入", "Import")}</button>
+          <button type="button" onClick={()=>setConfirmImport(false)}>{t("取消", "Cancel")}</button>
+        </div> : null}
+      </section> : <><p class="picker-note">{t("此 Hermes 或 Gateway 不支持实例偏好同步，收藏仍独立管理。", "This Hermes or Gateway does not support instance preference sync. Favorites remain independent.")}</p><ModelSyncPanel legacy={legacy}/></>}
+      {instanceMode ? <ModelSyncPanel legacy={legacy} reasoningOnly /> : null}
       {modelSync&&current.model&&current.provider&&effectivePresets[modelKey(current.provider,current.model)]?<button type="button" class="text-button" disabled={preferencePending(current.provider,current.model,"reasoningPreset")} onClick={()=>void modelSync.client?.set(current.provider!,current.model!,"reasoningPreset",null)}>{t("清除该模型记忆的推理偏好（不改变当前对话）","Clear this model's saved reasoning preference (keeps this conversation unchanged)")}</button>:null}
       {confirmation ? <div class="model-confirmation" role="alertdialog" aria-label={t("确认模型选择", "Confirm model selection")}>
         <p>{t("所选模型需要确认，可能涉及较高费用或能力限制。是否继续？", "This model needs confirmation and may involve higher costs or capability limits. Continue?")}</p>

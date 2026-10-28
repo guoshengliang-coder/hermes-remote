@@ -1,4 +1,5 @@
 package com.hermes.client.ui.models
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Refresh
 
@@ -80,6 +81,8 @@ fun ModelsScreen(
                 else -> {
                     val favorites by vm.favorites.collectAsStateWithLifecycle()
                     val syncState = vm.modelSync?.state?.collectAsStateWithLifecycle()?.value
+        val scopeForInstance = androidx.compose.runtime.rememberCoroutineScope()
+        val instanceState = vm.instanceModels?.state?.collectAsStateWithLifecycle()?.value
                     // Collapsible groups, same defaults as the chat sheet: the group holding the
                     // current default opens, the rest collapse to a scannable line each.
                     var expandedGroups by remember { mutableStateOf<Set<String>?>(null) }
@@ -89,13 +92,18 @@ fun ModelsScreen(
                         currentProvider = state.defaultProvider, currentModel = state.defaultModel,
                         expandedGroups = effectiveExpanded,
                         includeUnavailable = syncState?.useCloud == true,
+            hidden = { p, m -> instanceState?.takeIf { it.active }?.snapshot?.hidden(p,m) == true },
+            showHidden = instanceState?.showHidden == true,
                     )
                     // Settings edits the profile default only; the session reasoning row and the
                     // 快捷切换 chips are deliberately absent here (both belong to a chat).
                     com.hermes.client.ui.models.ModelSelectorContent(
                         groups = groups,
-                        syncPanel = { AccountModelSyncPanel(vm.modelSync, vm::legacyModels) },
-                        favoriteBlocked = { p, m -> syncState?.let { it.useCloud && it.blocked(p, m, "favorite") } == true },
+                        syncPanel = { com.hermes.client.ui.models.InstanceModelSyncPanel(vm.instanceModels, vm::legacyModels, vm.modelSync) },
+                        favoriteBlocked = { p, m -> if (instanceState?.active == true) instanceState.blocked() else syncState?.let { it.useCloud && it.blocked(p, m, "favorite") } == true },
+            onToggleHidden = vm.instanceModels?.takeIf { instanceState?.active == true }?.let { remote ->
+                { p, m, value -> scopeForInstance.launch { remote.set(p,m,"hidden",value,expectedOwner=instanceState?.owner.orEmpty()) }; Unit }
+            },
                         onToggleFavorite = vm::toggleFavorite,
                         onSelect = { p, m -> vm.select(p, m) },
                         onToggleGroup = { slug ->

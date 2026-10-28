@@ -7,6 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModelSelectorTest {
+    @Test fun hiddenModelsAreRemovedUntilManagementIsOpenedWithoutSwitchingTheCurrentModel() {
+        val catalog=listOf(ModelProviderDto(slug="p",models=listOf("hidden","shown")))
+        val hidden: (String,String)->Boolean = { _,m -> m=="hidden" }
+        val ordinary=modelSelectorGroups(catalog,setOf(favKey("p","hidden")),"p","hidden",hidden=hidden)
+        assertTrue(ordinary.flatMap{it.rows}.none{it.model=="hidden"})
+        val management=modelSelectorGroups(catalog,setOf(favKey("p","hidden")),"p","hidden",hidden=hidden,showHidden=true)
+        assertTrue(management.flatMap{it.rows}.filter{it.model=="hidden"}.all{it.isHidden && it.isCurrent})
+    }
+
     @org.junit.Test fun unavailableCloudFavoritesRemainVisibleWithoutBecomingSelectable() {
         val groups=modelSelectorGroups(emptyList(),setOf(favKey("remote/provider","missing/model")),null,null,includeUnavailable=true)
         val row=groups.single().rows.single()

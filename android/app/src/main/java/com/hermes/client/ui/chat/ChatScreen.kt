@@ -2110,6 +2110,8 @@ fun ChatScreen(
         val reasoningPending by vm.reasoningPending.collectAsStateWithLifecycle()
         val reasoningPresets by vm.reasoningPresetMap.collectAsStateWithLifecycle()
         val syncState = vm.modelSync?.state?.collectAsStateWithLifecycle()?.value
+        val scopeForInstance = androidx.compose.runtime.rememberCoroutineScope()
+        val instanceState = vm.instanceModels?.state?.collectAsStateWithLifecycle()?.value
         // The session's provider may be unknown (old metadata); resolve it from the catalog so
         // the current row/group can be marked.
         val resolvedCurrentProvider = com.hermes.client.ui.models.resolveModelProvider(
@@ -2125,10 +2127,12 @@ fun ChatScreen(
             expandedGroups = effectiveExpanded,
             presets = reasoningPresets,
             includeUnavailable = syncState?.useCloud == true,
+            hidden = { p, m -> instanceState?.takeIf { it.active }?.snapshot?.hidden(p,m) == true },
+            showHidden = instanceState?.showHidden == true,
         )
         val recents by vm.recentModels.collectAsStateWithLifecycle()
         // Provider display names come from the live catalogue, never from what was stored.
-        val recentChips = recents.map { r ->
+        val recentChips = recents.filter { instanceState?.takeIf { s -> s.active }?.snapshot?.hidden(it.provider,it.model) != true }.map { r ->
             r.copy(providerLabel = providers.firstOrNull { it.slug == r.provider }?.name ?: r.provider)
         }
         val currentSummary = currentModel?.takeIf { it.isNotBlank() }?.let { model ->
@@ -2147,8 +2151,11 @@ fun ChatScreen(
         }
         com.hermes.client.ui.models.ModelSelectorSheet(
             groups = groups,
-            syncPanel = { com.hermes.client.ui.models.AccountModelSyncPanel(vm.modelSync, vm::legacyModels, resolvedCurrentProvider, currentModel) },
-            favoriteBlocked = { p, m -> syncState?.let { it.useCloud && it.blocked(p, m, "favorite") } == true },
+            syncPanel = { com.hermes.client.ui.models.InstanceModelSyncPanel(vm.instanceModels, vm::legacyModels, vm.modelSync, resolvedCurrentProvider, currentModel) },
+            favoriteBlocked = { p, m -> if (instanceState?.active == true) instanceState.blocked() else syncState?.let { it.useCloud && it.blocked(p, m, "favorite") } == true },
+            onToggleHidden = vm.instanceModels?.takeIf { instanceState?.active == true }?.let { remote ->
+                { p, m, value -> scopeForInstance.launch { remote.set(p,m,"hidden",value,expectedOwner=instanceState?.owner.orEmpty()) }; Unit }
+            },
             onToggleFavorite = vm::toggleFavorite,
             onSelect = { p, m ->
                 vm.onSelectFromSheet(p, m) {

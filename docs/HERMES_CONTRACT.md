@@ -1157,3 +1157,7 @@ plus endpoint and cron metadata that the Connector must strip. Also checked
 confirmation and deferred flags are pending states, not confirmed model application.
 Web now parses these states and does not update recents before application. No upstream upgrade,
 patch, wire-version change or new Mac credential exposure is part of this work.
+
+## HG-240 · Optional instance model preferences
+
+`GET/POST /api/model/preferences` is an optional new upstream capability implemented in the companion Hermes source change, not an assumption about released Hermes. Its exact v1 tuple, string revision and field-CAS contract lives in `INSTANCE_MODEL_PREFERENCES.md`. GET 404/405 means explicit Legacy; other errors must not enable a false-success local writer. Never make this endpoint a required startup route for older supported Hermes. Clients do not issue model.set/config.set while synchronizing preferences.
