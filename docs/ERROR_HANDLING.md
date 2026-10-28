@@ -537,3 +537,14 @@ No error IDs, wire payloads or Android/Web/Cloud behavior change.
 | `HR-MODEL-003` | Only the device owner may mutate instance preferences | 共享访客不能修改设备主人的模型偏好。 | Shared guests can’t change the device owner’s model preferences. | No |
 
 001 covers transport/storage/protocol failures, 002 covers field CAS or instance identity conflicts, 003 is the Gateway-enforced owner-only mutation boundary. Diagnostics never include preference payloads or credentials. A 404/405 capability absence uses an explicit legacy-mode notice, not a sync-success claim.
+
+## HG-243 · Android 视频批注
+
+| Code | Meaning and recovery | 中文 | English | Retryable |
+|---|---|---|---|---|
+| `HR-ANNOT-001` | Local annotation read/write failed. Retry the failed operation; retain edits and never overwrite an unreadable document with an empty one. | 无法读取或保存视频批注，请重试；当前编辑仍保留。 | Couldn't read or save video notes. Retry; current edits are retained. | Yes |
+| `HR-ANNOT-002` | Markdown file export or staging failed. Retry Save/Attach; retain notes and existing composer content. | 无法导出批注文件，请重试；批注和会话草稿仍保留。 | Couldn't export video notes. Retry; notes and the conversation draft are retained. | Yes |
+| `HR-ANNOT-003` | Invalid time, interval, empty note or annotation limit. Correct the note before saving. | 请填写有效时间和批注；片段结束须晚于开始且不超过视频时长。 | Enter a valid time and note. The end must follow the start and stay within the video duration. | No |
+
+These are Android-local codes; no Gateway, Connector, Desktop or Web contract changes. Diagnostics
+contain only a fixed operation stage and exception class, never note text, paths or account identifiers.

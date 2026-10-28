@@ -163,6 +163,12 @@ fun AppError.localizedSummary(language: AppLanguage): String = when (code) {
             localized(language, "手机可用空间不足，已暂停新增视频缓存。清理空间后会自动恢复，仍可在线播放。", "Device storage is low. New video caching is paused and resumes when space is available. Online playback remains available.")
         AppErrorCode.VIDEO_PLAYBACK_FAILED ->
             localized(language, "视频播放中断，请重试或下载后观看。", "Video playback stopped. Retry, or download it to watch.")
+        AppErrorCode.VIDEO_NOTES_STORAGE ->
+            localized(language, "无法读取或保存视频批注，请重试；当前编辑仍保留。", "Couldn't read or save video notes. Retry; current edits are retained.")
+        AppErrorCode.VIDEO_NOTES_EXPORT ->
+            localized(language, "无法导出批注文件，请重试；批注和会话草稿仍保留。", "Couldn't export video notes. Retry; notes and the conversation draft are retained.")
+        AppErrorCode.VIDEO_NOTES_INVALID ->
+            localized(language, "请填写有效时间和批注；片段结束须晚于开始且不超过视频时长。", "Enter a valid time and note. The end must follow the start and stay within the video duration.")
         AppErrorCode.TRANSCRIPT_IMAGE_FAILED ->
             localized(language, "无法生成对话长图，请重试或改用 Markdown 文件。", "Couldn't render the transcript image. Retry, or share it as a Markdown file.")
         AppErrorCode.AVATAR_PHOTO_FAILED ->
