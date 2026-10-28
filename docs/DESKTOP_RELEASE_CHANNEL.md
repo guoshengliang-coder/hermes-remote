@@ -1,5 +1,24 @@
 # Desktop release channel
 
+## Internal test release: 0.2.49 / build 52
+
+The owner requested continuation through publication and M2 verification after the actual M2
+launchd plist reproduced the old-wrapper failure. This Desktop-only patch decodes the historical
+upstream AppleScript wrapper as well as JXA, preserving the existing installation and path checks.
+The M2 running 0.2.48/build 51 was inspected over SSH: the old parser fails on its actual plist,
+while the repaired parser succeeds. The complete repaired read-only detector ran on macOS 14.8.9
+and returned Hermes 0.21.4 usable with consistent dependencies. The launchd plist remained unchanged.
+
+Feature validation: 728 Swift tests, assets and local app build passed; the normalized M2 fixture
+also passes. Continue the established ad-hoc internal channel and public update/trust configuration.
+Package clean main, verify the exact DMG and mounted version/build/identity/arm64/signature, then
+publish through the unified publisher. Full public download size/hash and website/app-update index
+verification are required before updating M2. Keep signed component pointers unchanged.
+Exact source and publication receipts are generated after those gates. M2 app replacement and UI
+refresh are subsequent acceptance steps; they are not claimed by the detector probe. No upstream
+Hermes update, data migration or Gateway/Connector publication is included. This is temporary ad-hoc
+internal distribution, not Apple notarization or clean-machine verification.
+
 ## Internal test release: 0.2.48 / build 51
 
 The owner requested merge and publication after verification of the osascript detection fix (#688).

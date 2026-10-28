@@ -1,5 +1,13 @@
 # Hermes Go Desktop test plan
 
+## 2026-10-28：旧版 launchd AppleScript 回归
+
+测试影响仅为本机启动项静态解析。覆盖旧上游生成的 PM/Python、空格、Unicode、单引号、双引号和反斜杠路径；附加语句、非官方转义、额外参数、错误执行器、shell 展开、重定向改写和截断保持不支持。检测层应确认版本、保留原 plist 字节，并继续拒绝外部安装和自定义 HERMES_HOME。HR-MIGRATE-008 双语、恢复操作及脱敏契约保持不变。
+
+本轮本地结果：旧解析器在三组上游生成的合法命令样本上失败；修复后解析测试 6 项、全量 Swift 测试 728 项通过，assets 校验与本地 app 构建通过，`git diff --check` 通过。未发布、未安装到 M2，没有执行 Hermes 升级或改动用户启动项。
+
+M2 只读实机验收（2026-10-28）：macOS 14.8.9，Desktop 0.2.48/build 51，Hermes 0.21.4/source c0d7294769a38c17ceae51d8f7995e66e1dcae27。真实 plist 是旧版三参数 AppleScript；旧解析器返回 nil，新解析器正确还原 venv/bin/python。将生产 Core 编译为仅调用 detect() 的探针，在 M2 返回 usable、dependenciesConsistent=true、venv/bin/hermes。真实参数仅归一化用户名后加入固定回归样本；不读取凭据、不执行启动脚本、不重启或升级 Hermes。探针运行后删除临时程序，并核对 plist SHA-256 保持不变。剩余验收：发布并安装修复版 Desktop 后刷新界面，确认版本和升级入口；本轮未替换 M2 上的应用。
+
 ## 2026-10-27：osascript 安装识别回归
 
 测试影响：只改变本机安装检测和既有端口归属判断，不改变安装器、升级器或用户数据。旧检测器在标准安装包装和未知包装诊断两项回归中失败；修复后针对性测试 38 项、完整 Swift 测试 723 项通过，assets 校验与 app 构建通过；发布/更新工具测试 15 项通过。原有 HR-MIGRATE-008 双语、可重试性和脱敏契约不变。

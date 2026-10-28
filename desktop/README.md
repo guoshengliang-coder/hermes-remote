@@ -1,5 +1,9 @@
 # Hermes Go Desktop
 
+## 2026-10-28：旧版官方 AppleScript 启动识别（0.2.49 / build 52）
+
+补齐官方旧版 `/usr/bin/osascript -e 'do shell script …'` 启动项的静态识别，与新版 JXA 共用真实命令/目录检查。既有启动项无需转换；不执行脚本，不改动 Hermes、数据或 LaunchAgent。已读取 M2 的真实启动项并确认此根因：Desktop 0.2.48/build 51 无法识别，修复解析器能还原原安装路径；修复后的完整只读检测器在 M2/macOS 14.8.9 返回 Hermes 0.21.4 可用且依赖一致。尚未发布或替换机器上的 Desktop，更新后的界面验收仍待进行。
+
 ## 2026-10-27：官方 osascript 启动识别（0.2.48 / build 51）
 
 修复官方 launchd 包装导致本机 Hermes 安装路径误判、版本无法识别的问题。静态解析实际启动命令后复用安装检测；支持 PM/Python 启动器及带空格的路径，未知包装继续显示检测原因。识别过程不执行脚本，不修改现有 Hermes 安装、启动项或数据。
