@@ -65,7 +65,7 @@ class UnsentComposerDeviceTest {
         }
     }
 
-    @Test fun unknownOutcomeOffersOnlyStatusQueryAndCopyOnApi37() {
+    @Test fun unknownOutcomeOffersStatusAndConfirmedLocalRemovalOnApi37() {
         val actions = mutableListOf<String>()
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         automation.serviceInfo = automation.serviceInfo.apply {
@@ -79,6 +79,7 @@ class UnsentComposerDeviceTest {
                             UserBubble(ChatMessage("unknown", Role.USER, "等待核对的消息", delivery = DeliveryState.UNCONFIRMED),
                                 onEditResend = { actions += "edit" }, onDiscardSend = { actions += "withdraw" },
                                 onCheckDelivery = { actions += "check:$it" },
+                                onRemoveUnknownNotice = { actions += "remove:$it" },
                                 onOpenImage = { _, _ -> }, onFileOpen = {}, onFileShare = {})
                         } }
                     }
@@ -91,6 +92,14 @@ class UnsentComposerDeviceTest {
         org.junit.Assert.assertNull(findText(automation.rootInActiveWindow, "编辑并重新发送"))
         org.junit.Assert.assertNotNull(findText(automation.rootInActiveWindow, "复制"))
         activity.scenario.onActivity { assertEquals(listOf("check:unknown"), actions) }
+        automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        tapText("移除本机提示")
+        org.junit.Assert.assertNotNull(findText(automation.rootInActiveWindow, "移除本机提示？"))
+        tapText("取消")
+        activity.scenario.onActivity { assertEquals(listOf("check:unknown"), actions) }
+        tapText("移除本机提示")
+        tapText("移除本机提示")
+        activity.scenario.onActivity { assertEquals(listOf("check:unknown", "remove:unknown"), actions) }
         val bitmap = checkNotNull(automation.takeScreenshot())
         val values = android.content.ContentValues().apply {
             put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "hg237-unknown-menu.png")

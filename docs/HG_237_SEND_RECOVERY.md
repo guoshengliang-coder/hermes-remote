@@ -21,6 +21,12 @@ be treated as retryable failures. Pending local turns also block authoritative h
 
 ## Interaction contract
 
+HG-242 (owner decision 2026-10-28) extends this contract with bounded per-message check feedback and
+confirmed removal of the phone's local unknown notice. This cleanup does not withdraw from Hermes,
+delete server history or enable replay. The prohibition on actual withdraw/edit/retry below remains;
+local-notice cleanup is now an explicit exception to keeping every unknown bubble indefinitely.
+See `HG_242_DELIVERY_RECOVERY.md`.
+
 An acknowledgement timeout, disconnect or navigation after submission starts produces a distinct
 `UNCONFIRMED` bubble: neutral “投递结果未知 / Delivery unknown”, compact `SESS-022`, and
 “重新核对 / Check status”. This action only queries authoritative history/state; it never submits.

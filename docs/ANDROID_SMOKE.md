@@ -1,5 +1,18 @@
 # Android 待设备验证清单
 
+## HG-242 — 未知投递的核对与本机提示清理（待验）
+
+本机 L2 无已连接真机、L3 未安装模拟器。L1 覆盖状态机、持久化与界面，但不能证明 HONOR ROM、
+实际网络断线后的行为。须使用之后单独批准发布的 APK，在隔离测试会话操作，不中断用户真实任务：
+
+1. 只丢弃提交应答，观察未知提示；重新核对立即显示进度，重复点击不重复查询、更不重复发送。
+   网络恢复后同步历史并明确告知仍无法确认；断网/超时后显示核对失败及错误码，原提示保留。
+2. 点「移除本机提示」，核对说明明确提到不取消 Mac 任务、不删服务端历史、不自动重发。取消后
+   提示不变；确认后移除本地提示，服务端同文消息、其他未发送消息与输入框草稿保持原样。
+3. 核对中确认移除，随后恢复网络；离开重入并强制停止/重启 App，提示不恢复。Mac 若已开始运行
+   仍继续；在另一手机核对它的本机提示仍保留。
+4. 中英文、浅色、系统浅色/应用深色、窄屏及 1.3× 字体下确认所有动作、说明和错误码可读可达。
+
 ## HG-241 — 视频缓冲速度（2026-10-28）
 
 L1 覆盖并发累计回调转增量、重试、窗口归零、缓存排除、预缓存计数、后台重置与迟到回调；
@@ -42,7 +55,8 @@ behavior and the original 0.1.180 upgrade need a separately authorized device se
   or Mac selection, no legacy setup or outbound token fallback, and preservation of the valid account.
 - On an isolated binding, drop only the submit acknowledgement, then restore connectivity. Confirm
   unknown + SESS-022 survives restart, Check status never sends, history/answers update, and no
-  withdrawal/edit/retry is offered without authoritative non-delivery evidence.
+  withdrawal/edit/retry is offered without authoritative non-delivery evidence. HG-242 separately allows
+  confirmed local-notice removal; it does not claim withdrawal from Hermes.
 - Under the phone's ordinary network and screen/background transitions, capture causal IDs at all
   hops. Do not interrupt the user's live Hermes/Connector. Loopback fixtures and API 37 cannot
   establish the original stalled hop or HONOR's network/ROM behavior.

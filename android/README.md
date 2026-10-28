@@ -1,3 +1,8 @@
+HG-242 gives each unknown-delivery notice bounded Check status progress and an explicit unknown/error
+result. Remove local notice requires confirmation, durably clears only that phone's record, and never
+cancels Mac work, deletes server history or resends a prompt. Evidence and device limits:
+`../docs/HG_242_DELIVERY_RECOVERY.md`. No APK is allocated or published by this source change.
+
 HG-241 shows current-video network buffer speed below the central loading/buffering prompt and
 in the bottom preview-cache status. A bounded two-second wall-time window sums actual playback
 and precache HTTP body bytes, excludes cache/local reads and independent downloads, refreshes

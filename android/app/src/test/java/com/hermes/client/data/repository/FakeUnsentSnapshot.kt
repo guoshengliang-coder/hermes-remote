@@ -15,6 +15,9 @@ class FakeUnsentSnapshot(
     private val readGate: kotlinx.coroutines.Deferred<Unit>? = null,
 ) : UnsentSnapshot {
     private val records = MutableStateFlow(initial)
+    var readAfterSnapshotGate: kotlinx.coroutines.Deferred<Unit>? = null
+    var removeFailure: Exception? = null
+    var removeGate: kotlinx.coroutines.Deferred<Unit>? = null
     var saves = 0
         private set
 
@@ -28,7 +31,9 @@ class FakeUnsentSnapshot(
 
     override suspend fun readAll(token: String): List<UnsentRecord> {
         readGate?.await()
-        return records.value.filter { it.token == token }
+        val snapshot = records.value.filter { it.token == token }
+        readAfterSnapshotGate?.await()
+        return snapshot
     }
 
     override suspend fun save(record: UnsentRecord) {
@@ -42,6 +47,14 @@ class FakeUnsentSnapshot(
 
     override suspend fun clearMessage(token: String, messageId: String) {
         records.value = records.value.filterNot { it.token == token && it.messageId == messageId }
+    }
+
+    override suspend fun removeUnknownNotice(token: String, messageId: String) {
+        removeGate?.await()
+        removeFailure?.let { throw it }
+        records.value = records.value.filterNot {
+            it.token == token && it.messageId == messageId && it.deliveryUnconfirmed
+        }
     }
 
     fun peek(token: String): UnsentRecord? = records.value.filter { it.token == token }.maxByOrNull { it.updatedAt }

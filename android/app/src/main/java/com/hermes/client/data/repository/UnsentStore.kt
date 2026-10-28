@@ -146,6 +146,8 @@ interface UnsentSnapshot {
     suspend fun save(record: UnsentRecord)
     suspend fun clear(token: String)
     suspend fun clearMessage(token: String, messageId: String)
+    /** Explicit user removal: return only after durable commit; propagate storage failure. */
+    suspend fun removeUnknownNotice(token: String, messageId: String)
 }
 
 private val Context.unsentDataStore by preferencesDataStore(name = "session_unsent")
@@ -174,15 +176,18 @@ private val Context.unsentDataStore by preferencesDataStore(name = "session_unse
  * degradation for v1 records and for any disk copy the cache has since evicted. Sending the text
  * alone without the attachments is still never an outcome.
  *
- * Every operation degrades to "nothing unsent" on failure. A cache that cannot be read or written
- * is never an error the user should see, so nothing here throws and nothing here carries an `HR-`
- * code — same ruling as [DraftStore] and [SessionPhaseStore]. The code in [UnsentRecord.code]
- * describes the SEND that failed, not this file.
+ * Cache operations degrade to "nothing unsent" on failure. Explicit [removeUnknownNotice]
+ * propagates failure so the UI retains its notice and reports HR-STORE-003. Other cache operations
+ * keep the same best-effort contract as [DraftStore] and [SessionPhaseStore]. The code in
+ * [UnsentRecord.code] describes the SEND that failed, not this file.
  */
-class UnsentStore(private val context: Context) : UnsentSnapshot {
+class UnsentStore internal constructor(
+    private val dataStore: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>,
+) : UnsentSnapshot {
+    constructor(context: Context) : this(context.unsentDataStore)
     private val key = stringPreferencesKey("unsent")
 
-    private val records: Flow<List<UnsentRecord>> = context.unsentDataStore.data
+    private val records: Flow<List<UnsentRecord>> = dataStore.data
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { decodeUnsent(it[key]) }
 
@@ -200,7 +205,7 @@ class UnsentStore(private val context: Context) : UnsentSnapshot {
 
     override suspend fun save(record: UnsentRecord) {
         runCatching {
-            context.unsentDataStore.edit { prefs ->
+            dataStore.edit { prefs ->
                 prefs[key] = encodeUnsent(putUnsent(decodeUnsent(prefs[key]), record))
             }
         }
@@ -208,7 +213,7 @@ class UnsentStore(private val context: Context) : UnsentSnapshot {
 
     override suspend fun clear(token: String) {
         runCatching {
-            context.unsentDataStore.edit { prefs ->
+            dataStore.edit { prefs ->
                 prefs[key] = encodeUnsent(removeUnsent(decodeUnsent(prefs[key]), token))
             }
         }
@@ -216,14 +221,23 @@ class UnsentStore(private val context: Context) : UnsentSnapshot {
 
     override suspend fun clearMessage(token: String, messageId: String) {
         runCatching {
-            context.unsentDataStore.edit { prefs ->
+            dataStore.edit { prefs ->
                 prefs[key] = encodeUnsent(decodeUnsent(prefs[key]).filterNot { it.token == token && it.messageId == messageId })
             }
         }
     }
 
+    override suspend fun removeUnknownNotice(token: String, messageId: String) {
+        // Unlike best-effort cache cleanup, a user-visible removal must not report false success.
+        dataStore.edit { prefs ->
+            prefs[key] = encodeUnsent(decodeUnsent(prefs[key]).filterNot {
+                it.token == token && it.messageId == messageId && it.deliveryUnconfirmed
+            })
+        }
+    }
+
     /** Drop everything. The Relay or identity changed — an unsent message is user content. */
     suspend fun clearAll() {
-        runCatching { context.unsentDataStore.edit { it.remove(key) } }
+        runCatching { dataStore.edit { it.remove(key) } }
     }
 }
