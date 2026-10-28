@@ -19,6 +19,8 @@ class VideoPlayback(
 ) {
     var positionMs: Long = initialPosition
         set(value) { field = value; rememberPosition(value) }
+    fun networkSpeed(): VideoNetworkSpeed? = source?.networkSpeed?.snapshot()
+    fun resetNetworkSpeed() { source?.networkSpeed?.reset() }
     fun lease(): AutoCloseable? = source?.let { repository!!.playbackLease(it) }
     suspend fun precache(session: VideoPrecacheSession, mayFill: () -> Boolean) {
         source?.let { repository!!.precache(it, session, mayFill) }

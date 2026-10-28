@@ -1,3 +1,10 @@
+HG-241 shows current-video network buffer speed below the central loading/buffering prompt and
+in the bottom preview-cache status. A bounded two-second wall-time window sums actual playback
+and precache HTTP body bytes, excludes cache/local reads and independent downloads, refreshes
+once per second, and expires to zero. Background/close resets the source meter; local files show
+no speed. KB/s and MB/s are decimal network units, distinct from cache MiB/GiB. Foreground-paused
+precaching remains observable. No APK version or publication is allocated by this source change.
+
 HG-239 keeps approval decisions in a fixed bottom action area while long commands, descriptions,
 grants and owner warnings scroll above it. Commands remain horizontally readable in full; scrolling
 cannot dismiss or approve a pending request. Standard scopes and elevated slide-to-confirm stay
