@@ -3091,3 +3091,36 @@ matching the direct loopback response. This smoke test never revokes a real inst
 Account-authenticated phone/Web session revocation remains covered by Gateway integration
 tests; interactive Desktop confirmation with a real account is a separate device check.
 No client package, account flag, database schema or minimum client version changes here.
+
+### Gateway 0.4.38 production receipt — 2026-10-28
+
+The owner-authorized Gateway-only publication is complete. Version PR #690 and edge-route
+PR #691 passed their PR and resulting main checks. The immutable release uses main commit
+`df14d103e37711f705d6db0f3e13bf4fb180f218` and GitHub Actions run `40632741472`.
+Both archives were verified locally and again on the production host:
+
+- Gateway archive SHA-256: `843680fa73cbdca0a3ef10b86a5a986381e485b98860165b12119d5a9a7b3230`.
+- Operator archive SHA-256: `9f9a10c011ab817a4dc1d6fc43eb53504992cb11c4b57f62652a0fdcb8794095`.
+- Containerd image identity: `sha256:693b288777100f91d3dc2227b02f1ce52cf26c072532a724600ea9621c93fcb9`.
+
+The existing identity-Web include received only the browser-installation UUID location under
+the deployment lock, with an exact prior-hash check and backup. Nginx validation/reload passed;
+the main site file remained byte-identical. Routine production release run
+`a278731f-fa8a-4dd6-aece-90830ba5c049` committed from blue to green, after candidate verification,
+public Connector/REST/WebSocket smoke and the observation window. `current` is
+`releases/0.4.38-df14d103e377`; `previous` retains `releases/0.4.37-ba096688b82a` for rollback.
+
+Post-publication checks confirmed exact clean source identity, readiness (config/database/
+migrations/PostgreSQL), public `server.version: 0.4.38` and
+`accountAuth.browserInstallationRevocation: true`. An unauthenticated DELETE to a synthetic
+browser UUID returned HTTP 401 / `HR-AUTH-003` through both public and loopback routes; error
+fields matched after excluding per-request correlation IDs. No real installation was revoked.
+Schema 20, protocol versions and minimum clients remained unchanged. No Desktop, Connector,
+Web or Android package, or upstream Hermes installation, was published or upgraded.
+
+Validation: build passed; 67 focused rollout/release tests passed, with the route regression
+failing before the fix. Local protocol, Connector, Gateway and release-server suites passed
+(with their usual skipped environment-dependent cases). Script baseline: 442 passed, one
+skipped, two previously reproduced macOS legacy-recovery decrypt failures; Linux PR/main CI
+and OCI image smoke passed. Interactive Desktop email confirmation and revocation with a real
+account remain device acceptance checks, not claimed by this production smoke.
