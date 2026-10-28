@@ -3124,3 +3124,25 @@ failing before the fix. Local protocol, Connector, Gateway and release-server su
 skipped, two previously reproduced macOS legacy-recovery decrypt failures; Linux PR/main CI
 and OCI image smoke passed. Interactive Desktop email confirmation and revocation with a real
 account remain device acceptance checks, not claimed by this production smoke.
+
+### HG-240 release preparation — 2026-10-28 (authorized)
+
+The owner requested merge and publication of HG-240. Go PR #694 passed its PR gates and
+merged as `4cd0ee05fe1a`; the complete main gate must pass before publication. Gateway
+0.4.39 adds the `instance-model-preferences` browser capability and exact preference
+forwarding with server-side owner enforcement. Schema 20, protocol versions, minimum clients
+and existing flags remain unchanged; use the routine production candidate/switch/smoke gate.
+Publish Gateway before the Web bundle and Android 0.1.185 through their existing gates.
+
+The companion Hermes PR, NousResearch/hermes-agent#145969, is open for review. The current
+account has READ permission on that repository, so its merge/release remains with upstream.
+Go publication alone does not activate instance sync on older Hermes; clients keep the
+explicit independent mode. Do not mark HG-240 development complete or verified on that basis.
+
+The pre-release monitor found stale off-host recovery evidence. With separate owner
+authorization, the existing Mac mini recovery command completed generation
+`20261027T192108272Z-3e00f7d07ee4` after starting its stopped Docker daemon. Production
+monitoring then passed host, disk and fresh encrypted off-host backup checks at
+`2026-10-28T09:45:41.211Z`; temporary recovery containers and runtime directories were absent.
+No production database or public service was changed by that recovery. This section records
+preparation and backup recovery, not publication success or installed-client acceptance.

@@ -423,6 +423,9 @@ remain in `docs/ANDROID_SMOKE.md`; Web scope is being clarified against the appr
   never invents an outcome; only thirty silent minutes plus two failed probes mark a run
   interrupted, so a row cannot spin forever after the Mac disappears. Manual refresh no longer
   queues behind a run: it asks first and reports「运行已结束」or「仍在运行 · 已运行 N 分钟」.
+- Version 0.1.185 adds model favorites/visibility sync for compatible Hermes instances, confirmed
+  legacy import and owner-only writes; upstream Hermes support is required and older runtimes retain
+  independent mode.
 - Version 0.1.184 fixes long approval content hiding decision buttons (HG-239). Actions stay fixed
   at the bottom while command, description and grants scroll independently; standard scopes and
   elevated slide confirmation remain unchanged.
@@ -1176,7 +1179,7 @@ Gradle keeps its canonical APK at `app/build/outputs/apk/debug/app-debug.apk`. A
 build, the tester-facing APK is staged automatically as:
 
 ```text
-app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.184-debug.apk
+app/build/outputs/apk/distribution/debug/Hermes-Remote-0.1.185-debug.apk
 ```
 
 For every APK distributed to testers, increment `appVersionName` by one patch version and
